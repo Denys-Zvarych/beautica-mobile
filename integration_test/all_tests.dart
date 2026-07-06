@@ -3,10 +3,11 @@
 // CI no longer runs this file directly (2026-07-01): at 19 flows, this single
 // long-lived `flutter test` process started crashing the emulator at final
 // teardown (see `all_tests_part1.dart` for the full incident). CI now runs
-// `all_tests_part1.dart` + `all_tests_part2.dart` instead — the same 19 flows,
-// split in two. This file is kept for local convenience (running the FULL
-// suite in one shot against a connected emulator); update all THREE files
-// together when adding/removing a flow.
+// `all_tests_part1.dart` + `all_tests_part2.dart` instead — the same flows
+// (19, then 21 after the Beautica OTP task Phase B6 additions), split in two.
+// This file is kept for local convenience (running the FULL suite in one shot
+// against a connected emulator); update all THREE files together when
+// adding/removing a flow.
 //
 // WHY THIS FILE EXISTS
 // --------------------
@@ -64,6 +65,7 @@ import 'client_search_flow_test.dart' as client_search;
 import 'client_shell_flow_test.dart' as client_shell;
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
+import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'logout_flow_test.dart' as logout;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
@@ -76,6 +78,7 @@ import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
+import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 
 void main() {
@@ -97,6 +100,8 @@ void main() {
   group('client_shell_flow', client_shell.main);
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
+  // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
+  group('forgot_password_otp_flow', forgot_password_otp.main);
   group('logout_flow', logout.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
@@ -111,5 +116,7 @@ void main() {
   group('schedule_first_create_flow', schedule_first_create.main);
   group('service_crud_flow', service_crud.main);
   group('service_edit_category_type', service_edit_category_type.main);
+  // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
+  group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);
 }

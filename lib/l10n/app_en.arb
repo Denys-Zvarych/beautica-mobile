@@ -1092,6 +1092,58 @@
   "@resetErrTokenInvalid": {
     "description": "userMessage for ResetTokenInvalidFailure (generic backend 400 for invalid/used/expired reset token)."
   },
+
+  "resetOtpHeadline": "Confirm the code",
+  "@resetOtpHeadline": {
+    "description": "Headline on the generalized password-reset OTP screen (ResetOtpVerificationScreen), reused verbatim by both the forgot-password flow and the settings change-password flow."
+  },
+  "resetOtpCardDesc": "We sent a 6-digit code to",
+  "@resetOtpCardDesc": {
+    "description": "Card description before the masked email address on the password-reset OTP screen."
+  },
+  "resetOtpConfirmBtn": "Confirm",
+  "@resetOtpConfirmBtn": {
+    "description": "CTA button label on the password-reset OTP screen."
+  },
+  "resetOtpResendPrompt": "Didn't get the code?",
+  "@resetOtpResendPrompt": {
+    "description": "Leading prompt in the resend row on the password-reset OTP screen."
+  },
+  "resetOtpResendTimer": "Resend ({time})",
+  "@resetOtpResendTimer": {
+    "description": "Countdown timer text shown while the resend cooldown is active on the password-reset OTP screen.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "30s"
+      }
+    }
+  },
+  "resetOtpResendBtn": "Resend code",
+  "@resetOtpResendBtn": {
+    "description": "Resend code link shown when the countdown reaches zero on the password-reset OTP screen."
+  },
+  "resetOtpSemantics": "Confirmation code, 6 digits",
+  "@resetOtpSemantics": {
+    "description": "Accessibility label for the OTP entry as a whole on the password-reset OTP screen."
+  },
+  "resetOtpErrInvalidCode": "Invalid code. Check it and try again.",
+  "@resetOtpErrInvalidCode": {
+    "description": "userMessage for PasswordResetOtpFailure.invalidCode (POST /auth/verify-password-reset-otp returns INVALID_CODE)."
+  },
+  "resetOtpErrCodeExpired": "The code has expired. Send a new one.",
+  "@resetOtpErrCodeExpired": {
+    "description": "userMessage for PasswordResetOtpFailure.codeExpired (POST /auth/verify-password-reset-otp returns CODE_EXPIRED)."
+  },
+  "changePasswordRowLabel": "Change password",
+  "@changePasswordRowLabel": {
+    "description": "Settings row label that opens the authenticated change-password OTP flow (account settings screen)."
+  },
+  "changePasswordForcedLogoutMessage": "Password changed. Please sign in again.",
+  "@changePasswordForcedLogoutMessage": {
+    "description": "Snackbar shown after a successful password change FROM THE SETTINGS FLOW, right before the proactive logout + redirect to /login (the backend revokes the caller's own refresh token on any password reset)."
+  },
+
   "inviteHeading": "You're invited",
   "@inviteHeading": {
     "description": "Main heading on the accept-invite screen."

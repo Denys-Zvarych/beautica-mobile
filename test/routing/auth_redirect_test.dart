@@ -240,6 +240,33 @@ void main() {
       );
     });
 
+    // Beautica OTP task Phase B5 — RouteNames.changePassword is a protected
+    // route like /settings (default behaviour: no allow-list entry needed).
+    // Unlike /reset-password, it is NEVER reachable unauthenticated — the
+    // authenticated settings change-password flow is its only entry point.
+    test('authenticated user at /settings/change-password stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.changePassword,
+        ),
+        isNull,
+      );
+    });
+
+    test(
+      'anonymous user at /settings/change-password is redirected to /login',
+      () {
+        expect(
+          authRedirectForLocation(
+            _unauthenticatedSession,
+            RouteNames.changePassword,
+          ),
+          equals(RouteNames.login),
+        );
+      },
+    );
+
     test('AsyncError<AuthSession> at / is redirected to /login', () {
       // An AsyncError has no value (value is null) → treated as unauthenticated.
       // The guard falls through session.value == null → !isAuthenticated → /login.
@@ -292,11 +319,12 @@ void main() {
       );
     });
 
-    // Phase 2.13 — the forgot-password flow (/forgot-password +
-    // /reset-password) is unauthenticated-only (auth_redirect.dart:78-89).
-    // /reset-password is reached via the emailed deep link with a `?token=`
-    // query param; matchedLocation strips the query string, so the guard sees
-    // the bare RouteNames.resetPassword path here.
+    // Phase 2.13 / Beautica OTP task Phase B — the forgot-password flow
+    // (/forgot-password + /reset-password/otp) is unauthenticated-only
+    // (auth_redirect.dart). /reset-password (the final "set new password"
+    // step) is DUAL-ACCESS — see the next test — because Phase B5 reuses the
+    // SAME ResetPasswordScreen for the authenticated settings
+    // change-password flow.
 
     test(
       'INDEPENDENT_MASTER at /forgot-password is redirected to /master/profile',
@@ -311,18 +339,49 @@ void main() {
       },
     );
 
-    test(
-      'INDEPENDENT_MASTER at /reset-password is redirected to /master/profile',
-      () {
-        expect(
-          authRedirectForLocation(
-            _authenticatedSession,
-            RouteNames.resetPassword,
-          ),
-          equals(RouteNames.masterProfile),
-        );
-      },
-    );
+    // mobile-qa gap fix — Beautica OTP task Phase B post-audit addition.
+    // RouteNames.resetOtpVerification sits in the SAME `isAtUnauthOnlyRoute`
+    // OR-clause as RouteNames.forgotPassword (auth_redirect.dart), but unlike
+    // its sibling it had no dedicated test — a typo dropping it from that
+    // clause (or referencing the wrong RouteNames constant) would silently
+    // let an authenticated user reach the OTP-entry screen and would only be
+    // caught if a future test happened to exercise it incidentally.
+    test('INDEPENDENT_MASTER at /reset-password/otp is redirected to '
+        '/master/profile', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.resetOtpVerification,
+        ),
+        equals(RouteNames.masterProfile),
+      );
+    });
+
+    test('anonymous user at /reset-password/otp stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.resetOtpVerification,
+        ),
+        isNull,
+      );
+    });
+
+    // Beautica OTP task Phase B5 — /reset-password is now DUAL-ACCESS: an
+    // authenticated user reaching it (the settings change-password flow) must
+    // NOT be bounced to /master/profile — mirrors /verification + /done's
+    // isAtPostRegisterRoute treatment. This intentionally REVERSES the old
+    // Phase 2.13 pin (an authenticated user used to always be bounced here,
+    // back when /reset-password was reachable ONLY via an emailed deep link).
+    test('authenticated user at /reset-password stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.resetPassword,
+        ),
+        isNull,
+      );
+    });
 
     test('anonymous user at /forgot-password stays (null)', () {
       expect(
@@ -848,21 +907,24 @@ void main() {
       },
     );
 
-    testWidgets(
-      'INDEPENDENT_MASTER @ /reset-password → redirected to /master/profile',
-      (tester) async {
-        // The router strips the `?token=...` query string before matchedLocation,
-        // so navigating with a token still resolves to RouteNames.resetPassword.
-        await pumpRouterWith(
-          tester,
-          _authenticatedSession,
-          '${RouteNames.resetPassword}?token=x',
-        );
-        expect(find.text('master-profile'), findsOneWidget);
-        expect(find.text('reset-password'), findsNothing);
-        expect(find.text('home'), findsNothing);
-      },
-    );
+    // Beautica OTP task Phase B5 — /reset-password is DUAL-ACCESS: an
+    // authenticated user (the settings change-password flow) stays on the
+    // route rather than being bounced, reversing the old Phase 2.13 pin (see
+    // the plain-function test above for the full rationale). The old
+    // `?token=...` deep-link query param is retired — Phase B4 carries the
+    // reset ticket via in-app `extra` instead.
+    testWidgets('INDEPENDENT_MASTER @ /reset-password stays on the route', (
+      tester,
+    ) async {
+      await pumpRouterWith(
+        tester,
+        _authenticatedSession,
+        RouteNames.resetPassword,
+      );
+      expect(find.text('reset-password'), findsOneWidget);
+      expect(find.text('master-profile'), findsNothing);
+      expect(find.text('home'), findsNothing);
+    });
 
     testWidgets('anonymous @ /forgot-password stays on the route', (
       tester,
@@ -882,7 +944,7 @@ void main() {
       await pumpRouterWith(
         tester,
         _unauthenticatedSession,
-        '${RouteNames.resetPassword}?token=x',
+        RouteNames.resetPassword,
       );
       expect(find.text('reset-password'), findsOneWidget);
       expect(find.text('login'), findsNothing);

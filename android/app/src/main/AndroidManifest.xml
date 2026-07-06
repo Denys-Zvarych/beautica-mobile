@@ -41,10 +41,10 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
             <!--
-                Android App Links for security-token deep-links (MS-MEDIUM-1, Phase 2.20 audit).
-                Scoped to /invite/accept and /reset-password on the production Railway domain.
+                Android App Links for the security-token deep-link (MS-MEDIUM-1, Phase 2.20
+                audit). Scoped to /invite/accept only on the production Railway domain.
                 android:autoVerify="true" prevents a competing app from registering the same
-                URL scheme and intercepting the single-use token from an emailed link.
+                URL scheme and intercepting the single-use invite token from an emailed link.
 
                 IMPORTANT — the autoVerify handshake REQUIRES a
                 /.well-known/assetlinks.json file to be published on the production domain
@@ -53,6 +53,15 @@
                 browser links rather than directly in the app; this intent-filter is safe to
                 ship now and causes no regression for users.
                 Action item for backend-dev: publish assetlinks.json (Phase 2.20 backlog).
+
+                mobile-security MEDIUM (OTP task): the /reset-password autoVerify intent-filter
+                that used to sit here was a holdover from the retired emailed-link `?token=`
+                flow. It was REMOVED because android:pathPrefix matches by prefix, so it also
+                claimed /reset-password/otp (the unauthenticated OTP-entry screen) as a live
+                exported deep-link surface — even though the OTP flow (Beautica OTP task Phase
+                B3/B4) only ever reads `GoRouterState.extra` from in-app navigation and never a
+                URL. There is no more emailed link to deep-link from, so this route needs no
+                external linkability at all.
             -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -62,15 +71,6 @@
                     android:scheme="https"
                     android:host="beautica-backend-production.up.railway.app"
                     android:pathPrefix="/invite/accept" />
-            </intent-filter>
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="https"
-                    android:host="beautica-backend-production.up.railway.app"
-                    android:pathPrefix="/reset-password" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

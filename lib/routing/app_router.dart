@@ -29,6 +29,7 @@ import '../features/auth/presentation/auth_notifier.dart';
 import '../features/auth/presentation/done_screen.dart';
 import '../features/auth/presentation/forgot_password_request_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
+import '../features/auth/presentation/reset_otp_verification_screen.dart';
 import '../features/auth/presentation/reset_password_screen.dart';
 import '../features/auth/presentation/register_flow_shell.dart';
 import '../features/auth/presentation/register_step_1_screen.dart';
@@ -38,6 +39,7 @@ import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
 import '../features/auth/domain/auth_session.dart';
+import '../features/auth/domain/reset_password_args.dart';
 import '../features/auth/domain/user_role.dart';
 import '../features/booking/domain/booking_confirm_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
@@ -219,16 +221,70 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.forgotPassword,
         builder: (context, state) => const ForgotPasswordRequestScreen(),
       ),
+      // Beautica OTP task Phase B3 — generalized password-reset OTP screen,
+      // unauthenticated (forgot-password) entry point. Pushed from
+      // [ForgotPasswordRequestScreen] with the submitted email (a bare
+      // `String`) in `extra`. A missing/empty extra still loads the screen
+      // with an empty display email (masking degrades gracefully) rather
+      // than crashing on a bad cast — mirrors the `/verification` route's
+      // own missing-extra tolerance.
       GoRoute(
-        // The single-use reset token arrives as the `token` query parameter
-        // from the emailed deep link (`/reset-password?token=...`). It is
-        // never typed by the user. A missing/empty token still loads the
-        // screen — the first reset attempt then surfaces the invalid-link
-        // state via the backend's generic 400.
+        path: RouteNames.resetOtpVerification,
+        builder: (context, state) {
+          final email = (state.extra as String?) ?? '';
+          return ResetOtpVerificationScreen(
+            displayEmail: email,
+            fromChangePassword: false,
+            onRequestOtp: () =>
+                ref.read(authProvider.notifier).requestPasswordReset(email),
+            onVerify: (code) => ref
+                .read(authProvider.notifier)
+                .verifyPasswordResetOtp(email: email, code: code),
+          );
+        },
+      ),
+      // Beautica OTP task Phase B5 — the SAME generalized OTP screen,
+      // authenticated (settings "change password") entry point. Pushed from
+      // the account settings screen's "Змінити пароль" row — no extra needed,
+      // the caller's identity comes from the authenticated session.
+      // [displayEmail] is sourced from the already-loaded session user purely
+      // for display; the backend resolves the authoritative identity from the
+      // JWT for the request-otp call itself.
+      GoRoute(
+        path: RouteNames.changePassword,
+        builder: (context, state) {
+          final session = ref.read(authProvider).value;
+          final email = session is Authenticated ? session.user.email : '';
+          return ResetOtpVerificationScreen(
+            displayEmail: email,
+            fromChangePassword: true,
+            onRequestOtp: () =>
+                ref.read(authProvider.notifier).requestChangePasswordOtp(),
+            onVerify: (code) => ref
+                .read(authProvider.notifier)
+                .verifyPasswordResetOtp(email: email, code: code),
+          );
+        },
+      ),
+      // Beautica OTP task Phase B4 — the single-use reset ticket (minted by
+      // `POST /auth/verify-password-reset-otp`) now arrives via in-app
+      // navigation as a [ResetPasswordArgs] in `GoRouterState.extra`, NOT the
+      // old `?token=` deep-link query parameter (there is no more emailed
+      // link to deep-link from). A missing/invalid extra still loads the
+      // screen with an empty ticket — the first submit then surfaces the
+      // invalid-link state via the backend's generic 400, mirroring the old
+      // missing-token tolerance.
+      GoRoute(
         path: RouteNames.resetPassword,
         pageBuilder: (context, state) {
-          final token = state.uri.queryParameters['token'] ?? '';
-          return _instantPage(state, ResetPasswordScreen(token: token));
+          final args = state.extra as ResetPasswordArgs?;
+          return _instantPage(
+            state,
+            ResetPasswordScreen(
+              resetTicket: args?.resetTicket ?? '',
+              fromChangePassword: args?.fromChangePassword ?? false,
+            ),
+          );
         },
       ),
       // Phase 2.16 — Wizard ShellRoute. The three /register* paths share

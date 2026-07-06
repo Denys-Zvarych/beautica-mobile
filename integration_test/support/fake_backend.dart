@@ -27,6 +27,10 @@
 //  POST /api/v1/auth/verify-email        — returns auth tokens
 //  GET  /api/v1/users/me                 — returns user from current session
 //  POST /api/v1/auth/logout              — no-op 200
+//  POST /api/v1/auth/forgot-password     — Beautica OTP task Phase B, generic 200
+//  POST /api/v1/auth/verify-password-reset-otp — Beautica OTP task Phase B, returns {resetTicket}
+//  POST /api/v1/users/me/change-password/request-otp — Beautica OTP task Phase B, authenticated, no-op 200
+//  POST /api/v1/auth/reset-password      — Beautica OTP task Phase B, void on success
 //  GET  /api/v1/masters/me               — master profile
 //  PATCH /api/v1/independent-masters/me/profile  — mutates master profile
 //  GET  /api/v1/independent-masters/me/services  — service list
@@ -496,6 +500,34 @@ final class FakeBackend {
   int logoutCalls = 0; // POST /api/v1/auth/logout counter
   int registerCalls = 0;
   int verifyEmailCalls = 0;
+
+  // ── Beautica OTP task (Phase B) — password-reset OTP flow counters ────────
+
+  /// `POST /api/v1/auth/forgot-password` call count + the last requested email.
+  int forgotPasswordCalls = 0;
+  String? lastForgotPasswordEmail;
+
+  /// `POST /api/v1/auth/verify-password-reset-otp` call count + the last
+  /// email/code submitted. Always succeeds with [resetTicketToIssue] unless
+  /// [passwordResetOtpResult] is overridden.
+  int verifyPasswordResetOtpCalls = 0;
+  String? lastVerifyPasswordResetOtpEmail;
+  String? lastVerifyPasswordResetOtpCode;
+
+  /// The `resetTicket` value the fake `verify-password-reset-otp` endpoint
+  /// returns on success.
+  String resetTicketToIssue = 'fake-reset-ticket';
+
+  /// `POST /api/v1/users/me/change-password/request-otp` call count
+  /// (authenticated entry point).
+  int requestChangePasswordOtpCalls = 0;
+
+  /// `POST /api/v1/auth/reset-password` call count + the last resetTicket /
+  /// newPassword submitted.
+  int resetPasswordCalls = 0;
+  String? lastResetPasswordTicket;
+  String? lastResetPasswordNewPassword;
+
   int getMeCalls = 0; // GET /api/v1/users/me counter
   int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
   Map<String, dynamic>?
@@ -1405,6 +1437,59 @@ final class FakeBackend {
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post),
+    );
+
+    // ── Beautica OTP task (Phase B) — password-reset OTP flow ────────────────
+
+    // POST /api/v1/auth/forgot-password — unauthenticated OTP request.
+    // Always returns a generic 200 (anti-enumeration) regardless of email.
+    _adapter.onRoute(
+      '/api/v1/auth/forgot-password',
+      (server) => server.replyCallback(200, (req) {
+        forgotPasswordCalls++;
+        lastForgotPasswordEmail = _decodeBody(req.data)['email'] as String?;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // POST /api/v1/auth/verify-password-reset-otp — unauthenticated OTP verify.
+    // Returns {resetTicket} on success.
+    _adapter.onRoute(
+      '/api/v1/auth/verify-password-reset-otp',
+      (server) => server.replyCallback(200, (req) {
+        verifyPasswordResetOtpCalls++;
+        final body = _decodeBody(req.data);
+        lastVerifyPasswordResetOtpEmail = body['email'] as String?;
+        lastVerifyPasswordResetOtpCode = body['code'] as String?;
+        return _ok(<String, dynamic>{'resetTicket': resetTicketToIssue});
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // POST /api/v1/users/me/change-password/request-otp — authenticated OTP
+    // request (settings "change password" entry point). No request body.
+    _adapter.onRoute(
+      '/api/v1/users/me/change-password/request-otp',
+      (server) => server.replyCallback(200, (_) {
+        requestChangePasswordOtpCalls++;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post),
+    );
+
+    // POST /api/v1/auth/reset-password — completes the reset with the
+    // resetTicket minted by verify-password-reset-otp. Void on success.
+    _adapter.onRoute(
+      '/api/v1/auth/reset-password',
+      (server) => server.replyCallback(200, (req) {
+        resetPasswordCalls++;
+        final body = _decodeBody(req.data);
+        lastResetPasswordTicket = body['resetTicket'] as String?;
+        lastResetPasswordNewPassword = body['newPassword'] as String?;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
     // POST /api/v1/support/contact — multipart contact submission. The body is

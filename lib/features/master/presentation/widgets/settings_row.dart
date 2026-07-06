@@ -32,6 +32,7 @@ class SettingsRow extends StatefulWidget {
     this.value,
     this.showChevron = true,
     this.destructive = false,
+    this.loading = false,
   });
 
   final IconData icon;
@@ -54,6 +55,14 @@ class SettingsRow extends StatefulWidget {
   /// Renders the terminal/destructive treatment (logout).
   final bool destructive;
 
+  /// mobile-perf MEDIUM: true while an async action triggered by this row
+  /// (e.g. the change-password row's OTP request) is in flight. Dims the row,
+  /// swaps the trailing chevron for a small spinner (mirrors
+  /// `NeumorphicButton(loading: ...)`), and absorbs taps so a slow-network
+  /// double-tap is visibly — not silently — ignored. Defaults to `false` so
+  /// every other [SettingsRow] usage is unaffected.
+  final bool loading;
+
   @override
   State<SettingsRow> createState() => _SettingsRowState();
 }
@@ -70,6 +79,7 @@ class _SettingsRowState extends State<SettingsRow> {
 
   @override
   Widget build(BuildContext context) {
+    final bool loading = widget.loading;
     final Color glyph = widget.destructive
         ? BrandColors.error
         : BrandColors.accentDeep;
@@ -80,56 +90,80 @@ class _SettingsRowState extends State<SettingsRow> {
 
     return Semantics(
       button: true,
+      enabled: !loading,
       label: widget.label,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onTap();
-        },
-        child: AnimatedScale(
-          scale: _pressed ? 0.985 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              color: BrandColors.base,
-              borderRadius: _radius,
-              boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
-            ),
-            padding: _padding,
-            child: Row(
-              children: <Widget>[
-                SizedBox(
-                  height: 42,
-                  width: 42,
-                  child: NeumorphicInset(
-                    radius: VelvetRadii.field - 4,
-                    child: Center(
-                      child:
-                          widget.iconWidget ??
-                          Icon(widget.icon, size: 19, color: glyph),
+      child: AbsorbPointer(
+        // mobile-perf MEDIUM: while loading, absorb taps so a second tap on a
+        // slow network is visibly ignored (spinner keeps spinning) rather than
+        // silently swallowed by the `_requestingChangePasswordOtp` guard with
+        // zero on-screen feedback.
+        absorbing: loading,
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTapUp: (_) {
+            setState(() => _pressed = false);
+            widget.onTap();
+          },
+          child: AnimatedScale(
+            scale: _pressed ? 0.985 : 1,
+            duration: const Duration(milliseconds: 110),
+            child: AnimatedOpacity(
+              opacity: loading ? 0.6 : 1,
+              duration: const Duration(milliseconds: 150),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                decoration: BoxDecoration(
+                  color: BrandColors.base,
+                  borderRadius: _radius,
+                  boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
+                ),
+                padding: _padding,
+                child: Row(
+                  children: <Widget>[
+                    SizedBox(
+                      height: 42,
+                      width: 42,
+                      child: NeumorphicInset(
+                        radius: VelvetRadii.field - 4,
+                        child: Center(
+                          child:
+                              widget.iconWidget ??
+                              Icon(widget.icon, size: 19, color: glyph),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: VelvetSpacing.md),
+                    Expanded(
+                      child: Text(
+                        widget.label,
+                        style: VelvetText.bodyStrong().copyWith(
+                          color: labelColor,
+                        ),
+                      ),
+                    ),
+                    if (value != null) ...<Widget>[
+                      Text(value, style: _valueStyle),
+                      const SizedBox(width: VelvetSpacing.sm),
+                    ],
+                    if (loading)
+                      const SizedBox(
+                        key: ValueKey<String>('settings_row_loading'),
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: BrandColors.accentDeep,
+                        ),
+                      )
+                    else if (widget.showChevron)
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: BrandColors.faint,
+                      ),
+                  ],
                 ),
-                const SizedBox(width: VelvetSpacing.md),
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    style: VelvetText.bodyStrong().copyWith(color: labelColor),
-                  ),
-                ),
-                if (value != null) ...<Widget>[
-                  Text(value, style: _valueStyle),
-                  const SizedBox(width: VelvetSpacing.sm),
-                ],
-                if (widget.showChevron)
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    color: BrandColors.faint,
-                  ),
-              ],
+              ),
             ),
           ),
         ),

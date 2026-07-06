@@ -1595,7 +1595,7 @@ void main() {
 
         when(
           () => repo.confirmPasswordReset(
-            token: any(named: 'token'),
+            resetTicket: any(named: 'resetTicket'),
             newPassword: any(named: 'newPassword'),
           ),
         ).thenAnswer((_) async {});
@@ -1608,7 +1608,7 @@ void main() {
           () => container
               .read(authProvider.notifier)
               .confirmPasswordReset(
-                token: 'raw-token',
+                resetTicket: 'raw-ticket',
                 newPassword: 'NewSecret123',
               ),
           returnsNormally,
@@ -1627,7 +1627,7 @@ void main() {
 
       when(
         () => repo.confirmPasswordReset(
-          token: any(named: 'token'),
+          resetTicket: any(named: 'resetTicket'),
           newPassword: any(named: 'newPassword'),
         ),
       ).thenThrow(const ResetTokenInvalidFailure());
@@ -1639,7 +1639,7 @@ void main() {
         () => container
             .read(authProvider.notifier)
             .confirmPasswordReset(
-              token: 'expired',
+              resetTicket: 'expired',
               newPassword: 'NewSecret123',
             ),
         throwsA(isA<ResetTokenInvalidFailure>()),
@@ -1652,7 +1652,7 @@ void main() {
 
       when(
         () => repo.confirmPasswordReset(
-          token: any(named: 'token'),
+          resetTicket: any(named: 'resetTicket'),
           newPassword: any(named: 'newPassword'),
         ),
       ).thenThrow(const NetworkFailure());
@@ -1663,8 +1663,122 @@ void main() {
       await expectLater(
         () => container
             .read(authProvider.notifier)
-            .confirmPasswordReset(token: 't', newPassword: 'NewSecret123'),
+            .confirmPasswordReset(
+              resetTicket: 't',
+              newPassword: 'NewSecret123',
+            ),
         throwsA(isA<NetworkFailure>()),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Beautica OTP task Phase B2 — requestChangePasswordOtp
+  // -------------------------------------------------------------------------
+
+  group('requestChangePasswordOtp', () {
+    test(
+      'success: resolves without throwing or mutating session state',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(() => repo.requestChangePasswordOtp()).thenAnswer((_) async {});
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        final stateBefore = container.read(authProvider).value;
+
+        await expectLater(
+          () =>
+              container.read(authProvider.notifier).requestChangePasswordOtp(),
+          returnsNormally,
+        );
+
+        expect(container.read(authProvider).value, equals(stateBefore));
+        verify(() => repo.requestChangePasswordOtp()).called(1);
+      },
+    );
+
+    test('rethrows ResendThrottledFailure from the repository', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.requestChangePasswordOtp(),
+      ).thenThrow(const ResendThrottledFailure(retryAfterSeconds: 42));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container.read(authProvider.notifier).requestChangePasswordOtp(),
+        throwsA(isA<ResendThrottledFailure>()),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Beautica OTP task Phase B2 — verifyPasswordResetOtp
+  // -------------------------------------------------------------------------
+
+  group('verifyPasswordResetOtp', () {
+    test(
+      'success: returns the reset ticket without mutating session state',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.verifyPasswordResetOtp(
+            email: any(named: 'email'),
+            code: any(named: 'code'),
+          ),
+        ).thenAnswer((_) async => 'ticket-xyz');
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        final stateBefore = container.read(authProvider).value;
+
+        final ticket = await container
+            .read(authProvider.notifier)
+            .verifyPasswordResetOtp(email: 'anya@example.com', code: '123456');
+
+        expect(ticket, 'ticket-xyz');
+        // Pure request/response — no session side-effect (unlike verifyEmail).
+        expect(container.read(authProvider).value, equals(stateBefore));
+        verify(
+          () => repo.verifyPasswordResetOtp(
+            email: 'anya@example.com',
+            code: '123456',
+          ),
+        ).called(1);
+      },
+    );
+
+    test('rethrows PasswordResetOtpFailure from the repository', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.verifyPasswordResetOtp(
+          email: any(named: 'email'),
+          code: any(named: 'code'),
+        ),
+      ).thenThrow(
+        const PasswordResetOtpFailure(
+          code: PasswordResetOtpErrorCode.invalidCode,
+        ),
+      );
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .verifyPasswordResetOtp(email: 'anya@example.com', code: '000000'),
+        throwsA(isA<PasswordResetOtpFailure>()),
       );
     });
   });

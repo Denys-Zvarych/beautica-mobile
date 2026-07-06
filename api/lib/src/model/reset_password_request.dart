@@ -11,13 +11,13 @@ part 'reset_password_request.g.dart';
 /// ResetPasswordRequest
 ///
 /// Properties:
-/// * [token]
+/// * [resetTicket]
 /// * [newPassword]
 @BuiltValue()
 abstract class ResetPasswordRequest
     implements Built<ResetPasswordRequest, ResetPasswordRequestBuilder> {
-  @BuiltValueField(wireName: r'token')
-  String get token;
+  @BuiltValueField(wireName: r'resetTicket')
+  String get resetTicket;
 
   @BuiltValueField(wireName: r'newPassword')
   String get newPassword;
@@ -51,9 +51,9 @@ class _$ResetPasswordRequestSerializer
     ResetPasswordRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'token';
+    yield r'resetTicket';
     yield serializers.serialize(
-      object.token,
+      object.resetTicket,
       specifiedType: const FullType(String),
     );
     yield r'newPassword';
@@ -86,12 +86,12 @@ class _$ResetPasswordRequestSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'token':
+        case r'resetTicket':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.token = valueDes;
+          result.resetTicket = valueDes;
           break;
         case r'newPassword':
           final valueDes = serializers.deserialize(

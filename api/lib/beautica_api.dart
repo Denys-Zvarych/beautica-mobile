@@ -87,6 +87,7 @@ export 'package:beautica_api/src/model/api_response_salon_service_catalog_respon
 export 'package:beautica_api/src/model/api_response_schedule_override_response.dart';
 export 'package:beautica_api/src/model/api_response_service_definition_response.dart';
 export 'package:beautica_api/src/model/api_response_user_profile_response.dart';
+export 'package:beautica_api/src/model/api_response_verify_password_reset_otp_response.dart';
 export 'package:beautica_api/src/model/api_response_void.dart';
 export 'package:beautica_api/src/model/api_response_weekly_schedule_response.dart';
 export 'package:beautica_api/src/model/approved_category_response.dart';
@@ -199,6 +200,8 @@ export 'package:beautica_api/src/model/update_service_photo_request.dart';
 export 'package:beautica_api/src/model/upload_portfolio_photo_request.dart';
 export 'package:beautica_api/src/model/user_profile_response.dart';
 export 'package:beautica_api/src/model/verify_email_request.dart';
+export 'package:beautica_api/src/model/verify_password_reset_otp_request.dart';
+export 'package:beautica_api/src/model/verify_password_reset_otp_response.dart';
 export 'package:beautica_api/src/model/weekly_schedule_day_request.dart';
 export 'package:beautica_api/src/model/weekly_schedule_day_response.dart';
 export 'package:beautica_api/src/model/weekly_schedule_request.dart';

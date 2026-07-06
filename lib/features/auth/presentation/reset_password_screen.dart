@@ -58,17 +58,38 @@ enum _ResetState { form, success, invalid }
 // Screen
 // ---------------------------------------------------------------------------
 
-/// Reset-password screen — Phase 2.13 VelvetTouch.
+/// Reset-password screen — Phase 2.13 VelvetTouch; Beautica OTP task Phase B4
+/// (email-link → OTP flow).
 ///
-/// [token] is the single-use reset token from the emailed deep link, parsed
-/// from the `?token=` query parameter by the router. It is never displayed or
-/// editable. A missing/empty token still renders the form; the first submit
-/// then surfaces the backend's generic 400 as the invalid-link state.
+/// [resetTicket] is the single-use reset ticket minted by
+/// `POST /auth/verify-password-reset-otp` and handed off via in-app
+/// navigation (`GoRouterState.extra`) from `ResetOtpVerificationScreen` — NOT
+/// a deep-link query parameter anymore (there is no more emailed link). It is
+/// never displayed or editable. A missing/empty ticket still renders the
+/// form; the first submit then surfaces the backend's generic 400 as the
+/// invalid-link state.
+///
+/// [fromChangePassword] distinguishes the two flows that land here:
+///   - `false` (forgot-password, unauthenticated) — success shows this
+///     screen's own in-screen success state + "Увійти" CTA.
+///   - `true` (settings change-password, authenticated) — success instead
+///     proactively logs the user out (the backend revokes the caller's own
+///     refresh token on any password reset) and routes straight to /login
+///     with a "please sign in again" message, skipping the normal success
+///     state entirely.
 class ResetPasswordScreen extends ConsumerStatefulWidget {
-  const ResetPasswordScreen({super.key, required this.token});
+  const ResetPasswordScreen({
+    super.key,
+    required this.resetTicket,
+    this.fromChangePassword = false,
+  });
 
-  /// Single-use reset token from the emailed deep link.
-  final String token;
+  /// Single-use reset ticket minted by `POST /auth/verify-password-reset-otp`.
+  final String resetTicket;
+
+  /// `true` when this screen was reached from the settings change-password
+  /// flow rather than the forgot-password flow.
+  final bool fromChangePassword;
 
   @override
   ConsumerState<ResetPasswordScreen> createState() =>
@@ -156,18 +177,70 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       _inlineError = null;
     });
 
+    // SECURITY (mobile-security MEDIUM): capture the notifier — and every
+    // value derived from `widget`/controllers that we need after the first
+    // `await` — synchronously, BEFORE any await. `ref.read()` throws once
+    // this widget is disposed (Riverpod's `_assertNotDisposed`), so grabbing
+    // the notifier now (while still guaranteed mounted, since `_submit` only
+    // runs from a live button tap) lets us still call `logout()`
+    // unconditionally later even if the widget disposes while
+    // `confirmPasswordReset()` is in flight (backgrounded app, swipe-back,
+    // slow network). `AuthNotifier` is `keepAlive` and outlives this widget,
+    // so calling methods on the captured reference after disposal is safe.
+    final authNotifier = ref.read(authProvider.notifier);
+    final newPassword = _passwordController.text;
+    final resetTicket = widget.resetTicket;
+    final fromChangePassword = widget.fromChangePassword;
+
     try {
-      await ref
-          .read(authProvider.notifier)
-          .confirmPasswordReset(
-            token: widget.token,
-            newPassword: _passwordController.text,
-          );
+      await authNotifier.confirmPasswordReset(
+        resetTicket: resetTicket,
+        newPassword: newPassword,
+      );
+
+      if (fromChangePassword) {
+        // Beautica OTP task Phase B5: the backend revokes the CALLER'S OWN
+        // refresh token on any password reset (including this authenticated
+        // entry point), so proactively log out here rather than waiting for
+        // the passive 401 → silent-refresh-fail → auto-logout path.
+        //
+        // SECURITY: this MUST run unconditionally — even if the widget has
+        // already disposed by the time confirmPasswordReset() resolves —
+        // otherwise the local refresh token would survive a server-side
+        // revocation and the in-app session would stay Authenticated. Only
+        // the UI-facing effects below (snackbar, navigation) are gated on
+        // `mounted`.
+        await authNotifier.logout();
+      }
+
       if (!mounted) return;
-      // No auto-login — show the success state; user taps "Увійти" to /login.
       // Clear password fields from memory now that they are no longer needed.
       _passwordController.clear();
       _confirmController.clear();
+
+      if (fromChangePassword) {
+        // Skip the normal in-screen success state entirely — go straight to
+        // /login with a forced-logout message.
+        final l10nLogout = AppLocalizations.of(context);
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(l10nLogout.changePasswordForcedLogoutMessage),
+            ),
+          );
+        context.go(RouteNames.login);
+        if (kDebugMode) {
+          log(
+            'Reset-password (change-password flow): forced logout → /login',
+            name: 'auth.reset',
+            level: 800,
+          );
+        }
+        return;
+      }
+
+      // No auto-login — show the success state; user taps "Увійти" to /login.
       setState(() {
         _submitting = false;
         _state = _ResetState.success;

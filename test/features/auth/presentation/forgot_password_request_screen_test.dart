@@ -1,29 +1,33 @@
 // Phase 2.13 — Widget tests for ForgotPasswordRequestScreen (VelvetTouch).
+// Beautica OTP task (Phase B3/B6) — rewritten for the email-link → OTP flow.
 //
 // Harness mirrors login_screen_test.dart: a minimal GoRouter with the screen
-// at /forgot-password (+ /login and /reset-password placeholders) and a
+// at /forgot-password (+ /login and /reset-password/otp placeholders) and a
 // FakeAuthRepository wired through ProviderScope overrides.
 //
-// Key changes from the pre-VelvetTouch version:
+// Key changes from the pre-OTP version:
+//   - The screen is now SINGLE-STATE (form only) — the old "check your email
+//     for a link" confirmation state (_linkSent, forgot_preview_reset CTA) is
+//     gone. A successful submit navigates to RouteNames.resetOtpVerification
+//     carrying the email in `extra` instead of flipping to an in-screen state.
+//   - Tests 3 (confirmation copy) and the "reach sent state first" premise of
+//     test 4 are retired; test 4 now asserts the back button from the plain
+//     form state.
 //   - All keys updated to ValueKey<String>('snake_case') per VelvetTouch spec.
-//   - No BackdropFilter assertions (glassmorphism removed).
-//   - Confirmation state no longer has a "resend" link — instead it has a
-//     "У мене є посилання" preview CTA (key 'forgot_preview_reset') that
-//     navigates to /reset-password.
-//   - The back-to-login affordance is now the top-left AuthScaffold button
-//     (key 'auth_scaffold_back'). Test 4 reaches the sent state first.
-//   - Email validation is now inline (_inlineError → NeumorphicTextField
-//     errorText) rather than Form + GlobalKey, so test 1 checks that the
-//     inline email error text appears and the email field is still present.
 //
 // Covered scenarios:
 //   1. Invalid email → inline error shown, requestPasswordReset NOT called.
-//   2. Valid email + submit → requestPasswordReset(email) called and the
-//      generic confirmation state is shown.
-//   3. Confirmation state renders generic copy + preview-reset CTA.
-//   4. Back-to-login link (in sent state) navigates to /login.
-//   5. NetworkFailure → inline error shown, does NOT switch to confirmation.
-//   6. Unknown email renders the SAME generic confirmation widget.
+//   2. Valid email + submit → requestPasswordReset(email) called and
+//      navigation to the OTP screen with the email in `extra`.
+//   3. Top-left back button navigates to /login.
+//   4. NetworkFailure → inline error shown, does NOT navigate.
+//   5. Unknown email navigates the SAME way as a known one (anti-enumeration
+//      — the navigation itself must not reveal account existence).
+//   6. Loading indicator visible mid-submit; navigates after completer
+//      resolves.
+//   7. ValidationFailure keyed by email → that message shown inline, no
+//      navigation, repo email error preferred over generic copy.
+//   8. ValidationFailure with empty fieldErrors falls back to serverMessage.
 
 import 'dart:async';
 
@@ -55,9 +59,10 @@ GoRouter _makeRouter() => GoRouter(
           const Scaffold(body: Center(child: Text('login'))),
     ),
     GoRoute(
-      path: RouteNames.resetPassword,
-      builder: (context, state) =>
-          const Scaffold(body: Center(child: Text('reset'))),
+      path: RouteNames.resetOtpVerification,
+      builder: (context, state) => Scaffold(
+        body: Center(child: Text('otp:${(state.extra as String?) ?? ''}')),
+      ),
     ),
   ],
 );
@@ -109,7 +114,8 @@ void main() {
     });
 
     testWidgets(
-      '2. valid email → requestPasswordReset called + confirmation shown',
+      '2. valid email → requestPasswordReset called + navigates to the OTP '
+      'screen carrying the email in extra',
       (WidgetTester tester) async {
         final FakeAuthRepository repo = FakeAuthRepository();
         await _pump(tester, repo);
@@ -128,78 +134,21 @@ void main() {
         expect(repo.requestPasswordResetCalls.length, 1);
         expect(repo.requestPasswordResetCalls.first.email, 'anya@example.com');
 
-        // Confirmation state — the email field is gone; the preview CTA and
-        // back-to-login link are present.
+        // Navigated to the OTP screen with the submitted email.
+        expect(find.text('otp:anya@example.com'), findsOneWidget);
         expect(
           find.byKey(const ValueKey<String>('forgot_email')),
           findsNothing,
         );
-        expect(
-          find.byKey(const ValueKey<String>('forgot_preview_reset')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey<String>('auth_scaffold_back')),
-          findsOneWidget,
-        );
       },
     );
 
     testWidgets(
-      '3. confirmation state renders generic copy + preview-reset CTA navigates to /reset-password',
-      (WidgetTester tester) async {
-        final FakeAuthRepository repo = FakeAuthRepository();
-        await _pump(tester, repo);
-        final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
-        );
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
-          'anya@example.com',
-        );
-        await tester.pump();
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('forgot_submit')),
-        );
-        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
-        await tester.pumpAndSettle();
-
-        // Generic confirmation copy is visible.
-        expect(find.text(l10n.forgotPasswordConfirmTitle), findsOneWidget);
-        expect(find.text(l10n.forgotPasswordConfirmDesc), findsOneWidget);
-
-        // Tapping "У мене є посилання" navigates to the reset-password screen.
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('forgot_preview_reset')),
-        );
-        await tester.tap(
-          find.byKey(const ValueKey<String>('forgot_preview_reset')),
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('reset'), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      '4. top-left back button (auth_scaffold_back, sent state) navigates to /login',
+      '3. top-left back button (auth_scaffold_back) navigates to /login',
       (WidgetTester tester) async {
         final FakeAuthRepository repo = FakeAuthRepository();
         await _pump(tester, repo);
 
-        // Reach the sent state first.
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
-          'anya@example.com',
-        );
-        await tester.pump();
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('forgot_submit')),
-        );
-        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
-        await tester.pumpAndSettle();
-
-        // Now tap the top-left back button.
         await tester.tap(
           find.byKey(const ValueKey<String>('auth_scaffold_back')),
         );
@@ -210,56 +159,77 @@ void main() {
     );
 
     // MEDIUM — anti-enumeration negative half. A genuine transport failure must
-    // NOT masquerade as the generic confirmation success. The repo throws a
-    // NetworkFailure → the screen surfaces the inline error and STAYS on the
-    // entry form (email field still present, confirmation chrome absent).
-    testWidgets(
-      '5. NetworkFailure → inline error shown, does NOT switch to confirmation',
-      (WidgetTester tester) async {
-        final FakeAuthRepository repo = FakeAuthRepository()
-          ..requestPasswordResetResult = const NetworkFailure();
-        await _pump(tester, repo);
-        final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
-        );
+    // NOT masquerade as success. The repo throws a NetworkFailure → the screen
+    // surfaces the inline error and STAYS on the form (no navigation).
+    testWidgets('4. NetworkFailure → inline error shown, does NOT navigate', (
+      WidgetTester tester,
+    ) async {
+      final FakeAuthRepository repo = FakeAuthRepository()
+        ..requestPasswordResetResult = const NetworkFailure();
+      await _pump(tester, repo);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+      );
 
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
-          'anya@example.com',
-        );
-        await tester.pump();
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('forgot_submit')),
-        );
-        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
-        await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('forgot_email')),
+        'anya@example.com',
+      );
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('forgot_submit')),
+      );
+      await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+      await tester.pumpAndSettle();
 
-        // Repo WAS called (the failure happened inside it)…
-        expect(repo.requestPasswordResetCalls.length, 1);
-        // …but the inline network error renders and the screen stays on State A.
-        expect(find.text(l10n.errNetwork), findsOneWidget);
-        expect(
-          find.byKey(const ValueKey<String>('forgot_email')),
-          findsOneWidget,
-        );
-        // Confirmation chrome must be absent — a failure is not a success.
-        expect(
-          find.byKey(const ValueKey<String>('forgot_preview_reset')),
-          findsNothing,
-        );
-        // The top-left back button is always present (AuthScaffold.showBack:
-        // true), so we only assert the confirmation-specific preview CTA is
-        // absent — not the scaffold-level back affordance.
-      },
-    );
+      // Repo WAS called (the failure happened inside it)…
+      expect(repo.requestPasswordResetCalls.length, 1);
+      // …but the inline network error renders and the screen stays on the form.
+      expect(find.text(l10n.errNetwork), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('forgot_email')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('otp:'), findsNothing);
+    });
+
+    // LOW — anti-enumeration UI identity. A DISTINCT, almost-certainly-unknown
+    // email must navigate the SAME way as a known one.
+    testWidgets('5. unknown email navigates the SAME way as a known one', (
+      WidgetTester tester,
+    ) async {
+      final FakeAuthRepository repo = FakeAuthRepository();
+      await _pump(tester, repo);
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('forgot_email')),
+        'no-such-user-9f3a@nonexistent.example',
+      );
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('forgot_submit')),
+      );
+      await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+      await tester.pumpAndSettle();
+
+      expect(
+        repo.requestPasswordResetCalls.first.email,
+        'no-such-user-9f3a@nonexistent.example',
+      );
+      // Identical navigation target as the known-email path (test 2).
+      expect(
+        find.text('otp:no-such-user-9f3a@nonexistent.example'),
+        findsOneWidget,
+      );
+    });
 
     // MEDIUM — loading state independent assertion. Mid-submit (while the repo
     // Future is pending) the button must be in its loading state
     // (CircularProgressIndicator visible); after the completer resolves the
-    // screen must return to its normal state (confirmation shown).
+    // screen must navigate to the OTP screen.
     testWidgets(
-      '7. loading indicator visible mid-submit; confirmation shown after '
-      'completer resolves',
+      '6. loading indicator visible mid-submit; navigates after completer '
+      'resolves',
       (WidgetTester tester) async {
         // A Completer that keeps requestPasswordReset pending so we can
         // assert the intermediate loading state before it resolves.
@@ -293,66 +263,23 @@ void main() {
               'CircularProgressIndicator',
         );
 
-        // Resolve the completer and let the screen transition to sent state.
+        // Resolve the completer and let the screen navigate away.
         completer.complete();
         await tester.pumpAndSettle();
 
-        // Normal (confirmation) state — spinner gone, email field gone.
+        // Normal (navigated) state — spinner gone, on the OTP placeholder.
         expect(find.byType(CircularProgressIndicator), findsNothing);
-        expect(
-          find.byKey(const ValueKey<String>('forgot_preview_reset')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey<String>('forgot_email')),
-          findsNothing,
-        );
+        expect(find.text('otp:anya@example.com'), findsOneWidget);
       },
     );
 
-    // LOW — anti-enumeration UI identity. A DISTINCT, almost-certainly-unknown
-    // email must render the SAME confirmation widget as a known one.
-    testWidgets('6. unknown email renders the SAME generic confirmation widget', (
-      WidgetTester tester,
-    ) async {
-      final FakeAuthRepository repo = FakeAuthRepository();
-      await _pump(tester, repo);
-      final AppLocalizations l10n = AppLocalizations.of(
-        tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
-      );
-
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('forgot_email')),
-        'no-such-user-9f3a@nonexistent.example',
-      );
-      await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('forgot_submit')),
-      );
-      await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
-      await tester.pumpAndSettle();
-
-      expect(
-        repo.requestPasswordResetCalls.first.email,
-        'no-such-user-9f3a@nonexistent.example',
-      );
-      // Identical confirmation copy + keys as the known-email path (tests 2/3).
-      expect(find.text(l10n.forgotPasswordConfirmTitle), findsOneWidget);
-      expect(find.text(l10n.forgotPasswordConfirmDesc), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey<String>('forgot_preview_reset')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey<String>('forgot_email')), findsNothing);
-    });
-
-    // ── 8. ValidationFailure with an email field error → inline email error ──
+    // ── 7. ValidationFailure with an email field error → inline email error ──
     //
-    // The screen now prefers fieldErrors['email'] over the generic errValidation
+    // The screen prefers fieldErrors['email'] over the generic errValidation
     // copy, then serverMessage. Guards the inline-mapping extension.
     testWidgets(
-      '8. ValidationFailure keyed by email → that message shown inline, no '
-      'confirmation, repo email error preferred over generic copy',
+      '7. ValidationFailure keyed by email → that message shown inline, no '
+      'navigation, repo email error preferred over generic copy',
       (WidgetTester tester) async {
         const emailMsg = 'Невірна адреса електронної пошти';
         final FakeAuthRepository repo = FakeAuthRepository()
@@ -379,21 +306,18 @@ void main() {
         // The email field error wins over the generic errValidation copy.
         expect(find.text(emailMsg), findsOneWidget);
         expect(find.text(l10n.errValidation), findsNothing);
-        // Stayed on the request form (no confirmation).
+        // Stayed on the request form (no navigation).
         expect(
           find.byKey(const ValueKey<String>('forgot_email')),
           findsOneWidget,
         );
-        expect(
-          find.byKey(const ValueKey<String>('forgot_preview_reset')),
-          findsNothing,
-        );
+        expect(find.textContaining('otp:'), findsNothing);
       },
     );
 
-    // ── 9. ValidationFailure, empty fieldErrors + serverMessage → fallback ───
+    // ── 8. ValidationFailure, empty fieldErrors + serverMessage → fallback ───
     testWidgets(
-      '9. ValidationFailure with empty fieldErrors falls back to serverMessage '
+      '8. ValidationFailure with empty fieldErrors falls back to serverMessage '
       'inline (not the generic errValidation copy)',
       (WidgetTester tester) async {
         const serverMsg = 'Сервіс тимчасово недоступний';
@@ -420,10 +344,7 @@ void main() {
 
         expect(find.text(serverMsg), findsOneWidget);
         expect(find.text(l10n.errValidation), findsNothing);
-        expect(
-          find.byKey(const ValueKey<String>('forgot_preview_reset')),
-          findsNothing,
-        );
+        expect(find.textContaining('otp:'), findsNothing);
       },
     );
   });

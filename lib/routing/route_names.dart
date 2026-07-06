@@ -22,17 +22,35 @@ abstract final class RouteNames {
   /// Step 3 — address (oblast/city/district + street/building/note). Phase 2.19.
   static const String registerStep3 = '/register/step-3';
 
-  // Phase 2.13 — forgot-password flow.
-  /// Step 1 — request a reset link by email (anti-enumeration confirmation).
+  // Phase 2.13 — forgot-password flow. Beautica OTP task (Phase B) replaced
+  // the emailed reset-link with a 6-digit OTP code, mirroring the
+  // registration email-verification pattern.
+  /// Step 1 — request a reset OTP by email (anti-enumeration confirmation).
   static const String forgotPassword = '/forgot-password';
 
-  /// Step 2 — set a new password. The single-use reset token arrives as the
-  /// `token` query parameter (matching the backend deep-link contract
-  /// `/reset-password?token=...`), never typed by the user. Reached from the
-  /// emailed deep link; full deep-link wiring is deferred to a later phase
-  /// (see phase doc), but the route already parses the query param so the
-  /// link works the moment app-link handling is registered.
+  /// Step 2 — the generalized password-reset OTP screen
+  /// ([ResetOtpVerificationScreen]) for the UNAUTHENTICATED forgot-password
+  /// flow. Reached from [ForgotPasswordRequestScreen] with the submitted
+  /// email (a bare `String`) in `GoRouterState.extra`.
+  ///
+  /// The AUTHENTICATED settings change-password flow reaches the SAME
+  /// [ResetOtpVerificationScreen] widget via the separate [changePassword]
+  /// route below instead (no email extra needed — the caller's identity
+  /// comes from the session) — see `app_router.dart` for both registrations.
+  static const String resetOtpVerification = '/reset-password/otp';
+
+  /// Step 3 — set a new password. The single-use reset ticket (minted by
+  /// `POST /auth/verify-password-reset-otp`) arrives via in-app navigation as
+  /// a [ResetPasswordArgs] in `GoRouterState.extra` — NOT a `?token=` query
+  /// parameter anymore (there is no more emailed link to deep-link from).
   static const String resetPassword = '/reset-password';
+
+  /// Authenticated "change password" entry point, reached from the account
+  /// settings screen's "Змінити пароль" row. Renders the SAME
+  /// [ResetOtpVerificationScreen] as [resetOtpVerification] but binds its
+  /// closures to the authenticated `requestChangePasswordOtp` /
+  /// `verifyPasswordResetOtp` calls instead — see `app_router.dart`.
+  static const String changePassword = '/settings/change-password';
 
   // Phase 2.20 — accept-invite deep link. The invite token arrives as the
   // `token` query parameter from the emailed link (`/invite/accept?token=...`).

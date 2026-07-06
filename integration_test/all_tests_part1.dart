@@ -14,10 +14,11 @@
 // test; a single process carrying too many tests degrades that channel
 // before its own clean shutdown.
 //
-// This file (+ `all_tests_part2.dart`) splits the SAME 19 flows into two
-// smaller `flutter test` invocations run sequentially in one emulator
-// session (see pr-validate.yml) — same boot-cost amortization as before,
-// just two shorter-lived processes instead of one very long one.
+// This file (+ `all_tests_part2.dart`) splits the flows (19, then 21 after
+// the Beautica OTP task Phase B6 additions) into two smaller `flutter test`
+// invocations run sequentially in one emulator session (see pr-validate.yml)
+// — same boot-cost amortization as before, just two shorter-lived processes
+// instead of one very long one.
 //
 // RE-LAUNCH SAFETY — identical guarantees to the original all_tests.dart:
 //   • Each flow exposes a callable top-level `void main()` that only registers
@@ -42,6 +43,7 @@ import 'client_search_flow_test.dart' as client_search;
 import 'client_shell_flow_test.dart' as client_shell;
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
+import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'logout_flow_test.dart' as logout;
 
 void main() {
@@ -55,5 +57,7 @@ void main() {
   group('client_shell_flow', client_shell.main);
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
+  // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
+  group('forgot_password_otp_flow', forgot_password_otp.main);
   group('logout_flow', logout.main);
 }
