@@ -268,21 +268,12 @@ jobs:
           flutter build apk --release \
             --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
 
-      - name: Upload release APK artifact
-        if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: beautica-release-${{ github.event.pull_request.number || github.run_number }}
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
-
-      - name: Upload APK artifact
-        if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: beautica-debug-${{ github.event.pull_request.number || github.run_number }}
-          path: build/app/outputs/flutter-apk/app-debug.apk
-          retention-days: 7
+      # APK artifact uploads are intentionally disabled (2026-07-06) to save
+      # GitHub Actions artifact storage quota — the builds above already
+      # confirm the debug/release APKs compile cleanly, which is all this job
+      # needs pre-release. Re-enable both `actions/upload-artifact` steps
+      # (see git history for this file) once we're close to a release and
+      # need a downloadable build.
 
       - name: Upload coverage
         if: success()
