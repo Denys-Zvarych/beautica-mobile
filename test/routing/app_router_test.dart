@@ -246,10 +246,11 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     Future<void> drainResendCooldown(WidgetTester tester) async {
-      // fixed-wait-ok: TTL crossing — OtpResendRow starts a REAL 30s
-      // Timer.periodic on mount; must advance past exactly that window
-      // before the resend key becomes tappable. Mirrors the identical drain
-      // in reset_otp_verification_screen_test.dart.
+      // TTL crossing — OtpResendRow starts a REAL 30s Timer.periodic on
+      // mount; must advance past exactly that window before the resend key
+      // becomes tappable. Mirrors the identical drain in
+      // reset_otp_verification_screen_test.dart.
+      // fixed-wait-ok: real 30s Timer.periodic TTL crossing, no pollable state
       await tester.pump(const Duration(seconds: 31));
     }
 
