@@ -381,9 +381,40 @@ this process: `docs/mobile-phases/mobile-backlog.md` (QA table, MEDIUM) —
 `logout_flow_test.dart`'s settings-hub menu navigation doesn't reach
 `/master/menu`. Left for separate triage; out of scope for this CI fix.
 
-## Final verification
+## Final verification (round 1) — FAILED, found a second gap
 
-Pushed the settle-delay fix + reverted aggregator script. Verifying green
-across several full-suite samples before shipping.
+Pushed the settle-delay fix + reverted aggregator script (0d1b63c).
+Dispatched 3 full-suite samples (1 auto pull_request + 2 workflow_dispatch,
+runs 28852435029/28852436807/28852440337). **All 3 failed identically** —
+but the failure pattern itself was hugely informative.
+
+In every one of the 3 samples: ALL 39 in-process relaunches inside
+`all_tests_part1.dart` (10 flows) completed and printed ✅ — including the
+transition from relaunch 1→2 that used to ALWAYS fatally crash before this
+fix. That first transition still shows the `Failed to find ColorBuffer` +
+~35-38s stall, but this time it **self-recovers** instead of killing the
+emulator (all 37 remaining relaunches then print within milliseconds of
+each other, i.e. the delay is working as intended for in-process
+transitions). Then, immediately after `all_tests_part1.dart` finishes
+(`🎉 1 test passed.`), the job dies — this is the boundary where
+`flutter test integration_test/all_tests_part1.dart` (one OS process)
+exits and `flutter test integration_test/all_tests_part2.dart` (a
+brand-new OS process, fresh APK install/launch) starts. My `tearDownHarness`
+delay lives in Dart test code — it never runs at this boundary, since it's
+entirely before any Dart code executes in the new process. This is a
+SECOND, previously-uncovered instance of the exact same async-cleanup race,
+just at the process level instead of the testWidgets level.
+
+**Fix (round 2):** added `sleep 15` between the two `flutter test` lines in
+the CI script (all 3 retry attempts), giving the same async ColorBuffer
+cleanup time to finish before the next `flutter test` process attaches and
+reinstalls. Updated the workflow's inline comment to describe both layers
+of the fix together. See `.github/workflows/pr-validate.yml` (`integration`
+job) for the final two-layer implementation.
+
+## Final verification (round 2)
+
+Pushed the `sleep 15` addition. Verifying green across several full-suite
+samples.
 
 Result: **(fill in after verification runs complete)**

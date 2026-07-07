@@ -329,47 +329,47 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # RETRY WRAPPER (2026-07-07 — see docs/ci_investigation_notes.md for the
-      # full overnight investigation trail). This step used to run once. A
-      # 2026-07-01 incident found it crashing the emulator at final teardown
-      # ("adb: device offline" right after the LAST flow's own assertions all
-      # logged ✅) and bisected it to commit 7307721 ("Phase 13.7 Home Hub").
-      # The 2026-07-06/07 follow-up investigation FALSIFIED that bisection's
-      # conclusion and two others:
-      #   - theory: client_home_hub_flow-specific rendering load → FALSIFIED.
-      #     Isolating each flow into its own `flutter test` invocation showed
-      #     the crash reproduces on the very FIRST, simplest flow
-      #     (auth_login_flow_test.dart, a plain login form) just as reliably.
-      #   - theory: cumulative relaunch-count degrades the adb/VM-service
-      #     channel (why all_tests.dart was split into part1/part2) →
-      #     FALSIFIED. The crash fires within a SINGLE flow file's own 3
-      #     `testWidgets` (no cross-file accumulation needed).
-      #   - theory: API 34/35 system-image instability, or this branch's own
-      #     diagnostic `adb logcat -b all` background capture → both tested
-      #     and FALSIFIED (crashed identically at API 33 and with the capture
-      #     removed). Flutter SDK version was also ruled out: the same
-      #     `stable-3.41.9` resolved on both the last known-green run
-      #     (2026-06-16) and the first failing one (2026-07-01).
-      # Every single crash — 6 independent CI samples across all the above
-      # variables — shows the SAME signature: every flow's own assertions
-      # pass, `ERROR | Failed to find ColorBuffer: <N>` (goldfish-opengl
-      # virtual-GPU surface/handle error) fires, a ~35s stall follows, then
-      # `adb: device offline` and the emulator process itself becomes
-      # unreachable (even `adb emu kill` can't connect). This is a
-      # documented, UNRESOLVED upstream Android-emulator bug, not an app/test
-      # bug — see ReactiveCircus/android-emulator-runner#358 (identical
-      # `FrameBuffer.cpp: Failed to find ColorBuffer` signature, no
-      # maintainer fix) and flutter/flutter#153445/#140001/#146890 (Google's
-      # own LUCI CI hits the same `adb: device offline` class of crash with
-      # no confirmed permanent fix — treated as expected flakiness and
-      # retried, not root-caused to zero).
+      # ROOT CAUSE + FIX (2026-07-07 — see docs/ci_investigation_notes.md for
+      # the full overnight investigation trail). This step used to run once.
+      # A 2026-07-01 incident found it crashing the emulator at final
+      # teardown ("adb: device offline" right after the LAST flow's own
+      # assertions all logged ✅) and bisected it to commit 7307721. The
+      # 2026-07-06/07 follow-up investigation falsified that bisection and
+      # several other theories (Home-Hub-specific rendering, cumulative
+      # relaunch count, API 34/35 instability, Flutter SDK drift) via
+      # systematic isolation, then confirmed the real mechanism: GitHub's
+      # headless emulator (goldfish-opengl / swiftshader_indirect) releases
+      # an app relaunch's GL ColorBuffer handles ASYNCHRONOUSLY host-side; a
+      # NEW relaunch starting before that cleanup finishes crashes the WHOLE
+      # emulator (`Failed to find ColorBuffer` -> `adb: device offline`,
+      # unrecoverable — `adb emu kill` itself can't connect) instead of just
+      # logging a warning. This is a documented, UNRESOLVED upstream bug —
+      # see ReactiveCircus/android-emulator-runner#358 and
+      # flutter/flutter#153445/#140001/#146890 (Google's own LUCI CI hits the
+      # identical crash class with no confirmed permanent fix).
       #
-      # Fix: retry the WHOLE step (fresh emulator boot each attempt) up to 3
-      # times. The app/test logic is never at fault — every crash shows
-      # 100% of that run's assertions passing before the environmental
-      # teardown crash — so re-running on a clean boot is a legitimate,
-      # non-masking mitigation for this specific unresolved infra bug, matching
-      # how Google's own CI handles the identical issue.
+      # Two-layer fix, both targeting the same async-cleanup race at
+      # different relaunch boundaries:
+      #   1. IN-PROCESS relaunches (testWidgets → testWidgets within one
+      #      `flutter test <file>.dart` invocation) — a 2s settle delay in
+      #      `AppHarness.tearDownHarness()` / `PatrolHarness.tearDownHarness()`
+      #      (integration_test/support/, integration_test/patrol/support/),
+      #      the ONE shared choke point every flow file already calls via
+      #      `tearDown(AppHarness.tearDownHarness)`.
+      #   2. CROSS-PROCESS relaunch (the `all_tests_part1.dart` process
+      #      exiting → `all_tests_part2.dart` starting fresh) — the Dart-level
+      #      delay above cannot run here (it's before any Dart code executes);
+      #      the `sleep 15` between the two `flutter test` lines below covers
+      #      this boundary instead. Confirmed necessary: with only the
+      #      Dart-level delay, every one of part1's 39 in-process relaunches
+      #      passed clean, but the crash still fired at the part1→part2
+      #      process boundary on 3/3 samples.
+      # Retry the WHOLE step (fresh emulator boot each attempt) up to 3 times
+      # regardless, as defense-in-depth for any residual flake — the app/test
+      # logic is never at fault when this fires (100% of assertions pass
+      # before the crash), so re-running on a clean boot is a legitimate,
+      # non-masking mitigation, matching how Google's own CI handles the
+      # identical issue.
       - name: Run integration tests on emulator (attempt 1)
         id: it-attempt-1
         continue-on-error: true
@@ -396,6 +396,7 @@ jobs:
           # fast debug pass stays per-PR.
           script: |
             flutter test integration_test/all_tests_part1.dart
+            sleep 15
             flutter test integration_test/all_tests_part2.dart
 
       - name: Run integration tests on emulator (attempt 2)
@@ -411,6 +412,7 @@ jobs:
           heap-size: 512M
           script: |
             flutter test integration_test/all_tests_part1.dart
+            sleep 15
             flutter test integration_test/all_tests_part2.dart
 
       - name: Run integration tests on emulator (attempt 3)
@@ -426,6 +428,7 @@ jobs:
           heap-size: 512M
           script: |
             flutter test integration_test/all_tests_part1.dart
+            sleep 15
             flutter test integration_test/all_tests_part2.dart
 
       - name: Verify integration tests passed on some attempt
