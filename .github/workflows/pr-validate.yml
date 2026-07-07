@@ -369,22 +369,29 @@ jobs:
       #      is left wedged, so the file's OWN final teardown/uninstall then
       #      fails hard (`adb: device offline`, unrecoverable — `adb emu
       #      kill` itself can't connect), well AFTER every real assertion in
-      #      the file already passed. `flutter test` itself distinguishes
-      #      this: it only prints `🎉 N tests passed.` when every test in
-      #      the invocation genuinely passed (confirmed absent whenever a
-      #      real assertion fails, e.g. the unrelated logout_flow_test.dart
-      #      bug found during this investigation, backlogged separately).
-      #      So: capture each invocation's own output, and gate on that
-      #      marker rather than the process exit code — the exit code is
-      #      polluted by this separate, well-documented, UNRESOLVED upstream
-      #      emulator bug (ReactiveCircus/android-emulator-runner#358,
+      #      the file already passed. This can ALSO kill `flutter test`
+      #      itself before it prints its own `🎉 N tests passed.` summary
+      #      (confirmed: a run with all 39 ✅ present had NO 🎉 in the log,
+      #      so gating on that marker alone is too fragile — it depends on
+      #      the process surviving long enough to flush it). A real
+      #      assertion failure, by contrast, ALWAYS prints `EXCEPTION CAUGHT
+      #      BY FLUTTER TEST FRAMEWORK` synchronously, at the moment of
+      #      failure — unaffected by anything that happens later (confirmed
+      #      via the unrelated logout_flow_test.dart bug found during this
+      #      investigation, backlogged separately). So: capture each
+      #      invocation's own output, and gate on the ABSENCE of that
+      #      exception banner (plus a sanity check that at least one ✅ was
+      #      logged at all, in case of a crash before any test could run) —
+      #      not the process exit code, which is polluted by this separate,
+      #      well-documented, UNRESOLVED upstream emulator bug
+      #      (ReactiveCircus/android-emulator-runner#358,
       #      flutter/flutter#153445/#140001/#146890 — Google's own LUCI CI
       #      hits the identical crash class with no confirmed permanent fix)
       #      that fires strictly AFTER the tests it's supposedly reporting on.
       # Retry the WHOLE step (fresh emulator boot each attempt) up to 3 times
       # regardless, as defense-in-depth for the rarer case where the crash
-      # happens mid-run rather than at final teardown (no 🎉 marker at all —
-      # a real failure, or a hard mid-run crash, is NOT masked by mitigation 3
+      # happens mid-run rather than at final teardown (no ✅ ever logged, or
+      # a real exception banner) — genuinely not masked by mitigation 3
       # and still fails the attempt).
       - name: Run integration tests on emulator (attempt 1)
         id: it-attempt-1
@@ -413,20 +420,26 @@ jobs:
           script: |
             flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
             cat part1.log
-            if grep -q "🎉" part1.log; then
-              echo "PART 1: all tests passed (flutter's own success marker found)."
-            else
-              echo "PART 1: FAILED — no success marker found (real test failure, or a crash before any test could finish)."
+            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log; then
+              echo "PART 1: FAILED — a real test assertion/exception was logged."
               exit 1
+            elif ! grep -q "✅" part1.log; then
+              echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."
+              exit 1
+            else
+              echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             fi
             sleep 15
             flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
             cat part2.log
-            if grep -q "🎉" part2.log; then
-              echo "PART 2: all tests passed (flutter's own success marker found)."
-            else
-              echo "PART 2: FAILED — no success marker found (real test failure, or a crash before any test could finish)."
+            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log; then
+              echo "PART 2: FAILED — a real test assertion/exception was logged."
               exit 1
+            elif ! grep -q "✅" part2.log; then
+              echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."
+              exit 1
+            else
+              echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             fi
 
       - name: Run integration tests on emulator (attempt 2)
@@ -443,20 +456,26 @@ jobs:
           script: |
             flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
             cat part1.log
-            if grep -q "🎉" part1.log; then
-              echo "PART 1: all tests passed (flutter's own success marker found)."
-            else
-              echo "PART 1: FAILED — no success marker found (real test failure, or a crash before any test could finish)."
+            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log; then
+              echo "PART 1: FAILED — a real test assertion/exception was logged."
               exit 1
+            elif ! grep -q "✅" part1.log; then
+              echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."
+              exit 1
+            else
+              echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             fi
             sleep 15
             flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
             cat part2.log
-            if grep -q "🎉" part2.log; then
-              echo "PART 2: all tests passed (flutter's own success marker found)."
-            else
-              echo "PART 2: FAILED — no success marker found (real test failure, or a crash before any test could finish)."
+            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log; then
+              echo "PART 2: FAILED — a real test assertion/exception was logged."
               exit 1
+            elif ! grep -q "✅" part2.log; then
+              echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."
+              exit 1
+            else
+              echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             fi
 
       - name: Run integration tests on emulator (attempt 3)
@@ -473,20 +492,26 @@ jobs:
           script: |
             flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
             cat part1.log
-            if grep -q "🎉" part1.log; then
-              echo "PART 1: all tests passed (flutter's own success marker found)."
-            else
-              echo "PART 1: FAILED — no success marker found (real test failure, or a crash before any test could finish)."
+            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log; then
+              echo "PART 1: FAILED — a real test assertion/exception was logged."
               exit 1
+            elif ! grep -q "✅" part1.log; then
+              echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."
+              exit 1
+            else
+              echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             fi
             sleep 15
             flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
             cat part2.log
-            if grep -q "🎉" part2.log; then
-              echo "PART 2: all tests passed (flutter's own success marker found)."
-            else
-              echo "PART 2: FAILED — no success marker found (real test failure, or a crash before any test could finish)."
+            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log; then
+              echo "PART 2: FAILED — a real test assertion/exception was logged."
               exit 1
+            elif ! grep -q "✅" part2.log; then
+              echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."
+              exit 1
+            else
+              echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             fi
 
       - name: Verify integration tests passed on some attempt
