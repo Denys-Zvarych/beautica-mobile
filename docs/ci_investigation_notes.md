@@ -168,4 +168,33 @@ and `patrol` left at 34 for now — patrol is pinned to 34 for App Links
 `autoVerify` reasons per `project_patrol_applink_ci_recipe` memory, out of
 scope here).
 
+### Result: FALSIFIED (2 more runs: workflow_dispatch 28847425758 job
+### 85554464675 + pull_request 28847422209 job 85554451448)
+
+API 33 crashes **identically** — same flow (`auth_login_flow_test.dart`),
+same `ERROR | Failed to find ColorBuffer: 176` (both runs, same buffer id
+even), same ~35s stall, same `adb: device offline` right after `🎉 1 test
+passed.`, same `emu kill` connection-refused. API level is not the variable.
+
+**4 for 4 samples now** (2 at API 34, 2 at API 33) crash at the exact same
+point, byte-for-byte the same signature. This is notably WORSE than the
+historical rate on the pre-diagnostic aggregator script (~80% failure, i.e.
+occasionally passed — see original Symptom section). Something in THIS
+diagnostic branch may have turned an intermittent crash into a
+near-deterministic one. The one genuinely new variable introduced by this
+branch (not present in the pre-existing aggregator setup) is the background
+`adb logcat -c || true; adb logcat -b all -v time > file &` capture added
+for diagnostics — continuous verbose (`-b all`, all levels) logcat capture
+competing for CPU/IO on an already-constrained 2-vCPU runner, concurrently
+with heavy GPU/graphics churn from app relaunches. Worth eliminating as a
+confound before concluding this is 100%-deterministic upstream behavior.
+
+## Experiment 3 (remove background logcat capture, via `workflow_dispatch`)
+
+Testing whether the diagnostic `adb logcat -b all` background capture
+(added THIS branch, 2026-07-06) is itself responsible for pushing the
+crash from ~80% intermittent to 4/4 deterministic. Removed the background
+logcat line only; api-level reverted to 34 (confirmed no effect either
+way); diagnostic per-flow script otherwise unchanged.
+
 Result: **(fill in after the workflow_dispatch run completes)**
