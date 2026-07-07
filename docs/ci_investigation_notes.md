@@ -74,7 +74,7 @@ So there are two documented theories already on file, never reconciled:
 Temporarily replaced the 2-line aggregator script in the `integration` job
 with **one `flutter test <single-flow-file>.dart` invocation per flow**
 (22 lines, same relative order as the two aggregators, each with an echo
-marker). Rationale: `reactivecircus/android-emulator-runner`'s multi-line
+marker). Rationale (assumed, see CORRECTION below): `reactivecircus/android-emulator-runner`'s multi-line
 `script:` runs each line in its own `sh -c` (already established elsewhere
 in this same YAML, see the patrol job's re-approval-loop comment) — so one
 line's process death does NOT abort subsequent lines. This isolates each
@@ -87,5 +87,85 @@ flow to its own process/teardown:
 - Also added a background `adb logcat -b all` capture (mirrors the patrol
   job's pattern) uploaded as an artifact on failure, for native-level detail
   the Dart-level log can't show.
+
+### Result (2 independent runs: workflow_dispatch 28823886645 + the real
+### PR #33 pull_request push 28824058900 — both ran the identical diagnostic
+### script)
+
+**Both theories (A) and (B) are FALSIFIED.** Both runs crashed at the exact
+same point: the very FIRST flow in the list, `auth_login_flow_test.dart`
+(the simplest flow — 3 sequential app relaunches: INDEPENDENT_MASTER →
+CLIENT → SALON_OWNER login, no Home Hub involvement at all, nowhere near
+39 cumulative relaunches). Identical signature both times:
+1. App installs, 1st relaunch's assertion (`✅ INDEPENDENT_MASTER login...`)
+   logs almost immediately (~9s after install).
+2. `ERROR | Failed to find ColorBuffer: <N>` fires right after (goldfish-opengl
+   virtual-GPU surface/handle error — host↔guest GL transport, not a Dart bug).
+3. A **~37 second stall** follows in BOTH runs (run 1: 21:25:02→21:25:39; run 2:
+   21:28:32→21:29:09) before the 2nd+3rd assertions log, back-to-back, as if
+   something recovered/flushed all at once.
+4. Immediately after: `adb: device offline`, then `🎉 1 test passed.` (the
+   flow's own assertions genuinely all passed — this is NOT an app/test
+   logic failure), then the step exits 1.
+5. The subsequent "Terminate Emulator" step's own `adb emu kill` fails with
+   `error: could not connect to TCP port 5554: Connection refused` — the
+   emulator process itself is gone/unresponsive, not just adb losing the
+   session.
+
+**CORRECTION to the assumption above:** the "each script line runs in its
+own sh -c, so one line's death doesn't abort subsequent lines" claim is
+**FALSE** — verified directly in both logs: after `auth_login_flow_test.dart`
+died, the very next log lines are `Terminate Emulator` / `emu kill` —
+`client_home_hub_flow_test.dart` (line 2) NEVER RAN. The whole multi-line
+`script:` step aborts on the first nonzero-exit command, same as a normal
+`bash -e` step. This also means the earlier "split all_tests into
+part1/part2" mitigation never actually amortized anything within a single
+job run — once this crash fires, EVERY remaining flow in that same
+emulator boot is dead regardless of how many separate files/lines they're
+split across. Splitting only matters ACROSS separate job invocations (a
+fresh emulator boot each), not within one.
+
+### New root-cause understanding
+
+This is a well-documented, **unresolved upstream** Android-emulator/
+goldfish-opengl bug, not something fixable at the Dart/app level:
+- [ReactiveCircus/android-emulator-runner#358](https://github.com/ReactiveCircus/android-emulator-runner/issues/358) —
+  identical `FrameBuffer.cpp: Failed to find ColorBuffer: N` signature on
+  the same action, unresolved, no maintainer fix.
+- [flutter/flutter#153445](https://github.com/flutter/flutter/issues/153445) —
+  "Solution to fleet-wide Android emulator crashes on CI" (Google's own
+  LUCI infra, not just GH Actions): same `adb: device offline` /
+  `getIsolate: (-32000) Service connection disposed` signature, 18-40%
+  flake rates reported, API 34/35 called out as unstable, no confirmed
+  permanent fix — mitigations were `--writable-system` removal (N/A here,
+  we don't set it) and tooling upgrades. Google's own conclusion: this
+  class of emulator crash is accepted at a nonzero rate and retried, not
+  root-caused to zero.
+- [flutter/flutter#140001](https://github.com/flutter/flutter/issues/140001) —
+  same `adb: device offline` → cascading `adb uninstall failed` signature
+  on webview_flutter integration tests on API 34, also unresolved.
+- [flutter/flutter#146890](https://github.com/flutter/flutter/issues/146890) —
+  goldfish-opengl `GL2Encoder.cpp` GL errors specifically on app
+  reopen/relaunch within one emulator session — consistent with our
+  "crashes on the 2nd/3rd relaunch within one boot" pattern.
+
+**Conclusion:** app/test logic is not at fault (assertions always pass
+before the crash). The fix has to be infra-level: (1) try to lower the
+per-boot crash probability (candidate: API level, since 34/35 are
+independently called out as unstable upstream), and (2) treat the residual
+probability as expected flakiness and retry the whole step with a fresh
+emulator boot, the same way Google's own CI does for this exact bug class
+— not chase a mythical zero-flake root cause that upstream hasn't found
+either.
+
+## Experiment 2 (API level 34 → 33, via `workflow_dispatch`)
+
+Testing whether the crash is specific to the API 34 system image (per the
+flutter/flutter#153445 comment flagging 34/35 as unstable). Same diagnostic
+per-flow script kept as-is (still useful signal: which flow, if any, still
+crashes). `api-level: 33` on the `integration` job only (`integration-profile`
+and `patrol` left at 34 for now — patrol is pinned to 34 for App Links
+`autoVerify` reasons per `project_patrol_applink_ci_recipe` memory, out of
+scope here).
 
 Result: **(fill in after the workflow_dispatch run completes)**

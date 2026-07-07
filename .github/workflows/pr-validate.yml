@@ -343,7 +343,12 @@ jobs:
       - name: Run integration tests on emulator
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
-          api-level: 34
+          # EXPERIMENT 2 (2026-07-06/07, docs/ci_investigation_notes.md):
+          # temporarily 34 -> 33 to test whether the "Failed to find
+          # ColorBuffer" / adb-offline crash is specific to the API 34/35
+          # system image (flutter/flutter#153445 flags 34/35 as unstable on
+          # Google's own CI). Revert to 34 if this doesn't help.
+          api-level: 33
           arch: x86_64
           profile: pixel_6
           # ram-size/heap-size (2026-07-01): harmless baseline bump, kept even
