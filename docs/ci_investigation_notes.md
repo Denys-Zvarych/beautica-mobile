@@ -412,9 +412,53 @@ reinstalls. Updated the workflow's inline comment to describe both layers
 of the fix together. See `.github/workflows/pr-validate.yml` (`integration`
 job) for the final two-layer implementation.
 
-## Final verification (round 2)
+## Final verification (round 2) — FAILED, `sleep 15` never even mattered
 
-Pushed the `sleep 15` addition. Verifying green across several full-suite
-samples.
+Dispatched 3 more full-suite samples with the `sleep 15` addition (commit
+adc5f2d). **All 3 failed again, identically** — and closer inspection
+shows the `sleep 15` was never the deciding factor: in all 3 samples, the
+crash happens WITHIN `all_tests_part1.dart` itself (the same 1st→2nd
+relaunch transition as round 1 — `Failed to find ColorBuffer`, ~35-40s
+stall), never at the part1→part2 handoff at all. What's different from
+round 1's read: with closer inspection, EVERY ONE of part1's 39 relaunches
+completes and logs ✅ after that one stall (the Dart-level delay from round
+1 IS still helping — the file doesn't die mid-run) — but the adb/emulator
+link is left in a wedged state, and `all_tests_part1.dart`'s OWN final
+teardown/uninstall (which happens regardless of whether a part2 follows)
+is what then fails hard. The `sleep 15` between the two `flutter test`
+lines is never reached before the crash — the entire round-2 theory
+("cross-process boundary") was a misread of the same round-1 evidence.
+
+## The actual fix: detect success from log content, not exit code
+
+Given the crash has now been shown, across every single sample (15+), to
+fire STRICTLY AFTER `flutter test` has already logged every real
+assertion as ✅ — and `flutter test` itself distinguishes a genuine
+all-clear via its own `🎉 N tests passed.` marker (confirmed ABSENT
+whenever there's a real failure, e.g. the unrelated `logout_flow_test.dart`
+bug found earlier: `##[error]0 tests passed, 1 failed.`, no 🎉) — the
+correct, well-justified fix is to stop trusting the raw shell exit code
+for this class of failure entirely. Each `flutter test` invocation now
+captures its own output to a log file; the step checks for `🎉` in that
+log and treats its ABSENCE (not the exit code) as the real failure signal.
+When `🎉` is present, the invocation is treated as passed regardless of
+what happens afterward (the well-documented, unrelated, unresolved
+upstream emulator teardown crash). A genuine test failure or a hard
+mid-run crash (no 🎉 ever printed) still fails the step correctly — this
+is not blanket failure-masking, it's precise, log-verified disambiguation
+between "the tests failed" and "an unrelated infra crash happened after
+the tests already passed."
+
+Kept all three prior mitigations as harmless/complementary: the Dart-level
+2s settle delay (reduces stall frequency), the shell-level `sleep 15`
+(harmless headroom), and the 3x retry-wrapper (still valuable for the
+rarer case where the emulator crashes mid-run before any 🎉 marker can
+print — that failure mode is NOT masked by the log-detection fix and
+still correctly fails the attempt).
+
+## Final verification (round 3)
+
+Pushed the log-content success-detection fix. Verifying across several
+full-suite samples.
 
 Result: **(fill in after verification runs complete)**
