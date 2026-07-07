@@ -254,11 +254,29 @@ abstract final class AppHarness {
 
   // ── Tear-down ─────────────────────────────────────────────────────────────
 
-  /// Resets [AppStartTime] to its pre-boot null state.
+  /// Resets [AppStartTime] to its pre-boot null state, then waits briefly
+  /// for the just-unmounted GL rendering surface to release host-side.
   ///
   /// Must be called in [tearDown] in every test file that uses [boot], so the
   /// splash-gate override does not leak into subsequent tests. Idempotent.
-  static void tearDownHarness() => AppStartTime.resetForTest();
+  ///
+  /// SETTLE DELAY (2026-07-07 — see docs/ci_investigation_notes.md in the
+  /// Beautifier monorepo for the full investigation). GitHub's headless CI
+  /// emulator (goldfish-opengl / swiftshader_indirect) crashes the WHOLE
+  /// emulator process (`Failed to find ColorBuffer` -> `adb: device
+  /// offline`, unrecoverable) when a 2nd+ [boot] starts immediately after
+  /// the previous test's own unmount. Confirmed by isolating flows down to
+  /// exactly one relaunch (always clean, 0 crashes) vs. two-or-more
+  /// back-to-back relaunches (crashed on every one of 9+ CI samples,
+  /// independent of flow content, API level 33/34, or test ordering) — the
+  /// crash fires specifically on the transition INTO the 2nd relaunch, not
+  /// on rendering itself. This pause gives the driver's async ColorBuffer
+  /// cleanup time to actually complete host-side before the next relaunch
+  /// allocates new buffers. `integration_test/`-only; no production effect.
+  static Future<void> tearDownHarness() async {
+    AppStartTime.resetForTest();
+    await Future<void>.delayed(const Duration(seconds: 2));
+  }
 
   // ── Convenience: drive the login flow to completion ───────────────────────
 
