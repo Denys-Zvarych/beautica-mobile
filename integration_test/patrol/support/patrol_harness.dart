@@ -86,7 +86,16 @@ abstract final class PatrolHarness {
   }
 
   /// Resets [AppStartTime] to its pre-boot null state. Call in tearDown.
-  static void tearDownHarness() => AppStartTime.resetForTest();
+  ///
+  /// Mirrors the same settle delay as `AppHarness.tearDownHarness` (see
+  /// docs/ci_investigation_notes.md in the Beautifier monorepo) — the
+  /// patrol job relaunches the app across native tests on the same
+  /// headless goldfish-opengl emulator, so it is exposed to the identical
+  /// `Failed to find ColorBuffer` -> `adb: device offline` crash class.
+  static Future<void> tearDownHarness() async {
+    AppStartTime.resetForTest();
+    await Future<void>.delayed(const Duration(seconds: 2));
+  }
 
   /// Drives the real login form for [role] and taps Submit (key-based).
   static Future<void> loginAs(

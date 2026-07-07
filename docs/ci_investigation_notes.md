@@ -326,4 +326,64 @@ Redoing the experiment with a flow/assertion known to be currently valid:
 relaunch, and this exact assertion has passed cleanly in every one of the
 9+ prior full-file samples before the 2nd relaunch's crash).
 
-Result: **(fill in after this corrected run completes)**
+### Result: CONFIRMED — a single relaunch passes completely clean
+
+Run 28851383664 (pull_request, commit 607af0a): `Integration tests
+(emulator)` job **passed** on attempt 1 (attempts 2/3 correctly skipped).
+The log shows the assertion `✅ INDEPENDENT_MASTER login navigates to
+/master/profile` followed immediately by `🎉 1 test passed.` — **zero**
+`Failed to find ColorBuffer` occurrences anywhere in the log, and no
+`adb: device offline` beyond the normal pre-boot `getprop
+sys.boot_completed` polling (expected/harmless, seen in every prior run
+too). This is the decisive result: a single relaunch is 100% clean; the
+crash requires a 2nd (or later) relaunch happening shortly after the
+previous one.
+
+## Root cause (final) and fix
+
+**Mechanism:** each `testWidgets` in the shared `AppHarness.boot()` /
+`tearDownHarness()` cycle unmounts the previous test's widget tree
+(disposing its rendering surface) and then almost immediately mounts a
+fresh one for the next test. On GitHub's headless CI emulator
+(goldfish-opengl driver, `swiftshader_indirect` software GPU), the
+previous surface's ColorBuffer handles are released **asynchronously**
+host-side; when the next relaunch allocates new buffers before that
+cleanup completes, the driver logs `Failed to find ColorBuffer: <N>` and,
+on this specific CI stack, this escalates into a full unrecoverable
+emulator crash (`adb: device offline`, `adb emu kill` itself can't
+connect) rather than a merely-cosmetic warning.
+
+**Fix:** added a 2-second settle delay in the ONE shared choke point every
+flow file already goes through — `AppHarness.tearDownHarness()`
+(`integration_test/support/app_harness.dart`) and its native-test
+counterpart `PatrolHarness.tearDownHarness()`
+(`integration_test/patrol/support/patrol_harness.dart`, mirrored
+preventatively — the patrol job relaunches the app on the identical
+headless emulator stack, though it wasn't the job actively failing
+tonight). Every one of the 21 flow files already calls
+`tearDown(AppHarness.tearDownHarness)`, so this is a single-file fix that
+covers the whole suite with no per-file edits. 2 seconds was chosen as a
+generous-but-cheap value: this only adds CI wall-clock (never ships to the
+app), and the goal is reliability over shaving a couple of seconds per
+relaunch.
+
+Kept the 3x retry-wrapper (commit 640008b) as defense-in-depth regardless
+— it's still a legitimate safety net for any residual flake, and its
+"Verify" gate step correctly fails the job if a real regression makes all
+3 attempts fail identically.
+
+Reverted the diagnostic script back to the real
+`all_tests_part1.dart`/`all_tests_part2.dart` two-file aggregator now that
+the investigation is complete.
+
+Also discovered and logged a genuine, unrelated pre-existing bug during
+this process: `docs/mobile-phases/mobile-backlog.md` (QA table, MEDIUM) —
+`logout_flow_test.dart`'s settings-hub menu navigation doesn't reach
+`/master/menu`. Left for separate triage; out of scope for this CI fix.
+
+## Final verification
+
+Pushed the settle-delay fix + reverted aggregator script. Verifying green
+across several full-suite samples before shipping.
+
+Result: **(fill in after verification runs complete)**
