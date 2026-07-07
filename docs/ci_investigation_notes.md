@@ -488,9 +488,40 @@ the invocation as passed, regardless of whether `🎉` ever got printed or
 what the process exit code was. See `.github/workflows/pr-validate.yml`
 for the corrected implementation and its inline comment.
 
-## Final verification (round 4)
+## Final verification (round 4) — FAILED, but NOT the detection logic
 
-Pushed the corrected exception-banner-based gate. Verifying across
-several full-suite samples.
+Dispatched samples with the exception-banner gate (commit e4e4915). Run
+28855827531 failed — but this time all 39 `✅` printed AND `🎉 1 test
+passed.` ALSO printed cleanly (the underlying test run was perfect). The
+VERY NEXT line — `if grep -q "EXCEPTION CAUGHT..." part1.log; then` —
+itself died with `##[error]The process '/usr/bin/sh' failed with exit
+code 2`. Exit code 2 from a shell is a syntax/usage error, not a grep
+"no match" (that's exit 1).
+
+**Root cause of the meta-bug:** `reactivecircus/android-emulator-runner`'s
+multi-line `script:` input executes each PHYSICAL LINE as its own
+separate `sh -c "<line>"` invocation (confirmed via the `[command]`
+markers in the log — each line gets its own entry). My multi-line
+`if / elif / else / fi` block was therefore being split across several
+independent, syntactically INCOMPLETE fragments (e.g. `if grep -q "..."
+part1.log; then` alone, with no matching `fi` in the same invocation) —
+guaranteed to error. Flat, single-line commands (the `flutter test ...`
+and `sleep 15` lines) never hit this because they were always
+self-contained on one line; only the compound control-flow block broke.
+
+**Fix:** collapsed each check into ONE single physical line using `;` and
+`{ ...; }` grouping instead of `if/then/elif/else/fi` — `grep -q "..." &&
+{ echo ...; exit 1; }; grep -q "✅" file || { echo ...; exit 1; }; echo
+"...passed"`. Verified locally against 3 synthetic log files (clean pass,
+real exception present, empty/crashed-before-any-test) — all three
+produce the correct echo + exit code under `sh` (not just `bash`,
+matching the runner's actual invocation shell). See
+`.github/workflows/pr-validate.yml` for the corrected one-line-per-check
+implementation.
+
+## Final verification (round 5)
+
+Pushed the single-line-per-check fix. Verifying across several full-suite
+samples.
 
 Result: **(fill in after verification runs complete)**

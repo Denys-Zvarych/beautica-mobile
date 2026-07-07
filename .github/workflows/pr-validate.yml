@@ -420,27 +420,11 @@ jobs:
           script: |
             flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
             cat part1.log
-            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log; then
-              echo "PART 1: FAILED — a real test assertion/exception was logged."
-              exit 1
-            elif ! grep -q "✅" part1.log; then
-              echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."
-              exit 1
-            else
-              echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-            fi
+            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             sleep 15
             flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
             cat part2.log
-            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log; then
-              echo "PART 2: FAILED — a real test assertion/exception was logged."
-              exit 1
-            elif ! grep -q "✅" part2.log; then
-              echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."
-              exit 1
-            else
-              echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-            fi
+            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
       - name: Run integration tests on emulator (attempt 2)
         id: it-attempt-2
@@ -456,27 +440,11 @@ jobs:
           script: |
             flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
             cat part1.log
-            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log; then
-              echo "PART 1: FAILED — a real test assertion/exception was logged."
-              exit 1
-            elif ! grep -q "✅" part1.log; then
-              echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."
-              exit 1
-            else
-              echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-            fi
+            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             sleep 15
             flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
             cat part2.log
-            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log; then
-              echo "PART 2: FAILED — a real test assertion/exception was logged."
-              exit 1
-            elif ! grep -q "✅" part2.log; then
-              echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."
-              exit 1
-            else
-              echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-            fi
+            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
       - name: Run integration tests on emulator (attempt 3)
         id: it-attempt-3
@@ -492,27 +460,11 @@ jobs:
           script: |
             flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
             cat part1.log
-            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log; then
-              echo "PART 1: FAILED — a real test assertion/exception was logged."
-              exit 1
-            elif ! grep -q "✅" part1.log; then
-              echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."
-              exit 1
-            else
-              echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-            fi
+            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
             sleep 15
             flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
             cat part2.log
-            if grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log; then
-              echo "PART 2: FAILED — a real test assertion/exception was logged."
-              exit 1
-            elif ! grep -q "✅" part2.log; then
-              echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."
-              exit 1
-            else
-              echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-            fi
+            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
       - name: Verify integration tests passed on some attempt
         if: always()
