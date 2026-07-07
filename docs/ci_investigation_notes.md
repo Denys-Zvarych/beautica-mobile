@@ -519,9 +519,46 @@ matching the runner's actual invocation shell). See
 `.github/workflows/pr-validate.yml` for the corrected one-line-per-check
 implementation.
 
-## Final verification (round 5)
+## Final verification (round 5) — the shell-syntax fix worked, exposed the real remaining gap
 
-Pushed the single-line-per-check fix. Verifying across several full-suite
-samples.
+Dispatched samples with the single-line-per-check fix (commit e2cfbde).
+The shell-syntax bug is CONFIRMED fixed: `PART 1: no test failures
+logged.` now prints correctly (matching a genuinely clean part1 run). But
+`PART 2` then fails every time with **"no test assertions logged at all"**
+— and the captured `part2.log` reveals why: `flutter test` itself prints
+`No supported devices connected.` The emulator is not just wedged, it is
+**genuinely, fully dead** by the time part2 tries to run (`flutter doctor`
+would show zero connected devices) — matching the very original
+2026-07-01 incident description ("adb emu kill" itself can't connect,
+confirmed across every round of this investigation).
+
+This reframes the whole picture: part1's crash doesn't just corrupt an
+adb *link* that self-heals — it kills the **emulator process itself**.
+Since part1 and part2 share ONE emulator boot in every round so far
+(sequential `flutter test` invocations inside one `script:`), once part1
+crashes, part2 can never succeed in that SAME attempt no matter how long
+you `sleep` — there is no device left. Retrying the WHOLE step (fresh
+boot) does give part1 a new chance, but part1 and part2 still share that
+SAME fresh boot within one attempt — so if part1 crashes again (which it
+does, very reliably, on the 1st→2nd relaunch), part2 dies again too, for
+the same reason, every attempt.
+
+## The actual fix (round 6): decouple part1 and part2 into independent emulator boots
+
+Restructured the job so `all_tests_part1.dart` and `all_tests_part2.dart`
+EACH get their own 3x-retry group with a fresh emulator boot per attempt,
+instead of sharing one boot with a `sleep` in between. This directly
+targets the confirmed mechanism: part1's crash (on this stack, apparently
+near-guaranteed given enough relaunches) has ZERO effect on part2's own,
+completely separate attempts. 6 possible emulator boots in the worst case
+(3 per part) instead of 3 — acceptable, CI time was never the constraint
+here. The final "Verify" step now checks each part's 3 attempts
+independently and only fails the job if EITHER part exhausts all 3
+attempts without a clean result. See `.github/workflows/pr-validate.yml`
+for the full 6-step (+ 1 verify) implementation.
+
+## Final verification (round 6)
+
+Pushed the decoupled-boot restructure. Verifying across several samples.
 
 Result: **(fill in after verification runs complete)**
