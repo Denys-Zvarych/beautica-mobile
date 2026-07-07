@@ -298,4 +298,32 @@ count." Temporarily swapped all 3 retry-attempt scripts to
 relaunch, confirmed via grep). Reverts to the real aggregator once this
 data point is in.
 
-Result: **(fill in after the run completes)**
+### Result: INVALIDATED — hit an unrelated pre-existing bug, not the crash
+
+Both runs (28850343173, 28850362560) failed, but NOT with the ColorBuffer/
+device-offline crash. All 3 retry attempts hit an identical, deterministic
+**test assertion failure**: `Expected: a string starting with
+'/master/menu', Actual: '/master/profile'` at
+`integration_test/logout_flow_test.dart:88` (tapping `btn-menu-master`
+does not navigate to the settings hub). This is a genuine, pre-existing
+bug/regression that was invisible until now — the aggregated
+`all_tests_part1.dart` run always crashed the emulator before or during
+this flow, so this failure never had a chance to surface. Logged to
+`docs/mobile-phases/mobile-backlog.md` (QA table, MEDIUM) for separate
+triage — out of scope for tonight's CI-crash investigation.
+
+Interestingly, `Failed to find ColorBuffer` STILL appeared in the log each
+time (right after the assertion failure), but this time it did NOT
+cascade into `adb: device offline` / emulator death — the test's own
+clean `tearDown` after the assertion failure seems to have avoided
+whatever race triggers the fatal cascade. This is itself a data point:
+the ColorBuffer message alone is not fatal; something about the SPECIFIC
+transition-into-relaunch timing turns it fatal.
+
+Redoing the experiment with a flow/assertion known to be currently valid:
+`flutter test integration_test/auth_login_flow_test.dart --plain-name
+"INDEPENDENT_MASTER"` — filters to run ONLY the first sub-test (a single
+relaunch, and this exact assertion has passed cleanly in every one of the
+9+ prior full-file samples before the 2nd relaunch's crash).
+
+Result: **(fill in after this corrected run completes)**

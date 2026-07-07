@@ -395,7 +395,7 @@ jobs:
           # its slow AOT compile no longer blocks every PR's critical path. This
           # fast debug pass stays per-PR.
           script: |
-            flutter test integration_test/logout_flow_test.dart
+            flutter test integration_test/auth_login_flow_test.dart --plain-name "INDEPENDENT_MASTER"
 
       - name: Run integration tests on emulator (attempt 2)
         id: it-attempt-2
@@ -409,7 +409,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           script: |
-            flutter test integration_test/logout_flow_test.dart
+            flutter test integration_test/auth_login_flow_test.dart --plain-name "INDEPENDENT_MASTER"
 
       - name: Run integration tests on emulator (attempt 3)
         id: it-attempt-3
@@ -423,7 +423,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           script: |
-            flutter test integration_test/logout_flow_test.dart
+            flutter test integration_test/auth_login_flow_test.dart --plain-name "INDEPENDENT_MASTER"
 
       - name: Verify integration tests passed on some attempt
         if: always()
