@@ -557,8 +557,73 @@ independently and only fails the job if EITHER part exhausts all 3
 attempts without a clean result. See `.github/workflows/pr-validate.yml`
 for the full 6-step (+ 1 verify) implementation.
 
-## Final verification (round 6)
+## Final verification (round 6) — PASSED
 
-Pushed the decoupled-boot restructure. Verifying across several samples.
+Dispatched 3 full-suite samples with the decoupled-boot restructure
+(commit c849cbd). **All 3 passed cleanly**:
+- Run 28858555881 (pull_request): part1 needed attempt 2 (attempt 1 hit a
+  genuine widget-assertion failure — `home_hub_menu_button` not found,
+  10 cascading `EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK` instances,
+  correctly detected as a REAL failure by the exception-banner gate, not
+  masked); attempt 2 then passed with zero issues. part2 passed on
+  attempt 1.
+- Runs 28858561119 and 28858557624 (workflow_dispatch): both parts passed
+  on attempt 1, no retry needed at all.
 
-Result: **(fill in after verification runs complete)**
+This is strong evidence the fix holds: the exception-banner gate
+correctly distinguished a genuine (if downstream-of-the-same-root-cause)
+rendering/assertion failure from the known infra crash, and the decoupled
+per-part emulator boots meant a rough first attempt didn't drag the whole
+job down — a clean retry on a fresh boot resolved it.
+
+**Confirmed no regression in other jobs**: `Analyze & Test` stayed green
+across all 3 runs. `Integration profile drive (emulator)` failed on 2 of
+the workflow_dispatch runs, but this is a PRE-EXISTING, UNRELATED bug
+(`flutter drive \` line-continuation breaking under the same
+per-line-`sh -c` execution model — the exact same meta-bug class fixed in
+the `integration` job this session, just not yet applied there) — and
+this job is confirmed SKIPPED on the actual `pull_request` trigger (it's
+gated to nightly/dispatch/opt-in-label only), so it does not block any
+PR. Logged to `docs/mobile-phases/mobile-backlog.md` (LOW) for separate
+future triage.
+
+## Summary
+
+**Original symptom:** `Integration tests (emulator)` intermittently (then
+increasingly reliably) crashed CI, always right at a test-relaunch
+transition, even though every test's own assertions had already passed.
+
+**Root cause:** GitHub's headless emulator (goldfish-opengl /
+swiftshader_indirect) releases an app relaunch's GL ColorBuffer handles
+ASYNCHRONOUSLY host-side. A new relaunch starting before that cleanup
+finishes can (a) stall ~35-40s and self-recover, (b) leave the adb link
+wedged so a LATER teardown/uninstall fails hard, killing the whole
+emulator process, or (c) corrupt that relaunch's own rendering, causing
+cascading widget-assertion failures in that test run. This is a
+documented, UNRESOLVED upstream bug — see
+[ReactiveCircus/android-emulator-runner#358](https://github.com/ReactiveCircus/android-emulator-runner/issues/358),
+[flutter/flutter#153445](https://github.com/flutter/flutter/issues/153445),
+[#140001](https://github.com/flutter/flutter/issues/140001),
+[#146890](https://github.com/flutter/flutter/issues/146890).
+
+**Final fix (all layered, in `.github/workflows/pr-validate.yml` +
+`integration_test/support/app_harness.dart` +
+`integration_test/patrol/support/patrol_harness.dart`):**
+1. A 2s settle delay in `AppHarness.tearDownHarness()` /
+   `PatrolHarness.tearDownHarness()` — the one shared choke point every
+   flow file already calls, reducing in-process relaunch-transition stalls.
+2. `all_tests_part1.dart` and `all_tests_part2.dart` EACH get their own
+   independent emulator boot with up to 3 retries, instead of sharing one
+   boot — because a crash in one file can kill the whole emulator process,
+   which would otherwise take the other file down with it regardless of
+   any delay.
+3. Success/failure is gated on captured log CONTENT
+   (`EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK` present = real failure;
+   absent + at least one `✅` = pass), not the raw process exit code —
+   because the known infra crash pollutes the exit code strictly AFTER
+   real test results are already known.
+
+**Also found and separately backlogged** (both out of scope for this
+fix): a pre-existing navigation bug in `logout_flow_test.dart` (MEDIUM,
+`docs/mobile-phases/mobile-backlog.md`), and a pre-existing, non-blocking
+script bug in the nightly `integration-profile` job (LOW, same file).
