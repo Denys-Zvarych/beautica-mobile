@@ -266,4 +266,36 @@ retry-wrapper implementation and its inline comment.
 Pushed the retry-wrapper + reverted script; dispatched runs to confirm at
 least one attempt goes green across a few samples before shipping.
 
-Result: **(fill in after verification runs complete)**
+### Result: retry mechanism works correctly, but does NOT dodge the crash
+
+Run 28849212719 (pull_request, commit 640008b): all 3 attempts ran (steps
+8/9/10), each with `continue-on-error: true` masking their real result as
+`conclusion: success`, but the "Verify" gate step (which checks the raw
+`outcome`, unaffected by continue-on-error) correctly detected that ALL
+THREE attempts had `outcome: failure` and failed the job as designed —
+the retry-wrapper mechanism itself is sound, it's just that 3 fresh
+emulator boots in a row all hit the identical crash.
+
+**9 consecutive CI samples now** (2 API34 + 2 API33 + 2 no-logcat-capture +
+3 retry attempts in one run), all with the identical signature. This is a
+much higher observed failure rate than the historical ~80% (i.e., the
+crash may be at or near 100% for the CURRENT codebase state — the
+historical rate might reflect an earlier, less-affected commit range).
+Naive retry-of-the-identical-script is therefore not, by itself, a
+sufficient fix right now.
+
+## Experiment 4 (single relaunch — does `logout_flow_test.dart` alone survive?)
+
+In every one of the 9 samples, the FIRST relaunch's own assertion always
+logs cleanly; `Failed to find ColorBuffer` fires specifically on the
+transition INTO the 2nd relaunch (never on the 1st). Testing whether a
+flow with exactly ONE relaunch (no 2nd) survives cleanly — this would
+confirm "back-to-back relaunches" specifically as the trigger (opening the
+door to a real code-level mitigation: a settle delay between relaunches)
+rather than "any rendering at all now crashes regardless of relaunch
+count." Temporarily swapped all 3 retry-attempt scripts to
+`flutter test integration_test/logout_flow_test.dart` (1 testWidgets/
+relaunch, confirmed via grep). Reverts to the real aggregator once this
+data point is in.
+
+Result: **(fill in after the run completes)**
