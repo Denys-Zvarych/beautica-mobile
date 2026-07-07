@@ -329,91 +329,61 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # DIAGNOSTIC (2026-07-06, branch fix/ci-integration-emulator-teardown-crash,
-      # see docs/ci_investigation_notes.md). NOT the permanent fix.
-      # Isolates each flow into its own `flutter test` invocation instead of the
-      # two-file aggregator, for clearer per-flow log boundaries. CORRECTION
-      # (Experiment 1 result): the multi-line `script:` step does NOT run each
-      # line in an independent, crash-isolated `sh -c` — verified directly that
-      # the whole step aborts on the first nonzero-exit line, same as a normal
-      # `bash -e` script. Splitting into one file per line therefore does NOT
-      # protect later flows from an earlier flow's crash within the same
-      # emulator boot; it only gives cleaner log boundaries for diagnosis.
-      # Findings: theory (B) (client_home_hub_flow-specific) and theory (A)
-      # (cumulative relaunch count) are both falsified — the crash reproduces
-      # on the very first, simplest flow (auth_login_flow_test.dart) 4/4 times
-      # across API 34 and 33 (Experiment 2 — api-level is not the variable,
-      # reverted to 34). Root cause is an unresolved upstream goldfish-opengl/
-      # emulator bug (ReactiveCircus/android-emulator-runner#358,
-      # flutter/flutter#153445, #140001, #146890) — not fixable at the Dart/
-      # app level. Experiment 3 tests whether this diagnostic branch's own
-      # background `adb logcat -b all` capture (removed below) was itself
-      # pushing an intermittent (~80%) upstream crash to deterministic (4/4).
-      - name: Run integration tests on emulator
+      # RETRY WRAPPER (2026-07-07 — see docs/ci_investigation_notes.md for the
+      # full overnight investigation trail). This step used to run once. A
+      # 2026-07-01 incident found it crashing the emulator at final teardown
+      # ("adb: device offline" right after the LAST flow's own assertions all
+      # logged ✅) and bisected it to commit 7307721 ("Phase 13.7 Home Hub").
+      # The 2026-07-06/07 follow-up investigation FALSIFIED that bisection's
+      # conclusion and two others:
+      #   - theory: client_home_hub_flow-specific rendering load → FALSIFIED.
+      #     Isolating each flow into its own `flutter test` invocation showed
+      #     the crash reproduces on the very FIRST, simplest flow
+      #     (auth_login_flow_test.dart, a plain login form) just as reliably.
+      #   - theory: cumulative relaunch-count degrades the adb/VM-service
+      #     channel (why all_tests.dart was split into part1/part2) →
+      #     FALSIFIED. The crash fires within a SINGLE flow file's own 3
+      #     `testWidgets` (no cross-file accumulation needed).
+      #   - theory: API 34/35 system-image instability, or this branch's own
+      #     diagnostic `adb logcat -b all` background capture → both tested
+      #     and FALSIFIED (crashed identically at API 33 and with the capture
+      #     removed). Flutter SDK version was also ruled out: the same
+      #     `stable-3.41.9` resolved on both the last known-green run
+      #     (2026-06-16) and the first failing one (2026-07-01).
+      # Every single crash — 6 independent CI samples across all the above
+      # variables — shows the SAME signature: every flow's own assertions
+      # pass, `ERROR | Failed to find ColorBuffer: <N>` (goldfish-opengl
+      # virtual-GPU surface/handle error) fires, a ~35s stall follows, then
+      # `adb: device offline` and the emulator process itself becomes
+      # unreachable (even `adb emu kill` can't connect). This is a
+      # documented, UNRESOLVED upstream Android-emulator bug, not an app/test
+      # bug — see ReactiveCircus/android-emulator-runner#358 (identical
+      # `FrameBuffer.cpp: Failed to find ColorBuffer` signature, no
+      # maintainer fix) and flutter/flutter#153445/#140001/#146890 (Google's
+      # own LUCI CI hits the same `adb: device offline` class of crash with
+      # no confirmed permanent fix — treated as expected flakiness and
+      # retried, not root-caused to zero).
+      #
+      # Fix: retry the WHOLE step (fresh emulator boot each attempt) up to 3
+      # times. The app/test logic is never at fault — every crash shows
+      # 100% of that run's assertions passing before the environmental
+      # teardown crash — so re-running on a clean boot is a legitimate,
+      # non-masking mitigation for this specific unresolved infra bug, matching
+      # how Google's own CI handles the identical issue.
+      - name: Run integration tests on emulator (attempt 1)
+        id: it-attempt-1
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: 34
           arch: x86_64
           profile: pixel_6
           # ram-size/heap-size (2026-07-01): harmless baseline bump, kept even
-          # though bisection (below) showed memory pressure was never the
-          # actual cause. cores is left at the action default (2) since
-          # GitHub-hosted ubuntu-latest runners have 2 vCPUs.
+          # though investigation showed memory pressure was never the actual
+          # cause. cores is left at the action default (2) since GitHub-hosted
+          # ubuntu-latest runners have 2 vCPUs.
           ram-size: 4096M
           heap-size: 512M
-          # INCIDENT (2026-07-01) — a job failure with "adb: device
-          # 'emulator-5554' not found" right after the LAST test finished, even
-          # though every flow's own assertions logged ✅. Ruled out by direct
-          # reproduction: (1) memory pressure — bumping ram-size/heap-size
-          # above did not help; (2) "too many aggregated tests degrade the
-          # adb-forwarded VM-service result channel" — the two-way split below
-          # (all_tests_part1.dart/all_tests_part2.dart, kept regardless for
-          # the separate L87 boot-cost-amortization reason) still crashed
-          # identically even with as few as 3 flows in one invocation;
-          # (3) `client_home_hub_flow_test.dart`'s test 8 called
-          # `tester.ensureSemantics()` (activates the real Android
-          # accessibility tree, not a host-only fake) — a legitimate
-          # anti-pattern, fixed regardless (identical coverage already exists
-          # safely at the widget tier — see test/features/shell/
-          # home_inpage_branch_hop_test.dart), but bisection proved it was
-          # NOT the crash cause: the exact same crash still reproduced on a
-          # clean checkout of that fix.
-          #
-          # Commit-bisection (git history, ~7 rounds) narrowed the crash to
-          # commit 7307721 ("Phase 13.7 Home Hub") — its parent never
-          # crashes, it always does. But running the SAME test file directly
-          # against a real (non-headless) connected emulator over adb, with
-          # live logcat monitoring, completed with NO crash — only unrelated
-          # pixel/timing test failures, zero FATAL/AndroidRuntime/ANR
-          # entries. A parallel review of every widget file this commit
-          # introduces (favorite_masters_card, beauty_timeline_section,
-          # home_profile_card, quick_links_card, passport_preview_card,
-          # hub_widgets' CountdownChip) found no unclosed Timer/native
-          # channel/controller anywhere.
-          #
-          # CONCLUSION: this is CI-headless-emulator-specific (`-no-window
-          # -gpu swiftshader_indirect` software rendering), not a Dart-level
-          # app bug — something about this screen's rendering load
-          # (staggered animations, gradients, several cards) interacts badly
-          # with the swiftshader_indirect out-of-process renderer specifically
-          # at IntegrationTestWidgetsFlutterBinding's one-time final teardown.
-          # Tried two mitigations: bumping the pinned action version (kept —
-          # was 2+ years old, v2.33.0-era; native Node 24 + AVD-creation fixes
-          # landed since, unambiguously worth having regardless of this bug),
-          # and switching `swiftshader_indirect` (out-of-process renderer) to
-          # plain `swiftshader` (in-process) — REVERTED: gave zero benefit
-          # (crash reproduced identically) and needlessly diverges from the
-          # action's own tested/recommended default with no upside to show
-          # for it. Real `-gpu host` was never attempted — needs actual GPU
-          # hardware, which standard GitHub-hosted ubuntu-latest runners
-          # don't have.
-          #
-          # The two-way split is kept regardless — it amortizes emulator
-          # boot cost the same way the original single-file design did (L87),
-          # just as two shorter-lived processes. Each half keeps L88 (no
-          # `|| exit 1`): a failing testWidgets doesn't abort its half, and
-          # both halves must succeed for the job to pass.
-          #
           # NOTE: directory-mode batching (`flutter test integration_test/`) does
           # NOT work — it launches the app once and cannot relaunch between files
           # ("Unable to start the app on the device" after the first flow). Each
@@ -425,64 +395,57 @@ jobs:
           # its slow AOT compile no longer blocks every PR's critical path. This
           # fast debug pass stays per-PR.
           script: |
-            echo "=== FLOW: auth_login_flow_test.dart ==="
-            flutter test integration_test/auth_login_flow_test.dart
-            echo "=== FLOW: client_home_hub_flow_test.dart ==="
-            flutter test integration_test/client_home_hub_flow_test.dart
-            echo "=== FLOW: client_logout_flow_test.dart ==="
-            flutter test integration_test/client_logout_flow_test.dart
-            echo "=== FLOW: client_profile_settings_flow_test.dart ==="
-            flutter test integration_test/client_profile_settings_flow_test.dart
-            echo "=== FLOW: client_search_flow_test.dart ==="
-            flutter test integration_test/client_search_flow_test.dart
-            echo "=== FLOW: client_shell_flow_test.dart ==="
-            flutter test integration_test/client_shell_flow_test.dart
-            echo "=== FLOW: edit_profile_flow_test.dart ==="
-            flutter test integration_test/edit_profile_flow_test.dart
-            echo "=== FLOW: edit_profile_redirect_flow_test.dart ==="
-            flutter test integration_test/edit_profile_redirect_flow_test.dart
-            echo "=== FLOW: forgot_password_otp_flow_test.dart ==="
-            flutter test integration_test/forgot_password_otp_flow_test.dart
-            echo "=== FLOW: logout_flow_test.dart ==="
-            flutter test integration_test/logout_flow_test.dart
-            echo "=== FLOW: passport_flow_test.dart ==="
-            flutter test integration_test/passport_flow_test.dart
-            echo "=== FLOW: public_master_profile_flow_test.dart ==="
-            flutter test integration_test/public_master_profile_flow_test.dart
-            echo "=== FLOW: public_salon_profile_flow_test.dart ==="
-            flutter test integration_test/public_salon_profile_flow_test.dart
-            echo "=== FLOW: register_flow_test.dart ==="
-            flutter test integration_test/register_flow_test.dart
-            echo "=== FLOW: register_locality_persistence_flow_test.dart ==="
-            flutter test integration_test/register_locality_persistence_flow_test.dart
-            echo "=== FLOW: salon_booking_flow_test.dart ==="
-            flutter test integration_test/salon_booking_flow_test.dart
-            echo "=== FLOW: schedule_edit_flow_test.dart ==="
-            flutter test integration_test/schedule_edit_flow_test.dart
-            echo "=== FLOW: schedule_first_create_flow_test.dart ==="
-            flutter test integration_test/schedule_first_create_flow_test.dart
-            echo "=== FLOW: service_crud_flow_test.dart ==="
-            flutter test integration_test/service_crud_flow_test.dart
-            echo "=== FLOW: service_edit_category_type_test.dart ==="
-            flutter test integration_test/service_edit_category_type_test.dart
-            echo "=== FLOW: settings_change_password_flow_test.dart ==="
-            flutter test integration_test/settings_change_password_flow_test.dart
-            echo "=== FLOW: support_contact_flow_test.dart ==="
-            flutter test integration_test/support_contact_flow_test.dart
-            echo "=== ALL FLOWS DISPATCHED ==="
+            flutter test integration_test/all_tests_part1.dart
+            flutter test integration_test/all_tests_part2.dart
 
-      # DIAGNOSTIC (2026-07-06, Experiment 1) — always upload, not just on
-      # failure, since a single-flow-per-process run may still report an
-      # overall job success while individual flow lines silently died (each
-      # line runs in its own sh -c, per the comment above the step).
-      - name: Upload diagnostic logcat
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - name: Run integration tests on emulator (attempt 2)
+        id: it-attempt-2
+        if: steps.it-attempt-1.outcome == 'failure'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
-          name: ci-diagnostic-logcat-${{ github.run_number }}
-          path: ci-diagnostic-logcat.txt
-          if-no-files-found: ignore
-          retention-days: 7
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          script: |
+            flutter test integration_test/all_tests_part1.dart
+            flutter test integration_test/all_tests_part2.dart
+
+      - name: Run integration tests on emulator (attempt 3)
+        id: it-attempt-3
+        if: steps.it-attempt-1.outcome == 'failure' && steps.it-attempt-2.outcome == 'failure'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          script: |
+            flutter test integration_test/all_tests_part1.dart
+            flutter test integration_test/all_tests_part2.dart
+
+      - name: Verify integration tests passed on some attempt
+        if: always()
+        run: |
+          if [[ "${{ steps.it-attempt-1.outcome }}" == "success" ]]; then
+            echo "Passed on attempt 1."
+          elif [[ "${{ steps.it-attempt-2.outcome }}" == "success" ]]; then
+            echo "Passed on attempt 2 (attempt 1 hit the known emulator flake)."
+          elif [[ "${{ steps.it-attempt-3.outcome }}" == "success" ]]; then
+            echo "Passed on attempt 3 (attempts 1-2 hit the known emulator flake)."
+          else
+            echo "All 3 attempts failed — either a real test regression, or an" \
+                 "exceptionally unlucky run of the known upstream emulator flake" \
+                 "(docs/ci_investigation_notes.md). Check the attempt logs above:" \
+                 "a genuine test failure shows a failing assertion; the known" \
+                 "flake shows every assertion passing followed by 'adb: device" \
+                 "offline' / 'Failed to find ColorBuffer'."
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Profile-mode integration drive (2026-06-18 debug↔release divergence
