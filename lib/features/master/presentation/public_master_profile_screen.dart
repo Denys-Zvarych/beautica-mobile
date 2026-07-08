@@ -299,19 +299,18 @@ class _PublicProfileBody extends StatelessWidget {
                         softWrap: true,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (master.professionalTitle != null &&
-                          master.professionalTitle!.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 2),
-                        Text(
-                          master.professionalTitle!,
-                          key: const Key(
-                            'public-master-profile-professional-title',
-                          ),
-                          style: _professionalTitleStyle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                      const SizedBox(height: VelvetSpacing.xs + 2),
+                      RoleChip(
+                        key: (master.professionalTitle?.isNotEmpty == true)
+                            ? const Key(
+                                'public-master-profile-professional-title',
+                              )
+                            : null,
+                        label: (master.professionalTitle?.isNotEmpty == true)
+                            ? master.professionalTitle!
+                            : roleLabel,
+                        icon: Icons.auto_awesome_rounded,
+                      ),
                       if (hasReviews) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs + 2),
                         Row(
@@ -338,14 +337,6 @@ class _PublicProfileBody extends StatelessWidget {
                               ),
                             ),
                           ],
-                        ),
-                      ],
-                      if (master.professionalTitle == null ||
-                          master.professionalTitle!.isEmpty) ...<Widget>[
-                        const SizedBox(height: VelvetSpacing.xs + 2),
-                        RoleChip(
-                          label: roleLabel,
-                          icon: Icons.auto_awesome_rounded,
                         ),
                       ],
                       if (locationLine != null) ...<Widget>[
@@ -559,11 +550,6 @@ class _PublicProfileBody extends StatelessWidget {
       ],
     );
   }
-
-  // Hoisted to avoid per-frame TextStyle allocation during the 1100ms entrance
-  // animation (~66 builds). Mirrors the same fix in _ProfileBody.
-  static final TextStyle _professionalTitleStyle = VelvetText.feedbackMutedSm
-      .copyWith(color: BrandColors.accent, fontStyle: FontStyle.italic);
 
   // Cached inline rating style for the identity card (avoid per-build copyWith).
   static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong().copyWith(

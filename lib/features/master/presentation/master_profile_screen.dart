@@ -303,11 +303,6 @@ class _ProfileBody extends StatelessWidget {
   final Animation<Offset> slide4;
   final Animation<Offset> slide5;
 
-  // Hoisted to avoid per-frame TextStyle allocation during the 1100ms entrance
-  // animation (~66 builds). Same pattern as _cardStyle / _ratingInlineStyle.
-  static final TextStyle _professionalTitleStyle = VelvetText.feedbackMutedSm
-      .copyWith(color: BrandColors.accent, fontStyle: FontStyle.italic);
-
   /// Wraps [child] in a staggered fade-up animation.
   ///
   /// [fadeAnim] drives opacity; [slideAnim] drives the vertical offset.
@@ -379,25 +374,16 @@ class _ProfileBody extends StatelessWidget {
                         softWrap: true,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (master.professionalTitle != null &&
-                          master.professionalTitle!.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 2),
-                        Text(
-                          master.professionalTitle!,
-                          key: const Key('master-profile-professional-title'),
-                          style: _professionalTitleStyle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                      if (master.professionalTitle == null ||
-                          master.professionalTitle!.isEmpty) ...<Widget>[
-                        const SizedBox(height: VelvetSpacing.xs + 2),
-                        RoleChip(
-                          label: roleLabel,
-                          icon: Icons.auto_awesome_rounded,
-                        ),
-                      ],
+                      const SizedBox(height: VelvetSpacing.xs + 2),
+                      RoleChip(
+                        key: (master.professionalTitle?.isNotEmpty == true)
+                            ? const Key('master-profile-professional-title')
+                            : null,
+                        label: (master.professionalTitle?.isNotEmpty == true)
+                            ? master.professionalTitle!
+                            : roleLabel,
+                        icon: Icons.auto_awesome_rounded,
+                      ),
                       if (locationLine != null) ...[
                         const SizedBox(height: VelvetSpacing.xs),
                         // Location row: icon + combined address string.

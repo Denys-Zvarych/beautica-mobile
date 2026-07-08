@@ -619,65 +619,71 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // RoleChip visibility regression — the chip was rendered unconditionally
-  // even when master.professionalTitle was set. The fix wraps the chip + its
-  // SizedBox spacer in:
-  //   if (master.professionalTitle == null || master.professionalTitle!.isEmpty)
-  //
-  // These tests would have FAILED before the fix. They guard against the chip
-  // reappearing alongside a set title in future refactors of the identity card.
+  // RoleChip label-switching — the chip is now unconditional. When
+  // professionalTitle is set it carries the key and shows the title as its
+  // label; when null/empty the key is absent and it shows the role label.
   // ──────────────────────────────────────────────────────────────────────────
-  group('RoleChip visibility — hides when professionalTitle is set', () {
-    testWidgets('hides the RoleChip when professionalTitle is set', (
-      tester,
-    ) async {
-      final Master masterWithTitle = _stubMaster.copyWith(
-        professionalTitle: 'Стиліст',
+  group(
+    'RoleChip visibility — label switches between professionalTitle and role label',
+    () {
+      testWidgets(
+        'shows professionalTitle text inside RoleChip when professionalTitle is set',
+        (tester) async {
+          final Master masterWithTitle = _stubMaster.copyWith(
+            professionalTitle: 'Стиліст',
+          );
+
+          await tester.pumpApp(
+            const PublicMasterProfileScreen(masterId: _kMasterId),
+            overrides: _overrides((ref) => (masterWithTitle, _stubServices)),
+          );
+          await tester.pumpAndSettle();
+
+          // The chip carries the professional-title key when professionalTitle is set.
+          expect(
+            find.byKey(const Key('public-master-profile-professional-title')),
+            findsOneWidget,
+          );
+          // The chip is always present (unconditional).
+          expect(find.byType(RoleChip), findsOneWidget);
+          // The title text is rendered inside the chip, not as a standalone Text.
+          expect(
+            find.descendant(
+              of: find.byType(RoleChip),
+              matching: find.text('Стиліст'),
+            ),
+            findsOneWidget,
+            reason:
+                'professionalTitle text must be shown inside RoleChip as its label, '
+                'not as a separate Text widget outside the chip',
+          );
+        },
       );
 
-      await tester.pumpApp(
-        const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: _overrides((ref) => (masterWithTitle, _stubServices)),
-      );
-      await tester.pumpAndSettle();
+      testWidgets('shows the RoleChip when professionalTitle is null', (
+        tester,
+      ) async {
+        // _stubMaster has no professionalTitle (null) — RoleChip shows the role label.
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => _stubData),
+        );
+        await tester.pumpAndSettle();
 
-      // The professional-title widget is rendered in place of the chip.
-      expect(
-        find.byKey(const Key('public-master-profile-professional-title')),
-        findsOneWidget,
-      );
-      // RoleChip must NOT co-exist with a non-empty professionalTitle.
-      expect(
-        find.byType(RoleChip),
-        findsNothing,
-        reason:
-            'RoleChip must be absent when master.professionalTitle is non-null '
-            'and non-empty — regression pin for the unconditional-chip bug',
-      );
-    });
-
-    testWidgets('shows the RoleChip when professionalTitle is null', (
-      tester,
-    ) async {
-      // _stubMaster has no professionalTitle (null) — RoleChip is the fallback.
-      await tester.pumpApp(
-        const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: _overrides((ref) => _stubData),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const Key('public-master-profile-professional-title')),
-        findsNothing,
-      );
-      // RoleChip must appear as the role indicator when no title is set.
-      expect(
-        find.byType(RoleChip),
-        findsOneWidget,
-        reason:
-            'RoleChip must be present when master.professionalTitle is null — '
-            'it is the fallback role indicator shown when no title is set',
-      );
-    });
-  });
+        // The title key is null when showing the role label — so absent from the tree.
+        expect(
+          find.byKey(const Key('public-master-profile-professional-title')),
+          findsNothing,
+        );
+        // The RoleChip is always present (unconditional).
+        expect(
+          find.byType(RoleChip),
+          findsOneWidget,
+          reason:
+              'RoleChip is always rendered — when professionalTitle is null it shows '
+              'the master-type role label instead',
+        );
+      });
+    },
+  );
 }
