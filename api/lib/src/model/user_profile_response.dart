@@ -28,6 +28,7 @@ part 'user_profile_response.g.dart';
 /// * [locationNote]
 /// * [bio]
 /// * [instagram]
+/// * [professionalTitle]
 /// * [isActive]
 /// * [emailVerified]
 /// * [salonId]
@@ -84,6 +85,9 @@ abstract class UserProfileResponse
 
   @BuiltValueField(wireName: r'instagram')
   String? get instagram;
+
+  @BuiltValueField(wireName: r'professionalTitle')
+  String? get professionalTitle;
 
   @BuiltValueField(wireName: r'isActive')
   bool? get isActive;
@@ -239,6 +243,13 @@ class _$UserProfileResponseSerializer
       yield r'instagram';
       yield serializers.serialize(
         object.instagram,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.professionalTitle != null) {
+      yield r'professionalTitle';
+      yield serializers.serialize(
+        object.professionalTitle,
         specifiedType: const FullType(String),
       );
     }
@@ -406,6 +417,13 @@ class _$UserProfileResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.instagram = valueDes;
+          break;
+        case r'professionalTitle':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.professionalTitle = valueDes;
           break;
         case r'isActive':
           final valueDes = serializers.deserialize(

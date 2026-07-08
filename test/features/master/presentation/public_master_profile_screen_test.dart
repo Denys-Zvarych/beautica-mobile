@@ -519,6 +519,53 @@ void main() {
     );
   });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // professionalTitle display — rendered only when the field is non-null and
+  // non-empty; absent when null. Regression pin for the new headline field.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('professionalTitle display', () {
+    testWidgets('renders the professionalTitle below the master name when set', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final Master masterWithTitle = _stubMaster.copyWith(
+        professionalTitle: 'Колорист-стиліст',
+      );
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (masterWithTitle, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('public-master-profile-professional-title')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'does NOT render the professional-title widget when professionalTitle is null',
+      (tester) async {
+        // _stubMaster has no professionalTitle (null by default).
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => _stubData),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-professional-title')),
+          findsNothing,
+        );
+      },
+    );
+  });
+
   group('instagram contact tile — launch behaviour', () {
     late _MockUrlLauncher launcher;
     late UrlLauncherPlatform originalPlatform;

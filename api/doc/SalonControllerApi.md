@@ -15,6 +15,8 @@ Method | HTTP request | Description
 [**getOwnedSalons**](SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
 [**getSalon**](SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
 [**inviteMaster**](SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
+[**removeAdmin**](SalonControllerApi.md#removeadmin) | **DELETE** /api/v1/salons/{salonId}/admins/{userId} | 
+[**rotateAdmin**](SalonControllerApi.md#rotateadmin) | **PATCH** /api/v1/salons/{salonId}/admins/{userId}/salon | 
 [**updateSalon**](SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
 
 
@@ -251,6 +253,93 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponseInviteResponse**](ApiResponseInviteResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **removeAdmin**
+> removeAdmin(salonId, userId)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getSalonControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String userId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    api.removeAdmin(salonId, userId);
+} catch on DioException (e) {
+    print('Exception when calling SalonControllerApi->removeAdmin: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **userId** | **String**|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **rotateAdmin**
+> ApiResponseSalonAdminResponse rotateAdmin(salonId, userId, rotateAdminRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getSalonControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String userId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final RotateAdminRequest rotateAdminRequest = ; // RotateAdminRequest | 
+
+try {
+    final response = api.rotateAdmin(salonId, userId, rotateAdminRequest);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling SalonControllerApi->rotateAdmin: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **userId** | **String**|  | 
+ **rotateAdminRequest** | [**RotateAdminRequest**](RotateAdminRequest.md)|  | 
+
+### Return type
+
+[**ApiResponseSalonAdminResponse**](ApiResponseSalonAdminResponse.md)
 
 ### Authorization
 

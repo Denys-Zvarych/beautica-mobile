@@ -1617,6 +1617,71 @@ void main() {
       },
     );
   });
+
+  // ── professionalTitle rendering (feat/provider-professional-title) ─────────
+
+  group('professionalTitle rendering', () {
+    testWidgets(
+      'renders the professionalTitle below the master name when set',
+      (tester) async {
+        const masterWithTitle = Master(
+          id: 'user-1',
+          firstName: 'Тест',
+          lastName: 'Майстер',
+          professionalTitle: 'Майстер манікюру',
+          avgRating: 4.8,
+          reviewCount: 10,
+          type: MasterType.independentMaster,
+        );
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(masterWithTitle),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-profile-professional-title')),
+          findsOneWidget,
+          reason:
+              'the professional-title widget must be present in the tree when '
+              'Master.professionalTitle is non-null and non-empty',
+        );
+        expect(find.text('Майстер манікюру'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'does NOT render the professional-title widget when professionalTitle '
+      'is null',
+      (tester) async {
+        // _stubMaster has no professionalTitle (null by default).
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-profile-professional-title')),
+          findsNothing,
+          reason:
+              'the professional-title widget must be absent when '
+              'Master.professionalTitle is null',
+        );
+        // The name row must still be present.
+        expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
+      },
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------

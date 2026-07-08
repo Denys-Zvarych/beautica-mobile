@@ -3968,5 +3968,18 @@
       "scheduled": { "type": "int", "example": "1" },
       "total": { "type": "int", "example": "3" }
     }
+  },
+
+  "professionalTitleLabel": "Професійне звання",
+  "@professionalTitleLabel": {
+    "description": "Field label above the professional title input on the master edit screen."
+  },
+  "professionalTitleHint": "напр. «Майстер манікюру»",
+  "@professionalTitleHint": {
+    "description": "Hint text inside the professional title field on the master edit screen."
+  },
+  "professionalTitleMaxLength": "Не більше 100 символів",
+  "@professionalTitleMaxLength": {
+    "description": "Helper / counter note below the professional title field on the master edit screen."
   }
 }

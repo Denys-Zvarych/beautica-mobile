@@ -21,6 +21,7 @@ final class MasterUpdate {
     required this.bio,
     required this.contactPhone,
     required this.instagram,
+    required this.professionalTitle,
   });
 
   /// Master's given name.
@@ -38,4 +39,8 @@ final class MasterUpdate {
 
   /// Optional Instagram handle (without `@`). Empty string means "clear it".
   final String instagram;
+
+  /// Optional professional title (e.g. "Майстер манікюру"). Max 100 chars.
+  /// Empty string means "clear it" — same semantics as [bio] and [instagram].
+  final String professionalTitle;
 }

@@ -11,6 +11,7 @@ Name | Type | Description | Notes
 **masterId** | **String** |  | [optional] 
 **firstName** | **String** |  | [optional] 
 **lastName** | **String** |  | [optional] 
+**professionalTitle** | **String** |  | [optional] 
 **avatarUrl** | **String** |  | [optional] 
 **avgRating** | **num** |  | [optional] 
 **reviewCount** | **int** |  | [optional] 

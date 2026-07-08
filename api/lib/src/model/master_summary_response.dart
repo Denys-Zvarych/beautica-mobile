@@ -15,6 +15,7 @@ part 'master_summary_response.g.dart';
 /// * [masterId]
 /// * [firstName]
 /// * [lastName]
+/// * [professionalTitle]
 /// * [avatarUrl]
 /// * [avgRating]
 /// * [reviewCount]
@@ -30,6 +31,9 @@ abstract class MasterSummaryResponse
 
   @BuiltValueField(wireName: r'lastName')
   String? get lastName;
+
+  @BuiltValueField(wireName: r'professionalTitle')
+  String? get professionalTitle;
 
   @BuiltValueField(wireName: r'avatarUrl')
   String? get avatarUrl;
@@ -91,6 +95,13 @@ class _$MasterSummaryResponseSerializer
       yield r'lastName';
       yield serializers.serialize(
         object.lastName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.professionalTitle != null) {
+      yield r'professionalTitle';
+      yield serializers.serialize(
+        object.professionalTitle,
         specifiedType: const FullType(String),
       );
     }
@@ -167,6 +178,13 @@ class _$MasterSummaryResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.lastName = valueDes;
+          break;
+        case r'professionalTitle':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.professionalTitle = valueDes;
           break;
         case r'avatarUrl':
           final valueDes = serializers.deserialize(

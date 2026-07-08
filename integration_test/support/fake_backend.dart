@@ -208,6 +208,12 @@ final class FakeBackend {
   String? masterPhone = '+380501111111';
   String? masterInstagram = '@olena_nails';
 
+  /// Optional professional title returned by `GET /masters/me` and mutated
+  /// by `PATCH /independent-masters/me/profile`. Starts null so flows that
+  /// do not exercise this field see a clean seed. Set it to a non-null string
+  /// BEFORE [_wire] if you need the initial profile to carry a title.
+  String? masterProfessionalTitle;
+
   // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
   //
   // The CLIENT `GET /users/me` echoes these mutable fields so a save made by the
@@ -862,6 +868,11 @@ final class FakeBackend {
     'bio': masterBio,
     'phoneNumber': masterPhone,
     'instagram': masterInstagram,
+    // professionalTitle is optional — null is valid (omitted from the
+    // ApiResponse.data when the master has not set one). Include only when
+    // set so flows that do not exercise this field see a clean seed.
+    if (masterProfessionalTitle != null)
+      'professionalTitle': masterProfessionalTitle,
     'avgRating': 4.8,
     'reviewCount': 10,
     'masterType': 'INDEPENDENT_MASTER',
@@ -1897,6 +1908,13 @@ final class FakeBackend {
         if (body['bio'] is String) masterBio = body['bio'] as String;
         masterInstagram = body['instagram'] as String?;
         masterPhone = body['phoneNumber'] as String?;
+        // professionalTitle: '' means "clear it" (null on next GET); a non-empty
+        // value updates the stored title.
+        if (body.containsKey('professionalTitle')) {
+          final raw = body['professionalTitle'];
+          masterProfessionalTitle =
+              (raw is String && raw.isNotEmpty) ? raw : null;
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),

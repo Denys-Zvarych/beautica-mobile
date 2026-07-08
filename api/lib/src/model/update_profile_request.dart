@@ -20,6 +20,7 @@ part 'update_profile_request.g.dart';
 /// * [buildingNo]
 /// * [locationNote]
 /// * [instagram]
+/// * [professionalTitle]
 @BuiltValue()
 abstract class UpdateProfileRequest
     implements Built<UpdateProfileRequest, UpdateProfileRequestBuilder> {
@@ -49,6 +50,9 @@ abstract class UpdateProfileRequest
 
   @BuiltValueField(wireName: r'instagram')
   String? get instagram;
+
+  @BuiltValueField(wireName: r'professionalTitle')
+  String? get professionalTitle;
 
   UpdateProfileRequest._();
 
@@ -142,6 +146,13 @@ class _$UpdateProfileRequestSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.professionalTitle != null) {
+      yield r'professionalTitle';
+      yield serializers.serialize(
+        object.professionalTitle,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -229,6 +240,13 @@ class _$UpdateProfileRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.instagram = valueDes;
+          break;
+        case r'professionalTitle':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.professionalTitle = valueDes;
           break;
         default:
           unhandled.add(key);

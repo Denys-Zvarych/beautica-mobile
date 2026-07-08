@@ -18,6 +18,7 @@ Name | Type | Description | Notes
 **locationNote** | **String** |  | [optional] 
 **bio** | **String** |  | [optional] 
 **instagram** | **String** |  | [optional] 
+**professionalTitle** | **String** |  | [optional] 
 **avatarUrl** | **String** |  | [optional] 
 **avgRating** | **num** |  | [optional] 
 **reviewCount** | **int** |  | [optional] 

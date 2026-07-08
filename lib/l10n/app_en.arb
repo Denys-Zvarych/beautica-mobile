@@ -3823,5 +3823,18 @@
       "scheduled": { "type": "int", "example": "1" },
       "total": { "type": "int", "example": "3" }
     }
+  },
+
+  "professionalTitleLabel": "Professional title",
+  "@professionalTitleLabel": {
+    "description": "Field label above the professional title input on the master edit screen."
+  },
+  "professionalTitleHint": "e.g. «Nail master»",
+  "@professionalTitleHint": {
+    "description": "Hint text inside the professional title field on the master edit screen."
+  },
+  "professionalTitleMaxLength": "Max 100 characters",
+  "@professionalTitleMaxLength": {
+    "description": "Helper / counter note below the professional title field on the master edit screen."
   }
 }

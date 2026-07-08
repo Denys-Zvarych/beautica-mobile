@@ -611,6 +611,7 @@ void main() {
           bio: '',
           contactPhone: '',
           instagram: '',
+          professionalTitle: '',
         ),
       );
 
@@ -646,6 +647,7 @@ void main() {
           bio: '',
           contactPhone: '+380501111111',
           instagram: '',
+          professionalTitle: '',
         ),
       );
 
@@ -693,6 +695,7 @@ void main() {
           bio: '',
           contactPhone: '   ',
           instagram: '',
+          professionalTitle: '',
         ),
       );
 
@@ -730,6 +733,7 @@ void main() {
           bio: '',
           contactPhone: '',
           instagram: '@beauty_ua',
+          professionalTitle: '',
         ),
       );
 
@@ -771,6 +775,7 @@ void main() {
           bio: '',
           contactPhone: '',
           instagram: '',
+          professionalTitle: '',
         ),
       );
 
@@ -808,6 +813,139 @@ void main() {
       );
     });
 
+    // ── G — professionalTitle always present in body (never omitted) ──────────
+    //
+    // Backend contract: professionalTitle is a clear-on-empty field (same
+    // semantics as bio / instagram). An empty string clears it server-side;
+    // omitting the key leaves the stale value intact. The repository must
+    // ALWAYS include the key, with '' when the user cleared the title.
+
+    test(
+      'includes professionalTitle as empty string when cleared (key present)',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => _okProfileEnvelope());
+
+        await repository.updateMyProfile(
+          const MasterUpdate(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            bio: '',
+            contactPhone: '',
+            instagram: '',
+            professionalTitle: '',
+          ),
+        );
+
+        final captured =
+            verify(
+                  () => dio.patch<Map<String, dynamic>>(
+                    _profilePatchPath,
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+
+        expect(
+          captured.containsKey('professionalTitle'),
+          isTrue,
+          reason:
+              'professionalTitle key must always be present so a clear persists '
+              'server-side',
+        );
+        expect(
+          captured['professionalTitle'],
+          '',
+          reason:
+              'cleared professionalTitle must be sent as an empty string, not '
+              'omitted',
+        );
+      },
+    );
+
+    test(
+      'forwards a non-empty professionalTitle value to the request body',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => _okProfileEnvelope());
+
+        await repository.updateMyProfile(
+          const MasterUpdate(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            bio: '',
+            contactPhone: '',
+            instagram: '',
+            professionalTitle: 'Майстер манікюру',
+          ),
+        );
+
+        final captured =
+            verify(
+                  () => dio.patch<Map<String, dynamic>>(
+                    _profilePatchPath,
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+
+        expect(
+          captured['professionalTitle'],
+          'Майстер манікюру',
+          reason:
+              'professionalTitle value must be forwarded to the request body',
+        );
+      },
+    );
+
+    test(
+      'trims whitespace-only professionalTitle to empty string before sending',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => _okProfileEnvelope());
+
+        await repository.updateMyProfile(
+          const MasterUpdate(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            bio: '',
+            contactPhone: '',
+            instagram: '',
+            professionalTitle: '   ',
+          ),
+        );
+
+        final captured =
+            verify(
+                  () => dio.patch<Map<String, dynamic>>(
+                    _profilePatchPath,
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+
+        expect(
+          captured['professionalTitle'],
+          '',
+          reason:
+              'whitespace-only professionalTitle must be trimmed to empty string '
+              'before sending (it clears the field server-side)',
+        );
+      },
+    );
+
     // ── F2 — whitespace-only bio / instagram are trimmed to '' and sent ──────
 
     test('trims whitespace-only bio / instagram to empty string', () async {
@@ -825,6 +963,7 @@ void main() {
           bio: '   ',
           contactPhone: '',
           instagram: '   ',
+          professionalTitle: '',
         ),
       );
 
@@ -864,6 +1003,7 @@ void main() {
             bio: '',
             contactPhone: '',
             instagram: '',
+            professionalTitle: '',
           ),
         ),
         throwsA(isA<NetworkFailure>()),
@@ -887,6 +1027,7 @@ void main() {
     bio: '',
     contactPhone: '',
     instagram: '',
+    professionalTitle: '',
   );
 
   group('updateMyProfile — totality + bounded retry', () {

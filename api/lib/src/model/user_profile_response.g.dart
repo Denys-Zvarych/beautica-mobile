@@ -42,6 +42,8 @@ class _$UserProfileResponse extends UserProfileResponse {
   @override
   final String? instagram;
   @override
+  final String? professionalTitle;
+  @override
   final bool? isActive;
   @override
   final bool? emailVerified;
@@ -70,6 +72,7 @@ class _$UserProfileResponse extends UserProfileResponse {
       this.locationNote,
       this.bio,
       this.instagram,
+      this.professionalTitle,
       this.isActive,
       this.emailVerified,
       this.salonId})
@@ -104,6 +107,7 @@ class _$UserProfileResponse extends UserProfileResponse {
         locationNote == other.locationNote &&
         bio == other.bio &&
         instagram == other.instagram &&
+        professionalTitle == other.professionalTitle &&
         isActive == other.isActive &&
         emailVerified == other.emailVerified &&
         salonId == other.salonId;
@@ -129,6 +133,7 @@ class _$UserProfileResponse extends UserProfileResponse {
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, bio.hashCode);
     _$hash = $jc(_$hash, instagram.hashCode);
+    _$hash = $jc(_$hash, professionalTitle.hashCode);
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, emailVerified.hashCode);
     _$hash = $jc(_$hash, salonId.hashCode);
@@ -156,6 +161,7 @@ class _$UserProfileResponse extends UserProfileResponse {
           ..add('locationNote', locationNote)
           ..add('bio', bio)
           ..add('instagram', instagram)
+          ..add('professionalTitle', professionalTitle)
           ..add('isActive', isActive)
           ..add('emailVerified', emailVerified)
           ..add('salonId', salonId))
@@ -235,6 +241,11 @@ class UserProfileResponseBuilder
   String? get instagram => _$this._instagram;
   set instagram(String? instagram) => _$this._instagram = instagram;
 
+  String? _professionalTitle;
+  String? get professionalTitle => _$this._professionalTitle;
+  set professionalTitle(String? professionalTitle) =>
+      _$this._professionalTitle = professionalTitle;
+
   bool? _isActive;
   bool? get isActive => _$this._isActive;
   set isActive(bool? isActive) => _$this._isActive = isActive;
@@ -272,6 +283,7 @@ class UserProfileResponseBuilder
       _locationNote = $v.locationNote;
       _bio = $v.bio;
       _instagram = $v.instagram;
+      _professionalTitle = $v.professionalTitle;
       _isActive = $v.isActive;
       _emailVerified = $v.emailVerified;
       _salonId = $v.salonId;
@@ -313,6 +325,7 @@ class UserProfileResponseBuilder
           locationNote: locationNote,
           bio: bio,
           instagram: instagram,
+          professionalTitle: professionalTitle,
           isActive: isActive,
           emailVerified: emailVerified,
           salonId: salonId,

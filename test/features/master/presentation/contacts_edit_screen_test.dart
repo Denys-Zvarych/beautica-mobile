@@ -112,6 +112,7 @@ void main() {
         bio: '',
         contactPhone: '',
         instagram: '',
+        professionalTitle: '',
       ),
     );
   });

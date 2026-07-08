@@ -25,6 +25,8 @@ class _$UpdateProfileRequest extends UpdateProfileRequest {
   final String? locationNote;
   @override
   final String? instagram;
+  @override
+  final String? professionalTitle;
 
   factory _$UpdateProfileRequest(
           [void Function(UpdateProfileRequestBuilder)? updates]) =>
@@ -39,7 +41,8 @@ class _$UpdateProfileRequest extends UpdateProfileRequest {
       this.street,
       this.buildingNo,
       this.locationNote,
-      this.instagram})
+      this.instagram,
+      this.professionalTitle})
       : super._();
   @override
   UpdateProfileRequest rebuild(
@@ -62,7 +65,8 @@ class _$UpdateProfileRequest extends UpdateProfileRequest {
         street == other.street &&
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
-        instagram == other.instagram;
+        instagram == other.instagram &&
+        professionalTitle == other.professionalTitle;
   }
 
   @override
@@ -77,6 +81,7 @@ class _$UpdateProfileRequest extends UpdateProfileRequest {
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, instagram.hashCode);
+    _$hash = $jc(_$hash, professionalTitle.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -92,7 +97,8 @@ class _$UpdateProfileRequest extends UpdateProfileRequest {
           ..add('street', street)
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
-          ..add('instagram', instagram))
+          ..add('instagram', instagram)
+          ..add('professionalTitle', professionalTitle))
         .toString();
   }
 }
@@ -137,6 +143,11 @@ class UpdateProfileRequestBuilder
   String? get instagram => _$this._instagram;
   set instagram(String? instagram) => _$this._instagram = instagram;
 
+  String? _professionalTitle;
+  String? get professionalTitle => _$this._professionalTitle;
+  set professionalTitle(String? professionalTitle) =>
+      _$this._professionalTitle = professionalTitle;
+
   UpdateProfileRequestBuilder() {
     UpdateProfileRequest._defaults(this);
   }
@@ -153,6 +164,7 @@ class UpdateProfileRequestBuilder
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
       _instagram = $v.instagram;
+      _professionalTitle = $v.professionalTitle;
       _$v = null;
     }
     return this;
@@ -183,6 +195,7 @@ class UpdateProfileRequestBuilder
           buildingNo: buildingNo,
           locationNote: locationNote,
           instagram: instagram,
+          professionalTitle: professionalTitle,
         );
     replace(_$result);
     return _$result;

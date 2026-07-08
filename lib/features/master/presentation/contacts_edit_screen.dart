@@ -259,6 +259,9 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
               bio: cached.bio ?? '',
               contactPhone: _phone.text.trim(),
               instagram: _instagram.text.trim(),
+              // Preserve the cached professional title — this page does not
+              // edit it; passing '' would clear it server-side.
+              professionalTitle: cached.professionalTitle ?? '',
             ),
           );
 

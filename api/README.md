@@ -118,6 +118,7 @@ Class | Method | HTTP request | Description
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getOverrides**](doc/MasterControllerApi.md#getoverrides) | **GET** /api/v1/masters/{masterId}/overrides | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWeeklySchedules**](doc/MasterControllerApi.md#getweeklyschedules) | **GET** /api/v1/masters/{masterId}/weekly-schedules | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWorkingDays**](doc/MasterControllerApi.md#getworkingdays) | **GET** /api/v1/masters/{masterId}/working-days | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**rotateMasterSalon**](doc/MasterControllerApi.md#rotatemastersalon) | **PATCH** /api/v1/masters/{masterId}/salon | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateMyProfile**](doc/MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateWeeklySchedule**](doc/MasterControllerApi.md#updateweeklyschedule) | **PUT** /api/v1/masters/{masterId}/weekly-schedules/{scheduleId} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertOverride**](doc/MasterControllerApi.md#upsertoverride) | **PUT** /api/v1/masters/{masterId}/overrides/{date} | 
@@ -147,6 +148,8 @@ Class | Method | HTTP request | Description
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getOwnedSalons**](doc/SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalon**](doc/SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**inviteMaster**](doc/SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**removeAdmin**](doc/SalonControllerApi.md#removeadmin) | **DELETE** /api/v1/salons/{salonId}/admins/{userId} | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**rotateAdmin**](doc/SalonControllerApi.md#rotateadmin) | **PATCH** /api/v1/salons/{salonId}/admins/{userId}/salon | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**updateSalon**](doc/SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**disableOwnerMaster**](doc/SalonMasterControllerApi.md#disableownermaster) | **DELETE** /api/v1/salons/{salonId}/master | 
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**enableOwnerMaster**](doc/SalonMasterControllerApi.md#enableownermaster) | **POST** /api/v1/salons/{salonId}/master | 
@@ -203,6 +206,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseMasterDetailResponse](doc/ApiResponseMasterDetailResponse.md)
  - [ApiResponseMasterPublicProfileResponse](doc/ApiResponseMasterPublicProfileResponse.md)
  - [ApiResponseMasterServiceResponse](doc/ApiResponseMasterServiceResponse.md)
+ - [ApiResponseMasterSummaryResponse](doc/ApiResponseMasterSummaryResponse.md)
  - [ApiResponseMediaFileResponse](doc/ApiResponseMediaFileResponse.md)
  - [ApiResponsePageMediaFileResponse](doc/ApiResponsePageMediaFileResponse.md)
  - [ApiResponsePageResponseBookingDetailResponse](doc/ApiResponsePageResponseBookingDetailResponse.md)
@@ -222,6 +226,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseRegistrationResponse](doc/ApiResponseRegistrationResponse.md)
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
  - [ApiResponseReviewResponse](doc/ApiResponseReviewResponse.md)
+ - [ApiResponseSalonAdminResponse](doc/ApiResponseSalonAdminResponse.md)
  - [ApiResponseSalonResponse](doc/ApiResponseSalonResponse.md)
  - [ApiResponseSalonReviewSummaryResponse](doc/ApiResponseSalonReviewSummaryResponse.md)
  - [ApiResponseSalonServiceCatalogResponse](doc/ApiResponseSalonServiceCatalogResponse.md)
@@ -318,6 +323,9 @@ Class | Method | HTTP request | Description
  - [RevenueByServiceDto](doc/RevenueByServiceDto.md)
  - [RevenueResponse](doc/RevenueResponse.md)
  - [ReviewResponse](doc/ReviewResponse.md)
+ - [RotateAdminRequest](doc/RotateAdminRequest.md)
+ - [RotateMasterRequest](doc/RotateMasterRequest.md)
+ - [SalonAdminResponse](doc/SalonAdminResponse.md)
  - [SalonResponse](doc/SalonResponse.md)
  - [SalonReviewResponse](doc/SalonReviewResponse.md)
  - [SalonReviewSummaryResponse](doc/SalonReviewSummaryResponse.md)
