@@ -1682,6 +1682,85 @@ void main() {
       },
     );
   });
+
+  // ── 16. RoleChip visibility regression ────────────────────────────────────
+  //
+  // Regression tests for the bug where RoleChip rendered unconditionally on the
+  // profile screen even when master.professionalTitle was set. The fix wraps the
+  // chip + its SizedBox spacer in:
+  //   if (master.professionalTitle == null || master.professionalTitle!.isEmpty)
+  //
+  // These tests would have FAILED before the fix and MUST pass after it. The
+  // companion professionalTitle-rendering group (above) checks only the title
+  // Key; this group checks the RoleChip toggle that the bug left unguarded.
+
+  group('RoleChip visibility — hides when professionalTitle is set', () {
+    testWidgets('hides the RoleChip when professionalTitle is set', (
+      tester,
+    ) async {
+      const masterWithTitle = Master(
+        id: 'user-1',
+        firstName: 'Тест',
+        lastName: 'Майстер',
+        professionalTitle: 'Стиліст',
+        avgRating: 4.8,
+        reviewCount: 10,
+        type: MasterType.independentMaster,
+      );
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(masterWithTitle),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The professional-title widget is rendered in place of the chip.
+      expect(
+        find.byKey(const Key('master-profile-professional-title')),
+        findsOneWidget,
+      );
+      // RoleChip must NOT co-exist with a non-empty professionalTitle.
+      expect(
+        find.byType(RoleChip),
+        findsNothing,
+        reason:
+            'RoleChip must be absent when master.professionalTitle is non-null '
+            'and non-empty — regression pin for the unconditional-chip bug',
+      );
+    });
+
+    testWidgets('shows the RoleChip when professionalTitle is null', (
+      tester,
+    ) async {
+      // _stubMaster has no professionalTitle (null) — RoleChip is the fallback.
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-profile-professional-title')),
+        findsNothing,
+      );
+      // RoleChip must appear as the role indicator when no title is set.
+      expect(
+        find.byType(RoleChip),
+        findsOneWidget,
+        reason:
+            'RoleChip must be present when master.professionalTitle is null — '
+            'it is the fallback role indicator shown when no title is set',
+      );
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -614,6 +615,69 @@ void main() {
       ).captured;
       expect(captured, hasLength(1));
       expect(captured.single, 'https://instagram.com/olena_nails');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // RoleChip visibility regression — the chip was rendered unconditionally
+  // even when master.professionalTitle was set. The fix wraps the chip + its
+  // SizedBox spacer in:
+  //   if (master.professionalTitle == null || master.professionalTitle!.isEmpty)
+  //
+  // These tests would have FAILED before the fix. They guard against the chip
+  // reappearing alongside a set title in future refactors of the identity card.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('RoleChip visibility — hides when professionalTitle is set', () {
+    testWidgets('hides the RoleChip when professionalTitle is set', (
+      tester,
+    ) async {
+      final Master masterWithTitle = _stubMaster.copyWith(
+        professionalTitle: 'Стиліст',
+      );
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (masterWithTitle, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+
+      // The professional-title widget is rendered in place of the chip.
+      expect(
+        find.byKey(const Key('public-master-profile-professional-title')),
+        findsOneWidget,
+      );
+      // RoleChip must NOT co-exist with a non-empty professionalTitle.
+      expect(
+        find.byType(RoleChip),
+        findsNothing,
+        reason:
+            'RoleChip must be absent when master.professionalTitle is non-null '
+            'and non-empty — regression pin for the unconditional-chip bug',
+      );
+    });
+
+    testWidgets('shows the RoleChip when professionalTitle is null', (
+      tester,
+    ) async {
+      // _stubMaster has no professionalTitle (null) — RoleChip is the fallback.
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('public-master-profile-professional-title')),
+        findsNothing,
+      );
+      // RoleChip must appear as the role indicator when no title is set.
+      expect(
+        find.byType(RoleChip),
+        findsOneWidget,
+        reason:
+            'RoleChip must be present when master.professionalTitle is null — '
+            'it is the fallback role indicator shown when no title is set',
+      );
     });
   });
 }

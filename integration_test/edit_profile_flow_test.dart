@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -256,6 +257,24 @@ void main() {
         reason:
             'editing only the professionalTitle must NOT clear the cached '
             'Instagram — the PATCH must carry all sibling fields from the cache',
+      );
+
+      // Step 2.7 Rule 3b — RoleChip absence regression pin.
+      // Navigate to the master profile to verify that the RoleChip is absent
+      // now that professionalTitle ('Колорист-стиліст') is set. This is the
+      // end-to-end regression guard for the bug where RoleChip rendered
+      // unconditionally on both profile screens even when a professional title
+      // was present.
+      router.go(RouteNames.masterProfile);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(RoleChip),
+        findsNothing,
+        reason:
+            'RoleChip must be absent on the profile screen when '
+            'professionalTitle is non-null — regression pin for the '
+            'unconditional-chip rendering bug',
       );
     },
   );

@@ -390,11 +390,14 @@ class _ProfileBody extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
-                      const SizedBox(height: VelvetSpacing.xs + 2),
-                      RoleChip(
-                        label: roleLabel,
-                        icon: Icons.auto_awesome_rounded,
-                      ),
+                      if (master.professionalTitle == null ||
+                          master.professionalTitle!.isEmpty) ...<Widget>[
+                        const SizedBox(height: VelvetSpacing.xs + 2),
+                        RoleChip(
+                          label: roleLabel,
+                          icon: Icons.auto_awesome_rounded,
+                        ),
+                      ],
                       if (locationLine != null) ...[
                         const SizedBox(height: VelvetSpacing.xs),
                         // Location row: icon + combined address string.
@@ -988,6 +991,8 @@ class _PortfolioPlaceholderTileState extends State<_PortfolioPlaceholderTile> {
     <Color>[Color(0xFFE0CAAC), Color(0xFFB89A7A)],
   ];
 
+  static final Color _glyphColor = BrandColors.white.withValues(alpha: 0.65);
+
   @override
   Widget build(BuildContext context) {
     final List<Color> fill = _fills[widget.index % _fills.length];
@@ -1029,11 +1034,7 @@ class _PortfolioPlaceholderTileState extends State<_PortfolioPlaceholderTile> {
                   ],
           ),
           child: Center(
-            child: Icon(
-              Icons.photo_outlined,
-              color: BrandColors.white.withValues(alpha: 0.65),
-              size: 22,
-            ),
+            child: Icon(Icons.photo_outlined, color: _glyphColor, size: 22),
           ),
         ),
       ),

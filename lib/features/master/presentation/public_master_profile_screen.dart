@@ -340,11 +340,14 @@ class _PublicProfileBody extends StatelessWidget {
                           ],
                         ),
                       ],
-                      const SizedBox(height: VelvetSpacing.xs + 2),
-                      RoleChip(
-                        label: roleLabel,
-                        icon: Icons.auto_awesome_rounded,
-                      ),
+                      if (master.professionalTitle == null ||
+                          master.professionalTitle!.isEmpty) ...<Widget>[
+                        const SizedBox(height: VelvetSpacing.xs + 2),
+                        RoleChip(
+                          label: roleLabel,
+                          icon: Icons.auto_awesome_rounded,
+                        ),
+                      ],
                       if (locationLine != null) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs),
                         Row(
