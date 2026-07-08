@@ -189,6 +189,7 @@ void main() {
         fb,
         extraOverrides: [
           authProvider.overrideWith(_StubAuthNotifier.new),
+          // cycle-stub-ok: this flow tests the professionalTitle edit path, not the logout cascade — it never invokes a cyclic teardown entrypoint. Auth is also stubbed, so no auth→services back-edge exists to hide.
           servicesListProvider.overrideWith(_StubServicesList.new),
         ],
       );
