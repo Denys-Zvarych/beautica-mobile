@@ -21,7 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('MasterMapper.fromDto — professionalTitle normalisation', () {
-    MasterDetailResponse _build({required String? professionalTitle}) =>
+    MasterDetailResponse buildDto({required String? professionalTitle}) =>
         (MasterDetailResponseBuilder()
               ..masterId = 'master-1'
               ..firstName = 'Оля'
@@ -35,14 +35,14 @@ void main() {
 
     test('maps a non-empty professionalTitle from the DTO unchanged', () {
       final master = MasterMapper.fromDto(
-        _build(professionalTitle: 'Майстер манікюру'),
+        buildDto(professionalTitle: 'Майстер манікюру'),
       );
 
       expect(master.professionalTitle, 'Майстер манікюру');
     });
 
     test('normalises an empty-string professionalTitle to null', () {
-      final master = MasterMapper.fromDto(_build(professionalTitle: ''));
+      final master = MasterMapper.fromDto(buildDto(professionalTitle: ''));
 
       expect(
         master.professionalTitle,
@@ -54,7 +54,7 @@ void main() {
     });
 
     test('leaves professionalTitle as null when the DTO omits the field', () {
-      final master = MasterMapper.fromDto(_build(professionalTitle: null));
+      final master = MasterMapper.fromDto(buildDto(professionalTitle: null));
 
       expect(master.professionalTitle, isNull);
     });
@@ -64,7 +64,7 @@ void main() {
       'responsibility, not the mapper\'s',
       () {
         final master = MasterMapper.fromDto(
-          _build(professionalTitle: '  Стиліст  '),
+          buildDto(professionalTitle: '  Стиліст  '),
         );
 
         expect(
