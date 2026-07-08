@@ -243,102 +243,96 @@ void main() {
     // (not a mocktail stub). This tests the actual serialisation boundary between
     // the Dart client and the Spring backend contract.
 
-    test(
-      'sends professionalTitle on the wire when set — key present, value '
-      'forwarded exactly',
-      () async {
-        Map<String, dynamic>? sentBody;
+    test('sends professionalTitle on the wire when set — key present, value '
+        'forwarded exactly', () async {
+      Map<String, dynamic>? sentBody;
 
-        adapter.onRoute(
-          _profilePath,
-          (server) => server.reply(200, _okVoidEnvelope),
-          request: const Request(
-            method: RequestMethods.patch,
-            data: Matchers.any,
-          ),
-        );
-        dio.interceptors.add(
-          InterceptorsWrapper(
-            onRequest: (options, handler) {
-              sentBody = options.data as Map<String, dynamic>?;
-              handler.next(options);
-            },
-          ),
-        );
+      adapter.onRoute(
+        _profilePath,
+        (server) => server.reply(200, _okVoidEnvelope),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentBody = options.data as Map<String, dynamic>?;
+            handler.next(options);
+          },
+        ),
+      );
 
-        await repository.updateMyProfile(
-          const MasterUpdate(
-            firstName: 'Аня',
-            lastName: 'Коваль',
-            bio: '',
-            contactPhone: '',
-            instagram: '',
-            professionalTitle: 'Майстер манікюру',
-          ),
-        );
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '',
+          professionalTitle: 'Майстер манікюру',
+        ),
+      );
 
-        expect(sentBody, isNotNull);
-        expect(
-          sentBody!.containsKey('professionalTitle'),
-          isTrue,
-          reason:
-              'professionalTitle key must be present on the wire — the backend '
-              'clear-on-empty contract requires the key to always be sent',
-        );
-        expect(
-          sentBody!['professionalTitle'],
-          'Майстер манікюру',
-          reason: 'non-empty professionalTitle must be forwarded verbatim',
-        );
-      },
-    );
+      expect(sentBody, isNotNull);
+      expect(
+        sentBody!.containsKey('professionalTitle'),
+        isTrue,
+        reason:
+            'professionalTitle key must be present on the wire — the backend '
+            'clear-on-empty contract requires the key to always be sent',
+      );
+      expect(
+        sentBody!['professionalTitle'],
+        'Майстер манікюру',
+        reason: 'non-empty professionalTitle must be forwarded verbatim',
+      );
+    });
 
-    test(
-      'sends professionalTitle as empty string on the wire when cleared — key '
-      'present, value is \'\'',
-      () async {
-        Map<String, dynamic>? sentBody;
+    test('sends professionalTitle as empty string on the wire when cleared — key '
+        'present, value is \'\'', () async {
+      Map<String, dynamic>? sentBody;
 
-        adapter.onRoute(
-          _profilePath,
-          (server) => server.reply(200, _okVoidEnvelope),
-          request: const Request(
-            method: RequestMethods.patch,
-            data: Matchers.any,
-          ),
-        );
-        dio.interceptors.add(
-          InterceptorsWrapper(
-            onRequest: (options, handler) {
-              sentBody = options.data as Map<String, dynamic>?;
-              handler.next(options);
-            },
-          ),
-        );
+      adapter.onRoute(
+        _profilePath,
+        (server) => server.reply(200, _okVoidEnvelope),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentBody = options.data as Map<String, dynamic>?;
+            handler.next(options);
+          },
+        ),
+      );
 
-        await repository.updateMyProfile(
-          const MasterUpdate(
-            firstName: 'Аня',
-            lastName: 'Коваль',
-            bio: '',
-            contactPhone: '',
-            instagram: '',
-            professionalTitle: '',
-          ),
-        );
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '',
+          professionalTitle: '',
+        ),
+      );
 
-        expect(sentBody, isNotNull);
-        expect(
-          sentBody!.containsKey('professionalTitle'),
-          isTrue,
-          reason:
-              'professionalTitle key must be present even when cleared — omitting '
-              'it would leave the stale server value intact (same bug that once '
-              'broke bio/instagram clearing)',
-        );
-        expect(sentBody!['professionalTitle'], '');
-      },
-    );
+      expect(sentBody, isNotNull);
+      expect(
+        sentBody!.containsKey('professionalTitle'),
+        isTrue,
+        reason:
+            'professionalTitle key must be present even when cleared — omitting '
+            'it would leave the stale server value intact (same bug that once '
+            'broke bio/instagram clearing)',
+      );
+      expect(sentBody!['professionalTitle'], '');
+    });
   });
 
   // -------------------------------------------------------------------------

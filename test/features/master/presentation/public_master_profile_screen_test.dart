@@ -524,29 +524,30 @@ void main() {
   // non-empty; absent when null. Regression pin for the new headline field.
   // ──────────────────────────────────────────────────────────────────────────
   group('professionalTitle display', () {
-    testWidgets('renders the professionalTitle below the master name when set', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(800, 2400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets(
+      'renders the professionalTitle below the master name when set',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
 
-      final Master masterWithTitle = _stubMaster.copyWith(
-        professionalTitle: 'Колорист-стиліст',
-      );
+        final Master masterWithTitle = _stubMaster.copyWith(
+          professionalTitle: 'Колорист-стиліст',
+        );
 
-      await tester.pumpApp(
-        const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: _overrides((ref) => (masterWithTitle, _stubServices)),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (masterWithTitle, _stubServices)),
+        );
+        await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const Key('public-master-profile-professional-title')),
-        findsOneWidget,
-      );
-    });
+        expect(
+          find.byKey(const Key('public-master-profile-professional-title')),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets(
       'does NOT render the professional-title widget when professionalTitle is null',

@@ -33,48 +33,39 @@ void main() {
               ..professionalTitle = professionalTitle)
             .build();
 
-    test(
-      'maps a non-empty professionalTitle from the DTO unchanged',
-      () {
-        final master = MasterMapper.fromDto(_build(
-          professionalTitle: 'Майстер манікюру',
-        ));
+    test('maps a non-empty professionalTitle from the DTO unchanged', () {
+      final master = MasterMapper.fromDto(
+        _build(professionalTitle: 'Майстер манікюру'),
+      );
 
-        expect(master.professionalTitle, 'Майстер манікюру');
-      },
-    );
+      expect(master.professionalTitle, 'Майстер манікюру');
+    });
 
-    test(
-      'normalises an empty-string professionalTitle to null',
-      () {
-        final master = MasterMapper.fromDto(_build(professionalTitle: ''));
+    test('normalises an empty-string professionalTitle to null', () {
+      final master = MasterMapper.fromDto(_build(professionalTitle: ''));
 
-        expect(
-          master.professionalTitle,
-          isNull,
-          reason:
-              'an empty string from the API must be normalised to null so the '
-              'UI null-guard hides the title row correctly',
-        );
-      },
-    );
+      expect(
+        master.professionalTitle,
+        isNull,
+        reason:
+            'an empty string from the API must be normalised to null so the '
+            'UI null-guard hides the title row correctly',
+      );
+    });
 
-    test(
-      'leaves professionalTitle as null when the DTO omits the field',
-      () {
-        final master = MasterMapper.fromDto(_build(professionalTitle: null));
+    test('leaves professionalTitle as null when the DTO omits the field', () {
+      final master = MasterMapper.fromDto(_build(professionalTitle: null));
 
-        expect(master.professionalTitle, isNull);
-      },
-    );
+      expect(master.professionalTitle, isNull);
+    });
 
     test(
       'preserves leading/trailing whitespace — trimming is the repository\'s '
       'responsibility, not the mapper\'s',
       () {
-        final master = MasterMapper.fromDto(_build(
-          professionalTitle: '  Стиліст  ',
-        ));
+        final master = MasterMapper.fromDto(
+          _build(professionalTitle: '  Стиліст  '),
+        );
 
         expect(
           master.professionalTitle,
