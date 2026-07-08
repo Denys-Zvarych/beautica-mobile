@@ -23,6 +23,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -519,6 +520,54 @@ void main() {
     );
   });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // professionalTitle display — rendered only when the field is non-null and
+  // non-empty; absent when null. Regression pin for the new headline field.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('professionalTitle display', () {
+    testWidgets(
+      'renders the professionalTitle below the master name when set',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final Master masterWithTitle = _stubMaster.copyWith(
+          professionalTitle: 'Колорист-стиліст',
+        );
+
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (masterWithTitle, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-professional-title')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'does NOT render the professional-title widget when professionalTitle is null',
+      (tester) async {
+        // _stubMaster has no professionalTitle (null by default).
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => _stubData),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-professional-title')),
+          findsNothing,
+        );
+      },
+    );
+  });
+
   group('instagram contact tile — launch behaviour', () {
     late _MockUrlLauncher launcher;
     late UrlLauncherPlatform originalPlatform;
@@ -568,4 +617,74 @@ void main() {
       expect(captured.single, 'https://instagram.com/olena_nails');
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // RoleChip label-switching — the chip is now unconditional. When
+  // professionalTitle is set it carries the key and shows the title as its
+  // label; when null/empty the key is absent and it shows the role label.
+  // ──────────────────────────────────────────────────────────────────────────
+  group(
+    'RoleChip visibility — label switches between professionalTitle and role label',
+    () {
+      testWidgets(
+        'shows professionalTitle text inside RoleChip when professionalTitle is set',
+        (tester) async {
+          final Master masterWithTitle = _stubMaster.copyWith(
+            professionalTitle: 'Стиліст',
+          );
+
+          await tester.pumpApp(
+            const PublicMasterProfileScreen(masterId: _kMasterId),
+            overrides: _overrides((ref) => (masterWithTitle, _stubServices)),
+          );
+          await tester.pumpAndSettle();
+
+          // The chip carries the professional-title key when professionalTitle is set.
+          expect(
+            find.byKey(const Key('public-master-profile-professional-title')),
+            findsOneWidget,
+          );
+          // The chip is always present (unconditional).
+          expect(find.byType(RoleChip), findsOneWidget);
+          // The title text is rendered inside the chip, not as a standalone Text.
+          expect(
+            find.descendant(
+              of: find.byType(RoleChip),
+              // i18n-finder-ok: professionalTitle is user-entered data, not localised UI copy — identical in every locale
+              matching: find.text('Стиліст'),
+            ),
+            findsOneWidget,
+            reason:
+                'professionalTitle text must be shown inside RoleChip as its label, '
+                'not as a separate Text widget outside the chip',
+          );
+        },
+      );
+
+      testWidgets('shows the RoleChip when professionalTitle is null', (
+        tester,
+      ) async {
+        // _stubMaster has no professionalTitle (null) — RoleChip shows the role label.
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => _stubData),
+        );
+        await tester.pumpAndSettle();
+
+        // The title key is null when showing the role label — so absent from the tree.
+        expect(
+          find.byKey(const Key('public-master-profile-professional-title')),
+          findsNothing,
+        );
+        // The RoleChip is always present (unconditional).
+        expect(
+          find.byType(RoleChip),
+          findsOneWidget,
+          reason:
+              'RoleChip is always rendered — when professionalTitle is null it shows '
+              'the master-type role label instead',
+        );
+      });
+    },
+  );
 }

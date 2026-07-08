@@ -17,6 +17,8 @@ class _$MasterProfileUpdateRequest extends MasterProfileUpdateRequest {
   final String? bio;
   @override
   final String? instagram;
+  @override
+  final String? professionalTitle;
 
   factory _$MasterProfileUpdateRequest(
           [void Function(MasterProfileUpdateRequestBuilder)? updates]) =>
@@ -27,7 +29,8 @@ class _$MasterProfileUpdateRequest extends MasterProfileUpdateRequest {
       this.lastName,
       this.phoneNumber,
       this.bio,
-      this.instagram})
+      this.instagram,
+      this.professionalTitle})
       : super._();
   @override
   MasterProfileUpdateRequest rebuild(
@@ -46,7 +49,8 @@ class _$MasterProfileUpdateRequest extends MasterProfileUpdateRequest {
         lastName == other.lastName &&
         phoneNumber == other.phoneNumber &&
         bio == other.bio &&
-        instagram == other.instagram;
+        instagram == other.instagram &&
+        professionalTitle == other.professionalTitle;
   }
 
   @override
@@ -57,6 +61,7 @@ class _$MasterProfileUpdateRequest extends MasterProfileUpdateRequest {
     _$hash = $jc(_$hash, phoneNumber.hashCode);
     _$hash = $jc(_$hash, bio.hashCode);
     _$hash = $jc(_$hash, instagram.hashCode);
+    _$hash = $jc(_$hash, professionalTitle.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -68,7 +73,8 @@ class _$MasterProfileUpdateRequest extends MasterProfileUpdateRequest {
           ..add('lastName', lastName)
           ..add('phoneNumber', phoneNumber)
           ..add('bio', bio)
-          ..add('instagram', instagram))
+          ..add('instagram', instagram)
+          ..add('professionalTitle', professionalTitle))
         .toString();
   }
 }
@@ -98,6 +104,11 @@ class MasterProfileUpdateRequestBuilder
   String? get instagram => _$this._instagram;
   set instagram(String? instagram) => _$this._instagram = instagram;
 
+  String? _professionalTitle;
+  String? get professionalTitle => _$this._professionalTitle;
+  set professionalTitle(String? professionalTitle) =>
+      _$this._professionalTitle = professionalTitle;
+
   MasterProfileUpdateRequestBuilder() {
     MasterProfileUpdateRequest._defaults(this);
   }
@@ -110,6 +121,7 @@ class MasterProfileUpdateRequestBuilder
       _phoneNumber = $v.phoneNumber;
       _bio = $v.bio;
       _instagram = $v.instagram;
+      _professionalTitle = $v.professionalTitle;
       _$v = null;
     }
     return this;
@@ -136,6 +148,7 @@ class MasterProfileUpdateRequestBuilder
           phoneNumber: phoneNumber,
           bio: bio,
           instagram: instagram,
+          professionalTitle: professionalTitle,
         );
     replace(_$result);
     return _$result;

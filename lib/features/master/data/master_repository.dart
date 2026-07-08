@@ -223,6 +223,8 @@ final class HttpMasterRepository implements MasterRepository {
       'lastName': update.lastName,
       'bio': update.bio.trim(), // '' clears server-side
       'instagram': update.instagram.trim(), // '' clears server-side
+      'professionalTitle': update.professionalTitle
+          .trim(), // '' clears server-side
     };
     final trimmedPhone = update.contactPhone.trim();
     if (trimmedPhone.isNotEmpty) body['phoneNumber'] = trimmedPhone;

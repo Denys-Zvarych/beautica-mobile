@@ -84,6 +84,8 @@ class _$MasterSummaryResponse extends MasterSummaryResponse {
   @override
   final String? lastName;
   @override
+  final String? professionalTitle;
+  @override
   final String? avatarUrl;
   @override
   final num? avgRating;
@@ -100,6 +102,7 @@ class _$MasterSummaryResponse extends MasterSummaryResponse {
       {this.masterId,
       this.firstName,
       this.lastName,
+      this.professionalTitle,
       this.avatarUrl,
       this.avgRating,
       this.reviewCount,
@@ -121,6 +124,7 @@ class _$MasterSummaryResponse extends MasterSummaryResponse {
         masterId == other.masterId &&
         firstName == other.firstName &&
         lastName == other.lastName &&
+        professionalTitle == other.professionalTitle &&
         avatarUrl == other.avatarUrl &&
         avgRating == other.avgRating &&
         reviewCount == other.reviewCount &&
@@ -133,6 +137,7 @@ class _$MasterSummaryResponse extends MasterSummaryResponse {
     _$hash = $jc(_$hash, masterId.hashCode);
     _$hash = $jc(_$hash, firstName.hashCode);
     _$hash = $jc(_$hash, lastName.hashCode);
+    _$hash = $jc(_$hash, professionalTitle.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
     _$hash = $jc(_$hash, reviewCount.hashCode);
@@ -147,6 +152,7 @@ class _$MasterSummaryResponse extends MasterSummaryResponse {
           ..add('masterId', masterId)
           ..add('firstName', firstName)
           ..add('lastName', lastName)
+          ..add('professionalTitle', professionalTitle)
           ..add('avatarUrl', avatarUrl)
           ..add('avgRating', avgRating)
           ..add('reviewCount', reviewCount)
@@ -170,6 +176,11 @@ class MasterSummaryResponseBuilder
   String? _lastName;
   String? get lastName => _$this._lastName;
   set lastName(String? lastName) => _$this._lastName = lastName;
+
+  String? _professionalTitle;
+  String? get professionalTitle => _$this._professionalTitle;
+  set professionalTitle(String? professionalTitle) =>
+      _$this._professionalTitle = professionalTitle;
 
   String? _avatarUrl;
   String? get avatarUrl => _$this._avatarUrl;
@@ -198,6 +209,7 @@ class MasterSummaryResponseBuilder
       _masterId = $v.masterId;
       _firstName = $v.firstName;
       _lastName = $v.lastName;
+      _professionalTitle = $v.professionalTitle;
       _avatarUrl = $v.avatarUrl;
       _avgRating = $v.avgRating;
       _reviewCount = $v.reviewCount;
@@ -226,6 +238,7 @@ class MasterSummaryResponseBuilder
           masterId: masterId,
           firstName: firstName,
           lastName: lastName,
+          professionalTitle: professionalTitle,
           avatarUrl: avatarUrl,
           avgRating: avgRating,
           reviewCount: reviewCount,

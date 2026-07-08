@@ -116,6 +116,7 @@ void main() {
         bio: '',
         contactPhone: '',
         instagram: '',
+        professionalTitle: '',
       ),
     );
   });
@@ -457,6 +458,167 @@ void main() {
     expect(captured.firstName, 'Anne-Marie');
     expect(captured.lastName, "O'Brien");
   });
+
+  // ── professionalTitle field (feat/provider-professional-title) ─────────────
+
+  testWidgets(
+    'pre-populates the professionalTitle field from the cached master',
+    (tester) async {
+      const masterWithTitle = Master(
+        id: 'user-1',
+        firstName: 'Олена',
+        lastName: 'Ковальчук',
+        bio: 'Майстер манікюру.',
+        phoneNumber: '+380 50 123 45 67',
+        instagram: '@olena_nails',
+        professionalTitle: 'Майстер манікюру',
+        avgRating: 4.8,
+        reviewCount: 10,
+        type: MasterType.independentMaster,
+      );
+
+      await tester.pumpRoutedApp(
+        _buildRouter(),
+        overrides: _overrides(repo, master: masterWithTitle),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<TextField>(_field('field-professionalTitle'))
+            .controller
+            ?.text,
+        'Майстер манікюру',
+        reason:
+            'the professionalTitle field must be pre-populated from the cached '
+            'master, mirroring the firstName/lastName/bio pre-population',
+      );
+    },
+  );
+
+  testWidgets('typing in professionalTitle enables Save (dirty tracking)', (
+    tester,
+  ) async {
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pump();
+    await tester.pump();
+
+    // Pristine — Save disabled.
+    expect(
+      tester
+          .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
+          .onPressed,
+      isNull,
+      reason: 'Save must be disabled on a pristine form',
+    );
+
+    await tester.enterText(_field('field-professionalTitle'), 'Стиліст');
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
+          .onPressed,
+      isNotNull,
+      reason: 'entering text in professionalTitle must enable Save',
+    );
+  });
+
+  testWidgets('professionalTitle field enforces 100-char limit via formatter — '
+      'entering 101 chars results in exactly 100 chars in the controller', (
+    tester,
+  ) async {
+    // WHY THIS TEST FORM
+    // ------------------
+    // VelvetField applies LengthLimitingTextInputFormatter(100) which clips
+    // input BEFORE the FormField validator sees it. The validator guard
+    // (v.trim().length > 100 → professionalTitleMaxLength) is a
+    // belt-and-suspenders backstop that is unreachable through normal widget
+    // interaction. The reachable UX contract is that the formatter caps the
+    // text at 100 chars; this test pins that contract.
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pump();
+    await tester.pump();
+
+    // 101-character input — one over the 100-char cap.
+    final longTitle = 'А' * 101;
+    await tester.enterText(_field('field-professionalTitle'), longTitle);
+    await tester.pump();
+
+    final controller = tester
+        .widget<TextField>(_field('field-professionalTitle'))
+        .controller;
+    expect(
+      controller?.text.characters.length,
+      100,
+      reason:
+          'LengthLimitingTextInputFormatter must cap professionalTitle at '
+          'exactly 100 characters — the 101st character must be dropped',
+    );
+  });
+
+  testWidgets('a 100-character professionalTitle is accepted and forwarded in '
+      'the MasterUpdate (boundary value)', (tester) async {
+    when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pump();
+    await tester.pump();
+
+    // Exactly 100 characters — must pass validation.
+    final maxTitle = 'Б' * 100;
+    await tester.enterText(_field('field-professionalTitle'), maxTitle);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('btn-save-personal')));
+    await tester.pumpAndSettle();
+
+    final captured =
+        verify(() => repo.updateMyProfile(captureAny())).captured.single
+            as MasterUpdate;
+    expect(
+      captured.professionalTitle,
+      maxTitle,
+      reason:
+          'a 100-char professionalTitle is at the limit and must be forwarded '
+          'to the repository without rejection',
+    );
+  });
+
+  testWidgets(
+    'professionalTitle is forwarded in the MasterUpdate on save (non-empty case)',
+    (tester) async {
+      MasterUpdate? captured;
+      when(() => repo.updateMyProfile(any())).thenAnswer((invocation) async {
+        captured = invocation.positionalArguments.first as MasterUpdate;
+      });
+
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      await tester.enterText(
+        _field('field-professionalTitle'),
+        'Стиліст-колорист',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pumpAndSettle();
+
+      expect(captured, isNotNull);
+      expect(
+        captured!.professionalTitle,
+        'Стиліст-колорист',
+        reason:
+            'the entered professionalTitle must be forwarded in the MasterUpdate',
+      );
+      // Regression guard: the sibling fields must NOT be wiped.
+      expect(captured!.instagram, '@olena_nails');
+      expect(captured!.contactPhone, '+380 50 123 45 67');
+    },
+  );
 
   testWidgets('network failure shows an error SnackBar and re-enables Save', (
     tester,

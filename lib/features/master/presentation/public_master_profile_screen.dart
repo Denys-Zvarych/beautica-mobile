@@ -299,6 +299,18 @@ class _PublicProfileBody extends StatelessWidget {
                         softWrap: true,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: VelvetSpacing.xs + 2),
+                      RoleChip(
+                        key: (master.professionalTitle?.isNotEmpty == true)
+                            ? const Key(
+                                'public-master-profile-professional-title',
+                              )
+                            : null,
+                        label: (master.professionalTitle?.isNotEmpty == true)
+                            ? master.professionalTitle!
+                            : roleLabel,
+                        icon: Icons.auto_awesome_rounded,
+                      ),
                       if (hasReviews) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs + 2),
                         Row(
@@ -327,11 +339,6 @@ class _PublicProfileBody extends StatelessWidget {
                           ],
                         ),
                       ],
-                      const SizedBox(height: VelvetSpacing.xs + 2),
-                      RoleChip(
-                        label: roleLabel,
-                        icon: Icons.auto_awesome_rounded,
-                      ),
                       if (locationLine != null) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs),
                         Row(

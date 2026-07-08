@@ -37,6 +37,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseMasterDetailResponse.serializer)
       ..add(ApiResponseMasterPublicProfileResponse.serializer)
       ..add(ApiResponseMasterServiceResponse.serializer)
+      ..add(ApiResponseMasterSummaryResponse.serializer)
       ..add(ApiResponseMediaFileResponse.serializer)
       ..add(ApiResponsePageMediaFileResponse.serializer)
       ..add(ApiResponsePageResponseBookingDetailResponse.serializer)
@@ -56,6 +57,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseRegistrationResponse.serializer)
       ..add(ApiResponseRevenueResponse.serializer)
       ..add(ApiResponseReviewResponse.serializer)
+      ..add(ApiResponseSalonAdminResponse.serializer)
       ..add(ApiResponseSalonResponse.serializer)
       ..add(ApiResponseSalonReviewSummaryResponse.serializer)
       ..add(ApiResponseSalonServiceCatalogResponse.serializer)
@@ -170,6 +172,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(RevenueByServiceDto.serializer)
       ..add(RevenueResponse.serializer)
       ..add(ReviewResponse.serializer)
+      ..add(RotateAdminRequest.serializer)
+      ..add(RotateMasterRequest.serializer)
+      ..add(SalonAdminResponse.serializer)
       ..add(SalonResponse.serializer)
       ..add(SalonReviewResponse.serializer)
       ..add(SalonReviewSummaryResponse.serializer)
@@ -460,6 +465,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

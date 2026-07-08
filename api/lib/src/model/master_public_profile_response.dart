@@ -16,6 +16,7 @@ part 'master_public_profile_response.g.dart';
 /// * [phoneNumber]
 /// * [bio]
 /// * [instagram]
+/// * [professionalTitle]
 @BuiltValue()
 abstract class MasterPublicProfileResponse
     implements
@@ -34,6 +35,9 @@ abstract class MasterPublicProfileResponse
 
   @BuiltValueField(wireName: r'instagram')
   String? get instagram;
+
+  @BuiltValueField(wireName: r'professionalTitle')
+  String? get professionalTitle;
 
   MasterPublicProfileResponse._();
 
@@ -100,6 +104,13 @@ class _$MasterPublicProfileResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.professionalTitle != null) {
+      yield r'professionalTitle';
+      yield serializers.serialize(
+        object.professionalTitle,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -159,6 +170,13 @@ class _$MasterPublicProfileResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.instagram = valueDes;
+          break;
+        case r'professionalTitle':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.professionalTitle = valueDes;
           break;
         default:
           unhandled.add(key);

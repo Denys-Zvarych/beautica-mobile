@@ -156,4 +156,124 @@ void main() {
       );
     },
   );
+
+  // ── professionalTitle E2E (feat/provider-professional-title) ──────────────
+  //
+  // WHAT THIS TESTS (Step 2.7 Rule 3b coverage)
+  // --------------------------------------------
+  // The feature added a new "Професійне звання" field to
+  // PersonalInfoEditScreen. This flow proves:
+  //   1. The field pre-populates from the backend-seeded professionalTitle
+  //      on the initial GET /masters/me.
+  //   2. Editing the title and saving PATCHes the backend with
+  //      professionalTitle in the request body.
+  //   3. The profile screen renders the Key('master-profile-professional-title')
+  //      widget after the invalidate + refetch cycle.
+  //
+  // Isolation: FakeBackend seeded with masterProfessionalTitle='Стиліст' BEFORE
+  // boot so the initial GET carries the title. After Save the PATCH body is
+  // asserted on fb.lastPatchBody, and a second GET is confirmed via
+  // fb.getMasterCalls to prove the invalidation fired.
+
+  testWidgets(
+    'professionalTitle: edit field pre-populates → Save PATCHes backend → '
+    'profile screen renders the updated title',
+    (tester) async {
+      final fb = FakeBackend();
+
+      // Seed a professional title so the personal-info page pre-populates it.
+      fb.masterProfessionalTitle = 'Стиліст';
+
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: [
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          // cycle-stub-ok: this flow tests the professionalTitle edit path, not the logout cascade — it never invokes a cyclic teardown entrypoint. Auth is also stubbed, so no auth→services back-edge exists to hide.
+          servicesListProvider.overrideWith(_StubServicesList.new),
+        ],
+      );
+
+      // Navigate directly to the personal-info edit page.
+      router.go(RouteNames.masterEditPersonal);
+      await tester.pumpAndSettle();
+
+      // The professionalTitle field must be pre-populated from the backend seed.
+      final titleField = find.descendant(
+        of: find.byKey(const Key('field-professionalTitle')),
+        matching: find.byType(TextField),
+      );
+      expect(titleField, findsOneWidget);
+      expect(
+        tester.widget<TextField>(titleField).controller?.text,
+        'Стиліст',
+        reason:
+            'the professionalTitle field must be pre-populated from the GET '
+            '/masters/me response',
+      );
+
+      // Edit the title.
+      await tester.tap(titleField);
+      await tester.pumpAndSettle();
+      await tester.enterText(titleField, 'Колорист-стиліст');
+      await tester.pump();
+
+      // Tap Save.
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      // The PATCH body must carry the updated professionalTitle.
+      expect(fb.lastPatchBody, isNotNull);
+      expect(
+        fb.lastPatchBody!['professionalTitle'],
+        'Колорист-стиліст',
+        reason:
+            'the PATCH body must include professionalTitle with the new value',
+      );
+      // The in-memory backend state must have been updated.
+      expect(
+        fb.masterProfessionalTitle,
+        'Колорист-стиліст',
+        reason: 'FakeBackend.masterProfessionalTitle must reflect the PATCH',
+      );
+
+      // At least two GET /masters/me calls: one to populate the edit page,
+      // one triggered by the masterProfileProvider invalidation after Save.
+      expect(
+        fb.getMasterCalls,
+        greaterThanOrEqualTo(2),
+        reason:
+            'masterProfileProvider must be invalidated + refetched after Save',
+      );
+
+      // Cached-merge contract: Instagram must NOT be cleared by a
+      // professionalTitle-only edit.
+      expect(
+        fb.lastPatchBody!['instagram'],
+        '@olena_nails',
+        reason:
+            'editing only the professionalTitle must NOT clear the cached '
+            'Instagram — the PATCH must carry all sibling fields from the cache',
+      );
+
+      // Step 2.7 Rule 3b — RoleChip professionalTitle regression pin.
+      // Navigate to the master profile to verify that the chip carries the
+      // professional-title key now that professionalTitle ('Колорист-стиліст')
+      // is set. RoleChip is always rendered; when professionalTitle is set it
+      // switches its label to the title and acquires the key.
+      router.go(RouteNames.masterProfile);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-profile-professional-title')),
+        findsOneWidget,
+        reason:
+            'RoleChip must show the professionalTitle via the '
+            'master-profile-professional-title key when professionalTitle is '
+            'set — regression pin for the title-display contract',
+      );
+    },
+  );
 }

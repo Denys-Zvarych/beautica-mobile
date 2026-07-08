@@ -25,6 +25,7 @@ Name | Type | Description | Notes
 **locationNote** | **String** |  | [optional] 
 **bio** | **String** |  | [optional] 
 **instagram** | **String** |  | [optional] 
+**professionalTitle** | **String** |  | [optional] 
 **isActive** | **bool** |  | [optional] 
 **emailVerified** | **bool** |  | [optional] 
 **salonId** | **String** |  | [optional] 

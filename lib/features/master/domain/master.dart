@@ -100,6 +100,11 @@ abstract class Master with _$Master {
     /// https://instagram.com/... URL — stored verbatim from user input.
     String? instagram,
 
+    /// Optional professional title (e.g. "Майстер манікюру", "Стиліст").
+    /// Nullable — absent when the master has not set one. Empty string from
+    /// the API is normalised to `null` by the mapper.
+    String? professionalTitle,
+
     /// The master's working week as a dense, ordered 7-entry list
     /// (Monday(1) … Sunday(7)), gap-filled by [WorkingHoursMapper.toDomainWeek]
     /// at the data-layer boundary. Carries the working hours bundled in

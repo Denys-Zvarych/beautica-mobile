@@ -1617,6 +1617,156 @@ void main() {
       },
     );
   });
+
+  // ── professionalTitle rendering (feat/provider-professional-title) ─────────
+
+  group('professionalTitle rendering', () {
+    testWidgets(
+      'renders the professionalTitle below the master name when set',
+      (tester) async {
+        const masterWithTitle = Master(
+          id: 'user-1',
+          firstName: 'Тест',
+          lastName: 'Майстер',
+          professionalTitle: 'Майстер манікюру',
+          avgRating: 4.8,
+          reviewCount: 10,
+          type: MasterType.independentMaster,
+        );
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(masterWithTitle),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-profile-professional-title')),
+          findsOneWidget,
+          reason:
+              'the professional-title widget must be present in the tree when '
+              'Master.professionalTitle is non-null and non-empty',
+        );
+        expect(find.text('Майстер манікюру'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'does NOT render the professional-title widget when professionalTitle '
+      'is null',
+      (tester) async {
+        // _stubMaster has no professionalTitle (null by default).
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-profile-professional-title')),
+          findsNothing,
+          reason:
+              'the professional-title widget must be absent when '
+              'Master.professionalTitle is null',
+        );
+        // The name row must still be present.
+        expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
+      },
+    );
+  });
+
+  // ── 16. RoleChip label-switching ──────────────────────────────────────────
+  //
+  // The chip is now unconditional. When professionalTitle is set it carries the
+  // 'master-profile-professional-title' key and shows the title as its label;
+  // when null/empty the key is absent and the chip shows the master-type role
+  // label instead. These tests pin both branches of that contract.
+
+  group(
+    'RoleChip visibility — label switches between professionalTitle and role label',
+    () {
+      testWidgets(
+        'shows professionalTitle text inside RoleChip when professionalTitle is set',
+        (tester) async {
+          const masterWithTitle = Master(
+            id: 'user-1',
+            firstName: 'Тест',
+            lastName: 'Майстер',
+            professionalTitle: 'Стиліст',
+            avgRating: 4.8,
+            reviewCount: 10,
+            type: MasterType.independentMaster,
+          );
+
+          await tester.pumpApp(
+            const MasterProfileScreen(),
+            overrides: _buildOverrides(
+              masterState: const AsyncData<Master>(masterWithTitle),
+              repo: repo,
+              serviceRepo: mockServiceRepo,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          // The chip carries the professional-title key when professionalTitle is set.
+          expect(
+            find.byKey(const Key('master-profile-professional-title')),
+            findsOneWidget,
+          );
+          // The chip is always present (unconditional).
+          expect(find.byType(RoleChip), findsOneWidget);
+          // The title text is rendered inside the chip, not as a standalone Text.
+          expect(
+            find.descendant(
+              of: find.byType(RoleChip),
+              matching: find.text('Стиліст'),
+            ),
+            findsOneWidget,
+            reason:
+                'professionalTitle text must be shown inside RoleChip as its label, '
+                'not as a separate Text widget outside the chip',
+          );
+        },
+      );
+
+      testWidgets('shows the RoleChip when professionalTitle is null', (
+        tester,
+      ) async {
+        // _stubMaster has no professionalTitle (null) — RoleChip shows the role label.
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The title key is null when showing the role label — so absent from the tree.
+        expect(
+          find.byKey(const Key('master-profile-professional-title')),
+          findsNothing,
+        );
+        // The RoleChip is always present (unconditional).
+        expect(
+          find.byType(RoleChip),
+          findsOneWidget,
+          reason:
+              'RoleChip is always rendered — when professionalTitle is null it shows '
+              'the master-type role label instead',
+        );
+      });
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

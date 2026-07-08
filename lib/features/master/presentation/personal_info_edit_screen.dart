@@ -64,12 +64,14 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
   late final TextEditingController _firstName;
   late final TextEditingController _lastName;
+  late final TextEditingController _professionalTitle;
   late final TextEditingController _bio;
 
   bool _initialized = false;
 
   String _origFirstName = '';
   String _origLastName = '';
+  String _origProfessionalTitle = '';
   String _origBio = '';
 
   Map<String, String> _fieldErrors = const <String, String>{};
@@ -77,6 +79,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
   String? _errFirstName;
   String? _errLastName;
+  String? _errProfessionalTitle;
   String? _errBio;
 
   // PERF (P2): drives the Save button's enabled state in isolation. Typing a
@@ -93,7 +96,8 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
   late final CurvedAnimation _anim0; // avatar
   late final CurvedAnimation _anim1; // firstName
   late final CurvedAnimation _anim2; // lastName
-  late final CurvedAnimation _anim3; // bio
+  late final CurvedAnimation _anim3; // professionalTitle
+  late final CurvedAnimation _anim4; // bio
   late final CurvedAnimation _animFooter; // pinned Save
 
   static final Tween<Offset> _slideTween = Tween<Offset>(
@@ -119,12 +123,13 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 1000),
     );
-    _anim0 = _curve(0.00, 0.42);
-    _anim1 = _curve(0.06, 0.50);
-    _anim2 = _curve(0.14, 0.58);
-    _anim3 = _curve(0.22, 0.66);
+    _anim0 = _curve(0.00, 0.40);
+    _anim1 = _curve(0.06, 0.48);
+    _anim2 = _curve(0.14, 0.56);
+    _anim3 = _curve(0.22, 0.64);
+    _anim4 = _curve(0.30, 0.72);
     _animFooter = _curve(0.60, 1.0);
   }
 
@@ -139,10 +144,12 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
     _origFirstName = master.firstName;
     _origLastName = master.lastName;
+    _origProfessionalTitle = master.professionalTitle ?? '';
     _origBio = master.bio ?? '';
 
     _firstName = TextEditingController(text: _origFirstName);
     _lastName = TextEditingController(text: _origLastName);
+    _professionalTitle = TextEditingController(text: _origProfessionalTitle);
     _bio = TextEditingController(text: _origBio);
 
     for (final c in _editableControllers) {
@@ -165,6 +172,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     _anim1.dispose();
     _anim2.dispose();
     _anim3.dispose();
+    _anim4.dispose();
     _animFooter.dispose();
     _controller.dispose();
     _dirty.dispose();
@@ -172,7 +180,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
   }
 
   List<TextEditingController> get _editableControllers =>
-      <TextEditingController>[_firstName, _lastName, _bio];
+      <TextEditingController>[_firstName, _lastName, _professionalTitle, _bio];
 
   // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
   // and its animation wrappers are not rebuilt on every keystroke. The footer's
@@ -185,6 +193,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
       _initialized &&
       (_firstName.text.trim() != _origFirstName ||
           _lastName.text.trim() != _origLastName ||
+          _professionalTitle.text.trim() != _origProfessionalTitle ||
           _bio.text.trim() != _origBio);
 
   Widget _reveal(CurvedAnimation anim, Widget child) {
@@ -237,6 +246,15 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     return null;
   }
 
+  String? _validateProfessionalTitle(String? v) {
+    final serverErr = _fieldErrors['professionalTitle'];
+    if (serverErr != null) return serverErr;
+    if (v != null && v.trim().length > 100) {
+      return AppLocalizations.of(context).professionalTitleMaxLength;
+    }
+    return null;
+  }
+
   String? _validateBio(String? v) {
     final serverErr = _fieldErrors['bio'];
     if (serverErr != null) return serverErr;
@@ -251,6 +269,9 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     setState(() {
       _errFirstName = _validateFirstName(_firstName.text);
       _errLastName = _validateLastName(_lastName.text);
+      _errProfessionalTitle = _validateProfessionalTitle(
+        _professionalTitle.text,
+      );
       _errBio = _validateBio(_bio.text);
     });
     return ok;
@@ -262,6 +283,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
       _fieldErrors = const <String, String>{};
       _errFirstName = null;
       _errLastName = null;
+      _errProfessionalTitle = null;
       _errBio = null;
     });
 
@@ -280,14 +302,16 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     setState(() => _saving = true);
 
     try {
-      // CRITICAL: merge name + bio onto the cached phone + instagram so the
-      // PATCH never clears the sibling contact fields this page does not edit.
+      // CRITICAL: merge name + professionalTitle + bio onto the cached phone +
+      // instagram so the PATCH never clears the sibling contact fields this page
+      // does not edit.
       await ref
           .read(masterRepositoryProvider)
           .updateMyProfile(
             MasterUpdate(
               firstName: _firstName.text.trim(),
               lastName: _lastName.text.trim(),
+              professionalTitle: _professionalTitle.text.trim(),
               bio: _bio.text.trim(),
               contactPhone: cached.phoneNumber ?? '',
               instagram: cached.instagram ?? '',
@@ -498,6 +522,37 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
             const SizedBox(height: VelvetSpacing.lg),
             _reveal(
               _anim3,
+              FormField<String>(
+                key: const Key('field-professionalTitle'),
+                initialValue: _professionalTitle.text,
+                validator: (_) =>
+                    _validateProfessionalTitle(_professionalTitle.text),
+                builder: (FormFieldState<String> field) {
+                  return VelvetField(
+                    label: l10n.professionalTitleLabel,
+                    controller: _professionalTitle,
+                    enabled: !_saving,
+                    hint: l10n.professionalTitleHint,
+                    maxLength: 100,
+                    showCounter: true,
+                    errorText: _errProfessionalTitle,
+                    onChanged: (v) {
+                      _clearServerError('professionalTitle');
+                      field.didChange(v);
+                      final next = _validateProfessionalTitle(
+                        _professionalTitle.text,
+                      );
+                      if (next != _errProfessionalTitle) {
+                        setState(() => _errProfessionalTitle = next);
+                      }
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: VelvetSpacing.lg),
+            _reveal(
+              _anim4,
               FormField<String>(
                 key: const Key('field-bio'),
                 initialValue: _bio.text,

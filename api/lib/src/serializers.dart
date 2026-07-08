@@ -43,6 +43,7 @@ import 'package:beautica_api/src/model/api_response_list_working_hours_response.
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_master_public_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_master_service_response.dart';
+import 'package:beautica_api/src/model/api_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_media_file_response.dart';
 import 'package:beautica_api/src/model/api_response_page_media_file_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_detail_response.dart';
@@ -62,6 +63,7 @@ import 'package:beautica_api/src/model/api_response_public_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_registration_response.dart';
 import 'package:beautica_api/src/model/api_response_revenue_response.dart';
 import 'package:beautica_api/src/model/api_response_review_response.dart';
+import 'package:beautica_api/src/model/api_response_salon_admin_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_review_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_service_catalog_response.dart';
@@ -158,6 +160,9 @@ import 'package:beautica_api/src/model/revenue_by_master_dto.dart';
 import 'package:beautica_api/src/model/revenue_by_service_dto.dart';
 import 'package:beautica_api/src/model/revenue_response.dart';
 import 'package:beautica_api/src/model/review_response.dart';
+import 'package:beautica_api/src/model/rotate_admin_request.dart';
+import 'package:beautica_api/src/model/rotate_master_request.dart';
+import 'package:beautica_api/src/model/salon_admin_response.dart';
 import 'package:beautica_api/src/model/salon_response.dart';
 import 'package:beautica_api/src/model/salon_review_response.dart';
 import 'package:beautica_api/src/model/salon_review_summary_response.dart';
@@ -223,6 +228,7 @@ part 'serializers.g.dart';
   ApiResponseMasterDetailResponse,
   ApiResponseMasterPublicProfileResponse,
   ApiResponseMasterServiceResponse,
+  ApiResponseMasterSummaryResponse,
   ApiResponseMediaFileResponse,
   ApiResponsePageMediaFileResponse,
   ApiResponsePageResponseBookingDetailResponse,
@@ -242,6 +248,7 @@ part 'serializers.g.dart';
   ApiResponseRegistrationResponse,
   ApiResponseRevenueResponse,
   ApiResponseReviewResponse,
+  ApiResponseSalonAdminResponse,
   ApiResponseSalonResponse,
   ApiResponseSalonReviewSummaryResponse,
   ApiResponseSalonServiceCatalogResponse,
@@ -338,6 +345,9 @@ part 'serializers.g.dart';
   RevenueByServiceDto,
   RevenueResponse,
   ReviewResponse,
+  RotateAdminRequest,
+  RotateMasterRequest,
+  SalonAdminResponse,
   SalonResponse,
   SalonReviewResponse,
   SalonReviewSummaryResponse,

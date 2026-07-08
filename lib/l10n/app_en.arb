@@ -3300,19 +3300,36 @@
     "description": "Body copy of the Phase 14.1 booking-flow placeholder screen."
   },
   "bookingServiceSelectTitle": "Choose services",
+  "@bookingServiceSelectTitle": {
+    "description": "Top-bar title of the booking Step 1 service-selection screen."
+  },
   "bookingServiceSelectIntro": "Choose the services you'd like to book.",
+  "@bookingServiceSelectIntro": {
+    "description": "One-line intro under the top bar on the booking Step 1 service-selection screen."
+  },
   "bookingMasterStripLabel": "Booking with",
+  "@bookingMasterStripLabel": {
+    "description": "Small caption line above the master's name on the booking-flow MasterStrip context card."
+  },
   "bookingMasterStripSemantics": "Booking with master: {name}, {role}",
   "@bookingMasterStripSemantics": {
+    "description": "Accessibility label for the booking-flow MasterStrip context card.",
     "placeholders": {
       "name": { "type": "String" },
       "role": { "type": "String" }
     }
   },
   "bookingCategoryExpandedState": "expanded",
+  "@bookingCategoryExpandedState": {
+    "description": "Accessibility state word appended to a booking service-category header's label when its section is expanded."
+  },
   "bookingCategoryCollapsedState": "collapsed",
+  "@bookingCategoryCollapsedState": {
+    "description": "Accessibility state word appended to a booking service-category header's label when its section is collapsed."
+  },
   "bookingServiceTileSemantics": "{name}, {duration}, {price}",
   "@bookingServiceTileSemantics": {
+    "description": "Accessibility label for a selectable service row / summary entry on the booking service-selection and slot-picker screens.",
     "placeholders": {
       "name": { "type": "String" },
       "duration": { "type": "String" },
@@ -3320,44 +3337,122 @@
     }
   },
   "bookingTotalLabel": "Total",
+  "@bookingTotalLabel": {
+    "description": "Label of the pinned total-price row on the booking summary shelf."
+  },
   "bookingEmptySelectionPrompt": "Choose at least one service",
+  "@bookingEmptySelectionPrompt": {
+    "description": "Muted prompt shown on the booking summary shelf before any service is selected."
+  },
   "bookingSummaryExpandLabel": "Show selected services",
+  "@bookingSummaryExpandLabel": {
+    "description": "Accessibility label for the booking summary shelf's expand/collapse toggle when the itemized selected-service list is currently hidden."
+  },
   "bookingSummaryCollapseLabel": "Hide selected services",
+  "@bookingSummaryCollapseLabel": {
+    "description": "Accessibility label for the booking summary shelf's expand/collapse toggle when the itemized selected-service list is currently shown."
+  },
   "bookingNextCta": "Next",
+  "@bookingNextCta": {
+    "description": "Primary CTA on the booking service-selection and date-picker screens; advances to the next booking step."
+  },
   "bookingConfirmCta": "Confirm",
+  "@bookingConfirmCta": {
+    "description": "Primary CTA on the booking time-picker screen; advances to the booking-confirmation step."
+  },
   "bookingChosenWindowLabel": "Booking:",
+  "@bookingChosenWindowLabel": {
+    "description": "Prefix label before the chosen appointment window on the booking time-picker summary shelf."
+  },
   "bookingChosenWindowSemantics": "Chosen appointment time: {label}",
   "@bookingChosenWindowSemantics": {
+    "description": "Accessibility label for the chosen appointment-window block once a slot is selected.",
     "placeholders": {
       "label": { "type": "String" }
     }
   },
   "bookingRemoveServiceSemantics": "Remove \"{serviceName}\" from the list",
   "@bookingRemoveServiceSemantics": {
+    "description": "Accessibility label for the per-item remove ('x') control on an itemized selected-service entry in the booking summary shelf.",
     "placeholders": {
       "serviceName": { "type": "String" }
     }
   },
   "bookingDateScreenTitle": "Choose a date",
+  "@bookingDateScreenTitle": {
+    "description": "Top-bar title of the booking Step 2a date-picker screen."
+  },
   "bookingCalendarPrevMonth": "Previous month",
+  "@bookingCalendarPrevMonth": {
+    "description": "Accessibility label for the calendar's previous-month paging chevron."
+  },
   "bookingCalendarNextMonth": "Next month",
+  "@bookingCalendarNextMonth": {
+    "description": "Accessibility label for the calendar's next-month paging chevron."
+  },
   "bookingDayAvailableState": "has free slots",
+  "@bookingDayAvailableState": {
+    "description": "Accessibility state word for a tappable (available) calendar day cell."
+  },
   "bookingDayUnavailableState": "no free slots",
+  "@bookingDayUnavailableState": {
+    "description": "Accessibility state word for an untappable (unavailable) calendar day cell; also shown as the time screen's fallback message when the slots fetch itself fails."
+  },
   "bookingNoSlotsTitle": "No available times",
+  "@bookingNoSlotsTitle": {
+    "description": "Empty-state heading on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
+  },
   "bookingNoSlotsMessage": "All times on this date are already booked. Please choose another date.",
+  "@bookingNoSlotsMessage": {
+    "description": "Empty-state body copy on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
+  },
   "bookingSelectedState": "selected",
+  "@bookingSelectedState": {
+    "description": "Accessibility state word shared by the selected calendar day cell and the selected time-slot chip."
+  },
   "bookingSlotAvailableState": "available",
+  "@bookingSlotAvailableState": {
+    "description": "Accessibility state word for an available (unselected) time-slot chip."
+  },
   "bookingSlotUnavailableState": "unavailable",
+  "@bookingSlotUnavailableState": {
+    "description": "Accessibility state word for an unavailable (untappable) time-slot chip."
+  },
   "bookingTimeScreenTitle": "Choose a time",
+  "@bookingTimeScreenTitle": {
+    "description": "Top-bar title of the booking Step 2b time-picker screen."
+  },
   "bookingTimeScreenBackSemantics": "Back to date selection",
+  "@bookingTimeScreenBackSemantics": {
+    "description": "Accessibility label for the time-picker screen's back button (returns to the date screen)."
+  },
   "bookingFreeTimeHeading": "Free time",
+  "@bookingFreeTimeHeading": {
+    "description": "Section heading above the Ранок/День/Вечір time-slot clusters."
+  },
   "bookingMorningLabel": "Morning",
+  "@bookingMorningLabel": {
+    "description": "Sub-label for the morning time-slot cluster."
+  },
   "bookingAfternoonLabel": "Afternoon",
+  "@bookingAfternoonLabel": {
+    "description": "Sub-label for the afternoon time-slot cluster."
+  },
   "bookingEveningLabel": "Evening",
+  "@bookingEveningLabel": {
+    "description": "Sub-label for the evening time-slot cluster."
+  },
   "bookingChangeDateCta": "Change",
+  "@bookingChangeDateCta": {
+    "description": "Compact link on the time screen's day-header chip; returns to the date screen."
+  },
   "bookingChangeDateSemantics": "Change date",
+  "@bookingChangeDateSemantics": {
+    "description": "Accessibility label for the time screen's change-date link."
+  },
   "bookingDayHeaderSemantics": "Chosen date: {label}. Booking with master: {masterName}, {masterRole}",
   "@bookingDayHeaderSemantics": {
+    "description": "Accessibility label for the time screen's day-header chip.",
     "placeholders": {
       "label": { "type": "String" },
       "masterName": { "type": "String" },
@@ -3365,25 +3460,60 @@
     }
   },
   "bookingConfirmScreenTitle": "Booking confirmation",
+  "@bookingConfirmScreenTitle": {
+    "description": "Title of the booking confirmation screen's top bar (Phase 14.2)."
+  },
   "bookingConfirmBackSemantics": "Cancel booking",
+  "@bookingConfirmBackSemantics": {
+    "description": "Accessibility label for the booking confirmation screen's back button — cancels the booking flow without submitting."
+  },
   "bookingAddressLabel": "Address",
+  "@bookingAddressLabel": {
+    "description": "Label above the master's address on the booking confirm/success summary card."
+  },
   "bookingAddressUnknown": "Address not specified",
+  "@bookingAddressUnknown": {
+    "description": "Fallback value shown in place of the address when the master has not entered a street or city."
+  },
   "bookingDateLabel": "Date",
+  "@bookingDateLabel": {
+    "description": "Label above the appointment date on the booking confirm/success summary card."
+  },
   "bookingTimeLabel": "Time",
+  "@bookingTimeLabel": {
+    "description": "Label above the appointment time window on the booking confirm/success summary card."
+  },
   "bookingServicesRecapLabel": "Services",
+  "@bookingServicesRecapLabel": {
+    "description": "Section label above the per-service list on the booking confirm/success summary card."
+  },
   "bookingTotalSemantics": "Total {duration} {price}",
   "@bookingTotalSemantics": {
+    "description": "Accessibility label for the bold total row on the booking confirm/success summary card.",
     "placeholders": {
       "duration": { "type": "String" },
       "price": { "type": "String" }
     }
   },
   "bookingCommentLabel": "Note for the specialist",
+  "@bookingCommentLabel": {
+    "description": "Label above the optional comment field on the booking confirmation screen."
+  },
   "bookingCommentHint": "Optional",
+  "@bookingCommentHint": {
+    "description": "Hint text inside the empty booking-confirmation comment field."
+  },
   "bookingSubmitCta": "Book now",
+  "@bookingSubmitCta": {
+    "description": "Primary CTA on the booking confirmation screen; submits the POST /bookings request."
+  },
   "bookingSubmitCtaLoading": "Submitting…",
+  "@bookingSubmitCtaLoading": {
+    "description": "Booking confirmation CTA label shown while the POST /bookings request is in flight."
+  },
   "bookingSummaryMasterSemantics": "Booking with master: {name}, {role}. Rating {rating}, {reviews}",
   "@bookingSummaryMasterSemantics": {
+    "description": "Accessibility label for the master header row on the booking confirmation summary card.",
     "placeholders": {
       "name": { "type": "String" },
       "role": { "type": "String" },
@@ -3392,10 +3522,25 @@
     }
   },
   "bookingSuccessTitle": "Booked!",
+  "@bookingSuccessTitle": {
+    "description": "Headline on the booking success screen shown after POST /bookings succeeds."
+  },
   "bookingSuccessSubline": "The specialist will confirm your booking shortly.\nYou'll get a notification as soon as they respond.",
+  "@bookingSuccessSubline": {
+    "description": "Reassuring subline under the booking success screen's headline."
+  },
   "bookingSuccessAddCalendarCta": "Add to calendar",
+  "@bookingSuccessAddCalendarCta": {
+    "description": "Tertiary link on the booking success screen; adds the appointment to the device calendar."
+  },
   "bookingAddCalendarSemantics": "Add booking to calendar",
+  "@bookingAddCalendarSemantics": {
+    "description": "Accessibility label for the booking success screen's add-to-calendar link."
+  },
   "bookingSuccessHomeCta": "Home",
+  "@bookingSuccessHomeCta": {
+    "description": "Sole onward action on the booking success screen; navigates to the client home."
+  },
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {
     "description": "Accessibility label for the back control floating over the salon profile cover photo."
@@ -3823,5 +3968,18 @@
       "scheduled": { "type": "int", "example": "1" },
       "total": { "type": "int", "example": "3" }
     }
+  },
+
+  "professionalTitleLabel": "Professional title",
+  "@professionalTitleLabel": {
+    "description": "Field label above the professional title input on the master edit screen."
+  },
+  "professionalTitleHint": "e.g. «Nail master»",
+  "@professionalTitleHint": {
+    "description": "Hint text inside the professional title field on the master edit screen."
+  },
+  "professionalTitleMaxLength": "Max 100 characters",
+  "@professionalTitleMaxLength": {
+    "description": "Helper / counter note below the professional title field on the master edit screen."
   }
 }
