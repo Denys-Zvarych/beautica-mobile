@@ -650,6 +650,7 @@ void main() {
           expect(
             find.descendant(
               of: find.byType(RoleChip),
+              // i18n-finder-ok: professionalTitle is user-entered data, not localised UI copy — identical in every locale
               matching: find.text('Стиліст'),
             ),
             findsOneWidget,
