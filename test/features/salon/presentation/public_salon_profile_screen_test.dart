@@ -1222,10 +1222,16 @@ void main() {
     // + role wrapped to 2 lines) by giving the role enough room to fit on one
     // line. 320dp keeps the column at least as tight as the original 132dp
     // rail card, preserving (and slightly exceeding) the original stress.
+    //
+    // The salon master card now renders the FIRST NAME ONLY (surname omitted —
+    // see `_MastersTab`'s itemBuilder). To keep exercising the name's own
+    // ellipsis path, the stress lives in a long single GIVEN name here
+    // (`longName` == the fixture's `firstName`); `lastName` stays a real
+    // surname that must never reach the rendered card.
     testWidgets(
-      'long name + 2-line-wrapped role does not overflow the shrunk card',
+      'long first name + 2-line-wrapped role does not overflow the shrunk card',
       (tester) async {
-        const String longName = 'Олександра Верещагіна-Задорожня';
+        const String longName = 'Олександрина-Емілія';
         await tester.pumpApp(
           const PublicSalonProfileScreen(salonId: _kSalonId),
           overrides: _overrides(
@@ -1233,7 +1239,7 @@ void main() {
               masters: () async => const <SalonMasterSummary>[
                 SalonMasterSummary(
                   masterId: 'master-long',
-                  firstName: 'Олександра',
+                  firstName: longName,
                   lastName: 'Верещагіна-Задорожня',
                   avgRating: 4.8,
                   reviewCount: 5,
@@ -1269,6 +1275,63 @@ void main() {
         );
       },
     );
+
+    // ── Surname-omission regression (the guard) ─────────────────────────────
+    //
+    // The salon master card was changed to render the FIRST NAME ONLY —
+    // `_MastersTab`'s itemBuilder now passes `name: master.firstName` rather
+    // than the old `'${master.firstName} ${master.lastName}'.trim()`. This
+    // guards that contract directly: given a master with a distinct first name
+    // AND a distinct surname, the card shows the first name and NEVER the
+    // surname (neither alone nor as part of a combined "first last" label).
+    // Re-adding the surname to the card would fail this test.
+    testWidgets('master card shows first name only, never the surname', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            masters: () async => const <SalonMasterSummary>[
+              SalonMasterSummary(
+                masterId: 'master-name',
+                firstName: 'Тарас',
+                lastName: 'Шевченко',
+                avgRating: 4.9,
+                reviewCount: 7,
+                type: MasterType.independentMaster,
+              ),
+            ],
+          ),
+        ),
+        width: 390,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      final Finder card = find.byKey(
+        const Key('salon-master-card-master-name'),
+      );
+      expect(card, findsOneWidget);
+
+      expect(
+        find.descendant(of: card, matching: find.text('Тарас')),
+        findsOneWidget,
+        reason: 'the card must render the master first name',
+      );
+      expect(
+        find.textContaining('Шевченко'),
+        findsNothing,
+        reason: 'the surname must never reach the salon master card',
+      );
+      expect(
+        find.text('Тарас Шевченко'),
+        findsNothing,
+        reason: 'the old combined "first last" label must not reappear',
+      );
+    });
 
     // ── Vertical 2-column grid regression ───────────────────────────────
     //

@@ -1109,7 +1109,8 @@ class _MastersTabState extends State<_MastersTab> {
               final SalonMasterSummary master = visible[i];
               return SalonMasterCard(
                 key: Key('salon-master-card-${master.masterId}'),
-                name: '${master.firstName} ${master.lastName}'.trim(),
+                // First name only on the salon master card (surname omitted).
+                name: master.firstName,
                 role: _roleLabel(master.type, l10n),
                 ratingLabel: master.reviewCount > 0
                     ? (master.avgRating?.toStringAsFixed(1) ?? '—')
