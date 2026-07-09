@@ -3577,6 +3577,29 @@
   "@salonMastersShowAll": {
     "description": "Reveal affordance below the masters grid on the \"Майстри\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
   },
+  "salonMasterFilterChipLabel": "Послуга: {serviceName}",
+  "@salonMasterFilterChipLabel": {
+    "description": "Active-filter chip above the \"Майстри\" grid when a service was picked in the \"Послуги\" tab — the grid then shows only masters who perform this service.",
+    "placeholders": {
+      "serviceName": { "type": "String" }
+    }
+  },
+  "salonMasterFilterClearLabel": "Скинути фільтр послуги",
+  "@salonMasterFilterClearLabel": {
+    "description": "Accessibility label for the ✕ button on the active-service-filter chip; tapping it clears the filter and shows every master again."
+  },
+  "salonMastersForServiceEmpty": "Немає майстрів для цієї послуги",
+  "@salonMastersForServiceEmpty": {
+    "description": "Empty state on the \"Майстри\" tab when a service filter is active but no master in the salon performs the selected service."
+  },
+  "salonServiceFilterSelectHint": "Показати майстрів, які надають цю послугу",
+  "@salonServiceFilterSelectHint": {
+    "description": "Accessibility hint on a selectable service row in the \"Послуги\" tab — tapping it filters the masters grid to those who perform this service."
+  },
+  "salonServiceFilterClearHint": "Скинути вибір послуги",
+  "@salonServiceFilterClearHint": {
+    "description": "Accessibility hint on the currently-selected service row — tapping it clears the service filter."
+  },
   "salonPortfolioShowAll": "Показати всі фото",
   "@salonPortfolioShowAll": {
     "description": "Accessibility label for the trailing '+N' reveal tile appended to the salon portfolio photo rail on the \"Про салон\" tab when the gallery exceeds the initially-rendered batch (kSalonPortfolioInitialCount); tapping it expands the rail to show the rest."

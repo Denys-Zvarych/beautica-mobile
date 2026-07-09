@@ -3577,6 +3577,29 @@
   "@salonMastersShowAll": {
     "description": "Reveal affordance below the masters grid on the \"Masters\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
   },
+  "salonMasterFilterChipLabel": "Service: {serviceName}",
+  "@salonMasterFilterChipLabel": {
+    "description": "Active-filter chip above the \"Masters\" grid when a service was picked in the \"Services\" tab — the grid then shows only masters who perform this service.",
+    "placeholders": {
+      "serviceName": { "type": "String" }
+    }
+  },
+  "salonMasterFilterClearLabel": "Clear service filter",
+  "@salonMasterFilterClearLabel": {
+    "description": "Accessibility label for the ✕ button on the active-service-filter chip; tapping it clears the filter and shows every master again."
+  },
+  "salonMastersForServiceEmpty": "No masters perform this service yet",
+  "@salonMastersForServiceEmpty": {
+    "description": "Empty state on the \"Masters\" tab when a service filter is active but no master in the salon performs the selected service."
+  },
+  "salonServiceFilterSelectHint": "Show masters who perform this service",
+  "@salonServiceFilterSelectHint": {
+    "description": "Accessibility hint on a selectable service row in the \"Services\" tab — tapping it filters the masters grid to those who perform this service."
+  },
+  "salonServiceFilterClearHint": "Clear the selected service",
+  "@salonServiceFilterClearHint": {
+    "description": "Accessibility hint on the currently-selected service row — tapping it clears the service filter."
+  },
   "salonPortfolioShowAll": "Show all photos",
   "@salonPortfolioShowAll": {
     "description": "Accessibility label for the trailing '+N' reveal tile appended to the salon portfolio photo rail on the \"About\" tab when the gallery exceeds the initially-rendered batch (kSalonPortfolioInitialCount); tapping it expands the rail to show the rest."
