@@ -288,4 +288,68 @@ void main() {
       },
     );
   });
+
+  group('ClientSearchScreen — price slider tick-mark regression', () {
+    // Regression guard for the "................" bug: the price RangeSlider
+    // painted a visible dot at every division. The fix hides the ticks via the
+    // local SliderThemeData (radius 0 + transparent colours) while KEEPING
+    // `divisions` so the 500-грн snapping UX survives. This test asserts BOTH
+    // halves so neither can silently regress: the dots can never return, and
+    // the snapping can never be silently dropped by "just deleting divisions".
+    testWidgets(
+      'price slider hides the per-division tick dots yet keeps 500-грн snapping',
+      (tester) async {
+        await _pumpScreen(tester);
+        await tester.pumpAndSettle();
+
+        final Finder sliderFinder = find.byKey(
+          const Key('search_price_slider'),
+        );
+
+        // Half 1 — ticks hidden. Resolve the SliderThemeData actually applied
+        // to the slider via its enclosing SliderTheme ancestor.
+        final SliderTheme sliderTheme = tester.widget<SliderTheme>(
+          find.ancestor(of: sliderFinder, matching: find.byType(SliderTheme)),
+        );
+        final SliderThemeData themeData = sliderTheme.data;
+
+        expect(
+          themeData.rangeTickMarkShape,
+          isA<RoundRangeSliderTickMarkShape>(),
+          reason: 'the tick-mark shape must be the round shape we zero out',
+        );
+        expect(
+          (themeData.rangeTickMarkShape as RoundRangeSliderTickMarkShape)
+              .tickMarkRadius,
+          0,
+          reason: 'a non-zero radius repaints the "................" dot row',
+        );
+        expect(
+          themeData.activeTickMarkColor,
+          Colors.transparent,
+          reason: 'active tick colour must be transparent so no dot shows',
+        );
+        expect(
+          themeData.inactiveTickMarkColor,
+          Colors.transparent,
+          reason: 'inactive tick colour must be transparent so no dot shows',
+        );
+
+        // Half 2 — snapping preserved. `divisions` must stay non-null and equal
+        // the 40-step (500-грн) constant; dropping it would lose the snap UX.
+        final RangeSlider slider = tester.widget<RangeSlider>(sliderFinder);
+        expect(
+          slider.divisions,
+          isNotNull,
+          reason:
+              'divisions must remain set — the fix hides dots, not snapping',
+        );
+        expect(
+          slider.divisions,
+          kSearchPriceDivisions,
+          reason: 'snapping stays at the 40-division (500-грн) step',
+        );
+      },
+    );
+  });
 }

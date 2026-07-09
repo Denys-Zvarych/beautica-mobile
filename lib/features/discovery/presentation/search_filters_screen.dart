@@ -1245,6 +1245,12 @@ class _PriceSectionState extends ConsumerState<_PriceSection> {
             rangeThumbShape: const RoundRangeSliderThumbShape(
               enabledThumbRadius: 11,
             ),
+            // Hide the per-division tick dots while keeping 500-грн snapping.
+            rangeTickMarkShape: const RoundRangeSliderTickMarkShape(
+              tickMarkRadius: 0,
+            ),
+            activeTickMarkColor: Colors.transparent,
+            inactiveTickMarkColor: Colors.transparent,
           ),
           child: RangeSlider(
             key: const Key('search_price_slider'),
