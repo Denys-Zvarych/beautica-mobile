@@ -1120,11 +1120,11 @@ class _PriceSectionState extends ConsumerState<_PriceSection> {
     color: BrandColors.muted,
   );
 
-  // Digits-only + cap length at 4 chars (max meaningful value is the 5000
+  // Digits-only + cap length at 5 chars (max meaningful value is the 20000
   // ceiling; the controller clamps the parsed value to the ceiling anyway).
   static final List<TextInputFormatter> _priceFormatters = <TextInputFormatter>[
     FilteringTextInputFormatter.digitsOnly,
-    LengthLimitingTextInputFormatter(4),
+    LengthLimitingTextInputFormatter(5),
   ];
 
   final TextEditingController _minController = TextEditingController();

@@ -215,6 +215,45 @@ void main() {
     });
   });
 
+  group('ClientSearchScreen — 5-digit price entry (cap raised 4 → 5)', () {
+    testWidgets(
+      'entering a 5-digit MAX value (12000) is accepted in FULL and drives '
+      'maxPrice=12000 — under the old 4-char cap this truncated to «1200»',
+      (tester) async {
+        await _pumpScreen(tester);
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('search_price_max_field')),
+          '12000',
+        );
+        await tester.pumpAndSettle();
+
+        // The field itself must retain all five digits (the raised
+        // LengthLimitingTextInputFormatter(5) cap — a regression here would
+        // truncate the visible text to "1200").
+        final TextField maxField = tester.widget<TextField>(
+          find.byKey(const Key('search_price_max_field')),
+        );
+        expect(
+          maxField.controller!.text,
+          '12000',
+          reason: 'the 5-char length cap must keep all five digits on screen',
+        );
+
+        // And the parsed value flows into the controller as a finite 12000 max
+        // (12000 < 20000 ceiling → not collapsed to null).
+        expect(
+          _filters(tester).maxPrice,
+          12000,
+          reason:
+              'a full 5-digit entry drives the raised-ceiling finite max; the '
+              'old 4-digit cap would have parsed only 1200',
+        );
+      },
+    );
+  });
+
   group('ClientSearchScreen — slider ↔ field reflection', () {
     testWidgets(
       'a MAX-field entry reflects back into the slider thumb position '

@@ -3066,7 +3066,7 @@
   "@searchPriceMin": {
     "description": "Left end label under the price slider (minimum)."
   },
-  "searchPriceMax": "5000+ UAH",
+  "searchPriceMax": "20000+ UAH",
   "@searchPriceMax": {
     "description": "Right end label under the price slider (ceiling and above)."
   },
@@ -3106,7 +3106,7 @@
   "@searchPriceMinFieldHint": {
     "description": "Placeholder hint inside the minimum-price numeric input field (no lower bound)."
   },
-  "searchPriceMaxFieldHint": "5000",
+  "searchPriceMaxFieldHint": "20000",
   "@searchPriceMaxFieldHint": {
     "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
   },

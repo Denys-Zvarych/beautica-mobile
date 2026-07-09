@@ -386,6 +386,100 @@ void main() {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Regression guard — the search price ceiling was raised 5000 → 20000
+  // (kSearchPriceDivisions 50 → 40, i.e. a 500-грн step). The existing
+  // setMaxPrice group above asserts only against the *symbol*
+  // kSearchPriceCeiling, so it passes under EITHER ceiling and cannot catch a
+  // regression of the value itself. THESE cases pin concrete rupee-values that
+  // straddle the old 5000 bound: each would have FAILED under the old ceiling
+  // (a 12000 max collapsed to null / "no upper bound" when the ceiling was
+  // 5000, since 12000 >= 5000). They lock the raised ceiling in place.
+  // -------------------------------------------------------------------------
+  group('SearchFiltersController — 20000 price ceiling (raised from 5000)', () {
+    test('kSearchPriceCeiling is 20000 and divisions is 40 (500-грн step)', () {
+      expect(kSearchPriceCeiling, 20000);
+      expect(kSearchPriceDivisions, 40);
+      // Sanity: 40 divisions over a 20000 span is a 500-грн increment.
+      expect(kSearchPriceCeiling / kSearchPriceDivisions, 500);
+    });
+
+    test(
+      'a 12000 max (above the OLD 5000 ceiling) is RETAINED as a finite upper '
+      'bound — under the old ceiling this collapsed to null (unbounded)',
+      () {
+        final c = _make().container;
+
+        _filters(c).setMaxPrice(12000);
+
+        expect(
+          _state(c).maxPrice,
+          12000,
+          reason:
+              'the key regression guard: 12000 < 20000 so it is a real finite '
+              'ceiling now; with the old ceiling of 5000, 12000 >= 5000 would '
+              'have cleared maxPrice to null',
+        );
+      },
+    );
+
+    test('a max at exactly 20000 collapses to null ("будь-яка")', () {
+      final c = _make().container;
+
+      _filters(c).setMaxPrice(20000);
+
+      expect(
+        _state(c).maxPrice,
+        isNull,
+        reason: '20000 == kSearchPriceCeiling means no upper bound',
+      );
+    });
+
+    test(
+      '19500 (one 500-step below the new ceiling) is kept as a finite max',
+      () {
+        final c = _make().container;
+
+        _filters(c).setMaxPrice(19500);
+
+        expect(_state(c).maxPrice, 19500);
+      },
+    );
+
+    test('a max above 20000 clamps behaviour: 25000 collapses to null', () {
+      final c = _make().container;
+
+      _filters(c).setMaxPrice(25000);
+
+      expect(_state(c).maxPrice, isNull);
+    });
+
+    test(
+      'setMinPrice retains 12000 as a finite floor (above the old 5000 ceiling)',
+      () {
+        final c = _make().container;
+
+        _filters(c).setMinPrice(12000);
+
+        expect(
+          _state(c).minPrice,
+          12000,
+          reason: 'the raised ceiling clamps to [0, 20000], so 12000 survives',
+        );
+      },
+    );
+
+    test('setPriceRange keeps a min 8000 / max 15000 pair — both above the old '
+        'ceiling, both finite under 20000', () {
+      final c = _make().container;
+
+      _filters(c).setPriceRange(min: 8000, max: 15000);
+
+      expect(_state(c).minPrice, 8000);
+      expect(_state(c).maxPrice, 15000);
+    });
+  });
+
   group('SearchFiltersController.reset', () {
     test('clears every populated field back to const SearchFilters()', () {
       final c = _make().container;

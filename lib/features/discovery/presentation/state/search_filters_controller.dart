@@ -38,11 +38,10 @@ part 'search_filters_controller.g.dart';
 
 /// Price ceiling at/above which the «до N грн» readout collapses to "будь-яка"
 /// (any) and [SearchFilters.maxPrice] is cleared (no upper bound sent).
-const double kSearchPriceCeiling = 5000;
+const double kSearchPriceCeiling = 20000;
 
-/// The single-thumb price slider's discrete step count (0 → 5000 in 100-грн
-/// increments). Matches the approved preview's `divisions: 50`.
-const int kSearchPriceDivisions = 50;
+/// The price slider's discrete step count (0 → 20000 in 500-грн increments).
+const int kSearchPriceDivisions = 40;
 
 /// Human-readable display labels for the current [SearchFilters] selection.
 ///
