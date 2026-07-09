@@ -178,6 +178,25 @@ class _FixedClientEditProfile extends ClientEditProfile {
   Future<User> build() => Future<User>.value(_testUser);
 }
 
+// A CLIENT whose saved profile carries a locality (Київська обл. → Київ). Used
+// by the «Скинути фільтри» tests as the prefill source so the locality row
+// resolves to «Київ» on open (via the seeded oblast/city taxonomy overrides) —
+// the regression baseline: a prefilled location that a clear must never wipe.
+const _clientWithLocation = User(
+  id: 'u-client-1',
+  email: 'client@beautica.ua',
+  role: UserRole.client,
+  firstName: 'Дмитро',
+  lastName: 'Клієнт',
+  oblastId: _kOblastId,
+  cityId: _kCityWithDistrictsId,
+);
+
+class _FixedClientEditProfileLocated extends ClientEditProfile {
+  @override
+  Future<User> build() => Future<User>.value(_clientWithLocation);
+}
+
 Future<AppLocalizations> _uk() =>
     AppLocalizations.delegate.load(const Locale('uk'));
 
@@ -226,6 +245,7 @@ Future<_CategoriesController> _pumpScreen(
     _categories,
   ),
   bool withRouter = false,
+  ClientEditProfile Function() profile = _FixedClientEditProfile.new,
 }) async {
   installOverflowGuard();
   _pushedFilters = null;
@@ -285,7 +305,7 @@ Future<_CategoriesController> _pumpScreen(
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         // The locality prefill reads clientEditProfileProvider on screen open;
         // stub it to a no-location user so it bails without a real Dio call.
-        clientEditProfileProvider.overrideWith(_FixedClientEditProfile.new),
+        clientEditProfileProvider.overrideWith(profile),
         // Repo override kept for any other repository-backed reads the screen
         // performs; categories now come straight from the provider override.
         serviceRepositoryProvider.overrideWithValue(repo),
@@ -1274,5 +1294,130 @@ void main() {
       );
       expect(find.text(l10n.searchCityRequiredHint), findsOneWidget);
     });
+  });
+
+  // ── «Скинути фільтри» — the non-location reset link ─────────────────────────
+  //
+  // The quiet reset link surfaces ONLY when a CLEARABLE (non-location) filter is
+  // active, and tapping it clears those facets while the prefilled location
+  // survives. These tests use a saved-profile CLIENT (Київська → Київ) so the
+  // locality row is pre-filled on open — the core regression guard is that a
+  // clear never wipes that prefilled location.
+  group('ClientSearchScreen — clear filters («Скинути фільтри»)', () {
+    testWidgets(
+      'is HIDDEN when only the prefilled location is present (no clearable '
+      'filter active)',
+      (tester) async {
+        await _pumpScreen(tester, profile: _FixedClientEditProfileLocated.new);
+        await tester.pumpAndSettle();
+
+        // The saved location prefilled the row (regression baseline: a location
+        // IS present) ...
+        expect(
+          tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+          'Київ',
+          reason: 'the saved-profile city must prefill the locality row',
+        );
+        expect(_filters(tester).cityId, _kCityWithDistrictsId);
+        // ... yet with no query / category / price / service the reset link is
+        // never surfaced (clearing would be a location-preserving no-op).
+        expect(find.byKey(const Key('search_clear_filters')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'appears once a category is picked; tapping it clears the category + '
+      'hides the link while KEEPING the prefilled location',
+      (tester) async {
+        await _pumpScreen(tester, profile: _FixedClientEditProfileLocated.new);
+        await tester.pumpAndSettle();
+
+        // Precondition: prefilled location, link hidden.
+        expect(_filters(tester).cityId, _kCityWithDistrictsId);
+        expect(find.byKey(const Key('search_clear_filters')), findsNothing);
+
+        // Pick a category → the reset link surfaces.
+        await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+        await tester.pumpAndSettle();
+        expect(_filters(tester).categoryKey, 'NAILS');
+        expect(
+          find.byKey(const Key('search_clear_filters')),
+          findsOneWidget,
+          reason: 'an active category must surface «Скинути фільтри»',
+        );
+
+        // Tap «Скинути фільтри».
+        await tester.tap(find.byKey(const Key('search_clear_filters')));
+        await tester.pumpAndSettle();
+
+        // Category + its label cleared, and the link hides itself again ...
+        expect(_filters(tester).categoryKey, isNull);
+        expect(_labels(tester).categoryName, isNull);
+        expect(find.byKey(const Key('search_clear_filters')), findsNothing);
+
+        // ... but the prefilled locality is UNTOUCHED — the core regression guard.
+        expect(_filters(tester).oblastId, _kOblastId);
+        expect(_filters(tester).cityId, _kCityWithDistrictsId);
+        expect(_labels(tester).oblastName, 'Київська');
+        expect(_labels(tester).cityName, 'Київ');
+        expect(
+          tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+          'Київ',
+          reason: 'clearing filters must never wipe the prefilled location',
+        );
+      },
+    );
+
+    testWidgets(
+      'clearing also resets an entered price + query to their defaults (readout '
+      'returns to «будь-яка», query field emptied)',
+      (tester) async {
+        await _pumpScreen(tester, profile: _FixedClientEditProfileLocated.new);
+        await tester.pumpAndSettle();
+        final AppLocalizations l10n = await _uk();
+
+        // Enter a price ceiling + a free-text query → the reset link surfaces.
+        await tester.enterText(
+          find.byKey(const Key('search_price_max_field')),
+          '800',
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('search_query_field')),
+          'манікюр',
+        );
+        await tester.pumpAndSettle();
+        expect(_filters(tester).maxPrice, 800);
+        expect(_filters(tester).query, 'манікюр');
+        expect(find.byKey(const Key('search_clear_filters')), findsOneWidget);
+
+        // Clear.
+        await tester.tap(find.byKey(const Key('search_clear_filters')));
+        await tester.pumpAndSettle();
+
+        // Price + query reset; the readout returns to «будь-яка»; link hidden.
+        expect(_filters(tester).maxPrice, isNull);
+        expect(_filters(tester).minPrice, isNull);
+        expect(_filters(tester).query, isNull);
+        final Text readout = tester.widget<Text>(
+          find.byKey(const Key('search_price_readout')),
+        );
+        expect(readout.data, l10n.searchPriceAny);
+        expect(find.byKey(const Key('search_clear_filters')), findsNothing);
+        // The search field's own TextEditingController was cleared too (the
+        // onClear callback calls _searchController.clear()).
+        final TextField queryField = tester.widget<TextField>(
+          find.byKey(const Key('search_query_field')),
+        );
+        expect(queryField.controller?.text ?? '', isEmpty);
+
+        // Location survived the clear.
+        expect(_filters(tester).cityId, _kCityWithDistrictsId);
+        expect(
+          tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+          'Київ',
+        );
+      },
+    );
   });
 }

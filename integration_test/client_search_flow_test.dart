@@ -1172,4 +1172,112 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // «Скинути фільтри» (Clear filters) — E2E: a CLIENT applies a filter then
+  // taps the reset link; the non-location filter clears but the prefilled saved
+  // location SURVIVES.
+  //
+  // WHY THIS FLOW EXISTS
+  // --------------------
+  // The controller tier proves clearFilters() preserves the locality ids in
+  // isolation; the widget tier proves the reset link's visibility + the
+  // location-preservation against a STUBBED prefill. Neither proves the REAL
+  // journey: a CLIENT with a saved profile location logging in, the screen's
+  // initState firing prefillFromProfileIfNeeded() against the live GET /users/me
+  // + oblast/city taxonomy so the row renders «Київ» on open, then applying a
+  // category and tapping «Скинути фільтри» — with the keepAlive controllers
+  // driving the real rebuild — and the locality row STILL showing the saved
+  // «Київ» afterward (never re-resolved, never wiped).
+  //
+  // Step 2.7 Rule 3b: screen + navigation + provider→repository (/users/me +
+  // taxonomy) + the reset action + the prefill-preservation contract — the
+  // widget/unit tier cannot prove this composes end to end.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT applies a category then taps «Скинути фільтри» → the filter clears '
+    'but the prefilled saved location survives',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // Saved profile location: Київська обл. → Київ (city-kyiv has
+        // hasDistricts:false → no district step). GET /users/me echoes these so
+        // the prefill resolves the saved cascade on first open.
+        ..clientOblastId = 'oblast-kyiv'
+        ..clientOblastName = 'Київська'
+        ..clientCityId = 'city-kyiv'
+        ..clientCityName = 'Київ';
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientHome);
+
+      // ── Open Пошук → the prefill renders the saved city on first open ───────
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+        'Київ',
+        reason: 'the saved-profile city must prefill the locality row on open',
+      );
+      // With only the prefilled location, the reset link is hidden.
+      expect(
+        find.byKey(const Key('search_clear_filters')),
+        findsNothing,
+        reason: 'a location-only state never surfaces «Скинути фільтри»',
+      );
+
+      // ── Apply a category (NAILS) → the drawer opens + the reset link shows ──
+      await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ServiceChipDrawer), findsOneWidget);
+      expect(
+        find.byKey(const Key('search_clear_filters')),
+        findsOneWidget,
+        reason: 'an active category must surface the reset link',
+      );
+
+      // ── Tap «Скинути фільтри» ────────────────────────────────────────────────
+      await tester.ensureVisible(find.byKey(const Key('search_clear_filters')));
+      await tester.tap(find.byKey(const Key('search_clear_filters')));
+      await tester.pumpAndSettle();
+
+      // The category cleared → the drawer collapses and the reset link hides.
+      expect(
+        find.byType(ServiceChipDrawer),
+        findsNothing,
+        reason: 'clearing the category collapses its service-chip drawer',
+      );
+      expect(find.byKey(const Key('search_clear_filters')), findsNothing);
+
+      // ── REGRESSION — the prefilled location is UNTOUCHED ────────────────────
+      expect(
+        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+        'Київ',
+        reason: 'clearing filters must never wipe the prefilled saved location',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('search_region_value'))).data,
+        'Київська',
+        reason: 'the prefilled region survives the clear too',
+      );
+      // The pre-filled city keeps the search CTA enabled (a searchable scope
+      // remains after the clear).
+      expect(
+        tester
+            .widget<NeumorphicButton>(
+              find.byKey(const Key('search_show_masters_cta')),
+            )
+            .onPressed,
+        isNotNull,
+        reason: 'a preserved city means the CTA stays enabled after a clear',
+      );
+
+      expect(fb.getMasterCalls, 0);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }

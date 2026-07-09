@@ -3118,6 +3118,10 @@
   "@searchCtaShowMasters": {
     "description": "Primary CTA on the Пошук screen — runs the search and opens the results screen."
   },
+  "searchClearFilters": "Clear filters",
+  "@searchClearFilters": {
+    "description": "Secondary reset action on the Пошук screen — clears category, service, price and query filters back to the prefilled baseline while keeping the location prefilled from the client's saved profile. Shown only when at least one clearable filter is active."
+  },
   "searchResultsTitle": "Results",
   "@searchResultsTitle": {
     "description": "App-bar title of the discovery results screen."

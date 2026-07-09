@@ -28,6 +28,10 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
+import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -79,14 +83,20 @@ class _MutableAuthNotifier extends AuthNotifier {
 /// addTearDown so keepAlive controller state never leaks across tests.
 ({ProviderContainer container, _MutableAuthNotifier auth}) _make({
   AsyncValue<AuthSession> auth = _authenticated,
+  // ProviderContainer.overrides expects List<Override>; that name is not
+  // exported by this Riverpod version, so extra overrides are passed as
+  // List<Object> and the combined list is `.cast()`-ed (the house pattern —
+  // see test/helpers/pump_app.dart).
+  List<Object> extra = const <Object>[],
 }) {
   final notifier = _MutableAuthNotifier(auth);
   final container = ProviderContainer(
-    overrides: [
+    overrides: <Object>[
       authProvider.overrideWith(() => notifier),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-    ],
+      ...extra,
+    ].cast(),
   );
   addTearDown(container.dispose);
   return (container: container, auth: notifier);
@@ -496,6 +506,132 @@ void main() {
 
       expect(_state(c), const SearchFilters());
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // clearFilters — «Скинути фільтри». Resets every NON-location facet (query,
+  // category, per-service selection, rating floor, price band, sort) back to the
+  // empty baseline WHILE preserving the currently-resolved locality (oblast →
+  // city → district) and its display labels. Crucially it does this by mutating
+  // state in place (a single copyWith omitting the locality ids) — it NEVER
+  // re-reads the profile or re-resolves the location taxonomy, so none of the
+  // location providers is touched.
+  // -------------------------------------------------------------------------
+  group('SearchFiltersController.clearFilters', () {
+    test(
+      'clears every NON-location facet but PRESERVES the resolved locality + its '
+      'labels, and re-resolves NO location taxonomy',
+      () {
+        // Spy fakes for the three taxonomy providers — clearFilters must never
+        // read them (the locality carries through untouched), so every counter
+        // must stay at 0 across the clear.
+        var oblastCalls = 0;
+        var cityCalls = 0;
+        var districtCalls = 0;
+        final c = _make(
+          extra: <Object>[
+            oblastListProvider.overrideWith((ref) async {
+              oblastCalls++;
+              return const <Oblast>[];
+            }),
+            cityListProvider('oblast-kyiv').overrideWith((ref) async {
+              cityCalls++;
+              return const <City>[];
+            }),
+            districtListProvider('city-kyiv').overrideWith((ref) async {
+              districtCalls++;
+              return const <CityDistrict>[];
+            }),
+          ],
+        ).container;
+
+        // Arrange — a fully-populated filter set: locality (oblast→city→district)
+        // PLUS every clearable facet reachable through the public API.
+        _filters(c)
+          ..selectOblast(oblastId: 'oblast-kyiv')
+          ..selectCity(cityId: 'city-kyiv')
+          ..selectDistrict(districtId: 'dist-pechersk')
+          ..setQuery('манікюр')
+          ..toggleServiceType('NAILS')
+          ..setPriceRange(min: 300, max: 900)
+          ..setSort(SearchSort.priceAsc);
+        // Seed the sibling label + service-selection controllers too.
+        c.read(searchFilterLabelsControllerProvider.notifier)
+          ..setOblastName('Київська')
+          ..setCityName('Київ')
+          ..setDistrictName('Печерський')
+          ..setCategoryName('Манікюр');
+        c.read(searchServiceSelectionControllerProvider.notifier)
+          ..toggle('classic')
+          ..toggle('gel');
+        // Precondition: genuinely non-empty, non-default state.
+        expect(_state(c).categoryKey, 'NAILS');
+        expect(_state(c).sort, SearchSort.priceAsc);
+
+        // Act.
+        _filters(c).clearFilters();
+
+        // Assert — every NON-location facet reset to its baseline ...
+        final SearchFilters s = _state(c);
+        expect(s.query, isNull);
+        expect(s.categoryKey, isNull);
+        expect(s.serviceTypeSlugs, isEmpty);
+        expect(
+          s.minRating,
+          isNull,
+          reason: 'clear drops any rating floor (defensive — no public seeder)',
+        );
+        expect(s.minPrice, isNull);
+        expect(s.maxPrice, isNull);
+        expect(
+          s.sort,
+          SearchSort.ratingDesc,
+          reason: 'clear resets the ordering to the ratingDesc default',
+        );
+
+        // ... while the resolved locality carries straight through untouched.
+        expect(s.oblastId, 'oblast-kyiv');
+        expect(s.cityId, 'city-kyiv');
+        expect(s.districtId, 'dist-pechersk');
+
+        // The label controller keeps the three locality names, drops ONLY the
+        // category label.
+        final SearchFilterLabels labels = c.read(
+          searchFilterLabelsControllerProvider,
+        );
+        expect(labels.oblastName, 'Київська');
+        expect(labels.cityName, 'Київ');
+        expect(labels.districtName, 'Печерський');
+        expect(labels.categoryName, isNull);
+
+        // The second-level per-service selection is emptied.
+        expect(c.read(searchServiceSelectionControllerProvider), isEmpty);
+
+        // No location taxonomy endpoint was re-read across the clear — the
+        // locality is preserved by an in-place copyWith, never a re-resolve.
+        expect(oblastCalls, 0);
+        expect(cityCalls, 0);
+        expect(districtCalls, 0);
+      },
+    );
+
+    test(
+      'leaves a location-only state fully intact (clear is a no-op there)',
+      () {
+        final c = _make().container;
+        _filters(c)
+          ..selectOblast(oblastId: 'oblast-kyiv')
+          ..selectCity(cityId: 'city-kyiv');
+
+        _filters(c).clearFilters();
+
+        expect(_state(c).oblastId, 'oblast-kyiv');
+        expect(_state(c).cityId, 'city-kyiv');
+        // Nothing clearable was set, so the whole state is location-only.
+        expect(_state(c).query, isNull);
+        expect(_state(c).categoryKey, isNull);
+      },
+    );
   });
 
   group('SearchFiltersController — logout self-clear', () {

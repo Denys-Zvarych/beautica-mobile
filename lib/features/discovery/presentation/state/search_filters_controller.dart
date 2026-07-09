@@ -497,6 +497,56 @@ class SearchFiltersController extends _$SearchFiltersController {
 
   /// Clears every filter back to an empty [SearchFilters].
   void reset() => state = const SearchFilters();
+
+  /// Clears every NON-location filter — the free-text query, the category, the
+  /// second-level per-service selection, the price band and rating floor, and
+  /// the sort — back to its default, while PRESERVING the currently-resolved
+  /// locality (oblast → city → district).
+  ///
+  /// "Clear" here means "reset to the prefilled baseline", NOT "empty
+  /// everything": the locality is pre-filled from the signed-in client's saved
+  /// profile every time the Пошук screen opens (see
+  /// [prefillFromProfileIfNeeded]), and that prefill must survive a clear — a
+  /// client who opened search with their home city pre-selected keeps that city
+  /// after tapping «Скинути фільтри».
+  ///
+  /// Location is preserved by MUTATING the current state in place: the
+  /// already-resolved `oblastId` / `cityId` / `districtId` are simply omitted
+  /// from the [SearchFilters.copyWith] below, so they carry straight through
+  /// untouched. Nothing here re-reads the profile or re-resolves the taxonomy,
+  /// so NONE of the four location endpoints (`/users/me`, oblasts, cities,
+  /// districts) is re-fetched, and the keepAlive seamless-invalidate footgun is
+  /// side-stepped entirely (the notifier state is written directly — never via
+  /// `ref.invalidate`).
+  ///
+  /// The profile-seed bookkeeping ([_userTouchedLocality] and the
+  /// [_lastSeededOblastId]/[_lastSeededCityId]/[_lastSeededDistrictId] latch) is
+  /// intentionally left untouched: a clear does not change the locality, so that
+  /// state stays valid and a later [prefillFromProfileIfNeeded] still behaves
+  /// correctly.
+  ///
+  /// The sibling controllers are cleared to match: the category display label on
+  /// [searchFilterLabelsControllerProvider] (the locality labels stay intact)
+  /// and the multi-select service set on
+  /// [searchServiceSelectionControllerProvider].
+  void clearFilters() {
+    state = state.copyWith(
+      query: null,
+      categoryKey: null,
+      serviceTypeSlugs: const <String>{},
+      minRating: null,
+      minPrice: null,
+      maxPrice: null,
+      sort: SearchSort.ratingDesc,
+      // oblastId / cityId / districtId intentionally omitted → preserved.
+    );
+    // Clear only the category label; the oblast / city / district labels stay.
+    ref
+        .read(searchFilterLabelsControllerProvider.notifier)
+        .setCategoryName(null);
+    // Drop the second-level per-service selection held in its sibling notifier.
+    ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+  }
 }
 
 /// Second-level service selection for the Variant A category → service flow.
