@@ -3147,14 +3147,6 @@
   "@searchResultsEmptyTitle": {
     "description": "Title of the empty state on the discovery results screen when no master or salon matches the filters."
   },
-  "searchResultsEmptyBody": "Спробуйте змінити місто, категорію або діапазон цін.",
-  "@searchResultsEmptyBody": {
-    "description": "Supporting copy under the empty-state title on the results screen."
-  },
-  "searchResultsEmptyServiceBody": "На жаль, ми не знайшли майстра, який надає усі обрані Вами послуги. Спробуйте обрати менше послуг або змінити фільтр.",
-  "@searchResultsEmptyServiceBody": {
-    "description": "Supporting copy under the empty-state title when a per-service (serviceTypeSlugs) filter is active and the AND-narrowed search returns nothing — guides the user to broaden the service selection."
-  },
   "searchResultsEditFilters": "Змінити фільтри",
   "@searchResultsEditFilters": {
     "description": "Button on the empty results state that re-opens the search filter controls."

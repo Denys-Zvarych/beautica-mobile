@@ -176,10 +176,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 ),
                 data: (SearchResultsState data) {
                   if (data.items.isEmpty) {
-                    return ResultsEmpty(
-                      onEditFilters: _openFilters,
-                      serviceFilterActive: _filters.serviceTypeSlugs.isNotEmpty,
-                    );
+                    return ResultsEmpty(onEditFilters: _openFilters);
                   }
                   return _ResultsList(
                     scrollController: _scrollController,
