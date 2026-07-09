@@ -1107,11 +1107,18 @@ class _MastersTabState extends State<_MastersTab> {
             itemCount: visible.length,
             itemBuilder: (context, i) {
               final SalonMasterSummary master = visible[i];
+              // Prefer the master's own professional title/label; fall back to
+              // the generic type role ("Майстер салону" etc.) only when the
+              // master has not set one.
+              final String? ownTitle = master.professionalTitle?.trim();
+              final String role = (ownTitle != null && ownTitle.isNotEmpty)
+                  ? ownTitle
+                  : _roleLabel(master.type, l10n);
               return SalonMasterCard(
                 key: Key('salon-master-card-${master.masterId}'),
                 // First name only on the salon master card (surname omitted).
                 name: master.firstName,
-                role: _roleLabel(master.type, l10n),
+                role: role,
                 ratingLabel: master.reviewCount > 0
                     ? (master.avgRating?.toStringAsFixed(1) ?? '—')
                     : '—',

@@ -92,6 +92,7 @@ abstract final class SalonMasterMapper {
           masterId: masterId,
           firstName: dto.firstName ?? '',
           lastName: dto.lastName ?? '',
+          professionalTitle: dto.professionalTitle,
           avatarUrl: dto.avatarUrl,
           avgRating: dto.avgRating?.toDouble(),
           reviewCount: dto.reviewCount ?? 0,

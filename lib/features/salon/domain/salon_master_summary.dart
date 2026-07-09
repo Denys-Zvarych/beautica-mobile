@@ -24,6 +24,11 @@ abstract class SalonMasterSummary with _$SalonMasterSummary {
     required String masterId,
     required String firstName,
     required String lastName,
+
+    /// The master's own professional title/label (e.g. "Стиліст",
+    /// "Барбер"), as set on their profile. Null/blank when the master has
+    /// not set one — the card then falls back to the generic type role.
+    String? professionalTitle,
     String? avatarUrl,
 
     /// Null when [reviewCount] is 0 — no reviews yet.

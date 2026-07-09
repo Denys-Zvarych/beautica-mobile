@@ -116,4 +116,43 @@ void main() {
       expect(() => SalonMapper.fromDto(dto), throwsA(isA<ServerFailure>()));
     });
   });
+
+  // The salon master rail card renders `professionalTitle` when set (see
+  // `public_salon_profile_screen_test.dart` → 'master role label'). Those
+  // widget tests build [SalonMasterSummary] fixtures directly in Dart,
+  // bypassing this translation boundary — so, exactly like the location-field
+  // gap documented at the top of this file, they prove the SCREEN renders the
+  // title but not that the DTO's `professionalTitle` wire field ever reaches
+  // the domain model. This closes that gap.
+  group('SalonMasterMapper.fromDtoList', () {
+    MasterSummaryResponse masterDto({String? professionalTitle}) =>
+        MasterSummaryResponse(
+          (b) => b
+            ..masterId = 'master-1'
+            ..firstName = 'Ірина'
+            ..lastName = 'Мороз'
+            ..professionalTitle = professionalTitle
+            ..reviewCount = 0
+            ..masterType = MasterSummaryResponseMasterTypeEnum.SALON_MASTER,
+        );
+
+    test('passes professionalTitle through from the DTO onto the domain '
+        'summary', () {
+      final summaries = SalonMasterMapper.fromDtoList(<MasterSummaryResponse>[
+        masterDto(professionalTitle: 'Топ-стиліст'),
+      ]);
+
+      expect(summaries, hasLength(1));
+      expect(summaries.single.professionalTitle, 'Топ-стиліст');
+    });
+
+    test('leaves professionalTitle null when the DTO omits it', () {
+      final summaries = SalonMasterMapper.fromDtoList(<MasterSummaryResponse>[
+        masterDto(),
+      ]);
+
+      expect(summaries, hasLength(1));
+      expect(summaries.single.professionalTitle, isNull);
+    });
+  });
 }

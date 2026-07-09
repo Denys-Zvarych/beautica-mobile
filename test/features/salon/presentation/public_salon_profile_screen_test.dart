@@ -1532,6 +1532,151 @@ void main() {
     );
   });
 
+  // ── Role label: own professionalTitle vs default type role (the guard) ──
+  //
+  // `_MastersTab`'s itemBuilder derives the card's role line as:
+  //   final ownTitle = master.professionalTitle?.trim();
+  //   role = (ownTitle != null && ownTitle.isNotEmpty)
+  //       ? ownTitle
+  //       : _roleLabel(master.type, l10n);
+  // i.e. the master's OWN professional title wins when set, falling back to
+  // the generic per-type label ("Майстер салону" for a SALON_MASTER) only
+  // when it is null or blank. These two tests pin BOTH branches. The role is
+  // asserted via `find.descendant(of: card, matching: find.text(...))` so the
+  // match is scoped to the specific card's role Text and can never be
+  // satisfied by the tab bar, the semantics label, or a sibling card.
+  group('master role label', () {
+    testWidgets(
+      'card renders the master own professionalTitle when set, not the '
+      'default type role',
+      (tester) async {
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => const <SalonMasterSummary>[
+                SalonMasterSummary(
+                  masterId: 'master-titled',
+                  firstName: 'Ірина',
+                  lastName: 'Мороз',
+                  professionalTitle: 'Топ-стиліст',
+                  avgRating: 4.9,
+                  reviewCount: 8,
+                  // A SALON_MASTER — whose default label would be
+                  // "Майстер салону"; the own title must override it.
+                  type: MasterType.salonMaster,
+                ),
+              ],
+            ),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(
+          const Key('salon-master-card-master-titled'),
+        );
+        expect(card, findsOneWidget);
+
+        // i18n-finder-ok: 'Топ-стиліст' is the master's own title (fixture
+        // data set on the domain model), not UI copy from the l10n bundle.
+        expect(
+          find.descendant(of: card, matching: find.text('Топ-стиліст')),
+          findsOneWidget,
+          reason:
+              'the role line must show the master own professionalTitle '
+              'when one is set',
+        );
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.text(l10n.masterRoleSalonMaster),
+          ),
+          findsNothing,
+          reason:
+              'the generic per-type role ("Майстер салону") must NOT render '
+              'once the master has set an own professionalTitle',
+        );
+      },
+    );
+
+    testWidgets(
+      'card falls back to the default type role when professionalTitle is '
+      'null or blank/whitespace',
+      (tester) async {
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => const <SalonMasterSummary>[
+                SalonMasterSummary(
+                  masterId: 'master-null-title',
+                  firstName: 'Оксана',
+                  lastName: 'Левченко',
+                  // professionalTitle omitted → null.
+                  avgRating: 4.7,
+                  reviewCount: 4,
+                  type: MasterType.salonMaster,
+                ),
+                SalonMasterSummary(
+                  masterId: 'master-blank-title',
+                  firstName: 'Наталя',
+                  lastName: 'Гриценко',
+                  // Whitespace-only → exercises the `.trim()` branch: after
+                  // trimming it is empty, so it must still fall back.
+                  professionalTitle: '   ',
+                  avgRating: 4.6,
+                  reviewCount: 2,
+                  type: MasterType.salonMaster,
+                ),
+              ],
+            ),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        final Finder nullCard = find.byKey(
+          const Key('salon-master-card-master-null-title'),
+        );
+        final Finder blankCard = find.byKey(
+          const Key('salon-master-card-master-blank-title'),
+        );
+        expect(nullCard, findsOneWidget);
+        expect(blankCard, findsOneWidget);
+
+        expect(
+          find.descendant(
+            of: nullCard,
+            matching: find.text(l10n.masterRoleSalonMaster),
+          ),
+          findsOneWidget,
+          reason:
+              'a null professionalTitle must fall back to the generic '
+              'per-type role label',
+        );
+        expect(
+          find.descendant(
+            of: blankCard,
+            matching: find.text(l10n.masterRoleSalonMaster),
+          ),
+          findsOneWidget,
+          reason:
+              'a whitespace-only professionalTitle must trim to empty and '
+              'fall back to the generic per-type role label',
+        );
+      },
+    );
+  });
+
   group('services tab', () {
     testWidgets('renders the category accordion', (tester) async {
       await _pumpTall(tester);
