@@ -21,7 +21,7 @@ part 'create_service_definition_request.g.dart';
 /// * [price]
 /// * [priceMin]
 /// * [priceMax]
-/// * [serviceTypeId] - Optional id of the chosen platform service type. Omit or send null when the master skips the (optional) service-type picker.
+/// * [serviceTypeId] - Id of the chosen platform service type. Required — the service-type picker cannot be skipped. The type must be active and belong to the selected category. Persisted service_type_id is NOT NULL at the DB level, so an untyped service can never be created (search filters on this column).
 @BuiltValue()
 abstract class CreateServiceDefinitionRequest
     implements
@@ -55,9 +55,9 @@ abstract class CreateServiceDefinitionRequest
   @BuiltValueField(wireName: r'priceMax')
   num? get priceMax;
 
-  /// Optional id of the chosen platform service type. Omit or send null when the master skips the (optional) service-type picker.
+  /// Id of the chosen platform service type. Required — the service-type picker cannot be skipped. The type must be active and belong to the selected category. Persisted service_type_id is NOT NULL at the DB level, so an untyped service can never be created (search filters on this column).
   @BuiltValueField(wireName: r'serviceTypeId')
-  String? get serviceTypeId;
+  String get serviceTypeId;
 
   CreateServiceDefinitionRequest._();
 
@@ -147,13 +147,11 @@ class _$CreateServiceDefinitionRequestSerializer
         specifiedType: const FullType(num),
       );
     }
-    if (object.serviceTypeId != null) {
-      yield r'serviceTypeId';
-      yield serializers.serialize(
-        object.serviceTypeId,
-        specifiedType: const FullType.nullable(String),
-      );
-    }
+    yield r'serviceTypeId';
+    yield serializers.serialize(
+      object.serviceTypeId,
+      specifiedType: const FullType(String),
+    );
   }
 
   @override
@@ -246,9 +244,8 @@ class _$CreateServiceDefinitionRequestSerializer
         case r'serviceTypeId':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType.nullable(String),
-          ) as String?;
-          if (valueDes == null) continue;
+            specifiedType: const FullType(String),
+          ) as String;
           result.serviceTypeId = valueDes;
           break;
         default:

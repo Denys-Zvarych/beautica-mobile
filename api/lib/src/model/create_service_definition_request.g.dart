@@ -89,7 +89,7 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
   @override
   final num? priceMax;
   @override
-  final String? serviceTypeId;
+  final String serviceTypeId;
 
   factory _$CreateServiceDefinitionRequest(
           [void Function(CreateServiceDefinitionRequestBuilder)? updates]) =>
@@ -105,7 +105,7 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
       this.price,
       this.priceMin,
       this.priceMax,
-      this.serviceTypeId})
+      required this.serviceTypeId})
       : super._();
   @override
   CreateServiceDefinitionRequest rebuild(
@@ -269,7 +269,8 @@ class CreateServiceDefinitionRequestBuilder
           price: price,
           priceMin: priceMin,
           priceMax: priceMax,
-          serviceTypeId: serviceTypeId,
+          serviceTypeId: BuiltValueNullFieldError.checkNotNull(serviceTypeId,
+              r'CreateServiceDefinitionRequest', 'serviceTypeId'),
         );
     replace(_$result);
     return _$result;

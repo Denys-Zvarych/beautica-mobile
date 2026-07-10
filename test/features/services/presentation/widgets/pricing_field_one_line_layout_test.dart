@@ -31,6 +31,8 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -155,6 +157,11 @@ Future<void> _pumpServiceForm(
       overrides: [
         serviceRepositoryProvider.overrideWithValue(repo),
         approvedCategoriesProvider.overrideWith((ref) async => _kCategories),
+        // Selecting a category mounts the service-type picker → stub the
+        // provider so no un-mocked repository fetch fires in-tree.
+        serviceTypesProvider.overrideWith(
+          (ref, String categoryName) async => const <ServiceTypeOption>[],
+        ),
       ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -164,6 +171,21 @@ Future<void> _pumpServiceForm(
           body: SingleChildScrollView(child: ServiceForm(onSubmit: onSubmit)),
         ),
       ),
+    ),
+  );
+  await tester.pump();
+}
+
+/// Selects the mandatory service type (create requires one) via the form State.
+/// Call AFTER the category is selected.
+Future<void> _selectServiceType(WidgetTester tester) async {
+  final dynamic state = tester.state(find.byType(ServiceForm));
+  state.onServiceTypeSelected(
+    const ServiceTypeOption(
+      id: 'stype-manicure',
+      slug: 'MANICURE_A',
+      nameUk: 'Класичний манікюр',
+      categoryName: 'MANICURE',
     ),
   );
   await tester.pump();
@@ -621,6 +643,7 @@ void main() {
 
         // Select category to pass the category validator.
         await selectCategoryOption(tester, 'MANICURE');
+        await _selectServiceType(tester);
 
         // Tap submit.
         await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
@@ -688,6 +711,7 @@ void main() {
 
         // Select category.
         await selectCategoryOption(tester, 'MANICURE');
+        await _selectServiceType(tester);
 
         // Submit.
         await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));

@@ -32,9 +32,12 @@
 //   ── Phase 16.3 — serviceTypeId create wiring + name pre-fill ──────────────
 //   ST-CREATE-SET.    toCreateRequest sets serviceTypeId on the request when the
 //                     input carries one.
-//   ST-CREATE-NULL.   toCreateRequest leaves serviceTypeId null when the input's
-//                     serviceTypeId is null (no regression to the existing create
-//                     path — the generated serializer omits the null wire field).
+//   ST-CREATE-NULL.   toCreateRequest THROWS ArgumentError when serviceTypeId is
+//                     null — service type is now MANDATORY on create (backend
+//                     @NotNull; DB NOT NULL). Fail-fast at the data boundary.
+//   ST-CREATE-EMPTY.  toCreateRequest THROWS ArgumentError when serviceTypeId is
+//                     the empty string (as invalid as null).
+//   ST-CREATE-RANGE-SET. RANGE create also forwards the mandatory serviceTypeId.
 //   ST-DTO-MSR.       fromDto reads serviceTypeId + serviceTypeNameUk from the
 //                     top-level MSR envelope (V67+ precedence).
 //   ST-DTO-FALLBACK.  fromDto falls back to the nested serviceDefinition for
@@ -61,10 +64,14 @@ import 'package:flutter_test/flutter_test.dart';
 // ---------------------------------------------------------------------------
 
 /// Builds a minimal FIXED [MasterServiceCreate].
+///
+/// [serviceTypeId] defaults to a valid id because service type is MANDATORY on
+/// create (mapper fail-fasts on null/empty). Pass `serviceTypeId: null`
+/// explicitly to exercise the required-type guard.
 MasterServiceCreate _createFixed({
   String? category = 'MANICURE',
   double price = 500.0,
-  String? serviceTypeId,
+  String? serviceTypeId = 'stype-1',
 }) => MasterServiceCreate(
   name: 'Test',
   durationMinutes: 30,
@@ -78,6 +85,7 @@ MasterServiceCreate _createFixed({
 MasterServiceCreate _createRange({
   double priceMin = 400.0,
   double priceMax = 700.0,
+  String? serviceTypeId = 'stype-1',
 }) => MasterServiceCreate(
   name: 'Test',
   durationMinutes: 30,
@@ -85,6 +93,7 @@ MasterServiceCreate _createRange({
   priceMin: priceMin,
   priceMax: priceMax,
   category: 'MANICURE',
+  serviceTypeId: serviceTypeId,
 );
 
 /// Builds a minimal [ServiceDefinitionResponse] with pricing fields.
@@ -870,25 +879,48 @@ void main() {
       );
     });
 
-    test('ST-CREATE-NULL. leaves serviceTypeId null when input is null', () {
-      // The master skipped the (optional) picker. The generated serializer
-      // omits null builder fields, so this is the "omitted from the wire body"
-      // case — and proves the existing no-type create path is unchanged.
-      final request = MasterServiceMapper.toCreateRequest(_createFixed());
+    test('ST-CREATE-NULL. throws ArgumentError when serviceTypeId is null '
+        '(service type is now MANDATORY on create)', () {
+      // CONTRACT CHANGE: service type is mandatory on create (backend
+      // `@NotNull` on CreateServiceDefinitionRequest.serviceTypeId, DB column
+      // NOT NULL). The mapper fail-fasts at the data boundary rather than
+      // constructing a request that the generated built_value would reject.
       expect(
-        request.serviceTypeId,
-        isNull,
-        reason:
-            'no service type selected → serviceTypeId must stay null on the '
-            'request (omitted from the wire body — no regression)',
+        () => MasterServiceMapper.toCreateRequest(
+          _createFixed(serviceTypeId: null),
+        ),
+        throwsA(
+          isA<ArgumentError>().having((e) => e.name, 'name', 'serviceTypeId'),
+        ),
       );
-      // Sanity: the rest of the request is still well-formed.
-      expect(request.name, equals('Test'));
+    });
+
+    test(
+      'ST-CREATE-EMPTY. throws ArgumentError when serviceTypeId is empty',
+      () {
+        // An empty string is as invalid as null — the guard rejects both so a
+        // blank picker selection never reaches the backend as "".
+        expect(
+          () => MasterServiceMapper.toCreateRequest(
+            _createFixed(serviceTypeId: ''),
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      },
+    );
+
+    test('ST-CREATE-RANGE-SET. RANGE create also forwards the mandatory '
+        'serviceTypeId', () {
+      // Positive control on the RANGE branch — proves the mapper sets the id
+      // on both pricing modes, not just FIXED.
+      final request = MasterServiceMapper.toCreateRequest(
+        _createRange(serviceTypeId: 'type-range'),
+      );
+      expect(request.serviceTypeId, equals('type-range'));
       expect(
         request.priceType,
-        CreateServiceDefinitionRequestPriceTypeEnum.FIXED,
+        CreateServiceDefinitionRequestPriceTypeEnum.RANGE,
       );
-      expect(request.price, equals(500.0));
     });
   });
 

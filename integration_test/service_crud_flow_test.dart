@@ -148,6 +148,36 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
 
+      // ── Select a service type (MANDATORY on create) ──────────────────────
+      // Service type is now required on create (backend @NotNull); without a
+      // selection the client blocks submit with an inline error. The second-
+      // level picker (key 'select-service-type-field') mounts once a category
+      // is chosen and lists the fake backend's NAILS types. Pick the classic
+      // manicure type (row key 'chip-service-type-type-nails-classic').
+      final Finder serviceTypeField = find.byKey(
+        const Key('select-service-type-field'),
+      );
+      await tester.ensureVisible(serviceTypeField);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(serviceTypeField);
+      // Sheet entrance animation ~300ms.
+      for (int i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final Finder classicTypeChip = find.byKey(
+        const Key('chip-service-type-type-nails-classic'),
+      );
+      expect(
+        classicTypeChip,
+        findsOneWidget,
+        reason: 'NAILS service-type chip must appear in the picker sheet',
+      );
+      await tester.tap(classicTypeChip);
+      // Sheet exit animation ~300ms.
+      for (int i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
       // Scroll the submit button into view and tap.
       // ensureVisible handles nested scrollables better than scrollUntilVisible.
       // Use bounded pumps after tap — the form submit triggers an async HTTP
