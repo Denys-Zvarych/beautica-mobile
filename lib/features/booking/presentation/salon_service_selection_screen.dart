@@ -158,7 +158,11 @@ class _SalonServiceSelectionScreenState
       final Set<String> selectedIds = <String>{};
       for (final SalonServiceCategoryEntry c in categories) {
         for (final SalonCatalogService s in c.services) {
-          if (_matchesPreselection(s.serviceTypeSlug, s.name, pre)) {
+          if (_matchesPreselection(
+            s.serviceTypeSlug,
+            s.serviceTypeNameUk,
+            pre,
+          )) {
             selectedIds.add(s.id);
             // Pin the match at the top instead of expanding its category —
             // the service is surfaced immediately, so auto-expanding its
@@ -182,17 +186,21 @@ class _SalonServiceSelectionScreenState
     }
   }
 
-  /// EXACT slug match against the pre-selection; falls back to the service
-  /// display name only when the service carries no slug (defensive).
+  /// EXACT slug match against the pre-selection; falls back to the underlying
+  /// platform service-type name only when the service carries no slug
+  /// (defensive). Mirrors `ServiceSelectorSheet._matchesPreselection` (the
+  /// independent-master flow) 1:1 — the fallback compares the SERVICE-TYPE name
+  /// (same namespace as [PendingServicePreselection.serviceTypeLabels]), never
+  /// the salon's custom display name.
   bool _matchesPreselection(
     String? slug,
-    String name,
+    String? serviceTypeNameUk,
     PendingServicePreselection pre,
   ) {
     if (slug != null && slug.isNotEmpty) {
       return pre.serviceTypeSlugs.contains(slug);
     }
-    final String label = name.trim();
+    final String label = (serviceTypeNameUk ?? '').trim();
     return label.isNotEmpty && pre.serviceTypeLabels.contains(label);
   }
 

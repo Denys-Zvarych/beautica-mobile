@@ -41,6 +41,17 @@ abstract class SalonCatalogService with _$SalonCatalogService {
     /// salon booking flow can exact-match a search pre-selection against it.
     String? serviceTypeSlug,
 
+    /// Ukrainian display name of the underlying platform service type, or null
+    /// when none was selected. Maps from
+    /// `ServiceDefinitionResponse.serviceTypeNameUk` — the SAME namespace as the
+    /// discovery search filter's labels (`SearchFilters` /
+    /// `PendingServicePreselection.serviceTypeLabels`), so the salon booking
+    /// flow can label-fallback-match a search pre-selection against it when the
+    /// service carries no slug. Mirrors `MasterService.serviceTypeNameUk` — do
+    /// NOT confuse with [name], the salon's CUSTOM display name (e.g.
+    /// "Нарощення 2д класика"), which lives in a different namespace.
+    String? serviceTypeNameUk,
+
     /// Typed duration in minutes — the raw value [durationLabel] is formatted
     /// from. Added (Phase 14.12) so the salon booking flow's multi-service
     /// selection can sum an accurate total duration/price instead of

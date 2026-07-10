@@ -63,6 +63,60 @@ SalonServiceCatalogResponse _distinctDisplayNameDto() =>
         ),
     );
 
+/// A single-service catalogue whose service carries BOTH a `serviceTypeSlug`
+/// and a `serviceTypeNameUk` distinct from its custom `name` — the shape the
+/// salon booking pre-selection (exact-slug + label-fallback) matches against.
+SalonServiceCatalogResponse _serviceTypeDto() => SalonServiceCatalogResponse(
+  (b) => b
+    ..categories.add(
+      SalonServiceCategoryGroup(
+        (g) => g
+          ..category = 'LASHES'
+          ..displayName = 'Нарощення вій'
+          ..count = 1
+          ..services.add(
+            ServiceDefinitionResponse(
+              (s) => s
+                ..id = 'svc-lash'
+                // Custom salon display name — a DIFFERENT namespace from the
+                // service-type name below; must NOT be confused for it.
+                ..name = 'Нарощення 2д класика'
+                ..category = 'LASHES'
+                ..serviceTypeSlug = 'nc-2d'
+                ..serviceTypeNameUk = '2д'
+                ..baseDurationMinutes = 120
+                ..priceDisplay = '850 грн',
+            ),
+          ),
+      ),
+    ),
+);
+
+/// A single-service catalogue whose service omits BOTH service-type fields —
+/// exercises the null passthrough (common: the service-type picker is optional).
+SalonServiceCatalogResponse _serviceTypeNullDto() =>
+    SalonServiceCatalogResponse(
+      (b) => b
+        ..categories.add(
+          SalonServiceCategoryGroup(
+            (g) => g
+              ..category = 'LASHES'
+              ..displayName = 'Нарощення вій'
+              ..count = 1
+              ..services.add(
+                ServiceDefinitionResponse(
+                  (s) => s
+                    ..id = 'svc-lash-2'
+                    ..name = 'Нарощення 2д класика'
+                    ..category = 'LASHES'
+                    ..baseDurationMinutes = 120
+                    ..priceDisplay = '850 грн',
+                ),
+              ),
+          ),
+        ),
+    );
+
 /// A category group whose `displayName` is absent from the wire payload —
 /// exercises the mapper's defensive fallback to the raw `category` slug.
 SalonServiceCatalogResponse _missingDisplayNameDto() =>
@@ -132,6 +186,59 @@ void main() {
         );
       },
     );
+
+    test('passes serviceTypeSlug AND serviceTypeNameUk through to the service — '
+        'the fields the salon booking pre-selection matches against', () {
+      final SalonCatalogService svc = SalonServiceCatalogMapper.fromDto(
+        _serviceTypeDto(),
+      ).single.services.single;
+
+      expect(
+        svc.serviceTypeSlug,
+        'nc-2d',
+        reason:
+            'the exact-slug match branch reads serviceTypeSlug — it must '
+            'flow through from the DTO unchanged',
+      );
+      expect(
+        svc.serviceTypeNameUk,
+        '2д',
+        reason:
+            'the label-fallback match branch reads serviceTypeNameUk — the '
+            'field whose absence caused the salon-prefill bug; it must flow '
+            'through from the DTO unchanged',
+      );
+      expect(
+        svc.name,
+        'Нарощення 2д класика',
+        reason:
+            'the custom display name lives in a DIFFERENT namespace and must '
+            'NOT be conflated with serviceTypeNameUk',
+      );
+      expect(
+        svc.serviceTypeNameUk,
+        isNot(equals(svc.name)),
+        reason:
+            'serviceTypeNameUk and name are DISTINCT here — a regression that '
+            'sourced the fallback from name would collapse them',
+      );
+    });
+
+    test('leaves serviceTypeSlug and serviceTypeNameUk null when the DTO omits '
+        'them (service-type picker is optional)', () {
+      final SalonCatalogService svc = SalonServiceCatalogMapper.fromDto(
+        _serviceTypeNullDto(),
+      ).single.services.single;
+
+      expect(svc.serviceTypeSlug, isNull);
+      expect(
+        svc.serviceTypeNameUk,
+        isNull,
+        reason:
+            'a slug-null / name-null service is the common case the booking '
+            'screen must handle without a false pre-selection match',
+      );
+    });
 
     test('returns an empty list when the DTO has no categories', () {
       final SalonServiceCatalogResponse dto = SalonServiceCatalogResponse(

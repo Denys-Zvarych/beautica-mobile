@@ -255,6 +255,32 @@ void main() {
               'pre-checked on the salon booking catalogue',
         );
 
+        // REGRESSION (salon-prefill label-fallback bug): salon-svc-namefallback
+        // has NO serviceTypeSlug — it can only match via its serviceTypeNameUk
+        // ('Класичний манікюр'), NOT its custom name ('Манікюр класичний VIP').
+        // The pre-fix code compared the custom name and never pinned/checked
+        // it. It must now ALSO be pinned at the top and pre-checked.
+        final Finder nameFallbackTile = find.byKey(
+          const Key('salon_booking_service_tile_salon-svc-namefallback'),
+        );
+        expect(
+          find.descendant(of: salonPinnedSection, matching: nameFallbackTile),
+          findsOneWidget,
+          reason:
+              'the slug-null service must arrive pinned via serviceTypeNameUk '
+              '(the fixed label fallback), NOT its custom display name',
+        );
+        expect(
+          find.descendant(
+            of: nameFallbackTile,
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsOneWidget,
+          reason:
+              'the slug-null serviceTypeNameUk match must arrive pre-checked '
+              'end-to-end',
+        );
+
         // salon-svc-exclusive is BROWS/BROW_CORRECTION → its category is NOT
         // auto-expanded (no match). Expand it and confirm it is UN-checked.
         await tester.tap(find.byKey(const Key('salon-booking-category-BROWS')));

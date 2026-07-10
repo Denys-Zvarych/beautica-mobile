@@ -321,6 +321,136 @@ final Finder _salonOtherTile = find.byKey(
   const Key('salon_booking_service_tile_salon-other'),
 );
 
+// ===========================================================================
+// SalonServiceSelectionScreen — serviceTypeNameUk LABEL-FALLBACK regression
+// ===========================================================================
+//
+// The FIXED bug: a salon service whose `serviceTypeSlug` is NULL (the
+// service-type picker is optional, so this is common) must still pre-match a
+// search filter via its `serviceTypeNameUk` — the underlying PLATFORM
+// service-type name, the SAME namespace as `serviceTypeLabels`. The old code's
+// fallback compared the salon's CUSTOM `name` ("Нарощення 2д класика") against
+// the payload labels ("2д"), a namespace mismatch that never matched. Three
+// services in ONE category exercise the exact-slug, name-fallback, and no-match
+// branches in a single view.
+
+const String _kSalonFbId = 'salon-fb';
+
+// (a) EXACT-SLUG branch — matches on serviceTypeSlug 'nc-2d'.
+const _kSalonFbSlug = SalonCatalogService(
+  id: 'salon-fb-slug',
+  name: 'Нарощення 2д преміум',
+  durationLabel: '2 год',
+  priceDisplay: '900 грн',
+  category: 'LASHES',
+  serviceTypeSlug: 'nc-2d',
+  serviceTypeNameUk: '2д',
+  durationMinutes: 120,
+  priceType: ServicePriceType.fixed,
+  priceMin: 900,
+);
+
+// (b) THE FIXED BRANCH — slug is NULL; only the serviceTypeNameUk '2д' can
+// match. Its CUSTOM name deliberately DIFFERS from the label, so the old
+// `s.name`-based fallback ("Нарощення 2д класика" != "2д") would NOT match →
+// this service would be left unpinned/unchecked on the pre-fix code.
+const _kSalonFbName = SalonCatalogService(
+  id: 'salon-fb-name',
+  name: 'Нарощення 2д класика',
+  durationLabel: '2 год',
+  priceDisplay: '850 грн',
+  category: 'LASHES',
+  serviceTypeSlug: null,
+  serviceTypeNameUk: '2д',
+  durationMinutes: 120,
+  priceType: ServicePriceType.fixed,
+  priceMin: 850,
+);
+
+// (c) NO-MATCH — a DIFFERENT slug AND a DIFFERENT serviceTypeNameUk.
+const _kSalonFbNone = SalonCatalogService(
+  id: 'salon-fb-none',
+  name: 'Ламінування вій',
+  durationLabel: '1 год',
+  priceDisplay: '500 грн',
+  category: 'LASHES',
+  serviceTypeSlug: 'lash-lam',
+  serviceTypeNameUk: 'Ламінування',
+  durationMinutes: 60,
+  priceType: ServicePriceType.fixed,
+  priceMin: 500,
+);
+
+const _kSalonFbCatalog = <SalonServiceCategoryEntry>[
+  SalonServiceCategoryEntry(
+    category: 'LASHES',
+    displayName: 'Нарощення вій',
+    count: 3,
+    services: <SalonCatalogService>[
+      _kSalonFbSlug,
+      _kSalonFbName,
+      _kSalonFbNone,
+    ],
+  ),
+];
+
+List<Object> get _salonFbDataOverrides => <Object>[
+  salonServiceCatalogProvider(
+    _kSalonFbId,
+  ).overrideWith((ref) async => _kSalonFbCatalog),
+];
+
+// Payload: slug 'nc-2d' matches (a); label '2д' matches (b) via the fallback.
+const _kSalonFbSeed = PendingServicePreselection(
+  targetId: _kSalonFbId,
+  serviceTypeSlugs: <String>{'nc-2d'},
+  serviceTypeLabels: <String>{'2д'},
+);
+
+final Finder _salonFbSlugTile = find.byKey(
+  const Key('salon_booking_service_tile_salon-fb-slug'),
+);
+final Finder _salonFbNameTile = find.byKey(
+  const Key('salon_booking_service_tile_salon-fb-name'),
+);
+final Finder _salonFbNoneTile = find.byKey(
+  const Key('salon_booking_service_tile_salon-fb-none'),
+);
+
+// Negative fixture — the ONLY service has slug null AND serviceTypeNameUk null,
+// so NEITHER branch can match. The label fallback needs a non-empty name.
+const _kSalonFbBlank = SalonCatalogService(
+  id: 'salon-fb-blank',
+  name: 'Нарощення 2д класика',
+  durationLabel: '2 год',
+  priceDisplay: '850 грн',
+  category: 'LASHES',
+  serviceTypeSlug: null,
+  serviceTypeNameUk: null,
+  durationMinutes: 120,
+  priceType: ServicePriceType.fixed,
+  priceMin: 850,
+);
+
+const _kSalonFbBlankCatalog = <SalonServiceCategoryEntry>[
+  SalonServiceCategoryEntry(
+    category: 'LASHES',
+    displayName: 'Нарощення вій',
+    count: 1,
+    services: <SalonCatalogService>[_kSalonFbBlank],
+  ),
+];
+
+List<Object> get _salonFbBlankDataOverrides => <Object>[
+  salonServiceCatalogProvider(
+    _kSalonFbId,
+  ).overrideWith((ref) async => _kSalonFbBlankCatalog),
+];
+
+final Finder _salonFbBlankTile = find.byKey(
+  const Key('salon_booking_service_tile_salon-fb-blank'),
+);
+
 void main() {
   group('ServiceSelectorSheet — search pre-selection seeding (real provider)', () {
     testWidgets(
@@ -910,6 +1040,120 @@ void main() {
 
         expect(_inPinned(_salonPinnedSection, _salonMatchTile), findsOneWidget);
         expect(_checkedFace(_salonMatchTile), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  // =========================================================================
+  // REGRESSION — salon serviceTypeNameUk LABEL FALLBACK (slug-null services)
+  //
+  // The just-fixed bug: a searched service whose salon catalogue entry has NO
+  // serviceTypeSlug was never pre-checked/pinned because the fallback compared
+  // the salon's CUSTOM `name` against the payload's service-type labels — a
+  // namespace mismatch. The fix carries `serviceTypeNameUk` on
+  // SalonCatalogService and falls back on IT (mirroring the master path).
+  // =========================================================================
+  group('SalonServiceSelectionScreen — serviceTypeNameUk label-fallback '
+      'preselection (slug-null regression)', () {
+    testWidgets(
+      'a slug-NULL salon service matches on serviceTypeNameUk (NOT its custom '
+      'name) → pinned + pre-checked alongside the exact-slug match; the '
+      'no-match service stays unpinned & unchecked',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_salonFbDataOverrides);
+        _seed(c, _kSalonFbSeed);
+
+        await _pumpScreen(
+          tester,
+          c,
+          const SalonServiceSelectionScreen(salonId: _kSalonFbId),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'peekFor in initState must not mutate during build',
+        );
+        expect(_salonPinnedSection, findsOneWidget);
+
+        // (a) EXACT-SLUG branch: nc-2d matched → pinned + pre-checked.
+        expect(
+          _inPinned(_salonPinnedSection, _salonFbSlugTile),
+          findsOneWidget,
+          reason: 'nc-2d exact-slug match must pin',
+        );
+        expect(_checkedFace(_salonFbSlugTile), findsOneWidget);
+
+        // (b) THE FIXED BRANCH: slug is null; the '2д' label matched the
+        // serviceTypeNameUk ('2д'), NOT the custom name ('Нарощення 2д
+        // класика'). On the OLD code (which compared `s.name`) this tile
+        // would NOT match → not pinned → BOTH expects below would FAIL.
+        expect(
+          _inPinned(_salonPinnedSection, _salonFbNameTile),
+          findsOneWidget,
+          reason:
+              'slug-null service must match via serviceTypeNameUk "2д" (the '
+              'fixed fallback), not its custom name "Нарощення 2д класика" — '
+              'this is the exact branch the bug broke and this assertion '
+              'FAILS on the old s.name code',
+        );
+        expect(
+          _checkedFace(_salonFbNameTile),
+          findsOneWidget,
+          reason: 'the label-fallback match must also be pre-checked',
+        );
+
+        // (c) NO-MATCH service is NOT pinned …
+        expect(
+          _inPinned(_salonPinnedSection, _salonFbNoneTile),
+          findsNothing,
+          reason: 'lash-lam / "Ламінування" matched neither slug nor label',
+        );
+        // … expand its (collapsed) category and confirm it renders UNCHECKED.
+        await tester.tap(
+          find.byKey(const Key('salon-booking-category-Нарощення вій')),
+        );
+        await tester.pumpAndSettle();
+        expect(_salonFbNoneTile, findsOneWidget);
+        expect(
+          _checkedFace(_salonFbNoneTile),
+          findsNothing,
+          reason:
+              'the no-match service must stay unchecked (no false positive)',
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'a slug-NULL service whose serviceTypeNameUk is ALSO null matches '
+      'nothing → NO pinned section (label fallback needs a non-empty name)',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_salonFbBlankDataOverrides);
+        _seed(c, _kSalonFbSeed);
+
+        await _pumpScreen(
+          tester,
+          c,
+          const SalonServiceSelectionScreen(salonId: _kSalonFbId),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          _salonPinnedSection,
+          findsNothing,
+          reason:
+              'slug null AND serviceTypeNameUk null → the fallback label is '
+              'empty → nothing must pin',
+        );
+        // No match → the flow falls back to expanding the first category, so
+        // the blank service renders — and stays unchecked.
+        expect(_salonFbBlankTile, findsOneWidget);
+        expect(_checkedFace(_salonFbBlankTile), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );

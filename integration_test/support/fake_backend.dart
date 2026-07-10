@@ -1259,7 +1259,7 @@ final class FakeBackend {
       <Map<String, dynamic>>[
         <String, dynamic>{
           'category': 'NAILS',
-          'count': 1,
+          'count': 2,
           'services': <Map<String, dynamic>>[
             <String, dynamic>{
               'id': 'salon-svc-shared',
@@ -1271,6 +1271,7 @@ final class FakeBackend {
               // search pre-selection filtered by CLASSIC_MANICURE pre-checks
               // THIS catalogue service and not salon-svc-exclusive.
               'serviceTypeSlug': 'CLASSIC_MANICURE',
+              'serviceTypeNameUk': 'Класичний манікюр',
               'baseDurationMinutes': 60,
               'bufferMinutesAfter': 0,
               'isActive': true,
@@ -1278,6 +1279,31 @@ final class FakeBackend {
               'priceMin': 400,
               'priceMax': null,
               'priceDisplay': '400 грн',
+              'photoUrl': null,
+            },
+            // REGRESSION FIXTURE (salon-prefill label-fallback bug): this
+            // service has NO serviceTypeSlug (the service-type picker is
+            // optional, so a null slug is common) — it can ONLY be matched via
+            // its serviceTypeNameUk ('Класичний манікюр', the platform
+            // service-type name the CLASSIC_MANICURE filter resolves its label
+            // to). Its CUSTOM `name` ('Манікюр класичний VIP') deliberately
+            // DIFFERS from that label, so the pre-fix code — which compared the
+            // custom name — never pre-checked/pinned it. Exercises the
+            // serviceTypeNameUk fallback end-to-end (mirrors the master path).
+            <String, dynamic>{
+              'id': 'salon-svc-namefallback',
+              'name': 'Манікюр класичний VIP',
+              'description': null,
+              'category': 'NAILS',
+              'serviceTypeSlug': null,
+              'serviceTypeNameUk': 'Класичний манікюр',
+              'baseDurationMinutes': 75,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': 'FIXED',
+              'priceMin': 550,
+              'priceMax': null,
+              'priceDisplay': '550 грн',
               'photoUrl': null,
             },
           ],
