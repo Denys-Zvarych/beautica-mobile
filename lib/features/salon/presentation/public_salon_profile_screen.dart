@@ -1085,6 +1085,20 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
   bool _showAll = false;
 
   @override
+  void didUpdateWidget(covariant _MastersTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // `_showAll` is shared by the filtered and unfiltered `_buildGrid` paths.
+    // Whenever the active filter changes — applied, cleared, or swapped for a
+    // different service — the visible set changes, so the first-paint cap must
+    // re-arm. Without this reset a "show all" from one set leaks into the next
+    // (e.g. show-all on a filtered set → clear the filter → the full roster
+    // would render eagerly, defeating the kSalonMastersInitialCount cap).
+    if (oldWidget.filter != widget.filter) {
+      _showAll = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final List<SalonMasterSummary> masters = widget.masters;

@@ -1857,6 +1857,31 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    // Builds [n] salon masters (masterId perf-1..perf-n) that ALL perform
+    // svc-1, plus the matching coverage map. Shared by the show-all cap-leak
+    // regression tests below so their bodies stay focused on the interaction.
+    (List<SalonMasterSummary>, Map<String, Map<String, String>>) svc1Performers(
+      int n,
+    ) {
+      final List<SalonMasterSummary> performers = List.generate(
+        n,
+        (i) => SalonMasterSummary(
+          masterId: 'perf-${i + 1}',
+          firstName: 'Майстер',
+          lastName: '${i + 1}',
+          avgRating: 4.5,
+          reviewCount: 1,
+          type: MasterType.salonMaster,
+        ),
+      );
+      final Map<String, Map<String, String>> cover =
+          <String, Map<String, String>>{
+            for (final SalonMasterSummary m in performers)
+              m.masterId: <String, String>{'svc-1': 'a-${m.masterId}'},
+          };
+      return (performers, cover);
+    }
+
     testWidgets(
       'selecting a service filters the grid to ONLY the masters who perform '
       'it — non-performing masters are hidden',
@@ -2172,6 +2197,125 @@ void main() {
           );
         }
         expect(showAll, findsNothing);
+      },
+    );
+
+    testWidgets(
+      'show_all_on_filtered_set_then_clear_filter_reapplies_the_6_card_cap',
+      (tester) async {
+        await _pumpTall(tester);
+        final (
+          List<SalonMasterSummary> eight,
+          Map<String, Map<String, String>> cover,
+        ) = svc1Performers(
+          8,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => eight),
+            coverage: coverageOverride(cover),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        // Filter to the 8 performers, then reveal the full FILTERED set.
+        await selectSvc1(tester);
+        await tester.tap(find.byKey(const Key('salon-masters-show-all')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-master-card-perf-8')),
+          findsOneWidget,
+          reason: 'show-all must expose the last filtered performer first',
+        );
+
+        // Clear the filter — this stays on the Майстри tab (same _MastersTab
+        // State), so the cap must RE-ARM instead of the leaked show-all
+        // eagerly rendering the whole unfiltered roster.
+        await tester.tap(find.byKey(const Key('salon-masters-filter-clear')));
+        await tester.pumpAndSettle();
+
+        for (int i = 1; i <= 6; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsOneWidget,
+            reason: 'the unfiltered roster re-caps to the first 6',
+          );
+        }
+        for (int i = 7; i <= 8; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsNothing,
+            reason:
+                'a leaked show-all would eagerly build perf-$i after the '
+                'filter is cleared — the cap must re-apply',
+          );
+        }
+        expect(
+          find.byKey(const Key('salon-masters-show-all')),
+          findsOneWidget,
+          reason: 'the re-capped roster offers the reveal again',
+        );
+      },
+    );
+
+    testWidgets(
+      'show_all_on_full_roster_then_apply_filter_does_not_leak_show_all',
+      (tester) async {
+        await _pumpTall(tester);
+        final (
+          List<SalonMasterSummary> eight,
+          Map<String, Map<String, String>> cover,
+        ) = svc1Performers(
+          8,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => eight),
+            coverage: coverageOverride(cover),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        // Unfiltered Майстри tab (index 1) — reveal the full roster.
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('salon-masters-show-all')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-master-card-perf-8')),
+          findsOneWidget,
+          reason: 'show-all must expose the last roster master first',
+        );
+
+        // Apply the svc-1 filter (all 8 still qualify) — the filtered view
+        // must start capped, never inherit the prior show-all expansion.
+        await selectSvc1(tester);
+
+        for (int i = 1; i <= 6; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsOneWidget,
+            reason: 'the filtered view renders the first 6 up front',
+          );
+        }
+        for (int i = 7; i <= 8; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsNothing,
+            reason:
+                'a leaked show-all would eagerly build perf-$i in the '
+                'freshly-filtered view — the cap must hold',
+          );
+        }
+        expect(
+          find.byKey(const Key('salon-masters-show-all')),
+          findsOneWidget,
+          reason: 'the filtered set over the cap still offers the reveal',
+        );
       },
     );
   });
