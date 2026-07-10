@@ -130,6 +130,112 @@ class CatalogueSelectionController extends ValueNotifier<Set<String>> {
 }
 
 // ---------------------------------------------------------------------------
+// Pinned "selected service(s)" section
+// ---------------------------------------------------------------------------
+
+/// A fixed (non-collapsible) section pinned to the TOP of the catalogue that
+/// surfaces the service(s) the client arrived with from a discovery-search
+/// pre-selection, so a searched service is visible immediately instead of
+/// buried inside its category accordion below.
+///
+/// Deliberately NOT styled as an extruded category pillow (that vocabulary is
+/// reserved for the tappable/collapsible category headers): a lightweight
+/// inline eyebrow — a camel push-pin glyph + the heading — signals "always
+/// visible, pinned", not "collapse me". The rows themselves reuse the exact
+/// same [CatalogueServiceTile] the accordion uses, driven by the SAME
+/// [selectedIdsListenable], so a toggle here stays in sync with the rest of
+/// the selection (and the summary shelf) even though these rows are suppressed
+/// from their category below.
+///
+/// Renders nothing when [rows] is empty — a screen with no pre-selection shows
+/// no pinned header at all.
+class CataloguePinnedSection extends StatelessWidget {
+  const CataloguePinnedSection({
+    super.key,
+    required this.heading,
+    required this.rows,
+    required this.selectedIdsListenable,
+    required this.onToggleService,
+    required this.tileKeyForId,
+  });
+
+  /// Already-pluralized section heading (owning screen resolves singular vs
+  /// plural from `rows.length` via its own ICU key).
+  final String heading;
+
+  /// The pinned rows, in the order they should appear. Never empty when this
+  /// widget is built (callers guard on `isNotEmpty`).
+  final List<CatalogueRow> rows;
+
+  final ValueListenable<Set<String>> selectedIdsListenable;
+  final ValueChanged<String> onToggleService;
+  final Key Function(String id) tileKeyForId;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: VelvetSpacing.sm),
+          child: Row(
+            children: <Widget>[
+              const Icon(
+                Icons.push_pin_rounded,
+                size: 16,
+                color: BrandColors.accent,
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
+              Expanded(
+                child: Text(
+                  heading,
+                  style: VelvetText.subheading().copyWith(fontSize: 15),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // The pinned set is tiny (search matches — typically 1–few rows), so a
+        // SINGLE ValueListenableBuilder wraps the whole set: one subscription to
+        // [selectedIdsListenable], and any selection change rebuilds the small
+        // pinned column together. Unlike the category accordion — which id-gates
+        // per section because a category can hold many rows — per-row gating
+        // here would buy N subscriptions for negligible savings on a set this
+        // size. Toggling a tile still routes through the shared controller, so
+        // it stays in sync with the accordion and the summary shelf.
+        ValueListenableBuilder<Set<String>>(
+          valueListenable: selectedIdsListenable,
+          builder: (BuildContext context, Set<String> selected, _) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                for (int i = 0; i < rows.length; i++)
+                  Padding(
+                    padding: EdgeInsets.only(
+                      top: i == 0 ? 0 : VelvetSpacing.md,
+                    ),
+                    child: CatalogueServiceTile(
+                      key: tileKeyForId(rows[i].id),
+                      row: rows[i],
+                      selected: selected.contains(rows[i].id),
+                      onToggle: () => onToggleService(rows[i].id),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Category accordion section
 // ---------------------------------------------------------------------------
 

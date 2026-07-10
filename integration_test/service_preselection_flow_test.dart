@@ -138,18 +138,32 @@ void main() {
         expectLocation(router, RouteNames.bookingNew);
         expect(find.byType(ServiceSelectorSheet), findsOneWidget);
 
-        // ── PROOF: exact-slug pre-selection ──────────────────────────────────
-        // Both master-aaa services are NAILS, so seeding CLASSIC_MANICURE
-        // auto-expands NAILS and both tiles render. pub-assign-1
-        // (CLASSIC_MANICURE) is pre-checked; pub-assign-2 (GEL_MANICURE) is not.
+        // ── PROOF: exact-slug pre-selection, surfaced in the PINNED section ──
+        // pub-assign-1 (CLASSIC_MANICURE) matched → it is now PINNED at the top
+        // (its NAILS category is no longer auto-expanded) and pre-checked.
+        // pub-assign-2 (GEL_MANICURE) did not match → it stays inside the
+        // now-collapsed NAILS accordion.
+        final Finder pinnedSection = find.byKey(
+          const Key('booking-pinned-services'),
+        );
         final Finder matched = find.byKey(
           const Key('booking_service_tile_pub-assign-1'),
         );
         final Finder unmatched = find.byKey(
           const Key('booking_service_tile_pub-assign-2'),
         );
+        expect(pinnedSection, findsOneWidget);
+        // The matched tile is INSIDE the pinned section …
+        expect(
+          find.descendant(of: pinnedSection, matching: matched),
+          findsOneWidget,
+          reason:
+              'the searched service-type (CLASSIC_MANICURE) must arrive pinned '
+              'at the top of the booking catalogue',
+        );
+        // … and appears EXACTLY ONCE (no duplicate accordion row) …
         expect(matched, findsOneWidget);
-        expect(unmatched, findsOneWidget);
+        // … pre-checked.
         expect(
           find.descendant(
             of: matched,
@@ -160,6 +174,12 @@ void main() {
               'the searched service-type (CLASSIC_MANICURE) must arrive '
               'pre-checked on the booking catalogue',
         );
+
+        // The non-matching sibling's category (NAILS) is collapsed → expand it,
+        // then confirm pub-assign-2 rendered and was NOT falsely pre-checked.
+        await tester.tap(find.byKey(const Key('booking_category_NAILS')));
+        await AppHarness.settle(tester);
+        expect(unmatched, findsOneWidget);
         expect(
           find.descendant(
             of: unmatched,
@@ -205,11 +225,23 @@ void main() {
         expectLocation(router, RouteNames.salonBookingServices);
         expect(find.byType(SalonServiceSelectionScreen), findsOneWidget);
 
-        // ── PROOF: exact-slug pre-selection ──────────────────────────────────
-        // salon-svc-shared is NAILS/CLASSIC_MANICURE → its category is
-        // auto-expanded and the tile is pre-checked.
+        // ── PROOF: exact-slug pre-selection, surfaced in the PINNED section ──
+        // salon-svc-shared is NAILS/CLASSIC_MANICURE → it is now PINNED at the
+        // top (its category is no longer auto-expanded) and pre-checked.
+        final Finder salonPinnedSection = find.byKey(
+          const Key('salon-booking-pinned-services'),
+        );
         final Finder sharedTile = find.byKey(
           const Key('salon_booking_service_tile_salon-svc-shared'),
+        );
+        expect(salonPinnedSection, findsOneWidget);
+        // Inside the pinned section, exactly once (no duplicate accordion row).
+        expect(
+          find.descendant(of: salonPinnedSection, matching: sharedTile),
+          findsOneWidget,
+          reason:
+              'the searched service-type (CLASSIC_MANICURE) must arrive pinned '
+              'at the top of the salon booking catalogue',
         );
         expect(sharedTile, findsOneWidget);
         expect(

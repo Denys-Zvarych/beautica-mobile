@@ -155,6 +155,25 @@ Future<void> _pumpScreen(
 Finder _checkedFace(Finder tile) =>
     find.descendant(of: tile, matching: find.byKey(const ValueKey<bool>(true)));
 
+/// Locates [tile] specifically INSIDE the pinned top section [section] — proves
+/// a searched service is surfaced in the pin, not (only) somewhere in the tree.
+Finder _inPinned(Finder section, Finder tile) =>
+    find.descendant(of: section, matching: tile);
+
+/// The pinned "Обрана послуга / Обрані послуги" section for each flow.
+final Finder _masterPinnedSection = find.byKey(
+  const Key('booking-pinned-services'),
+);
+final Finder _salonPinnedSection = find.byKey(
+  const Key('salon-booking-pinned-services'),
+);
+
+// Rendered pinned-section heading text (ICU plural on match count). Localized
+// find.text is intentional here — the heading has no stable Key of its own and
+// the plural branch IS the thing under test. i18n-finder-ok
+const String _kPinnedHeadingSingular = 'Обрана послуга';
+const String _kPinnedHeadingPlural = 'Обрані послуги';
+
 void _tallSurface(WidgetTester tester) {
   tester.view.physicalSize = const Size(800, 2000);
   tester.view.devicePixelRatio = 1.0;
@@ -223,6 +242,13 @@ const _kMasterMatchSeed = PendingServicePreselection(
   serviceTypeLabels: <String>{'Класичний манікюр'},
 );
 
+// Both master services' slugs → both pin (multi-match + plural heading path).
+const _kMasterBothSeed = PendingServicePreselection(
+  targetId: _kMasterId,
+  serviceTypeSlugs: <String>{'CLASSIC_MANICURE', 'GEL_MANICURE'},
+  serviceTypeLabels: <String>{'Класичний манікюр', 'Манікюр гель-лак'},
+);
+
 final Finder _masterMatchTile = find.byKey(
   const Key('booking_service_tile_svc-match'),
 );
@@ -281,6 +307,13 @@ const _kSalonMatchSeed = PendingServicePreselection(
   serviceTypeLabels: <String>{'Класичний манікюр'},
 );
 
+// Both salon services' slugs → both pin (multi-match + plural heading path).
+const _kSalonBothSeed = PendingServicePreselection(
+  targetId: _kSalonId,
+  serviceTypeSlugs: <String>{'CLASSIC_MANICURE', 'GEL_MANICURE'},
+  serviceTypeLabels: <String>{},
+);
+
 final Finder _salonMatchTile = find.byKey(
   const Key('salon_booking_service_tile_salon-match'),
 );
@@ -317,17 +350,25 @@ void main() {
               'build phase (the consumeFor-in-initState crash this guards)',
         );
 
-        // The matched service\'s category (NAILS) was auto-expanded, so BOTH
-        // tiles render …
-        expect(_masterMatchTile, findsOneWidget);
-        expect(_masterOtherTile, findsOneWidget);
-        // … the exact-slug match is CHECKED …
+        // The matched service is now surfaced in the PINNED top section (its
+        // category is no longer auto-expanded), pre-checked …
+        expect(
+          _inPinned(_masterPinnedSection, _masterMatchTile),
+          findsOneWidget,
+          reason:
+              'CLASSIC_MANICURE matched svc-match → it must be pinned at the top',
+        );
         expect(
           _checkedFace(_masterMatchTile),
           findsOneWidget,
           reason: 'CLASSIC_MANICURE matched svc-match → it must be pre-checked',
         );
-        // … and the different-slug sibling is NOT.
+        // … and the different-slug sibling stays inside its (now-collapsed)
+        // NAILS category. Expand it manually to bring the tile into view and
+        // confirm it was NOT falsely pre-checked (exact-slug, no false positive).
+        await tester.tap(find.byKey(const Key('booking_category_NAILS')));
+        await tester.pumpAndSettle();
+        expect(_masterOtherTile, findsOneWidget);
         expect(
           _checkedFace(_masterOtherTile),
           findsNothing,
@@ -468,14 +509,28 @@ void main() {
               'build phase (the consumeFor-in-initState crash this guards)',
         );
 
-        expect(_salonMatchTile, findsOneWidget);
-        expect(_salonOtherTile, findsOneWidget);
+        // The matched service is now surfaced in the PINNED top section (its
+        // category is no longer auto-expanded), pre-checked …
+        expect(
+          _inPinned(_salonPinnedSection, _salonMatchTile),
+          findsOneWidget,
+          reason:
+              'CLASSIC_MANICURE matched salon-match → it must be pinned at top',
+        );
         expect(
           _checkedFace(_salonMatchTile),
           findsOneWidget,
           reason:
               'CLASSIC_MANICURE matched salon-match → it must be pre-checked',
         );
+        // … and the different-slug sibling stays inside its (now-collapsed)
+        // NAILS category. Expand it manually and confirm it was NOT falsely
+        // pre-checked (exact-slug, no false positive).
+        await tester.tap(
+          find.byKey(const Key('salon-booking-category-Манікюр')),
+        );
+        await tester.pumpAndSettle();
+        expect(_salonOtherTile, findsOneWidget);
         expect(
           _checkedFace(_salonOtherTile),
           findsNothing,
@@ -583,6 +638,278 @@ void main() {
           findsNothing,
           reason: 'a payload for a different salon must pre-check nothing',
         );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  // =========================================================================
+  // PINNED "your searched service(s)" top section — master flow
+  // =========================================================================
+  group('ServiceSelectorSheet — pinned search-preselection section', () {
+    testWidgets(
+      'pins the matched service at the TOP, pre-checked, with NO duplicate row '
+      'in the category accordion',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_masterDataOverrides);
+        _seed(c, _kMasterMatchSeed);
+
+        await _pumpScreen(
+          tester,
+          c,
+          const ServiceSelectorSheet(masterId: _kMasterId),
+        );
+        await tester.pumpAndSettle();
+
+        // The pinned section renders …
+        expect(_masterPinnedSection, findsOneWidget);
+        // … the matched tile lives INSIDE it, pre-checked …
+        expect(
+          _inPinned(_masterPinnedSection, _masterMatchTile),
+          findsOneWidget,
+        );
+        expect(_checkedFace(_masterMatchTile), findsOneWidget);
+        // … and it exists EXACTLY ONCE in the whole tree — the pinned service
+        // is suppressed from its NAILS accordion row, never shown twice.
+        expect(_masterMatchTile, findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('renders the SINGULAR heading for exactly one match', (
+      tester,
+    ) async {
+      _tallSurface(tester);
+      final ProviderContainer c = _makeContainer(_masterDataOverrides);
+      _seed(c, _kMasterMatchSeed);
+
+      await _pumpScreen(
+        tester,
+        c,
+        const ServiceSelectorSheet(masterId: _kMasterId),
+      );
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok — the ICU plural heading branch is the thing under test.
+      expect(find.text(_kPinnedHeadingSingular), findsOneWidget);
+      expect(find.text(_kPinnedHeadingPlural), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'multiple matches → ALL pin at the top, pre-checked, PLURAL heading, and '
+      'no accordion category remains for the fully-pinned services',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_masterDataOverrides);
+        _seed(c, _kMasterBothSeed);
+
+        await _pumpScreen(
+          tester,
+          c,
+          const ServiceSelectorSheet(masterId: _kMasterId),
+        );
+        await tester.pumpAndSettle();
+
+        // Both matched services are pinned, both pre-checked …
+        expect(
+          _inPinned(_masterPinnedSection, _masterMatchTile),
+          findsOneWidget,
+        );
+        expect(
+          _inPinned(_masterPinnedSection, _masterOtherTile),
+          findsOneWidget,
+        );
+        expect(_checkedFace(_masterMatchTile), findsOneWidget);
+        expect(_checkedFace(_masterOtherTile), findsOneWidget);
+        // … the heading is PLURAL …
+        // i18n-finder-ok — asserting the ICU plural branch directly.
+        expect(find.text(_kPinnedHeadingPlural), findsOneWidget);
+        expect(find.text(_kPinnedHeadingSingular), findsNothing);
+        // … and NAILS (whose only two services are both pinned) no longer
+        // renders as an accordion category at all.
+        expect(find.byKey(const Key('booking_category_NAILS')), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'no search pre-selection → NO pinned section renders (catalogue normal)',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_masterDataOverrides);
+        // Deliberately NOT seeded.
+
+        await _pumpScreen(
+          tester,
+          c,
+          const ServiceSelectorSheet(masterId: _kMasterId),
+        );
+        await tester.pumpAndSettle();
+
+        expect(_masterPinnedSection, findsNothing);
+        // The catalogue still renders its category accordion as usual.
+        expect(find.byKey(const Key('booking_category_NAILS')), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'un-checking a pinned service KEEPS it pinned (pin = "your searched '
+      'service", not check-state) but leaves it unchecked',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_masterDataOverrides);
+        _seed(c, _kMasterMatchSeed);
+
+        await _pumpScreen(
+          tester,
+          c,
+          const ServiceSelectorSheet(masterId: _kMasterId),
+        );
+        await tester.pumpAndSettle();
+        expect(_checkedFace(_masterMatchTile), findsOneWidget);
+
+        // Tap the pinned tile to un-check it.
+        await tester.tap(_inPinned(_masterPinnedSection, _masterMatchTile));
+        await tester.pumpAndSettle();
+
+        // Still pinned (present in the section) …
+        expect(
+          _inPinned(_masterPinnedSection, _masterMatchTile),
+          findsOneWidget,
+        );
+        // … but now unchecked.
+        expect(_checkedFace(_masterMatchTile), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  // =========================================================================
+  // PINNED "your searched service(s)" top section — salon flow
+  // =========================================================================
+  group('SalonServiceSelectionScreen — pinned search-preselection section', () {
+    testWidgets(
+      'pins the matched service at the TOP, pre-checked, with NO duplicate row '
+      'in the category accordion',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_salonDataOverrides);
+        _seed(c, _kSalonMatchSeed);
+
+        await _pumpScreen(
+          tester,
+          c,
+          const SalonServiceSelectionScreen(salonId: _kSalonId),
+        );
+        await tester.pumpAndSettle();
+
+        expect(_salonPinnedSection, findsOneWidget);
+        expect(_inPinned(_salonPinnedSection, _salonMatchTile), findsOneWidget);
+        expect(_checkedFace(_salonMatchTile), findsOneWidget);
+        // Exactly once in the tree — suppressed from its NAILS accordion row.
+        expect(_salonMatchTile, findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('renders the SINGULAR heading for exactly one match', (
+      tester,
+    ) async {
+      _tallSurface(tester);
+      final ProviderContainer c = _makeContainer(_salonDataOverrides);
+      _seed(c, _kSalonMatchSeed);
+
+      await _pumpScreen(
+        tester,
+        c,
+        const SalonServiceSelectionScreen(salonId: _kSalonId),
+      );
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok — the ICU plural heading branch is the thing under test.
+      expect(find.text(_kPinnedHeadingSingular), findsOneWidget);
+      expect(find.text(_kPinnedHeadingPlural), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'multiple matches → ALL pin at the top, pre-checked, PLURAL heading, and '
+      'the fully-pinned NAILS category is dropped from the accordion',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_salonDataOverrides);
+        _seed(c, _kSalonBothSeed);
+
+        await _pumpScreen(
+          tester,
+          c,
+          const SalonServiceSelectionScreen(salonId: _kSalonId),
+        );
+        await tester.pumpAndSettle();
+
+        expect(_inPinned(_salonPinnedSection, _salonMatchTile), findsOneWidget);
+        expect(_inPinned(_salonPinnedSection, _salonOtherTile), findsOneWidget);
+        expect(_checkedFace(_salonMatchTile), findsOneWidget);
+        expect(_checkedFace(_salonOtherTile), findsOneWidget);
+        // i18n-finder-ok — asserting the ICU plural branch directly.
+        expect(find.text(_kPinnedHeadingPlural), findsOneWidget);
+        expect(find.text(_kPinnedHeadingSingular), findsNothing);
+        // NAILS emptied of all rows → no accordion category header for it.
+        expect(
+          find.byKey(const Key('salon-booking-category-Манікюр')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'no search pre-selection → NO pinned section renders (catalogue falls '
+      'back to expanding the first category)',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_salonDataOverrides);
+        // Deliberately NOT seeded.
+
+        await _pumpScreen(
+          tester,
+          c,
+          const SalonServiceSelectionScreen(salonId: _kSalonId),
+        );
+        await tester.pumpAndSettle();
+
+        expect(_salonPinnedSection, findsNothing);
+        // First category (NAILS) is expanded by the no-preselection default, so
+        // its tiles render and NEITHER is pre-checked.
+        expect(_salonMatchTile, findsOneWidget);
+        expect(_checkedFace(_salonMatchTile), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'un-checking a pinned service KEEPS it pinned but leaves it unchecked',
+      (tester) async {
+        _tallSurface(tester);
+        final ProviderContainer c = _makeContainer(_salonDataOverrides);
+        _seed(c, _kSalonMatchSeed);
+
+        await _pumpScreen(
+          tester,
+          c,
+          const SalonServiceSelectionScreen(salonId: _kSalonId),
+        );
+        await tester.pumpAndSettle();
+        expect(_checkedFace(_salonMatchTile), findsOneWidget);
+
+        await tester.tap(_inPinned(_salonPinnedSection, _salonMatchTile));
+        await tester.pumpAndSettle();
+
+        expect(_inPinned(_salonPinnedSection, _salonMatchTile), findsOneWidget);
+        expect(_checkedFace(_salonMatchTile), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );

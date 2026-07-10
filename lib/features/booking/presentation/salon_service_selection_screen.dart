@@ -98,6 +98,13 @@ class _SalonServiceSelectionScreenState
   final Set<String> _expandedKeys = <String>{};
   bool _expandedSeeded = false;
 
+  /// Catalogue-service ids matched by the discovery-search pre-selection
+  /// ([_preselection]). Rendered in a pinned section at the TOP of the
+  /// catalogue and suppressed from their category accordion below (never shown
+  /// twice). Populated once by [_seedOnce]; a stable reference thereafter.
+  /// Empty ⇒ the pinned section renders nothing.
+  final Set<String> _pinnedIds = <String>{};
+
   /// The one-shot search pre-selection for THIS salon. Captured (read-only, via
   /// [peekFor]) in [initState] so it is available synchronously before the
   /// catalogue resolves — [_seedOnce] matches it against the resolved services.
@@ -153,12 +160,17 @@ class _SalonServiceSelectionScreenState
         for (final SalonCatalogService s in c.services) {
           if (_matchesPreselection(s.serviceTypeSlug, s.name, pre)) {
             selectedIds.add(s.id);
-            _expandedKeys.add(c.category);
+            // Pin the match at the top instead of expanding its category —
+            // the service is surfaced immediately, so auto-expanding its
+            // in-accordion row would be redundant.
+            _pinnedIds.add(s.id);
           }
         }
       }
       if (selectedIds.isNotEmpty) {
         _selectionController.replaceAll(selectedIds);
+        // Matches are pinned at the top; leave the accordion collapsed (no
+        // default first-category expand) so the pinned section is the focus.
         return;
       }
     }
@@ -275,6 +287,7 @@ class _SalonServiceSelectionScreenState
                   }
                   return _CatalogueBody(
                     categories: categories,
+                    pinnedIds: _pinnedIds,
                     expandedKeys: _expandedKeys,
                     selectedIdsListenable: _selectionController,
                     onToggleService: _selectionController.toggleService,
@@ -523,16 +536,6 @@ CatalogueRow _toCatalogueRow(SalonCatalogService s) => CatalogueRow(
   priceLabel: s.priceDisplay,
 );
 
-CatalogueCategoryGroup _toCatalogueCategoryGroup(
-  SalonServiceCategoryEntry entry,
-) => CatalogueCategoryGroup(
-  key: entry.category,
-  label: entry.displayName,
-  rows: <CatalogueRow>[
-    for (final SalonCatalogService s in entry.services) _toCatalogueRow(s),
-  ],
-);
-
 /// This screen never showed a plain count/selected badge in the header's
 /// trailing slot — that slot used to hold the now-deleted tri-state
 /// "select all" pill instead. See the shared widget's `showCountBadges`.
@@ -541,6 +544,7 @@ Key _salonTileKeyForId(String id) => Key('salon_booking_service_tile_$id');
 class _CatalogueBody extends StatefulWidget {
   const _CatalogueBody({
     required this.categories,
+    required this.pinnedIds,
     required this.expandedKeys,
     required this.selectedIdsListenable,
     required this.onToggleService,
@@ -548,6 +552,11 @@ class _CatalogueBody extends StatefulWidget {
   });
 
   final List<SalonServiceCategoryEntry> categories;
+
+  /// Catalogue-service ids surfaced in the pinned top section — excluded from
+  /// the category accordion so they never appear twice. Empty ⇒ no pinned
+  /// section.
+  final Set<String> pinnedIds;
   final Set<String> expandedKeys;
   final ValueListenable<Set<String>> selectedIdsListenable;
   final ValueChanged<String> onToggleService;
@@ -570,28 +579,64 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
   // recompute when the source `categories` list's identity actually changes —
   // mirrors `ServiceSelectorSheet`'s `_CatalogueBodyState._groupsFor`.
   List<CatalogueCategoryGroup>? _cachedGroups;
+  List<CatalogueRow>? _cachedPinnedRows;
   List<SalonServiceCategoryEntry>? _cachedCategories;
 
   List<CatalogueCategoryGroup> _groupsFor(
     List<SalonServiceCategoryEntry> categories,
   ) {
-    final List<CatalogueCategoryGroup>? cached = _cachedGroups;
-    if (cached != null && identical(_cachedCategories, categories)) {
-      return cached;
+    _rebuildIfNeeded(categories);
+    return _cachedGroups!;
+  }
+
+  /// The pinned rows (search-preselected services), in catalogue order.
+  /// Empty ⇒ the caller renders no pinned section.
+  List<CatalogueRow> _pinnedRowsFor(
+    List<SalonServiceCategoryEntry> categories,
+  ) {
+    _rebuildIfNeeded(categories);
+    return _cachedPinnedRows!;
+  }
+
+  void _rebuildIfNeeded(List<SalonServiceCategoryEntry> categories) {
+    if (_cachedGroups != null && identical(_cachedCategories, categories)) {
+      return;
     }
-    final List<CatalogueCategoryGroup> groups = <CatalogueCategoryGroup>[
-      for (final SalonServiceCategoryEntry entry in categories)
-        _toCatalogueCategoryGroup(entry),
-    ];
+    // Pinned services are surfaced in the top section only — collect them and
+    // exclude them from the accordion (dropping any category left empty), so a
+    // searched service is never shown twice. `pinnedIds` is a stable reference
+    // for this screen's lifetime (seeded once), so it needs no cache key.
+    final List<CatalogueRow> pinned = <CatalogueRow>[];
+    final List<CatalogueCategoryGroup> groups = <CatalogueCategoryGroup>[];
+    for (final SalonServiceCategoryEntry entry in categories) {
+      final List<CatalogueRow> rows = <CatalogueRow>[];
+      for (final SalonCatalogService s in entry.services) {
+        final CatalogueRow row = _toCatalogueRow(s);
+        if (widget.pinnedIds.contains(s.id)) {
+          pinned.add(row);
+        } else {
+          rows.add(row);
+        }
+      }
+      if (rows.isEmpty) continue;
+      groups.add(
+        CatalogueCategoryGroup(
+          key: entry.category,
+          label: entry.displayName,
+          rows: rows,
+        ),
+      );
+    }
+    _cachedPinnedRows = pinned;
     _cachedGroups = groups;
     _cachedCategories = categories;
-    return groups;
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final List<CatalogueCategoryGroup> groups = _groupsFor(widget.categories);
+    final List<CatalogueRow> pinnedRows = _pinnedRowsFor(widget.categories);
     String headerSemantics({
       required String label,
       required int count,
@@ -615,9 +660,29 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
             0,
           ),
           sliver: SliverToBoxAdapter(
-            child: Text(
-              l10n.salonBookingServicesIntro,
-              style: VelvetText.body().copyWith(fontSize: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(
+                  l10n.salonBookingServicesIntro,
+                  style: VelvetText.body().copyWith(fontSize: 14),
+                ),
+                // Pinned search-preselection section — renders nothing when
+                // the client did not arrive from a search (pinnedRows empty).
+                if (pinnedRows.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: VelvetSpacing.xl),
+                  CataloguePinnedSection(
+                    key: const Key('salon-booking-pinned-services'),
+                    heading: l10n.bookingPinnedServicesHeading(
+                      pinnedRows.length,
+                    ),
+                    rows: pinnedRows,
+                    selectedIdsListenable: widget.selectedIdsListenable,
+                    onToggleService: widget.onToggleService,
+                    tileKeyForId: _salonTileKeyForId,
+                  ),
+                ],
+              ],
             ),
           ),
         ),

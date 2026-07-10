@@ -113,6 +113,16 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
   final Set<String> _expandedKeys = <String>{};
   bool _seeded = false;
 
+  /// Service ids matched by the discovery-search pre-selection ([_preselection]).
+  /// These are rendered in a pinned section at the TOP of the catalogue and
+  /// suppressed from their category accordion below (so they never appear
+  /// twice). Populated once by [_seedOnce]; a stable reference thereafter, so
+  /// the catalogue body's memoized grouping never invalidates on it. Empty when
+  /// the client did not arrive from a search — the pinned section then renders
+  /// nothing. Deliberately does NOT include [widget.initialServiceId] (that
+  /// extension point stays in-category and expands its own section).
+  final Set<String> _pinnedIds = <String>{};
+
   /// The one-shot search pre-selection for THIS master. Captured (read-only,
   /// via [peekFor]) in [initState] so it is available synchronously before the
   /// catalogue resolves — [_seedOnce] matches it against the resolved services.
@@ -181,7 +191,10 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
       for (final MasterService s in services) {
         if (_matchesPreselection(s.serviceTypeSlug, s.serviceTypeNameUk, pre)) {
           selectedIds.add(s.id);
-          _expandedKeys.add((s.category ?? '').trim().toUpperCase());
+          // Pin the match at the top instead of expanding its category — the
+          // service is now surfaced immediately, so auto-expanding (and
+          // scrolling to find) its in-accordion row would be redundant.
+          _pinnedIds.add(s.id);
         }
       }
     }
@@ -291,6 +304,7 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                   return _CatalogueBody(
                     master: master,
                     services: services,
+                    pinnedIds: _pinnedIds,
                     selectedIdsListenable: _selectionController,
                     expandedKeys: _expandedKeys,
                     onToggleService: _selectionController.toggleService,
@@ -473,6 +487,7 @@ class _CatalogueBody extends ConsumerStatefulWidget {
   const _CatalogueBody({
     required this.master,
     required this.services,
+    required this.pinnedIds,
     required this.selectedIdsListenable,
     required this.expandedKeys,
     required this.onToggleService,
@@ -481,6 +496,10 @@ class _CatalogueBody extends ConsumerStatefulWidget {
 
   final Master master;
   final List<MasterService> services;
+
+  /// Service ids surfaced in the pinned top section — excluded from the
+  /// category accordion so they never appear twice. Empty ⇒ no pinned section.
+  final Set<String> pinnedIds;
   final ValueListenable<Set<String>> selectedIdsListenable;
   final Set<String> expandedKeys;
   final ValueChanged<String> onToggleService;
@@ -499,6 +518,7 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
   // the resolved category options never changed. Cache the grouped result
   // and only recompute when either input's identity actually changes.
   List<CatalogueCategoryGroup>? _cachedGroups;
+  List<CatalogueRow>? _cachedPinnedRows;
   List<MasterService>? _cachedServices;
   List<ServiceCategoryOption>? _cachedOptions;
 
@@ -506,22 +526,41 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
     AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
     AppLocalizations l10n,
   ) {
+    _rebuildIfNeeded(categoriesAsync, l10n);
+    return _cachedGroups!;
+  }
+
+  /// The pinned rows (search-preselected services), in `services` order.
+  /// Empty ⇒ the caller renders no pinned section. Shares the same memo as
+  /// the grouped output so a rebuild computes both from one pass.
+  List<CatalogueRow> _pinnedRowsFor(
+    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
+    AppLocalizations l10n,
+  ) {
+    _rebuildIfNeeded(categoriesAsync, l10n);
+    return _cachedPinnedRows!;
+  }
+
+  void _rebuildIfNeeded(
+    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
+    AppLocalizations l10n,
+  ) {
     final List<ServiceCategoryOption>? options = categoriesAsync.value;
-    final List<CatalogueCategoryGroup>? cached = _cachedGroups;
-    if (cached != null &&
+    if (_cachedGroups != null &&
         identical(_cachedServices, widget.services) &&
         identical(_cachedOptions, options)) {
-      return cached;
+      return;
     }
-    final List<CatalogueCategoryGroup> groups = _group(
-      widget.services,
-      categoriesAsync,
-      l10n,
-    );
-    _cachedGroups = groups;
+    // Pinned rows are excluded from the accordion so a searched service is
+    // never shown twice; `pinnedIds` is a stable reference for this screen's
+    // lifetime (seeded once), so it needs no separate cache key.
+    _cachedPinnedRows = <CatalogueRow>[
+      for (final MasterService s in widget.services)
+        if (widget.pinnedIds.contains(s.id)) _toCatalogueRow(s),
+    ];
+    _cachedGroups = _group(widget.services, categoriesAsync, l10n);
     _cachedServices = widget.services;
     _cachedOptions = options;
-    return groups;
   }
 
   @override
@@ -532,6 +571,7 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
       categoriesAsync,
       l10n,
     );
+    final List<CatalogueRow> pinnedRows = _pinnedRowsFor(categoriesAsync, l10n);
     String headerSemantics({
       required String label,
       required int count,
@@ -571,6 +611,21 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
                 const SizedBox(height: VelvetSpacing.lg),
                 MasterStrip(master: widget.master),
                 const SizedBox(height: VelvetSpacing.xl),
+                // Pinned search-preselection section — renders nothing when
+                // the client did not arrive from a search (pinnedRows empty).
+                if (pinnedRows.isNotEmpty) ...<Widget>[
+                  CataloguePinnedSection(
+                    key: const Key('booking-pinned-services'),
+                    heading: l10n.bookingPinnedServicesHeading(
+                      pinnedRows.length,
+                    ),
+                    rows: pinnedRows,
+                    selectedIdsListenable: widget.selectedIdsListenable,
+                    onToggleService: widget.onToggleService,
+                    tileKeyForId: _bookingTileKeyForId,
+                  ),
+                  const SizedBox(height: VelvetSpacing.xl),
+                ],
               ],
             ),
           ),
@@ -619,6 +674,9 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
     final Map<String, List<MasterService>> buckets =
         <String, List<MasterService>>{};
     for (final MasterService s in services) {
+      // Pinned (search-preselected) services live in the top section only —
+      // skip them here so they are not duplicated inside their category.
+      if (widget.pinnedIds.contains(s.id)) continue;
       final String key = (s.category ?? '').trim().toUpperCase();
       (buckets[key] ??= <MasterService>[]).add(s);
     }
