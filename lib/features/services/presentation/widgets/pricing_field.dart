@@ -644,16 +644,8 @@ class _Segment extends StatelessWidget {
   final VoidCallback? onTap;
 
   // Hoisted to avoid per-build allocations for the common cases.
-  static final TextStyle _selectedLabel = VelvetText.cta().copyWith(
-    fontSize: 14,
-    color: BrandColors.white,
-    fontWeight: FontWeight.w700,
-  );
-  static final TextStyle _unselectedLabel = VelvetText.cta().copyWith(
-    fontSize: 14,
-    color: BrandColors.textSecondary,
-    fontWeight: FontWeight.w600,
-  );
+  static final TextStyle _selectedLabel = VelvetText.ctaSm;
+  static final TextStyle _unselectedLabel = VelvetText.svcSegmentUnselected;
 
   @override
   Widget build(BuildContext context) {

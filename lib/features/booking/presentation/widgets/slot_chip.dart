@@ -147,11 +147,8 @@ class _SlotChipState extends State<SlotChip> {
     );
   }
 
-  TextStyle _label(Color color) => VelvetText.bodyStrong().copyWith(
-    color: color,
-    fontWeight: FontWeight.w800,
-    fontSize: 14,
-  );
+  TextStyle _label(Color color) =>
+      VelvetText.bookSlotChip.copyWith(color: color);
 }
 
 /// One time-of-day group (Ранок / День / Вечір): a muted sub-label + a
@@ -172,10 +169,7 @@ class SlotGroup extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
           child: Row(
             children: <Widget>[
-              Text(
-                label,
-                style: VelvetText.sectionLabel().copyWith(fontSize: 12),
-              ),
+              Text(label, style: VelvetText.bookSlotGroupLabel),
               const SizedBox(width: VelvetSpacing.sm),
               Expanded(
                 child: Container(

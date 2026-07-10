@@ -330,7 +330,7 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
           Text(
             widget.strings.title,
             textAlign: TextAlign.center,
-            style: VelvetText.heading().copyWith(fontSize: 20),
+            style: VelvetText.heading20,
           ),
         ],
       ),
@@ -359,7 +359,7 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
               color: BrandColors.accentDeep,
             ),
             const SizedBox(width: VelvetSpacing.sm),
-            Text(text, style: VelvetText.bodyStrong().copyWith(fontSize: 14)),
+            Text(text, style: VelvetText.bodyStrong14),
           ],
         ),
       ),
@@ -373,12 +373,7 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
         children: <Widget>[
           for (final String w in widget.strings.weekdayShort)
             Expanded(
-              child: Center(
-                child: Text(
-                  w,
-                  style: VelvetText.label().copyWith(fontSize: 11),
-                ),
-              ),
+              child: Center(child: Text(w, style: VelvetText.label11)),
             ),
         ],
       ),
@@ -585,8 +580,7 @@ class _DayCell extends StatelessWidget {
           : null,
       child: Text(
         '${info.day}',
-        style: VelvetText.bodyStrong().copyWith(
-          fontSize: 15,
+        style: VelvetText.bodyStrong15.copyWith(
           color: numberColor,
           fontWeight: endpoint ? FontWeight.w700 : null,
         ),

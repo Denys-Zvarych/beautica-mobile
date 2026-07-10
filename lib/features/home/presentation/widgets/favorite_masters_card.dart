@@ -129,15 +129,9 @@ class _MasterMiniCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onUnlike;
 
-  static final TextStyle _nameStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 12,
-  );
-  static final TextStyle _serviceStyle = VelvetText.body().copyWith(
-    fontSize: 10.5,
-  );
-  static final TextStyle _ratingStyle = VelvetText.statCaption().copyWith(
-    fontSize: 10.5,
-  );
+  static final TextStyle _nameStyle = VelvetText.bodyStrong12;
+  static final TextStyle _serviceStyle = VelvetText.body105;
+  static final TextStyle _ratingStyle = VelvetText.favMasterRating;
 
   @override
   Widget build(BuildContext context) {

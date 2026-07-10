@@ -605,9 +605,7 @@ class _CategorySectionState extends State<_CategorySection> {
   late bool _expanded;
 
   // P-M1 fix: hoisted to avoid per-build TextStyle allocation.
-  static final TextStyle _headerStyle = VelvetText.subheading().copyWith(
-    fontSize: 16,
-  );
+  static final TextStyle _headerStyle = VelvetText.subheading16;
 
   @override
   void initState() {
@@ -701,7 +699,7 @@ class _CategoryCountBadge extends StatelessWidget {
   final int count;
 
   // Hoisted to avoid per-build allocation.
-  static final TextStyle _style = VelvetText.pill().copyWith(fontSize: 12.5);
+  static final TextStyle _style = VelvetText.pillSm;
 
   @override
   Widget build(BuildContext context) {
@@ -940,10 +938,7 @@ class _ServiceInfo extends StatelessWidget {
   final String priceLabel;
 
   // Hoisted to avoid per-build allocation (MEDIUM-3).
-  static final TextStyle _nameStyle = VelvetText.cardTitle().copyWith(
-    fontSize: 15,
-    height: 1.15,
-  );
+  static final TextStyle _nameStyle = VelvetText.svcCardName;
 
   @override
   Widget build(BuildContext context) {
@@ -1005,9 +1000,7 @@ class _MetaItem extends StatelessWidget {
   final String value;
 
   // Hoisted to avoid per-build allocation (MEDIUM-3).
-  static final TextStyle _valueStyle = VelvetText.pill().copyWith(
-    fontSize: 12.5,
-  );
+  static final TextStyle _valueStyle = VelvetText.pillSm;
 
   @override
   Widget build(BuildContext context) {
@@ -1307,7 +1300,7 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: VelvetSpacing.xl),
             Text(
               l10n.servicesEmpty,
-              style: VelvetText.heading().copyWith(fontSize: 22),
+              style: VelvetText.headingSm,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: VelvetSpacing.sm),

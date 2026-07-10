@@ -23,12 +23,7 @@ import '../../../../core/theme/velvet_text.dart';
 
 // These are module-private constants so they do not pollute the exported API.
 TextStyle _statCaptionBase() => VelvetText.statCaption();
-TextStyle _bodyBase() => VelvetText.body();
-TextStyle _ctaBase() => VelvetText.cta();
 TextStyle _sectionLabelBase() => VelvetText.sectionLabel();
-TextStyle _feedbackSecondary() =>
-    VelvetText.feedback(BrandColors.textSecondary);
-TextStyle _linkBase() => VelvetText.link();
 
 // ---------------------------------------------------------------------------
 // HubAvatar — circular gradient avatar with initials
@@ -160,12 +155,7 @@ class HubSectionTitle extends StatelessWidget {
   final bool literal;
 
   // Precomputed to avoid per-build TextStyle.copyWith allocations.
-  static final TextStyle _literalStyle = _sectionLabelBase().copyWith(
-    letterSpacing: 1.6,
-    fontSize: 13,
-    color: BrandColors.textSecondary,
-    fontWeight: FontWeight.w700,
-  );
+  static final TextStyle _literalStyle = VelvetText.homeSectionLiteral;
 
   static final TextStyle _normalStyle = _sectionLabelBase().copyWith(
     letterSpacing: 1.0,
@@ -196,10 +186,7 @@ class HubSeeAllLink extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  static final TextStyle _style = _linkBase().copyWith(
-    fontSize: 13,
-    color: BrandColors.textSecondary,
-  );
+  static final TextStyle _style = VelvetText.homeSeeAllLink;
 
   @override
   Widget build(BuildContext context) {
@@ -306,10 +293,7 @@ class _CountdownChipState extends State<CountdownChip> {
   late Timer _timer;
   late Duration _remaining;
 
-  static final TextStyle _labelStyle = _feedbackSecondary().copyWith(
-    fontSize: 12.5,
-    letterSpacing: 0.2,
-  );
+  static final TextStyle _labelStyle = VelvetText.homeCountdownLabel;
 
   @override
   void initState() {
@@ -368,10 +352,7 @@ class HubFilledButton extends StatefulWidget {
 class _HubFilledButtonState extends State<HubFilledButton> {
   bool _pressed = false;
 
-  static final TextStyle _style = _ctaBase().copyWith(
-    fontSize: 13.5,
-    color: BrandColors.white,
-  );
+  static final TextStyle _style = VelvetText.cta135;
 
   @override
   Widget build(BuildContext context) {
@@ -438,12 +419,10 @@ class _HubOutlineButtonState extends State<HubOutlineButton> {
   bool _pressed = false;
 
   // Pre-composed per-variant styles — avoids per-build copyWith allocation.
-  static final TextStyle _styleSafe = _ctaBase().copyWith(
-    fontSize: 13.5,
+  static final TextStyle _styleSafe = VelvetText.cta135.copyWith(
     color: BrandColors.accentDeep,
   );
-  static final TextStyle _styleDanger = _ctaBase().copyWith(
-    fontSize: 13.5,
+  static final TextStyle _styleDanger = VelvetText.cta135.copyWith(
     color: BrandColors.error,
   );
 
@@ -573,7 +552,7 @@ class HubEmptyState extends StatelessWidget {
   /// [AppIcon]). When non-null, [icon] is ignored. Mirrors the StatTile pattern.
   final Widget? iconWidget;
 
-  static final TextStyle _msgStyle = _bodyBase().copyWith(fontSize: 14);
+  static final TextStyle _msgStyle = VelvetText.body14;
 
   @override
   Widget build(BuildContext context) {

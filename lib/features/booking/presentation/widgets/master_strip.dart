@@ -137,14 +137,12 @@ class MasterStrip extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       l10n.bookingMasterStripLabel,
-                      style: VelvetText.feedback(
-                        BrandColors.textSecondary,
-                      ).copyWith(fontSize: 11),
+                      style: VelvetText.contactPlatformLabel,
                     ),
                     const SizedBox(height: 2),
                     Text(
                       name,
-                      style: VelvetText.subheading().copyWith(fontSize: 16),
+                      style: VelvetText.subheading16,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -152,9 +150,7 @@ class MasterStrip extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         role,
-                        style: VelvetText.feedback(
-                          BrandColors.muted,
-                        ).copyWith(fontSize: 12),
+                        style: VelvetText.feedbackMutedSm,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -174,20 +170,12 @@ class MasterStrip extends StatelessWidget {
                       color: BrandColors.accent,
                     ),
                     const SizedBox(width: 2),
-                    Text(
-                      ratingLabel,
-                      style: VelvetText.bodyStrong().copyWith(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    Text(ratingLabel, style: VelvetText.bodyStrong14),
                     if (master.reviewCount > 0) ...<Widget>[
                       const SizedBox(width: 3),
                       Text(
                         '(${master.reviewCount})',
-                        style: VelvetText.feedback(
-                          BrandColors.muted,
-                        ).copyWith(fontSize: 11.5),
+                        style: VelvetText.bookFeedbackMuted115,
                       ),
                     ],
                   ],

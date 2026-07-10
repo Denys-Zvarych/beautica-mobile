@@ -81,9 +81,7 @@ class ServiceChip extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: VelvetText.body().copyWith(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
+                style: VelvetText.discChipLabel.copyWith(
                   color: selected ? BrandColors.white : BrandColors.text,
                 ),
               ),

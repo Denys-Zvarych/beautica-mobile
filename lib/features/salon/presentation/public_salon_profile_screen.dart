@@ -568,7 +568,7 @@ class _SalonHeroCard extends StatelessWidget {
                     Text(
                       salon.name,
                       key: const Key('salon-profile-name'),
-                      style: VelvetText.displayName().copyWith(fontSize: 20),
+                      style: VelvetText.displayName20,
                       maxLines: 2,
                       softWrap: true,
                       overflow: TextOverflow.ellipsis,
@@ -592,9 +592,7 @@ class _SalonHeroCard extends StatelessWidget {
                         Flexible(
                           child: Text(
                             '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
-                            style: VelvetText.feedback(
-                              BrandColors.muted,
-                            ).copyWith(fontSize: 13),
+                            style: VelvetText.feedbackMuted13,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -636,9 +634,7 @@ class _SalonHeroCard extends StatelessWidget {
                   child: Text(
                     locationLine,
                     key: const Key('salon-profile-address-text'),
-                    style: VelvetText.feedback(
-                      BrandColors.textSecondary,
-                    ).copyWith(fontSize: 13),
+                    style: VelvetText.bookFeedbackSec13,
                     // Defensive cap (mobile-debugger fix): a pathologically
                     // long street/buildingNo/locationNote combination must
                     // not be allowed to keep growing the hero card's height
@@ -657,9 +653,7 @@ class _SalonHeroCard extends StatelessWidget {
     );
   }
 
-  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 14,
-  );
+  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
 
   /// Composes the hero card's locality/address line, or `null` when nothing
   /// is available so the caller hides the row.
@@ -1357,8 +1351,7 @@ class _ServiceFilterChip extends StatelessWidget {
   /// Chip label scale — invariant, so hoisted to a static (matching this
   /// file's `_ratingInlineStyle`/`_priceStyle`/`_nameStyle` convention) so
   /// build() never allocates a new [TextStyle] per frame.
-  static final TextStyle _labelStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
+  static final TextStyle _labelStyle = VelvetText.bodyStrong13.copyWith(
     color: BrandColors.accentDeep,
   );
 

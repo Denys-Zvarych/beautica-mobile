@@ -579,9 +579,7 @@ class _StepIndicator extends StatelessWidget {
             ),
             child: Text(
               l10n.salonBookingStepLabel(current, total),
-              style: VelvetText.feedback(
-                BrandColors.textSecondary,
-              ).copyWith(fontSize: 12, fontWeight: FontWeight.w800),
+              style: VelvetText.bookChipSecW800,
             ),
           ),
           const SizedBox(height: VelvetSpacing.sm),
@@ -697,7 +695,7 @@ class _Body extends StatelessWidget {
               Text(
                 l10n.salonMastersEmpty,
                 key: const Key('salon-master-selection-empty'),
-                style: VelvetText.heading().copyWith(fontSize: 20),
+                style: VelvetText.heading20,
                 textAlign: TextAlign.center,
               ),
             ],
@@ -726,10 +724,7 @@ class _Body extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Text(
-                  l10n.salonBookingMastersIntro,
-                  style: VelvetText.body().copyWith(fontSize: 14),
-                ),
+                Text(l10n.salonBookingMastersIntro, style: VelvetText.body14),
                 const SizedBox(height: VelvetSpacing.lg),
                 Row(
                   children: <Widget>[
@@ -746,9 +741,7 @@ class _Body extends StatelessWidget {
                     const Spacer(),
                     Text(
                       l10n.salonBookingMastersSectionHint,
-                      style: VelvetText.feedback(
-                        BrandColors.muted,
-                      ).copyWith(fontSize: 12),
+                      style: VelvetText.feedbackMutedSm,
                     ),
                   ],
                 ),
@@ -817,9 +810,7 @@ class _Body extends StatelessWidget {
                         derived.allAssigned
                             ? l10n.salonBookingAllAssignedHint
                             : l10n.salonBookingPartialAssignedHint,
-                        style: VelvetText.feedback(
-                          BrandColors.muted,
-                        ).copyWith(fontSize: 12),
+                        style: VelvetText.feedbackMutedSm,
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -1087,7 +1078,7 @@ class _MasterPickRowState extends State<_MasterPickRow> {
                     children: <Widget>[
                       Text(
                         widget.name,
-                        style: VelvetText.subheading().copyWith(fontSize: 15),
+                        style: VelvetText.subheading15,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1102,9 +1093,7 @@ class _MasterPickRowState extends State<_MasterPickRow> {
                           const SizedBox(width: 3),
                           Text(
                             widget.ratingLabel,
-                            style: VelvetText.bodyStrong().copyWith(
-                              fontSize: 13,
-                            ),
+                            style: VelvetText.bodyStrong13,
                           ),
                           const SizedBox(width: VelvetSpacing.sm),
                           Container(
@@ -1119,9 +1108,7 @@ class _MasterPickRowState extends State<_MasterPickRow> {
                           Flexible(
                             child: Text(
                               widget.role,
-                              style: VelvetText.feedback(
-                                BrandColors.muted,
-                              ).copyWith(fontSize: 12),
+                              style: VelvetText.feedbackMutedSm,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -1141,11 +1128,7 @@ class _MasterPickRowState extends State<_MasterPickRow> {
                           Expanded(
                             child: Text(
                               widget.covered,
-                              style: VelvetText.feedback(BrandColors.accentDeep)
-                                  .copyWith(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                              style: VelvetText.bookCoveredLabel,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -1215,18 +1198,14 @@ class _MasterGroupingPreview extends StatelessWidget {
               if (groups.isNotEmpty)
                 Text(
                   l10n.salonBookingRecordCount(groups.length),
-                  style: VelvetText.feedback(
-                    BrandColors.muted,
-                  ).copyWith(fontSize: 12),
+                  style: VelvetText.feedbackMutedSm,
                 ),
             ],
           ),
           const SizedBox(height: 4),
           Text(
             l10n.salonBookingGroupingSubtitle,
-            style: VelvetText.feedback(
-              BrandColors.muted,
-            ).copyWith(fontSize: 12),
+            style: VelvetText.feedbackMutedSm,
           ),
           const SizedBox(height: VelvetSpacing.md),
           ClipRect(
@@ -1308,9 +1287,7 @@ class _EmptyPrompt extends StatelessWidget {
             Flexible(
               child: Text(
                 l10n.salonBookingGroupingEmptyPrompt,
-                style: VelvetText.feedback(
-                  BrandColors.placeholder,
-                ).copyWith(fontSize: 12.5),
+                style: VelvetText.bookFeedbackPlaceholder125,
               ),
             ),
           ],
@@ -1367,21 +1344,12 @@ class _GroupRow extends StatelessWidget {
               children: <Widget>[
                 Text(
                   group.name,
-                  style: VelvetText.bodyStrong().copyWith(
-                    fontSize: 14.5,
-                    color: BrandColors.accentDeep,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: VelvetText.bookGroupName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  services,
-                  style: VelvetText.feedback(
-                    BrandColors.textSecondary,
-                  ).copyWith(fontSize: 12.5),
-                ),
+                Text(services, style: VelvetText.bookFeedbackSec125),
               ],
             ),
           ),
@@ -1442,7 +1410,7 @@ class _ChoiceRow extends StatelessWidget {
                 Expanded(
                   child: Text(
                     choice.serviceName,
-                    style: VelvetText.bodyStrong().copyWith(fontSize: 13.5),
+                    style: VelvetText.bodyStrong135,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1450,9 +1418,7 @@ class _ChoiceRow extends StatelessWidget {
                 if (unresolved)
                   Text(
                     l10n.salonBookingChooseMasterHint,
-                    style: VelvetText.feedback(
-                      BrandColors.placeholder,
-                    ).copyWith(fontSize: 11.5),
+                    style: VelvetText.bookFeedbackPlaceholder115,
                   ),
               ],
             ),
@@ -1558,9 +1524,11 @@ class _CandidateChip extends StatelessWidget {
               const SizedBox(width: 6),
               Text(
                 chip.shortName,
-                style: VelvetText.feedback(
-                  selected ? BrandColors.white : BrandColors.textSecondary,
-                ).copyWith(fontSize: 12.5, fontWeight: FontWeight.w800),
+                style: VelvetText.bookFeedback125w800.copyWith(
+                  color: selected
+                      ? BrandColors.white
+                      : BrandColors.textSecondary,
+                ),
               ),
             ],
           ),
@@ -1591,9 +1559,7 @@ class _UncoveredRow extends StatelessWidget {
           Expanded(
             child: Text(
               l10n.salonBookingUncoveredSemantics(service),
-              style: VelvetText.feedback(
-                BrandColors.textSecondary,
-              ).copyWith(fontSize: 12.5),
+              style: VelvetText.bookFeedbackSec125,
             ),
           ),
         ],
@@ -1617,9 +1583,9 @@ class _MiniLabel extends StatelessWidget {
         Flexible(
           child: Text(
             text,
-            style: VelvetText.feedback(
-              BrandColors.textSecondary,
-            ).copyWith(fontSize: 12.5, fontWeight: FontWeight.w800),
+            style: VelvetText.bookFeedback125w800.copyWith(
+              color: BrandColors.textSecondary,
+            ),
           ),
         ),
       ],
@@ -1702,22 +1668,10 @@ class _AssignConfirmBar extends StatelessWidget {
                     ),
                     if (duration != null) ...<Widget>[
                       const SizedBox(width: VelvetSpacing.sm),
-                      Text(
-                        duration,
-                        style: VelvetText.feedback(
-                          BrandColors.muted,
-                        ).copyWith(fontSize: 12),
-                      ),
+                      Text(duration, style: VelvetText.feedbackMutedSm),
                     ],
                     const Spacer(),
-                    Text(
-                      price,
-                      style: VelvetText.bodyStrong().copyWith(
-                        color: BrandColors.accentDeep,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
-                      ),
-                    ),
+                    Text(price, style: VelvetText.bookPriceLg),
                   ],
                 ),
               ),
@@ -1790,9 +1744,7 @@ class _ProgressHint extends StatelessWidget {
                 done
                     ? l10n.salonBookingAllAssignedLabel
                     : l10n.salonBookingAssignedProgress(assigned, total),
-                style: VelvetText.feedback(
-                  BrandColors.textSecondary,
-                ).copyWith(fontSize: 13, fontWeight: FontWeight.w800),
+                style: VelvetText.bookFeedbackSec13w800,
               ),
               const SizedBox(width: VelvetSpacing.md),
               Expanded(

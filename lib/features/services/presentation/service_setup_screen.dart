@@ -729,10 +729,7 @@ class _MissingServiceNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final TextStyle caption = VelvetText.body().copyWith(
-      fontSize: 12,
-      height: 1.4,
-    );
+    final TextStyle caption = VelvetText.svcCaptionNote;
     return NeumorphicInset(
       radius: VelvetRadii.field,
       child: Padding(

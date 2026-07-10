@@ -172,9 +172,7 @@ class _SalonCategoryHeader extends StatelessWidget {
   final bool expanded;
   final VoidCallback onTap;
 
-  static final TextStyle _headerStyle = VelvetText.subheading().copyWith(
-    fontSize: 16,
-  );
+  static final TextStyle _headerStyle = VelvetText.subheading16;
 
   @override
   Widget build(BuildContext context) {
@@ -255,9 +253,9 @@ class _CountBadge extends StatelessWidget {
       ),
       child: Text(
         '$count',
-        style: VelvetText.feedback(
-          BrandColors.textSecondary,
-        ).copyWith(fontSize: 12.5, fontWeight: FontWeight.w800),
+        style: VelvetText.bookFeedback125w800.copyWith(
+          color: BrandColors.textSecondary,
+        ),
       ),
     );
   }
@@ -299,21 +297,14 @@ class _SalonServiceRow extends StatelessWidget {
   /// next to it. Hoisted to a static so build() never allocates a new
   /// [TextStyle] per frame (matches the perf pattern used throughout
   /// `VelvetText` call sites in this codebase).
-  static final TextStyle _priceStyle = VelvetText.pill().copyWith(
-    fontSize: 12.5,
-    color: BrandColors.accentDeep,
-    fontWeight: FontWeight.w800,
-  );
+  static final TextStyle _priceStyle = VelvetText.pillSm;
 
   /// Name scale matching the reference screen's `_ServiceInfo._nameStyle` in
   /// `services_list_screen.dart` — Comfortaa `cardTitle()` at 15 sp with a
   /// tight 1.15 line-height (NOT the 1.5 line-height of `bodyStrong()`,
   /// which visibly bulks up each row). Hoisted to a static so build() never
   /// allocates a new [TextStyle] per frame.
-  static final TextStyle _nameStyle = VelvetText.cardTitle().copyWith(
-    fontSize: 15,
-    height: 1.15,
-  );
+  static final TextStyle _nameStyle = VelvetText.svcCardName;
 
   /// Selected-row variant of [_nameStyle] — invariant, so hoisted to a static
   /// so build() never allocates a new [TextStyle] per frame for the selected
@@ -329,9 +320,7 @@ class _SalonServiceRow extends StatelessWidget {
   /// already migrated to the reference in earlier fixes (9f8011e, 541a71e);
   /// this one was missed. Hoisted to a static so build() never allocates a
   /// new [TextStyle] per frame.
-  static final TextStyle _durationStyle = VelvetText.pill().copyWith(
-    fontSize: 12.5,
-  );
+  static final TextStyle _durationStyle = VelvetText.pillSm;
 
   @override
   Widget build(BuildContext context) {

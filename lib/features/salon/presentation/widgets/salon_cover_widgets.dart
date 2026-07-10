@@ -266,9 +266,7 @@ class _CoverEditPill extends StatelessWidget {
           const SizedBox(width: VelvetSpacing.xs + 1),
           Text(
             AppLocalizations.of(context).salonCoverEditPillLabel,
-            style: VelvetText.feedback(
-              BrandColors.white,
-            ).copyWith(fontSize: 11, fontWeight: FontWeight.w700),
+            style: VelvetText.salonCoverEditPill,
           ),
         ],
       ),
@@ -430,7 +428,7 @@ class _SalonTab extends StatelessWidget {
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: VelvetText.subheading().copyWith(
+                style: VelvetText.subheading12.copyWith(
                   // 12 (not the original 14) — "Про салон" at w700 Comfortaa
                   // is the widest of the 4 labels and, at 14px, its natural
                   // width (~82px) exceeds a quarter-screen segment on a
@@ -438,7 +436,6 @@ class _SalonTab extends StatelessWidget {
                   // margins), forcing a wrap. 12px keeps every label on one
                   // line with headroom down to ~360dp; maxLines/overflow
                   // above are the safety net below that.
-                  fontSize: 12,
                   color: active ? BrandColors.text : BrandColors.muted,
                   fontWeight: active ? FontWeight.w700 : FontWeight.w600,
                 ),

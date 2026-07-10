@@ -376,10 +376,7 @@ class _ClearFiltersButton extends ConsumerWidget {
 
   static final ButtonStyle _clearStyle = TextButton.styleFrom(
     foregroundColor: BrandColors.muted,
-    textStyle: VelvetText.body().copyWith(
-      fontSize: 13,
-      fontWeight: FontWeight.w600,
-    ),
+    textStyle: VelvetText.discClearButton,
     padding: const EdgeInsets.symmetric(
       horizontal: VelvetSpacing.sm,
       vertical: VelvetSpacing.xs,
@@ -722,10 +719,7 @@ class _LocalityTapRow extends StatelessWidget {
   static final TextStyle _disabledStyle = VelvetText.input().copyWith(
     color: BrandColors.faint,
   );
-  static final TextStyle _helperStyle = VelvetText.body().copyWith(
-    fontSize: 12,
-    color: BrandColors.muted,
-  );
+  static final TextStyle _helperStyle = VelvetText.discCaptionMuted;
 
   @override
   Widget build(BuildContext context) {
@@ -1204,14 +1198,8 @@ class _PriceSection extends ConsumerStatefulWidget {
 }
 
 class _PriceSectionState extends ConsumerState<_PriceSection> {
-  static final TextStyle _readoutStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 14,
-    color: BrandColors.accentDeep,
-  );
-  static final TextStyle _endLabelStyle = VelvetText.body().copyWith(
-    fontSize: 12,
-    color: BrandColors.muted,
-  );
+  static final TextStyle _readoutStyle = VelvetText.discPriceAccent;
+  static final TextStyle _endLabelStyle = VelvetText.discCaptionMuted;
 
   // Digits-only + cap length at 5 chars (max meaningful value is the 20000
   // ceiling; the controller clamps the parsed value to the ceiling anyway).

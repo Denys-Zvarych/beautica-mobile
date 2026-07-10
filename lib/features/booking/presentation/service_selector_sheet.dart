@@ -457,7 +457,7 @@ class _EmptyCatalogue extends StatelessWidget {
             const SizedBox(height: VelvetSpacing.lg),
             Text(
               l10n.publicMasterBookingEmptyPrompt,
-              style: VelvetText.heading().copyWith(fontSize: 20),
+              style: VelvetText.heading20,
               textAlign: TextAlign.center,
             ),
           ],
@@ -616,10 +616,7 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text(
-                  l10n.bookingServiceSelectIntro,
-                  style: VelvetText.body().copyWith(fontSize: 14),
-                ),
+                Text(l10n.bookingServiceSelectIntro, style: VelvetText.body14),
                 const SizedBox(height: VelvetSpacing.lg),
                 MasterStrip(master: widget.master),
                 const SizedBox(height: VelvetSpacing.xl),

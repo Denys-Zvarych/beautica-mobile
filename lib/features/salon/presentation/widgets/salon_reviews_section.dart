@@ -87,9 +87,7 @@ class _SalonReviewsSectionState extends ConsumerState<SalonReviewsSection> {
               Expanded(
                 child: Text(
                   salonReviewSortLabel(l10n, _sort),
-                  style: VelvetText.feedback(
-                    BrandColors.muted,
-                  ).copyWith(fontSize: 12.5, fontWeight: FontWeight.w700),
+                  style: VelvetText.salonSortLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -281,16 +279,7 @@ class _SortRow extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Expanded(
-            child: Text(
-              label,
-              style: VelvetText.body().copyWith(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: BrandColors.text,
-              ),
-            ),
-          ),
+          Expanded(child: Text(label, style: VelvetText.bodyStrong15)),
           if (selected)
             const Icon(
               Icons.check_rounded,
@@ -384,19 +373,14 @@ class _RatingSummary extends StatelessWidget {
                 Text(
                   avg == null ? '—' : avg.toStringAsFixed(1),
                   key: const Key('salon-review-summary-average'),
-                  style: VelvetText.displayName().copyWith(
-                    fontSize: 46,
-                    height: 1.0,
-                  ),
+                  style: VelvetText.salonReviewAverage,
                 ),
                 const SizedBox(height: VelvetSpacing.xs + 2),
                 const _StarRow(rating: 5, size: 17, gap: 3),
                 const SizedBox(height: VelvetSpacing.xs + 2),
                 Text(
                   l10n.salonReviewCountLabel(summary.reviewCount),
-                  style: VelvetText.feedback(
-                    BrandColors.muted,
-                  ).copyWith(fontSize: 12),
+                  style: VelvetText.feedbackMutedSm,
                 ),
               ],
             ),
@@ -487,7 +471,7 @@ class _DistributionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Text('$star', style: VelvetText.bodyStrong().copyWith(fontSize: 12)),
+        Text('$star', style: VelvetText.bodyStrong12),
         const SizedBox(width: 3),
         const Icon(Icons.star_rounded, size: 12, color: BrandColors.accent),
         const SizedBox(width: VelvetSpacing.sm),
@@ -521,9 +505,7 @@ class _DistributionRow extends StatelessWidget {
           child: Text(
             '$count',
             textAlign: TextAlign.right,
-            style: VelvetText.feedback(
-              BrandColors.muted,
-            ).copyWith(fontSize: 11),
+            style: VelvetText.feedbackMutedXs,
           ),
         ),
       ],
@@ -559,18 +541,13 @@ class _ReviewCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   review.clientDisplayName,
-                  style: VelvetText.subheading().copyWith(fontSize: 15),
+                  style: VelvetText.subheading15,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(width: VelvetSpacing.sm),
-              Text(
-                relativeDate,
-                style: VelvetText.feedback(
-                  BrandColors.muted,
-                ).copyWith(fontSize: 12),
-              ),
+              Text(relativeDate, style: VelvetText.feedbackMutedSm),
             ],
           ),
           const SizedBox(height: VelvetSpacing.sm + 2),
@@ -590,9 +567,7 @@ class _ReviewCard extends StatelessWidget {
                 Flexible(
                   child: Text(
                     l10n.salonReviewServicePrefix(service),
-                    style: VelvetText.feedback(
-                      BrandColors.muted,
-                    ).copyWith(fontSize: 12, fontWeight: FontWeight.w600),
+                    style: VelvetText.feedbackMuted12w600,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

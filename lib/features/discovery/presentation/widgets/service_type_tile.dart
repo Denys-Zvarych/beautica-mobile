@@ -77,16 +77,9 @@ class ServiceTypeTile extends StatelessWidget {
   );
 
   // Caption styles — one per selected/unselected colour, allocated once.
-  static final TextStyle _labelSelected = VelvetText.body().copyWith(
-    fontSize: 12,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.accentDeep,
-  );
-  static final TextStyle _labelUnselected = VelvetText.body().copyWith(
-    fontSize: 12,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.textSecondary,
-  );
+  static final TextStyle _labelSelected = VelvetText.discServiceTypeSelected;
+  static final TextStyle _labelUnselected =
+      VelvetText.discServiceTypeUnselected;
 
   @override
   Widget build(BuildContext context) {

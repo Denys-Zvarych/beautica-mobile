@@ -336,7 +336,7 @@ class CatalogueCategoryHeader extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: VelvetText.subheading().copyWith(fontSize: 16),
+                  style: VelvetText.subheading16,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -390,9 +390,9 @@ class _CountBadge extends StatelessWidget {
       ),
       child: Text(
         '$count',
-        style: VelvetText.feedback(
-          BrandColors.textSecondary,
-        ).copyWith(fontSize: 12.5, fontWeight: FontWeight.w800),
+        style: VelvetText.bookFeedback125w800.copyWith(
+          color: BrandColors.textSecondary,
+        ),
       ),
     );
   }
@@ -427,12 +427,7 @@ class _SelectedBadge extends StatelessWidget {
         children: <Widget>[
           const Icon(Icons.check_rounded, size: 12, color: BrandColors.white),
           const SizedBox(width: 3),
-          Text(
-            '$count',
-            style: VelvetText.feedback(
-              BrandColors.white,
-            ).copyWith(fontSize: 11, fontWeight: FontWeight.w800),
-          ),
+          Text('$count', style: VelvetText.bookFeedbackWhite11w800),
         ],
       ),
     );
@@ -586,9 +581,7 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
                           const SizedBox(width: 3),
                           Text(
                             row.durationLabel,
-                            style: VelvetText.feedback(
-                              BrandColors.muted,
-                            ).copyWith(fontSize: 12),
+                            style: VelvetText.feedbackMutedSm,
                           ),
                         ],
                       ),

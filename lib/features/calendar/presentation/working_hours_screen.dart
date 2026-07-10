@@ -376,9 +376,7 @@ class _LoadedBody extends StatelessWidget {
                             const SizedBox(width: VelvetSpacing.sm),
                             Text(
                               l10n.workingHoursOpenCount(openCount),
-                              style: VelvetText.bodyStrong().copyWith(
-                                fontSize: 13,
-                              ),
+                              style: VelvetText.bodyStrong13,
                             ),
                           ],
                         ),

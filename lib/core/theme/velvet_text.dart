@@ -473,4 +473,771 @@ abstract final class VelvetText {
     fontWeight: FontWeight.w800,
     fontSize: 14,
   );
+
+  // ---------------------------------------------------------------------------
+  // Discovery (search) — result cards, category rail, filters, sort sheet.
+  // Consolidated from inline `VelvetText.body()/bodyStrong().copyWith(fontSize:)`
+  // call sites so every size lives here. Each is cached once at class-load.
+  // ---------------------------------------------------------------------------
+
+  /// Result-card locality / muted secondary line — body 12.5 sp, muted.
+  static final TextStyle discLocality = _bodyStyle.copyWith(
+    fontSize: 12.5,
+    color: BrandColors.muted,
+  );
+
+  /// Shared muted caption — body 12 sp, muted. Used by the result-card
+  /// address-detail line, the filter helper text, and the price end-label.
+  static final TextStyle discCaptionMuted = _bodyStyle.copyWith(
+    fontSize: 12,
+    color: BrandColors.muted,
+  );
+
+  /// Result-card bold numeric rating value — bodyStrong 13 sp.
+  static final TextStyle discRatingValue = _bodyStrongStyle.copyWith(
+    fontSize: 13,
+  );
+
+  /// Accent price figure — bodyStrong 14 sp, accentDeep. Used by the result
+  /// card «від N грн» line and the filter price readout.
+  static final TextStyle discPriceAccent = _bodyStrongStyle.copyWith(
+    fontSize: 14,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Result-card service-names preview line — body 12.5 sp, secondary.
+  static final TextStyle discServicesPreview = _bodyStyle.copyWith(
+    fontSize: 12.5,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Category-rail label (resting) — body 12 sp, w700, secondary, height 1.15.
+  static final TextStyle discCategoryLabelResting = _bodyStyle.copyWith(
+    fontSize: 12,
+    height: 1.15,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Category-rail label (selected) — body 12 sp, w700, accentDeep, height 1.15.
+  static final TextStyle discCategoryLabelSelected = _bodyStyle.copyWith(
+    fontSize: 12,
+    height: 1.15,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Service-type tile caption (selected) — body 12 sp, w700, accentDeep.
+  static final TextStyle discServiceTypeSelected = _bodyStyle.copyWith(
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Service-type tile caption (unselected) — body 12 sp, w700, secondary.
+  static final TextStyle discServiceTypeUnselected = _bodyStyle.copyWith(
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Service-chip drawer label — body 13 sp, w700. Colour (white/text when
+  /// selected) is applied at the call site via a single copyWith.
+  static final TextStyle discChipLabel = _bodyStyle.copyWith(
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// Sort-options sheet row label — body 15 sp, w700, primary text.
+  static final TextStyle discSortOption = _bodyStyle.copyWith(
+    fontSize: 15,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.text,
+  );
+
+  /// Filter «Очистити» clear-button label — body 13 sp, w600.
+  static final TextStyle discClearButton = _bodyStyle.copyWith(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+  );
+
+  /// Search-results header count — body 14 sp, w700, accent.
+  static final TextStyle discResultCount = _bodyStyle.copyWith(
+    fontSize: 14,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.accent,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Generic size variants reused across features. Named by the base role +
+  // size so callers stop re-deriving them inline.
+  // ---------------------------------------------------------------------------
+
+  /// Heading one step smaller than the base — Comfortaa 22 sp. Used by
+  /// empty-state titles (services list) and section titles (schedule widgets).
+  static final TextStyle headingSm = _headingStyle.copyWith(fontSize: 22);
+
+  /// Subheading at 16 sp — Comfortaa 16/600. Used by the services accordion
+  /// header and the service-setup row name (which overrides colour).
+  static final TextStyle subheading16 = _subheadingStyle.copyWith(fontSize: 16);
+
+  /// CTA label one step smaller — Comfortaa 14/700, white. Used by the
+  /// change-photo label and the selected pricing segment.
+  static final TextStyle ctaSm = _ctaStyle.copyWith(fontSize: 14);
+
+  /// Inset accent pill at 12.5 sp — Nunito 13/800 accentDeep. Used by the
+  /// service-card duration/price chips and the master-profile stat chip.
+  static final TextStyle pillSm = _pillStyle.copyWith(fontSize: 12.5);
+
+  /// Body at 12 sp — Nunito 12/600, secondary (base body colour retained).
+  static final TextStyle body12 = _bodyStyle.copyWith(fontSize: 12);
+
+  /// Body at 14 sp — Nunito 14/600, secondary (base body colour retained).
+  static final TextStyle body14 = _bodyStyle.copyWith(fontSize: 14);
+
+  /// Strong body at 13 sp — Nunito 13/700, primary text.
+  static final TextStyle bodyStrong13 = _bodyStrongStyle.copyWith(fontSize: 13);
+
+  /// Strong body at 14 sp — Nunito 14/700, primary text.
+  static final TextStyle bodyStrong14 = _bodyStrongStyle.copyWith(fontSize: 14);
+
+  /// Body at 13 sp — Nunito 13/600, secondary (base body colour retained).
+  static final TextStyle body13 = _bodyStyle.copyWith(fontSize: 13);
+
+  /// Strong body at 15 sp — Nunito 15/700, primary text.
+  static final TextStyle bodyStrong15 = _bodyStrongStyle.copyWith(fontSize: 15);
+
+  /// Strong body at 16 sp — Nunito 16/700, primary text.
+  static final TextStyle bodyStrong16 = _bodyStrongStyle.copyWith(fontSize: 16);
+
+  /// Heading at 20 sp — Comfortaa 20/700, espresso. Sheet / section titles.
+  static final TextStyle heading20 = _headingStyle.copyWith(fontSize: 20);
+
+  /// Label at 11 sp — Nunito 11/700, muted, letterSpacing 0.6.
+  static final TextStyle label11 = _labelStyle.copyWith(fontSize: 11);
+
+  /// Link at 13 sp — Nunito 13/700, accentDeep. Small inline action links.
+  static final TextStyle link13 = _linkStyle.copyWith(fontSize: 13);
+
+  /// Subheading at 15 sp — Comfortaa 15/600, espresso.
+  static final TextStyle subheading15 = _subheadingStyle.copyWith(fontSize: 15);
+
+  /// Strong body at 13.5 sp — Nunito 13.5/700, primary text.
+  static final TextStyle bodyStrong135 = _bodyStrongStyle.copyWith(
+    fontSize: 13.5,
+  );
+
+  /// Strong body at 14.5 sp — Nunito 14.5/700, primary text.
+  static final TextStyle bodyStrong145 = _bodyStrongStyle.copyWith(
+    fontSize: 14.5,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Services — list cards, setup accordion, pricing segments, photo slot.
+  // ---------------------------------------------------------------------------
+
+  /// Service-card name — cardTitle 15 sp, height 1.15.
+  static final TextStyle svcCardName = _cardTitleStyle.copyWith(
+    fontSize: 15,
+    height: 1.15,
+  );
+
+  /// Category count pill ("n з m") — pill 12 sp. Colour applied at call site.
+  static final TextStyle svcCountPill = _pillStyle.copyWith(fontSize: 12);
+
+  /// Category-group header line — body 12 sp, height 1.4, w800, accentDeep.
+  static final TextStyle svcGroupHeader = _bodyStyle.copyWith(
+    fontSize: 12,
+    height: 1.4,
+    fontWeight: FontWeight.w800,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Small caption note (excluded row / missing-service note) — body 12 sp,
+  /// height 1.4.
+  static final TextStyle svcCaptionNote = _bodyStyle.copyWith(
+    fontSize: 12,
+    height: 1.4,
+  );
+
+  /// Unselected pricing segment label — cta 14 sp, w600, secondary.
+  static final TextStyle svcSegmentUnselected = _ctaStyle.copyWith(
+    fontSize: 14,
+    color: BrandColors.textSecondary,
+    fontWeight: FontWeight.w600,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Shell — branch placeholders + client bottom-nav labels.
+  // ---------------------------------------------------------------------------
+
+  /// «Coming soon» placeholder chip label — feedback base, secondary, 12 sp.
+  static final TextStyle shellComingSoonLabel = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 12,
+  );
+
+  /// Client bottom-nav label (active) — feedback base, accentDeep, 9 sp,
+  /// height 1.1, letterSpacing 0.1.
+  static final TextStyle shellNavLabelActive = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 9,
+    height: 1.1,
+    letterSpacing: 0.1,
+  );
+
+  /// Client bottom-nav label (inactive) — feedback base, muted, 9 sp,
+  /// height 1.1, letterSpacing 0.1.
+  static final TextStyle shellNavLabelInactive = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 9,
+    height: 1.1,
+    letterSpacing: 0.1,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Schedule — time pickers, interval/discrete editors, week grid, template.
+  // Colours that vary at runtime (selected / active / tint) are applied at the
+  // call site via a single copyWith on these cached bases.
+  // ---------------------------------------------------------------------------
+
+  /// Time-picker wheel digit — heading 24 sp with tabular figures.
+  static final TextStyle schedWheelDigit = _headingStyle.copyWith(
+    fontSize: 24,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  );
+
+  /// Discrete-times window label — label 12 sp, w700, accentDeep.
+  static final TextStyle schedWindowLabel = _labelStyle.copyWith(
+    fontSize: 12,
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// Discrete-times chip label — bodyStrong 13 sp, accentDeep, tabular figures.
+  static final TextStyle schedTimeChip = _bodyStrongStyle.copyWith(
+    fontSize: 13,
+    color: BrandColors.accentDeep,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  );
+
+  /// Interval-editor time value — input 17 sp, w700, tabular figures. Colour
+  /// (accent / text) applied at the call site.
+  static final TextStyle schedIntervalTime = _inputStyle.copyWith(
+    fontSize: 17,
+    fontWeight: FontWeight.w700,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  );
+
+  /// Row action link (regular) — link 14 sp, accentDeep.
+  static final TextStyle schedActionLink = _linkStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 14,
+  );
+
+  /// Row action link (dense) — link 13 sp, accentDeep.
+  static final TextStyle schedActionLinkDense = _linkStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 13,
+  );
+
+  /// Read-only time-grid axis label — label 12 sp, secondary.
+  static final TextStyle schedTimeAxisLabel = _labelStyle.copyWith(
+    fontSize: 12,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Weekly-template unset-window prompt — bodyStrong 13 sp, w600, placeholder.
+  static final TextStyle schedWindowUnset = _bodyStrongStyle.copyWith(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    color: BrandColors.placeholder,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Auth register step 3 + registration progress indicator.
+  //
+  // NOTE: the field-tip and progress-number styles are intentionally RAW
+  // (no explicit font family — they inherit the ambient DefaultTextStyle), so
+  // they are plain `const TextStyle`s rather than GoogleFonts-derived tokens.
+  // ---------------------------------------------------------------------------
+
+  /// Field tip caption (register step 3) — accent, 10 sp, w700, height 1.
+  static const TextStyle authFieldTip = TextStyle(
+    color: BrandColors.accent,
+    fontSize: 10,
+    fontWeight: FontWeight.w700,
+    height: 1,
+  );
+
+  /// Optional-tag label (register step 3 oblast) — muted camel, 11 sp, w600.
+  static const TextStyle authOptionalTag = TextStyle(
+    color: Color(0x8CB89A7A),
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.3,
+  );
+
+  /// Progress-dot number (active) — 10 sp, w700, dark, height 1.
+  static const TextStyle authProgressNumActive = TextStyle(
+    fontSize: 10,
+    fontWeight: FontWeight.w700,
+    color: Color(0xFF3A2810),
+    height: 1,
+  );
+
+  /// Progress-dot number (inactive) — 10 sp, w700, faint white, height 1.
+  static const TextStyle authProgressNumInactive = TextStyle(
+    fontSize: 10,
+    fontWeight: FontWeight.w700,
+    color: Color(0x47FFFFFF),
+    height: 1,
+  );
+
+  /// Progress step label — Comfortaa italic 14/600, accent, height 1,
+  /// letterSpacing 0.14.
+  static final TextStyle authProgressLabel = GoogleFonts.comfortaa(
+    textStyle: const TextStyle(
+      fontStyle: FontStyle.italic,
+      fontWeight: FontWeight.w600,
+      fontSize: 14,
+      color: BrandColors.accent,
+      height: 1,
+      letterSpacing: 0.14,
+    ),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Booking — salon service/master selection, summary bar/cards, recap, slot
+  // picker, month calendar, success. Runtime-varying colours (selected /
+  // numberColor / per-slot) are applied at the call site via one copyWith.
+  // ---------------------------------------------------------------------------
+
+  /// Chip caption — feedback, secondary, 12 sp, w800.
+  static final TextStyle bookChipSecW800 = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// «covered services» label — feedback, accentDeep, 12 sp, w800.
+  static final TextStyle bookCoveredLabel = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Feedback caption — placeholder, 12.5 sp.
+  static final TextStyle bookFeedbackPlaceholder125 = _feedbackBase.copyWith(
+    color: BrandColors.placeholder,
+    fontSize: 12.5,
+  );
+
+  /// Feedback caption — placeholder, 11.5 sp.
+  static final TextStyle bookFeedbackPlaceholder115 = _feedbackBase.copyWith(
+    color: BrandColors.placeholder,
+    fontSize: 11.5,
+  );
+
+  /// Feedback caption — secondary, 12.5 sp.
+  static final TextStyle bookFeedbackSec125 = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 12.5,
+  );
+
+  /// Feedback caption — secondary, 13 sp.
+  static final TextStyle bookFeedbackSec13 = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 13,
+  );
+
+  /// Feedback caption — secondary, 13 sp, w800.
+  static final TextStyle bookFeedbackSec13w800 = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Feedback pill — 12.5 sp, w800. Colour (selected / secondary) at call site.
+  static final TextStyle bookFeedback125w800 = _feedbackBase.copyWith(
+    fontSize: 12.5,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Feedback caption — muted, 11.5 sp.
+  static final TextStyle bookFeedbackMuted115 = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 11.5,
+  );
+
+  /// Feedback caption — muted, 12.5 sp.
+  static final TextStyle bookFeedbackMuted125 = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 12.5,
+  );
+
+  /// Feedback caption — muted, 14 sp (summary-bar total label).
+  static final TextStyle bookSummaryMuted14 = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 14,
+  );
+
+  /// Accordion tag on selected row — feedback, white, 11 sp, w800.
+  static final TextStyle bookFeedbackWhite11w800 = _feedbackBase.copyWith(
+    color: BrandColors.white,
+    fontSize: 11,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Service-group name — bodyStrong 14.5 sp, accentDeep, w800.
+  static final TextStyle bookGroupName = _bodyStrongStyle.copyWith(
+    fontSize: 14.5,
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Accent numeric value — bodyStrong 14 sp, accentDeep, w800.
+  static final TextStyle bookAccentValue14 = _bodyStrongStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+    fontSize: 14,
+  );
+
+  /// Total-price figure (medium) — bodyStrong 17 sp, accentDeep, w800.
+  static final TextStyle bookPriceMd = _bodyStrongStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+    fontSize: 17,
+  );
+
+  /// Total-price figure (large) — bodyStrong 18 sp, accentDeep, w800.
+  static final TextStyle bookPriceLg = _bodyStrongStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+    fontSize: 18,
+  );
+
+  /// Recap accent value (compact) — bodyStrong 13.5 sp, accentDeep, w800.
+  static final TextStyle bookAccentBold135 = _bodyStrongStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+    fontSize: 13.5,
+  );
+
+  /// Recap accent value (regular) — bodyStrong 15 sp, accentDeep, w800.
+  static final TextStyle bookAccentBold15 = _bodyStrongStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+    fontSize: 15,
+  );
+
+  /// Recap accent value (compact, large) — bodyStrong 15.5 sp, accentDeep, w800.
+  static final TextStyle bookAccentBold155 = _bodyStrongStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+    fontSize: 15.5,
+  );
+
+  /// Recap service name (compact) — bodyStrong 14.5 sp, w800.
+  static final TextStyle bookName145w800 = _bodyStrongStyle.copyWith(
+    fontSize: 14.5,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Recap service name (regular) — bodyStrong 16 sp, w800.
+  static final TextStyle bookName16w800 = _bodyStrongStyle.copyWith(
+    fontSize: 16,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Summary-card value (compact) — bodyStrong 13.5 sp, height 1.3.
+  static final TextStyle bookCardValue135 = _bodyStrongStyle.copyWith(
+    fontSize: 13.5,
+    height: 1.3,
+  );
+
+  /// Summary-card value (regular) — bodyStrong 15 sp, height 1.3.
+  static final TextStyle bookCardValue15 = _bodyStrongStyle.copyWith(
+    fontSize: 15,
+    height: 1.3,
+  );
+
+  /// Slot chip label — bodyStrong 14 sp, w800. Colour applied at the call site.
+  static final TextStyle bookSlotChip = _bodyStrongStyle.copyWith(
+    fontWeight: FontWeight.w800,
+    fontSize: 14,
+  );
+
+  /// Slot time-group sub-label — sectionLabel 12 sp.
+  static final TextStyle bookSlotGroupLabel = _sectionLabelStyle.copyWith(
+    fontSize: 12,
+  );
+
+  /// Success-screen subline — body 13 sp, height 1.35.
+  static final TextStyle bookSuccessSubline = _bodyStyle.copyWith(
+    height: 1.35,
+    fontSize: 13,
+  );
+
+  /// Success-screen «add to calendar» CTA — bodyStrong 14.5 sp, accentDeep.
+  static final TextStyle bookCalendarCta = _bodyStrongStyle.copyWith(
+    fontSize: 14.5,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Comment field hint — body 14 sp, placeholder.
+  static final TextStyle bookCommentHint = _bodyStyle.copyWith(
+    fontSize: 14,
+    color: BrandColors.placeholder,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Additional generic size variants (home / salon / passport / rating).
+  // ---------------------------------------------------------------------------
+
+  /// Body at 10.5 sp — Nunito 10.5/600, secondary.
+  static final TextStyle body105 = _bodyStyle.copyWith(fontSize: 10.5);
+
+  /// Body at 11 sp — Nunito 11/600, secondary.
+  static final TextStyle body11 = _bodyStyle.copyWith(fontSize: 11);
+
+  /// Body at 12.5 sp — Nunito 12.5/600, secondary.
+  static final TextStyle body125 = _bodyStyle.copyWith(fontSize: 12.5);
+
+  /// Body at 14 sp in primary text colour — Nunito 14/600, text.
+  static final TextStyle body14Text = _bodyStyle.copyWith(
+    fontSize: 14,
+    color: BrandColors.text,
+  );
+
+  /// Strong body at 12 sp — Nunito 12/700, primary text.
+  static final TextStyle bodyStrong12 = _bodyStrongStyle.copyWith(fontSize: 12);
+
+  /// Subheading at 12 sp — Comfortaa 12/600. Colour/weight vary at call site.
+  static final TextStyle subheading12 = _subheadingStyle.copyWith(fontSize: 12);
+
+  /// Subheading at 14 sp — Comfortaa 14/600.
+  static final TextStyle subheading14 = _subheadingStyle.copyWith(fontSize: 14);
+
+  /// Heading at 18 sp — Comfortaa 18/700.
+  static final TextStyle heading18 = _headingStyle.copyWith(fontSize: 18);
+
+  /// Display name at 20 sp — Comfortaa 20/700.
+  static final TextStyle displayName20 = _displayNameStyle.copyWith(
+    fontSize: 20,
+  );
+
+  /// Display name at 21 sp — Comfortaa 21/700.
+  static final TextStyle displayName21 = _displayNameStyle.copyWith(
+    fontSize: 21,
+  );
+
+  /// CTA at 13.5 sp — Comfortaa 13.5/700, white. Colour varies at call site.
+  static final TextStyle cta135 = _ctaStyle.copyWith(fontSize: 13.5);
+
+  /// Feedback caption — muted, 13 sp.
+  static final TextStyle feedbackMuted13 = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 13,
+  );
+
+  /// Feedback caption — muted, 12 sp, w600.
+  static final TextStyle feedbackMuted12w600 = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 12,
+    fontWeight: FontWeight.w600,
+  );
+
+  /// Feedback caption — error, 12 sp.
+  static final TextStyle feedbackError12 = _feedbackBase.copyWith(
+    color: BrandColors.error,
+    fontSize: 12,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Home hub — profile card, quick links, passport preview, timeline, hub kit.
+  // ---------------------------------------------------------------------------
+
+  /// Section-header label (literal variant) — sectionLabel 13 sp, secondary,
+  /// w700, letterSpacing 1.6.
+  static final TextStyle homeSectionLiteral = _sectionLabelStyle.copyWith(
+    letterSpacing: 1.6,
+    fontSize: 13,
+    color: BrandColors.textSecondary,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// «See all» link — link 13 sp, secondary.
+  static final TextStyle homeSeeAllLink = _linkStyle.copyWith(
+    fontSize: 13,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Countdown-chip label — feedback secondary, 12.5 sp, letterSpacing 0.2.
+  static final TextStyle homeCountdownLabel = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 12.5,
+    letterSpacing: 0.2,
+  );
+
+  /// Quick-link tile label — body 10.5 sp, height 1.15, secondary.
+  static final TextStyle homeQuickLinkLabel = _bodyStyle.copyWith(
+    fontSize: 10.5,
+    height: 1.15,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Passport-preview title — bodyStrong 11 sp, w800, letterSpacing 0.3,
+  /// height 1.15.
+  static final TextStyle homePassportPreviewTitle = _bodyStrongStyle.copyWith(
+    fontSize: 11,
+    letterSpacing: 0.3,
+    height: 1.15,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Passport-preview subtitle — body 10 sp, height 1.25.
+  static final TextStyle homePassportPreviewSubtitle = _bodyStyle.copyWith(
+    fontSize: 10,
+    height: 1.25,
+  );
+
+  /// Passport-preview stat label — bodyStrong 10 sp, w800, letterSpacing 0.3,
+  /// height 1.15.
+  static final TextStyle homePassportStatLabel = _bodyStrongStyle.copyWith(
+    fontSize: 10,
+    letterSpacing: 0.3,
+    height: 1.15,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Passport-preview stat value (rated) — body 11 sp, height 1.25, accentDeep,
+  /// w700.
+  static final TextStyle homePassportStatValueRated = _bodyStyle.copyWith(
+    fontSize: 11,
+    height: 1.25,
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// Passport-preview stat value (empty) — body 11 sp, height 1.25, secondary.
+  static final TextStyle homePassportStatValueEmpty = _bodyStyle.copyWith(
+    fontSize: 11,
+    height: 1.25,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Favourite-master rating caption — statCaption 10.5 sp.
+  static final TextStyle favMasterRating = _statCaptionStyle.copyWith(
+    fontSize: 10.5,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Salon — public profile, reviews, master card, cover, services accordion.
+  // ---------------------------------------------------------------------------
+
+  /// Review sort-pill label — feedback muted, 12.5 sp, w700.
+  static final TextStyle salonSortLabel = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 12.5,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// Review-summary average figure — displayName 46 sp, height 1.0.
+  static final TextStyle salonReviewAverage = _displayNameStyle.copyWith(
+    fontSize: 46,
+    height: 1.0,
+  );
+
+  /// Cover edit-pill label — feedback white, 11 sp, w700.
+  static final TextStyle salonCoverEditPill = _feedbackBase.copyWith(
+    color: BrandColors.white,
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Passport table.
+  // ---------------------------------------------------------------------------
+
+  /// Embossed «B» watermark — heading 176 sp, height 1, w700.
+  static final TextStyle passportWatermark = _headingStyle.copyWith(
+    fontSize: 176,
+    height: 1,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// Passport section title — heading 18 sp, height 1.1, letterSpacing 1.6.
+  static final TextStyle passportSectionTitle = _headingStyle.copyWith(
+    fontSize: 18,
+    height: 1.1,
+    letterSpacing: 1.6,
+  );
+
+  /// Passport field label — label 8.5 sp, letterSpacing 0.5, height 1.2.
+  static final TextStyle passportTableLabel = _labelStyle.copyWith(
+    fontSize: 8.5,
+    letterSpacing: 0.5,
+    height: 1.2,
+  );
+
+  /// Passport field text — bodyStrong 11.5 sp, height 1.1, primary text.
+  static final TextStyle passportTableText = _bodyStrongStyle.copyWith(
+    fontSize: 11.5,
+    height: 1.1,
+    color: BrandColors.text,
+  );
+
+  /// Passport footer title — bodyStrong 13 sp, w800, letterSpacing 0.3,
+  /// height 1.15, primary text.
+  static final TextStyle passportFooterTitle = _bodyStrongStyle.copyWith(
+    fontSize: 13,
+    letterSpacing: 0.3,
+    height: 1.15,
+    fontWeight: FontWeight.w800,
+    color: BrandColors.text,
+  );
+
+  /// Passport footer subtitle — body 11.5 sp, height 1.25.
+  static final TextStyle passportFooterSubtitle = _bodyStyle.copyWith(
+    fontSize: 11.5,
+    height: 1.25,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Rating.
+  // ---------------------------------------------------------------------------
+
+  /// «My rating» big number — displayName 56 sp, w700, accentDeep, height 1.0.
+  static final TextStyle ratingBigNumber = _displayNameStyle.copyWith(
+    fontSize: 56,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.accentDeep,
+    height: 1.0,
+  );
+
+  /// «My rating» explanation copy — body 13 sp, secondary, height 1.4.
+  static final TextStyle ratingExplanation = _bodyStyle.copyWith(
+    fontSize: 13,
+    color: BrandColors.textSecondary,
+    height: 1.4,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Support — attachment tray + message-area live counters.
+  // ---------------------------------------------------------------------------
+
+  /// Message-area live counter (valid) — feedback muted, 12 sp, tabular figures.
+  static final TextStyle supportCounterMuted = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 12,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  );
+
+  /// Message-area live counter (over budget) — feedback error, 12 sp, tabular.
+  static final TextStyle supportCounterError = _feedbackBase.copyWith(
+    color: BrandColors.error,
+    fontSize: 12,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  );
 }

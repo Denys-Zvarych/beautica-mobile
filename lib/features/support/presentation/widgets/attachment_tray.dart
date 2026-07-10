@@ -45,15 +45,9 @@ class AttachmentTray extends StatelessWidget {
 
   // Hoisted styles — never recompute per build.
   static final TextStyle _labelStyle = VelvetText.label();
-  static final TextStyle _counterMuted = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 12);
-  static final TextStyle _counterFull = VelvetText.feedback(
-    BrandColors.accentDeep,
-  ).copyWith(fontSize: 12);
-  static final TextStyle _hintStyle = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 12, fontWeight: FontWeight.w600);
+  static final TextStyle _counterMuted = VelvetText.feedbackMutedSm;
+  static final TextStyle _counterFull = VelvetText.feedbackAccentSm;
+  static final TextStyle _hintStyle = VelvetText.feedbackMuted12w600;
 
   @override
   Widget build(BuildContext context) {
@@ -118,12 +112,8 @@ class _AddTile extends StatelessWidget {
   final bool enabled;
   final VoidCallback? onTap;
 
-  static final TextStyle _titleStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 14,
-  );
-  static final TextStyle _subtitleStyle = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 12, fontWeight: FontWeight.w600);
+  static final TextStyle _titleStyle = VelvetText.bodyStrong14;
+  static final TextStyle _subtitleStyle = VelvetText.feedbackMuted12w600;
 
   static const BoxDecoration _pillowDecoration = BoxDecoration(
     color: BrandColors.base,
@@ -235,12 +225,8 @@ class _AttachmentChip extends StatelessWidget {
     ],
   );
 
-  static final TextStyle _nameStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 14,
-  );
-  static final TextStyle _metaStyle = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 12, fontWeight: FontWeight.w600);
+  static final TextStyle _nameStyle = VelvetText.bodyStrong14;
+  static final TextStyle _metaStyle = VelvetText.feedbackMuted12w600;
 
   // Precomputed glyph-tile tints (tone @ 12% alpha), one per kind — never
   // recompute the withValues blend per build.
@@ -342,12 +328,8 @@ class _SizeMeter extends StatelessWidget {
   final int maxTotalBytes;
   final bool overBudget;
 
-  static final TextStyle _captionMuted = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 12);
-  static final TextStyle _captionError = VelvetText.feedback(
-    BrandColors.error,
-  ).copyWith(fontSize: 12);
+  static final TextStyle _captionMuted = VelvetText.feedbackMutedSm;
+  static final TextStyle _captionError = VelvetText.feedbackError12;
 
   // Meter fill — two fixed brand colors, keyed on over-budget. No per-build
   // recompute.

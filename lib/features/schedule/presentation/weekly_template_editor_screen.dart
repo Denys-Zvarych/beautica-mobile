@@ -880,17 +880,11 @@ class _LoadedBody extends StatelessWidget {
   });
 
   /// Filled active-window label style — committed value (Nunito 13/700, text).
-  static final TextStyle _windowSetStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
-  );
+  static final TextStyle _windowSetStyle = VelvetText.bodyStrong13;
 
   /// Unset active-window prompt style — reads as a placeholder, not a value
   /// (Nunito 13/600, placeholder color). See frontend-design judgment.
-  static final TextStyle _windowUnsetStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
-    fontWeight: FontWeight.w600,
-    color: BrandColors.placeholder,
-  );
+  static final TextStyle _windowUnsetStyle = VelvetText.schedWindowUnset;
 
   final List<DayHours?> days;
 
@@ -1354,7 +1348,7 @@ class _DayCardState extends State<_DayCard> {
       child: Text(
         label,
         overflow: TextOverflow.ellipsis,
-        style: VelvetText.bodyStrong().copyWith(fontSize: 13, color: tint),
+        style: VelvetText.bodyStrong13.copyWith(color: tint),
       ),
     );
     return Semantics(

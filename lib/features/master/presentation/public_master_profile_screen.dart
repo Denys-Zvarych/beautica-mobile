@@ -552,9 +552,7 @@ class _PublicProfileBody extends StatelessWidget {
   }
 
   // Cached inline rating style for the identity card (avoid per-build copyWith).
-  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 14,
-  );
+  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
 
   /// Opens the master's Instagram in the Instagram app or a browser, sanitising
   /// [rawValue] through [canonicalInstagramUri] (STRICT https + host/charset

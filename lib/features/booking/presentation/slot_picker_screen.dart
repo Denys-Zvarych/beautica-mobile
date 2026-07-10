@@ -607,10 +607,7 @@ class _SlotsSectionState extends State<_SlotsSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(
-          l10n.bookingFreeTimeHeading,
-          style: VelvetText.subheading().copyWith(fontSize: 16),
-        ),
+        Text(l10n.bookingFreeTimeHeading, style: VelvetText.subheading16),
         const SizedBox(height: VelvetSpacing.md),
         widget.slotsAsync.when(
           loading: () => const Padding(

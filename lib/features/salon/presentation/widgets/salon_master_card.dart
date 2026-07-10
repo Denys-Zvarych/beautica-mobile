@@ -206,7 +206,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                     const SizedBox(height: VelvetSpacing.sm),
                     Text(
                       widget.name,
-                      style: VelvetText.subheading().copyWith(fontSize: 14),
+                      style: VelvetText.subheading14,
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -214,9 +214,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                     const SizedBox(height: 2),
                     Text(
                       widget.role,
-                      style: VelvetText.feedback(
-                        BrandColors.muted,
-                      ).copyWith(fontSize: 11),
+                      style: VelvetText.feedbackMutedXs,
                       textAlign: TextAlign.center,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -233,7 +231,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                         const SizedBox(width: 3),
                         Text(
                           widget.ratingLabel,
-                          style: VelvetText.bodyStrong().copyWith(fontSize: 12),
+                          style: VelvetText.bodyStrong12,
                         ),
                       ],
                     ),

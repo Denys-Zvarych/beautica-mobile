@@ -213,11 +213,7 @@ class _SortRow extends StatelessWidget {
     Radius.circular(VelvetRadii.field),
   );
 
-  static final TextStyle _labelStyle = VelvetText.body().copyWith(
-    fontSize: 15,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.text,
-  );
+  static final TextStyle _labelStyle = VelvetText.discSortOption;
 
   @override
   Widget build(BuildContext context) {

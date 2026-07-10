@@ -170,7 +170,7 @@ class _BookingSummaryBarState extends State<BookingSummaryBar> {
         child: Text(
           l10n.bookingEmptySelectionPrompt,
           textAlign: TextAlign.center,
-          style: VelvetText.feedback(BrandColors.muted).copyWith(fontSize: 14),
+          style: VelvetText.bookSummaryMuted14,
         ),
       ),
       const SizedBox(height: VelvetSpacing.md),
@@ -220,9 +220,7 @@ class _BookingSummaryBarState extends State<BookingSummaryBar> {
                         const Spacer(),
                         Text(
                           formatServiceCountUk(widget.services.length),
-                          style: VelvetText.feedback(
-                            BrandColors.muted,
-                          ).copyWith(fontSize: 12),
+                          style: VelvetText.feedbackMutedSm,
                         ),
                         const SizedBox(width: VelvetSpacing.xs),
                         AnimatedRotation(
@@ -342,9 +340,7 @@ class _ChosenWindow extends StatelessWidget {
                       const SizedBox(width: VelvetSpacing.sm),
                       Text(
                         l10n.bookingChosenWindowLabel,
-                        style: VelvetText.feedback(
-                          BrandColors.textSecondary,
-                        ).copyWith(fontSize: 13),
+                        style: VelvetText.bookFeedbackSec13,
                       ),
                       const SizedBox(width: 6),
                       Expanded(
@@ -352,11 +348,7 @@ class _ChosenWindow extends StatelessWidget {
                           label!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: VelvetText.bodyStrong().copyWith(
-                            color: BrandColors.accentDeep,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                          ),
+                          style: VelvetText.bookAccentValue14,
                         ),
                       ),
                     ],
@@ -435,12 +427,7 @@ class _SelectionEntry extends StatelessWidget {
                 color: BrandColors.muted,
               ),
               const SizedBox(width: 3),
-              Text(
-                duration,
-                style: VelvetText.feedback(
-                  BrandColors.muted,
-                ).copyWith(fontSize: 12),
-              ),
+              Text(duration, style: VelvetText.feedbackMutedSm),
             ],
           ),
         ],
@@ -533,22 +520,10 @@ class _TotalRow extends StatelessWidget {
           Text(l10n.bookingTotalLabel, style: VelvetText.bodyStrong()),
           if (duration != null) ...<Widget>[
             const SizedBox(width: VelvetSpacing.sm),
-            Text(
-              duration!,
-              style: VelvetText.feedback(
-                BrandColors.muted,
-              ).copyWith(fontSize: 12),
-            ),
+            Text(duration!, style: VelvetText.feedbackMutedSm),
           ],
           const Spacer(),
-          Text(
-            price,
-            style: VelvetText.bodyStrong().copyWith(
-              color: BrandColors.accentDeep,
-              fontWeight: FontWeight.w800,
-              fontSize: 17,
-            ),
-          ),
+          Text(price, style: VelvetText.bookPriceMd),
         ],
       ),
     );

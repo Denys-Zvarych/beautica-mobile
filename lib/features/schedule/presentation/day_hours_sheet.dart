@@ -404,7 +404,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
                 const SizedBox(height: VelvetSpacing.xs),
                 Text(
                   l10n.scheduleOverrideSheetSubtitle,
-                  style: VelvetText.body().copyWith(fontSize: 13),
+                  style: VelvetText.body13,
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
                 _modeToggle(l10n),
@@ -575,10 +575,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
             child: Text(
               label,
               overflow: TextOverflow.ellipsis,
-              style: VelvetText.bodyStrong().copyWith(
-                fontSize: 13,
-                color: tint,
-              ),
+              style: VelvetText.bodyStrong13.copyWith(color: tint),
             ),
           ),
         ],
@@ -667,7 +664,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
                 const SizedBox(width: VelvetSpacing.sm - 2),
                 Text(
                   l10n.scheduleOverrideDelete,
-                  style: VelvetText.link().copyWith(fontSize: 13, color: tint),
+                  style: VelvetText.link13.copyWith(color: tint),
                 ),
               ],
             ),

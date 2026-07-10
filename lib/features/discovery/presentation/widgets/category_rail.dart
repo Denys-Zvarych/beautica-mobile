@@ -60,19 +60,9 @@ class CategoryRailTile extends StatelessWidget {
   /// grows instead of clipping at large text-scale settings.
   static const double _kLabelMinHeight = 28;
 
-  static final TextStyle _labelResting = VelvetText.body().copyWith(
-    fontSize: 12,
-    height: 1.15,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.textSecondary,
-  );
+  static final TextStyle _labelResting = VelvetText.discCategoryLabelResting;
 
-  static final TextStyle _labelSelected = VelvetText.body().copyWith(
-    fontSize: 12,
-    height: 1.15,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.accentDeep,
-  );
+  static final TextStyle _labelSelected = VelvetText.discCategoryLabelSelected;
 
   @override
   Widget build(BuildContext context) {

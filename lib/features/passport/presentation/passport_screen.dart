@@ -307,7 +307,7 @@ class _EmptyPassport extends StatelessWidget {
     boxShadow: VelvetShadows.extrudedSmall,
   );
 
-  static final TextStyle _bodyStyle = VelvetText.body().copyWith(fontSize: 14);
+  static final TextStyle _bodyStyle = VelvetText.body14;
 
   @override
   Widget build(BuildContext context) {
@@ -366,13 +366,8 @@ class _ProfileBlock extends StatelessWidget {
   final ClientProfileSummary profile;
   final VoidCallback onCamera;
 
-  static final TextStyle _nameStyle = VelvetText.displayName().copyWith(
-    fontSize: 21,
-  );
-  static final TextStyle _lineStyle = VelvetText.body().copyWith(
-    fontSize: 14,
-    color: BrandColors.text,
-  );
+  static final TextStyle _nameStyle = VelvetText.displayName21;
+  static final TextStyle _lineStyle = VelvetText.body14Text;
 
   static final BoxDecoration _cameraBadgeDecoration = BoxDecoration(
     color: BrandColors.white,

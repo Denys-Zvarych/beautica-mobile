@@ -425,9 +425,7 @@ class _StepIndicator extends StatelessWidget {
             ),
             child: Text(
               l10n.salonBookingStepLabel(current, total),
-              style: VelvetText.feedback(
-                BrandColors.textSecondary,
-              ).copyWith(fontSize: 12, fontWeight: FontWeight.w800),
+              style: VelvetText.bookChipSecW800,
             ),
           ),
           const SizedBox(height: VelvetSpacing.sm),
@@ -527,7 +525,7 @@ class _EmptyCatalogue extends StatelessWidget {
             Text(
               l10n.salonServicesEmpty,
               key: const Key('salon-service-selection-empty'),
-              style: VelvetText.heading().copyWith(fontSize: 20),
+              style: VelvetText.heading20,
               textAlign: TextAlign.center,
             ),
           ],
@@ -661,10 +659,7 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text(
-                  l10n.salonBookingServicesIntro,
-                  style: VelvetText.body().copyWith(fontSize: 14),
-                ),
+                Text(l10n.salonBookingServicesIntro, style: VelvetText.body14),
               ],
             ),
           ),

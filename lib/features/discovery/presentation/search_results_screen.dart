@@ -312,11 +312,7 @@ class _ResultsTopBar extends StatelessWidget {
   // built once at class-load, so build() allocates neither a Color nor a
   // TextStyle per frame.
   static const Color _filterIconColor = BrandColors.textSecondary;
-  static final TextStyle _countStyle = VelvetText.body().copyWith(
-    fontSize: 14,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.accent,
-  );
+  static final TextStyle _countStyle = VelvetText.discResultCount;
 
   @override
   Widget build(BuildContext context) {

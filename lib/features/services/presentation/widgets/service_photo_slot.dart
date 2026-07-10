@@ -46,9 +46,7 @@ class ServicePhotoSlot extends StatefulWidget {
 
 class _ServicePhotoSlotState extends State<ServicePhotoSlot> {
   // Hoisted statics — avoids allocating new objects on every build().
-  static final TextStyle _changePhotoLabelStyle = VelvetText.cta().copyWith(
-    fontSize: 14,
-  );
+  static final TextStyle _changePhotoLabelStyle = VelvetText.ctaSm;
   static final BoxDecoration _iconPillNormal = BoxDecoration(
     color: BrandColors.base,
     borderRadius: BorderRadius.circular(VelvetRadii.field),
