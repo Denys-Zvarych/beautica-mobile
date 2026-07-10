@@ -940,7 +940,11 @@ class _SelectToken extends StatelessWidget {
               child: Container(
                 key: const ValueKey<bool>(true),
                 decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
+                  // Visually a circle, but drawn as an RRect (radius = half the
+                  // 30dp side). Impeller-GLES mis-rasterizes a blurred box-shadow
+                  // on BoxShape.circle as a hard white square; its RRect blur
+                  // path is correct — so shadow-bearing "circles" use RRect.
+                  borderRadius: BorderRadius.all(Radius.circular(15)),
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -1053,7 +1057,9 @@ class _MasterPickRowState extends State<_MasterPickRow> {
                   height: 52,
                   width: 52,
                   decoration: BoxDecoration(
-                    shape: BoxShape.circle,
+                    // RRect (radius = half the 52dp side) reads as a circle but
+                    // avoids Impeller-GLES's broken circle box-shadow blur path.
+                    borderRadius: BorderRadius.circular(26),
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -1331,7 +1337,9 @@ class _GroupRow extends StatelessWidget {
             height: 40,
             width: 40,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
+              // RRect (radius = half the 40dp side) reads as a circle but avoids
+              // Impeller-GLES's broken circle box-shadow blur path.
+              borderRadius: BorderRadius.circular(20),
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
