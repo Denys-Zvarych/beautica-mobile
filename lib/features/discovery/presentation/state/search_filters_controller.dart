@@ -27,6 +27,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../auth/domain/user.dart';
 import '../../../auth/presentation/auth_notifier.dart';
+import '../../../booking/application/pending_service_preselection_provider.dart';
 import '../../../home/application/client_edit_profile_notifier.dart';
 import '../../../location/domain/city.dart';
 import '../../../location/domain/city_district.dart';
@@ -496,7 +497,12 @@ class SearchFiltersController extends _$SearchFiltersController {
   }
 
   /// Clears every filter back to an empty [SearchFilters].
-  void reset() => state = const SearchFilters();
+  void reset() {
+    state = const SearchFilters();
+    // Drop any pending booking pre-selection carried from a prior search — a
+    // cleared filter must never leak a stale service pre-check into a booking.
+    ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
+  }
 
   /// Clears every NON-location filter — the free-text query, the category, the
   /// second-level per-service selection, the price band and rating floor, and
@@ -546,6 +552,9 @@ class SearchFiltersController extends _$SearchFiltersController {
         .setCategoryName(null);
     // Drop the second-level per-service selection held in its sibling notifier.
     ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+    // Drop any pending booking pre-selection carried from a prior search — a
+    // cleared filter must never leak a stale service pre-check into a booking.
+    ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
   }
 }
 

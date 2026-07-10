@@ -12,6 +12,7 @@
 //     are null.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -21,23 +22,53 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
+import '../../../booking/application/pending_service_preselection_provider.dart';
 import '../../../favorites/domain/favorite_target.dart';
 import '../../domain/salon_search_item.dart';
+import '../../domain/search_filters.dart';
 import 'favorite_heart_button.dart';
 import 'result_address_block.dart';
 import 'result_card_text.dart';
 import 'result_thumbnail.dart';
+import 'search_preselection.dart';
 
 /// A single salon result card.
-class SalonResultCard extends StatelessWidget {
-  const SalonResultCard({super.key, required this.salon, this.onFavoriteError});
+class SalonResultCard extends ConsumerWidget {
+  const SalonResultCard({
+    super.key,
+    required this.salon,
+    this.activeFilters,
+    this.onFavoriteError,
+  });
 
   final SalonSearchItem salon;
 
+  /// The filter set the results list was fetched with. When it carries an
+  /// active service filter ([SearchFilters.serviceTypeSlugs] non-empty), the
+  /// matching service(s) are handed to the salon booking flow so they arrive
+  /// pre-checked. Null (or no service filter) → nothing is pre-selected.
+  final SearchFilters? activeFilters;
+
   final void Function(Failure failure)? onFavoriteError;
 
+  /// Records the search service pre-selection for this salon (if a service
+  /// filter is active) so the salon booking Step 1 catalogue starts with those
+  /// service(s) pre-checked, then navigates to the public salon profile.
+  void _openProfile(WidgetRef ref) {
+    final SearchFilters? filters = activeFilters;
+    if (filters != null && filters.serviceTypeSlugs.isNotEmpty) {
+      ref
+          .read(pendingServicePreselectionControllerProvider.notifier)
+          .set(
+            targetId: salon.salonId,
+            serviceTypeSlugs: filters.serviceTypeSlugs,
+            serviceTypeLabels: resolveServiceTypeLabels(ref, filters),
+          );
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final String name = salon.name.isEmpty
         ? l10n.searchResultSalonFallbackName
@@ -68,7 +99,10 @@ class SalonResultCard extends StatelessWidget {
       label: name,
       child: GestureDetector(
         key: Key('salon_card_${salon.salonId}'),
-        onTap: () => context.push(RouteNames.salonPublicProfile(salon.salonId)),
+        onTap: () {
+          _openProfile(ref);
+          context.push(RouteNames.salonPublicProfile(salon.salonId));
+        },
         child: NeumorphicCard(
           padding: const EdgeInsets.all(VelvetSpacing.md),
           child: Row(

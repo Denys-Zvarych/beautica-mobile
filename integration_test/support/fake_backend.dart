@@ -946,6 +946,12 @@ final class FakeBackend {
             'name': 'Манікюр з покриттям',
             'description': null,
             'category': 'NAILS',
+            // Service-type slug (Phase 16.3 space, mirrored on
+            // ServiceDefinitionResponse) — the SAME slug space the discovery
+            // search filter uses. Drives the search→booking pre-selection
+            // exact-slug match: filtering by CLASSIC_MANICURE pre-checks THIS
+            // service and NOT pub-svc-2 (GEL_MANICURE).
+            'serviceTypeSlug': 'CLASSIC_MANICURE',
             'baseDurationMinutes': 90,
             'bufferMinutesAfter': 0,
             'isActive': true,
@@ -970,6 +976,10 @@ final class FakeBackend {
             'name': 'Дизайн нігтів',
             'description': null,
             'category': 'NAILS',
+            // A DIFFERENT service-type slug in the same category — must stay
+            // UN-checked when the search pre-selection carried only
+            // CLASSIC_MANICURE (exact-slug match, no false positives).
+            'serviceTypeSlug': 'GEL_MANICURE',
             'baseDurationMinutes': 60,
             'bufferMinutesAfter': 0,
             'isActive': true,
@@ -1256,6 +1266,11 @@ final class FakeBackend {
               'name': 'Манікюр класичний',
               'description': null,
               'category': 'NAILS',
+              // Service-type slug (ServiceDefinitionResponse.serviceTypeSlug) —
+              // the SAME slug space as the discovery search filter. A salon
+              // search pre-selection filtered by CLASSIC_MANICURE pre-checks
+              // THIS catalogue service and not salon-svc-exclusive.
+              'serviceTypeSlug': 'CLASSIC_MANICURE',
               'baseDurationMinutes': 60,
               'bufferMinutesAfter': 0,
               'isActive': true,
@@ -1276,6 +1291,9 @@ final class FakeBackend {
               'name': 'Корекція брів',
               'description': null,
               'category': 'BROWS',
+              // A DIFFERENT service-type slug in a DIFFERENT category — must
+              // stay UN-checked under a CLASSIC_MANICURE search pre-selection.
+              'serviceTypeSlug': 'BROW_CORRECTION',
               'baseDurationMinutes': 45,
               'bufferMinutesAfter': 0,
               'isActive': true,

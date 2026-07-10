@@ -83,6 +83,13 @@ abstract class MasterService with _$MasterService {
     /// lookup.
     String? serviceTypeNameUk,
 
+    /// Stable slug of the chosen platform service type, or null when none was
+    /// selected. Round-trips from `serviceTypeSlug` on the backend response.
+    /// This is the SAME slug space as the discovery search filter
+    /// (`SearchFilters.serviceTypeSlugs` / `CategoryServiceOption.key`), so the
+    /// booking flow can exact-match a search pre-selection against it.
+    String? serviceTypeSlug,
+
     /// Effective duration of this service in minutes.
     required int durationMinutes,
 

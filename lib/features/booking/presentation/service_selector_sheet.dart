@@ -66,7 +66,9 @@ import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import '../application/pending_service_preselection_provider.dart';
 import '../domain/booking_slot_picker_args.dart';
+import '../domain/pending_service_preselection.dart';
 import 'widgets/booking_summary_bar.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/service_catalogue_accordion.dart';
@@ -111,27 +113,86 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
   final Set<String> _expandedKeys = <String>{};
   bool _seeded = false;
 
+  /// The one-shot search pre-selection for THIS master, consumed once in
+  /// [initState] (before the catalogue resolves) so no Riverpod provider is
+  /// mutated during a widget build. Null when the client did not arrive from a
+  /// search with an active service filter, or the pending payload targeted a
+  /// different provider. Matched against the resolved catalogue in [_seedOnce].
+  PendingServicePreselection? _preselection;
+
+  @override
+  void initState() {
+    super.initState();
+    // Consume-and-clear the pending search service pre-selection for this
+    // master. One-shot: backing out of the booking flow and re-entering will
+    // not re-preselect (the payload is already gone).
+    _preselection = ref
+        .read(pendingServicePreselectionControllerProvider.notifier)
+        .consumeFor(widget.masterId);
+  }
+
   @override
   void dispose() {
     _selectionController.dispose();
     super.dispose();
   }
 
-  /// Seeds selection/expansion from [widget.initialServiceId] exactly once,
-  /// the first time the catalogue resolves. A no-op on every later rebuild
-  /// (guarded by [_seeded]), so toggling a section afterward is never
-  /// overwritten by a stale re-seed.
+  /// Seeds selection/expansion exactly once, the first time the catalogue
+  /// resolves. A no-op on every later rebuild (guarded by [_seeded]), so
+  /// toggling a section afterward is never overwritten by a stale re-seed.
+  ///
+  /// Two independent seed sources, unioned:
+  ///   1. [widget.initialServiceId] — a specific service tapped before this
+  ///      screen (extension point; not currently threaded from any call site).
+  ///   2. [_preselection] — the discovery search service filter, matched by
+  ///      EXACT `serviceTypeSlug` equality across ALL of the master's services
+  ///      (multi-select), with a defensive fallback to the service-type display
+  ///      name only when a service has no slug of its own. No match degrades to
+  ///      nothing pre-checked — never a wrong check.
   void _seedOnce(List<MasterService> services) {
     if (_seeded) return;
     _seeded = true;
+
+    final Set<String> selectedIds = <String>{};
+
     final String? initial = widget.initialServiceId;
-    if (initial == null || initial.isEmpty) return;
-    final MasterService? match = services
-        .where((MasterService s) => s.id == initial)
-        .firstOrNull;
-    if (match == null) return;
-    _selectionController.replaceAll(<String>{match.id});
-    _expandedKeys.add((match.category ?? '').trim().toUpperCase());
+    if (initial != null && initial.isNotEmpty) {
+      final MasterService? match = services
+          .where((MasterService s) => s.id == initial)
+          .firstOrNull;
+      if (match != null) {
+        selectedIds.add(match.id);
+        _expandedKeys.add((match.category ?? '').trim().toUpperCase());
+      }
+    }
+
+    final PendingServicePreselection? pre = _preselection;
+    if (pre != null) {
+      for (final MasterService s in services) {
+        if (_matchesPreselection(s.serviceTypeSlug, s.serviceTypeNameUk, pre)) {
+          selectedIds.add(s.id);
+          _expandedKeys.add((s.category ?? '').trim().toUpperCase());
+        }
+      }
+    }
+
+    if (selectedIds.isNotEmpty) {
+      _selectionController.replaceAll(selectedIds);
+    }
+  }
+
+  /// EXACT slug match against the pre-selection; falls back to the service-type
+  /// display name only when the service carries no slug (defensive).
+  bool _matchesPreselection(
+    String? slug,
+    String? serviceTypeNameUk,
+    PendingServicePreselection pre,
+  ) {
+    if (slug != null && slug.isNotEmpty) {
+      return pre.serviceTypeSlugs.contains(slug);
+    }
+    final String label = (serviceTypeNameUk ?? '').trim();
+    return label.isNotEmpty && pre.serviceTypeLabels.contains(label);
   }
 
   void _toggleExpand(String key) {

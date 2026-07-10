@@ -196,6 +196,7 @@ abstract final class MasterServiceMapper {
     // selection round-trips regardless of which level the backend populated.
     final serviceTypeId = dto.serviceTypeId ?? def?.serviceTypeId;
     final serviceTypeNameUk = dto.serviceTypeNameUk ?? def?.serviceTypeNameUk;
+    final serviceTypeSlug = dto.serviceTypeSlug ?? def?.serviceTypeSlug;
 
     return MasterService(
       id: id,
@@ -205,6 +206,7 @@ abstract final class MasterServiceMapper {
       category: def?.category,
       serviceTypeId: serviceTypeId,
       serviceTypeNameUk: serviceTypeNameUk,
+      serviceTypeSlug: serviceTypeSlug,
       durationMinutes: duration,
       priceType: priceType,
       priceMin: priceMin,
@@ -261,6 +263,7 @@ abstract final class MasterServiceMapper {
       // Service type round-trips from the definition response (Phase 16.3).
       serviceTypeId: dto.serviceTypeId,
       serviceTypeNameUk: dto.serviceTypeNameUk,
+      serviceTypeSlug: dto.serviceTypeSlug,
       durationMinutes: dto.baseDurationMinutes ?? 0,
       priceType: priceType,
       priceMin: priceMin,

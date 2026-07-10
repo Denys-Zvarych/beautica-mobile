@@ -34,6 +34,13 @@ abstract class SalonCatalogService with _$SalonCatalogService {
     String? photoUrl,
     String? category,
 
+    /// Stable slug of the underlying platform service type, or null when none
+    /// was selected. Maps from `ServiceDefinitionResponse.serviceTypeSlug` — the
+    /// SAME slug space as the discovery search filter
+    /// (`SearchFilters.serviceTypeSlugs` / `CategoryServiceOption.key`), so the
+    /// salon booking flow can exact-match a search pre-selection against it.
+    String? serviceTypeSlug,
+
     /// Typed duration in minutes — the raw value [durationLabel] is formatted
     /// from. Added (Phase 14.12) so the salon booking flow's multi-service
     /// selection can sum an accurate total duration/price instead of

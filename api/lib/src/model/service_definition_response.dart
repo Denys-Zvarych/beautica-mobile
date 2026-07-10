@@ -21,6 +21,7 @@ part 'service_definition_response.g.dart';
 /// * [isActive]
 /// * [serviceTypeId] - Chosen service type id; null when no service type was selected.
 /// * [serviceTypeNameUk] - Ukrainian display name of the chosen service type; null when none was selected.
+/// * [serviceTypeSlug] - Stable slug of the chosen platform service type (matches CategoryServiceOption.key on the client); null when none was selected.
 /// * [photoUrl]
 /// * [priceType]
 /// * [priceMin]
@@ -58,6 +59,10 @@ abstract class ServiceDefinitionResponse
   /// Ukrainian display name of the chosen service type; null when none was selected.
   @BuiltValueField(wireName: r'serviceTypeNameUk')
   String? get serviceTypeNameUk;
+
+  /// Stable slug of the chosen platform service type (matches CategoryServiceOption.key on the client); null when none was selected.
+  @BuiltValueField(wireName: r'serviceTypeSlug')
+  String? get serviceTypeSlug;
 
   @BuiltValueField(wireName: r'photoUrl')
   String? get photoUrl;
@@ -165,6 +170,13 @@ class _$ServiceDefinitionResponseSerializer
       yield r'serviceTypeNameUk';
       yield serializers.serialize(
         object.serviceTypeNameUk,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.serviceTypeSlug != null) {
+      yield r'serviceTypeSlug';
+      yield serializers.serialize(
+        object.serviceTypeSlug,
         specifiedType: const FullType.nullable(String),
       );
     }
@@ -292,6 +304,14 @@ class _$ServiceDefinitionResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.serviceTypeNameUk = valueDes;
+          break;
+        case r'serviceTypeSlug':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.serviceTypeSlug = valueDes;
           break;
         case r'photoUrl':
           final valueDes = serializers.deserialize(

@@ -144,6 +144,7 @@ abstract final class SalonServiceCatalogMapper {
                 priceDisplay: s.priceDisplay ?? '',
                 photoUrl: s.photoUrl,
                 category: s.category,
+                serviceTypeSlug: s.serviceTypeSlug,
                 durationMinutes: s.baseDurationMinutes,
                 priceType:
                     s.priceType == ServiceDefinitionResponsePriceTypeEnum.RANGE

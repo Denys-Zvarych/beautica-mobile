@@ -27,6 +27,7 @@ part 'master_service_response.g.dart';
 /// * [priceDisplay]
 /// * [serviceTypeId] - Chosen service type id; null when no service type was selected.
 /// * [serviceTypeNameUk] - Ukrainian display name of the chosen service type; null when none was selected.
+/// * [serviceTypeSlug] - Stable slug of the chosen platform service type (matches the search filter's service-type key); null when none was selected.
 @BuiltValue()
 abstract class MasterServiceResponse
     implements Built<MasterServiceResponse, MasterServiceResponseBuilder> {
@@ -74,6 +75,10 @@ abstract class MasterServiceResponse
   /// Ukrainian display name of the chosen service type; null when none was selected.
   @BuiltValueField(wireName: r'serviceTypeNameUk')
   String? get serviceTypeNameUk;
+
+  /// Stable slug of the chosen platform service type (matches the search filter's service-type key); null when none was selected.
+  @BuiltValueField(wireName: r'serviceTypeSlug')
+  String? get serviceTypeSlug;
 
   MasterServiceResponse._();
 
@@ -202,6 +207,13 @@ class _$MasterServiceResponseSerializer
         specifiedType: const FullType.nullable(String),
       );
     }
+    if (object.serviceTypeSlug != null) {
+      yield r'serviceTypeSlug';
+      yield serializers.serialize(
+        object.serviceTypeSlug,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -326,6 +338,14 @@ class _$MasterServiceResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.serviceTypeNameUk = valueDes;
+          break;
+        case r'serviceTypeSlug':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.serviceTypeSlug = valueDes;
           break;
         default:
           unhandled.add(key);

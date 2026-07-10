@@ -26,6 +26,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/pending_service_preselection_provider.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
@@ -506,6 +507,29 @@ void main() {
 
       expect(_state(c), const SearchFilters());
     });
+
+    test('also clears any pending booking service pre-selection', () {
+      final c = _make().container;
+      // A prior search handed a pre-selection into the booking flow …
+      c
+          .read(pendingServicePreselectionControllerProvider.notifier)
+          .set(
+            targetId: 'master-1',
+            serviceTypeSlugs: <String>{'CLASSIC_MANICURE'},
+            serviceTypeLabels: const <String>{},
+          );
+      expect(c.read(pendingServicePreselectionControllerProvider), isNotNull);
+
+      _filters(c).reset();
+
+      // … resetting the filters must drop it so a cleared filter never leaks a
+      // stale service pre-check into a later booking.
+      expect(
+        c.read(pendingServicePreselectionControllerProvider),
+        isNull,
+        reason: 'reset() must clear the pending booking pre-selection too',
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -632,6 +656,28 @@ void main() {
         expect(_state(c).categoryKey, isNull);
       },
     );
+
+    test('also clears any pending booking service pre-selection', () {
+      final c = _make().container;
+      c
+          .read(pendingServicePreselectionControllerProvider.notifier)
+          .set(
+            targetId: 'salon-xyz',
+            serviceTypeSlugs: <String>{'CLASSIC_MANICURE'},
+            serviceTypeLabels: const <String>{},
+          );
+      expect(c.read(pendingServicePreselectionControllerProvider), isNotNull);
+
+      _filters(c).clearFilters();
+
+      expect(
+        c.read(pendingServicePreselectionControllerProvider),
+        isNull,
+        reason:
+            '«Скинути фільтри» must drop the pending booking pre-selection so a '
+            'cleared filter never leaks a stale service pre-check',
+      );
+    });
   });
 
   group('SearchFiltersController — logout self-clear', () {

@@ -181,6 +181,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                   return _ResultsList(
                     scrollController: _scrollController,
                     data: data,
+                    activeFilters: _filters,
                     onFavoriteError: _showFavoriteError,
                   );
                 },
@@ -201,11 +202,16 @@ class _ResultsList extends StatelessWidget {
   const _ResultsList({
     required this.scrollController,
     required this.data,
+    required this.activeFilters,
     required this.onFavoriteError,
   });
 
   final ScrollController scrollController;
   final SearchResultsState data;
+
+  /// The filter set the results were fetched with — forwarded to each card so a
+  /// service filter can pre-check the matching service(s) in the booking flow.
+  final SearchFilters activeFilters;
   final void Function(Failure failure) onFavoriteError;
 
   @override
@@ -231,10 +237,12 @@ class _ResultsList extends StatelessWidget {
           child: switch (item) {
             MasterResultItem(:final master) => MasterResultCard(
               master: master,
+              activeFilters: activeFilters,
               onFavoriteError: onFavoriteError,
             ),
             SalonResultItem(:final salon) => SalonResultCard(
               salon: salon,
+              activeFilters: activeFilters,
               onFavoriteError: onFavoriteError,
             ),
           },

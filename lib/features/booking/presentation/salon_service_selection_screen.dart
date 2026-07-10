@@ -67,6 +67,8 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../../salon/application/salon_service_catalog_notifier.dart';
 import '../../salon/domain/salon_service_catalog.dart';
+import '../application/pending_service_preselection_provider.dart';
+import '../domain/pending_service_preselection.dart';
 import '../domain/salon_booking_args.dart';
 import 'widgets/booking_summary_bar.dart';
 import 'widgets/service_catalogue_accordion.dart';
@@ -96,20 +98,77 @@ class _SalonServiceSelectionScreenState
   final Set<String> _expandedKeys = <String>{};
   bool _expandedSeeded = false;
 
+  /// The one-shot search pre-selection for THIS salon, consumed once in
+  /// [initState] (before the catalogue resolves) so no Riverpod provider is
+  /// mutated during a widget build. Null when the client did not arrive from a
+  /// search with an active service filter, or the pending payload targeted a
+  /// different provider. Matched against the resolved catalogue in [_seedOnce].
+  PendingServicePreselection? _preselection;
+
+  @override
+  void initState() {
+    super.initState();
+    _preselection = ref
+        .read(pendingServicePreselectionControllerProvider.notifier)
+        .consumeFor(widget.salonId);
+  }
+
   @override
   void dispose() {
     _selectionController.dispose();
     super.dispose();
   }
 
-  /// Expands the FIRST category on load only — a no-op on every later
-  /// rebuild so toggling a section afterward is never overwritten.
-  void _seedExpansionOnce(List<SalonServiceCategoryEntry> categories) {
+  /// Seeds selection + expansion exactly once, the first time the catalogue
+  /// resolves. A no-op on every later rebuild so toggling a section afterward
+  /// is never overwritten.
+  ///
+  /// When a discovery search service filter arrived ([_preselection]), every
+  /// catalogue service whose `serviceTypeSlug` EXACTLY matches is pre-checked
+  /// (multi-select) and its category is expanded — with a defensive fallback to
+  /// the category display name only when a service has no slug. No match
+  /// degrades to nothing pre-checked. Absent any pre-selection, the first
+  /// category is expanded (the prior default).
+  void _seedOnce(List<SalonServiceCategoryEntry> categories) {
     if (_expandedSeeded) return;
     _expandedSeeded = true;
+
+    final PendingServicePreselection? pre = _preselection;
+    if (pre != null) {
+      final Set<String> selectedIds = <String>{};
+      for (final SalonServiceCategoryEntry c in categories) {
+        for (final SalonCatalogService s in c.services) {
+          if (_matchesPreselection(s.serviceTypeSlug, s.name, pre)) {
+            selectedIds.add(s.id);
+            _expandedKeys.add(c.category);
+          }
+        }
+      }
+      if (selectedIds.isNotEmpty) {
+        _selectionController.replaceAll(selectedIds);
+        return;
+      }
+    }
+
+    // No pre-selection (or nothing matched) → keep the default of expanding the
+    // first category.
     if (categories.isNotEmpty) {
       _expandedKeys.add(categories.first.category);
     }
+  }
+
+  /// EXACT slug match against the pre-selection; falls back to the service
+  /// display name only when the service carries no slug (defensive).
+  bool _matchesPreselection(
+    String? slug,
+    String name,
+    PendingServicePreselection pre,
+  ) {
+    if (slug != null && slug.isNotEmpty) {
+      return pre.serviceTypeSlugs.contains(slug);
+    }
+    final String label = name.trim();
+    return label.isNotEmpty && pre.serviceTypeLabels.contains(label);
   }
 
   void _toggleExpand(String key) {
@@ -197,7 +256,7 @@ class _SalonServiceSelectionScreenState
                   );
                 },
                 data: (List<SalonServiceCategoryEntry> categories) {
-                  _seedExpansionOnce(categories);
+                  _seedOnce(categories);
                   if (categories.isEmpty) {
                     return const _EmptyCatalogue();
                   }

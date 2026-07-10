@@ -11,6 +11,7 @@
 // entirely — no placeholder.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -21,29 +22,55 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
+import '../../../booking/application/pending_service_preselection_provider.dart';
 import '../../../favorites/domain/favorite_target.dart';
 import '../../domain/master_search_item.dart';
+import '../../domain/search_filters.dart';
 import 'favorite_heart_button.dart';
 import 'result_address_block.dart';
 import 'result_card_text.dart';
 import 'result_thumbnail.dart';
+import 'search_preselection.dart';
 
 /// A single master result card.
-class MasterResultCard extends StatelessWidget {
+class MasterResultCard extends ConsumerWidget {
   const MasterResultCard({
     super.key,
     required this.master,
+    this.activeFilters,
     this.onFavoriteError,
   });
 
   final MasterSearchItem master;
 
+  /// The filter set the results list was fetched with. When it carries an
+  /// active service filter ([SearchFilters.serviceTypeSlugs] non-empty), the
+  /// matching service(s) are handed to the booking flow so they arrive
+  /// pre-checked. Null (or no service filter) → nothing is pre-selected.
+  final SearchFilters? activeFilters;
+
   /// Forwarded to the heart so the host screen can surface a snackbar on a
   /// failed favorite toggle.
   final void Function(Failure failure)? onFavoriteError;
 
+  /// Records the search service pre-selection for this master (if a service
+  /// filter is active) so the booking Step 1 catalogue starts with those
+  /// service(s) pre-checked, then navigates to the public master profile.
+  void _openProfile(WidgetRef ref) {
+    final SearchFilters? filters = activeFilters;
+    if (filters != null && filters.serviceTypeSlugs.isNotEmpty) {
+      ref
+          .read(pendingServicePreselectionControllerProvider.notifier)
+          .set(
+            targetId: master.masterId,
+            serviceTypeSlugs: filters.serviceTypeSlugs,
+            serviceTypeLabels: resolveServiceTypeLabels(ref, filters),
+          );
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final String name = _displayName(master, l10n);
     // The full address renders as two muted lines (see [ResultAddressBlock]):
@@ -77,8 +104,10 @@ class MasterResultCard extends StatelessWidget {
       button: true,
       label: name,
       child: GestureDetector(
-        onTap: () =>
-            context.push(RouteNames.masterPublicProfile(master.masterId)),
+        onTap: () {
+          _openProfile(ref);
+          context.push(RouteNames.masterPublicProfile(master.masterId));
+        },
         child: NeumorphicCard(
           padding: const EdgeInsets.all(VelvetSpacing.md),
           child: Row(
