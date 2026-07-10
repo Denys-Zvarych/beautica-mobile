@@ -393,7 +393,7 @@ class _ProfileBlock extends StatelessWidget {
           child: Stack(
             clipBehavior: Clip.none,
             children: <Widget>[
-              HubAvatar(initials: profile.initials, size: 96, fontSize: 30),
+              HubAvatar(initials: profile.initials, size: 96, fontSize: 27),
               Positioned(
                 right: 0,
                 bottom: 0,

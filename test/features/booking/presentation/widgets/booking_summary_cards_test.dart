@@ -240,13 +240,13 @@ void main() {
           lessThan(roomySize!),
           reason:
               "compactText:true must shrink _LabelledRow's value text "
-              '(15 -> 13.5) — if `compactText` were only forwarded to '
+              '(12 -> 11) — if `compactText` were only forwarded to '
               'BookingRecap and never read by _LabelledRow itself, both '
-              'renders would come out at the same 15.0 fontSize and this '
+              'renders would come out at the same 12.0 fontSize and this '
               'assertion would catch it.',
         );
-        expect(roomySize, 15.0);
-        expect(compactSize, 13.5);
+        expect(roomySize, 12.0);
+        expect(compactSize, 11.0);
       },
     );
   });

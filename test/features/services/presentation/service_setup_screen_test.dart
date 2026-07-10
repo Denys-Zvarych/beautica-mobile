@@ -169,6 +169,12 @@ Future<void> _toggleRowOn(WidgetTester tester, String typeId) async {
         matching: find.byType(GestureDetector),
       )
       .last;
+  // Fully reveal the switch before tapping. With the reduced type scale the
+  // list is more compact, so a prior `scrollUntilVisible` can leave the row's
+  // switch (bottom-right of the card) only partially on-screen, making its
+  // center un-hittable. `ensureVisible` is a no-op when already fully visible.
+  await tester.ensureVisible(switchFinder);
+  await tester.pumpAndSettle();
   await tester.tap(switchFinder);
   await tester.pumpAndSettle();
 }
@@ -763,10 +769,13 @@ void main() {
       (tester) async {
         // A short surface so the two manicure rows cannot both fit — the second
         // (type-gel) row sits below the fold once we scroll back to the top.
+        // Height calibrated to the reduced type scale (post ~-3sp font pass);
+        // the two rows are more compact, so the surface is trimmed to keep the
+        // second row off-screen at the top scroll offset.
         await _pump(
           tester,
           h,
-          surfaceSize: const Size(360, 480),
+          surfaceSize: const Size(360, 440),
           overrides: h.overrides(
             categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
             typesBySlug: <String, List<ServiceTypeOption>>{

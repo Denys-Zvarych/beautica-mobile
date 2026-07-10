@@ -158,7 +158,7 @@ class _MasterMiniCard extends StatelessWidget {
                     initials: master.initials,
                     size: 76,
                     radius: 14,
-                    fontSize: 20,
+                    fontSize: 17,
                   ),
                   Positioned(
                     right: 5,
