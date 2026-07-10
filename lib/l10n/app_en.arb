@@ -3642,16 +3642,6 @@
       }
     }
   },
-  "salonMasterCardBookSemanticLabel": "Book with {name}",
-  "@salonMasterCardBookSemanticLabel": {
-    "description": "Accessibility label for the book action on a salon master card, routing into that master's own service-scoped booking flow.",
-    "placeholders": {
-      "name": {
-        "type": "String",
-        "example": "Olena"
-      }
-    }
-  },
   "salonReviewCountLabel": "{count, plural, =0{0 reviews} =1{1 review} other{{count} reviews}}",
   "@salonReviewCountLabel": {
     "description": "Standalone review-count line under the salon's average rating (no parentheses, unlike searchResultReviewCount).",

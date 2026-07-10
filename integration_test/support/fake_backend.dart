@@ -900,33 +900,6 @@ final class FakeBackend {
         'masterType': 'INDEPENDENT_MASTER',
       });
 
-  /// PUBLIC master-detail envelope for `master-ccc` — the salon-master
-  /// booking-bug regression flow (`salon_master_book_flow_test.dart`). The
-  /// salon master card's corner «book» button pushes `RouteNames.bookingNew`
-  /// with `master-ccc`'s id → `ServiceSelectorSheet(master-ccc)`, which loads
-  /// [publicMasterProfileProvider] = master detail + active services in
-  /// PARALLEL. `master-ccc` already had a `/services` route (its salon-roster
-  /// coverage fixture returns ONLY `salon-svc-shared`), but NOT a detail route
-  /// — without this the parallel `.wait` would fail and the sheet would render
-  /// its error state instead of the master's catalogue. Values mirror the
-  /// roster entry (`_salonMasters[1]`): «Марія Гриценко», SALON_MASTER,
-  /// 4.6★ · 9 reviews. Shape matches [_publicMasterDetailEnvelope].
-  static Map<String, dynamic> _publicMasterCccDetailEnvelope() =>
-      _ok(<String, dynamic>{
-        'masterId': 'master-ccc',
-        'firstName': 'Марія',
-        'lastName': 'Гриценко',
-        'city': 'Київ',
-        'street': 'вул. Хрещатик',
-        'buildingNo': '12',
-        'locationNote': null,
-        'bio': 'Майстриня манікюру салону «Вельвет».',
-        'instagram': null,
-        'avgRating': 4.6,
-        'reviewCount': 9,
-        'masterType': 'SALON_MASTER',
-      });
-
   /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
   /// list so the profile's services-count stat tile renders «2». Shapes match
   /// the generated `MasterServiceResponse` (the same envelope `_services` uses).
@@ -1674,25 +1647,6 @@ final class FakeBackend {
         getPublicMasterCalls++;
         lastGetPublicMasterId = 'master-aaa';
         return _publicMasterDetailEnvelope();
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
-
-    // GET /api/v1/masters/master-ccc — PUBLIC master detail for the
-    // salon-master booking-bug regression flow. `master-ccc`'s `/services`
-    // route already exists below (salon-roster coverage → ONLY
-    // `salon-svc-shared`), but `ServiceSelectorSheet(master-ccc)` also needs
-    // the detail half of [publicMasterProfileProvider]'s parallel `.wait`, so
-    // this detail route is registered alongside it. See
-    // [_publicMasterCccDetailEnvelope]. Additive — no existing flow reads
-    // `GET /masters/master-ccc` (the salon coverage fan-out only hits
-    // `/services`), so this cannot perturb the other salon-xyz assertions.
-    _adapter.onRoute(
-      '/api/v1/masters/master-ccc',
-      (server) => server.replyCallback(200, (_) {
-        getPublicMasterCalls++;
-        lastGetPublicMasterId = 'master-ccc';
-        return _publicMasterCccDetailEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
     );

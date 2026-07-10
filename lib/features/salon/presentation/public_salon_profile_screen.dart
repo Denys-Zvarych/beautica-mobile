@@ -1242,15 +1242,6 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
                 onTap: () => context.push(
                   RouteNames.masterPublicProfile(master.masterId),
                 ),
-                // Master-SCOPED booking entry point (bug fix): routes into the
-                // already-correct Flow A — `RouteNames.bookingNew` with a bare
-                // masterId String (same contract as the master profile's book
-                // CTA) → `ServiceSelectorSheet(masterId)`, which shows ONLY this
-                // master's services. Distinct from the salon-wide
-                // "Записатись на послугу" footer CTA (whole-catalogue flow).
-                bookActionKey: Key('salon-master-card-book-${master.masterId}'),
-                onBook: () =>
-                    context.push(RouteNames.bookingNew, extra: master.masterId),
               );
             },
           ),
