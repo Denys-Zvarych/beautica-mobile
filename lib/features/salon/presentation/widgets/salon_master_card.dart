@@ -73,6 +73,8 @@ class SalonMasterCard extends StatefulWidget {
     required this.ratingLabel,
     required this.avatarIndex,
     required this.onTap,
+    required this.onBook,
+    required this.bookActionKey,
   });
 
   final String name;
@@ -83,7 +85,19 @@ class SalonMasterCard extends StatefulWidget {
 
   /// Position in the rail — selects the avatar gradient deterministically.
   final int avatarIndex;
+
+  /// Tapping the card body opens the master's public profile.
   final VoidCallback onTap;
+
+  /// The corner book affordance — routes into the master-SCOPED booking flow
+  /// (`RouteNames.bookingNew` with this master's id), so the client sees ONLY
+  /// this master's services, not the whole salon catalogue. Distinct from the
+  /// salon-wide "Записатись на послугу" CTA on the profile footer.
+  final VoidCallback onBook;
+
+  /// Unique key for the corner book button (keyed on the master id upstream)
+  /// so widget tests can target one specific card's book action.
+  final Key bookActionKey;
 
   @override
   State<SalonMasterCard> createState() => _SalonMasterCardState();
@@ -104,102 +118,189 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
         widget.role,
         widget.ratingLabel,
       ),
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onTap();
-        },
-        child: AnimatedScale(
-          scale: _pressed ? 0.97 : 1,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            // No explicit width: the parent grid tile constrains this
-            // tightly per column (see the class doc comment above).
-            height: kSalonMasterCardHeight,
-            decoration: BoxDecoration(
-              color: BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.card),
-              boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md - 2,
-              vertical: VelvetSpacing.md,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                // Enlarged 56 -> 68 -> 73 (second pass, +5) so the avatar
-                // reads more prominently in the grid card. Re-verified
-                // empirically against the long-name/wrapped-role stress case
-                // (see `public_salon_profile_screen_test.dart`) starting from
-                // the 68px baseline: diameter 76 still passes (0px
-                // overflow), 77 is the first diameter that overflows (1.00px,
-                // then scaling ~1:1 with diameter — 78 -> 2px, 80 -> 4px, 84
-                // -> 8px), so max-safe is 76 and 73 leaves a 3px safety
-                // margin below that breakeven for font-rendering variance
-                // across platforms. The card's OUTER box
-                // ([kSalonMasterCardHeight], the grid's `mainAxisExtent`)
-                // stays untouched — only this circle grows.
-                Container(
-                  height: 73,
-                  width: 73,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: gradient,
-                    ),
-                    boxShadow: VelvetShadows.extrudedSmall,
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.person_rounded,
-                      color: BrandColors.white.withValues(alpha: 0.82),
-                      size: 34,
-                    ),
-                  ),
+      // The book affordance is a Stack sibling of the card body (not a child
+      // of its content Column), so it does NOT consume the fixed
+      // [kSalonMasterCardHeight] overflow budget the card is tuned against.
+      // Placing it above the body in paint order also means its taps never
+      // reach the body's gesture detector — tapping the corner books; tapping
+      // anywhere else still opens the master profile.
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          // Opaque + full-tile so a tap anywhere on the card body (incl. its
+          // center and padding) always resolves onto THIS detector and fires
+          // `onTap`. Without `opaque` + `width: double.infinity` below, the
+          // Stack loosens this non-positioned child's constraints, the body
+          // shrinks to its content width and pins top-left, and the tile's
+          // center falls through to the enclosing scroll viewport (the
+          // whole-card-tap regression this class doc contract guards against).
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapCancel: () => setState(() => _pressed = false),
+            onTapUp: (_) {
+              setState(() => _pressed = false);
+              widget.onTap();
+            },
+            child: AnimatedScale(
+              scale: _pressed ? 0.97 : 1,
+              duration: const Duration(milliseconds: 120),
+              curve: Curves.easeOut,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                // Fill the full tile in BOTH axes. The grid tile constrains
+                // this tightly per column, but the enclosing Stack loosens that
+                // constraint for its non-positioned body child, so `width:
+                // double.infinity` (clamped to the tile's maxWidth) is required
+                // to keep the card spanning the whole column — without it the
+                // body shrinks to content width and the tile's center tap
+                // misses the card body (whole-card-tap regression). Height is
+                // exactly the tile's `mainAxisExtent`, so this adds no overflow.
+                width: double.infinity,
+                height: kSalonMasterCardHeight,
+                decoration: BoxDecoration(
+                  color: BrandColors.base,
+                  borderRadius: BorderRadius.circular(VelvetRadii.card),
+                  boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
                 ),
-                const SizedBox(height: VelvetSpacing.sm),
-                Text(
-                  widget.name,
-                  style: VelvetText.subheading().copyWith(fontSize: 14),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: VelvetSpacing.md - 2,
+                  vertical: VelvetSpacing.md,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.role,
-                  style: VelvetText.feedback(
-                    BrandColors.muted,
-                  ).copyWith(fontSize: 11),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: VelvetSpacing.xs),
-                Row(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    const Icon(
-                      Icons.star_rounded,
-                      size: 13,
-                      color: BrandColors.accentDeep,
+                    // Enlarged 56 -> 68 -> 73 (second pass, +5) so the avatar
+                    // reads more prominently in the grid card. Re-verified
+                    // empirically against the long-name/wrapped-role stress case
+                    // (see `public_salon_profile_screen_test.dart`) starting from
+                    // the 68px baseline: diameter 76 still passes (0px
+                    // overflow), 77 is the first diameter that overflows (1.00px,
+                    // then scaling ~1:1 with diameter — 78 -> 2px, 80 -> 4px, 84
+                    // -> 8px), so max-safe is 76 and 73 leaves a 3px safety
+                    // margin below that breakeven for font-rendering variance
+                    // across platforms. The card's OUTER box
+                    // ([kSalonMasterCardHeight], the grid's `mainAxisExtent`)
+                    // stays untouched — only this circle grows.
+                    Container(
+                      height: 73,
+                      width: 73,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: gradient,
+                        ),
+                        boxShadow: VelvetShadows.extrudedSmall,
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Icons.person_rounded,
+                          color: BrandColors.white.withValues(alpha: 0.82),
+                          size: 34,
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 3),
+                    const SizedBox(height: VelvetSpacing.sm),
                     Text(
-                      widget.ratingLabel,
-                      style: VelvetText.bodyStrong().copyWith(fontSize: 12),
+                      widget.name,
+                      style: VelvetText.subheading().copyWith(fontSize: 14),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.role,
+                      style: VelvetText.feedback(
+                        BrandColors.muted,
+                      ).copyWith(fontSize: 11),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: VelvetSpacing.xs),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(
+                          Icons.star_rounded,
+                          size: 13,
+                          color: BrandColors.accentDeep,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          widget.ratingLabel,
+                          style: VelvetText.bodyStrong().copyWith(fontSize: 12),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
+            ),
+          ),
+          Positioned(
+            top: VelvetSpacing.sm,
+            right: VelvetSpacing.sm,
+            child: _SalonMasterBookButton(
+              key: widget.bookActionKey,
+              semanticLabel: l10n.salonMasterCardBookSemanticLabel(widget.name),
+              onPressed: widget.onBook,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The camel-accent corner "book" affordance overlaid on a [SalonMasterCard].
+///
+/// Icon-only by design — the card is a compact 2-column grid tile with no room
+/// for a labelled button — so its meaning is carried entirely by the
+/// [semanticLabel] ("Записатись до майстра …"). Reuses the card's neumorphic
+/// language: a raised camel circle ([VelvetShadows.extrudedSmall]) matching the
+/// avatar's gradient family, so it reads as native to the card rather than a
+/// new visual element. It owns its own tap so pressing it books the master
+/// (master-scoped flow) without also opening the profile behind it.
+class _SalonMasterBookButton extends StatelessWidget {
+  const _SalonMasterBookButton({
+    super.key,
+    required this.semanticLabel,
+    required this.onPressed,
+  });
+
+  final String semanticLabel;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onPressed,
+        child: Container(
+          height: 34,
+          width: 34,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: <Color>[Color(0xFFC8A878), Color(0xFF8A6840)],
+            ),
+            boxShadow: VelvetShadows.extrudedSmall,
+          ),
+          child: const Center(
+            child: Icon(
+              Icons.event_available_rounded,
+              size: 18,
+              color: BrandColors.white,
             ),
           ),
         ),

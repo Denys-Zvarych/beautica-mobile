@@ -4,7 +4,8 @@
 // long-lived `flutter test` process started crashing the emulator at final
 // teardown (see `all_tests_part1.dart` for the full incident). CI now runs
 // `all_tests_part1.dart` + `all_tests_part2.dart` instead — the same flows
-// (19, then 21 after the Beautica OTP task Phase B6 additions), split in two.
+// (19, 21 after the Beautica OTP task Phase B6 additions, then 22 with the
+// salon-master booking-bug flow), split in two.
 // This file is kept for local convenience (running the FULL suite in one shot
 // against a connected emulator); update all THREE files together when
 // adding/removing a flow.
@@ -74,6 +75,7 @@ import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_master_book_flow_test.dart' as salon_master_book;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
@@ -113,6 +115,9 @@ void main() {
     register_locality_persistence.main,
   );
   group('salon_booking_flow', salon_booking.main);
+  // Salon-master booking bug (Step 2.7 Rule 3b) — corner book button →
+  // master-scoped ServiceSelectorSheet shows ONLY that master's services.
+  group('salon_master_book_flow', salon_master_book.main);
   group('salon_service_filter_flow', salon_service_filter.main);
   group('schedule_edit_flow', schedule_edit.main);
   group('schedule_first_create_flow', schedule_first_create.main);

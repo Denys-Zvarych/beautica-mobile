@@ -1191,6 +1191,73 @@ void main() {
       expect(find.text('master-master-1'), findsOneWidget);
     });
 
+    // Book-button counterpart to the body-tap navigation test above (closes the
+    // reported salon-master booking bug). The salon master card gained a corner
+    // «book» affordance that must route into the MASTER-SCOPED booking flow
+    // (`RouteNames.bookingNew` carrying the bare `masterId` String — the same
+    // contract the master profile's own book CTA uses → `ServiceSelectorSheet`,
+    // which shows ONLY that master's services). BEFORE the fix there was no such
+    // affordance and the only booking entry point was the salon-wide footer CTA
+    // (full-catalogue). This asserts:
+    //   (a) the book button pushes `RouteNames.bookingNew` carrying THIS
+    //       master's id as the `extra`, and
+    //   (b) the two affordances do NOT collide — tapping the corner book button
+    //       does NOT also open the master profile (the body-tap destination),
+    //       guarding the Stack paint-order + opaque-hit-test contract on the
+    //       card.
+    testWidgets(
+      'master card BOOK button pushes RouteNames.bookingNew with the master id '
+      '(master-scoped booking) — NOT the master profile route',
+      (tester) async {
+        await _pumpTall(tester);
+        final router = GoRouter(
+          initialLocation: '/salons/$_kSalonId',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/salons/:salonId',
+              builder: (context, state) => PublicSalonProfileScreen(
+                salonId: state.pathParameters['salonId']!,
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.bookingNew,
+              builder: (_, state) =>
+                  Scaffold(body: Text('booking-new-${state.extra}')),
+            ),
+            // Trap route: if the corner book button ever regresses to opening
+            // the master profile (the body-tap destination), THIS route renders
+            // instead and the `findsNothing` assertion below fails loudly rather
+            // than the test silently finding neither screen.
+            GoRoute(
+              path: '/masters/:masterId',
+              builder: (_, state) => Scaffold(
+                body: Text('master-${state.pathParameters['masterId']}'),
+              ),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(router, overrides: _overrides());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        final bookButton = find.byKey(
+          const Key('salon-master-card-book-master-1'),
+        );
+        expect(bookButton, findsOneWidget);
+        await tester.tap(bookButton);
+        await tester.pumpAndSettle();
+
+        // (a) Master-SCOPED booking route reached, carrying THIS master's id
+        //     (the bare String `master-1`) as the route `extra`.
+        expect(find.text('booking-new-master-1'), findsOneWidget);
+        // (b) The book button did NOT also open the master profile.
+        expect(find.text('master-master-1'), findsNothing);
+      },
+    );
+
     testWidgets('empty masters list shows the empty state', (tester) async {
       await _pumpTall(tester);
       await tester.pumpApp(

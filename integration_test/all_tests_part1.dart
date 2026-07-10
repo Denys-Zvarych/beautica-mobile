@@ -14,7 +14,7 @@
 // test; a single process carrying too many tests degrades that channel
 // before its own clean shutdown.
 //
-// This file (+ `all_tests_part2.dart`) splits the flows (19, then 21 after
+// This file (+ `all_tests_part2.dart`) splits the flows (19, 21 after
 // the Beautica OTP task Phase B6 additions) into two smaller `flutter test`
 // invocations run sequentially in one emulator session (see pr-validate.yml)
 // — same boot-cost amortization as before, just two shorter-lived processes
