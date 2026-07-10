@@ -98,19 +98,32 @@ class _SalonServiceSelectionScreenState
   final Set<String> _expandedKeys = <String>{};
   bool _expandedSeeded = false;
 
-  /// The one-shot search pre-selection for THIS salon, consumed once in
-  /// [initState] (before the catalogue resolves) so no Riverpod provider is
-  /// mutated during a widget build. Null when the client did not arrive from a
-  /// search with an active service filter, or the pending payload targeted a
-  /// different provider. Matched against the resolved catalogue in [_seedOnce].
+  /// The one-shot search pre-selection for THIS salon. Captured (read-only, via
+  /// [peekFor]) in [initState] so it is available synchronously before the
+  /// catalogue resolves — [_seedOnce] matches it against the resolved services.
+  /// Null when the client did not arrive from a search with an active service
+  /// filter, or the pending payload targeted a different provider.
   PendingServicePreselection? _preselection;
 
   @override
   void initState() {
     super.initState();
+    // PEEK (read-only) the pending search service pre-selection for this salon
+    // so it is captured synchronously for [_seedOnce] — peekFor does NOT mutate
+    // the provider, so this is safe inside initState (which for a `context.push`
+    // route runs during the next frame's build phase; a provider WRITE here
+    // throws "Tried to modify a provider while the widget tree was building").
     _preselection = ref
         .read(pendingServicePreselectionControllerProvider.notifier)
-        .consumeFor(widget.salonId);
+        .peekFor(widget.salonId);
+    // Defer the one-shot CLEAR off the build phase. After this frame the payload
+    // is gone, so backing out of the booking flow and re-entering will not
+    // re-preselect. Only the CLEAR is deferred — the capture above stays
+    // synchronous so the seed never races catalogue resolution.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
+    });
   }
 
   @override

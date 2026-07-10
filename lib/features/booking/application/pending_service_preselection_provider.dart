@@ -5,13 +5,17 @@
 //   • [set] — called at result-card navigation time (master / salon card) when
 //     a service filter is active, recording which provider + which service-type
 //     slugs to pre-check.
-//   • [consumeFor] — called on the booking Step 1 screen's FIRST build (via its
+//   • [peekFor] — called on the booking Step 1 screen's FIRST build (via its
 //     `initState`). Returns the payload IFF its [targetId] matches the provider
-//     being booked, and NULLS the state in the same call — a strict one-shot
-//     consume. Backing out of the booking flow and re-entering therefore does
-//     NOT re-preselect (the agreed behaviour).
-//   • [clear] — belt-and-suspenders reset, called when the user clears the
-//     search filters so a stale payload can never leak into a later booking.
+//     being booked, WITHOUT mutating state (safe during a build). The screen
+//     then defers the one-shot [clear] to a post-frame callback, so the payload
+//     is consumed exactly once after the screen mounts — backing out and
+//     re-entering does NOT re-preselect (the agreed behaviour).
+//   • [consumeFor] — read-and-clear in one call; retained for non-lifecycle
+//     callers. Must NOT be called during a build/`initState` (it writes state).
+//   • [clear] — belt-and-suspenders reset, called both as the deferred one-shot
+//     consume above and when the user clears the search filters so a stale
+//     payload can never leak into a later booking.
 //
 // keepAlive: the payload must survive the `context.push` from the results
 // screen into the booking flow (an autoDispose provider would reset the moment
@@ -60,10 +64,31 @@ class PendingServicePreselectionController
     );
   }
 
+  /// Returns the pending payload IFF it targets [targetId], WITHOUT touching
+  /// state. Safe to call from a widget's `initState`/build (it never mutates
+  /// the provider). Returns null when nothing is pending or the pending payload
+  /// targets a different provider — in which case the booking flow pre-checks
+  /// nothing and the other target's payload is left intact.
+  ///
+  /// Split from [consumeFor] to fix a Riverpod "modified a provider while the
+  /// widget tree was building" crash: the booking Step 1 screens read the
+  /// payload synchronously in `initState` (so [_seedOnce] can pre-check against
+  /// the resolved catalogue), then defer the one-shot [clear] to a post-frame
+  /// callback — off the build phase.
+  PendingServicePreselection? peekFor(String targetId) {
+    final PendingServicePreselection? current = state;
+    if (current == null || current.targetId != targetId) return null;
+    return current;
+  }
+
   /// Returns the pending payload IFF it targets [targetId], then clears it
   /// (one-shot consume). Returns null when nothing is pending or the pending
   /// payload targets a different provider — in which case the booking flow
   /// pre-checks nothing and the other target's payload is left intact.
+  ///
+  /// WARNING: mutates state — must NOT be called during a widget build /
+  /// `initState`. The booking screens use [peekFor] + a deferred [clear]
+  /// instead. Retained for API symmetry / non-lifecycle callers.
   PendingServicePreselection? consumeFor(String targetId) {
     final PendingServicePreselection? current = state;
     if (current == null || current.targetId != targetId) return null;
