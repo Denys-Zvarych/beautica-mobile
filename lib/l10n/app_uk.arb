@@ -3303,13 +3303,6 @@
   "@bookingServiceSelectIntro": {
     "description": "One-line intro under the top bar on the booking Step 1 service-selection screen."
   },
-  "bookingPinnedServicesHeading": "{count, plural, one{Обрана послуга} few{Обрані послуги} many{Обрані послуги} other{Обрані послуги}}",
-  "@bookingPinnedServicesHeading": {
-    "description": "Heading of the pinned section at the top of the booking service catalogue that shows the service(s) the client arrived with from a search pre-selection. Singular for one pinned service, plural otherwise.",
-    "placeholders": {
-      "count": { "type": "int" }
-    }
-  },
   "bookingMasterStripLabel": "Запис до майстра",
   "@bookingMasterStripLabel": {
     "description": "Small caption line above the master's name on the booking-flow MasterStrip context card."

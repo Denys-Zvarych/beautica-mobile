@@ -113,15 +113,17 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
   final Set<String> _expandedKeys = <String>{};
   bool _seeded = false;
 
-  /// Service ids matched by the discovery-search pre-selection ([_preselection]).
-  /// These are rendered in a pinned section at the TOP of the catalogue and
-  /// suppressed from their category accordion below (so they never appear
-  /// twice). Populated once by [_seedOnce]; a stable reference thereafter, so
-  /// the catalogue body's memoized grouping never invalidates on it. Empty when
-  /// the client did not arrive from a search — the pinned section then renders
-  /// nothing. Deliberately does NOT include [widget.initialServiceId] (that
-  /// extension point stays in-category and expands its own section).
-  final Set<String> _pinnedIds = <String>{};
+  /// Category keys (uppercased-trimmed `category` slugs) that contain a service
+  /// matched by the discovery-search pre-selection ([_preselection]). These
+  /// categor(ies) are HOISTED to the TOP of the accordion and start EXPANDED,
+  /// so the searched service is visible immediately in its normal category row
+  /// alongside its siblings. Populated once by [_seedOnce]; a stable reference
+  /// thereafter, so the catalogue body's memoized grouping never invalidates on
+  /// it. Empty when the client did not arrive from a search — the catalogue
+  /// then renders in normal category order with default (collapsed) expansion.
+  /// Deliberately does NOT include [widget.initialServiceId]'s category (that
+  /// extension point expands its own section but is not hoisted).
+  final Set<String> _hoistedKeys = <String>{};
 
   /// The one-shot search pre-selection for THIS master. Captured (read-only,
   /// via [peekFor]) in [initState] so it is available synchronously before the
@@ -167,8 +169,15 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
   ///   2. [_preselection] — the discovery search service filter, matched by
   ///      EXACT `serviceTypeSlug` equality across ALL of the master's services
   ///      (multi-select), with a defensive fallback to the service-type display
-  ///      name only when a service has no slug of its own. No match degrades to
-  ///      nothing pre-checked — never a wrong check.
+  ///      name only when a service has no slug of its own. Each matched
+  ///      service's CATEGORY is hoisted to the top and expanded (see
+  ///      [_hoistedKeys]) — the service itself stays in its normal category row
+  ///      with its siblings, just checked. No match degrades to nothing
+  ///      pre-checked and no hoisting — never a wrong check.
+  ///
+  /// Expansion + hoist are LOCAL widget state ([_expandedKeys] / [_hoistedKeys])
+  /// seeded here — never a provider write — so they are safe to mutate off the
+  /// build phase and cannot trip Riverpod's "modified a provider while building".
   void _seedOnce(List<MasterService> services) {
     if (_seeded) return;
     _seeded = true;
@@ -191,10 +200,12 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
       for (final MasterService s in services) {
         if (_matchesPreselection(s.serviceTypeSlug, s.serviceTypeNameUk, pre)) {
           selectedIds.add(s.id);
-          // Pin the match at the top instead of expanding its category — the
-          // service is now surfaced immediately, so auto-expanding (and
-          // scrolling to find) its in-accordion row would be redundant.
-          _pinnedIds.add(s.id);
+          // Hoist + expand the matched service's category so it sits at the top
+          // of the accordion with all its sibling services visible and this one
+          // checked — instead of surfacing the match alone in a pinned section.
+          final String key = (s.category ?? '').trim().toUpperCase();
+          _hoistedKeys.add(key);
+          _expandedKeys.add(key);
         }
       }
     }
@@ -304,7 +315,7 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                   return _CatalogueBody(
                     master: master,
                     services: services,
-                    pinnedIds: _pinnedIds,
+                    hoistedKeys: _hoistedKeys,
                     selectedIdsListenable: _selectionController,
                     expandedKeys: _expandedKeys,
                     onToggleService: _selectionController.toggleService,
@@ -487,7 +498,7 @@ class _CatalogueBody extends ConsumerStatefulWidget {
   const _CatalogueBody({
     required this.master,
     required this.services,
-    required this.pinnedIds,
+    required this.hoistedKeys,
     required this.selectedIdsListenable,
     required this.expandedKeys,
     required this.onToggleService,
@@ -497,9 +508,9 @@ class _CatalogueBody extends ConsumerStatefulWidget {
   final Master master;
   final List<MasterService> services;
 
-  /// Service ids surfaced in the pinned top section — excluded from the
-  /// category accordion so they never appear twice. Empty ⇒ no pinned section.
-  final Set<String> pinnedIds;
+  /// Category keys hoisted to the top of the accordion (they contain a
+  /// search-matched service). Empty ⇒ normal first-appearance category order.
+  final Set<String> hoistedKeys;
   final ValueListenable<Set<String>> selectedIdsListenable;
   final Set<String> expandedKeys;
   final ValueChanged<String> onToggleService;
@@ -518,7 +529,6 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
   // the resolved category options never changed. Cache the grouped result
   // and only recompute when either input's identity actually changes.
   List<CatalogueCategoryGroup>? _cachedGroups;
-  List<CatalogueRow>? _cachedPinnedRows;
   List<MasterService>? _cachedServices;
   List<ServiceCategoryOption>? _cachedOptions;
 
@@ -528,17 +538,6 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
   ) {
     _rebuildIfNeeded(categoriesAsync, l10n);
     return _cachedGroups!;
-  }
-
-  /// The pinned rows (search-preselected services), in `services` order.
-  /// Empty ⇒ the caller renders no pinned section. Shares the same memo as
-  /// the grouped output so a rebuild computes both from one pass.
-  List<CatalogueRow> _pinnedRowsFor(
-    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
-    AppLocalizations l10n,
-  ) {
-    _rebuildIfNeeded(categoriesAsync, l10n);
-    return _cachedPinnedRows!;
   }
 
   void _rebuildIfNeeded(
@@ -551,16 +550,30 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
         identical(_cachedOptions, options)) {
       return;
     }
-    // Pinned rows are excluded from the accordion so a searched service is
-    // never shown twice; `pinnedIds` is a stable reference for this screen's
-    // lifetime (seeded once), so it needs no separate cache key.
-    _cachedPinnedRows = <CatalogueRow>[
-      for (final MasterService s in widget.services)
-        if (widget.pinnedIds.contains(s.id)) _toCatalogueRow(s),
-    ];
-    _cachedGroups = _group(widget.services, categoriesAsync, l10n);
+    // Group by category (first-appearance order), then hoist the matched
+    // categor(ies) to the top in the SAME memoized pass — `hoistedKeys` is a
+    // stable reference for this screen's lifetime (seeded once), so it needs no
+    // separate cache key.
+    _cachedGroups = _hoistMatched(
+      _group(widget.services, categoriesAsync, l10n),
+    );
     _cachedServices = widget.services;
     _cachedOptions = options;
+  }
+
+  /// Stable partition: categories containing a search-matched service first (in
+  /// their original relative order), then every other category (original
+  /// order). A no-op when nothing was hoisted.
+  List<CatalogueCategoryGroup> _hoistMatched(
+    List<CatalogueCategoryGroup> groups,
+  ) {
+    if (widget.hoistedKeys.isEmpty) return groups;
+    final List<CatalogueCategoryGroup> matched = <CatalogueCategoryGroup>[];
+    final List<CatalogueCategoryGroup> rest = <CatalogueCategoryGroup>[];
+    for (final CatalogueCategoryGroup g in groups) {
+      (widget.hoistedKeys.contains(g.key) ? matched : rest).add(g);
+    }
+    return <CatalogueCategoryGroup>[...matched, ...rest];
   }
 
   @override
@@ -571,7 +584,6 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
       categoriesAsync,
       l10n,
     );
-    final List<CatalogueRow> pinnedRows = _pinnedRowsFor(categoriesAsync, l10n);
     String headerSemantics({
       required String label,
       required int count,
@@ -611,21 +623,6 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
                 const SizedBox(height: VelvetSpacing.lg),
                 MasterStrip(master: widget.master),
                 const SizedBox(height: VelvetSpacing.xl),
-                // Pinned search-preselection section — renders nothing when
-                // the client did not arrive from a search (pinnedRows empty).
-                if (pinnedRows.isNotEmpty) ...<Widget>[
-                  CataloguePinnedSection(
-                    key: const Key('booking-pinned-services'),
-                    heading: l10n.bookingPinnedServicesHeading(
-                      pinnedRows.length,
-                    ),
-                    rows: pinnedRows,
-                    selectedIdsListenable: widget.selectedIdsListenable,
-                    onToggleService: widget.onToggleService,
-                    tileKeyForId: _bookingTileKeyForId,
-                  ),
-                  const SizedBox(height: VelvetSpacing.xl),
-                ],
               ],
             ),
           ),
@@ -674,9 +671,6 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
     final Map<String, List<MasterService>> buckets =
         <String, List<MasterService>>{};
     for (final MasterService s in services) {
-      // Pinned (search-preselected) services live in the top section only —
-      // skip them here so they are not duplicated inside their category.
-      if (widget.pinnedIds.contains(s.id)) continue;
       final String key = (s.category ?? '').trim().toUpperCase();
       (buckets[key] ??= <MasterService>[]).add(s);
     }
