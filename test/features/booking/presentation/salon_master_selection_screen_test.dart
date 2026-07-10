@@ -166,6 +166,110 @@ GoRouter _routerFor({ValueChanged<SalonBookingTimeArgs>? onReached}) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Per-master professional-title regression (salon-master-title bug).
+//
+// The eligible-master itemBuilder previously passed the SHARED generic role
+// (`_roleLabel(m.type, l10n)`) as EVERY row's subtitle, so all salon masters
+// (all `MasterType.salonMaster`) showed the identical "Майстер салону"
+// subtitle regardless of their own title. The fix binds each master's OWN
+// `professionalTitle` (trimmed, non-empty) and falls back to the generic role
+// only when it is null/blank.
+//
+// These fixtures are LOCAL to that regression test: four eligible masters, ALL
+// `MasterType.salonMaster` and ALL covering svc-1 (so none is filtered out by
+// the eligibility rule), with DISTINCT titles "Стиліст"/"Барбер" and two
+// blank cases (null + whitespace) that must both fall back to "Майстер
+// салону".
+const _titleStylist = SalonMasterSummary(
+  masterId: 'ts1',
+  firstName: 'Ірина',
+  lastName: 'Стиль',
+  professionalTitle: 'Стиліст',
+  avgRating: 4.8,
+  reviewCount: 5,
+  type: MasterType.salonMaster,
+);
+const _titleBarber = SalonMasterSummary(
+  masterId: 'ts2',
+  firstName: 'Петро',
+  lastName: 'Голій',
+  professionalTitle: 'Барбер',
+  avgRating: 4.7,
+  reviewCount: 8,
+  type: MasterType.salonMaster,
+);
+const _titleNull = SalonMasterSummary(
+  masterId: 'ts3',
+  firstName: 'Ганна',
+  lastName: 'Безтитул',
+  // professionalTitle omitted -> null -> falls back to the role label.
+  avgRating: 4.5,
+  reviewCount: 2,
+  type: MasterType.salonMaster,
+);
+const _titleWhitespace = SalonMasterSummary(
+  masterId: 'ts4',
+  firstName: 'Марта',
+  lastName: 'Пробіл',
+  professionalTitle: '   ', // whitespace-only -> trims empty -> role fallback.
+  avgRating: 4.4,
+  reviewCount: 1,
+  type: MasterType.salonMaster,
+);
+
+const _titleMasters = <SalonMasterSummary>[
+  _titleStylist,
+  _titleBarber,
+  _titleNull,
+  _titleWhitespace,
+];
+
+// Every master covers svc-1 -> all four are eligible and rendered.
+final _titleCoverage = <String, Map<String, String>>{
+  'ts1': <String, String>{'svc-1': 'assignment-ts1-svc-1'},
+  'ts2': <String, String>{'svc-1': 'assignment-ts2-svc-1'},
+  'ts3': <String, String>{'svc-1': 'assignment-ts3-svc-1'},
+  'ts4': <String, String>{'svc-1': 'assignment-ts4-svc-1'},
+};
+
+List<Object> _titleOverrides() => <Object>[
+  publicSalonProfileProvider(
+    _kSalonId,
+  ).overrideWith((ref) => (_stubSalon, _titleMasters)),
+  salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
+  salonMasterServiceCoverageProvider(
+    _kSalonId,
+  ).overrideWith((ref) => _titleCoverage),
+];
+
+/// Router whose master-selection screen selects ONLY svc-1, so all four
+/// title-fixture masters (each covering svc-1) are eligible.
+GoRouter _titleRouter() {
+  return GoRouter(
+    initialLocation: RouteNames.salonBookingMasters,
+    routes: <RouteBase>[
+      GoRoute(
+        path: RouteNames.salonBookingMasters,
+        builder: (context, state) => const SalonMasterSelectionScreen(
+          args: SalonBookingMasterSelectionArgs(
+            salonId: _kSalonId,
+            selectedServiceIds: <String>['svc-1'],
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+/// Finds the subtitle [text] scoped to a SPECIFIC master's row (by the outer
+/// `_MasterPickRowListener`'s key) — so an assertion targets the RIGHT row's
+/// subtitle, never merely "this string exists somewhere on screen".
+Finder _subtitleInRow(String masterId, String text) => find.descendant(
+  of: find.byKey(Key('salon_booking_master_row_$masterId')),
+  matching: find.text(text),
+);
+
 void main() {
   testWidgets(
     'only masters covering >=1 selected service render (m3 filtered out)',
@@ -357,6 +461,51 @@ void main() {
       );
 
       await tester.pumpAndSettle();
+    },
+  );
+
+  // salon-master-title regression — each salon master's row must show its OWN
+  // `professionalTitle` (with a role fallback when null/blank), NOT the shared
+  // generic role for everyone. The pre-fix itemBuilder passed
+  // `role: _roleLabel(m.type, l10n)` for every row, so all four rows below
+  // (all MasterType.salonMaster) rendered the identical "Майстер салону"
+  // subtitle — the per-title `findsOneWidget`/`findsNothing` assertions here
+  // would then FAIL, which is exactly what guards the fix.
+  testWidgets(
+    'each salon master row shows its OWN professionalTitle, with the role '
+    'label as fallback when the title is null or whitespace',
+    (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_titleRouter(), overrides: _titleOverrides());
+      await tester.pumpAndSettle();
+
+      // All four masters are eligible (each covers svc-1) and rendered.
+      expect(
+        find.byKey(const Key('salon_booking_master_row_ts1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon_booking_master_row_ts4')),
+        findsOneWidget,
+      );
+
+      // Each titled master's row shows its OWN title — scoped to that row so
+      // we assert the RIGHT subtitle, not just "the text exists somewhere".
+      expect(_subtitleInRow('ts1', 'Стиліст'), findsOneWidget);
+      expect(_subtitleInRow('ts2', 'Барбер'), findsOneWidget);
+
+      // ...and NOT another master's title or the shared generic role. On the
+      // OLD code every row showed "Майстер салону", so each of these would
+      // find that generic label in the titled rows and fail.
+      expect(_subtitleInRow('ts1', 'Барбер'), findsNothing);
+      expect(_subtitleInRow('ts1', 'Майстер салону'), findsNothing);
+      expect(_subtitleInRow('ts2', 'Стиліст'), findsNothing);
+      expect(_subtitleInRow('ts2', 'Майстер салону'), findsNothing);
+
+      // Null-title master falls back to the generic role label.
+      expect(_subtitleInRow('ts3', 'Майстер салону'), findsOneWidget);
+      // Whitespace-only title trims empty -> same role fallback.
+      expect(_subtitleInRow('ts4', 'Майстер салону'), findsOneWidget);
     },
   );
 }

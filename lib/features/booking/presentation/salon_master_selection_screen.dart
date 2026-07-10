@@ -758,11 +758,19 @@ class _Body extends StatelessWidget {
                 const SizedBox(height: VelvetSpacing.sm + 4),
             itemBuilder: (BuildContext context, int i) {
               final SalonMasterSummary m = staticModel.eligible[i];
+              // Prefer the master's own professional title/label; fall back to
+              // the generic type role ("Майстер салону" etc.) only when the
+              // master has not set one. Mirrors the canonical salon roster card
+              // (`public_salon_profile_screen.dart`).
+              final String? ownTitle = m.professionalTitle?.trim();
+              final String role = (ownTitle != null && ownTitle.isNotEmpty)
+                  ? ownTitle
+                  : _roleLabel(m.type, l10n);
               return _MasterPickRowListener(
                 key: Key('salon_booking_master_row_${m.masterId}'),
                 masterId: m.masterId,
                 name: '${m.firstName} ${m.lastName}'.trim(),
-                role: _roleLabel(m.type, l10n),
+                role: role,
                 ratingLabel: m.reviewCount > 0
                     ? (m.avgRating?.toStringAsFixed(1) ?? '—')
                     : '—',
