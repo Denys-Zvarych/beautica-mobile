@@ -22,6 +22,18 @@ import 'package:flutter_test/flutter_test.dart';
 ///   • `_GroupRow` avatar (40dp)         — salon_master_selection_screen.dart
 ///   • `SalonMasterStrip` avatar (48dp)  — salon_master_strip.dart
 ///
+/// WIDGET-CONSOLIDATION REFACTOR (2026-07): the `SalonMasterStrip` 48 dp avatar
+/// (and the independent `MasterStrip`'s previously-`BoxShape.circle` avatar,
+/// which was a latent instance of the same bug) were extracted into the shared
+/// `widgets/master_avatar_badge.dart` (`MasterAvatarBadge`). The
+/// shadow-bearing `BoxDecoration` that carries the RRect workaround now lives
+/// there, at a single source, so `master_avatar_badge.dart` is guarded below —
+/// otherwise a future edit reintroducing `shape: BoxShape.circle` at the
+/// avatar's new home would sail past this guard. `salon_master_strip.dart`
+/// stays guarded too: it still hand-rolls a separate RRect+shadow chip
+/// decoration, and `salon_master_selection_screen.dart` still hosts the three
+/// selection-screen circles.
+///
 /// WHY THIS IS A STRUCTURAL TEST, NOT A GOLDEN
 /// -------------------------------------------
 /// Golden tests render on **Skia** in the test harness, which draws
@@ -54,6 +66,10 @@ void main() {
   const List<String> guardedFiles = <String>[
     'lib/features/booking/presentation/salon_master_selection_screen.dart',
     'lib/features/booking/presentation/widgets/salon_master_strip.dart',
+    // Single-source home of the extracted shared master avatar's
+    // shadow-bearing decoration (widget-consolidation refactor) — the RRect
+    // workaround now lives here for BOTH strips, so it must be guarded here.
+    'lib/features/booking/presentation/widgets/master_avatar_badge.dart',
   ];
 
   group('Impeller-GLES circle+shadow guard', () {

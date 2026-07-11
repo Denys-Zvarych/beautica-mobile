@@ -28,6 +28,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 
 import '../../domain/salon_master_schedule.dart';
+import 'master_avatar_badge.dart';
 import 'master_strip.dart' show masterRoleLabel;
 
 /// A compact "whose appointment you're picking" strip pinned to the top of
@@ -72,34 +73,7 @@ class SalonMasterStrip extends StatelessWidget {
         padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
         child: Row(
           children: <Widget>[
-            Container(
-              height: 48,
-              width: 48,
-              decoration: BoxDecoration(
-                // RRect (radius = half the 48dp side) reads as a circle but
-                // avoids Impeller-GLES's broken circle box-shadow blur path
-                // (a blurred BoxShadow on BoxShape.circle rasterizes as a hard
-                // white square under the opengles backend).
-                borderRadius: BorderRadius.circular(24),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: avatarGradient,
-                ),
-                boxShadow: VelvetShadows.extrudedSmall,
-                border: Border.all(
-                  color: BrandColors.white.withValues(alpha: 0.35),
-                  width: 2,
-                ),
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.person_rounded,
-                  color: BrandColors.white.withValues(alpha: 0.82),
-                  size: 24,
-                ),
-              ),
-            ),
+            MasterAvatarBadge(gradient: avatarGradient, bordered: true),
             const SizedBox(width: VelvetSpacing.md),
             Expanded(
               child: Column(

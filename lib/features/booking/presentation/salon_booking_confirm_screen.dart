@@ -28,13 +28,13 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../application/salon_booking_submit_notifier.dart';
 import '../domain/salon_booking_confirm_args.dart';
+import 'widgets/booking_comment_field.dart';
+import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/salon_appointment_card.dart';
 import 'widgets/salon_avatar_gradients.dart';
@@ -55,12 +55,10 @@ class _SalonBookingConfirmScreenState
   static const int _maxComment = 500;
 
   final TextEditingController _comment = TextEditingController();
-  final FocusNode _commentFocus = FocusNode();
 
   @override
   void dispose() {
     _comment.dispose();
-    _commentFocus.dispose();
     super.dispose();
   }
 
@@ -146,11 +144,13 @@ class _SalonBookingConfirmScreenState
       },
       child: Scaffold(
         backgroundColor: BrandColors.base,
-        bottomNavigationBar: _CtaFooter(
+        bottomNavigationBar: BookingCtaFooter(
           key: const Key('salon-confirm-cta-footer'),
+          buttonKey: const Key('salon-confirm-submit-cta'),
           label: ctaLabel,
-          submitting: inFlight,
-          onSubmit: _submit,
+          enabled: true,
+          loading: inFlight,
+          onPressed: _submit,
         ),
         body: SafeArea(
           bottom: false,
@@ -181,9 +181,9 @@ class _SalonBookingConfirmScreenState
                         ),
                         const SizedBox(height: VelvetSpacing.md),
                       ],
-                      _CommentField(
+                      BookingCommentField(
                         controller: _comment,
-                        focusNode: _commentFocus,
+                        fieldKey: const Key('salon-confirm-comment-field'),
                         maxLength: _maxComment,
                       ),
                     ],
@@ -236,135 +236,6 @@ class _AppointmentCardSlot extends StatelessWidget {
           failure: failure,
         );
       },
-    );
-  }
-}
-
-/// Optional single note applied to every appointment's booking — mirrors
-/// `BookingConfirmScreen`'s comment field.
-class _CommentField extends StatelessWidget {
-  const _CommentField({
-    required this.controller,
-    required this.focusNode,
-    required this.maxLength,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final int maxLength;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(l10n.bookingCommentLabel, style: VelvetText.label()),
-        const SizedBox(height: VelvetSpacing.xs),
-        NeumorphicInset(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.sm,
-            ),
-            child: TextField(
-              key: const Key('salon-confirm-comment-field'),
-              controller: controller,
-              focusNode: focusNode,
-              maxLines: 3,
-              minLines: 2,
-              maxLength: maxLength,
-              cursorColor: BrandColors.accentDeep,
-              style: VelvetText.bodyStrong14,
-              buildCounter:
-                  (
-                    BuildContext context, {
-                    required int currentLength,
-                    required int? maxLength,
-                    required bool isFocused,
-                  }) => null,
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                border: InputBorder.none,
-                hintText: l10n.bookingCommentHint,
-                hintStyle: VelvetText.bookCommentHint,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.xs),
-        Align(
-          alignment: Alignment.centerRight,
-          // Only the counter Text listens to the controller — the appointment
-          // list above stays static while typing (no screen-level setState;
-          // mobile-perf MEDIUM, Phase 14.18 salon-submit audit).
-          child: ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (BuildContext context, TextEditingValue value, Widget? _) {
-              return Text(
-                '${value.text.characters.length} / $maxLength',
-                style: VelvetText.feedbackMutedXs,
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Pinned bottom footer with the full-width submit/retry CTA — same treatment
-/// as `BookingConfirmScreen._CtaFooter`.
-class _CtaFooter extends StatelessWidget {
-  const _CtaFooter({
-    super.key,
-    required this.label,
-    required this.submitting,
-    required this.onSubmit,
-  });
-
-  final String label;
-  final bool submitting;
-  final VoidCallback onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: BrandColors.base,
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: BrandColors.shadowDarkCard,
-            offset: Offset(0, -8),
-            blurRadius: 20,
-          ),
-          BoxShadow(
-            color: BrandColors.shadowLightStrong,
-            offset: Offset(0, -1),
-            blurRadius: 3,
-            spreadRadius: -1,
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.sm + 2,
-            VelvetSpacing.lg,
-            VelvetSpacing.sm + 2,
-          ),
-          child: NeumorphicButton(
-            key: const Key('salon-confirm-submit-cta'),
-            label: label,
-            icon: submitting ? null : Icons.check_circle_outline_rounded,
-            loading: submitting,
-            onPressed: onSubmit,
-          ),
-        ),
-      ),
     );
   }
 }

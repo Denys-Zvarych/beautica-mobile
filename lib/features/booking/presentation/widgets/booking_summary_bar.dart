@@ -24,6 +24,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
@@ -184,7 +185,20 @@ class _BookingSummaryBarState extends State<BookingSummaryBar> {
   }
 
   List<Widget> _populatedChildren(BuildContext context, AppLocalizations l10n) {
-    final _BookingTotals totals = _BookingTotals.from(widget.services);
+    // Sum the typed price/duration fields directly (never a re-parsed display
+    // string); the shared formatter turns the totals into the labels.
+    double minSum = 0;
+    double maxSum = 0;
+    int minutes = 0;
+    for (final MasterService s in widget.services) {
+      minSum += s.priceMin;
+      maxSum += s.priceType == ServicePriceType.range
+          ? (s.priceMax ?? s.priceMin)
+          : s.priceMin;
+      minutes += s.durationMinutes;
+    }
+    final ({String priceLabel, String? durationLabel}) totals =
+        formatBookingTotals(minSum: minSum, maxSum: maxSum, minutes: minutes);
     return <Widget>[
       // Narrow ValueListenable watch (mobile-perf finding): only this toggle
       // row + the itemized list rebuild on an expand/collapse tap. The
@@ -528,38 +542,6 @@ class _TotalRow extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Aggregated totals derived from typed [MasterService] fields — a (low, high)
-/// price band (collapsing to a single value when the band is degenerate) plus
-/// the summed duration.
-class _BookingTotals {
-  const _BookingTotals({required this.priceLabel, this.durationLabel});
-
-  final String priceLabel;
-  final String? durationLabel;
-
-  factory _BookingTotals.from(List<MasterService> services) {
-    double minSum = 0;
-    double maxSum = 0;
-    int minutes = 0;
-    for (final MasterService s in services) {
-      minSum += s.priceMin;
-      maxSum += s.priceType == ServicePriceType.range
-          ? (s.priceMax ?? s.priceMin)
-          : s.priceMin;
-      minutes += s.durationMinutes;
-    }
-    final String priceLabel = minSum == maxSum
-        ? '${_amount(minSum)} грн'
-        : '${_amount(minSum)}–${_amount(maxSum)} грн';
-    return _BookingTotals(
-      priceLabel: priceLabel,
-      durationLabel: minutes > 0 ? DurationMinutes.format(minutes) : null,
-    );
-  }
-
-  static String _amount(double value) => value.toStringAsFixed(0);
 }
 
 /// Card label rule mirrored from `services_list_screen.dart`'s `_ServiceCard`:

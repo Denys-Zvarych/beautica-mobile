@@ -31,6 +31,8 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+import 'master_avatar_badge.dart';
+
 /// Resolves a display label for [type]. Shared by every booking-flow screen
 /// that renders a [MasterStrip] / day-header chip so the wording never drifts
 /// from `PublicMasterProfileScreen`'s own `_roleLabel`.
@@ -109,26 +111,7 @@ class MasterStrip extends StatelessWidget {
           padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
           child: Row(
             children: <Widget>[
-              Container(
-                height: 48,
-                width: 48,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[Color(0xFFD8BE9C), Color(0xFF6A4A28)],
-                  ),
-                  boxShadow: VelvetShadows.extrudedSmall,
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.person_rounded,
-                    color: BrandColors.white.withValues(alpha: 0.82),
-                    size: 24,
-                  ),
-                ),
-              ),
+              const MasterAvatarBadge(),
               const SizedBox(width: VelvetSpacing.md),
               Expanded(
                 child: Column(

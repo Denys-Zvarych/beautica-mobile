@@ -23,6 +23,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../../application/salon_booking_submit_notifier.dart';
 import '../../domain/salon_booking_confirm_args.dart';
+import 'labelled_row.dart';
 import 'salon_master_strip.dart';
 
 /// A single salon appointment summary — [SalonMasterStrip] over a Дата/Час
@@ -73,9 +74,9 @@ class SalonAppointmentCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              _LabelledRow(label: l10n.bookingDateLabel, value: dateLabel),
+              LabelledRow(label: l10n.bookingDateLabel, value: dateLabel),
               const SizedBox(height: VelvetSpacing.sm),
-              _LabelledRow(label: l10n.bookingTimeLabel, value: timeLabel),
+              LabelledRow(label: l10n.bookingTimeLabel, value: timeLabel),
               if (status != null &&
                   status != SalonAppointmentSubmitStatus.pending)
                 Padding(
@@ -85,26 +86,6 @@ class SalonAppointmentCard extends StatelessWidget {
             ],
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _LabelledRow extends StatelessWidget {
-  const _LabelledRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Text(label, style: VelvetText.label()),
-        const SizedBox(height: 3),
-        Text(value, style: VelvetText.bookCardValue15),
       ],
     );
   }

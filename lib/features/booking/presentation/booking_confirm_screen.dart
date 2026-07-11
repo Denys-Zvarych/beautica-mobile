@@ -42,8 +42,6 @@ import 'package:uuid/uuid.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -57,6 +55,8 @@ import '../domain/booking.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_success_args.dart';
 import '../domain/create_booking_request.dart';
+import 'widgets/booking_comment_field.dart';
+import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
 
@@ -78,25 +78,11 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
   static const Uuid _uuid = Uuid();
 
   final TextEditingController _comment = TextEditingController();
-  final FocusNode _commentFocus = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    // Drives the live "x / 500" counter below the comment field.
-    _comment.addListener(_onCommentChanged);
-  }
 
   @override
   void dispose() {
-    _comment.removeListener(_onCommentChanged);
     _comment.dispose();
-    _commentFocus.dispose();
     super.dispose();
-  }
-
-  void _onCommentChanged() {
-    if (mounted) setState(() {});
   }
 
   Future<void> _submit(Master master, MasterService service) async {
@@ -178,10 +164,15 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     return Scaffold(
       backgroundColor: BrandColors.base,
       bottomNavigationBar: (master != null && service != null)
-          ? _CtaFooter(
+          ? BookingCtaFooter(
               key: const Key('booking-confirm-cta-footer'),
-              submitting: submitting,
-              onSubmit: () => _submit(master!, service!),
+              buttonKey: const Key('booking-confirm-submit-cta'),
+              label: submitting
+                  ? l10n.bookingSubmitCtaLoading
+                  : l10n.bookingSubmitCta,
+              enabled: true,
+              loading: submitting,
+              onPressed: () => _submit(master!, service!),
             )
           : null,
       body: SafeArea(
@@ -246,9 +237,9 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                           dense: true,
                         ),
                         const SizedBox(height: VelvetSpacing.md),
-                        _CommentField(
+                        BookingCommentField(
                           controller: _comment,
-                          focusNode: _commentFocus,
+                          fieldKey: const Key('booking-confirm-comment-field'),
                           maxLength: _maxComment,
                         ),
                       ],
@@ -295,135 +286,6 @@ class _LoadingBody extends StatelessWidget {
             radius: VelvetRadii.card,
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Comment field
-// ---------------------------------------------------------------------------
-
-/// Optional note for the master — a muted label above a multi-line
-/// [TextField] inside a [NeumorphicInset], with a live "x / 500" counter.
-class _CommentField extends StatelessWidget {
-  const _CommentField({
-    required this.controller,
-    required this.focusNode,
-    required this.maxLength,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final int maxLength;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(l10n.bookingCommentLabel, style: VelvetText.label()),
-        const SizedBox(height: VelvetSpacing.xs),
-        NeumorphicInset(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.sm,
-            ),
-            child: TextField(
-              key: const Key('booking-confirm-comment-field'),
-              controller: controller,
-              focusNode: focusNode,
-              maxLines: 3,
-              minLines: 2,
-              maxLength: maxLength,
-              cursorColor: BrandColors.accentDeep,
-              style: VelvetText.bodyStrong14,
-              buildCounter:
-                  (
-                    BuildContext context, {
-                    required int currentLength,
-                    required int? maxLength,
-                    required bool isFocused,
-                  }) => null,
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                border: InputBorder.none,
-                hintText: l10n.bookingCommentHint,
-                hintStyle: VelvetText.bookCommentHint,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.xs),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            '${controller.text.characters.length} / $maxLength',
-            style: VelvetText.feedbackMutedXs,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// CTA footer
-// ---------------------------------------------------------------------------
-
-/// Pinned bottom footer carrying the full-width "Записатись" CTA.
-class _CtaFooter extends StatelessWidget {
-  const _CtaFooter({
-    super.key,
-    required this.submitting,
-    required this.onSubmit,
-  });
-
-  final bool submitting;
-  final VoidCallback onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: BrandColors.base,
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: BrandColors.shadowDarkCard,
-            offset: Offset(0, -8),
-            blurRadius: 20,
-          ),
-          BoxShadow(
-            color: BrandColors.shadowLightStrong,
-            offset: Offset(0, -1),
-            blurRadius: 3,
-            spreadRadius: -1,
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.sm + 2,
-            VelvetSpacing.lg,
-            VelvetSpacing.sm + 2,
-          ),
-          child: NeumorphicButton(
-            key: const Key('booking-confirm-submit-cta'),
-            label: submitting
-                ? l10n.bookingSubmitCtaLoading
-                : l10n.bookingSubmitCta,
-            icon: submitting ? null : Icons.check_circle_outline_rounded,
-            loading: submitting,
-            onPressed: onSubmit,
-          ),
-        ),
       ),
     );
   }

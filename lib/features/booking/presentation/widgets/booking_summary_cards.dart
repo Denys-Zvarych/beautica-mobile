@@ -26,9 +26,7 @@
 
 import 'package:flutter/material.dart';
 
-import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -38,7 +36,9 @@ import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 
 import 'booking_recap.dart';
+import 'labelled_row.dart';
 import 'master_strip.dart';
+import 'section_rule.dart';
 
 /// The shared, read-only booking summary card stack.
 ///
@@ -153,25 +153,25 @@ class BookingSummaryCards extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              _LabelledRow(
+              LabelledRow(
                 label: l10n.bookingAddressLabel,
                 value: addressLine ?? l10n.bookingAddressUnknown,
                 detail: addressDetail,
                 compactText: compactText,
               ),
-              _SectionRule(dense: dense),
-              _LabelledRow(
+              SectionRule(dense: dense),
+              LabelledRow(
                 label: l10n.bookingDateLabel,
                 value: dateLabel,
                 compactText: compactText,
               ),
               SizedBox(height: dense ? VelvetSpacing.sm : VelvetSpacing.sm + 4),
-              _LabelledRow(
+              LabelledRow(
                 label: l10n.bookingTimeLabel,
                 value: timeLabel,
                 compactText: compactText,
               ),
-              _SectionRule(dense: dense),
+              SectionRule(dense: dense),
               BookingRecap(
                 selections: selections,
                 dense: dense,
@@ -219,74 +219,4 @@ String? _masterAddressLine(Master master) {
     buf.write(city);
   }
   return buf.toString();
-}
-
-/// A thin hairline separating two sections of the booking-details card — the
-/// only "structure" inside the card.
-class _SectionRule extends StatelessWidget {
-  const _SectionRule({this.dense = false});
-
-  final bool dense;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: dense ? VelvetSpacing.sm + 2 : VelvetSpacing.md,
-      ),
-      child: Container(
-        height: 1,
-        color: BrandColors.faint.withValues(alpha: 0.5),
-      ),
-    );
-  }
-}
-
-/// A plain label → value pair — the muted [label] (e.g. "Адреса", "Дата",
-/// "Час") above its strong [value], with an optional muted [detail] sub-line.
-class _LabelledRow extends StatelessWidget {
-  const _LabelledRow({
-    required this.label,
-    required this.value,
-    this.detail,
-    this.compactText = false,
-  });
-
-  final String label;
-  final String value;
-  final String? detail;
-
-  /// See [BookingSummaryCards.compactText] — shrinks label/value/detail a
-  /// further notch (success screen only).
-  final bool compactText;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Text(
-          label,
-          style: compactText ? VelvetText.label11 : VelvetText.label(),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          value,
-          style: compactText
-              ? VelvetText.bookCardValue135
-              : VelvetText.bookCardValue15,
-        ),
-        if (detail != null) ...<Widget>[
-          const SizedBox(height: 1),
-          Text(
-            detail!,
-            style: compactText
-                ? VelvetText.bookFeedbackMuted115
-                : VelvetText.bookFeedbackMuted125,
-          ),
-        ],
-      ],
-    );
-  }
 }
