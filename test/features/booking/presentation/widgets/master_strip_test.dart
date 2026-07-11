@@ -68,6 +68,42 @@ const _kMaster = Master(
   type: MasterType.independentMaster,
 );
 
+// Title-fallback fixtures (Lviv barber). The three variants differ ONLY in
+// `professionalTitle` — set / null / empty — to pin the subtitle-resolution
+// branch in `MasterStrip.build()`:
+//   subtitle = (title != null && title.isNotEmpty) ? title : roleLabel
+// The original `_kMaster` above carries NO `professionalTitle`, which is
+// exactly the gap that let the "always shows the generic role, never the
+// master's own title" bug ship unnoticed.
+const _kTitledMaster = Master(
+  id: 'master-lviv-1',
+  firstName: 'Тарас',
+  lastName: 'Мельник',
+  avgRating: 4.9,
+  reviewCount: 8,
+  type: MasterType.independentMaster,
+  professionalTitle: 'Барбер',
+);
+
+const _kNullTitleMaster = Master(
+  id: 'master-lviv-2',
+  firstName: 'Тарас',
+  lastName: 'Мельник',
+  avgRating: 4.9,
+  reviewCount: 8,
+  type: MasterType.independentMaster,
+);
+
+const _kEmptyTitleMaster = Master(
+  id: 'master-lviv-3',
+  firstName: 'Тарас',
+  lastName: 'Мельник',
+  avgRating: 4.9,
+  reviewCount: 8,
+  type: MasterType.independentMaster,
+  professionalTitle: '',
+);
+
 /// Mirrors the two production call sites' shared Hero tag exactly
 /// (`slot_picker_screen.dart`, `booking_confirm_screen.dart`).
 String _heroTag(Master master) => 'master-strip-${master.id}';
@@ -249,5 +285,142 @@ void main() {
 
       await tester.pumpAndSettle();
     });
+  });
+
+  // Subtitle resolution: professional title vs generic role label. Regression
+  // guard for the "MasterStrip always renders masterRoleLabel(type), never the
+  // master's own professionalTitle" bug — the subtitle is BOTH the visible
+  // sub-line (showRole) AND the value woven into the Semantics label, so both
+  // are asserted.
+  group('MasterStrip — professional title / role fallback', () {
+    testWidgets(
+      'when professionalTitle is set, the subtitle renders the TITLE (not the '
+      'generic role label) and the Semantics label reflects the title too',
+      (tester) async {
+        await tester.pumpApp(
+          const Center(
+            child: MasterStrip(master: _kTitledMaster, showRole: true),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder masterStrip = find.byType(MasterStrip);
+        final l10n = AppLocalizations.of(tester.element(masterStrip));
+        final String name =
+            '${_kTitledMaster.firstName} ${_kTitledMaster.lastName}';
+
+        // Visible sub-line is the master's own title...
+        expect(
+          find.descendant(
+            of: masterStrip,
+            // i18n-finder-ok: professionalTitle is fixture domain data, not UI copy.
+            matching: find.text('Барбер'),
+          ),
+          findsOneWidget,
+          reason:
+              'showRole:true with a non-empty professionalTitle must render '
+              "the title as the subtitle, not masterRoleLabel(type).",
+        );
+        // ...and NOT the generic role label.
+        expect(
+          find.descendant(
+            of: masterStrip,
+            matching: find.text(l10n.masterRoleIndependent),
+          ),
+          findsNothing,
+          reason:
+              'a set professionalTitle must suppress the generic '
+              'masterRoleIndependent label entirely.',
+        );
+
+        // The Semantics annotation label carries the TITLE, not the role.
+        // Read the shell's `Semantics` widget's declared label directly (its
+        // `properties.label`) rather than the merged semantics-tree node, so
+        // the assertion targets exactly the annotation MasterStrip builds.
+        final Iterable<String?> annotationLabels = tester
+            .widgetList<Semantics>(
+              find.descendant(
+                of: masterStrip,
+                matching: find.byType(Semantics),
+              ),
+            )
+            .map((Semantics s) => s.properties.label);
+        expect(
+          annotationLabels,
+          contains(l10n.bookingMasterStripSemantics(name, 'Барбер')),
+          reason:
+              'the accessibility label must also prefer the professional '
+              'title over the generic role label.',
+        );
+        expect(
+          annotationLabels,
+          isNot(
+            contains(
+              l10n.bookingMasterStripSemantics(
+                name,
+                l10n.masterRoleIndependent,
+              ),
+            ),
+          ),
+          reason:
+              'the role-based semantics label must not be produced when a '
+              'professional title is set.',
+        );
+      },
+    );
+
+    testWidgets(
+      'when professionalTitle is null, the subtitle falls back to the generic '
+      'role label',
+      (tester) async {
+        await tester.pumpApp(
+          const Center(
+            child: MasterStrip(master: _kNullTitleMaster, showRole: true),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder masterStrip = find.byType(MasterStrip);
+        final l10n = AppLocalizations.of(tester.element(masterStrip));
+
+        expect(
+          find.descendant(
+            of: masterStrip,
+            matching: find.text(l10n.masterRoleIndependent),
+          ),
+          findsOneWidget,
+          reason:
+              'a null professionalTitle must fall back to '
+              'masterRoleLabel(type) — l10n.masterRoleIndependent here.',
+        );
+      },
+    );
+
+    testWidgets(
+      'when professionalTitle is an empty string, the subtitle ALSO falls back '
+      'to the generic role label (trimmed-empty is treated as unset)',
+      (tester) async {
+        await tester.pumpApp(
+          const Center(
+            child: MasterStrip(master: _kEmptyTitleMaster, showRole: true),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder masterStrip = find.byType(MasterStrip);
+        final l10n = AppLocalizations.of(tester.element(masterStrip));
+
+        expect(
+          find.descendant(
+            of: masterStrip,
+            matching: find.text(l10n.masterRoleIndependent),
+          ),
+          findsOneWidget,
+          reason:
+              "an empty ('') professionalTitle must be treated as unset "
+              'and fall back to masterRoleLabel(type), never render blank.',
+        );
+      },
+    );
   });
 }

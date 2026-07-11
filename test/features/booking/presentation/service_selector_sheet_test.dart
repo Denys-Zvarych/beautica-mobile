@@ -23,6 +23,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -74,6 +75,22 @@ const _kPedicure = MasterService(
 
 PublicMasterProfileData get _twoCategoryData =>
     (_kMaster, const <MasterService>[_kManicure, _kPedicure]);
+
+// A titled master for the identity-card test below: Change 2 flipped the top
+// `MasterStrip` to `showRole:true, showRating:true`, so the strip must now show
+// the professional title (not the bare label+name) AND the ★ rating readout.
+const _kTitledMaster = Master(
+  id: _kMasterId,
+  firstName: 'Олена',
+  lastName: 'Ковальчук',
+  avgRating: 4.8,
+  reviewCount: 12,
+  type: MasterType.independentMaster,
+  professionalTitle: 'Майстер манікюру',
+);
+
+PublicMasterProfileData get _titledTwoCategoryData =>
+    (_kTitledMaster, const <MasterService>[_kManicure, _kPedicure]);
 
 List<Object> _overrides(
   FutureOr<PublicMasterProfileData> Function(Ref ref) create,
@@ -434,6 +451,64 @@ void main() {
           reason:
               'one service (svc-pedi) remains selected — CTA must stay '
               'enabled',
+        );
+      },
+    );
+  });
+
+  group('identity card (top MasterStrip)', () {
+    // Change 2: the Step-1 top card was a plain label+name `MasterStrip`; it is
+    // now `MasterStrip(showRole:true, showRating:true)`. This proves BOTH flags
+    // are live — the professional title sub-line AND the ★ rating readout —
+    // neither of which the pre-change card rendered.
+    testWidgets(
+      'the top MasterStrip shows the professional title AND the ★ rating',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const ServiceSelectorSheet(masterId: _kMasterId),
+          overrides: _overrides((ref) => _titledTwoCategoryData),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder masterStrip = find.byType(MasterStrip);
+        expect(masterStrip, findsOneWidget);
+
+        // showRole:true → the professional title renders as the sub-line
+        // (previously the card showed NO sub-line at all).
+        expect(
+          find.descendant(
+            of: masterStrip,
+            // i18n-finder-ok: professionalTitle is fixture domain data, not UI copy.
+            matching: find.text('Майстер манікюру'),
+          ),
+          findsOneWidget,
+          reason:
+              'Change 2 set showRole:true — the professional title must '
+              'render on the Step-1 identity card.',
+        );
+
+        // showRating:true → the camel ★ + rating readout renders (previously
+        // absent on the Step-1 card).
+        expect(
+          find.descendant(
+            of: masterStrip,
+            matching: find.byIcon(Icons.star_rounded),
+          ),
+          findsOneWidget,
+          reason: 'Change 2 set showRating:true — the ★ glyph must render.',
+        );
+        expect(
+          find.descendant(
+            of: masterStrip,
+            matching: find.text(_kTitledMaster.avgRating.toStringAsFixed(1)),
+          ),
+          findsOneWidget,
+          reason: 'showRating:true must render avgRating.toStringAsFixed(1).',
         );
       },
     );

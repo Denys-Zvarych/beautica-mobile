@@ -25,13 +25,11 @@
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
-import 'master_avatar_badge.dart';
+import 'master_strip_shell.dart';
 
 /// Resolves a display label for [type]. Shared by every booking-flow screen
 /// that renders a [MasterStrip] / day-header chip so the wording never drifts
@@ -74,100 +72,61 @@ class MasterStrip extends StatelessWidget {
   /// Adds the trailing ★ rating (+ review count) readout.
   final bool showRating;
 
-  /// Camel-wash surface — the same lighter taupe used by the pinned booking
-  /// summary shelf, so the strip reads as sitting on its own elevated card.
-  static const Color _stripSurface = Color(0xFFEDE4D5);
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final String name = '${master.firstName} ${master.lastName}'.trim();
     final String role = masterRoleLabel(master.type, l10n);
+    // Prefer the master's own professional title; fall back to the generic
+    // role label only when no title is set. Mirrors the same idiom used on
+    // `SalonMasterSelectionScreen` / `PublicSalonProfileScreen`.
+    final String? title = master.professionalTitle?.trim();
+    final String subtitle = (title != null && title.isNotEmpty) ? title : role;
     final String ratingLabel = master.avgRating.toStringAsFixed(1);
 
     final String semanticsLabel = showRating
         ? l10n.bookingSummaryMasterSemantics(
             name,
-            role,
+            subtitle,
             ratingLabel,
             l10n.salonReviewCountLabel(master.reviewCount),
           )
-        : l10n.bookingMasterStripSemantics(name, role);
+        : l10n.bookingMasterStripSemantics(name, subtitle);
 
-    return Semantics(
-      label: semanticsLabel,
-      child: Material(
-        // Guards against the Hero-flight shuttle rendering this subtree
-        // outside any Material ancestor: without one, every Text below
-        // resolves against MaterialApp's literal error DefaultTextStyle
-        // (underlined, no explicit height) for the duration of the flight,
-        // producing a brief flash of underlined/tight-line-height text on
-        // the master's name. `transparency` paints nothing itself — it only
-        // installs the ambient Theme/DefaultTextStyle — so it doesn't
-        // interfere with NeumorphicCard's own shadow/decoration painting.
-        type: MaterialType.transparency,
-        child: NeumorphicCard(
-          color: _stripSurface,
-          padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-          child: Row(
-            children: <Widget>[
-              const MasterAvatarBadge(),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      l10n.bookingMasterStripLabel,
-                      style: VelvetText.contactPlatformLabel,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      name,
-                      style: VelvetText.subheading16,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (showRole) ...<Widget>[
-                      const SizedBox(height: 2),
-                      Text(
-                        role,
-                        style: VelvetText.feedbackMutedSm,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
+    return MasterStripShell(
+      semanticsLabel: semanticsLabel,
+      name: name,
+      topLabel: l10n.bookingMasterStripLabel,
+      middleLine: showRole
+          ? Text(
+              subtitle,
+              style: VelvetText.feedbackMutedSm,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            )
+          : null,
+      trailing: showRating
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                const Icon(
+                  Icons.star_rounded,
+                  size: 16,
+                  color: BrandColors.accent,
                 ),
-              ),
-              if (showRating) ...<Widget>[
-                const SizedBox(width: VelvetSpacing.sm),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: <Widget>[
-                    const Icon(
-                      Icons.star_rounded,
-                      size: 16,
-                      color: BrandColors.accent,
-                    ),
-                    const SizedBox(width: 2),
-                    Text(ratingLabel, style: VelvetText.bodyStrong14),
-                    if (master.reviewCount > 0) ...<Widget>[
-                      const SizedBox(width: 3),
-                      Text(
-                        '(${master.reviewCount})',
-                        style: VelvetText.bookFeedbackMuted115,
-                      ),
-                    ],
-                  ],
-                ),
+                const SizedBox(width: 2),
+                Text(ratingLabel, style: VelvetText.bodyStrong14),
+                if (master.reviewCount > 0) ...<Widget>[
+                  const SizedBox(width: 3),
+                  Text(
+                    '(${master.reviewCount})',
+                    style: VelvetText.bookFeedbackMuted115,
+                  ),
+                ],
               ],
-            ],
-          ),
-        ),
-      ),
+            )
+          : null,
     );
   }
 }

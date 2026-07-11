@@ -618,7 +618,11 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
               children: <Widget>[
                 Text(l10n.bookingServiceSelectIntro, style: VelvetText.body14),
                 const SizedBox(height: VelvetSpacing.lg),
-                MasterStrip(master: widget.master),
+                MasterStrip(
+                  master: widget.master,
+                  showRole: true,
+                  showRating: true,
+                ),
                 const SizedBox(height: VelvetSpacing.xl),
               ],
             ),

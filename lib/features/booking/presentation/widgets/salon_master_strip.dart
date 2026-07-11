@@ -23,13 +23,12 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 
 import '../../domain/salon_master_schedule.dart';
-import 'master_avatar_badge.dart';
 import 'master_strip.dart' show masterRoleLabel;
+import 'master_strip_shell.dart';
 
 /// A compact "whose appointment you're picking" strip pinned to the top of
 /// each per-master slide — a camel-wash card with a small raised avatar, the
@@ -48,8 +47,6 @@ class SalonMasterStrip extends StatelessWidget {
   /// screen's slides.
   final List<Color> avatarGradient;
 
-  static const Color _stripSurface = Color(0xFFEDE4D5);
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -62,63 +59,37 @@ class SalonMasterStrip extends StatelessWidget {
       schedule.summedDurationMinutes,
     );
 
-    return Semantics(
-      label: l10n.salonScheduleMasterStripSemantics(
+    return MasterStripShell(
+      semanticsLabel: l10n.salonScheduleMasterStripSemantics(
         name,
         servicesLabel,
         durationLabel,
       ),
-      child: NeumorphicCard(
-        color: _stripSurface,
-        padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-        child: Row(
-          children: <Widget>[
-            MasterAvatarBadge(gradient: avatarGradient, bordered: true),
-            const SizedBox(width: VelvetSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    l10n.bookingMasterStripLabel,
-                    style: VelvetText.masterStripLabel,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    name,
-                    style: VelvetText.masterStripName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      const Icon(
-                        Icons.check_circle_outline_rounded,
-                        size: 13,
-                        color: BrandColors.accent,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          servicesLabel.isEmpty ? role : servicesLabel,
-                          style: VelvetText.masterStripServiceLabel,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+      name: name,
+      topLabel: l10n.bookingMasterStripLabel,
+      avatarGradient: avatarGradient,
+      avatarBordered: true,
+      middleGap: 4,
+      middleLine: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Icon(
+            Icons.check_circle_outline_rounded,
+            size: 13,
+            color: BrandColors.accent,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              servicesLabel.isEmpty ? role : servicesLabel,
+              style: VelvetText.masterStripServiceLabel,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(width: VelvetSpacing.sm),
-            _DurationPill(label: durationLabel),
-          ],
-        ),
+          ),
+        ],
       ),
+      trailing: _DurationPill(label: durationLabel),
     );
   }
 }
