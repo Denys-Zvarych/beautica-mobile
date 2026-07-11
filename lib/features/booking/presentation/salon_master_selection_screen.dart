@@ -1330,7 +1330,7 @@ class _GroupRow extends StatelessWidget {
                 end: Alignment.bottomRight,
                 colors: group.avatarGradient,
               ),
-              boxShadow: VelvetShadows.extrudedSmall,
+              boxShadow: VelvetShadows.borderedCard,
               border: Border.all(
                 color: BrandColors.white.withValues(alpha: 0.35),
                 width: 1.5,

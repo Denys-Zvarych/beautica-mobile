@@ -508,4 +508,87 @@ void main() {
       expect(_subtitleInRow('ts4', 'Майстер салону'), findsOneWidget);
     },
   );
+
+  // white-corner-shadow regression — the 40x40 master avatar in the per-master
+  // grouped preview (`_GroupRow`) previously used `VelvetShadows.extrudedSmall`,
+  // a diagonally-OFFSET shadow pair (`Offset(5,5)` dark + `Offset(-5,-5)`
+  // near-white). On the small rounded avatar the untranslated corner of the
+  // near-white offset shadow poked out as a WHITE SQUARE in the corner. The fix
+  // swapped it to `VelvetShadows.borderedCard` — a single, NON-offset
+  // (`Offset.zero`) shadow — so no translated corner can bleed.
+  //
+  // The mandatory structural guard (golden-independent, per the debugger's
+  // guidance): the `_GroupRow` avatar Container's every `BoxShadow` must have
+  // `offset == Offset.zero`. A regression back to `extrudedSmall` (or any
+  // offset pair) reintroduces a non-zero offset and fails here. The avatar is
+  // located structurally — a 40x40 `Container` with a `BoxDecoration` gradient +
+  // shadow whose child is `Icon(Icons.person_rounded)` — never by a brittle
+  // golden. `_GroupRow` is private, so it is driven through the public screen:
+  // picking m1 (covers only svc-1) auto-attaches svc-1 to m1, materialising
+  // exactly one group row and thus exactly one such avatar.
+  testWidgets(
+    "the grouped-preview master avatar's every BoxShadow has zero offset "
+    '(no white-corner bleed from an offset shadow pair)',
+    (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+      await tester.pumpAndSettle();
+
+      // Pick m1 -> svc-1 auto-attaches -> one `_GroupRow` (and its 40x40
+      // avatar) is rendered inside the grouped preview.
+      await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
+      await tester.pumpAndSettle();
+
+      // Structural finder: the 40x40 gradient+shadow avatar Container. The only
+      // other shadow-bearing gradient avatar on this screen is the 52dp master-
+      // row avatar (`_MasterPickRow`), excluded here by the tight 40x40 size.
+      final Finder avatarFinder = find.byWidgetPredicate((Widget w) {
+        if (w is! Container) return false;
+        final Decoration? decoration = w.decoration;
+        if (decoration is! BoxDecoration) return false;
+        return w.constraints ==
+                const BoxConstraints.tightFor(width: 40, height: 40) &&
+            decoration.gradient != null &&
+            decoration.boxShadow != null;
+      }, description: '40x40 gradient+shadow _GroupRow avatar container');
+
+      // Exactly one group (m1/svc-1) -> exactly one such avatar.
+      expect(avatarFinder, findsOneWidget);
+
+      // Confirm this really is the avatar: it wraps the person glyph.
+      expect(
+        find.descendant(
+          of: avatarFinder,
+          matching: find.byIcon(Icons.person_rounded),
+        ),
+        findsOneWidget,
+      );
+
+      final BoxDecoration decoration =
+          tester.widget<Container>(avatarFinder).decoration! as BoxDecoration;
+
+      // Other avatar invariants (kept, per the debugger's note) — a rounded
+      // (not sharp-cornered) bordered avatar.
+      expect(decoration.borderRadius, isNotNull);
+      expect(decoration.border, isNotNull);
+
+      // THE MANDATORY GUARD — every shadow is non-offset, so no translated
+      // near-white corner can poke out. `extrudedSmall`'s ±5dp offsets would
+      // fail this; `borderedCard`'s single Offset.zero shadow passes.
+      final List<BoxShadow> shadows = decoration.boxShadow!;
+      expect(shadows, isNotEmpty);
+      for (final BoxShadow shadow in shadows) {
+        expect(
+          shadow.offset,
+          Offset.zero,
+          reason:
+              'A _GroupRow avatar BoxShadow has a non-zero offset '
+              '(${shadow.offset}) — a diagonally-offset shadow pair (e.g. a '
+              'regression back to VelvetShadows.extrudedSmall) bleeds a white '
+              'square out of the small rounded avatar corner. Use a single '
+              'non-offset shadow (VelvetShadows.borderedCard).',
+        );
+      }
+    },
+  );
 }
