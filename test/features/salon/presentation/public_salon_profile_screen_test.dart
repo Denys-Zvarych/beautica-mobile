@@ -25,12 +25,14 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
@@ -210,6 +212,24 @@ class _FakeSalonRepository implements SalonRepository {
   @override
   Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) =>
       _portfolio();
+
+  // `salonMasterServiceCoverageProvider` (the salon-service → masters filter
+  // path) is always overridden DIRECTLY in the tests that exercise it (see
+  // the `coverage` param on [_overrides] below) rather than routed through
+  // this fake repository, so no test here actually calls this method — it
+  // exists purely to satisfy [SalonRepository]'s abstract interface. Throws
+  // loudly rather than returning a silent empty list so an accidental real
+  // call (a test that forgets to stub `coverage`) fails fast instead of
+  // masking a bug as "zero bookable masters".
+  @override
+  Future<List<BookableMasterAssignment>> getBookableMasters({
+    required String salonId,
+    required String serviceDefId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.getBookableMasters is not stubbed — override '
+    'salonMasterServiceCoverageProvider directly via _overrides(coverage: …) '
+    'instead of routing through this fake repository.',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1848,7 +1868,10 @@ void main() {
     // out.
     Object coverageOverride(Map<String, Map<String, String>> map) =>
         salonMasterServiceCoverageProvider(
-          _kSalonId,
+          const SalonBookingMasterSelectionArgs(
+            salonId: _kSalonId,
+            selectedServiceIds: <String>['svc-1'],
+          ),
         ).overrideWith((ref) async => map);
 
     const Map<String, Map<String, String>> svc1Coverage =
@@ -2048,7 +2071,10 @@ void main() {
           overrides: _overrides(
             repo: _FakeSalonRepository(masters: () async => filterMasters),
             coverage: salonMasterServiceCoverageProvider(
-              _kSalonId,
+              const SalonBookingMasterSelectionArgs(
+                salonId: _kSalonId,
+                selectedServiceIds: <String>['svc-1'],
+              ),
             ).overrideWith((ref) => never.future),
           ),
         );
@@ -2093,8 +2119,13 @@ void main() {
           const PublicSalonProfileScreen(salonId: _kSalonId),
           overrides: _overrides(
             repo: _FakeSalonRepository(masters: () async => filterMasters),
-            coverage: salonMasterServiceCoverageProvider(_kSalonId)
-                .overrideWith((ref) async {
+            coverage:
+                salonMasterServiceCoverageProvider(
+                  const SalonBookingMasterSelectionArgs(
+                    salonId: _kSalonId,
+                    selectedServiceIds: <String>['svc-1'],
+                  ),
+                ).overrideWith((ref) async {
                   attempt++;
                   if (attempt == 1) throw const NetworkFailure();
                   return svc1Coverage;

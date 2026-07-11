@@ -16,14 +16,29 @@
 // catch:
 //   • the CTA actually reaching `SalonServiceSelectionScreen` over a REAL
 //     route push, not the old buggy destination;
-//   • [salonMasterServiceCoverageProvider]'s bounded fan-out actually
-//     round-tripping `GET /masters/{id}/services` for the REAL salon roster
-//     (8 masters) over the wire, correctly filtering ineligible masters and
-//     surfacing only the ones who cover a selected service;
+//   • [salonMasterServiceCoverageProvider]'s Phase 23.x rewire actually
+//     round-tripping `GET /salons/{salonId}/services/{serviceDefId}/masters`
+//     — ONE call per client-selected service, never a roster fan-out —
+//     correctly surfacing only the masters the endpoint returns as bookable
+//     and never rendering one it omits;
 //   • the full click-through chain (services → masters → confirm → time
 //     picker → confirm) landing on the coming-soon placeholder, never the
 //     independent-master `SlotPickerScreen` (that screen assumes a single
 //     `masterId`, which a salon booking never has).
+//
+// PHASE 23.x REWIRE: `salonMasterServiceCoverageProvider` used to fan
+// `GET /masters/{id}/services` out over the salon's FULL roster (up to 8
+// concurrent calls) and derive coverage by intersecting each master's own
+// service list against the client's selection. That meant a master with an
+// active assignment but NO usable weekly schedule still showed up as
+// "covers this service", opening a calendar with every date disabled once
+// picked — the exact production bug report this session fixes. The new
+// dedicated endpoint filters server-side (active + actively assigned + usable
+// schedule) and is called ONCE PER SELECTED SERVICE instead of once per
+// roster master, so THIS test's job changed from "prove the fan-out reaches
+// every roster master" to "prove the call count scales with the selection,
+// not the roster, and that a master the endpoint omits never renders" — see
+// the assertions right after "Далі" below.
 //
 // PHASE 14.16/14.17 EXTENSION: "Підтвердити" on `SalonMasterSelectionScreen`
 // now retargets to the real `SalonTimeScreen` (Phase 14.16 Step 1) instead of
@@ -47,11 +62,12 @@
 // known to settle deterministically against the real ShellRoute/bottom-nav
 // stack. Of the 8 roster masters, only `master-ccc` (covers
 // `salon-svc-shared`) and `master-ddd` (covers `salon-svc-exclusive`) are
-// eligible once both salon services are selected — see `fake_backend.dart`'s
-// "GET /api/v1/masters/{masterId}/services" section for the full coverage
-// split and why `master-aaa` is deliberately ineligible here (it reuses the
-// UNRELATED Phase 13.5 public-profile fixture, which covers neither salon
-// service).
+// bookable once both salon services are selected — see `fake_backend.dart`'s
+// "GET /api/v1/salons/salon-xyz/services/{serviceDefId}/masters" section for
+// the full coverage split. The other 6 roster masters (including
+// `master-eee`, standing in for the "Роман" scheduleless-master bug report)
+// are simply never returned by either route — proving the server-omission
+// contract end to end, not just that a client-side filter hides them.
 //
 // KEY POLICY: navigation taps are key-based (client-nav-search-center,
 // search_show_masters_cta, salon_card_salon-xyz, salon-book-cta,
@@ -308,7 +324,9 @@ void main() {
       expect(nextCta, findsOneWidget);
       await tester.tap(nextCta);
       // Settles the real async route-push step after the tap AND the real
-      // `salonMasterServiceCoverageProvider` fan-out over the 8-master roster.
+      // `salonMasterServiceCoverageProvider` calls — Phase 23.x rewire: ONE
+      // `GET /salons/{salonId}/services/{serviceDefId}/masters` call per
+      // selected service, never a roster fan-out.
       await AppHarness.settle(tester);
 
       expectLocation(router, RouteNames.salonBookingMasters);
@@ -317,56 +335,64 @@ void main() {
         tester.takeException(),
         isNull,
         reason:
-            'the bounded fan-out over the real 8-master roster must never '
-            'throw — an unregistered roster master would fail the whole '
-            '`Future.wait` batch and land here on the error state instead',
+            'a per-service getBookableMasters call must never throw here — '
+            'a regression that let one selected service\'s failure blank the '
+            'whole grid (instead of degrading gracefully) would land here on '
+            'the error state instead',
       );
 
-      // The bounded fan-out reached EVERY roster master, not just the
-      // first chunk — proves the chunk loop covers the full roster over
-      // the real wire, not only `_kFetchChunkSize` (8) of the 8-master
-      // roster's first (and only, here) chunk.
+      // ── Call SHAPE proof (the rewire's core scaling claim) ──────────────
+      // Exactly 2 calls — one per SELECTED service — never one per roster
+      // master (would be up to 8). This is what changed: pre-rewire this
+      // assertion checked the fan-out reached every roster master; the new
+      // endpoint means the roster size is irrelevant to the call count.
       expect(
-        fb.requestedSalonRosterMasterIds,
-        containsAll(<String>[
-          'master-ccc',
-          'master-ddd',
-          'master-eee',
-          'master-fff',
-          'master-ggg',
-          'master-hhh',
-          'master-iii',
-        ]),
+        fb.getBookableMastersCalls,
+        2,
         reason:
-            'the coverage fan-out must query every roster master (except '
-            'master-aaa, which reuses the pre-existing Phase 13.5 route)',
+            'salonMasterServiceCoverageProvider must call getBookableMasters '
+            'exactly once per selected service (salon-svc-shared, '
+            'salon-svc-exclusive) — never once per roster master',
+      );
+      expect(
+        fb.requestedBookableMastersServiceDefIds,
+        <String>{'salon-svc-shared', 'salon-svc-exclusive'},
+        reason:
+            'both selected services\' serviceDefIds must have been queried, '
+            'and NOTHING else (no roster masterId ever reaches this call\'s '
+            'path parameter)',
       );
 
-      // ── Only the 2 ELIGIBLE masters render (of 8 on the roster) ────────
+      // ── Only the 2 BOOKABLE masters render (of 8 on the roster) — proves
+      // the server-omission contract end to end: master-eee (standing in for
+      // "Роман", the scheduleless-master bug report) is never returned by
+      // EITHER bookable-masters route and therefore never rendered, exactly
+      // like a real backend that server-filters an unusable-schedule master
+      // out of the response instead of sending a broken calendar. ──────────
       expect(
         find.byKey(const Key('salon_booking_master_row_master-ccc')),
         findsOneWidget,
-        reason: 'master-ccc covers salon-svc-shared — eligible',
+        reason: 'master-ccc is bookable for salon-svc-shared',
       );
       expect(
         find.byKey(const Key('salon_booking_master_row_master-ddd')),
         findsOneWidget,
-        reason: 'master-ddd covers salon-svc-exclusive — eligible',
+        reason: 'master-ddd is bookable for salon-svc-exclusive',
       );
-      for (final String ineligibleId in <String>[
-        'master-aaa', // reuses the Phase 13.5 fixture — covers neither
-        'master-eee',
+      for (final String omittedId in <String>[
+        'master-aaa', // reuses the Phase 13.5 fixture — never returned here
+        'master-eee', // scheduleless-master bug stand-in — server-omitted
         'master-fff',
         'master-ggg',
         'master-hhh',
         'master-iii',
       ]) {
         expect(
-          find.byKey(Key('salon_booking_master_row_$ineligibleId')),
+          find.byKey(Key('salon_booking_master_row_$omittedId')),
           findsNothing,
           reason:
-              '$ineligibleId covers neither selected salon service and '
-              'must never render on the master-assignment step',
+              '$omittedId was never returned by either bookable-masters '
+              'route and must never render on the master-assignment step',
         );
       }
 

@@ -32,11 +32,14 @@
 // [SalonMasterSummary] (the masters rail) has no service list, and
 // [SalonCatalogService] (the catalogue) has no master list — a salon service
 // can be assigned to several masters. [salonMasterServiceCoverageProvider]
-// (Phase 14.13, `salon_master_coverage_notifier.dart`) fans the ALREADY-WIRED
-// public `GET /masters/{masterId}/services` call out over the salon's roster
-// to reconstruct that mapping — see that file's header for the full
-// rationale. No new repository method: both reads are calls the codebase
-// already makes elsewhere.
+// (Phase 14.13, rewired Phase 23.x onto the dedicated bookable-masters
+// endpoint in `salon_master_coverage_notifier.dart`) resolves that mapping
+// with one `GET /salons/{salonId}/services/{serviceDefId}/masters` call per
+// selected service — see that file's header for the full rationale,
+// including why a scheduleless master (the calendar-all-dates-disabled bug)
+// can never appear in the resulting map. Master DISPLAY data (name/avatar/
+// rating) still comes from [publicSalonProfileProvider]'s roster below —
+// the coverage map is purely the eligibility/assignment-id gate.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -181,7 +184,7 @@ class _SalonMasterSelectionScreenState
     final salonAsync = ref.watch(publicSalonProfileProvider(salonId));
     final catalogAsync = ref.watch(salonServiceCatalogProvider(salonId));
     final coverageAsync = ref.watch(
-      salonMasterServiceCoverageProvider(salonId),
+      salonMasterServiceCoverageProvider(widget.args),
     );
 
     final Object? error =
@@ -207,7 +210,7 @@ class _SalonMasterSelectionScreenState
             onRetry: () {
               ref.invalidate(publicSalonProfileProvider(salonId));
               ref.invalidate(salonServiceCatalogProvider(salonId));
-              ref.invalidate(salonMasterServiceCoverageProvider(salonId));
+              ref.invalidate(salonMasterServiceCoverageProvider(widget.args));
             },
           ),
         ),

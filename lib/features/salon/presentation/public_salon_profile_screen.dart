@@ -41,6 +41,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 // filtered by the selected service without a second bespoke fan-out. Only
 // triggered while a service filter is active (see [_MastersTab]).
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -1117,11 +1118,21 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
 
     // Filter active — a clear-filter chip above the (coverage-gated) grid.
     // The chip renders in every coverage sub-state so the client can always
-    // dismiss the filter, even mid-load. Coverage is the existing Phase 14.13
-    // fan-out (bounded 8-concurrent, 5-min cached) — fired ONLY now that a
-    // service is selected, never on a plain profile visit.
+    // dismiss the filter, even mid-load. Coverage is the Phase 14.13/23.x
+    // bookable-masters read, scoped to just the ONE filtered service — fired
+    // ONLY now that a service is selected, never on a plain profile visit.
+    // [coverageArgs] reuses [SalonBookingMasterSelectionArgs] as the family
+    // key (same type the booking flow's master-selection step uses) with a
+    // single-element [selectedServiceIds]; freezed's deep-collection equality
+    // means a fresh instance here still resolves to the same cached family
+    // member across rebuilds.
+    final SalonBookingMasterSelectionArgs coverageArgs =
+        SalonBookingMasterSelectionArgs(
+          salonId: widget.salonId,
+          selectedServiceIds: <String>[filter.id],
+        );
     final AsyncValue<Map<String, Map<String, String>>> coverageAsync = ref
-        .watch(salonMasterServiceCoverageProvider(widget.salonId));
+        .watch(salonMasterServiceCoverageProvider(coverageArgs));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1154,7 +1165,7 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
           error: (Object e, _) => ErrorState(
             failure: e is Failure ? e : UnknownFailure(cause: e),
             onRetry: () => ref.invalidate(
-              salonMasterServiceCoverageProvider(widget.salonId),
+              salonMasterServiceCoverageProvider(coverageArgs),
             ),
           ),
           data: (Map<String, Map<String, String>> coverage) {

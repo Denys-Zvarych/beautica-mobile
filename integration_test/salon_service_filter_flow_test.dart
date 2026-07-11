@@ -6,26 +6,28 @@
 // (test/features/salon/presentation/public_salon_profile_screen_test.dart)
 // proves the filter UI in isolation with BOTH the salon repository AND
 // `salonMasterServiceCoverageProvider` STUBBED — the coverage map is a
-// hand-built literal, never the real per-master `GET /masters/{id}/services`
-// fan-out. It cannot catch:
+// hand-built literal, never the real
+// `GET /salons/{salonId}/services/{serviceDefId}/masters` call (Phase 23.x
+// bookable-masters rewire). It cannot catch:
 //   • the real user journey — open a salon profile → Послуги tab → tap a
 //     service row → auto-jump to the Майстри tab with the roster narrowed;
-//   • the provider→repository wiring of the coverage fan-out: tapping a
-//     service actually FIRES `salonMasterServiceCoverageProvider`, which fans
-//     `GET /masters/{id}/services` out over the WHOLE 8-master roster through
-//     the real `publicServiceRepositoryProvider` → `HttpServiceRepository` →
-//     generated `ServiceControllerApi` + built_value decode — a network
+//   • the provider→repository wiring: tapping a service actually FIRES
+//     `salonMasterServiceCoverageProvider`, which calls the real
+//     `salonRepositoryProvider` → `HttpSalonRepository.getBookableMasters` →
+//     generated `SalonControllerApi` + built_value decode — a network
 //     boundary the widget tier bypasses entirely;
-//   • the reduction of each master's real `MasterServiceResponse` list to a
-//     `serviceDefId` set, compared against the catalogue's `salon-svc-shared`
-//     id, actually excluding the non-performers end to end.
+//   • that a master the endpoint simply OMITS from its response (server-side
+//     active/assigned/schedule-usable filtering) is excluded end to end, not
+//     just filtered client-side against a hand-built coverage map.
 //
 // FIXTURE COHERENCE — reuses the SAME `salon-xyz` fixture the public salon
 // profile flow already exercises (see fake_backend.dart's "Public salon
-// profile fixtures" + the per-master coverage routes). Of the 8 roster
-// masters, ONLY `master-ccc` covers `salon-svc-shared` (the NAILS category's
-// service); `master-aaa`/`master-ddd`…`master-iii` cover it NOT — so filtering
-// by that service must collapse the grid to exactly `master-ccc`.
+// profile fixtures" + the bookable-masters routes). Of the 8 roster masters,
+// ONLY `master-ccc` is returned by
+// `GET /salons/salon-xyz/services/salon-svc-shared/masters` (the NAILS
+// category's service); every other roster master (`master-aaa`, `master-ddd`
+// …`master-iii`) is simply never in that response — so filtering by that
+// service must collapse the grid to exactly `master-ccc`.
 //
 // KEY POLICY: navigation/interaction taps are key-based (salon-tab-N,
 // salon-service-row-<id>, salon-masters-filter-clear, salon-master-card-<id>).
@@ -88,11 +90,10 @@ void main() {
         // Coverage must NOT have been fetched yet — it fires only once a
         // service filter is selected, never on a plain profile visit.
         expect(
-          fb.getSalonRosterMasterServicesCalls,
+          fb.getBookableMastersCalls,
           0,
           reason:
-              'the per-master coverage fan-out must not fire before a service '
-              'is selected',
+              'getBookableMasters must not fire before a service is selected',
         );
 
         // ── Послуги tab → tap the NAILS service (salon-svc-shared) ───────────
@@ -106,24 +107,24 @@ void main() {
         expect(serviceRow, findsOneWidget);
 
         await tester.tap(serviceRow);
-        // fixed-wait-ok: settles the tab jump + the real coverage fan-out
-        // (`GET /masters/{id}/services` over the whole roster).
+        // fixed-wait-ok: settles the tab jump + the real
+        // `GET /salons/salon-xyz/services/salon-svc-shared/masters` call.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
-        // ── The fan-out actually hit the network for the roster ──────────────
+        // ── The call actually hit the network, exactly once, for the ONE
+        // service the client selected — never once per roster master. ──────
         expect(
-          fb.getSalonRosterMasterServicesCalls,
-          greaterThanOrEqualTo(1),
+          fb.getBookableMastersCalls,
+          1,
           reason:
-              'selecting a service must fire the real per-master coverage '
-              'fan-out',
+              'selecting ONE service must fire exactly ONE real '
+              'getBookableMasters call — the roster\'s size (8 masters) is '
+              'irrelevant to the call count under the Phase 23.x rewire',
         );
         expect(
-          fb.requestedSalonRosterMasterIds,
-          containsAll(<String>['master-ccc', 'master-ddd']),
-          reason:
-              'the bounded fan-out must reach every roster master, not just '
-              'the first one',
+          fb.requestedBookableMastersServiceDefIds,
+          <String>{'salon-svc-shared'},
+          reason: 'the ONE call must be keyed on the selected serviceDefId',
         );
 
         // ── The grid is narrowed to ONLY the performing master ───────────────

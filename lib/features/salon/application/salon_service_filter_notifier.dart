@@ -17,8 +17,9 @@
 // it, so it stays alive across in-screen tab switches while the profile is open.
 //
 // Membership itself (does master X perform service Y) is NOT stored here — that
-// comes from the existing `salonMasterServiceCoverageProvider` fan-out, which
-// the masters grid cross-references against this selection's [SalonServiceSelection.id].
+// comes from the existing `salonMasterServiceCoverageProvider` (bookable-masters
+// read), which the masters grid cross-references against this selection's
+// [SalonServiceSelection.id].
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 

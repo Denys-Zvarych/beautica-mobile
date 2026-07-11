@@ -49,7 +49,8 @@
 //  GET  /api/v1/salons/salon-xyz/portfolio        — salon portfolio photo rail
 //  GET  /api/v1/masters/master-aaa/slots          — Phase 14.1 slot-picker availability
 //  GET  /api/v1/masters/master-aaa/working-days   — Phase 14.14 calendar day-availability gate
-//  GET  /api/v1/masters/{master-ccc..iii}/services — Phase 14.13 salon-roster per-master coverage
+//  GET  /api/v1/salons/salon-xyz/services/{serviceDefId}/masters — Phase 23.x bookable-masters
+//                                                                   (salon-svc-shared/salon-svc-exclusive)
 //  GET  /api/v1/masters/{master-ccc,master-ddd}/working-days — Phase 14.16 salon time-picker (per assigned master)
 //  GET  /api/v1/masters/{master-ccc,master-ddd}/slots        — Phase 14.17 salon time-picker (per assigned master)
 //
@@ -579,25 +580,25 @@ final class FakeBackend {
   /// of month" day).
   DateTime? forceNonWorkingDate;
 
-  /// `GET /api/v1/masters/{masterId}/services` call count across the REST of
-  /// the `salon-xyz` roster (Phase 14.13 salon booking flow) — i.e. every
-  /// roster master EXCEPT `master-aaa`, which reuses the pre-existing Phase
-  /// 13.5 [getPublicMasterServicesCalls] counter/route. Incremented by each
-  /// of the seven `master-ccc`..`master-iii` route handlers below.
-  /// [requestedSalonRosterMasterIds] records WHICH ids were actually
-  /// queried, so the E2E can assert `salonMasterServiceCoverageProvider`'s
-  /// bounded fan-out really reached every roster master, not just the first
-  /// chunk.
-  int getSalonRosterMasterServicesCalls = 0;
-  final Set<String> requestedSalonRosterMasterIds = <String>{};
+  /// `GET /api/v1/salons/{salonId}/services/{serviceDefId}/masters` call
+  /// count (Phase 23.x bookable-masters rewire) — the salon booking flow's
+  /// `salonMasterServiceCoverageProvider` now calls this ONCE PER SELECTED
+  /// SERVICE instead of fanning `GET /masters/{id}/services` out over the
+  /// WHOLE roster (the pre-rewire Phase 14.13 shape). [requestedBookable
+  /// MastersServiceDefIds] records WHICH `serviceDefId`s were actually
+  /// queried, so the E2E can assert the call count scales with the CLIENT's
+  /// selection (2 selected services -> 2 calls, roster size irrelevant),
+  /// never with the 8-master roster.
+  int getBookableMastersCalls = 0;
+  final Set<String> requestedBookableMastersServiceDefIds = <String>{};
 
   /// The `serviceId` query param the salon time-picker's real
   /// `GET /masters/{masterId}/slots` request carried for `master-ccc` /
   /// `master-ddd` respectively — bugfix regression guard (Phase 14.16/14.17
-  /// masterService-not-found fix). [_masterServiceEnvelope]'s fixture `id`
-  /// (`assign-<masterId>-<serviceDefId>`, the per-master ASSIGNMENT id) is
-  /// deliberately DIFFERENT from its `serviceDefinition.id` (the salon-wide
-  /// CATALOG id, e.g. `salon-svc-shared`) — exactly like production, where
+  /// masterService-not-found fix). [_bookableMasterEnvelope]'s fixture
+  /// `masterServiceId` (`assign-<masterId>-<serviceDefId>`, the per-master
+  /// ASSIGNMENT id) is deliberately DIFFERENT from the salon-wide CATALOG id
+  /// (e.g. `salon-svc-shared`) — exactly like production, where
   /// `master_services.id` is never equal to `service_definitions.id`. The
   /// original bug sent the catalog id here, 404ing server-side with
   /// "masterService not found"; the salon-booking E2E below asserts this
@@ -969,40 +970,29 @@ final class FakeBackend {
   /// rendered services-count stat without hard-coding the literal in two places.
   static int get publicMasterServicesCount => _publicMasterServices.length;
 
-  /// Builds one `MasterServiceResponse`-shaped envelope entry for the
-  /// `salon-xyz` roster's per-master coverage fixtures below — a single
-  /// service definition ([serviceDefId]/[name]) attributed to [masterId].
-  /// Only [serviceDefId] is load-bearing for
-  /// `salonMasterServiceCoverageProvider` (it reduces the response to its
-  /// `serviceDefId` set); the rest is realistic filler matching the same
-  /// shape [_publicMasterServices] already uses.
-  static Map<String, dynamic> _masterServiceEnvelope({
+  /// Builds one `BookableMasterResponse`-shaped envelope entry (Phase 23.x
+  /// `GET /salons/{salonId}/services/{serviceDefId}/masters`) for [masterId]
+  /// on [serviceDefId]. `masterServiceId` deliberately follows the SAME
+  /// `assign-<masterId>-<serviceDefId>` convention the old (now-removed)
+  /// `_masterServiceEnvelope` used — a DIFFERENT string from [serviceDefId]
+  /// itself, exactly like production (`master_services.id` is never equal to
+  /// `service_definitions.id`) — so [lastMasterCccSlotsServiceId]/
+  /// [lastMasterDddSlotsServiceId]'s masterService-not-found regression guard
+  /// (Phase 14.16/14.17) keeps proving what it always proved.
+  static Map<String, dynamic> _bookableMasterEnvelope({
     required String masterId,
     required String serviceDefId,
-    required String name,
+    required String firstName,
+    required String lastName,
   }) => <String, dynamic>{
-    'id': 'assign-$masterId-$serviceDefId',
     'masterId': masterId,
-    'isActive': true,
-    'priceType': 'FIXED',
-    'priceMin': 100,
-    'priceMax': null,
-    'priceDisplay': '100 грн',
-    'effectiveDurationMinutes': 30,
-    'serviceDefinition': <String, dynamic>{
-      'id': serviceDefId,
-      'name': name,
-      'description': null,
-      'category': 'NAILS',
-      'baseDurationMinutes': 30,
-      'bufferMinutesAfter': 0,
-      'isActive': true,
-      'priceType': 'FIXED',
-      'priceMin': 100,
-      'priceMax': null,
-      'priceDisplay': '100 грн',
-      'photoUrl': null,
-    },
+    'masterServiceId': 'assign-$masterId-$serviceDefId',
+    'firstName': firstName,
+    'lastName': lastName,
+    'professionalTitle': null,
+    'avatarUrl': null,
+    'avgRating': 4.7,
+    'reviewCount': 10,
   };
 
   /// PUBLIC available-slots envelope for `master-aaa` — answers
@@ -1663,104 +1653,60 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // GET /api/v1/masters/{masterId}/services — PUBLIC per-master services
-    // for the REST of the salon-xyz roster (Phase 14.13 salon booking flow).
-    // `salonMasterServiceCoverageProvider` fans this call out over the FULL
-    // 8-master roster (`_salonMasters`) to reconstruct master↔service
-    // coverage — see that provider's file header. Every roster master needs
-    // a registered route here, or an unmatched master fails the WHOLE
-    // `Future.wait` batch it lands in, crashing `SalonMasterSelectionScreen`
-    // into its error state — this gap is exactly what the Step 2.7 Rule 3b
-    // review of the Phase 14.12/14.13 salon booking flow caught: only
-    // `master-aaa`'s route pre-existed, from the UNRELATED Phase 13.5
-    // public-master-profile fixture above, which covers NEITHER
-    // `salon-svc-shared` NOR `salon-svc-exclusive` (`_salonServiceCategories`)
-    // — so master-aaa is (deliberately) INELIGIBLE for salon booking,
-    // exercising the "ineligible masters never render" invariant for free.
+    // GET /api/v1/salons/salon-xyz/services/{serviceDefId}/masters — Phase
+    // 23.x bookable-masters rewire. SUPERSEDES the Phase 14.13 per-master
+    // `GET /masters/{id}/services` fan-out that used to be registered here
+    // for all 7 non-`master-aaa` roster masters: `salonMasterServiceCoverage
+    // Provider` now calls THIS endpoint ONCE PER SELECTED SERVICE, and the
+    // backend does the active/assigned/schedule-usable filtering
+    // server-side — a master is either IN the response (bookable) or simply
+    // absent (never rendered), with no client-side derivation at all.
     //
     // Coverage split, mirroring the catalogue's own "shared vs exclusive"
     // naming:
-    //   master-ccc — covers ONLY salon-svc-shared
-    //   master-ddd — covers ONLY salon-svc-exclusive
-    //   master-eee/fff/ggg/hhh/iii — cover NEITHER (ineligible)
-    // so selecting BOTH salon services yields exactly 2 eligible masters (of
-    // 8 on the roster), each the sole candidate for its service — a
-    // deterministic auto-attach scenario the E2E can assert without
-    // re-proving the contested-choice UI branch logic already exhaustively
-    // covered at the widget tier
-    // (salon_master_selection_screen_test.dart).
+    //   salon-svc-shared    -> ONLY master-ccc is bookable
+    //   salon-svc-exclusive -> ONLY master-ddd is bookable
+    // Every other roster master (master-aaa, master-eee..master-iii) is
+    // simply never returned by EITHER route below — exactly how the real
+    // backend represents "not bookable for this service", including the bug
+    // this rewire fixes: a master with an active assignment but no usable
+    // schedule (like `master-eee` here, standing in for "Роман" in this
+    // session's regression report) is server-filtered OUT of the response
+    // rather than sent with a disabled-everything calendar. Selecting BOTH
+    // salon services therefore yields exactly 2 eligible masters (of 8 on
+    // the roster), each the sole candidate for its service — a deterministic
+    // auto-attach scenario the E2E can assert without re-proving the
+    // contested-choice UI branch logic already exhaustively covered at the
+    // widget tier (salon_master_selection_screen_test.dart).
     _adapter.onRoute(
-      '/api/v1/masters/master-ccc/services',
+      '/api/v1/salons/salon-xyz/services/salon-svc-shared/masters',
       (server) => server.replyCallback(200, (_) {
-        getSalonRosterMasterServicesCalls++;
-        requestedSalonRosterMasterIds.add('master-ccc');
+        getBookableMastersCalls++;
+        requestedBookableMastersServiceDefIds.add('salon-svc-shared');
         return _okList(<Map<String, dynamic>>[
-          _masterServiceEnvelope(
+          _bookableMasterEnvelope(
             masterId: 'master-ccc',
             serviceDefId: 'salon-svc-shared',
-            name: 'Манікюр класичний',
+            firstName: 'Марія',
+            lastName: 'Гриценко',
           ),
         ]);
       }),
       request: const Request(method: RequestMethods.get),
     );
     _adapter.onRoute(
-      '/api/v1/masters/master-ddd/services',
+      '/api/v1/salons/salon-xyz/services/salon-svc-exclusive/masters',
       (server) => server.replyCallback(200, (_) {
-        getSalonRosterMasterServicesCalls++;
-        requestedSalonRosterMasterIds.add('master-ddd');
+        getBookableMastersCalls++;
+        requestedBookableMastersServiceDefIds.add('salon-svc-exclusive');
         return _okList(<Map<String, dynamic>>[
-          _masterServiceEnvelope(
+          _bookableMasterEnvelope(
             masterId: 'master-ddd',
             serviceDefId: 'salon-svc-exclusive',
-            name: 'Корекція брів',
+            firstName: 'Оксана',
+            lastName: 'Іванова',
           ),
         ]);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
-    _adapter.onRoute(
-      '/api/v1/masters/master-eee/services',
-      (server) => server.replyCallback(200, (_) {
-        getSalonRosterMasterServicesCalls++;
-        requestedSalonRosterMasterIds.add('master-eee');
-        return _okList(const <Map<String, dynamic>>[]);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
-    _adapter.onRoute(
-      '/api/v1/masters/master-fff/services',
-      (server) => server.replyCallback(200, (_) {
-        getSalonRosterMasterServicesCalls++;
-        requestedSalonRosterMasterIds.add('master-fff');
-        return _okList(const <Map<String, dynamic>>[]);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
-    _adapter.onRoute(
-      '/api/v1/masters/master-ggg/services',
-      (server) => server.replyCallback(200, (_) {
-        getSalonRosterMasterServicesCalls++;
-        requestedSalonRosterMasterIds.add('master-ggg');
-        return _okList(const <Map<String, dynamic>>[]);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
-    _adapter.onRoute(
-      '/api/v1/masters/master-hhh/services',
-      (server) => server.replyCallback(200, (_) {
-        getSalonRosterMasterServicesCalls++;
-        requestedSalonRosterMasterIds.add('master-hhh');
-        return _okList(const <Map<String, dynamic>>[]);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
-    _adapter.onRoute(
-      '/api/v1/masters/master-iii/services',
-      (server) => server.replyCallback(200, (_) {
-        getSalonRosterMasterServicesCalls++;
-        requestedSalonRosterMasterIds.add('master-iii');
-        return _okList(const <Map<String, dynamic>>[]);
       }),
       request: const Request(method: RequestMethods.get),
     );

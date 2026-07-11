@@ -360,7 +360,12 @@ void main() {
           // resolve — an empty map would silently empty out the schedule
           // list and self-pop the `/booking/salon/time` route this file's
           // "CLIENT may reach every booking route" group asserts renders.
-          salonMasterServiceCoverageProvider(_kSalonId).overrideWith(
+          salonMasterServiceCoverageProvider(
+            const SalonBookingMasterSelectionArgs(
+              salonId: _kSalonId,
+              selectedServiceIds: <String>['svc-1'],
+            ),
+          ).overrideWith(
             (ref) => const <String, Map<String, String>>{
               _kSalonMasterId: <String, String>{'svc-1': 'svc-1'},
             },

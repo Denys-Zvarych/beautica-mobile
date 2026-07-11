@@ -137,7 +137,7 @@ List<Object> _overrides() => <Object>[
   ).overrideWith((ref) => (_stubSalon, _stubMasters)),
   salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
   salonMasterServiceCoverageProvider(
-    _kSalonId,
+    _args(),
   ).overrideWith((ref) => _stubCoverage),
 ];
 
@@ -239,7 +239,10 @@ List<Object> _titleOverrides() => <Object>[
   ).overrideWith((ref) => (_stubSalon, _titleMasters)),
   salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
   salonMasterServiceCoverageProvider(
-    _kSalonId,
+    const SalonBookingMasterSelectionArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1'],
+    ),
   ).overrideWith((ref) => _titleCoverage),
 ];
 

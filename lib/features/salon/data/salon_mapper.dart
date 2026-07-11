@@ -20,6 +20,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart'
     show ServicePriceType;
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 
+import '../domain/bookable_master_assignment.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
@@ -112,6 +113,38 @@ abstract final class SalonMasterMapper {
     }
     // Covers SALON_MASTER and any future/unknown value — fail-safe.
     return MasterType.salonMaster;
+  }
+}
+
+/// Maps [BookableMasterResponse] (`GET
+/// /salons/{salonId}/services/{serviceDefId}/masters`) to
+/// [BookableMasterAssignment].
+abstract final class SalonBookableMasterMapper {
+  /// Entries missing `masterId`/`masterServiceId` are dropped (logged) rather
+  /// than thrown — one broken row must not blank the whole master-selection
+  /// step for the service.
+  static List<BookableMasterAssignment> fromDtoList(
+    Iterable<BookableMasterResponse> dtos,
+  ) {
+    final List<BookableMasterAssignment> out = <BookableMasterAssignment>[];
+    for (final BookableMasterResponse dto in dtos) {
+      final String? masterId = dto.masterId;
+      final String? masterServiceId = dto.masterServiceId;
+      if (masterId == null ||
+          masterId.isEmpty ||
+          masterServiceId == null ||
+          masterServiceId.isEmpty) {
+        log(
+          'BookableMasterResponse missing masterId/masterServiceId — '
+          'dropping row',
+          name: 'feature.salon.mapper',
+          level: 900,
+        );
+        continue;
+      }
+      out.add((masterId: masterId, masterServiceId: masterServiceId));
+    }
+    return out;
   }
 }
 

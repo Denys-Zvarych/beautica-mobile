@@ -144,6 +144,7 @@ Class | Method | HTTP request | Description
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getSalonReviews**](doc/ReviewControllerApi.md#getsalonreviews) | **GET** /api/v1/salons/{salonId}/reviews | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**createSalon**](doc/SalonControllerApi.md#createsalon) | **POST** /api/v1/salons | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**deactivateSalon**](doc/SalonControllerApi.md#deactivatesalon) | **DELETE** /api/v1/salons/{salonId} | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getBookableMasters**](doc/SalonControllerApi.md#getbookablemasters) | **GET** /api/v1/salons/{salonId}/services/{serviceDefId}/masters | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getMastersBySalon**](doc/SalonControllerApi.md#getmastersbysalon) | **GET** /api/v1/salons/{salonId}/masters | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getOwnedSalons**](doc/SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalon**](doc/SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
@@ -190,6 +191,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseInvitePreviewResponse](doc/ApiResponseInvitePreviewResponse.md)
  - [ApiResponseInviteResponse](doc/ApiResponseInviteResponse.md)
  - [ApiResponseListApprovedCategoryResponse](doc/ApiResponseListApprovedCategoryResponse.md)
+ - [ApiResponseListBookableMasterResponse](doc/ApiResponseListBookableMasterResponse.md)
  - [ApiResponseListCatalogCategoryResponse](doc/ApiResponseListCatalogCategoryResponse.md)
  - [ApiResponseListCityDistrictResponse](doc/ApiResponseListCityDistrictResponse.md)
  - [ApiResponseListCityResponse](doc/ApiResponseListCityResponse.md)
@@ -242,6 +244,7 @@ Class | Method | HTTP request | Description
  - [AvailableSlotResponse](doc/AvailableSlotResponse.md)
  - [AvailableSlotsResponse](doc/AvailableSlotsResponse.md)
  - [AvatarResponse](doc/AvatarResponse.md)
+ - [BookableMasterResponse](doc/BookableMasterResponse.md)
  - [BookingDetailResponse](doc/BookingDetailResponse.md)
  - [BookingResponse](doc/BookingResponse.md)
  - [BookingSlugInfoResponse](doc/BookingSlugInfoResponse.md)

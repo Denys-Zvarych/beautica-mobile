@@ -1,246 +1,432 @@
-// Phase 14.13 QA follow-up (mobile-perf re-audit) — regression tests for
-// `salonMasterServiceCoverageProvider`'s three perf-critical behaviours that
-// no existing test exercised directly:
+// Phase 23.x rewire — regression tests for `salonMasterServiceCoverageProvider`
+// against the dedicated `GET /salons/{salonId}/services/{serviceDefId}/masters`
+// endpoint (`SalonRepository.getBookableMasters`).
 //
-//   1. The `GET /masters/{id}/services` fan-out is CHUNKED — at most
-//      `_kFetchChunkSize` (8) calls are ever in flight concurrently, even for
-//      a roster bigger than one chunk.
-//   2. The merged coverage map is complete and correct for EVERY master in
-//      the roster, not just the first chunk (a naive off-by-one in the chunk
-//      loop would silently drop the tail).
-//   3. The provider's 5-minute `ref.keepAlive()` release [Timer] is cancelled
-//      on `ref.onDispose` — disposing the [ProviderContainer] well within the
-//      TTL window must not leave a dangling [Timer]. `flutter_test` fails a
-//      `testWidgets` body outright if any [Timer] is still pending when the
-//      test ends, so this is a self-verifying assertion: if the provider
-//      regressed to NOT cancelling the timer, this test would fail with a
-//      "pending timer" error, not a normal `expect` mismatch.
+// SUPERSEDES the Phase 14.13 fixture set: the provider no longer fans
+// `GET /masters/{id}/services` out over the salon's FULL roster (bounded to 8
+// concurrent) and derives coverage by intersecting each master's own service
+// list — it calls [SalonRepository.getBookableMasters] ONCE PER SELECTED
+// SERVICE instead, letting the backend do the active/assigned/schedule-usable
+// filtering server-side. See `salon_master_coverage_notifier.dart`'s file
+// header for the full rationale.
 //
-// Mirrors the widget-level fixtures in
-// `test/features/booking/presentation/salon_master_selection_screen_test.dart`
-// (same salon id, same `MasterType`) and the keepAlive-Timer idiom already
-// proven for the sibling provider `salonReviewSummaryProvider` in
-// `test/features/salon/application/salon_tab_providers_keepalive_test.dart`.
+// Covers (this session's regression set):
+//   1. Bookable-included — a master [getBookableMasters] returns is present
+//      and selectable in the resulting coverage map.
+//   2. Scheduleless-excluded (THE bug this rewire fixes) — a master the
+//      endpoint simply omits from its response (the server-side stand-in for
+//      "active assignment but no usable schedule") never reaches the
+//      coverage map, for ANY selected service, even though its sibling
+//      master on the SAME service is included.
+//   3. Per-service graceful degradation — one selected service's call
+//      failing degrades to "no bookable masters for that service" (that
+//      service is simply absent from every master's coverage entry) without
+//      throwing and without blanking the already-resolved/still-succeeding
+//      services' data.
+//   4. Multi-service aggregation — a master bookable for 2 of the client's
+//      selected services accumulates BOTH `serviceDefId -> masterServiceId`
+//      entries in its single coverage-map row, not just the last one
+//      resolved.
+//   5. Exactly one `getBookableMasters` call per selected service, with the
+//      correct (salonId, serviceDefId) arguments — never a roster fan-out.
+//   6. Family-key caching — re-reading with a DIFFERENT
+//      [SalonBookingMasterSelectionArgs] instance carrying the SAME
+//      (salonId, selectedServiceIds) resolves to the same cached family
+//      member (freezed value equality) instead of re-fetching.
+//   7. keepAlive Timer lifecycle — the 5-minute release [Timer] is cancelled
+//      on dispose, mirroring the sibling `salonReviewSummaryProvider` pattern
+//      already proven elsewhere in the suite.
 
-import 'dart:async';
-
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart';
-import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
-import 'package:beautica_mobile/features/salon/domain/salon.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
-import 'package:beautica_mobile/features/services/data/service_repository.dart';
-import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-class _MockServiceRepository extends Mock implements ServiceRepository {}
+class _MockSalonRepository extends Mock implements SalonRepository {}
 
 const String _kSalonId = 'salon-1';
 
-const Salon _stubSalon = Salon(id: _kSalonId, name: 'Салон «Вельвет»');
-
-/// A single service definition id every fixture master "covers" via
-/// [_serviceFor] — only its presence/absence in the returned [MasterService]
-/// list matters for this test, not its content.
-MasterService _serviceFor(String masterId) => MasterService(
-  id: 'assignment-$masterId',
-  serviceDefId: 'svc-$masterId',
-  name: 'Service of $masterId',
-  durationMinutes: 60,
-  priceMin: 300,
-  priceDisplay: '300 грн',
-);
-
-List<SalonMasterSummary> _rosterOf(int count) =>
-    List<SalonMasterSummary>.generate(
-      count,
-      (int i) => SalonMasterSummary(
-        masterId: 'm$i',
-        firstName: 'Майстер',
-        lastName: '$i',
-        type: MasterType.salonMaster,
-      ),
-    );
+/// Stubs [repo.getBookableMasters] so each `serviceDefId` in [bySvc] resolves
+/// to its own fixed list (or throws, when the value is a [Failure] instead of
+/// a list) — lets a test give DIFFERENT services DIFFERENT outcomes in one
+/// `when` registration instead of one `when` per service.
+void _stubBySvc(
+  _MockSalonRepository repo,
+  Map<String, Object> bySvc, // List<BookableMasterAssignment> or Failure
+) {
+  when(
+    () => repo.getBookableMasters(
+      salonId: any(named: 'salonId'),
+      serviceDefId: any(named: 'serviceDefId'),
+    ),
+  ).thenAnswer((Invocation invocation) async {
+    final String serviceDefId =
+        invocation.namedArguments[#serviceDefId] as String;
+    final Object? outcome = bySvc[serviceDefId];
+    if (outcome is Failure) throw outcome;
+    return (outcome as List<BookableMasterAssignment>?) ??
+        const <BookableMasterAssignment>[];
+  });
+}
 
 void main() {
-  group('salonMasterServiceCoverageProvider — bounded fan-out chunking', () {
-    test('issues at most 8 concurrent getMasterServices calls for a roster of '
-        '20 masters, and never dispatches the next chunk before the current '
-        'one settles', () async {
-      final repo = _MockServiceRepository();
-      final List<SalonMasterSummary> roster = _rosterOf(20);
+  group('salonMasterServiceCoverageProvider — bookable-master inclusion', () {
+    test(
+      'a master getBookableMasters returns for a service is present and '
+      'selectable in the coverage map, keyed by its OWN masterServiceId',
+      () async {
+        final repo = _MockSalonRepository();
+        _stubBySvc(repo, <String, Object>{
+          'svc-1': const <BookableMasterAssignment>[
+            (masterId: 'm1', masterServiceId: 'assignment-m1-svc-1'),
+          ],
+        });
 
-      int inFlight = 0;
-      int maxInFlight = 0;
-      int totalDispatched = 0;
-      final Map<String, Completer<List<MasterService>>> pending =
-          <String, Completer<List<MasterService>>>{};
-
-      when(() => repo.getMasterServices(any())).thenAnswer((
-        Invocation invocation,
-      ) {
-        final String masterId = invocation.positionalArguments[0] as String;
-        inFlight++;
-        totalDispatched++;
-        if (inFlight > maxInFlight) maxInFlight = inFlight;
-        final completer = Completer<List<MasterService>>();
-        pending[masterId] = completer;
-        return completer.future.whenComplete(() => inFlight--);
-      });
-
-      final container = ProviderContainer(
-        overrides: [
-          publicSalonProfileProvider(
-            _kSalonId,
-          ).overrideWith((ref) => (_stubSalon, roster)),
-          publicServiceRepositoryProvider.overrideWithValue(repo),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      final Future<Map<String, Map<String, String>>> resultFuture = container
-          .read(salonMasterServiceCoverageProvider(_kSalonId).future);
-
-      // Let the microtask queue drain enough for `publicSalonProfileProvider`
-      // to resolve and the first chunk's calls to be dispatched, WITHOUT
-      // resolving any of them yet.
-      await pumpEventQueue();
-
-      expect(
-        totalDispatched,
-        8,
-        reason:
-            'first chunk must dispatch exactly _kFetchChunkSize (8) calls '
-            'for a 20-master roster',
-      );
-      expect(
-        maxInFlight,
-        8,
-        reason: 'no more than 8 calls may be in flight at once',
-      );
-
-      // Settle chunk 1 (masters m0..m7).
-      for (final String id in pending.keys.toList()) {
-        pending[id]!.complete(<MasterService>[_serviceFor(id)]);
-      }
-      await pumpEventQueue();
-
-      expect(
-        totalDispatched,
-        16,
-        reason:
-            'chunk 2 (masters m8..m15) must dispatch only after chunk 1 '
-            'fully settled',
-      );
-      expect(maxInFlight, 8, reason: 'chunk 2 must also cap at 8 in flight');
-
-      // Settle chunk 2 (masters m8..m15).
-      for (final String id in pending.keys.toList()) {
-        if (pending[id]!.isCompleted) continue;
-        pending[id]!.complete(<MasterService>[_serviceFor(id)]);
-      }
-      await pumpEventQueue();
-
-      expect(
-        totalDispatched,
-        20,
-        reason:
-            'the final partial chunk (masters m16..m19, only 4 masters) '
-            'must still be dispatched — an off-by-one in the chunk loop '
-            'would silently drop the tail',
-      );
-
-      // Settle the final partial chunk (masters m16..m19).
-      for (final String id in pending.keys.toList()) {
-        if (pending[id]!.isCompleted) continue;
-        pending[id]!.complete(<MasterService>[_serviceFor(id)]);
-      }
-
-      final Map<String, Map<String, String>> coverage = await resultFuture;
-
-      expect(
-        coverage.keys.toSet(),
-        roster.map((SalonMasterSummary m) => m.masterId).toSet(),
-        reason:
-            'the merged coverage map must contain EVERY master in the '
-            'roster, not just the first chunk',
-      );
-      for (final SalonMasterSummary m in roster) {
-        // Phase 14.16/14.17 bugfix regression guard: asserts the FULL
-        // `serviceDefId -> assignmentId` map, not just which serviceDefIds
-        // are present — a regression that keyed the map correctly but
-        // discarded/overwrote `MasterService.id` (e.g. reverted to
-        // collapsing into a bare `Set<String>` of serviceDefIds) would pass
-        // a presence-only check but fail this value-level assertion.
-        expect(
-          coverage[m.masterId],
-          <String, String>{'svc-${m.masterId}': 'assignment-${m.masterId}'},
-          reason:
-              'each master\'s coverage map must carry the exact '
-              'serviceDefId -> assignmentId pairs from its OWN '
-              'getMasterServices response (MasterService.serviceDefId -> '
-              'MasterService.id) — a chunk-index mix-up would cross-assign '
-              'another master\'s services, and dropping the assignment id '
-              'would reintroduce the masterService-not-found bug',
+        final container = ProviderContainer(
+          overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
-      }
-    });
+        addTearDown(container.dispose);
 
-    test('a roster that is an exact multiple of the chunk size (16) dispatches '
-        'in exactly two chunks of 8, with no trailing empty chunk', () async {
-      final repo = _MockServiceRepository();
-      final List<SalonMasterSummary> roster = _rosterOf(16);
+        const args = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: <String>['svc-1'],
+        );
+        final Map<String, Map<String, String>> coverage = await container.read(
+          salonMasterServiceCoverageProvider(args).future,
+        );
 
-      int totalDispatched = 0;
-      final Map<String, Completer<List<MasterService>>> pending =
-          <String, Completer<List<MasterService>>>{};
+        expect(coverage.containsKey('m1'), isTrue);
+        expect(coverage['m1'], <String, String>{
+          'svc-1': 'assignment-m1-svc-1',
+        });
+      },
+    );
 
-      when(() => repo.getMasterServices(any())).thenAnswer((
-        Invocation invocation,
-      ) {
-        final String masterId = invocation.positionalArguments[0] as String;
-        totalDispatched++;
-        final completer = Completer<List<MasterService>>();
-        pending[masterId] = completer;
-        return completer.future;
+    test('a master bookable for 2 of the selected services accumulates BOTH '
+        'entries in its single coverage row', () async {
+      final repo = _MockSalonRepository();
+      _stubBySvc(repo, <String, Object>{
+        'svc-1': const <BookableMasterAssignment>[
+          (masterId: 'm1', masterServiceId: 'assignment-m1-svc-1'),
+        ],
+        'svc-2': const <BookableMasterAssignment>[
+          (masterId: 'm1', masterServiceId: 'assignment-m1-svc-2'),
+        ],
       });
 
       final container = ProviderContainer(
-        overrides: [
-          publicSalonProfileProvider(
-            _kSalonId,
-          ).overrideWith((ref) => (_stubSalon, roster)),
-          publicServiceRepositoryProvider.overrideWithValue(repo),
-        ],
+        overrides: [salonRepositoryProvider.overrideWithValue(repo)],
       );
       addTearDown(container.dispose);
 
-      final Future<Map<String, Map<String, String>>> resultFuture = container
-          .read(salonMasterServiceCoverageProvider(_kSalonId).future);
-
-      await pumpEventQueue();
-      expect(totalDispatched, 8);
-
-      for (final String id in pending.keys.toList()) {
-        pending[id]!.complete(<MasterService>[_serviceFor(id)]);
-      }
-      await pumpEventQueue();
-      expect(
-        totalDispatched,
-        16,
-        reason: 'second chunk covers the remaining 8 masters exactly',
+      const args = SalonBookingMasterSelectionArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1', 'svc-2'],
+      );
+      final Map<String, Map<String, String>> coverage = await container.read(
+        salonMasterServiceCoverageProvider(args).future,
       );
 
-      for (final String id in pending.keys.toList()) {
-        if (pending[id]!.isCompleted) continue;
-        pending[id]!.complete(<MasterService>[_serviceFor(id)]);
-      }
-      final Map<String, Map<String, String>> coverage = await resultFuture;
-      expect(coverage.length, 16);
-      // No third chunk was ever dispatched (would have bumped this past 16).
-      expect(totalDispatched, 16);
+      expect(coverage['m1'], <String, String>{
+        'svc-1': 'assignment-m1-svc-1',
+        'svc-2': 'assignment-m1-svc-2',
+      });
+    });
+  });
+
+  group('salonMasterServiceCoverageProvider — scheduleless-master exclusion '
+      '(the bug this rewire fixes)', () {
+    test(
+      'a master the endpoint simply omits (server-filtered: active '
+      'assignment but no usable schedule) never reaches the coverage map, '
+      'even though a sibling master on the SAME service is included',
+      () async {
+        final repo = _MockSalonRepository();
+        // "Роман" has an active assignment on svc-1 in production but no
+        // usable weekly schedule — the backend's Phase 23.x filter omits
+        // him from the response entirely rather than flagging him as
+        // ineligible. Only m1 (schedule-usable) comes back.
+        _stubBySvc(repo, <String, Object>{
+          'svc-1': const <BookableMasterAssignment>[
+            (masterId: 'm1', masterServiceId: 'assignment-m1-svc-1'),
+          ],
+        });
+
+        final container = ProviderContainer(
+          overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+        );
+        addTearDown(container.dispose);
+
+        const args = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: <String>['svc-1'],
+        );
+        final Map<String, Map<String, String>> coverage = await container.read(
+          salonMasterServiceCoverageProvider(args).future,
+        );
+
+        expect(coverage.containsKey('m1'), isTrue);
+        expect(
+          coverage.containsKey('roman-scheduleless'),
+          isFalse,
+          reason:
+              'a master absent from getBookableMasters\' response must '
+              'never appear in the coverage map — this is the server-side '
+              'gate that fixes the calendar-all-dates-disabled bug at the '
+              'source; the client has no way to "see" a scheduleless '
+              'master because the endpoint never sends him',
+        );
+        // The map has exactly the one bookable master — not an empty
+        // masterId key or any other artifact of the omitted master.
+        expect(coverage.keys, <String>['m1']);
+      },
+    );
+
+    test('omitted from svc-1 but present for svc-2 — the SAME master id can '
+        'be eligible for one selected service and excluded from another, '
+        'entirely per-service', () async {
+      final repo = _MockSalonRepository();
+      _stubBySvc(repo, <String, Object>{
+        // m2 has a usable schedule for svc-2 but is NOT returned for
+        // svc-1 (e.g. an assignment exists but that service's slots
+        // never resolve to a bookable day) — omission is per-service,
+        // not a blanket master-level flag.
+        'svc-1': const <BookableMasterAssignment>[
+          (masterId: 'm1', masterServiceId: 'assignment-m1-svc-1'),
+        ],
+        'svc-2': const <BookableMasterAssignment>[
+          (masterId: 'm2', masterServiceId: 'assignment-m2-svc-2'),
+        ],
+      });
+
+      final container = ProviderContainer(
+        overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+      );
+      addTearDown(container.dispose);
+
+      const args = SalonBookingMasterSelectionArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1', 'svc-2'],
+      );
+      final Map<String, Map<String, String>> coverage = await container.read(
+        salonMasterServiceCoverageProvider(args).future,
+      );
+
+      expect(coverage['m1'], <String, String>{'svc-1': 'assignment-m1-svc-1'});
+      expect(coverage['m2'], <String, String>{'svc-2': 'assignment-m2-svc-2'});
+      expect(
+        coverage['m1']!.containsKey('svc-2'),
+        isFalse,
+        reason: 'm1 was never returned for svc-2 — must not leak in',
+      );
+      expect(
+        coverage['m2']!.containsKey('svc-1'),
+        isFalse,
+        reason: 'm2 was never returned for svc-1 — must not leak in',
+      );
+    });
+  });
+
+  group(
+    'salonMasterServiceCoverageProvider — per-service graceful degradation',
+    () {
+      test('one selected service\'s getBookableMasters call throwing degrades '
+          'to "no bookable masters for that service" — the provider future '
+          'still resolves (never rethrows) and the OTHER, succeeding service\'s '
+          'coverage is unaffected', () async {
+        final repo = _MockSalonRepository();
+        _stubBySvc(repo, <String, Object>{
+          'svc-1': const NetworkFailure(),
+          'svc-2': const <BookableMasterAssignment>[
+            (masterId: 'm2', masterServiceId: 'assignment-m2-svc-2'),
+          ],
+        });
+
+        final container = ProviderContainer(
+          overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+        );
+        addTearDown(container.dispose);
+
+        const args = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: <String>['svc-1', 'svc-2'],
+        );
+
+        // The provider's own Future must resolve normally — a regression
+        // back to an unguarded `Future.wait` would instead throw here and
+        // fail this `await` with the NetworkFailure, blanking the WHOLE
+        // grid instead of just the failed service.
+        final Map<String, Map<String, String>> coverage = await container.read(
+          salonMasterServiceCoverageProvider(args).future,
+        );
+
+        // svc-1 contributed no masters at all — no coverage row carries
+        // 'svc-1' as a key.
+        for (final Map<String, String> row in coverage.values) {
+          expect(row.containsKey('svc-1'), isFalse);
+        }
+        // svc-2's real result is untouched by svc-1's failure.
+        expect(coverage['m2'], <String, String>{
+          'svc-2': 'assignment-m2-svc-2',
+        });
+      });
+
+      test('ALL selected services failing resolves to an empty coverage map, '
+          'never a thrown error', () async {
+        final repo = _MockSalonRepository();
+        _stubBySvc(repo, <String, Object>{
+          'svc-1': const NetworkFailure(),
+          'svc-2': const ServerFailure(statusCode: 500),
+        });
+
+        final container = ProviderContainer(
+          overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+        );
+        addTearDown(container.dispose);
+
+        const args = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: <String>['svc-1', 'svc-2'],
+        );
+
+        final Map<String, Map<String, String>> coverage = await container.read(
+          salonMasterServiceCoverageProvider(args).future,
+        );
+
+        expect(coverage, isEmpty);
+      });
+    },
+  );
+
+  group(
+    'salonMasterServiceCoverageProvider — call shape (one call per selected '
+    'service, never a roster fan-out)',
+    () {
+      test('issues exactly one getBookableMasters call per selected service, '
+          'each with the correct (salonId, serviceDefId) pair', () async {
+        final repo = _MockSalonRepository();
+        _stubBySvc(repo, <String, Object>{
+          'svc-1': const <BookableMasterAssignment>[],
+          'svc-2': const <BookableMasterAssignment>[],
+          'svc-3': const <BookableMasterAssignment>[],
+        });
+
+        final container = ProviderContainer(
+          overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+        );
+        addTearDown(container.dispose);
+
+        const args = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: <String>['svc-1', 'svc-2', 'svc-3'],
+        );
+        await container.read(salonMasterServiceCoverageProvider(args).future);
+
+        for (final String svc in <String>['svc-1', 'svc-2', 'svc-3']) {
+          verify(
+            () =>
+                repo.getBookableMasters(salonId: _kSalonId, serviceDefId: svc),
+          ).called(1);
+        }
+        verifyNoMoreInteractions(repo);
+      });
+    },
+  );
+
+  group('salonMasterServiceCoverageProvider — family-key caching', () {
+    test(
+      're-reading with a DIFFERENT SalonBookingMasterSelectionArgs instance '
+      'carrying the SAME (salonId, selectedServiceIds) resolves to the same '
+      'cached family member — freezed value equality, not identity',
+      () async {
+        final repo = _MockSalonRepository();
+        int callCount = 0;
+        when(
+          () => repo.getBookableMasters(
+            salonId: any(named: 'salonId'),
+            serviceDefId: any(named: 'serviceDefId'),
+          ),
+        ).thenAnswer((_) async {
+          callCount++;
+          return const <BookableMasterAssignment>[];
+        });
+
+        final container = ProviderContainer(
+          overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+        );
+        addTearDown(container.dispose);
+
+        const args1 = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: <String>['svc-1'],
+        );
+        // A SEPARATE, non-const instance (built from a runtime `List.of`, so
+        // Dart's const-canonicalization can never fold it onto [args1]) —
+        // `==` to args1 by freezed's generated equality, but deliberately
+        // never `identical()` to it, which is the whole point of this test.
+        final List<String> runtimeIds = List<String>.of(<String>['svc-1']);
+        final args2 = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: runtimeIds,
+        );
+        expect(identical(args1, args2), isFalse);
+        expect(args1, args2);
+
+        await container.read(salonMasterServiceCoverageProvider(args1).future);
+        await container.read(salonMasterServiceCoverageProvider(args2).future);
+
+        expect(
+          callCount,
+          1,
+          reason:
+              'args1/args2 are `==` (same salonId + selectedServiceIds) so '
+              'Riverpod\'s family must resolve them to the SAME cached '
+              'provider instance — a regression that keyed the family on '
+              'object identity (or reverted to a bare String salonId key '
+              'that ignores selectedServiceIds) would either refetch here '
+              'or, worse, silently share stale coverage across different '
+              'service selections',
+        );
+      },
+    );
+
+    test('a DIFFERENT selectedServiceIds list (same salonId) is a DIFFERENT '
+        'family member and fetches independently', () async {
+      final repo = _MockSalonRepository();
+      _stubBySvc(repo, <String, Object>{
+        'svc-1': const <BookableMasterAssignment>[],
+        'svc-2': const <BookableMasterAssignment>[],
+      });
+
+      final container = ProviderContainer(
+        overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+      );
+      addTearDown(container.dispose);
+
+      const argsSvc1 = SalonBookingMasterSelectionArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1'],
+      );
+      const argsSvc2 = SalonBookingMasterSelectionArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-2'],
+      );
+
+      await container.read(salonMasterServiceCoverageProvider(argsSvc1).future);
+      await container.read(salonMasterServiceCoverageProvider(argsSvc2).future);
+
+      verify(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-1'),
+      ).called(1);
+      verify(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-2'),
+      ).called(1);
     });
   });
 
@@ -249,25 +435,25 @@ void main() {
       'cancels its 5-minute keepAlive Timer on dispose (no dangling Timer '
       'when the container is disposed well within the TTL window)',
       (tester) async {
-        final repo = _MockServiceRepository();
+        final repo = _MockSalonRepository();
         when(
-          () => repo.getMasterServices(any()),
-        ).thenAnswer((_) async => <MasterService>[]);
+          () => repo.getBookableMasters(
+            salonId: any(named: 'salonId'),
+            serviceDefId: any(named: 'serviceDefId'),
+          ),
+        ).thenAnswer((_) async => const <BookableMasterAssignment>[]);
 
         final container = ProviderContainer(
-          overrides: [
-            publicSalonProfileProvider(
-              _kSalonId,
-            ).overrideWith((ref) => (_stubSalon, _rosterOf(2))),
-            publicServiceRepositoryProvider.overrideWithValue(repo),
-          ],
+          overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
 
+        const args = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: <String>['svc-1'],
+        );
         // Resolve the provider — this is what starts the 5-minute release
         // Timer (see the provider body's `ref.keepAlive()` + `Timer(...)`).
-        await container.read(
-          salonMasterServiceCoverageProvider(_kSalonId).future,
-        );
+        await container.read(salonMasterServiceCoverageProvider(args).future);
 
         // Dispose immediately — nowhere near the 5-minute TTL. If the
         // provider's `ref.onDispose(timer.cancel)` regressed (e.g. the Timer
