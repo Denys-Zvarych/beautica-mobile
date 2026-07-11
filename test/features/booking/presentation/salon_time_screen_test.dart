@@ -6,9 +6,14 @@
 //   2. Dot-tap changes the active slide.
 //   3. Selecting a date + a time slot for the (only) assigned master enables
 //      the confirm bar and updates its scheduled-count.
-//   4. "Підтвердити" navigates to the existing /booking/salon/coming-soon
-//      placeholder with the correct salonId — and NEVER calls any
-//      booking-creation repository method.
+//   4. "Підтвердити" (Phase 14.18) navigates to /booking/salon/confirm with a
+//      fully-resolved `SalonBookingConfirmArgs` (correct salonId + one
+//      appointment per scheduled master, each carrying a stable idempotency
+//      key) — and NEVER calls any booking-creation repository method (the
+//      N-booking submit happens on the confirm screen, off this screen).
+//   5. The compact inline «Змінити» change-date button (key
+//      `salon-schedule-change-date`, Phase 14.18 — replaced the removed
+//      `_DayHeaderChip`/`_WindowLine`) is present in the time phase.
 //
 // Strategy: mounts the REAL production screen via a test-local GoRouter
 // mirroring app_router.dart's shape, overriding [slotRepositoryProvider]
@@ -23,6 +28,7 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -271,11 +277,15 @@ class _ThrowingMasterSlotsSlotRepository implements SlotRepository {
 }
 
 /// Test-local router mirroring `app_router.dart`'s salonBookingTime →
-/// salonBookingComingSoon shape, capturing whatever `extra` reaches the
-/// coming-soon stub so the "Підтвердити" hand-off can be asserted precisely.
+/// salonBookingConfirm shape (Phase 14.18 — the «Підтвердити» hand-off now
+/// targets the real confirmation screen, no longer the retired coming-soon
+/// placeholder), capturing the `SalonBookingConfirmArgs` that reaches the
+/// confirm stub so the hand-off payload can be asserted precisely. The stub
+/// renders plain text (not the real `SalonBookingConfirmScreen`) so no
+/// booking-creation provider is ever touched by this screen's tests.
 GoRouter _router({
   required SalonBookingTimeArgs args,
-  ValueChanged<String>? onReachedComingSoon,
+  ValueChanged<SalonBookingConfirmArgs>? onReachedConfirm,
 }) => GoRouter(
   initialLocation: RouteNames.salonBookingTime,
   routes: <RouteBase>[
@@ -284,10 +294,10 @@ GoRouter _router({
       builder: (context, state) => SalonTimeScreen(args: args),
     ),
     GoRoute(
-      path: RouteNames.salonBookingComingSoon,
+      path: RouteNames.salonBookingConfirm,
       builder: (context, state) {
-        onReachedComingSoon?.call(state.extra! as String);
-        return const Scaffold(body: Text('coming-soon-reached'));
+        onReachedConfirm?.call(state.extra! as SalonBookingConfirmArgs);
+        return const Scaffold(body: Text('confirm-reached'));
       },
     ),
   ],
@@ -389,8 +399,10 @@ void main() {
 
   testWidgets(
     'picking a date then a time slot for the only assigned master enables '
-    'the confirm bar; confirming navigates to /booking/salon/coming-soon '
-    'with the correct salonId and never touches a booking-creation repository',
+    'the confirm bar; confirming navigates to /booking/salon/confirm with a '
+    'fully-resolved SalonBookingConfirmArgs (correct salonId + one '
+    'appointment carrying a stable idempotency key) and never touches a '
+    'booking-creation repository',
     (tester) async {
       await _pumpTall(tester);
       const args = SalonBookingTimeArgs(
@@ -401,19 +413,25 @@ void main() {
         },
       );
       final DateTime today = DateTime.now();
+      final DateTime slotStart = DateTime(
+        today.year,
+        today.month,
+        today.day,
+        9,
+      );
       final fake = _FakeSlotRepository(<BookingSlot>[
         BookingSlot(
-          startAt: DateTime(today.year, today.month, today.day, 9),
+          startAt: slotStart,
           endAt: DateTime(today.year, today.month, today.day, 10, 30),
           available: true,
         ),
       ]);
-      String? capturedSalonId;
+      SalonBookingConfirmArgs? capturedArgs;
 
       await tester.pumpRoutedApp(
         _router(
           args: args,
-          onReachedComingSoon: (String id) => capturedSalonId = id,
+          onReachedConfirm: (SalonBookingConfirmArgs a) => capturedArgs = a,
         ),
         overrides: _baseOverrides(
           slotRepository: fake,
@@ -438,11 +456,18 @@ void main() {
 
       expect(fake.getMasterSlotsCallCount, greaterThan(0));
 
+      // Phase 14.18 — the removed `_DayHeaderChip`/`_WindowLine`'s only
+      // still-needed affordance now lives as this compact inline change-date
+      // button beside the "Вільний час" heading; it must render in the time
+      // phase.
+      expect(
+        find.byKey(const Key('salon-schedule-change-date')),
+        findsOneWidget,
+      );
+
       // Pick the fetched 09:00 slot.
       final Finder slotChip = find.byKey(
-        Key(
-          'salon-slot-chip-${DateTime(today.year, today.month, today.day, 9).toIso8601String()}',
-        ),
+        Key('salon-slot-chip-${slotStart.toIso8601String()}'),
       );
       expect(slotChip, findsOneWidget);
       await tester.tap(slotChip);
@@ -457,8 +482,28 @@ void main() {
       await tester.tap(find.byKey(const Key('schedule-confirm-cta')));
       await tester.pumpAndSettle();
 
-      expect(capturedSalonId, _kSalonId);
-      expect(find.text('coming-soon-reached'), findsOneWidget);
+      // Landed on the confirm stub with a fully-resolved payload — never the
+      // retired coming-soon placeholder.
+      expect(find.text('confirm-reached'), findsOneWidget);
+      expect(capturedArgs, isNotNull);
+      expect(capturedArgs!.salonId, _kSalonId);
+      expect(
+        capturedArgs!.appointments,
+        hasLength(1),
+        reason: 'exactly one appointment for the single assigned master',
+      );
+      final SalonBookingAppointment appt = capturedArgs!.appointments.single;
+      expect(appt.schedule.masterId, 'm1');
+      expect(
+        appt.startAt,
+        slotStart,
+        reason: "the appointment carries the chosen slot's start",
+      );
+      expect(
+        appt.idempotencyKey,
+        isNotEmpty,
+        reason: 'each appointment gets a stable idempotency key at confirm',
+      );
     },
   );
 

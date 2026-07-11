@@ -85,13 +85,28 @@
 // remove affordance (mobile-qa audit, added alongside that feature) — see
 // the "Per-item remove affordance" block below.
 
+import 'dart:async';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
+import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
+import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -101,6 +116,70 @@ import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+
+// ---------------------------------------------------------------------------
+// Phase 14.18 — recording fake BookingRepository injected into the harness so
+// the salon confirmation screen's N `POST /bookings` submit runs against an
+// in-memory fake instead of the real generated Dio client. Overriding the
+// repository provider (rather than registering the wire route in the
+// DioAdapter) is deliberate: it avoids the generated booking client's
+// real-Dio timer (backlog #185's timer-leak pattern) while still exercising
+// the REAL `SalonBookingSubmit` notifier + confirm/success screens + router
+// pushReplacement end to end. Each configured master fails EXACTLY ONCE (then
+// succeeds on retry), so the partial-failure/retry path is driveable.
+class _FakeBookingRepository implements BookingRepository {
+  _FakeBookingRepository({Set<String> failOnce = const <String>{}})
+    : _failOnce = <String>{...failOnce};
+
+  final Set<String> _failOnce;
+  final List<CreateBookingRequest> requests = <CreateBookingRequest>[];
+
+  int callsFor(String masterId) =>
+      requests.where((CreateBookingRequest r) => r.masterId == masterId).length;
+
+  List<CreateBookingRequest> requestsFor(String masterId) => requests
+      .where((CreateBookingRequest r) => r.masterId == masterId)
+      .toList(growable: false);
+
+  @override
+  Future<Booking> createBooking(CreateBookingRequest req) async {
+    requests.add(req);
+    if (_failOnce.remove(req.masterId)) throw const ConflictFailure();
+    return Booking(
+      id: 'booking-${req.masterId}',
+      masterId: req.masterId,
+      masterFirstName: 'Майстер',
+      masterLastName: 'Салону',
+      masterType: 'SALON_MASTER',
+      serviceId: req.serviceId,
+      serviceName: 'Послуга',
+      durationMinutes: 60,
+      price: 500,
+      startAt: req.startAt,
+      endAt: req.startAt.add(const Duration(minutes: 60)),
+      status: BookingStatus.pending,
+      canReview: false,
+    );
+  }
+
+  @override
+  Future<PageResponse<Booking>> getMyBookings({
+    required BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Booking> getBookingById(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> cancelBooking(String id, {String? reason}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -133,7 +212,14 @@ void main() {
       'masters auto-attached) → coming-soon placeholder', (tester) async {
     await mockNetworkImagesFor(() async {
       final fb = FakeBackend()..currentRole = UserRole.client;
-      final GoRouter router = await AppHarness.boot(tester, fb);
+      final repo = _FakeBookingRepository();
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: <Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
 
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await AppHarness.settle(tester);
@@ -569,8 +655,12 @@ void main() {
       await AppHarness.settle(tester);
 
       // ── Both masters fully scheduled — the confirm bar's "Підтвердити"
-      // enables, and tapping it is PURE forward navigation to the existing
-      // coming-soon placeholder, NEVER a `POST /bookings` call ────────────
+      // enables, and tapping it is PURE forward navigation to the step-4
+      // confirmation screen (Phase 14.18 — replaced the retired coming-soon
+      // placeholder), NOT a `POST /bookings` call yet (the submit lives on
+      // the confirm screen), and NEVER the independent-master SlotPickerScreen
+      // (that flow assumes a single masterId, which a salon booking never
+      // has). ─────────────────────────────────────────────────────────────
       final Finder scheduleConfirmCta = find.byKey(
         const Key('schedule-confirm-cta'),
       );
@@ -588,12 +678,158 @@ void main() {
       await tester.tap(scheduleConfirmCta);
       await AppHarness.settle(tester);
 
-      // ── Lands on the coming-soon placeholder — NEVER the
-      // independent-master SlotPickerScreen (that flow assumes a single
-      // masterId, which a salon booking never has) ───────────────────────
-      expectLocation(router, RouteNames.salonBookingComingSoon);
-      expect(find.byType(SalonBookingComingSoonScreen), findsOneWidget);
+      expectLocation(router, RouteNames.salonBookingConfirm);
+      expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
+      // No booking has been written by merely reaching the confirm screen.
+      expect(repo.requests, isEmpty);
+
+      // One appointment card per assigned master (master-ccc, master-ddd).
+      expect(
+        find.byKey(const ValueKey<String>('salon-confirm-appt-master-ccc')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('salon-confirm-appt-master-ddd')),
+        findsOneWidget,
+      );
+
+      // ── Submit: one `POST /bookings` per master → all succeed → success
+      // screen. This is the Phase 14.18 booking-WRITE the flow now performs
+      // end to end (Step 2.7 Rule 3b). ────────────────────────────────────
+      await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+      await AppHarness.settle(tester);
+
+      expectLocation(router, RouteNames.salonBookingSuccess);
+      expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // Exactly one booking per master, each carrying that master's OWN
+      // service-ASSIGNMENT id (never the salon-wide catalog id) — the same
+      // masterService-not-found regression guarded at the slots step, now
+      // proven all the way through the booking write.
+      expect(repo.callsFor('master-ccc'), 1);
+      expect(repo.callsFor('master-ddd'), 1);
+      expect(
+        repo.requestsFor('master-ccc').single.serviceId,
+        'assign-master-ccc-salon-svc-shared',
+      );
+      expect(
+        repo.requestsFor('master-ddd').single.serviceId,
+        'assign-master-ddd-salon-svc-exclusive',
+      );
+
+      // Both created appointments are recapped on the success screen.
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-appt-master-ccc')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-appt-master-ddd')),
+        findsOneWidget,
+      );
     });
-  }, timeout: const Timeout(Duration(seconds: 90)));
+  }, timeout: const Timeout(Duration(seconds: 120)));
+
+  // ── Phase 14.18 partial-failure variant (Step 2.7 Rule 3b) ──────────────
+  // The full search→salon→services→masters→time journey is already proven end
+  // to end by the flow above; this variant targets the NEW partial-failure
+  // path specifically, reached via a real `router.push` of the confirm route
+  // (through the REAL CLIENT route guard) with a fully-resolved two-master
+  // `SalonBookingConfirmArgs`. One master's first `POST /bookings` fails with
+  // a 409 (stale slot) → the confirm screen STAYS, the failed card shows its
+  // error + the CTA flips to «Повторити»; retrying re-submits ONLY the failed
+  // master and reaches success.
+  testWidgets(
+    'CLIENT salon confirm: a 409 on one master keeps the confirm screen; '
+    'retry re-submits only the failed master and reaches success',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.client;
+        // master-ddd's first booking fails (409), then succeeds on retry.
+        final repo = _FakeBookingRepository(failOnce: const <String>{'m-two'});
+        final GoRouter router = await AppHarness.boot(
+          tester,
+          fb,
+          extraOverrides: <Object>[
+            bookingRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await AppHarness.settle(tester);
+
+        SalonBookingAppointment appt(String masterId, String firstName) =>
+            SalonBookingAppointment(
+              schedule: SalonMasterSchedule(
+                masterId: masterId,
+                firstName: firstName,
+                lastName: 'Майстер',
+                type: MasterType.salonMaster,
+                services: <SalonCatalogService>[
+                  SalonCatalogService(
+                    id: 'svc-$masterId',
+                    name: 'Манікюр',
+                    durationLabel: '1 год',
+                    priceDisplay: '500 грн',
+                    durationMinutes: 60,
+                    priceType: ServicePriceType.fixed,
+                    priceMin: 500,
+                  ),
+                ],
+                primaryServiceAssignmentId: 'assign-$masterId',
+              ),
+              startAt: DateTime.now().add(const Duration(days: 1)),
+              idempotencyKey: 'idem-$masterId',
+            );
+
+        unawaited(
+          router.push(
+            RouteNames.salonBookingConfirm,
+            extra: SalonBookingConfirmArgs(
+              salonId: 'salon-xyz',
+              appointments: <SalonBookingAppointment>[
+                appt('m-one', 'Олена'),
+                appt('m-two', 'Софія'),
+              ],
+            ),
+          ),
+        );
+        await AppHarness.settle(tester);
+
+        expectLocation(router, RouteNames.salonBookingConfirm);
+        expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
+
+        // First submit → m-two fails (409) → stay on confirm.
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await AppHarness.settle(tester);
+
+        expectLocation(router, RouteNames.salonBookingConfirm);
+        expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
+        expect(find.byType(SalonBookingSuccessScreen), findsNothing);
+        expect(repo.callsFor('m-one'), 1);
+        expect(repo.callsFor('m-two'), 1);
+
+        // Retry → m-two now succeeds (fail-once consumed) → success.
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await AppHarness.settle(tester);
+
+        expectLocation(router, RouteNames.salonBookingSuccess);
+        expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
+        // m-one booked once (never re-sent); m-two booked twice (fail + retry),
+        // both reusing its stable idempotency key.
+        expect(repo.callsFor('m-one'), 1);
+        expect(repo.callsFor('m-two'), 2);
+        expect(
+          repo
+              .requestsFor('m-two')
+              .map((CreateBookingRequest r) => r.idempotencyKey)
+              .toSet(),
+          <String>{'idem-m-two'},
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
 }

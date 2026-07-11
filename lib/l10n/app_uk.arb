@@ -3916,6 +3916,38 @@
   "@salonBookingTimeBackSemantics": {
     "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen."
   },
+  "salonBookingConfirmTitle": "Підтвердження",
+  "@salonBookingConfirmTitle": {
+    "description": "Top bar title of the salon booking flow's step-4 confirmation screen."
+  },
+  "salonBookingRetryCta": "Повторити",
+  "@salonBookingRetryCta": {
+    "description": "Submit-button label on the salon confirmation screen after a partial failure — retries only the appointments that failed."
+  },
+  "salonBookingPartialFailureMessage": "Деякі записи не вдалося створити. Спробуйте ще раз.",
+  "@salonBookingPartialFailureMessage": {
+    "description": "SnackBar shown when some (not all) of the salon's per-master bookings failed to submit."
+  },
+  "salonBookingBackBlockedMessage": "Частину записів уже створено. Завершіть решту через «Повторити».",
+  "@salonBookingBackBlockedMessage": {
+    "description": "SnackBar shown when the user tries to leave the salon confirmation screen after at least one appointment already succeeded; back is blocked so the remaining failed ones must be finished via Retry (which reuses idempotency keys)."
+  },
+  "salonBookingAppointmentSubmitting": "Надсилаємо…",
+  "@salonBookingAppointmentSubmitting": {
+    "description": "Per-appointment status line on the salon confirmation screen while that master's booking is being submitted."
+  },
+  "salonBookingAppointmentSucceeded": "Заплановано",
+  "@salonBookingAppointmentSucceeded": {
+    "description": "Per-appointment status line on the salon confirmation screen once that master's booking succeeded."
+  },
+  "salonBookingSuccessTitle": "Записано!",
+  "@salonBookingSuccessTitle": {
+    "description": "Headline on the salon booking success screen after every per-master booking succeeded."
+  },
+  "salonBookingSuccessSubline": "Майстри підтвердять ваші записи найближчим часом.\nСповіщення надійде, щойно вони відповідять.",
+  "@salonBookingSuccessSubline": {
+    "description": "Reassuring subline under the salon booking success headline."
+  },
   "salonSchedulePagerSemantics": "Майстер {current} з {count}. {done} заплановано.",
   "@salonSchedulePagerSemantics": {
     "description": "Accessibility label for the salon booking time screen's master-pager row (arrows + dots + counter).",

@@ -991,6 +991,23 @@ abstract final class VelvetText {
     color: BrandColors.placeholder,
   );
 
+  /// `SalonAppointmentCard` status line — in-flight (muted). Pre-cached so the
+  /// card never calls `feedback(color).copyWith()` per build (mobile-perf INFO,
+  /// Phase 14.18 salon-submit audit).
+  static final TextStyle salonApptStatusMuted = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+  );
+
+  /// `SalonAppointmentCard` status line — succeeded (success green).
+  static final TextStyle salonApptStatusSuccess = _feedbackBase.copyWith(
+    color: BrandColors.success,
+  );
+
+  /// `SalonAppointmentCard` status line — failed (error red).
+  static final TextStyle salonApptStatusError = _feedbackBase.copyWith(
+    color: BrandColors.error,
+  );
+
   // ---------------------------------------------------------------------------
   // Additional generic size variants (home / salon / passport / rating).
   // ---------------------------------------------------------------------------

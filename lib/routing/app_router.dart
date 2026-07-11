@@ -45,9 +45,12 @@ import '../features/booking/domain/booking_confirm_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
 import '../features/booking/domain/booking_success_args.dart';
 import '../features/booking/domain/salon_booking_args.dart';
+import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
+import '../features/booking/presentation/salon_booking_confirm_screen.dart';
+import '../features/booking/presentation/salon_booking_success_screen.dart';
 import '../features/booking/presentation/salon_master_selection_screen.dart';
 import '../features/booking/presentation/salon_service_selection_screen.dart';
 import '../features/booking/presentation/salon_time_screen.dart';
@@ -704,6 +707,48 @@ GoRouter appRouter(Ref ref) {
         },
         builder: (context, state) =>
             SalonBookingComingSoonScreen(salonId: state.extra! as String),
+      ),
+      // Phase 14.18 — Salon booking flow step 4 (confirmation + submit).
+      // `SalonTimeScreen`'s «Підтвердити» CTA pushes here with a
+      // `SalonBookingConfirmArgs` (the N resolved per-master appointments) in
+      // `extra`; this screen submits one `POST /bookings` per master. A
+      // missing/wrong-typed extra has no natural upstream to chain through, so
+      // it bounces to the CLIENT home shell — same fallback shape as
+      // [salonBookingMasters]/[salonBookingTime] above.
+      GoRoute(
+        path: RouteNames.salonBookingConfirm,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          if (state.extra is! SalonBookingConfirmArgs) {
+            return RouteNames.clientHome;
+          }
+          return null;
+        },
+        builder: (context, state) => SalonBookingConfirmScreen(
+          args: state.extra! as SalonBookingConfirmArgs,
+        ),
+      ),
+      // Phase 14.18 — Salon booking flow step 4b (success recap). Reached ONLY
+      // via `SalonBookingConfirmScreen`'s `pushReplacement` once every
+      // appointment's booking succeeded, carrying a `SalonBookingSuccessArgs`
+      // in `extra`. `pushReplacement` drops the confirm screen from the stack;
+      // `SalonBookingSuccessScreen` additionally blocks back via
+      // `PopScope(canPop: false)` — mirrors [bookingSuccess]. A missing/
+      // invalid extra bounces to the CLIENT home shell.
+      GoRoute(
+        path: RouteNames.salonBookingSuccess,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          if (state.extra is! SalonBookingSuccessArgs) {
+            return RouteNames.clientHome;
+          }
+          return null;
+        },
+        builder: (context, state) => SalonBookingSuccessScreen(
+          args: state.extra! as SalonBookingSuccessArgs,
+        ),
       ),
       // Phase 4.2 — Master profile (read-only). The INDEPENDENT_MASTER's
       // home/tab-root — always first in its Navigator stack (only ever

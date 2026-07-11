@@ -17,18 +17,22 @@
 // slider to the next unscheduled master; «Підтвердити» enables only once
 // EVERY slide has both a date and a time.
 //
-// NO `POST /bookings` CALL ANYWHERE IN THIS SCREEN: «Підтвердити» is PURE
-// FORWARD NAVIGATION to the existing `RouteNames.salonBookingComingSoon`
-// placeholder (the same step-4 hand-off target `SalonMasterSelectionScreen`
-// already wired in Phase 14.13) — never a booking-creation repository call.
-// See `salon_booking_schedule_notifier.dart`'s file header for the full
-// rationale (no `booking_services` join table exists backend-side yet).
+// NO `POST /bookings` CALL IN THIS SCREEN: «Підтвердити» (Phase 14.18) is
+// PURE FORWARD NAVIGATION — it snapshots every scheduled master's picked
+// date/time into concrete `SalonBookingAppointment`s (each with a stable
+// idempotency key) and pushes `RouteNames.salonBookingConfirm`, where the
+// actual N-booking submit runs (`SalonBookingConfirmScreen` →
+// `SalonBookingSubmit`, one `POST /bookings` per master). The booking-write
+// lives OFF this screen so the step-3 picker stays a pure local-state editor;
+// see `salon_booking_schedule_notifier.dart`'s header for the per-master
+// (one appointment per master, primary-service) model.
 
 import 'dart:developer';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -44,29 +48,17 @@ import '../../salon/application/public_salon_profile_notifier.dart';
 import '../../salon/application/salon_service_catalog_notifier.dart';
 import '../../salon/domain/salon_master_summary.dart';
 import '../../salon/domain/salon_service_catalog.dart';
+
 import '../application/salon_booking_schedule_notifier.dart';
 import '../application/salon_master_coverage_notifier.dart';
 import '../domain/salon_booking_args.dart';
+import '../domain/salon_booking_confirm_args.dart';
 import '../domain/salon_master_schedule.dart';
 import 'widgets/master_schedule_page.dart';
+import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/schedule_confirm_bar.dart';
 
-/// Avatar gradients cycled by this screen's own assigned-master position —
-/// the same palette `SalonMasterSummary` cards use elsewhere
-/// (`SalonMasterSelectionScreen`), kept as a private per-file copy since only
-/// camel/mocha gradient placeholders exist for master avatars anywhere in
-/// the app (no photo pipeline is wired yet).
-const List<List<Color>> _kAvatarGradients = <List<Color>>[
-  <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
-  <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
-  <Color>[Color(0xFFDFC6A8), Color(0xFFB89A7A)],
-  <Color>[Color(0xFFC8A878), Color(0xFF6A4A28)],
-  <Color>[Color(0xFFCFB090), Color(0xFF8A6840)],
-  <Color>[Color(0xFFE0CAAC), Color(0xFFB89A7A)],
-];
-
-List<Color> _avatarGradient(int index) =>
-    _kAvatarGradients[index % _kAvatarGradients.length];
+const Uuid _kUuid = Uuid();
 
 /// Salon booking flow step 3 — per-master date/time picker, opened by
 /// `SalonMasterSelectionScreen`'s "Підтвердити" CTA.
@@ -108,8 +100,35 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
     if (next != null) _goTo(next, masterIds.length);
   }
 
-  void _confirm() {
-    context.push(RouteNames.salonBookingComingSoon, extra: widget.args.salonId);
+  /// Snapshots every scheduled master's picked date/time into concrete
+  /// [SalonBookingAppointment]s and pushes the step-4 confirmation screen.
+  /// The CTA is only enabled once every master is scheduled, so each
+  /// [SalonScheduleEntry] here has a non-null slot — any without one is
+  /// defensively skipped rather than force-unwrapped. Each appointment gets a
+  /// STABLE idempotency key generated here (once, not on retry) so a later
+  /// retry de-duplicates server-side.
+  void _confirm(List<SalonMasterSchedule> schedules) {
+    final SalonBookingScheduleState schedule = ref.read(
+      salonBookingScheduleProvider,
+    );
+    final List<SalonBookingAppointment> appointments =
+        <SalonBookingAppointment>[
+          for (final SalonMasterSchedule s in schedules)
+            if (schedule.entryFor(s.masterId).slot case final slot?)
+              SalonBookingAppointment(
+                schedule: s,
+                startAt: slot.startAt,
+                idempotencyKey: _kUuid.v4(),
+              ),
+        ];
+    if (appointments.isEmpty) return;
+    context.push(
+      RouteNames.salonBookingConfirm,
+      extra: SalonBookingConfirmArgs(
+        salonId: widget.args.salonId,
+        appointments: appointments,
+      ),
+    );
   }
 
   @override
@@ -229,11 +248,14 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
       body = Column(
         children: <Widget>[
           Padding(
+            // Tightened top/bottom insets (was xs/sm) to lower this pager
+            // block's overall height so the per-master slide gets more of the
+            // viewport.
             padding: const EdgeInsets.fromLTRB(
               VelvetSpacing.lg,
-              VelvetSpacing.xs,
+              0,
               VelvetSpacing.lg,
-              VelvetSpacing.sm,
+              VelvetSpacing.xs,
             ),
             child: Consumer(
               builder: (BuildContext context, WidgetRef ref, Widget? child) {
@@ -284,7 +306,7 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
                     'salon-schedule-page-${schedule.masterId}',
                   ),
                   schedule: schedule,
-                  avatarGradient: _avatarGradient(i),
+                  avatarGradient: salonAvatarGradient(i),
                   onCompleted: () => _handleCompleted(i, masterIds),
                   // mobile-perf Finding B (MEDIUM): bound
                   // `AutomaticKeepAliveClientMixin` retention to the active
@@ -311,7 +333,7 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
             schedules: schedules,
             scheduledCount: scheduledCount,
             totalCount: masterIds.length,
-            onConfirm: _confirm,
+            onConfirm: () => _confirm(schedules),
           );
         },
       );
@@ -605,7 +627,7 @@ class _MasterPager extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: VelvetSpacing.sm),
+                const SizedBox(height: VelvetSpacing.xs),
                 Text(
                   l10n.salonSchedulePagerCounterLabel(current + 1, count),
                   style: VelvetText.schedulePagerCounter,
@@ -676,7 +698,9 @@ class _PagerDot extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          // Slimmed from 6 to trim the pager block height (see the
+          // _MasterPager Padding note above).
+          padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
           child: dot,
         ),
       ),

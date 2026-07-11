@@ -18,7 +18,8 @@
 // Two inline phases on the one slide: pick a DATE → the slide swaps to the
 // TIME chips for that date → picking a slot completes the master (the host
 // `SalonTimeScreen` then auto-advances to the next unscheduled master via
-// [onCompleted]). The day-header chip's «Змінити» clears the date.
+// [onCompleted]). A compact inline «Змінити» button beside the "Вільний час"
+// heading clears the date to re-open the calendar.
 //
 // Self-sufficient Riverpod integration (mirrors `SlotDateScreen`/
 // `SlotTimeScreen`, NOT the preview's parent-owned local `State`): this
@@ -46,7 +47,6 @@ import '../../domain/salon_master_day_slots_query.dart';
 import '../../domain/salon_master_schedule.dart';
 import '../../domain/working_day.dart';
 import '../../domain/working_days_query.dart';
-import 'master_strip.dart' show masterRoleLabel;
 import 'month_calendar.dart';
 import 'salon_master_strip.dart';
 import 'slot_chip.dart';
@@ -344,21 +344,9 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
         ),
       ),
     );
-    final String masterName =
-        '${widget.schedule.firstName} ${widget.schedule.lastName}'.trim();
-    final String masterRole = masterRoleLabel(widget.schedule.type, l10n);
-    final String? windowLabel = selectedSlot == null
-        ? null
-        : formatBookingWindow(
-            selectedSlot.startAt,
-            selectedSlot.startAt.add(
-              Duration(minutes: widget.schedule.summedDurationMinutes),
-            ),
-          );
-
     // Wrapped in a single horizontal Padding — unlike `_datePhase`, nothing
-    // in this phase's subtree (day-header chip, headings, slot-chip groups,
-    // window line, empty/loading/error states) self-pads horizontally, so
+    // in this phase's subtree (heading row, slot-chip groups,
+    // empty/loading/error states) self-pads horizontally, so
     // one `VelvetSpacing.lg` inset here is enough and can't double up with
     // anything (there's no shared `MonthCalendar`/`CalendarWeekdayBar` on
     // this phase). The `ValueKey` moves to this `Padding` since it — not the
@@ -369,16 +357,23 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _DayHeaderChip(
-            label: formatBookingDayHeader(date),
-            masterName: masterName,
-            masterRole: masterRole,
-            onChange: _clearDate,
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
-          Text(
-            l10n.bookingFreeTimeHeading,
-            style: VelvetText.scheduleTimeHeading,
+          // The day-header chip that used to lead this phase (date label +
+          // master name/role + a «Змінити» change-date action) was removed;
+          // its only still-needed affordance — re-choosing the date — now
+          // lives as this compact inline button beside the "Вільний час"
+          // heading, so a client who already picked a date and sees slots can
+          // still return to the calendar without relying on back navigation.
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  l10n.bookingFreeTimeHeading,
+                  style: VelvetText.scheduleTimeHeading,
+                ),
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
+              _ChangeDateButton(onChangeDate: _clearDate),
+            ],
           ),
           const SizedBox(height: VelvetSpacing.md),
           slotsAsync.when(
@@ -440,8 +435,6 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
               );
             },
           ),
-          const SizedBox(height: VelvetSpacing.lg),
-          _WindowLine(label: windowLabel),
         ],
       ),
     );
@@ -511,99 +504,45 @@ class _WorkingDaysErrorBody extends StatelessWidget {
   }
 }
 
-class _DayHeaderChip extends StatelessWidget {
-  const _DayHeaderChip({
-    required this.label,
-    required this.masterName,
-    required this.masterRole,
-    required this.onChange,
-  });
+/// A compact, on-palette "change date" text button shown inline beside the
+/// slot-phase "Вільний час" heading. It is the ONLY date re-selection
+/// affordance once a day is chosen and its slots are showing — the
+/// `_NoSlotsEmptyState`'s own change-date button only appears on a zero-slot
+/// day, and the removed `_DayHeaderChip` used to carry this for every other
+/// case. Reuses the same edit-calendar glyph + copy as that empty state so
+/// the "change date" gesture reads identically wherever it surfaces.
+class _ChangeDateButton extends StatelessWidget {
+  const _ChangeDateButton({required this.onChangeDate});
 
-  final String label;
-  final String masterName;
-  final String masterRole;
-  final VoidCallback onChange;
+  final VoidCallback onChangeDate;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return Semantics(
-      label: l10n.bookingDayHeaderSemantics(label, masterName, masterRole),
-      child: NeumorphicCard(
-        color: const Color(0xFFEDE4D5),
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.md,
-          vertical: VelvetSpacing.sm + 2,
-        ),
-        child: Row(
-          children: <Widget>[
-            Container(
-              height: 36,
-              width: 36,
-              decoration: BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.field),
-                boxShadow: VelvetShadows.extrudedSmall,
+      button: true,
+      label: l10n.bookingChangeDateSemantics,
+      child: GestureDetector(
+        key: const Key('salon-schedule-change-date'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onChangeDate,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: VelvetSpacing.xs,
+            vertical: VelvetSpacing.xs,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(
+                Icons.edit_calendar_outlined,
+                size: 15,
+                color: BrandColors.accentDeep,
               ),
-              child: const Icon(
-                Icons.event_rounded,
-                size: 18,
-                color: BrandColors.accent,
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.sm + 4),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    label,
-                    style: VelvetText.dayHeaderTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    '$masterName · $masterRole',
-                    style: VelvetText.dayHeaderSubtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.sm),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onChange,
-              child: Semantics(
-                button: true,
-                label: l10n.bookingChangeDateSemantics,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: VelvetSpacing.sm,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      const Icon(
-                        Icons.edit_calendar_outlined,
-                        size: 15,
-                        color: BrandColors.accentDeep,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        l10n.bookingChangeDateCta,
-                        style: VelvetText.changeDateCta,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+              const SizedBox(width: 4),
+              Text(l10n.bookingChangeDateCta, style: VelvetText.changeDateCta),
+            ],
+          ),
         ),
       ),
     );
@@ -649,57 +588,6 @@ class _NoSlotsEmptyState extends StatelessWidget {
             onPressed: onChangeDate,
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// The per-master window line — a recessed camel-wash well with the booked
-/// window once a slot is chosen, or a muted prompt.
-class _WindowLine extends StatelessWidget {
-  const _WindowLine({required this.label});
-
-  final String? label;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final bool chosen = label != null;
-    return NeumorphicInset(
-      radius: VelvetRadii.field,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.md,
-          vertical: VelvetSpacing.sm + 4,
-        ),
-        child: Row(
-          children: <Widget>[
-            Icon(
-              chosen ? Icons.event_available_rounded : Icons.schedule_rounded,
-              size: 18,
-              color: chosen ? BrandColors.accentDeep : BrandColors.muted,
-            ),
-            const SizedBox(width: VelvetSpacing.sm),
-            Text(
-              chosen
-                  ? l10n.bookingChosenWindowLabel
-                  : l10n.salonScheduleWindowPrompt,
-              style: VelvetText.windowLinePrompt,
-            ),
-            if (chosen) ...<Widget>[
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  label!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: VelvetText.windowLineAccent,
-                ),
-              ),
-            ] else
-              const Spacer(),
-          ],
-        ),
       ),
     );
   }
