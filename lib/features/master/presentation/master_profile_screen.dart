@@ -1199,9 +1199,7 @@ class _ProfileCategoryCardState extends State<_ProfileCategoryCard> {
   bool _pressed = false;
 
   // P-M4 fix: hoisted to avoid per-build TextStyle allocation.
-  static final TextStyle _cardStyle = VelvetText.subheading().copyWith(
-    fontSize: 16,
-  );
+  static final TextStyle _cardStyle = VelvetText.subheading16;
 
   @override
   Widget build(BuildContext context) {
@@ -1278,7 +1276,7 @@ class _ProfileCategoryCountBadge extends StatelessWidget {
 
   // Hoisted to avoid per-build allocation — identical style to the services
   // list screen's _CategoryCountBadge.
-  static final TextStyle _style = VelvetText.pill().copyWith(fontSize: 12.5);
+  static final TextStyle _style = VelvetText.pillSm;
 
   @override
   Widget build(BuildContext context) {

@@ -47,6 +47,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../domain/bookable_master_assignment.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
@@ -181,6 +182,19 @@ abstract interface class SalonRepository {
   /// Wraps `GET /salons/{salonId}/portfolio` (public, unauthenticated). Returns
   /// an empty list when the salon has no portfolio photos.
   Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId);
+
+  /// Fetches masters actually bookable for [serviceDefId] within [salonId] —
+  /// active, actively assigned to the service, AND schedule-usable (backend
+  /// Phase 23.x gate; a scheduleless master is simply absent from the
+  /// response, fixing the salon booking calendar's all-dates-disabled bug at
+  /// the source).
+  ///
+  /// Wraps `GET /salons/{salonId}/services/{serviceDefId}/masters`. Returns
+  /// an empty list when no master is bookable for this service (200 `[]`).
+  Future<List<BookableMasterAssignment>> getBookableMasters({
+    required String salonId,
+    required String serviceDefId,
+  });
 }
 
 /// HTTP implementation of [SalonRepository].
@@ -394,6 +408,34 @@ final class HttpSalonRepository implements SalonRepository {
     }
   }
 
+  @override
+  Future<List<BookableMasterAssignment>> getBookableMasters({
+    required String salonId,
+    required String serviceDefId,
+  }) async {
+    try {
+      final res = await _salonApi.getBookableMasters(
+        salonId: salonId,
+        serviceDefId: serviceDefId,
+      );
+      final dtos = res.data?.data;
+      if (dtos == null) return const <BookableMasterAssignment>[];
+      return SalonBookableMasterMapper.fromDtoList(dtos);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getBookableMasters failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
   /// Deserializes a raw JSON [data] map via the SAME [standardSerializers]
   /// the generated client uses. Returns `null` when [data] is null (an empty
   /// body); any deserialization failure is wrapped as a [ServerFailure] by the
@@ -406,6 +448,16 @@ final class HttpSalonRepository implements SalonRepository {
 
   /// Maps a [DioException] to a typed [Failure]. See [HttpMasterRepository] for
   /// the identical mapping rationale.
+  ///
+  /// `badCertificate` gets its own branch (mobile-security LOW fix,
+  /// bookable-masters audit — project-wide pattern tracked at backlog line
+  /// 47) rather than being lumped into the `badResponse`/`cancel`/`unknown`
+  /// catch-all: a TLS/pinning failure is a possible MITM, not a transient
+  /// server hiccup, and folding it into the same log signal made the two
+  /// indistinguishable in telemetry. The failure type returned to the UI is
+  /// unchanged ([ServerFailure] — still fails closed); only the log signal
+  /// is distinct. This is an in-file fix only — the full cross-repository
+  /// sweep remains a separate backlog item.
   Failure _mapDioException(DioException e) {
     if (e.error is Failure) return e.error as Failure;
     switch (e.type) {
@@ -414,9 +466,20 @@ final class HttpSalonRepository implements SalonRepository {
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
         return NetworkFailure(cause: e);
+      case DioExceptionType.badCertificate:
+        // Deliberately NOT gated behind `kDebugMode` (unlike the routine
+        // per-call-site DioException logs elsewhere in this file): a
+        // possible MITM must be visible in release-build telemetry, not
+        // only local debug runs. No PII or token is logged — just the fact
+        // that certificate validation failed for this repository's traffic.
+        log(
+          'TLS/certificate validation failed for salon read — possible MITM',
+          name: 'salon.repository.security',
+          level: 1000,
+        );
+        return ServerFailure(statusCode: e.response?.statusCode, cause: e);
       case DioExceptionType.badResponse:
       case DioExceptionType.cancel:
-      case DioExceptionType.badCertificate:
       case DioExceptionType.unknown:
         return ServerFailure(statusCode: e.response?.statusCode, cause: e);
     }

@@ -35,6 +35,13 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+// Cross-feature application import (not presentation/data — permitted): the
+// per-master service-coverage fan-out lives in the booking feature (Phase
+// 14.13) and is REUSED here rather than duplicated, so the masters grid can be
+// filtered by the selected service without a second bespoke fan-out. Only
+// triggered while a service filter is active (see [_MastersTab]).
+import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -48,6 +55,7 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import '../application/public_salon_profile_notifier.dart';
 import '../application/salon_portfolio_notifier.dart';
 import '../application/salon_service_catalog_notifier.dart';
+import '../application/salon_service_filter_notifier.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
@@ -154,6 +162,13 @@ class _PublicSalonProfileScreenState
     final AsyncValue<PublicSalonProfileData> async = ref.watch(
       publicSalonProfileProvider(widget.salonId),
     );
+    // Watched at the screen level (not inside a single tab) so the selection
+    // survives in-screen tab switches — the SELECTING widget (Послуги tab) and
+    // the CONSUMING widget (Майстри grid) are only ever mounted one at a time.
+    // autoDispose then resets it when the profile is popped.
+    final SalonServiceSelection? serviceFilter = ref.watch(
+      salonServiceFilterProvider(widget.salonId),
+    );
     final double topInset = MediaQuery.of(context).padding.top;
 
     return Scaffold(
@@ -185,6 +200,7 @@ class _PublicSalonProfileScreenState
               salonId: widget.salonId,
               salon: data.$1,
               masters: data.$2,
+              serviceFilter: serviceFilter,
               topInset: topInset,
               coverHeight: _coverHeight,
               heroProtrusion: _heroProtrusion,
@@ -341,6 +357,7 @@ class _LoadedBody extends StatelessWidget {
     required this.salonId,
     required this.salon,
     required this.masters,
+    required this.serviceFilter,
     required this.topInset,
     required this.coverHeight,
     required this.heroProtrusion,
@@ -357,6 +374,9 @@ class _LoadedBody extends StatelessWidget {
   final String salonId;
   final Salon salon;
   final List<SalonMasterSummary> masters;
+
+  /// The service the masters grid is currently filtered by, or null for none.
+  final SalonServiceSelection? serviceFilter;
   final double topInset;
   final double coverHeight;
   final double heroProtrusion;
@@ -424,8 +444,18 @@ class _LoadedBody extends StatelessWidget {
             key: ValueKey<String>('salon-tab-body-${_tabKeys[tab]}'),
             child: switch (tab) {
               0 => _AboutTab(salon: salon),
-              1 => _MastersTab(masters: masters),
-              2 => _ServicesTab(salonId: salonId),
+              1 => _MastersTab(
+                salonId: salonId,
+                masters: masters,
+                filter: serviceFilter,
+              ),
+              2 => _ServicesTab(
+                salonId: salonId,
+                selectedServiceId: serviceFilter?.id,
+                // Selecting a service jumps to the Майстри tab (index 1) so the
+                // client immediately sees the narrowed roster.
+                onSwitchToMasters: () => onTabSelected(1),
+              ),
               _ => SalonReviewsSection(salonId: salonId),
             },
           ),
@@ -539,7 +569,7 @@ class _SalonHeroCard extends StatelessWidget {
                     Text(
                       salon.name,
                       key: const Key('salon-profile-name'),
-                      style: VelvetText.displayName().copyWith(fontSize: 20),
+                      style: VelvetText.displayName20,
                       maxLines: 2,
                       softWrap: true,
                       overflow: TextOverflow.ellipsis,
@@ -563,9 +593,7 @@ class _SalonHeroCard extends StatelessWidget {
                         Flexible(
                           child: Text(
                             '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
-                            style: VelvetText.feedback(
-                              BrandColors.muted,
-                            ).copyWith(fontSize: 13),
+                            style: VelvetText.feedbackMuted13,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -607,9 +635,7 @@ class _SalonHeroCard extends StatelessWidget {
                   child: Text(
                     locationLine,
                     key: const Key('salon-profile-address-text'),
-                    style: VelvetText.feedback(
-                      BrandColors.textSecondary,
-                    ).copyWith(fontSize: 13),
+                    style: VelvetText.bookFeedbackSec13,
                     // Defensive cap (mobile-debugger fix): a pathologically
                     // long street/buildingNo/locationNote combination must
                     // not be allowed to keep growing the hero card's height
@@ -628,9 +654,7 @@ class _SalonHeroCard extends StatelessWidget {
     );
   }
 
-  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 14,
-  );
+  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
 
   /// Composes the hero card's locality/address line, or `null` when nothing
   /// is available so the caller hides the row.
@@ -1032,26 +1056,50 @@ class _SalonPortfolioTile extends StatelessWidget {
 /// below regardless of how close a roster gets to [kSalonMastersPageSize].
 const int kSalonMastersInitialCount = 6;
 
-class _MastersTab extends StatefulWidget {
-  const _MastersTab({required this.masters});
+class _MastersTab extends ConsumerStatefulWidget {
+  const _MastersTab({
+    required this.salonId,
+    required this.masters,
+    required this.filter,
+  });
 
+  final String salonId;
   final List<SalonMasterSummary> masters;
 
+  /// The active service filter, or null to show every master (default).
+  final SalonServiceSelection? filter;
+
   @override
-  State<_MastersTab> createState() => _MastersTabState();
+  ConsumerState<_MastersTab> createState() => _MastersTabState();
 }
 
-class _MastersTabState extends State<_MastersTab> {
+class _MastersTabState extends ConsumerState<_MastersTab> {
   // Flips true once the user explicitly taps "show all" — a one-time,
   // user-triggered build of the remainder is an acceptable cost; it is
   // ONLY the unconditional first-paint build this guards against.
   bool _showAll = false;
 
   @override
+  void didUpdateWidget(covariant _MastersTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // `_showAll` is shared by the filtered and unfiltered `_buildGrid` paths.
+    // Whenever the active filter changes — applied, cleared, or swapped for a
+    // different service — the visible set changes, so the first-paint cap must
+    // re-arm. Without this reset a "show all" from one set leaks into the next
+    // (e.g. show-all on a filtered set → clear the filter → the full roster
+    // would render eagerly, defeating the kSalonMastersInitialCount cap).
+    if (oldWidget.filter != widget.filter) {
+      _showAll = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final List<SalonMasterSummary> masters = widget.masters;
+    final SalonServiceSelection? filter = widget.filter;
 
+    // Salon has no masters at all — nothing a filter could change.
     if (masters.isEmpty) {
       return Padding(
         key: const Key('salon-masters-empty'),
@@ -1063,6 +1111,85 @@ class _MastersTabState extends State<_MastersTab> {
       );
     }
 
+    // No filter — the original behaviour: every master, capped-then-show-all.
+    if (filter == null) {
+      return _buildGrid(context, masters);
+    }
+
+    // Filter active — a clear-filter chip above the (coverage-gated) grid.
+    // The chip renders in every coverage sub-state so the client can always
+    // dismiss the filter, even mid-load. Coverage is the Phase 14.13/23.x
+    // bookable-masters read, scoped to just the ONE filtered service — fired
+    // ONLY now that a service is selected, never on a plain profile visit.
+    // [coverageArgs] reuses [SalonBookingMasterSelectionArgs] as the family
+    // key (same type the booking flow's master-selection step uses) with a
+    // single-element [selectedServiceIds]; freezed's deep-collection equality
+    // means a fresh instance here still resolves to the same cached family
+    // member across rebuilds.
+    final SalonBookingMasterSelectionArgs coverageArgs =
+        SalonBookingMasterSelectionArgs(
+          salonId: widget.salonId,
+          selectedServiceIds: <String>[filter.id],
+        );
+    final AsyncValue<Map<String, Map<String, String>>> coverageAsync = ref
+        .watch(salonMasterServiceCoverageProvider(coverageArgs));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            VelvetSpacing.lg,
+            0,
+            VelvetSpacing.lg,
+            VelvetSpacing.md,
+          ),
+          child: _ServiceFilterChip(
+            serviceName: filter.name,
+            onClear: () => ref
+                .read(salonServiceFilterProvider(widget.salonId).notifier)
+                .clear(),
+          ),
+        ),
+        coverageAsync.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+            child: SkeletonShimmerScope(
+              child: SkeletonBlock(
+                width: double.infinity,
+                height: 160,
+                radius: VelvetRadii.card,
+              ),
+            ),
+          ),
+          error: (Object e, _) => ErrorState(
+            failure: e is Failure ? e : UnknownFailure(cause: e),
+            onRetry: () => ref.invalidate(
+              salonMasterServiceCoverageProvider(coverageArgs),
+            ),
+          ),
+          data: (Map<String, Map<String, String>> coverage) {
+            final List<SalonMasterSummary> filtered = masters
+                .where(
+                  (SalonMasterSummary m) =>
+                      coverage[m.masterId]?.containsKey(filter.id) ?? false,
+                )
+                .toList();
+            if (filtered.isEmpty) {
+              return const _MastersForServiceEmpty();
+            }
+            return _buildGrid(context, filtered);
+          },
+        ),
+      ],
+    );
+  }
+
+  /// The 2-column masters grid over [masters], with the first-paint cap +
+  /// "show all" reveal. Shared by the unfiltered and filtered paths so the
+  /// [kSalonMastersInitialCount] cap always applies to whatever set is shown.
+  Widget _buildGrid(BuildContext context, List<SalonMasterSummary> masters) {
+    final l10n = AppLocalizations.of(context);
     final bool hasMore = masters.length > kSalonMastersInitialCount;
     final List<SalonMasterSummary> visible = hasMore && !_showAll
         ? masters.sublist(0, kSalonMastersInitialCount)
@@ -1107,10 +1234,18 @@ class _MastersTabState extends State<_MastersTab> {
             itemCount: visible.length,
             itemBuilder: (context, i) {
               final SalonMasterSummary master = visible[i];
+              // Prefer the master's own professional title/label; fall back to
+              // the generic type role ("Майстер салону" etc.) only when the
+              // master has not set one.
+              final String? ownTitle = master.professionalTitle?.trim();
+              final String role = (ownTitle != null && ownTitle.isNotEmpty)
+                  ? ownTitle
+                  : _roleLabel(master.type, l10n);
               return SalonMasterCard(
                 key: Key('salon-master-card-${master.masterId}'),
-                name: '${master.firstName} ${master.lastName}'.trim(),
-                role: _roleLabel(master.type, l10n),
+                // First name only on the salon master card (surname omitted).
+                name: master.firstName,
+                role: role,
                 ratingLabel: master.reviewCount > 0
                     ? (master.avgRating?.toStringAsFixed(1) ?? '—')
                     : '—',
@@ -1197,14 +1332,157 @@ class _ShowAllMastersButton extends StatelessWidget {
   }
 }
 
+/// The active-service-filter pill shown above the masters grid whenever a
+/// service is selected in the "Послуги" tab. A camel-washed extruded pill —
+/// a leading spa glyph, the `Послуга: <name>` label, and a tappable ✕ (its own
+/// hit target + semantics node) that clears the filter and restores the full
+/// roster.
+class _ServiceFilterChip extends StatelessWidget {
+  const _ServiceFilterChip({required this.serviceName, required this.onClear});
+
+  final String serviceName;
+  final VoidCallback onClear;
+
+  /// Subtle camel wash over the base — matches the selected service row's fill
+  /// so the chip reads as the same "active filter" surface.
+  static final Color _fill = Color.alphaBlend(
+    BrandColors.accent.withValues(alpha: 0.16),
+    BrandColors.base,
+  );
+
+  /// Chip label scale — invariant, so hoisted to a static (matching this
+  /// file's `_ratingInlineStyle`/`_priceStyle`/`_nameStyle` convention) so
+  /// build() never allocates a new [TextStyle] per frame.
+  static final TextStyle _labelStyle = VelvetText.bodyStrong13.copyWith(
+    color: BrandColors.accentDeep,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Container(
+      key: const Key('salon-masters-filter-chip'),
+      padding: const EdgeInsets.fromLTRB(
+        VelvetSpacing.md,
+        VelvetSpacing.xs + 2,
+        VelvetSpacing.xs + 2,
+        VelvetSpacing.xs + 2,
+      ),
+      decoration: BoxDecoration(
+        color: _fill,
+        borderRadius: BorderRadius.circular(VelvetRadii.pill),
+        boxShadow: VelvetShadows.extrudedSmall,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(
+            Icons.spa_outlined,
+            size: 16,
+            color: BrandColors.accentDeep,
+          ),
+          const SizedBox(width: VelvetSpacing.xs + 2),
+          Flexible(
+            child: Text(
+              l10n.salonMasterFilterChipLabel(serviceName),
+              style: _labelStyle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: VelvetSpacing.xs),
+          Semantics(
+            button: true,
+            label: l10n.salonMasterFilterClearLabel,
+            child: GestureDetector(
+              key: const Key('salon-masters-filter-clear'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onClear,
+              child: Container(
+                width: 24,
+                height: 24,
+                decoration: const BoxDecoration(
+                  color: BrandColors.base,
+                  shape: BoxShape.circle,
+                  boxShadow: VelvetShadows.extrudedSmall,
+                ),
+                child: const Icon(
+                  Icons.close_rounded,
+                  size: 15,
+                  color: BrandColors.accentDeep,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Friendly empty state for the masters grid when a service filter is active
+/// but no master in the salon performs the selected service — a soft
+/// neumorphic badge over a muted one-liner, mirroring the "Майстри" tab's
+/// empty vocabulary rather than leaving a blank grid.
+class _MastersForServiceEmpty extends StatelessWidget {
+  const _MastersForServiceEmpty();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Padding(
+      key: const Key('salon-masters-for-service-empty'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.lg,
+        vertical: VelvetSpacing.md,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 56,
+            height: 56,
+            decoration: const BoxDecoration(
+              color: BrandColors.base,
+              shape: BoxShape.circle,
+              boxShadow: VelvetShadows.extrudedSmall,
+            ),
+            child: const Icon(
+              Icons.person_search_outlined,
+              size: 26,
+              color: BrandColors.accent,
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          Text(
+            l10n.salonMastersForServiceEmpty,
+            textAlign: TextAlign.center,
+            style: VelvetText.feedback(BrandColors.muted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // _ServicesTab — "Послуги": own AsyncValue (independent of the hero load)
 // ---------------------------------------------------------------------------
 
 class _ServicesTab extends ConsumerWidget {
-  const _ServicesTab({required this.salonId});
+  const _ServicesTab({
+    required this.salonId,
+    required this.selectedServiceId,
+    required this.onSwitchToMasters,
+  });
 
   final String salonId;
+
+  /// The catalog id of the currently-filtered service, or null for none.
+  final String? selectedServiceId;
+
+  /// Called after a service is picked, to reveal the narrowed masters grid.
+  final VoidCallback onSwitchToMasters;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1237,7 +1515,23 @@ class _ServicesTab extends ConsumerWidget {
                 style: VelvetText.feedback(BrandColors.muted),
               ),
             )
-          : SalonServicesAccordion(categories: categories),
+          : SalonServicesAccordion(
+              categories: categories,
+              selectedServiceId: selectedServiceId,
+              onServiceTap: (SalonCatalogService service) {
+                final SalonServiceFilter notifier = ref.read(
+                  salonServiceFilterProvider(salonId).notifier,
+                );
+                // Re-tapping the active service clears the filter and stays
+                // put; tapping a new one selects it and jumps to Майстри.
+                if (selectedServiceId == service.id) {
+                  notifier.clear();
+                } else {
+                  notifier.select((id: service.id, name: service.name));
+                  onSwitchToMasters();
+                }
+              },
+            ),
     );
   }
 }

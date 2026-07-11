@@ -32,22 +32,15 @@ class PassportPreviewCard extends StatelessWidget {
   final VoidCallback onTap;
 
   // Pre-composed text styles.
-  static final TextStyle _titleStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 11,
-    letterSpacing: 0.3,
-    height: 1.15,
-    fontWeight: FontWeight.w800,
-  );
+  static final TextStyle _titleStyle = VelvetText.homePassportPreviewTitle;
 
   // fontSize 10 (down from 11) gives the long UA subtitle
   // "Твій б'юті-паспорт у Beautica" enough room to lay out in 2 lines at the
   // narrow half-width pill (~80–94dp text column at 320dp). The FittedBox below
   // is the safety net that absorbs any residual overflow (incl. text-scale 1.3)
   // so the string can never be ellipsis-cut.
-  static final TextStyle _subtitleStyle = VelvetText.body().copyWith(
-    fontSize: 10,
-    height: 1.25,
-  );
+  static final TextStyle _subtitleStyle =
+      VelvetText.homePassportPreviewSubtitle;
 
   // Hoisted icon-circle decoration — withValues inside build() would allocate
   // a new Color on every rebuild; static final computes it once at class load.
@@ -147,23 +140,11 @@ class MyRatingStatCard extends StatelessWidget {
   // "Мій рейтинг" gets a tighter text column. The FittedBox.scaleDown wrappers
   // below are the safety net that absorb any residual overflow (incl. the long
   // UA label across two words at text-scale 1.3) so nothing is ever ellipsis-cut.
-  static final TextStyle _labelStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 10,
-    letterSpacing: 0.3,
-    height: 1.15,
-    fontWeight: FontWeight.w800,
-  );
-  static final TextStyle _valueRatedStyle = VelvetText.body().copyWith(
-    fontSize: 11,
-    height: 1.25,
-    color: BrandColors.accentDeep,
-    fontWeight: FontWeight.w700,
-  );
-  static final TextStyle _valueEmptyStyle = VelvetText.body().copyWith(
-    fontSize: 11,
-    height: 1.25,
-    color: BrandColors.textSecondary,
-  );
+  static final TextStyle _labelStyle = VelvetText.homePassportStatLabel;
+  static final TextStyle _valueRatedStyle =
+      VelvetText.homePassportStatValueRated;
+  static final TextStyle _valueEmptyStyle =
+      VelvetText.homePassportStatValueEmpty;
 
   // Hoisted icon-circle decoration — withValues inside build() allocates a new
   // Color on every rebuild; static final computes it once at class load.

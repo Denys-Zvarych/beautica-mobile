@@ -27,6 +27,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../auth/domain/user.dart';
 import '../../../auth/presentation/auth_notifier.dart';
+import '../../../booking/application/pending_service_preselection_provider.dart';
 import '../../../home/application/client_edit_profile_notifier.dart';
 import '../../../location/domain/city.dart';
 import '../../../location/domain/city_district.dart';
@@ -38,11 +39,10 @@ part 'search_filters_controller.g.dart';
 
 /// Price ceiling at/above which the «до N грн» readout collapses to "будь-яка"
 /// (any) and [SearchFilters.maxPrice] is cleared (no upper bound sent).
-const double kSearchPriceCeiling = 5000;
+const double kSearchPriceCeiling = 20000;
 
-/// The single-thumb price slider's discrete step count (0 → 5000 in 100-грн
-/// increments). Matches the approved preview's `divisions: 50`.
-const int kSearchPriceDivisions = 50;
+/// The price slider's discrete step count (0 → 20000 in 500-грн increments).
+const int kSearchPriceDivisions = 40;
 
 /// Human-readable display labels for the current [SearchFilters] selection.
 ///
@@ -497,7 +497,65 @@ class SearchFiltersController extends _$SearchFiltersController {
   }
 
   /// Clears every filter back to an empty [SearchFilters].
-  void reset() => state = const SearchFilters();
+  void reset() {
+    state = const SearchFilters();
+    // Drop any pending booking pre-selection carried from a prior search — a
+    // cleared filter must never leak a stale service pre-check into a booking.
+    ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
+  }
+
+  /// Clears every NON-location filter — the free-text query, the category, the
+  /// second-level per-service selection, the price band and rating floor, and
+  /// the sort — back to its default, while PRESERVING the currently-resolved
+  /// locality (oblast → city → district).
+  ///
+  /// "Clear" here means "reset to the prefilled baseline", NOT "empty
+  /// everything": the locality is pre-filled from the signed-in client's saved
+  /// profile every time the Пошук screen opens (see
+  /// [prefillFromProfileIfNeeded]), and that prefill must survive a clear — a
+  /// client who opened search with their home city pre-selected keeps that city
+  /// after tapping «Скинути фільтри».
+  ///
+  /// Location is preserved by MUTATING the current state in place: the
+  /// already-resolved `oblastId` / `cityId` / `districtId` are simply omitted
+  /// from the [SearchFilters.copyWith] below, so they carry straight through
+  /// untouched. Nothing here re-reads the profile or re-resolves the taxonomy,
+  /// so NONE of the four location endpoints (`/users/me`, oblasts, cities,
+  /// districts) is re-fetched, and the keepAlive seamless-invalidate footgun is
+  /// side-stepped entirely (the notifier state is written directly — never via
+  /// `ref.invalidate`).
+  ///
+  /// The profile-seed bookkeeping ([_userTouchedLocality] and the
+  /// [_lastSeededOblastId]/[_lastSeededCityId]/[_lastSeededDistrictId] latch) is
+  /// intentionally left untouched: a clear does not change the locality, so that
+  /// state stays valid and a later [prefillFromProfileIfNeeded] still behaves
+  /// correctly.
+  ///
+  /// The sibling controllers are cleared to match: the category display label on
+  /// [searchFilterLabelsControllerProvider] (the locality labels stay intact)
+  /// and the multi-select service set on
+  /// [searchServiceSelectionControllerProvider].
+  void clearFilters() {
+    state = state.copyWith(
+      query: null,
+      categoryKey: null,
+      serviceTypeSlugs: const <String>{},
+      minRating: null,
+      minPrice: null,
+      maxPrice: null,
+      sort: SearchSort.ratingDesc,
+      // oblastId / cityId / districtId intentionally omitted → preserved.
+    );
+    // Clear only the category label; the oblast / city / district labels stay.
+    ref
+        .read(searchFilterLabelsControllerProvider.notifier)
+        .setCategoryName(null);
+    // Drop the second-level per-service selection held in its sibling notifier.
+    ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+    // Drop any pending booking pre-selection carried from a prior search — a
+    // cleared filter must never leak a stale service pre-check into a booking.
+    ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
+  }
 }
 
 /// Second-level service selection for the Variant A category → service flow.

@@ -81,20 +81,10 @@ import 'widgets/auth_scaffold.dart';
 /// `BrandColors.accent` is 0xFFB89A7A; 40% opacity → 0x66B89A7A.
 const _kTipBorder = Color(0x66B89A7A);
 
-const _kTipTextStyle = TextStyle(
-  color: BrandColors.accent,
-  fontSize: 10,
-  fontWeight: FontWeight.w700,
-  height: 1,
-);
+const _kTipTextStyle = VelvetText.authFieldTip;
 
 /// Optional-tag style for the oblast label (CLIENT only) — muted camel.
-const _kOptionalTagStyle = TextStyle(
-  color: Color(0x8CB89A7A), // rgba(184,154,122,0.55) — same as old dark version
-  fontSize: 11,
-  fontWeight: FontWeight.w600,
-  letterSpacing: 0.3,
-);
+const _kOptionalTagStyle = VelvetText.authOptionalTag;
 
 // ---------------------------------------------------------------------------
 // Screen

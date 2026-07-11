@@ -432,8 +432,8 @@ void main() {
   // -------------------------------------------------------------------------
 
   testWidgets(
-    'E2E-CLEAR. changing category after selecting a type → submit sends '
-    'serviceTypeId = null',
+    'E2E-CLEAR. changing category after selecting a type clears it → submit is '
+    'BLOCKED with the required error (service type mandatory on create)',
     (tester) async {
       MasterServiceCreate? captured;
       final option = _type('type-xyz', 'Класичний манікюр');
@@ -451,21 +451,32 @@ void main() {
       await selectServiceTypeOption(tester, 'type-xyz');
       expect(_nameText(tester), 'Класичний манікюр'); // type is selected
 
-      // Now change the category → must clear the selected type.
+      // Now change the category → clears the (incompatible) selected type.
       await selectCategory(tester, 'PEDICURE');
       await tester.pumpAndSettle();
 
-      // Provide a fresh, hand-typed name (the auto-fill carries over, but we
-      // assert serviceTypeId specifically — the type, not the name, is cleared).
       await fillDurationAndPrice(tester);
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
-      expect(captured, isNotNull);
+      // CONTRACT CHANGE: with no type selected, the mandatory-type client
+      // validation BLOCKS the submit and surfaces the inline required error —
+      // the create payload never leaves (previously it submitted a null type).
       expect(
-        captured!.serviceTypeId,
+        captured,
         isNull,
-        reason: 'changing category must clear the previously-selected type',
+        reason:
+            'clearing the type via a category change must block submit, not '
+            'send a null serviceTypeId',
+      );
+      final l10n = l10nOf(tester);
+      expect(find.byKey(const Key('error-service-type')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('error-service-type')),
+          matching: find.text(l10n.serviceTypeRequired),
+        ),
+        findsOneWidget,
       );
     },
   );

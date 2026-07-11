@@ -97,16 +97,14 @@ class BookingRecap extends StatelessWidget {
           children: <Widget>[
             Text(
               l10n.bookingServicesRecapLabel,
-              style: VelvetText.label().copyWith(
-                fontSize: compactText ? 11 : 12,
-              ),
+              style: compactText ? VelvetText.label11 : VelvetText.label(),
             ),
             const Spacer(),
             Text(
               formatServiceCountUk(selections.length),
-              style: VelvetText.feedback(
-                BrandColors.muted,
-              ).copyWith(fontSize: compactText ? 11 : 12),
+              style: compactText
+                  ? VelvetText.feedbackMutedXs
+                  : VelvetText.feedbackMutedSm,
             ),
           ],
         ),
@@ -183,16 +181,16 @@ class _ServiceRow extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     selection.name,
-                    style: VelvetText.bodyStrong().copyWith(
-                      fontSize: compactText ? 13 : 14.5,
-                    ),
+                    style: compactText
+                        ? VelvetText.bodyStrong13
+                        : VelvetText.bodyStrong145,
                   ),
                   const SizedBox(height: 1),
                   Text(
                     selection.duration,
-                    style: VelvetText.feedback(
-                      BrandColors.muted,
-                    ).copyWith(fontSize: compactText ? 11 : 12),
+                    style: compactText
+                        ? VelvetText.feedbackMutedXs
+                        : VelvetText.feedbackMutedSm,
                   ),
                 ],
               ),
@@ -200,11 +198,9 @@ class _ServiceRow extends StatelessWidget {
             const SizedBox(width: VelvetSpacing.md),
             Text(
               selection.price,
-              style: VelvetText.bodyStrong().copyWith(
-                color: BrandColors.accentDeep,
-                fontWeight: FontWeight.w800,
-                fontSize: compactText ? 13.5 : 15,
-              ),
+              style: compactText
+                  ? VelvetText.bookAccentBold135
+                  : VelvetText.bookAccentBold15,
             ),
           ],
         ),
@@ -244,28 +240,25 @@ class _TotalRow extends StatelessWidget {
         children: <Widget>[
           Text(
             label,
-            style: VelvetText.bodyStrong().copyWith(
-              fontSize: compactText ? 14.5 : 16,
-              fontWeight: FontWeight.w800,
-            ),
+            style: compactText
+                ? VelvetText.bookName145w800
+                : VelvetText.bookName16w800,
           ),
           if (duration != null) ...<Widget>[
             const SizedBox(width: VelvetSpacing.sm),
             Text(
               duration!,
-              style: VelvetText.feedback(
-                BrandColors.muted,
-              ).copyWith(fontSize: compactText ? 11 : 12),
+              style: compactText
+                  ? VelvetText.feedbackMutedXs
+                  : VelvetText.feedbackMutedSm,
             ),
           ],
           const Spacer(),
           Text(
             price,
-            style: VelvetText.bodyStrong().copyWith(
-              color: BrandColors.accentDeep,
-              fontWeight: FontWeight.w800,
-              fontSize: compactText ? 15.5 : 17,
-            ),
+            style: compactText
+                ? VelvetText.bookAccentBold155
+                : VelvetText.bookPriceMd,
           ),
         ],
       ),

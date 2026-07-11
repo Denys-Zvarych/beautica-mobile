@@ -27,6 +27,7 @@ import 'package:beautica_mobile/features/services/presentation/service_create_sc
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -212,6 +213,18 @@ Future<void> _fillValidCreateForm(WidgetTester tester) async {
   );
   // Select the category via the dropdown (open menu → tap option → settle).
   await selectCategoryOption(tester, 'MANICURE');
+  // Service type is MANDATORY on create — select one (for the chosen category)
+  // via the form State so the submit is not blocked by the required-type check.
+  final dynamic formState = tester.state(find.byType(ServiceForm));
+  formState.onServiceTypeSelected(
+    const ServiceTypeOption(
+      id: 'stype-manicure',
+      slug: 'MANICURE_A',
+      nameUk: 'Класичний манікюр',
+      categoryName: 'MANICURE',
+    ),
+  );
+  await tester.pump();
 }
 
 Future<void> _tapSubmit(WidgetTester tester) async {
@@ -288,27 +301,39 @@ void main() {
       },
     );
 
-    testWidgets('NEGATIVE: 400 with EMPTY errors map → generic SnackBar (no '
-        'silent dead Save)', (tester) async {
-      final h = _wireRepo();
-      h.adapter.onPost(
-        _createPath,
-        (s) => s.reply(400, {'success': false, 'message': 'Bad request'}),
-        data: Matchers.any,
-      );
+    testWidgets(
+      'NEGATIVE: 400 with EMPTY errors map on CREATE → inline type-mismatch '
+      'feedback (mandatory type + dirty category trips the 16.5 safety net; '
+      'still non-silent, screen not popped)',
+      (tester) async {
+        final h = _wireRepo();
+        h.adapter.onPost(
+          _createPath,
+          (s) => s.reply(400, {'success': false, 'message': 'Bad request'}),
+          data: Matchers.any,
+        );
 
-      await _pump(tester, const ServiceCreateScreen(), h.repo);
-      await _fillValidCreateForm(tester);
-      await _tapSubmit(tester);
-      await tester.pumpAndSettle();
+        await _pump(tester, const ServiceCreateScreen(), h.repo);
+        await _fillValidCreateForm(tester);
+        await _tapSubmit(tester);
+        await tester.pumpAndSettle();
 
-      // No mappable field → the form falls back to a generic SnackBar carrying
-      // the backend's top-level message (or a localized fallback). The Save
-      // never dies silently.
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text('Bad request'), findsOneWidget);
-      expect(find.byType(ServiceCreateScreen), findsOneWidget);
-    });
+        // CONTRACT CHANGE: service type is now MANDATORY on create, so the form
+        // ALWAYS carries a selected type and a dirty category (null → MANICURE).
+        // An empty-errors 400 (no `errors` map) is therefore attributed by the
+        // Phase-16.5 category-mismatch safety net and surfaced INLINE on the
+        // service-type field rather than via the generic SnackBar. The Save
+        // still never dies silently and the screen is not popped.
+        // (Backlog note: an unrelated business 400 is mislabeled as a type
+        // mismatch on create — flagged to mobile-backlog as a product-behavior
+        // question.)
+        final l10n = _l10n(tester, ServiceCreateScreen);
+        expect(find.byKey(const Key('error-service-type')), findsOneWidget);
+        expect(find.text(l10n.serviceTypeCategoryMismatch), findsOneWidget);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(find.byType(ServiceCreateScreen), findsOneWidget);
+      },
+    );
 
     testWidgets('NEGATIVE: 500 → server-error SnackBar, screen not popped', (
       tester,

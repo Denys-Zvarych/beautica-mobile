@@ -57,15 +57,15 @@ void main() {
             .style
             ?.fontSize;
 
-        expect(compactSize, 13.0);
-        expect(roomySize, 14.5);
+        expect(compactSize, 11.0);
+        expect(roomySize, 11.5);
         expect(
           compactSize!,
           lessThan(roomySize!),
           reason:
               "compactText:true must shrink _ServiceRow's name text "
-              '(14.5 -> 13) — if the flag were forwarded but never read '
-              'by _ServiceRow, both renders would come out at 14.5 and '
+              '(11.5 -> 11) — if the flag were forwarded but never read '
+              'by _ServiceRow, both renders would come out at 11.5 and '
               'this assertion would catch it.',
         );
       },
@@ -121,15 +121,15 @@ void main() {
         final double? compactSize = await totalPriceFontSize(compactText: true);
         final double? roomySize = await totalPriceFontSize(compactText: false);
 
-        expect(compactSize, 15.5);
-        expect(roomySize, 17.0);
+        expect(compactSize, 12.5);
+        expect(roomySize, 14.0);
         expect(
           compactSize!,
           lessThan(roomySize!),
           reason:
               "compactText:true must shrink _TotalRow's price text "
-              '(17 -> 15.5) — if the flag were forwarded but never read '
-              'by _TotalRow, both renders would come out at 17.0 and '
+              '(14 -> 12.5) — if the flag were forwarded but never read '
+              'by _TotalRow, both renders would come out at 14.0 and '
               'this assertion would catch it.',
         );
       },

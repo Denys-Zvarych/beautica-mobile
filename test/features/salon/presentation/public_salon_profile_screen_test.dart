@@ -24,12 +24,15 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
@@ -209,6 +212,24 @@ class _FakeSalonRepository implements SalonRepository {
   @override
   Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) =>
       _portfolio();
+
+  // `salonMasterServiceCoverageProvider` (the salon-service → masters filter
+  // path) is always overridden DIRECTLY in the tests that exercise it (see
+  // the `coverage` param on [_overrides] below) rather than routed through
+  // this fake repository, so no test here actually calls this method — it
+  // exists purely to satisfy [SalonRepository]'s abstract interface. Throws
+  // loudly rather than returning a silent empty list so an accidental real
+  // call (a test that forgets to stub `coverage`) fails fast instead of
+  // masking a bug as "zero bookable masters".
+  @override
+  Future<List<BookableMasterAssignment>> getBookableMasters({
+    required String salonId,
+    required String serviceDefId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.getBookableMasters is not stubbed — override '
+    'salonMasterServiceCoverageProvider directly via _overrides(coverage: …) '
+    'instead of routing through this fake repository.',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -218,12 +239,18 @@ class _FakeSalonRepository implements SalonRepository {
 List<Object> _overrides({
   _FakeSalonRepository? repo,
   _FakeFavoriteRepository? fav,
+  // Optional override for the per-master service-coverage fan-out
+  // (salonMasterServiceCoverageProvider). Only the salon-service→masters
+  // filter path watches it (see _MastersTab); every other test leaves it out,
+  // so the coverage provider is never even constructed on the unfiltered path.
+  Object? coverage,
 }) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   salonRepositoryProvider.overrideWithValue(repo ?? _FakeSalonRepository()),
   favoriteRepositoryProvider.overrideWithValue(
     fav ?? _FakeFavoriteRepository(),
   ),
+  ?coverage,
 ];
 
 Future<void> _pumpTall(WidgetTester tester) async {
@@ -1178,6 +1205,17 @@ void main() {
 
       final card = find.byKey(const Key('salon-master-card-master-1'));
       expect(card, findsOneWidget);
+
+      // Regression guard: the salon master card's corner «book» affordance
+      // (key `salon-master-card-book-<id>`, `Icons.event_available_rounded`)
+      // was intentionally removed — masters are booked via card→profile→book
+      // or the salon-wide CTA. Pin its ABSENCE so an accidental re-introduction
+      // of the deleted icon fails here rather than silently returning.
+      expect(
+        find.byKey(const Key('salon-master-card-book-master-1')),
+        findsNothing,
+      );
+
       await tester.tap(card);
       await tester.pumpAndSettle();
 
@@ -1222,10 +1260,16 @@ void main() {
     // + role wrapped to 2 lines) by giving the role enough room to fit on one
     // line. 320dp keeps the column at least as tight as the original 132dp
     // rail card, preserving (and slightly exceeding) the original stress.
+    //
+    // The salon master card now renders the FIRST NAME ONLY (surname omitted —
+    // see `_MastersTab`'s itemBuilder). To keep exercising the name's own
+    // ellipsis path, the stress lives in a long single GIVEN name here
+    // (`longName` == the fixture's `firstName`); `lastName` stays a real
+    // surname that must never reach the rendered card.
     testWidgets(
-      'long name + 2-line-wrapped role does not overflow the shrunk card',
+      'long first name + 2-line-wrapped role does not overflow the shrunk card',
       (tester) async {
-        const String longName = 'Олександра Верещагіна-Задорожня';
+        const String longName = 'Олександрина-Емілія';
         await tester.pumpApp(
           const PublicSalonProfileScreen(salonId: _kSalonId),
           overrides: _overrides(
@@ -1233,7 +1277,7 @@ void main() {
               masters: () async => const <SalonMasterSummary>[
                 SalonMasterSummary(
                   masterId: 'master-long',
-                  firstName: 'Олександра',
+                  firstName: longName,
                   lastName: 'Верещагіна-Задорожня',
                   avgRating: 4.8,
                   reviewCount: 5,
@@ -1269,6 +1313,65 @@ void main() {
         );
       },
     );
+
+    // ── Surname-omission regression (the guard) ─────────────────────────────
+    //
+    // The salon master card was changed to render the FIRST NAME ONLY —
+    // `_MastersTab`'s itemBuilder now passes `name: master.firstName` rather
+    // than the old `'${master.firstName} ${master.lastName}'.trim()`. This
+    // guards that contract directly: given a master with a distinct first name
+    // AND a distinct surname, the card shows the first name and NEVER the
+    // surname (neither alone nor as part of a combined "first last" label).
+    // Re-adding the surname to the card would fail this test.
+    testWidgets('master card shows first name only, never the surname', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            masters: () async => const <SalonMasterSummary>[
+              SalonMasterSummary(
+                masterId: 'master-name',
+                firstName: 'Тарас',
+                lastName: 'Шевченко',
+                avgRating: 4.9,
+                reviewCount: 7,
+                type: MasterType.independentMaster,
+              ),
+            ],
+          ),
+        ),
+        width: 390,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      final Finder card = find.byKey(
+        const Key('salon-master-card-master-name'),
+      );
+      expect(card, findsOneWidget);
+
+      expect(
+        // i18n-finder-ok: 'Тарас' is fixture data, not UI copy.
+        find.descendant(of: card, matching: find.text('Тарас')),
+        findsOneWidget,
+        reason: 'the card must render the master first name',
+      );
+      expect(
+        find.textContaining('Шевченко'),
+        findsNothing,
+        reason: 'the surname must never reach the salon master card',
+      );
+      expect(
+        // i18n-finder-ok: fixture master's first+last name, not UI copy.
+        find.text('Тарас Шевченко'),
+        findsNothing,
+        reason: 'the old combined "first last" label must not reappear',
+      );
+    });
 
     // ── Vertical 2-column grid regression ───────────────────────────────
     //
@@ -1469,6 +1572,150 @@ void main() {
     );
   });
 
+  // ── Role label: own professionalTitle vs default type role (the guard) ──
+  //
+  // `_MastersTab`'s itemBuilder derives the card's role line as:
+  //   final ownTitle = master.professionalTitle?.trim();
+  //   role = (ownTitle != null && ownTitle.isNotEmpty)
+  //       ? ownTitle
+  //       : _roleLabel(master.type, l10n);
+  // i.e. the master's OWN professional title wins when set, falling back to
+  // the generic per-type label ("Майстер салону" for a SALON_MASTER) only
+  // when it is null or blank. These two tests pin BOTH branches. The role is
+  // asserted via `find.descendant(of: card, matching: find.text(...))` so the
+  // match is scoped to the specific card's role Text and can never be
+  // satisfied by the tab bar, the semantics label, or a sibling card.
+  group('master role label', () {
+    testWidgets(
+      'card renders the master own professionalTitle when set, not the '
+      'default type role',
+      (tester) async {
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => const <SalonMasterSummary>[
+                SalonMasterSummary(
+                  masterId: 'master-titled',
+                  firstName: 'Ірина',
+                  lastName: 'Мороз',
+                  professionalTitle: 'Топ-стиліст',
+                  avgRating: 4.9,
+                  reviewCount: 8,
+                  // A SALON_MASTER — whose default label would be
+                  // "Майстер салону"; the own title must override it.
+                  type: MasterType.salonMaster,
+                ),
+              ],
+            ),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(
+          const Key('salon-master-card-master-titled'),
+        );
+        expect(card, findsOneWidget);
+
+        expect(
+          // i18n-finder-ok: 'Топ-стиліст' is fixture data, not UI copy.
+          find.descendant(of: card, matching: find.text('Топ-стиліст')),
+          findsOneWidget,
+          reason:
+              'the role line must show the master own professionalTitle '
+              'when one is set',
+        );
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.text(l10n.masterRoleSalonMaster),
+          ),
+          findsNothing,
+          reason:
+              'the generic per-type role ("Майстер салону") must NOT render '
+              'once the master has set an own professionalTitle',
+        );
+      },
+    );
+
+    testWidgets(
+      'card falls back to the default type role when professionalTitle is '
+      'null or blank/whitespace',
+      (tester) async {
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => const <SalonMasterSummary>[
+                SalonMasterSummary(
+                  masterId: 'master-null-title',
+                  firstName: 'Оксана',
+                  lastName: 'Левченко',
+                  // professionalTitle omitted → null.
+                  avgRating: 4.7,
+                  reviewCount: 4,
+                  type: MasterType.salonMaster,
+                ),
+                SalonMasterSummary(
+                  masterId: 'master-blank-title',
+                  firstName: 'Наталя',
+                  lastName: 'Гриценко',
+                  // Whitespace-only → exercises the `.trim()` branch: after
+                  // trimming it is empty, so it must still fall back.
+                  professionalTitle: '   ',
+                  avgRating: 4.6,
+                  reviewCount: 2,
+                  type: MasterType.salonMaster,
+                ),
+              ],
+            ),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        final Finder nullCard = find.byKey(
+          const Key('salon-master-card-master-null-title'),
+        );
+        final Finder blankCard = find.byKey(
+          const Key('salon-master-card-master-blank-title'),
+        );
+        expect(nullCard, findsOneWidget);
+        expect(blankCard, findsOneWidget);
+
+        expect(
+          find.descendant(
+            of: nullCard,
+            matching: find.text(l10n.masterRoleSalonMaster),
+          ),
+          findsOneWidget,
+          reason:
+              'a null professionalTitle must fall back to the generic '
+              'per-type role label',
+        );
+        expect(
+          find.descendant(
+            of: blankCard,
+            matching: find.text(l10n.masterRoleSalonMaster),
+          ),
+          findsOneWidget,
+          reason:
+              'a whitespace-only professionalTitle must trim to empty and '
+              'fall back to the generic per-type role label',
+        );
+      },
+    );
+  });
+
   group('services tab', () {
     testWidgets('renders the category accordion', (tester) async {
       await _pumpTall(tester);
@@ -1570,5 +1817,549 @@ void main() {
 
       expect(find.byKey(const Key('salon-reviews-empty')), findsOneWidget);
     });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Salon-service → masters FILTER (the feature under test).
+  //
+  // Tapping a service row in the "Послуги" tab selects it as the active
+  // filter and jumps to "Майстри", where the grid is narrowed to only the
+  // masters whose coverage map contains that service's catalog id. The
+  // coverage itself comes from `salonMasterServiceCoverageProvider` (the Phase
+  // 14.13 fan-out) — overridden DIRECTLY here with a fake map so these tests
+  // never touch the real per-master `GET /masters/{id}/services` fan-out (the
+  // real wire path is proven end-to-end by the integration flow).
+  //
+  // Fixture: three masters + a one-service catalogue (`svc-1`). The coverage
+  // map deliberately covers master-1 and master-3 for `svc-1` but NOT
+  // master-2 (it carries a different service id), so filtering by `svc-1`
+  // must HIDE master-2.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('salon-service → masters filter', () {
+    const List<SalonMasterSummary> filterMasters = <SalonMasterSummary>[
+      SalonMasterSummary(
+        masterId: 'master-1',
+        firstName: 'Олена',
+        lastName: 'Ковальчук',
+        avgRating: 4.9,
+        reviewCount: 12,
+        type: MasterType.salonMaster,
+      ),
+      SalonMasterSummary(
+        masterId: 'master-2',
+        firstName: 'Богдан',
+        lastName: 'Мороз',
+        avgRating: 4.7,
+        reviewCount: 4,
+        type: MasterType.salonMaster,
+      ),
+      SalonMasterSummary(
+        masterId: 'master-3',
+        firstName: 'Віра',
+        lastName: 'Литвин',
+        avgRating: 4.8,
+        reviewCount: 8,
+        type: MasterType.salonMaster,
+      ),
+    ];
+
+    // Coverage: master-1 + master-3 perform svc-1; master-2 performs a
+    // DIFFERENT service only (present in the map but not covering svc-1) — so
+    // `coverage[master-2]?.containsKey('svc-1')` is false and it is filtered
+    // out.
+    Object coverageOverride(Map<String, Map<String, String>> map) =>
+        salonMasterServiceCoverageProvider(
+          const SalonBookingMasterSelectionArgs(
+            salonId: _kSalonId,
+            selectedServiceIds: <String>['svc-1'],
+          ),
+        ).overrideWith((ref) async => map);
+
+    const Map<String, Map<String, String>> svc1Coverage =
+        <String, Map<String, String>>{
+          'master-1': <String, String>{'svc-1': 'assign-1'},
+          'master-2': <String, String>{'svc-other': 'assign-2'},
+          'master-3': <String, String>{'svc-1': 'assign-3'},
+        };
+
+    // Drives the shared "open Послуги → tap svc-1 row → land on the filtered
+    // Майстри tab" preamble every test below shares. Leaves the tree settled
+    // on the Майстри tab with the filter active.
+    Future<void> selectSvc1(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('salon-tab-2')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('salon-service-row-svc-1')));
+      await tester.pumpAndSettle();
+    }
+
+    // Builds [n] salon masters (masterId perf-1..perf-n) that ALL perform
+    // svc-1, plus the matching coverage map. Shared by the show-all cap-leak
+    // regression tests below so their bodies stay focused on the interaction.
+    (List<SalonMasterSummary>, Map<String, Map<String, String>>) svc1Performers(
+      int n,
+    ) {
+      final List<SalonMasterSummary> performers = List.generate(
+        n,
+        (i) => SalonMasterSummary(
+          masterId: 'perf-${i + 1}',
+          firstName: 'Майстер',
+          lastName: '${i + 1}',
+          avgRating: 4.5,
+          reviewCount: 1,
+          type: MasterType.salonMaster,
+        ),
+      );
+      final Map<String, Map<String, String>> cover =
+          <String, Map<String, String>>{
+            for (final SalonMasterSummary m in performers)
+              m.masterId: <String, String>{'svc-1': 'a-${m.masterId}'},
+          };
+      return (performers, cover);
+    }
+
+    testWidgets(
+      'selecting a service filters the grid to ONLY the masters who perform '
+      'it — non-performing masters are hidden',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => filterMasters),
+            coverage: coverageOverride(svc1Coverage),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await selectSvc1(tester);
+
+        // svc-1 performers survive; the non-performer is gone.
+        expect(
+          find.byKey(const Key('salon-master-card-master-1')),
+          findsOneWidget,
+          reason: 'master-1 performs svc-1 → must remain visible',
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-3')),
+          findsOneWidget,
+          reason: 'master-3 performs svc-1 → must remain visible',
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-2')),
+          findsNothing,
+          reason:
+              'master-2 does NOT perform svc-1 (covers a different service) '
+              '→ must be filtered out of the grid',
+        );
+      },
+    );
+
+    testWidgets(
+      'the active-filter chip appears with the service name; tapping its clear '
+      'button restores the full roster',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => filterMasters),
+            coverage: coverageOverride(svc1Coverage),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await selectSvc1(tester);
+
+        final Finder chip = find.byKey(const Key('salon-masters-filter-chip'));
+        expect(chip, findsOneWidget);
+        // The chip label embeds the selected service's display name. The name
+        // is fixture data (from _stubCatalog's svc-1), not UI copy — matching
+        // by the substring stays robust across the l10n label template.
+        // i18n-finder-ok: service name is fixture data, not UI copy.
+        expect(
+          find.descendant(
+            of: chip,
+            matching: find.textContaining('Манікюр з покриттям'),
+          ),
+          findsOneWidget,
+          reason: 'the chip must name the service the grid is filtered by',
+        );
+
+        // master-2 is hidden while the filter is active.
+        expect(
+          find.byKey(const Key('salon-master-card-master-2')),
+          findsNothing,
+        );
+
+        // Tap the chip's ✕ → clear → full roster returns.
+        await tester.tap(find.byKey(const Key('salon-masters-filter-clear')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-masters-filter-chip')),
+          findsNothing,
+          reason: 'clearing the filter removes the chip',
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-2')),
+          findsOneWidget,
+          reason:
+              'the previously-hidden master-2 returns once the filter '
+              'is cleared',
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-3')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'when NO master performs the selected service the for-service empty '
+      'state renders (chip still present so the filter can be dismissed)',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => filterMasters),
+            // Every master present in the map but NONE covering svc-1.
+            coverage: coverageOverride(const <String, Map<String, String>>{
+              'master-1': <String, String>{'svc-other': 'a1'},
+              'master-2': <String, String>{'svc-other': 'a2'},
+              'master-3': <String, String>{'svc-other': 'a3'},
+            }),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await selectSvc1(tester);
+
+        expect(
+          find.byKey(const Key('salon-masters-for-service-empty')),
+          findsOneWidget,
+          reason:
+              'a filter that matches no master must render the dedicated '
+              'for-service empty state, not a blank grid',
+        );
+        // No master card renders.
+        for (final String id in <String>['master-1', 'master-2', 'master-3']) {
+          expect(find.byKey(Key('salon-master-card-$id')), findsNothing);
+        }
+        // The chip stays so the client can always dismiss the filter.
+        expect(
+          find.byKey(const Key('salon-masters-filter-chip')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'while coverage is loading the grid shows a skeleton (chip already '
+      'present so the filter is dismissible mid-load)',
+      (tester) async {
+        await _pumpTall(tester);
+        // A never-completing coverage future keeps the tab in its loading
+        // sub-state for the duration of the test.
+        final Completer<Map<String, Map<String, String>>> never =
+            Completer<Map<String, Map<String, String>>>();
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => filterMasters),
+            coverage: salonMasterServiceCoverageProvider(
+              const SalonBookingMasterSelectionArgs(
+                salonId: _kSalonId,
+                selectedServiceIds: <String>['svc-1'],
+              ),
+            ).overrideWith((ref) => never.future),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Reach the Майстри tab with the filter active. The catalogue load
+        // still settles; only the coverage future hangs.
+        await tester.tap(find.byKey(const Key('salon-tab-2')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('salon-service-row-svc-1')));
+        await tester.pump(); // one frame: filter set, coverage still pending
+
+        expect(
+          find.byKey(const Key('salon-masters-filter-chip')),
+          findsOneWidget,
+          reason: 'the chip renders even while coverage is still loading',
+        );
+        expect(
+          find.byType(SkeletonShimmerScope),
+          findsWidgets,
+          reason: 'the coverage-loading sub-state shows a skeleton block',
+        );
+        // No master card and no empty state until coverage resolves.
+        expect(
+          find.byKey(const Key('salon-master-card-master-1')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-masters-for-service-empty')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'a coverage load failure renders ErrorState with a working retry that '
+      'reloads the filtered grid',
+      (tester) async {
+        await _pumpTall(tester);
+        var attempt = 0;
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => filterMasters),
+            coverage:
+                salonMasterServiceCoverageProvider(
+                  const SalonBookingMasterSelectionArgs(
+                    salonId: _kSalonId,
+                    selectedServiceIds: <String>['svc-1'],
+                  ),
+                ).overrideWith((ref) async {
+                  attempt++;
+                  if (attempt == 1) throw const NetworkFailure();
+                  return svc1Coverage;
+                }),
+          ),
+          // Disable Riverpod's default backoff retry so the AsyncError stays
+          // put through pumpAndSettle (and leaves no pending backoff Timer).
+          retry: (_, _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        await selectSvc1(tester);
+
+        expect(
+          find.byType(ErrorState),
+          findsOneWidget,
+          reason: 'a failed coverage load must surface an ErrorState',
+        );
+        // The chip is still there so the filter can be dismissed even on error.
+        expect(
+          find.byKey(const Key('salon-masters-filter-chip')),
+          findsOneWidget,
+        );
+
+        // Retry → second attempt succeeds → the filtered grid renders.
+        await tester.tap(find.byKey(const Key('error_state_retry_button')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(ErrorState), findsNothing);
+        expect(
+          find.byKey(const Key('salon-master-card-master-1')),
+          findsOneWidget,
+          reason: 'retry must reload the coverage and render the filtered grid',
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-2')),
+          findsNothing,
+          reason: 'the reloaded grid must still exclude the non-performer',
+        );
+      },
+    );
+
+    testWidgets(
+      'the kSalonMastersInitialCount cap applies to the FILTERED set: 8 '
+      'performers render only the first 6 plus a show-all affordance',
+      (tester) async {
+        await _pumpTall(tester);
+        final List<SalonMasterSummary> eightPerformers = List.generate(
+          8,
+          (i) => SalonMasterSummary(
+            masterId: 'perf-${i + 1}',
+            firstName: 'Майстер',
+            lastName: '${i + 1}',
+            avgRating: 4.5,
+            reviewCount: 1,
+            type: MasterType.salonMaster,
+          ),
+        );
+        // Every one of the 8 performs svc-1 → the FILTERED set is all 8, so the
+        // cap must apply to the filtered list (not the raw roster).
+        final Map<String, Map<String, String>> allCover =
+            <String, Map<String, String>>{
+              for (final SalonMasterSummary m in eightPerformers)
+                m.masterId: <String, String>{'svc-1': 'a-${m.masterId}'},
+            };
+
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => eightPerformers),
+            coverage: coverageOverride(allCover),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        await selectSvc1(tester);
+
+        for (int i = 1; i <= 6; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsOneWidget,
+            reason: 'the first 6 filtered performers must render up front',
+          );
+        }
+        for (int i = 7; i <= 8; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsNothing,
+            reason:
+                'filtered performers beyond the cap must stay unbuilt until '
+                'show-all is tapped',
+          );
+        }
+
+        final Finder showAll = find.byKey(const Key('salon-masters-show-all'));
+        expect(
+          showAll,
+          findsOneWidget,
+          reason: 'a filtered set over the cap must offer the reveal',
+        );
+
+        await tester.tap(showAll);
+        await tester.pumpAndSettle();
+
+        for (int i = 1; i <= 8; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsOneWidget,
+            reason: 'all filtered performers render after show-all',
+          );
+        }
+        expect(showAll, findsNothing);
+      },
+    );
+
+    testWidgets(
+      'show_all_on_filtered_set_then_clear_filter_reapplies_the_6_card_cap',
+      (tester) async {
+        await _pumpTall(tester);
+        final (
+          List<SalonMasterSummary> eight,
+          Map<String, Map<String, String>> cover,
+        ) = svc1Performers(
+          8,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => eight),
+            coverage: coverageOverride(cover),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        // Filter to the 8 performers, then reveal the full FILTERED set.
+        await selectSvc1(tester);
+        await tester.tap(find.byKey(const Key('salon-masters-show-all')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-master-card-perf-8')),
+          findsOneWidget,
+          reason: 'show-all must expose the last filtered performer first',
+        );
+
+        // Clear the filter — this stays on the Майстри tab (same _MastersTab
+        // State), so the cap must RE-ARM instead of the leaked show-all
+        // eagerly rendering the whole unfiltered roster.
+        await tester.tap(find.byKey(const Key('salon-masters-filter-clear')));
+        await tester.pumpAndSettle();
+
+        for (int i = 1; i <= 6; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsOneWidget,
+            reason: 'the unfiltered roster re-caps to the first 6',
+          );
+        }
+        for (int i = 7; i <= 8; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsNothing,
+            reason:
+                'a leaked show-all would eagerly build perf-$i after the '
+                'filter is cleared — the cap must re-apply',
+          );
+        }
+        expect(
+          find.byKey(const Key('salon-masters-show-all')),
+          findsOneWidget,
+          reason: 'the re-capped roster offers the reveal again',
+        );
+      },
+    );
+
+    testWidgets(
+      'show_all_on_full_roster_then_apply_filter_does_not_leak_show_all',
+      (tester) async {
+        await _pumpTall(tester);
+        final (
+          List<SalonMasterSummary> eight,
+          Map<String, Map<String, String>> cover,
+        ) = svc1Performers(
+          8,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => eight),
+            coverage: coverageOverride(cover),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        // Unfiltered Майстри tab (index 1) — reveal the full roster.
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('salon-masters-show-all')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-master-card-perf-8')),
+          findsOneWidget,
+          reason: 'show-all must expose the last roster master first',
+        );
+
+        // Apply the svc-1 filter (all 8 still qualify) — the filtered view
+        // must start capped, never inherit the prior show-all expansion.
+        await selectSvc1(tester);
+
+        for (int i = 1; i <= 6; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsOneWidget,
+            reason: 'the filtered view renders the first 6 up front',
+          );
+        }
+        for (int i = 7; i <= 8; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-perf-$i')),
+            findsNothing,
+            reason:
+                'a leaked show-all would eagerly build perf-$i in the '
+                'freshly-filtered view — the cap must hold',
+          );
+        }
+        expect(
+          find.byKey(const Key('salon-masters-show-all')),
+          findsOneWidget,
+          reason: 'the filtered set over the cap still offers the reveal',
+        );
+      },
+    );
   });
 }

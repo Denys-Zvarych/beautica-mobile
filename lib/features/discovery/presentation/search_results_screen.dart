@@ -176,14 +176,12 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 ),
                 data: (SearchResultsState data) {
                   if (data.items.isEmpty) {
-                    return ResultsEmpty(
-                      onEditFilters: _openFilters,
-                      serviceFilterActive: _filters.serviceTypeSlugs.isNotEmpty,
-                    );
+                    return ResultsEmpty(onEditFilters: _openFilters);
                   }
                   return _ResultsList(
                     scrollController: _scrollController,
                     data: data,
+                    activeFilters: _filters,
                     onFavoriteError: _showFavoriteError,
                   );
                 },
@@ -204,11 +202,16 @@ class _ResultsList extends StatelessWidget {
   const _ResultsList({
     required this.scrollController,
     required this.data,
+    required this.activeFilters,
     required this.onFavoriteError,
   });
 
   final ScrollController scrollController;
   final SearchResultsState data;
+
+  /// The filter set the results were fetched with — forwarded to each card so a
+  /// service filter can pre-check the matching service(s) in the booking flow.
+  final SearchFilters activeFilters;
   final void Function(Failure failure) onFavoriteError;
 
   @override
@@ -234,10 +237,12 @@ class _ResultsList extends StatelessWidget {
           child: switch (item) {
             MasterResultItem(:final master) => MasterResultCard(
               master: master,
+              activeFilters: activeFilters,
               onFavoriteError: onFavoriteError,
             ),
             SalonResultItem(:final salon) => SalonResultCard(
               salon: salon,
+              activeFilters: activeFilters,
               onFavoriteError: onFavoriteError,
             ),
           },
@@ -307,11 +312,7 @@ class _ResultsTopBar extends StatelessWidget {
   // built once at class-load, so build() allocates neither a Color nor a
   // TextStyle per frame.
   static const Color _filterIconColor = BrandColors.textSecondary;
-  static final TextStyle _countStyle = VelvetText.body().copyWith(
-    fontSize: 14,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.accent,
-  );
+  static final TextStyle _countStyle = VelvetText.discResultCount;
 
   @override
   Widget build(BuildContext context) {

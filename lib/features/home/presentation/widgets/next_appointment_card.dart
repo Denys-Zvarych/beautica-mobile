@@ -193,16 +193,13 @@ class NextAppointmentCard extends StatelessWidget {
 
 // Pre-composed text styles — hoisted to module-level statics so build() never
 // allocates a new TextStyle object on each call.
-final TextStyle _metaStyle = VelvetText.body().copyWith(
-  fontSize: 12.5,
+final TextStyle _metaStyle = VelvetText.body125.copyWith(
   color: BrandColors.text,
 );
 
-final TextStyle _dateLabelStyle = VelvetText.body().copyWith(fontSize: 12.5);
-final TextStyle _timeLabelStyle = VelvetText.heading().copyWith(fontSize: 26);
-final TextStyle _serviceStyle = VelvetText.bodyStrong().copyWith(
-  fontSize: 13.5,
-);
+final TextStyle _dateLabelStyle = VelvetText.body125;
+final TextStyle _timeLabelStyle = VelvetText.headingLg;
+final TextStyle _serviceStyle = VelvetText.bodyStrong135;
 
 class _MetaRow extends StatelessWidget {
   const _MetaRow({required this.icon, required this.text, this.iconWidget});

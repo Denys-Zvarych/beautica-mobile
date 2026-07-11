@@ -125,8 +125,18 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
     // availability endpoint actually requires, distinct from the salon-wide
     // catalog id `SalonCatalogService.id` carries. See
     // `salon_master_schedule.dart`'s file header for the full id-space note.
+    // [coverageArgs] rebuilds [SalonBookingMasterSelectionArgs] from this
+    // screen's own [SalonBookingTimeArgs] (same salonId/selectedServiceIds
+    // carried forward from step 2) — freezed's deep-collection equality means
+    // this resolves to the SAME cached family member
+    // `SalonMasterSelectionScreen` already populated, not a re-fetch.
+    final SalonBookingMasterSelectionArgs coverageArgs =
+        SalonBookingMasterSelectionArgs(
+          salonId: widget.args.salonId,
+          selectedServiceIds: widget.args.selectedServiceIds,
+        );
     final coverageAsync = ref.watch(
-      salonMasterServiceCoverageProvider(salonId),
+      salonMasterServiceCoverageProvider(coverageArgs),
     );
 
     final Object? error =
@@ -152,7 +162,7 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
             onRetry: () {
               ref.invalidate(publicSalonProfileProvider(salonId));
               ref.invalidate(salonServiceCatalogProvider(salonId));
-              ref.invalidate(salonMasterServiceCoverageProvider(salonId));
+              ref.invalidate(salonMasterServiceCoverageProvider(coverageArgs));
             },
           ),
         ),
@@ -330,17 +340,17 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
   /// master itself isn't in [masters] (a stale roster — defensive, mirrors
   /// the pre-existing guard this replaced) or its `primaryServiceAssignmentId`
   /// can't be resolved from [coverage] (a data-consistency edge case: the
-  /// master's own `GET /masters/{id}/services` list no longer includes the
-  /// service assigned to them a step ago, e.g. they deactivated it
-  /// mid-flow). Dropping just the one broken schedule — logged, never
+  /// bookable-masters read for the service no longer lists this master —
+  /// e.g. they deactivated the assignment, or lost their usable schedule,
+  /// a step ago). Dropping just the one broken schedule — logged, never
   /// thrown — mirrors `SalonPortfolioMapper.fromDtoList`'s "one broken entry
   /// must not blank the whole list" precedent elsewhere in this codebase.
   ///
   /// [coverage] is [salonMasterServiceCoverageProvider]'s
-  /// `masterId -> {serviceDefId: assignmentId}` map — the SAME per-master
-  /// `GET /masters/{id}/services` fan-out `SalonMasterSelectionScreen`
-  /// already fetches, reused here rather than re-fetched (see
-  /// `salon_master_coverage_notifier.dart`'s file header).
+  /// `masterId -> {serviceDefId: assignmentId}` map — the SAME bookable-
+  /// masters read `SalonMasterSelectionScreen` already fetches for this
+  /// exact `(salonId, selectedServiceIds)` pair, reused here rather than
+  /// re-fetched (see `salon_master_coverage_notifier.dart`'s file header).
   SalonMasterSchedule? _resolveSchedule(
     List<SalonMasterSummary> masters,
     String masterId,

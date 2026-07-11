@@ -164,6 +164,9 @@ const _validCreate = MasterServiceCreate(
   priceType: ServicePriceType.fixed,
   price: 500,
   category: 'MANICURE',
+  // Service type is mandatory on create (backend @NotNull); a valid create
+  // fixture must carry one or the mapper fail-fasts before the network call.
+  serviceTypeId: 'stype-1',
 );
 
 const _validUpdate = MasterServiceUpdate(
@@ -305,6 +308,7 @@ void main() {
           priceMin: 400,
           priceMax: 700,
           category: 'HAIRCUT',
+          serviceTypeId: 'stype-1',
         ),
       );
 

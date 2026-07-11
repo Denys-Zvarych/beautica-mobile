@@ -137,7 +137,7 @@ List<Object> _overrides() => <Object>[
   ).overrideWith((ref) => (_stubSalon, _stubMasters)),
   salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
   salonMasterServiceCoverageProvider(
-    _kSalonId,
+    _args(),
   ).overrideWith((ref) => _stubCoverage),
 ];
 
@@ -165,6 +165,113 @@ GoRouter _routerFor({ValueChanged<SalonBookingTimeArgs>? onReached}) {
     ],
   );
 }
+
+// ---------------------------------------------------------------------------
+// Per-master professional-title regression (salon-master-title bug).
+//
+// The eligible-master itemBuilder previously passed the SHARED generic role
+// (`_roleLabel(m.type, l10n)`) as EVERY row's subtitle, so all salon masters
+// (all `MasterType.salonMaster`) showed the identical "Майстер салону"
+// subtitle regardless of their own title. The fix binds each master's OWN
+// `professionalTitle` (trimmed, non-empty) and falls back to the generic role
+// only when it is null/blank.
+//
+// These fixtures are LOCAL to that regression test: four eligible masters, ALL
+// `MasterType.salonMaster` and ALL covering svc-1 (so none is filtered out by
+// the eligibility rule), with DISTINCT titles "Стиліст"/"Барбер" and two
+// blank cases (null + whitespace) that must both fall back to "Майстер
+// салону".
+const _titleStylist = SalonMasterSummary(
+  masterId: 'ts1',
+  firstName: 'Ірина',
+  lastName: 'Стиль',
+  professionalTitle: 'Стиліст',
+  avgRating: 4.8,
+  reviewCount: 5,
+  type: MasterType.salonMaster,
+);
+const _titleBarber = SalonMasterSummary(
+  masterId: 'ts2',
+  firstName: 'Петро',
+  lastName: 'Голій',
+  professionalTitle: 'Барбер',
+  avgRating: 4.7,
+  reviewCount: 8,
+  type: MasterType.salonMaster,
+);
+const _titleNull = SalonMasterSummary(
+  masterId: 'ts3',
+  firstName: 'Ганна',
+  lastName: 'Безтитул',
+  // professionalTitle omitted -> null -> falls back to the role label.
+  avgRating: 4.5,
+  reviewCount: 2,
+  type: MasterType.salonMaster,
+);
+const _titleWhitespace = SalonMasterSummary(
+  masterId: 'ts4',
+  firstName: 'Марта',
+  lastName: 'Пробіл',
+  professionalTitle: '   ', // whitespace-only -> trims empty -> role fallback.
+  avgRating: 4.4,
+  reviewCount: 1,
+  type: MasterType.salonMaster,
+);
+
+const _titleMasters = <SalonMasterSummary>[
+  _titleStylist,
+  _titleBarber,
+  _titleNull,
+  _titleWhitespace,
+];
+
+// Every master covers svc-1 -> all four are eligible and rendered.
+final _titleCoverage = <String, Map<String, String>>{
+  'ts1': <String, String>{'svc-1': 'assignment-ts1-svc-1'},
+  'ts2': <String, String>{'svc-1': 'assignment-ts2-svc-1'},
+  'ts3': <String, String>{'svc-1': 'assignment-ts3-svc-1'},
+  'ts4': <String, String>{'svc-1': 'assignment-ts4-svc-1'},
+};
+
+List<Object> _titleOverrides() => <Object>[
+  publicSalonProfileProvider(
+    _kSalonId,
+  ).overrideWith((ref) => (_stubSalon, _titleMasters)),
+  salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
+  salonMasterServiceCoverageProvider(
+    const SalonBookingMasterSelectionArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1'],
+    ),
+  ).overrideWith((ref) => _titleCoverage),
+];
+
+/// Router whose master-selection screen selects ONLY svc-1, so all four
+/// title-fixture masters (each covering svc-1) are eligible.
+GoRouter _titleRouter() {
+  return GoRouter(
+    initialLocation: RouteNames.salonBookingMasters,
+    routes: <RouteBase>[
+      GoRoute(
+        path: RouteNames.salonBookingMasters,
+        builder: (context, state) => const SalonMasterSelectionScreen(
+          args: SalonBookingMasterSelectionArgs(
+            salonId: _kSalonId,
+            selectedServiceIds: <String>['svc-1'],
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+/// Finds the subtitle [text] scoped to a SPECIFIC master's row (by the outer
+/// `_MasterPickRowListener`'s key) — so an assertion targets the RIGHT row's
+/// subtitle, never merely "this string exists somewhere on screen".
+Finder _subtitleInRow(String masterId, String text) => find.descendant(
+  of: find.byKey(Key('salon_booking_master_row_$masterId')),
+  matching: find.text(text),
+);
 
 void main() {
   testWidgets(
@@ -357,6 +464,134 @@ void main() {
       );
 
       await tester.pumpAndSettle();
+    },
+  );
+
+  // salon-master-title regression — each salon master's row must show its OWN
+  // `professionalTitle` (with a role fallback when null/blank), NOT the shared
+  // generic role for everyone. The pre-fix itemBuilder passed
+  // `role: _roleLabel(m.type, l10n)` for every row, so all four rows below
+  // (all MasterType.salonMaster) rendered the identical "Майстер салону"
+  // subtitle — the per-title `findsOneWidget`/`findsNothing` assertions here
+  // would then FAIL, which is exactly what guards the fix.
+  testWidgets(
+    'each salon master row shows its OWN professionalTitle, with the role '
+    'label as fallback when the title is null or whitespace',
+    (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_titleRouter(), overrides: _titleOverrides());
+      await tester.pumpAndSettle();
+
+      // All four masters are eligible (each covers svc-1) and rendered.
+      expect(
+        find.byKey(const Key('salon_booking_master_row_ts1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon_booking_master_row_ts4')),
+        findsOneWidget,
+      );
+
+      // Each titled master's row shows its OWN title — scoped to that row so
+      // we assert the RIGHT subtitle, not just "the text exists somewhere".
+      expect(_subtitleInRow('ts1', 'Стиліст'), findsOneWidget);
+      expect(_subtitleInRow('ts2', 'Барбер'), findsOneWidget);
+
+      // ...and NOT another master's title or the shared generic role. On the
+      // OLD code every row showed "Майстер салону", so each of these would
+      // find that generic label in the titled rows and fail.
+      expect(_subtitleInRow('ts1', 'Барбер'), findsNothing);
+      expect(_subtitleInRow('ts1', 'Майстер салону'), findsNothing);
+      expect(_subtitleInRow('ts2', 'Стиліст'), findsNothing);
+      expect(_subtitleInRow('ts2', 'Майстер салону'), findsNothing);
+
+      // Null-title master falls back to the generic role label.
+      expect(_subtitleInRow('ts3', 'Майстер салону'), findsOneWidget);
+      // Whitespace-only title trims empty -> same role fallback.
+      expect(_subtitleInRow('ts4', 'Майстер салону'), findsOneWidget);
+    },
+  );
+
+  // white-corner-shadow regression — the 40x40 master avatar in the per-master
+  // grouped preview (`_GroupRow`) previously used `VelvetShadows.extrudedSmall`,
+  // a diagonally-OFFSET shadow pair (`Offset(5,5)` dark + `Offset(-5,-5)`
+  // near-white). On the small rounded avatar the untranslated corner of the
+  // near-white offset shadow poked out as a WHITE SQUARE in the corner. The fix
+  // swapped it to `VelvetShadows.borderedCard` — a single, NON-offset
+  // (`Offset.zero`) shadow — so no translated corner can bleed.
+  //
+  // The mandatory structural guard (golden-independent, per the debugger's
+  // guidance): the `_GroupRow` avatar Container's every `BoxShadow` must have
+  // `offset == Offset.zero`. A regression back to `extrudedSmall` (or any
+  // offset pair) reintroduces a non-zero offset and fails here. The avatar is
+  // located structurally — a 40x40 `Container` with a `BoxDecoration` gradient +
+  // shadow whose child is `Icon(Icons.person_rounded)` — never by a brittle
+  // golden. `_GroupRow` is private, so it is driven through the public screen:
+  // picking m1 (covers only svc-1) auto-attaches svc-1 to m1, materialising
+  // exactly one group row and thus exactly one such avatar.
+  testWidgets(
+    "the grouped-preview master avatar's every BoxShadow has zero offset "
+    '(no white-corner bleed from an offset shadow pair)',
+    (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+      await tester.pumpAndSettle();
+
+      // Pick m1 -> svc-1 auto-attaches -> one `_GroupRow` (and its 40x40
+      // avatar) is rendered inside the grouped preview.
+      await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
+      await tester.pumpAndSettle();
+
+      // Structural finder: the 40x40 gradient+shadow avatar Container. The only
+      // other shadow-bearing gradient avatar on this screen is the 52dp master-
+      // row avatar (`_MasterPickRow`), excluded here by the tight 40x40 size.
+      final Finder avatarFinder = find.byWidgetPredicate((Widget w) {
+        if (w is! Container) return false;
+        final Decoration? decoration = w.decoration;
+        if (decoration is! BoxDecoration) return false;
+        return w.constraints ==
+                const BoxConstraints.tightFor(width: 40, height: 40) &&
+            decoration.gradient != null &&
+            decoration.boxShadow != null;
+      }, description: '40x40 gradient+shadow _GroupRow avatar container');
+
+      // Exactly one group (m1/svc-1) -> exactly one such avatar.
+      expect(avatarFinder, findsOneWidget);
+
+      // Confirm this really is the avatar: it wraps the person glyph.
+      expect(
+        find.descendant(
+          of: avatarFinder,
+          matching: find.byIcon(Icons.person_rounded),
+        ),
+        findsOneWidget,
+      );
+
+      final BoxDecoration decoration =
+          tester.widget<Container>(avatarFinder).decoration! as BoxDecoration;
+
+      // Other avatar invariants (kept, per the debugger's note) — a rounded
+      // (not sharp-cornered) bordered avatar.
+      expect(decoration.borderRadius, isNotNull);
+      expect(decoration.border, isNotNull);
+
+      // THE MANDATORY GUARD — every shadow is non-offset, so no translated
+      // near-white corner can poke out. `extrudedSmall`'s ±5dp offsets would
+      // fail this; `borderedCard`'s single Offset.zero shadow passes.
+      final List<BoxShadow> shadows = decoration.boxShadow!;
+      expect(shadows, isNotEmpty);
+      for (final BoxShadow shadow in shadows) {
+        expect(
+          shadow.offset,
+          Offset.zero,
+          reason:
+              'A _GroupRow avatar BoxShadow has a non-zero offset '
+              '(${shadow.offset}) — a diagonally-offset shadow pair (e.g. a '
+              'regression back to VelvetShadows.extrudedSmall) bleeds a white '
+              'square out of the small rounded avatar corner. Use a single '
+              'non-offset shadow (VelvetShadows.borderedCard).',
+        );
+      }
     },
   );
 }

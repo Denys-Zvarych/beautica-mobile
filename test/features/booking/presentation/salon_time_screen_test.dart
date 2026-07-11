@@ -313,12 +313,24 @@ List<Object> _baseOverrides({
   List<SalonMasterSummary> masters = const <SalonMasterSummary>[_m1],
   SlotRepository? slotRepository,
   Map<String, Map<String, String>> coverage = _kIdentityCoverage,
+  // Must match whichever `SalonBookingTimeArgs.selectedServiceIds` the test's
+  // own `args` literal carries — `SalonTimeScreen` rebuilds
+  // `SalonBookingMasterSelectionArgs(salonId, selectedServiceIds)` from
+  // `widget.args.selectedServiceIds` to key the coverage family, so an
+  // override keyed on a mismatched list would simply never be hit and the
+  // coverage provider would fall through to the (unmocked) real repository.
+  List<String> selectedServiceIds = const <String>['svc-1', 'svc-2'],
 }) => <Object>[
   publicSalonProfileProvider(
     _kSalonId,
   ).overrideWith((ref) => (_stubSalon, masters)),
   salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
-  salonMasterServiceCoverageProvider(_kSalonId).overrideWith((ref) => coverage),
+  salonMasterServiceCoverageProvider(
+    SalonBookingMasterSelectionArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: selectedServiceIds,
+    ),
+  ).overrideWith((ref) => coverage),
   if (slotRepository != null)
     slotRepositoryProvider.overrideWith((_) => slotRepository),
 ];
@@ -403,7 +415,10 @@ void main() {
           args: args,
           onReachedComingSoon: (String id) => capturedSalonId = id,
         ),
-        overrides: _baseOverrides(slotRepository: fake),
+        overrides: _baseOverrides(
+          slotRepository: fake,
+          selectedServiceIds: const <String>['svc-1'],
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -748,6 +763,7 @@ void main() {
         _router(args: args),
         overrides: _baseOverrides(
           slotRepository: fake,
+          selectedServiceIds: const <String>['svc-1'],
           // Deliberately DIFFERENT from the catalog id 'svc-1' — this is
           // what makes the test capable of catching the original bug (see
           // this test's header comment).
@@ -817,7 +833,10 @@ void main() {
               _kSalonId,
             ).overrideWith((ref) => _stubCatalog),
             salonMasterServiceCoverageProvider(
-              _kSalonId,
+              const SalonBookingMasterSelectionArgs(
+                salonId: _kSalonId,
+                selectedServiceIds: <String>['svc-1'],
+              ),
             ).overrideWith((ref) => _kIdentityCoverage),
           ],
         );
@@ -857,7 +876,10 @@ void main() {
 
         await tester.pumpRoutedApp(
           _router(args: args),
-          overrides: _baseOverrides(slotRepository: fake),
+          overrides: _baseOverrides(
+            slotRepository: fake,
+            selectedServiceIds: const <String>['svc-1'],
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -927,7 +949,10 @@ void main() {
               _kSalonId,
             ).overrideWith((ref) => _stubCatalog),
             salonMasterServiceCoverageProvider(
-              _kSalonId,
+              const SalonBookingMasterSelectionArgs(
+                salonId: _kSalonId,
+                selectedServiceIds: <String>['svc-1'],
+              ),
             ).overrideWith((ref) => _kIdentityCoverage),
           ],
         );
@@ -961,7 +986,10 @@ void main() {
         await tester.pumpRoutedApp(
           _router(args: args),
           retry: (_, _) => null,
-          overrides: _baseOverrides(slotRepository: fake),
+          overrides: _baseOverrides(
+            slotRepository: fake,
+            selectedServiceIds: const <String>['svc-1'],
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -1010,7 +1038,10 @@ void main() {
 
       await tester.pumpRoutedApp(
         _router(args: args),
-        overrides: _baseOverrides(slotRepository: fake),
+        overrides: _baseOverrides(
+          slotRepository: fake,
+          selectedServiceIds: const <String>['svc-1'],
+        ),
       );
       await tester.pumpAndSettle();
 

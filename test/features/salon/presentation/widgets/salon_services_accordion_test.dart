@@ -148,10 +148,10 @@ void main() {
       );
       expect(
         resolvedStyle!.fontSize,
-        15,
+        12,
         reason:
-            'service name must stay at 15 sp, matching the reference '
-            'screen\'s _ServiceInfo._nameStyle (services_list_screen.dart).',
+            'service name must stay at the reduced 12 sp, matching the '
+            'reference screen\'s _ServiceInfo._nameStyle (services_list_screen.dart).',
       );
 
       // The point size alone (15 sp) coincidentally matches bodyStrong()'s
@@ -191,7 +191,7 @@ void main() {
   // fixes above, which this file already pinned but the duration label was
   // "missed" per the source doc comment. Pins all three axes (size/weight/
   // color) plus the icon's size/color so none can silently drift back.
-  testWidgets('duration text renders at the compact pill scale (12.5sp/w800/'
+  testWidgets('duration text renders at the compact pill scale (11sp/w800/'
       'accentDeep), not a muted feedback() label', (tester) async {
     await tester.pumpApp(
       const SalonServicesAccordion(categories: _kCategories),
@@ -212,9 +212,9 @@ void main() {
     );
     expect(
       resolvedStyle!.fontSize,
-      12.5,
+      11,
       reason:
-          'duration must use the compact pill/metadata scale (12.5 sp), '
+          'duration must use the compact pill/metadata scale (11 sp), '
           'matching services_list_screen._MetaItem._valueStyle.',
     );
     expect(

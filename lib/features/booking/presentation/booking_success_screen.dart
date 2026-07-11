@@ -177,7 +177,7 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                   child: Text(
                     l10n.bookingSuccessTitle,
                     textAlign: TextAlign.center,
-                    style: VelvetText.heading().copyWith(fontSize: 26),
+                    style: VelvetText.headingLg,
                   ),
                 ),
                 const SizedBox(height: VelvetSpacing.xs + 2),
@@ -187,10 +187,7 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                   child: Text(
                     l10n.bookingSuccessSubline,
                     textAlign: TextAlign.center,
-                    style: VelvetText.body().copyWith(
-                      height: 1.35,
-                      fontSize: 13,
-                    ),
+                    style: VelvetText.bookSuccessSubline,
                   ),
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
@@ -407,11 +404,7 @@ class _CalendarLinkState extends State<_CalendarLink> {
                 const SizedBox(width: VelvetSpacing.sm),
                 Text(
                   l10n.bookingSuccessAddCalendarCta,
-                  style: VelvetText.bodyStrong().copyWith(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w700,
-                    color: BrandColors.accentDeep,
-                  ),
+                  style: VelvetText.bookCalendarCta,
                 ),
               ],
             ),

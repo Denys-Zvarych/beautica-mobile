@@ -75,7 +75,7 @@ class _SettingsRowState extends State<SettingsRow> {
   );
   static const EdgeInsets _padding = EdgeInsets.all(VelvetSpacing.sm + 4);
 
-  static final TextStyle _valueStyle = VelvetText.body().copyWith(fontSize: 14);
+  static final TextStyle _valueStyle = VelvetText.body14;
 
   @override
   Widget build(BuildContext context) {
@@ -213,9 +213,7 @@ class _SettingsToggleRowState extends State<SettingsToggleRow> {
   );
   static const EdgeInsets _padding = EdgeInsets.all(VelvetSpacing.sm + 4);
 
-  static final TextStyle _subtitleStyle = VelvetText.body().copyWith(
-    fontSize: 12,
-  );
+  static final TextStyle _subtitleStyle = VelvetText.body12;
 
   @override
   Widget build(BuildContext context) {

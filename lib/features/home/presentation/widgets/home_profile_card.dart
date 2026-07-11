@@ -32,9 +32,7 @@ class HomeProfileCard extends StatelessWidget {
   final VoidCallback onLocation;
 
   // Pre-composed text style to avoid per-build TextStyle allocation.
-  static final TextStyle _nameStyle = VelvetText.displayName().copyWith(
-    fontSize: 21,
-  );
+  static final TextStyle _nameStyle = VelvetText.displayName21;
 
   // Shared location-pin SVG sized/tinted to match the Material glyph it replaced
   // (16 px, [BrandColors.accent] — same as [_MetaLine]'s Material fallback).
@@ -57,7 +55,7 @@ class HomeProfileCard extends StatelessWidget {
           child: Stack(
             clipBehavior: Clip.none,
             children: <Widget>[
-              HubAvatar(initials: profile.initials, size: 96, fontSize: 30),
+              HubAvatar(initials: profile.initials, size: 96, fontSize: 27),
               Positioned(
                 right: 0,
                 bottom: 0,
@@ -162,10 +160,7 @@ class _MetaLine extends StatelessWidget {
   /// meta line (e.g. the city) by key rather than matching its literal string.
   final Key? textKey;
 
-  static final TextStyle _style = VelvetText.body().copyWith(
-    fontSize: 14,
-    color: BrandColors.text,
-  );
+  static final TextStyle _style = VelvetText.body14Text;
 
   @override
   Widget build(BuildContext context) {

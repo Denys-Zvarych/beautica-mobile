@@ -215,6 +215,16 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
         .setDistrictName(null);
   }
 
+  /// Clears every non-location filter back to the prefilled baseline — the
+  /// category, the per-service selection, the price band and the free-text
+  /// query — while KEEPING the locality that was pre-filled from the client's
+  /// saved profile (or manually picked). Also empties the search text field so
+  /// its content matches the now-cleared [SearchFilters.query].
+  void _clearFilters() {
+    ref.read(searchFiltersControllerProvider.notifier).clearFilters();
+    _searchController.clear();
+  }
+
   void _onShowMasters() {
     // Fold the second-level service selection (held in the sibling
     // [SearchServiceSelectionController]) into the wire-facing filter set at
@@ -275,9 +285,23 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
                   VelvetSpacing.lg,
                   VelvetSpacing.md,
                 ),
-                child: _ShowMastersCta(
-                  label: l10n.searchCtaShowMasters,
-                  onShowMasters: _onShowMasters,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    // Quiet, low-emphasis reset — ranked clearly BELOW the
+                    // primary CTA (a muted right-aligned text link, not a
+                    // competing raised button). Self-renders only when a
+                    // clearable filter is active.
+                    _ClearFiltersButton(
+                      label: l10n.searchClearFilters,
+                      onClear: _clearFilters,
+                    ),
+                    _ShowMastersCta(
+                      label: l10n.searchCtaShowMasters,
+                      onShowMasters: _onShowMasters,
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -325,6 +349,72 @@ class _ShowMastersCta extends ConsumerWidget {
       // Disabled while a region is chosen but no city — the NeumorphicButton
       // renders its built-in disabled chrome when onPressed is null.
       onPressed: regionWithoutCity ? null : onShowMasters,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// «Скинути фільтри» — quiet secondary reset link.
+//
+// Sits directly above the primary CTA and reads as a subordinate action: a
+// muted, right-aligned text link (small leading refresh glyph), NOT a second
+// raised button competing with «Показати майстрів».
+//
+// Self-renders only when at least one CLEARABLE (non-location) filter is active
+// — query, category, per-service selection, or a price bound. A location-only
+// state (the profile prefill with nothing else picked) never surfaces it, since
+// clearing would be a no-op there AND clearing must never wipe the prefilled
+// location. Watches only the narrow clearable slice + the sibling per-service
+// selection, so an oblast / city / district pick never rebuilds this button.
+// ---------------------------------------------------------------------------
+
+class _ClearFiltersButton extends ConsumerWidget {
+  const _ClearFiltersButton({required this.label, required this.onClear});
+
+  final String label;
+  final VoidCallback onClear;
+
+  static final ButtonStyle _clearStyle = TextButton.styleFrom(
+    foregroundColor: BrandColors.muted,
+    textStyle: VelvetText.discClearButton,
+    padding: const EdgeInsets.symmetric(
+      horizontal: VelvetSpacing.sm,
+      vertical: VelvetSpacing.xs,
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ({bool hasQuery, bool hasCategory, bool hasPrice}) f = ref.watch(
+      searchFiltersControllerProvider.select(
+        (SearchFilters s) => (
+          hasQuery: s.query != null,
+          hasCategory: s.categoryKey != null,
+          hasPrice: s.minPrice != null || s.maxPrice != null,
+        ),
+      ),
+    );
+    final bool hasServices = ref.watch(
+      searchServiceSelectionControllerProvider.select(
+        (Set<String> s) => s.isNotEmpty,
+      ),
+    );
+    final bool anyActive =
+        f.hasQuery || f.hasCategory || f.hasPrice || hasServices;
+    if (!anyActive) return const SizedBox.shrink();
+
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: VelvetSpacing.xs),
+        child: TextButton.icon(
+          key: const Key('search_clear_filters'),
+          onPressed: onClear,
+          icon: const Icon(Icons.refresh_rounded, size: 16),
+          label: Text(label),
+          style: _clearStyle,
+        ),
+      ),
     );
   }
 }
@@ -629,10 +719,7 @@ class _LocalityTapRow extends StatelessWidget {
   static final TextStyle _disabledStyle = VelvetText.input().copyWith(
     color: BrandColors.faint,
   );
-  static final TextStyle _helperStyle = VelvetText.body().copyWith(
-    fontSize: 12,
-    color: BrandColors.muted,
-  );
+  static final TextStyle _helperStyle = VelvetText.discCaptionMuted;
 
   @override
   Widget build(BuildContext context) {
@@ -1111,20 +1198,14 @@ class _PriceSection extends ConsumerStatefulWidget {
 }
 
 class _PriceSectionState extends ConsumerState<_PriceSection> {
-  static final TextStyle _readoutStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 14,
-    color: BrandColors.accentDeep,
-  );
-  static final TextStyle _endLabelStyle = VelvetText.body().copyWith(
-    fontSize: 12,
-    color: BrandColors.muted,
-  );
+  static final TextStyle _readoutStyle = VelvetText.discPriceAccent;
+  static final TextStyle _endLabelStyle = VelvetText.discCaptionMuted;
 
-  // Digits-only + cap length at 4 chars (max meaningful value is the 5000
+  // Digits-only + cap length at 5 chars (max meaningful value is the 20000
   // ceiling; the controller clamps the parsed value to the ceiling anyway).
   static final List<TextInputFormatter> _priceFormatters = <TextInputFormatter>[
     FilteringTextInputFormatter.digitsOnly,
-    LengthLimitingTextInputFormatter(4),
+    LengthLimitingTextInputFormatter(5),
   ];
 
   final TextEditingController _minController = TextEditingController();
@@ -1245,6 +1326,12 @@ class _PriceSectionState extends ConsumerState<_PriceSection> {
             rangeThumbShape: const RoundRangeSliderThumbShape(
               enabledThumbRadius: 11,
             ),
+            // Hide the per-division tick dots while keeping 500-грн snapping.
+            rangeTickMarkShape: const RoundRangeSliderTickMarkShape(
+              tickMarkRadius: 0,
+            ),
+            activeTickMarkColor: Colors.transparent,
+            inactiveTickMarkColor: Colors.transparent,
           ),
           child: RangeSlider(
             key: const Key('search_price_slider'),

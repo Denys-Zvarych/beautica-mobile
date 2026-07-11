@@ -66,7 +66,9 @@ import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import '../application/pending_service_preselection_provider.dart';
 import '../domain/booking_slot_picker_args.dart';
+import '../domain/pending_service_preselection.dart';
 import 'widgets/booking_summary_bar.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/service_catalogue_accordion.dart';
@@ -111,27 +113,120 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
   final Set<String> _expandedKeys = <String>{};
   bool _seeded = false;
 
+  /// Category keys (uppercased-trimmed `category` slugs) that contain a service
+  /// matched by the discovery-search pre-selection ([_preselection]). These
+  /// categor(ies) are HOISTED to the TOP of the accordion and start EXPANDED,
+  /// so the searched service is visible immediately in its normal category row
+  /// alongside its siblings. Populated once by [_seedOnce]; a stable reference
+  /// thereafter, so the catalogue body's memoized grouping never invalidates on
+  /// it. Empty when the client did not arrive from a search — the catalogue
+  /// then renders in normal category order with default (collapsed) expansion.
+  /// Deliberately does NOT include [widget.initialServiceId]'s category (that
+  /// extension point expands its own section but is not hoisted).
+  final Set<String> _hoistedKeys = <String>{};
+
+  /// The one-shot search pre-selection for THIS master. Captured (read-only,
+  /// via [peekFor]) in [initState] so it is available synchronously before the
+  /// catalogue resolves — [_seedOnce] matches it against the resolved services.
+  /// Null when the client did not arrive from a search with an active service
+  /// filter, or the pending payload targeted a different provider.
+  PendingServicePreselection? _preselection;
+
+  @override
+  void initState() {
+    super.initState();
+    // PEEK (read-only) the pending search service pre-selection for this master
+    // so it is captured synchronously for [_seedOnce] — peekFor does NOT mutate
+    // the provider, so this is safe inside initState (which for a `context.push`
+    // route runs during the next frame's build phase; a provider WRITE here
+    // throws "Tried to modify a provider while the widget tree was building").
+    _preselection = ref
+        .read(pendingServicePreselectionControllerProvider.notifier)
+        .peekFor(widget.masterId);
+    // Defer the one-shot CLEAR off the build phase. After this frame the payload
+    // is gone, so backing out of the booking flow and re-entering will not
+    // re-preselect. Only the CLEAR is deferred — the capture above stays
+    // synchronous so the seed never races catalogue resolution.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
+    });
+  }
+
   @override
   void dispose() {
     _selectionController.dispose();
     super.dispose();
   }
 
-  /// Seeds selection/expansion from [widget.initialServiceId] exactly once,
-  /// the first time the catalogue resolves. A no-op on every later rebuild
-  /// (guarded by [_seeded]), so toggling a section afterward is never
-  /// overwritten by a stale re-seed.
+  /// Seeds selection/expansion exactly once, the first time the catalogue
+  /// resolves. A no-op on every later rebuild (guarded by [_seeded]), so
+  /// toggling a section afterward is never overwritten by a stale re-seed.
+  ///
+  /// Two independent seed sources, unioned:
+  ///   1. [widget.initialServiceId] — a specific service tapped before this
+  ///      screen (extension point; not currently threaded from any call site).
+  ///   2. [_preselection] — the discovery search service filter, matched by
+  ///      EXACT `serviceTypeSlug` equality across ALL of the master's services
+  ///      (multi-select), with a defensive fallback to the service-type display
+  ///      name only when a service has no slug of its own. Each matched
+  ///      service's CATEGORY is hoisted to the top and expanded (see
+  ///      [_hoistedKeys]) — the service itself stays in its normal category row
+  ///      with its siblings, just checked. No match degrades to nothing
+  ///      pre-checked and no hoisting — never a wrong check.
+  ///
+  /// Expansion + hoist are LOCAL widget state ([_expandedKeys] / [_hoistedKeys])
+  /// seeded here — never a provider write — so they are safe to mutate off the
+  /// build phase and cannot trip Riverpod's "modified a provider while building".
   void _seedOnce(List<MasterService> services) {
     if (_seeded) return;
     _seeded = true;
+
+    final Set<String> selectedIds = <String>{};
+
     final String? initial = widget.initialServiceId;
-    if (initial == null || initial.isEmpty) return;
-    final MasterService? match = services
-        .where((MasterService s) => s.id == initial)
-        .firstOrNull;
-    if (match == null) return;
-    _selectionController.replaceAll(<String>{match.id});
-    _expandedKeys.add((match.category ?? '').trim().toUpperCase());
+    if (initial != null && initial.isNotEmpty) {
+      final MasterService? match = services
+          .where((MasterService s) => s.id == initial)
+          .firstOrNull;
+      if (match != null) {
+        selectedIds.add(match.id);
+        _expandedKeys.add((match.category ?? '').trim().toUpperCase());
+      }
+    }
+
+    final PendingServicePreselection? pre = _preselection;
+    if (pre != null) {
+      for (final MasterService s in services) {
+        if (_matchesPreselection(s.serviceTypeSlug, s.serviceTypeNameUk, pre)) {
+          selectedIds.add(s.id);
+          // Hoist + expand the matched service's category so it sits at the top
+          // of the accordion with all its sibling services visible and this one
+          // checked — instead of surfacing the match alone in a pinned section.
+          final String key = (s.category ?? '').trim().toUpperCase();
+          _hoistedKeys.add(key);
+          _expandedKeys.add(key);
+        }
+      }
+    }
+
+    if (selectedIds.isNotEmpty) {
+      _selectionController.replaceAll(selectedIds);
+    }
+  }
+
+  /// EXACT slug match against the pre-selection; falls back to the service-type
+  /// display name only when the service carries no slug (defensive).
+  bool _matchesPreselection(
+    String? slug,
+    String? serviceTypeNameUk,
+    PendingServicePreselection pre,
+  ) {
+    if (slug != null && slug.isNotEmpty) {
+      return pre.serviceTypeSlugs.contains(slug);
+    }
+    final String label = (serviceTypeNameUk ?? '').trim();
+    return label.isNotEmpty && pre.serviceTypeLabels.contains(label);
   }
 
   void _toggleExpand(String key) {
@@ -220,6 +315,7 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                   return _CatalogueBody(
                     master: master,
                     services: services,
+                    hoistedKeys: _hoistedKeys,
                     selectedIdsListenable: _selectionController,
                     expandedKeys: _expandedKeys,
                     onToggleService: _selectionController.toggleService,
@@ -361,7 +457,7 @@ class _EmptyCatalogue extends StatelessWidget {
             const SizedBox(height: VelvetSpacing.lg),
             Text(
               l10n.publicMasterBookingEmptyPrompt,
-              style: VelvetText.heading().copyWith(fontSize: 20),
+              style: VelvetText.heading20,
               textAlign: TextAlign.center,
             ),
           ],
@@ -402,6 +498,7 @@ class _CatalogueBody extends ConsumerStatefulWidget {
   const _CatalogueBody({
     required this.master,
     required this.services,
+    required this.hoistedKeys,
     required this.selectedIdsListenable,
     required this.expandedKeys,
     required this.onToggleService,
@@ -410,6 +507,10 @@ class _CatalogueBody extends ConsumerStatefulWidget {
 
   final Master master;
   final List<MasterService> services;
+
+  /// Category keys hoisted to the top of the accordion (they contain a
+  /// search-matched service). Empty ⇒ normal first-appearance category order.
+  final Set<String> hoistedKeys;
   final ValueListenable<Set<String>> selectedIdsListenable;
   final Set<String> expandedKeys;
   final ValueChanged<String> onToggleService;
@@ -435,22 +536,44 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
     AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
     AppLocalizations l10n,
   ) {
+    _rebuildIfNeeded(categoriesAsync, l10n);
+    return _cachedGroups!;
+  }
+
+  void _rebuildIfNeeded(
+    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
+    AppLocalizations l10n,
+  ) {
     final List<ServiceCategoryOption>? options = categoriesAsync.value;
-    final List<CatalogueCategoryGroup>? cached = _cachedGroups;
-    if (cached != null &&
+    if (_cachedGroups != null &&
         identical(_cachedServices, widget.services) &&
         identical(_cachedOptions, options)) {
-      return cached;
+      return;
     }
-    final List<CatalogueCategoryGroup> groups = _group(
-      widget.services,
-      categoriesAsync,
-      l10n,
+    // Group by category (first-appearance order), then hoist the matched
+    // categor(ies) to the top in the SAME memoized pass — `hoistedKeys` is a
+    // stable reference for this screen's lifetime (seeded once), so it needs no
+    // separate cache key.
+    _cachedGroups = _hoistMatched(
+      _group(widget.services, categoriesAsync, l10n),
     );
-    _cachedGroups = groups;
     _cachedServices = widget.services;
     _cachedOptions = options;
-    return groups;
+  }
+
+  /// Stable partition: categories containing a search-matched service first (in
+  /// their original relative order), then every other category (original
+  /// order). A no-op when nothing was hoisted.
+  List<CatalogueCategoryGroup> _hoistMatched(
+    List<CatalogueCategoryGroup> groups,
+  ) {
+    if (widget.hoistedKeys.isEmpty) return groups;
+    final List<CatalogueCategoryGroup> matched = <CatalogueCategoryGroup>[];
+    final List<CatalogueCategoryGroup> rest = <CatalogueCategoryGroup>[];
+    for (final CatalogueCategoryGroup g in groups) {
+      (widget.hoistedKeys.contains(g.key) ? matched : rest).add(g);
+    }
+    return <CatalogueCategoryGroup>[...matched, ...rest];
   }
 
   @override
@@ -493,10 +616,7 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text(
-                  l10n.bookingServiceSelectIntro,
-                  style: VelvetText.body().copyWith(fontSize: 14),
-                ),
+                Text(l10n.bookingServiceSelectIntro, style: VelvetText.body14),
                 const SizedBox(height: VelvetSpacing.lg),
                 MasterStrip(master: widget.master),
                 const SizedBox(height: VelvetSpacing.xl),

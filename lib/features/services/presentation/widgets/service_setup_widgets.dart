@@ -179,8 +179,7 @@ class _CountBadge extends StatelessWidget {
       ),
       child: Text(
         '$count',
-        style: VelvetText.pill().copyWith(
-          fontSize: 12,
+        style: VelvetText.svcCountPill.copyWith(
           color: onAccent ? BrandColors.accentDeep : BrandColors.white,
         ),
       ),
@@ -207,12 +206,7 @@ class CategoryGroupHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final TextStyle style = VelvetText.body().copyWith(
-      fontSize: 12,
-      height: 1.4,
-      fontWeight: FontWeight.w800,
-      color: BrandColors.accentDeep,
-    );
+    final TextStyle style = VelvetText.svcGroupHeader;
     return Padding(
       padding: const EdgeInsets.only(
         left: VelvetSpacing.xs,
@@ -486,8 +480,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                   children: <Widget>[
                     AnimatedDefaultTextStyle(
                       duration: const Duration(milliseconds: 200),
-                      style: VelvetText.subheading().copyWith(
-                        fontSize: 16,
+                      style: VelvetText.subheading16.copyWith(
                         color: on ? BrandColors.text : BrandColors.muted,
                       ),
                       child: Text(row.nameUk),
@@ -514,10 +507,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                       const SizedBox(height: 2),
                       Text(
                         l10n.serviceSetupRowExcluded,
-                        style: VelvetText.body().copyWith(
-                          fontSize: 12,
-                          height: 1.4,
-                        ),
+                        style: VelvetText.svcCaptionNote,
                       ),
                     ],
                   ],

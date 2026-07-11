@@ -82,27 +82,14 @@ class _SkeletonCard extends StatelessWidget {
 
 /// «Нічого не знайдено» empty state with a «Змінити фільтри» action.
 class ResultsEmpty extends StatelessWidget {
-  const ResultsEmpty({
-    super.key,
-    required this.onEditFilters,
-    this.serviceFilterActive = false,
-  });
+  const ResultsEmpty({super.key, required this.onEditFilters});
 
   /// Invoked by the «Змінити фільтри» button (re-opens the filter controls).
   final VoidCallback onEditFilters;
 
-  /// Whether the empty result came from an active per-service (`serviceTypeSlugs`)
-  /// filter. When true the supporting copy guides the user to broaden the
-  /// SERVICE selection specifically (a narrower OR / union set still narrows), instead of the
-  /// generic "change city / category / price" message.
-  final bool serviceFilterActive;
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final String body = serviceFilterActive
-        ? l10n.searchResultsEmptyServiceBody
-        : l10n.searchResultsEmptyBody;
     return Center(
       key: const Key('results_empty'),
       child: ConstrainedBox(
@@ -123,8 +110,6 @@ class ResultsEmpty extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: VelvetText.subheading(),
               ),
-              const SizedBox(height: VelvetSpacing.sm),
-              Text(body, textAlign: TextAlign.center, style: VelvetText.body()),
               const SizedBox(height: VelvetSpacing.lg),
               SizedBox(
                 width: double.infinity,

@@ -302,6 +302,17 @@ void main() {
         '500',
       );
       await selectCategoryOption(tester, 'MANICURE');
+      // Service type is mandatory on create — select one via the form State
+      // (its name auto-fill is overwritten by the explicit name below).
+      (tester.state(find.byType(ServiceForm)) as dynamic).onServiceTypeSelected(
+        const ServiceTypeOption(
+          id: 'stype-manicure',
+          slug: 'MANICURE_A',
+          nameUk: 'Класичний манікюр',
+          categoryName: 'MANICURE',
+        ),
+      );
+      await tester.pump();
       // Leading/trailing whitespace must be trimmed off the submitted name.
       await tester.enterText(_nameField, '  Спеціальний манікюр  ');
       await tapSubmit(tester);

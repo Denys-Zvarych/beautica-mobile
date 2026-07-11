@@ -55,7 +55,7 @@ class SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Text(title, style: VelvetText.heading().copyWith(fontSize: 22)),
+        Text(title, style: VelvetText.headingSm),
         if (info != null) ...<Widget>[
           const SizedBox(width: VelvetSpacing.sm),
           Tooltip(
@@ -105,10 +105,9 @@ class GhostButton extends StatelessWidget {
         ],
         Text(
           label,
-          style: VelvetText.link().copyWith(
-            color: BrandColors.accentDeep,
-            fontSize: dense ? 13 : 14,
-          ),
+          style: dense
+              ? VelvetText.schedActionLinkDense
+              : VelvetText.schedActionLink,
         ),
       ],
     );
@@ -192,8 +191,7 @@ class WeekdayPill extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: VelvetText.bodyStrong().copyWith(
-          fontSize: 13,
+        style: VelvetText.bodyStrong13.copyWith(
           color: active ? BrandColors.accentDeep : BrandColors.muted,
         ),
       ),
@@ -314,7 +312,7 @@ class WeekStripDay extends StatelessWidget {
           weekdayLabel,
           maxLines: 1,
           overflow: TextOverflow.clip,
-          style: VelvetText.label().copyWith(fontSize: 11),
+          style: VelvetText.label11,
         ),
         const SizedBox(height: VelvetSpacing.sm),
         // The 38px camel disc is the natural pill size, but on narrow phone
@@ -354,8 +352,7 @@ class WeekStripDay extends StatelessWidget {
             ),
             child: Text(
               '$day',
-              style: VelvetText.bodyStrong().copyWith(
-                fontSize: 16,
+              style: VelvetText.bodyStrong16.copyWith(
                 color: numberColor,
                 fontWeight: numberWeight,
               ),
@@ -432,9 +429,8 @@ class SlotChip extends StatelessWidget {
           child: empty
               ? Text(
                   '–',
-                  style: VelvetText.bodyStrong().copyWith(
+                  style: VelvetText.bodyStrong16.copyWith(
                     color: BrandColors.faint,
-                    fontSize: 16,
                   ),
                 )
               // Time-off slots are conveyed by the pink fill + border ALONE;
@@ -442,10 +438,7 @@ class SlotChip extends StatelessWidget {
               // tag.
               : Text(
                   _timeLabel,
-                  style: VelvetText.bodyStrong().copyWith(
-                    fontSize: 14,
-                    color: s.accent,
-                  ),
+                  style: VelvetText.bodyStrong14.copyWith(color: s.accent),
                 ),
         ),
       ),
@@ -479,13 +472,7 @@ class SlotLegend extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm + 2),
-                Text(
-                  slotStateLabel(l10n, s),
-                  style: VelvetText.body().copyWith(
-                    fontSize: 14,
-                    color: BrandColors.textSecondary,
-                  ),
-                ),
+                Text(slotStateLabel(l10n, s), style: VelvetText.body14),
               ],
             ),
           ),

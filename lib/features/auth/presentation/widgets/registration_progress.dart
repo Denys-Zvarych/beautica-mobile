@@ -43,9 +43,9 @@
 //   Key('progress-active-label')                    — present exactly once when [activeStepLabel] is non-null
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/brand_colors.dart';
+import '../../../../core/theme/velvet_text.dart';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -209,20 +209,10 @@ class _ProgItem extends StatelessWidget {
   );
 
   /// .prog-item.active .prog-num { color: var(--prog-color) #3a2810 }.
-  static const _kNumActive = TextStyle(
-    fontSize: 10,
-    fontWeight: FontWeight.w700,
-    color: Color(0xFF3A2810),
-    height: 1,
-  );
+  static const _kNumActive = VelvetText.authProgressNumActive;
 
   /// .prog-item.inactive .prog-num { color: rgba(255,255,255,0.28) }.
-  static const _kNumInactive = TextStyle(
-    fontSize: 10,
-    fontWeight: FontWeight.w700,
-    color: Color(0x47FFFFFF),
-    height: 1,
-  );
+  static const _kNumInactive = VelvetText.authProgressNumInactive;
 
   @override
   Widget build(BuildContext context) {
@@ -316,16 +306,7 @@ class _ActiveLabel extends StatelessWidget {
   /// Comfortaa is bundled under assets/fonts/ (Comfortaa-SemiBold.ttf /
   /// Comfortaa-Bold.ttf). CormorantGaramond is NOT bundled and must not be
   /// used with allowRuntimeFetching = false (throws at runtime on release APK).
-  static final _kLabelStyle = GoogleFonts.comfortaa(
-    textStyle: const TextStyle(
-      fontStyle: FontStyle.italic,
-      fontWeight: FontWeight.w600,
-      fontSize: 14,
-      color: BrandColors.accent,
-      height: 1,
-      letterSpacing: 0.14, // 0.01em × 14px
-    ),
-  );
+  static final _kLabelStyle = VelvetText.authProgressLabel;
 
   @override
   Widget build(BuildContext context) {

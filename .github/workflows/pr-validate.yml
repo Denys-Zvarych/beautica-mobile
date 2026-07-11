@@ -171,6 +171,16 @@ jobs:
         shell: bash
         run: ./scripts/forbid_unmocked_approved_categories.sh
 
+      # 2026-07-10 refactor-ratchet — the VelvetText font-size consolidation
+      # moved 212 inline fontSize: sites under lib/features/** onto 116 cached
+      # tokens (lib/core/theme/velvet_text.dart). This gate forbids a new inline
+      # TextStyle(fontSize:) / .copyWith(fontSize:) from silently re-fragmenting
+      # the scale. The only permitted inline sites (runtime-computed values +
+      # HubAvatar/HubPhoto ctor params) are listed in scripts/.inline_fontsize_allow.
+      - name: Forbid inline fontSize under lib/features (VelvetText tokens only)
+        shell: bash
+        run: ./scripts/forbid_inline_fontsize.sh
+
       # 2026-06-24 — self-test the four drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
@@ -181,6 +191,7 @@ jobs:
           ./scripts/forbid_cyrillic_finder.sh --self-test
           ./scripts/forbid_fixed_wait.sh --self-test
           ./scripts/forbid_unmocked_approved_categories.sh --self-test
+          ./scripts/forbid_inline_fontsize.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH

@@ -78,12 +78,8 @@ class PassportCard extends StatelessWidget {
   );
 
   // The embossed «B» watermark style — hoisted (copyWith + withValues allocate).
-  static final TextStyle _watermarkStyle = VelvetText.heading().copyWith(
-    fontSize: 176,
-    height: 1,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.accentDeep.withValues(alpha: 0.09),
-  );
+  static final TextStyle _watermarkStyle = VelvetText.passportWatermark
+      .copyWith(color: BrandColors.accentDeep.withValues(alpha: 0.09));
 
   static final Color _hairlineColor = BrandColors.faint.withValues(alpha: 0.35);
 
@@ -185,15 +181,9 @@ class _PassportHeader extends StatelessWidget {
     boxShadow: VelvetShadows.extrudedSmall,
   );
 
-  static final TextStyle _titleStyle = VelvetText.heading().copyWith(
-    fontSize: 18,
-    height: 1.1,
-    letterSpacing: 1.6,
-  );
+  static final TextStyle _titleStyle = VelvetText.passportSectionTitle;
 
-  static final TextStyle _subtitleStyle = VelvetText.body().copyWith(
-    fontSize: 12.5,
-  );
+  static final TextStyle _subtitleStyle = VelvetText.body125;
 
   @override
   Widget build(BuildContext context) {
@@ -248,11 +238,7 @@ class _PassportColumn extends StatelessWidget {
   final String label;
   final List<String> items;
 
-  static final TextStyle _labelStyle = VelvetText.label().copyWith(
-    fontSize: 8.5,
-    letterSpacing: 0.5,
-    height: 1.2,
-  );
+  static final TextStyle _labelStyle = VelvetText.passportTableLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -294,11 +280,7 @@ class _PassportTag extends StatelessWidget {
     border: Border.all(color: BrandColors.accent.withValues(alpha: 0.22)),
   );
 
-  static final TextStyle _textStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 11.5,
-    height: 1.1,
-    color: BrandColors.text,
-  );
+  static final TextStyle _textStyle = VelvetText.passportTableText;
 
   @override
   Widget build(BuildContext context) {
@@ -340,17 +322,8 @@ class _PassportFooter extends StatelessWidget {
   final int reviewsLeft;
   final String memberSince;
 
-  static final TextStyle _titleStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
-    letterSpacing: 0.3,
-    height: 1.15,
-    fontWeight: FontWeight.w800,
-    color: BrandColors.text,
-  );
-  static final TextStyle _subtitleStyle = VelvetText.body().copyWith(
-    fontSize: 11.5,
-    height: 1.25,
-  );
+  static final TextStyle _titleStyle = VelvetText.passportFooterTitle;
+  static final TextStyle _subtitleStyle = VelvetText.passportFooterSubtitle;
 
   static final BoxDecoration _iconCircleDecoration = BoxDecoration(
     color: BrandColors.base,

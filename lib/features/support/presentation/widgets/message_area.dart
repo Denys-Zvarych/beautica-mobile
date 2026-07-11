@@ -62,16 +62,8 @@ class _MessageAreaState extends State<MessageArea> {
 
   // Live-counter styles — hoisted so the per-keystroke counter rebuild never
   // re-allocates the TextStyle. They differ only by color; pick by validity.
-  static final TextStyle _counterMuted = VelvetText.feedback(BrandColors.muted)
-      .copyWith(
-        fontSize: 12,
-        fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-      );
-  static final TextStyle _counterError = VelvetText.feedback(BrandColors.error)
-      .copyWith(
-        fontSize: 12,
-        fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-      );
+  static final TextStyle _counterMuted = VelvetText.supportCounterMuted;
+  static final TextStyle _counterError = VelvetText.supportCounterError;
 
   @override
   void initState() {

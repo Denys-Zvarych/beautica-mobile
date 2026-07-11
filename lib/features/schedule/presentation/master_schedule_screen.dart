@@ -1328,13 +1328,7 @@ class _SelectedDayView extends StatelessWidget {
               color: BrandColors.muted,
             ),
             const SizedBox(width: VelvetSpacing.xs + 1),
-            Text(
-              l10n.scheduleViewOnly,
-              style: VelvetText.label().copyWith(
-                fontSize: 11,
-                color: BrandColors.muted,
-              ),
-            ),
+            Text(l10n.scheduleViewOnly, style: VelvetText.label11),
           ],
         ),
       ),
@@ -1358,10 +1352,7 @@ class _SelectedDayView extends StatelessWidget {
                 width: 46,
                 child: Text(
                   '${left.time.hour.toString().padLeft(2, '0')}:00',
-                  style: VelvetText.label().copyWith(
-                    fontSize: 12,
-                    color: BrandColors.textSecondary,
-                  ),
+                  style: VelvetText.schedTimeAxisLabel,
                 ),
               ),
               Expanded(
@@ -1427,10 +1418,7 @@ class _DiscreteTimesView extends StatelessWidget {
 
   // Perf #56: hoist the per-build TextStyle so it is allocated once for the
   // whole class, not per chip / per day-cell rebuild.
-  static final TextStyle _headingStyle = VelvetText.label().copyWith(
-    fontSize: 12,
-    color: BrandColors.textSecondary,
-  );
+  static final TextStyle _headingStyle = VelvetText.schedTimeAxisLabel;
 
   // Fixed slot width so each [SlotChip] reads as a tile (matching the interval
   // grid chips, which fill their `Expanded` column) instead of shrink-wrapping

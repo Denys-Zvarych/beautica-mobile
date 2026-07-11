@@ -139,11 +139,7 @@ class _QuickTile extends StatefulWidget {
 class _QuickTileState extends State<_QuickTile> {
   bool _pressed = false;
 
-  static final TextStyle _labelStyle = VelvetText.body().copyWith(
-    fontSize: 10.5,
-    height: 1.15,
-    color: BrandColors.textSecondary,
-  );
+  static final TextStyle _labelStyle = VelvetText.homeQuickLinkLabel;
 
   @override
   Widget build(BuildContext context) {

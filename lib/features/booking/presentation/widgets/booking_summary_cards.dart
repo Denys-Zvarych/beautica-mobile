@@ -268,23 +268,22 @@ class _LabelledRow extends StatelessWidget {
       children: <Widget>[
         Text(
           label,
-          style: VelvetText.label().copyWith(fontSize: compactText ? 11 : 12),
+          style: compactText ? VelvetText.label11 : VelvetText.label(),
         ),
         const SizedBox(height: 3),
         Text(
           value,
-          style: VelvetText.bodyStrong().copyWith(
-            fontSize: compactText ? 13.5 : 15,
-            height: 1.3,
-          ),
+          style: compactText
+              ? VelvetText.bookCardValue135
+              : VelvetText.bookCardValue15,
         ),
         if (detail != null) ...<Widget>[
           const SizedBox(height: 1),
           Text(
             detail!,
-            style: VelvetText.feedback(
-              BrandColors.muted,
-            ).copyWith(fontSize: compactText ? 11.5 : 12.5),
+            style: compactText
+                ? VelvetText.bookFeedbackMuted115
+                : VelvetText.bookFeedbackMuted125,
           ),
         ],
       ],

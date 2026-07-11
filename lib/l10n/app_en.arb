@@ -1558,6 +1558,10 @@
   "@serviceTypeLabel": {
     "description": "Section label above the second-level service-type chip selector row on the service create/edit form (shown only once a category is selected)."
   },
+  "serviceTypeRequired": "Select a service type",
+  "@serviceTypeRequired": {
+    "description": "Validation error shown on the service CREATE form when no service type is selected. The service type is mandatory on create (backend CreateServiceDefinitionRequest.serviceTypeId is @NotNull, DB column is NOT NULL). Mirrors the category-required microcopy pattern."
+  },
   "serviceTypeEmpty": "No service types for this category",
   "@serviceTypeEmpty": {
     "description": "Calm passive hint shown on the service-type chip row when the selected category has no service types to choose from. Not an error."
@@ -3066,7 +3070,7 @@
   "@searchPriceMin": {
     "description": "Left end label under the price slider (minimum)."
   },
-  "searchPriceMax": "5000+ UAH",
+  "searchPriceMax": "20000+ UAH",
   "@searchPriceMax": {
     "description": "Right end label under the price slider (ceiling and above)."
   },
@@ -3106,7 +3110,7 @@
   "@searchPriceMinFieldHint": {
     "description": "Placeholder hint inside the minimum-price numeric input field (no lower bound)."
   },
-  "searchPriceMaxFieldHint": "5000",
+  "searchPriceMaxFieldHint": "20000",
   "@searchPriceMaxFieldHint": {
     "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
   },
@@ -3117,6 +3121,10 @@
   "searchCtaShowMasters": "Show masters",
   "@searchCtaShowMasters": {
     "description": "Primary CTA on the Пошук screen — runs the search and opens the results screen."
+  },
+  "searchClearFilters": "Clear filters",
+  "@searchClearFilters": {
+    "description": "Secondary reset action on the Пошук screen — clears category, service, price and query filters back to the prefilled baseline while keeping the location prefilled from the client's saved profile. Shown only when at least one clearable filter is active."
   },
   "searchResultsTitle": "Results",
   "@searchResultsTitle": {
@@ -3146,14 +3154,6 @@
   "searchResultsEmptyTitle": "Nothing found",
   "@searchResultsEmptyTitle": {
     "description": "Title of the empty state on the discovery results screen when no master or salon matches the filters."
-  },
-  "searchResultsEmptyBody": "Try changing the city, category or price range.",
-  "@searchResultsEmptyBody": {
-    "description": "Supporting copy under the empty-state title on the results screen."
-  },
-  "searchResultsEmptyServiceBody": "We couldn't find a master who provides all the services you selected. Try selecting fewer services or changing the filter.",
-  "@searchResultsEmptyServiceBody": {
-    "description": "Supporting copy under the empty-state title when a per-service (serviceTypeSlugs) filter is active and the AND-narrowed search returns nothing — guides the user to broaden the service selection."
   },
   "searchResultsEditFilters": "Edit filters",
   "@searchResultsEditFilters": {
@@ -3580,6 +3580,29 @@
   "salonMastersShowAll": "Show all masters",
   "@salonMastersShowAll": {
     "description": "Reveal affordance below the masters grid on the \"Masters\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
+  },
+  "salonMasterFilterChipLabel": "Service: {serviceName}",
+  "@salonMasterFilterChipLabel": {
+    "description": "Active-filter chip above the \"Masters\" grid when a service was picked in the \"Services\" tab — the grid then shows only masters who perform this service.",
+    "placeholders": {
+      "serviceName": { "type": "String" }
+    }
+  },
+  "salonMasterFilterClearLabel": "Clear service filter",
+  "@salonMasterFilterClearLabel": {
+    "description": "Accessibility label for the ✕ button on the active-service-filter chip; tapping it clears the filter and shows every master again."
+  },
+  "salonMastersForServiceEmpty": "No masters perform this service yet",
+  "@salonMastersForServiceEmpty": {
+    "description": "Empty state on the \"Masters\" tab when a service filter is active but no master in the salon performs the selected service."
+  },
+  "salonServiceFilterSelectHint": "Show masters who perform this service",
+  "@salonServiceFilterSelectHint": {
+    "description": "Accessibility hint on a selectable service row in the \"Services\" tab — tapping it filters the masters grid to those who perform this service."
+  },
+  "salonServiceFilterClearHint": "Clear the selected service",
+  "@salonServiceFilterClearHint": {
+    "description": "Accessibility hint on the currently-selected service row — tapping it clears the service filter."
   },
   "salonPortfolioShowAll": "Show all photos",
   "@salonPortfolioShowAll": {

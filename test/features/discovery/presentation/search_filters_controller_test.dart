@@ -26,8 +26,13 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/pending_service_preselection_provider.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
+import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -79,14 +84,20 @@ class _MutableAuthNotifier extends AuthNotifier {
 /// addTearDown so keepAlive controller state never leaks across tests.
 ({ProviderContainer container, _MutableAuthNotifier auth}) _make({
   AsyncValue<AuthSession> auth = _authenticated,
+  // ProviderContainer.overrides expects List<Override>; that name is not
+  // exported by this Riverpod version, so extra overrides are passed as
+  // List<Object> and the combined list is `.cast()`-ed (the house pattern —
+  // see test/helpers/pump_app.dart).
+  List<Object> extra = const <Object>[],
 }) {
   final notifier = _MutableAuthNotifier(auth);
   final container = ProviderContainer(
-    overrides: [
+    overrides: <Object>[
       authProvider.overrideWith(() => notifier),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-    ],
+      ...extra,
+    ].cast(),
   );
   addTearDown(container.dispose);
   return (container: container, auth: notifier);
@@ -386,6 +397,100 @@ void main() {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Regression guard — the search price ceiling was raised 5000 → 20000
+  // (kSearchPriceDivisions 50 → 40, i.e. a 500-грн step). The existing
+  // setMaxPrice group above asserts only against the *symbol*
+  // kSearchPriceCeiling, so it passes under EITHER ceiling and cannot catch a
+  // regression of the value itself. THESE cases pin concrete rupee-values that
+  // straddle the old 5000 bound: each would have FAILED under the old ceiling
+  // (a 12000 max collapsed to null / "no upper bound" when the ceiling was
+  // 5000, since 12000 >= 5000). They lock the raised ceiling in place.
+  // -------------------------------------------------------------------------
+  group('SearchFiltersController — 20000 price ceiling (raised from 5000)', () {
+    test('kSearchPriceCeiling is 20000 and divisions is 40 (500-грн step)', () {
+      expect(kSearchPriceCeiling, 20000);
+      expect(kSearchPriceDivisions, 40);
+      // Sanity: 40 divisions over a 20000 span is a 500-грн increment.
+      expect(kSearchPriceCeiling / kSearchPriceDivisions, 500);
+    });
+
+    test(
+      'a 12000 max (above the OLD 5000 ceiling) is RETAINED as a finite upper '
+      'bound — under the old ceiling this collapsed to null (unbounded)',
+      () {
+        final c = _make().container;
+
+        _filters(c).setMaxPrice(12000);
+
+        expect(
+          _state(c).maxPrice,
+          12000,
+          reason:
+              'the key regression guard: 12000 < 20000 so it is a real finite '
+              'ceiling now; with the old ceiling of 5000, 12000 >= 5000 would '
+              'have cleared maxPrice to null',
+        );
+      },
+    );
+
+    test('a max at exactly 20000 collapses to null ("будь-яка")', () {
+      final c = _make().container;
+
+      _filters(c).setMaxPrice(20000);
+
+      expect(
+        _state(c).maxPrice,
+        isNull,
+        reason: '20000 == kSearchPriceCeiling means no upper bound',
+      );
+    });
+
+    test(
+      '19500 (one 500-step below the new ceiling) is kept as a finite max',
+      () {
+        final c = _make().container;
+
+        _filters(c).setMaxPrice(19500);
+
+        expect(_state(c).maxPrice, 19500);
+      },
+    );
+
+    test('a max above 20000 clamps behaviour: 25000 collapses to null', () {
+      final c = _make().container;
+
+      _filters(c).setMaxPrice(25000);
+
+      expect(_state(c).maxPrice, isNull);
+    });
+
+    test(
+      'setMinPrice retains 12000 as a finite floor (above the old 5000 ceiling)',
+      () {
+        final c = _make().container;
+
+        _filters(c).setMinPrice(12000);
+
+        expect(
+          _state(c).minPrice,
+          12000,
+          reason: 'the raised ceiling clamps to [0, 20000], so 12000 survives',
+        );
+      },
+    );
+
+    test('setPriceRange keeps a min 8000 / max 15000 pair — both above the old '
+        'ceiling, both finite under 20000', () {
+      final c = _make().container;
+
+      _filters(c).setPriceRange(min: 8000, max: 15000);
+
+      expect(_state(c).minPrice, 8000);
+      expect(_state(c).maxPrice, 15000);
+    });
+  });
+
   group('SearchFiltersController.reset', () {
     test('clears every populated field back to const SearchFilters()', () {
       final c = _make().container;
@@ -401,6 +506,177 @@ void main() {
       _filters(c).reset();
 
       expect(_state(c), const SearchFilters());
+    });
+
+    test('also clears any pending booking service pre-selection', () {
+      final c = _make().container;
+      // A prior search handed a pre-selection into the booking flow …
+      c
+          .read(pendingServicePreselectionControllerProvider.notifier)
+          .set(
+            targetId: 'master-1',
+            serviceTypeSlugs: <String>{'CLASSIC_MANICURE'},
+            serviceTypeLabels: const <String>{},
+          );
+      expect(c.read(pendingServicePreselectionControllerProvider), isNotNull);
+
+      _filters(c).reset();
+
+      // … resetting the filters must drop it so a cleared filter never leaks a
+      // stale service pre-check into a later booking.
+      expect(
+        c.read(pendingServicePreselectionControllerProvider),
+        isNull,
+        reason: 'reset() must clear the pending booking pre-selection too',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // clearFilters — «Скинути фільтри». Resets every NON-location facet (query,
+  // category, per-service selection, rating floor, price band, sort) back to the
+  // empty baseline WHILE preserving the currently-resolved locality (oblast →
+  // city → district) and its display labels. Crucially it does this by mutating
+  // state in place (a single copyWith omitting the locality ids) — it NEVER
+  // re-reads the profile or re-resolves the location taxonomy, so none of the
+  // location providers is touched.
+  // -------------------------------------------------------------------------
+  group('SearchFiltersController.clearFilters', () {
+    test(
+      'clears every NON-location facet but PRESERVES the resolved locality + its '
+      'labels, and re-resolves NO location taxonomy',
+      () {
+        // Spy fakes for the three taxonomy providers — clearFilters must never
+        // read them (the locality carries through untouched), so every counter
+        // must stay at 0 across the clear.
+        var oblastCalls = 0;
+        var cityCalls = 0;
+        var districtCalls = 0;
+        final c = _make(
+          extra: <Object>[
+            oblastListProvider.overrideWith((ref) async {
+              oblastCalls++;
+              return const <Oblast>[];
+            }),
+            cityListProvider('oblast-kyiv').overrideWith((ref) async {
+              cityCalls++;
+              return const <City>[];
+            }),
+            districtListProvider('city-kyiv').overrideWith((ref) async {
+              districtCalls++;
+              return const <CityDistrict>[];
+            }),
+          ],
+        ).container;
+
+        // Arrange — a fully-populated filter set: locality (oblast→city→district)
+        // PLUS every clearable facet reachable through the public API.
+        _filters(c)
+          ..selectOblast(oblastId: 'oblast-kyiv')
+          ..selectCity(cityId: 'city-kyiv')
+          ..selectDistrict(districtId: 'dist-pechersk')
+          ..setQuery('манікюр')
+          ..toggleServiceType('NAILS')
+          ..setPriceRange(min: 300, max: 900)
+          ..setSort(SearchSort.priceAsc);
+        // Seed the sibling label + service-selection controllers too.
+        c.read(searchFilterLabelsControllerProvider.notifier)
+          ..setOblastName('Київська')
+          ..setCityName('Київ')
+          ..setDistrictName('Печерський')
+          ..setCategoryName('Манікюр');
+        c.read(searchServiceSelectionControllerProvider.notifier)
+          ..toggle('classic')
+          ..toggle('gel');
+        // Precondition: genuinely non-empty, non-default state.
+        expect(_state(c).categoryKey, 'NAILS');
+        expect(_state(c).sort, SearchSort.priceAsc);
+
+        // Act.
+        _filters(c).clearFilters();
+
+        // Assert — every NON-location facet reset to its baseline ...
+        final SearchFilters s = _state(c);
+        expect(s.query, isNull);
+        expect(s.categoryKey, isNull);
+        expect(s.serviceTypeSlugs, isEmpty);
+        expect(
+          s.minRating,
+          isNull,
+          reason: 'clear drops any rating floor (defensive — no public seeder)',
+        );
+        expect(s.minPrice, isNull);
+        expect(s.maxPrice, isNull);
+        expect(
+          s.sort,
+          SearchSort.ratingDesc,
+          reason: 'clear resets the ordering to the ratingDesc default',
+        );
+
+        // ... while the resolved locality carries straight through untouched.
+        expect(s.oblastId, 'oblast-kyiv');
+        expect(s.cityId, 'city-kyiv');
+        expect(s.districtId, 'dist-pechersk');
+
+        // The label controller keeps the three locality names, drops ONLY the
+        // category label.
+        final SearchFilterLabels labels = c.read(
+          searchFilterLabelsControllerProvider,
+        );
+        expect(labels.oblastName, 'Київська');
+        expect(labels.cityName, 'Київ');
+        expect(labels.districtName, 'Печерський');
+        expect(labels.categoryName, isNull);
+
+        // The second-level per-service selection is emptied.
+        expect(c.read(searchServiceSelectionControllerProvider), isEmpty);
+
+        // No location taxonomy endpoint was re-read across the clear — the
+        // locality is preserved by an in-place copyWith, never a re-resolve.
+        expect(oblastCalls, 0);
+        expect(cityCalls, 0);
+        expect(districtCalls, 0);
+      },
+    );
+
+    test(
+      'leaves a location-only state fully intact (clear is a no-op there)',
+      () {
+        final c = _make().container;
+        _filters(c)
+          ..selectOblast(oblastId: 'oblast-kyiv')
+          ..selectCity(cityId: 'city-kyiv');
+
+        _filters(c).clearFilters();
+
+        expect(_state(c).oblastId, 'oblast-kyiv');
+        expect(_state(c).cityId, 'city-kyiv');
+        // Nothing clearable was set, so the whole state is location-only.
+        expect(_state(c).query, isNull);
+        expect(_state(c).categoryKey, isNull);
+      },
+    );
+
+    test('also clears any pending booking service pre-selection', () {
+      final c = _make().container;
+      c
+          .read(pendingServicePreselectionControllerProvider.notifier)
+          .set(
+            targetId: 'salon-xyz',
+            serviceTypeSlugs: <String>{'CLASSIC_MANICURE'},
+            serviceTypeLabels: const <String>{},
+          );
+      expect(c.read(pendingServicePreselectionControllerProvider), isNotNull);
+
+      _filters(c).clearFilters();
+
+      expect(
+        c.read(pendingServicePreselectionControllerProvider),
+        isNull,
+        reason:
+            '«Скинути фільтри» must drop the pending booking pre-selection so a '
+            'cleared filter never leaks a stale service pre-check',
+      );
     });
   });
 

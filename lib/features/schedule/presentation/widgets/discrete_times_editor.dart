@@ -138,14 +138,8 @@ class DiscreteTimesEditor extends StatefulWidget {
 class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
   /// Hoisted, build-invariant text styles — allocated once instead of on every
   /// editor build (every chip add/remove). Mirrors [_TimeChip._chipStyle].
-  static final TextStyle _windowLabelStyle = VelvetText.label().copyWith(
-    fontSize: 12,
-    color: BrandColors.accentDeep,
-    fontWeight: FontWeight.w700,
-  );
-  static final TextStyle _addTimeStyle = VelvetText.link().copyWith(
-    fontSize: 13,
-  );
+  static final TextStyle _windowLabelStyle = VelvetText.schedWindowLabel;
+  static final TextStyle _addTimeStyle = VelvetText.link13;
 
   /// Transient message shown when the picked time already exists in [times].
   /// `null` when no duplicate attempt is in progress.
@@ -383,11 +377,7 @@ class _TimeChip extends StatelessWidget {
   final String removeSemanticLabel;
   final VoidCallback onRemove;
 
-  static final TextStyle _chipStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
-    color: BrandColors.accentDeep,
-    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-  );
+  static final TextStyle _chipStyle = VelvetText.schedTimeChip;
 
   @override
   Widget build(BuildContext context) {

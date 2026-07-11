@@ -245,6 +245,17 @@ void main() {
     // is stable and re-selecting does not break the wire-value contract.
     await selectCategoryOption(tester, 'MANICURE');
     await selectCategoryOption(tester, 'MANICURE');
+    // Service type is mandatory on create — select one (name already typed, so
+    // the auto-fill does not clobber it).
+    (tester.state(find.byType(ServiceForm)) as dynamic).onServiceTypeSelected(
+      const ServiceTypeOption(
+        id: 'stype-manicure',
+        slug: 'MANICURE_A',
+        nameUk: 'Класичний манікюр',
+        categoryName: 'MANICURE',
+      ),
+    );
+    await tester.pump();
 
     await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
     await tester.tap(find.byKey(const Key('btn-submit-service')));

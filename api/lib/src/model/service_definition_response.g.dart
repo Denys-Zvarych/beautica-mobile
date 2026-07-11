@@ -88,6 +88,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   @override
   final String? serviceTypeNameUk;
   @override
+  final String? serviceTypeSlug;
+  @override
   final String? photoUrl;
   @override
   final ServiceDefinitionResponsePriceTypeEnum? priceType;
@@ -112,6 +114,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
       this.isActive,
       this.serviceTypeId,
       this.serviceTypeNameUk,
+      this.serviceTypeSlug,
       this.photoUrl,
       this.priceType,
       this.priceMin,
@@ -140,6 +143,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
         isActive == other.isActive &&
         serviceTypeId == other.serviceTypeId &&
         serviceTypeNameUk == other.serviceTypeNameUk &&
+        serviceTypeSlug == other.serviceTypeSlug &&
         photoUrl == other.photoUrl &&
         priceType == other.priceType &&
         priceMin == other.priceMin &&
@@ -159,6 +163,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jc(_$hash, serviceTypeNameUk.hashCode);
+    _$hash = $jc(_$hash, serviceTypeSlug.hashCode);
     _$hash = $jc(_$hash, photoUrl.hashCode);
     _$hash = $jc(_$hash, priceType.hashCode);
     _$hash = $jc(_$hash, priceMin.hashCode);
@@ -180,6 +185,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
           ..add('isActive', isActive)
           ..add('serviceTypeId', serviceTypeId)
           ..add('serviceTypeNameUk', serviceTypeNameUk)
+          ..add('serviceTypeSlug', serviceTypeSlug)
           ..add('photoUrl', photoUrl)
           ..add('priceType', priceType)
           ..add('priceMin', priceMin)
@@ -234,6 +240,11 @@ class ServiceDefinitionResponseBuilder
   set serviceTypeNameUk(String? serviceTypeNameUk) =>
       _$this._serviceTypeNameUk = serviceTypeNameUk;
 
+  String? _serviceTypeSlug;
+  String? get serviceTypeSlug => _$this._serviceTypeSlug;
+  set serviceTypeSlug(String? serviceTypeSlug) =>
+      _$this._serviceTypeSlug = serviceTypeSlug;
+
   String? _photoUrl;
   String? get photoUrl => _$this._photoUrl;
   set photoUrl(String? photoUrl) => _$this._photoUrl = photoUrl;
@@ -271,6 +282,7 @@ class ServiceDefinitionResponseBuilder
       _isActive = $v.isActive;
       _serviceTypeId = $v.serviceTypeId;
       _serviceTypeNameUk = $v.serviceTypeNameUk;
+      _serviceTypeSlug = $v.serviceTypeSlug;
       _photoUrl = $v.photoUrl;
       _priceType = $v.priceType;
       _priceMin = $v.priceMin;
@@ -306,6 +318,7 @@ class ServiceDefinitionResponseBuilder
           isActive: isActive,
           serviceTypeId: serviceTypeId,
           serviceTypeNameUk: serviceTypeNameUk,
+          serviceTypeSlug: serviceTypeSlug,
           photoUrl: photoUrl,
           priceType: priceType,
           priceMin: priceMin,

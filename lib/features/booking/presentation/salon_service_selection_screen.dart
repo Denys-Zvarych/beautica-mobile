@@ -67,6 +67,8 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../../salon/application/salon_service_catalog_notifier.dart';
 import '../../salon/domain/salon_service_catalog.dart';
+import '../application/pending_service_preselection_provider.dart';
+import '../domain/pending_service_preselection.dart';
 import '../domain/salon_booking_args.dart';
 import 'widgets/booking_summary_bar.dart';
 import 'widgets/service_catalogue_accordion.dart';
@@ -96,20 +98,118 @@ class _SalonServiceSelectionScreenState
   final Set<String> _expandedKeys = <String>{};
   bool _expandedSeeded = false;
 
+  /// Category keys that contain a service matched by the discovery-search
+  /// pre-selection ([_preselection]). These categor(ies) are HOISTED to the TOP
+  /// of the accordion and start EXPANDED, so the searched service is visible
+  /// immediately in its normal category row alongside its siblings. Populated
+  /// once by [_seedOnce]; a stable reference thereafter. Empty ⇒ normal
+  /// category order with the default first-category expansion.
+  final Set<String> _hoistedKeys = <String>{};
+
+  /// The one-shot search pre-selection for THIS salon. Captured (read-only, via
+  /// [peekFor]) in [initState] so it is available synchronously before the
+  /// catalogue resolves — [_seedOnce] matches it against the resolved services.
+  /// Null when the client did not arrive from a search with an active service
+  /// filter, or the pending payload targeted a different provider.
+  PendingServicePreselection? _preselection;
+
+  @override
+  void initState() {
+    super.initState();
+    // PEEK (read-only) the pending search service pre-selection for this salon
+    // so it is captured synchronously for [_seedOnce] — peekFor does NOT mutate
+    // the provider, so this is safe inside initState (which for a `context.push`
+    // route runs during the next frame's build phase; a provider WRITE here
+    // throws "Tried to modify a provider while the widget tree was building").
+    _preselection = ref
+        .read(pendingServicePreselectionControllerProvider.notifier)
+        .peekFor(widget.salonId);
+    // Defer the one-shot CLEAR off the build phase. After this frame the payload
+    // is gone, so backing out of the booking flow and re-entering will not
+    // re-preselect. Only the CLEAR is deferred — the capture above stays
+    // synchronous so the seed never races catalogue resolution.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
+    });
+  }
+
   @override
   void dispose() {
     _selectionController.dispose();
     super.dispose();
   }
 
-  /// Expands the FIRST category on load only — a no-op on every later
-  /// rebuild so toggling a section afterward is never overwritten.
-  void _seedExpansionOnce(List<SalonServiceCategoryEntry> categories) {
+  /// Seeds selection + expansion exactly once, the first time the catalogue
+  /// resolves. A no-op on every later rebuild so toggling a section afterward
+  /// is never overwritten.
+  ///
+  /// When a discovery search service filter arrived ([_preselection]), every
+  /// catalogue service whose `serviceTypeSlug` EXACTLY matches is pre-checked
+  /// (multi-select) and its CATEGORY is hoisted to the top and expanded (see
+  /// [_hoistedKeys]) — the service stays in its normal category row with its
+  /// siblings, just checked. A defensive fallback compares the service-type
+  /// display name only when a service has no slug. No match degrades to nothing
+  /// pre-checked and no hoisting. Absent any pre-selection, the first category
+  /// is expanded (the prior default).
+  ///
+  /// Expansion + hoist are LOCAL widget state ([_expandedKeys] / [_hoistedKeys])
+  /// seeded here — never a provider write — so they are safe to mutate off the
+  /// build phase and cannot trip Riverpod's "modified a provider while building".
+  void _seedOnce(List<SalonServiceCategoryEntry> categories) {
     if (_expandedSeeded) return;
     _expandedSeeded = true;
+
+    final PendingServicePreselection? pre = _preselection;
+    if (pre != null) {
+      final Set<String> selectedIds = <String>{};
+      for (final SalonServiceCategoryEntry c in categories) {
+        for (final SalonCatalogService s in c.services) {
+          if (_matchesPreselection(
+            s.serviceTypeSlug,
+            s.serviceTypeNameUk,
+            pre,
+          )) {
+            selectedIds.add(s.id);
+            // Hoist + expand the matched service's category so it sits at the
+            // top of the accordion with all its sibling services visible and
+            // this one checked — instead of a pinned single-service section.
+            _hoistedKeys.add(c.category);
+            _expandedKeys.add(c.category);
+          }
+        }
+      }
+      if (selectedIds.isNotEmpty) {
+        _selectionController.replaceAll(selectedIds);
+        // Matched categories are hoisted + expanded above; skip the default
+        // first-category expand so the matched category is the focus.
+        return;
+      }
+    }
+
+    // No pre-selection (or nothing matched) → keep the default of expanding the
+    // first category.
     if (categories.isNotEmpty) {
       _expandedKeys.add(categories.first.category);
     }
+  }
+
+  /// EXACT slug match against the pre-selection; falls back to the underlying
+  /// platform service-type name only when the service carries no slug
+  /// (defensive). Mirrors `ServiceSelectorSheet._matchesPreselection` (the
+  /// independent-master flow) 1:1 — the fallback compares the SERVICE-TYPE name
+  /// (same namespace as [PendingServicePreselection.serviceTypeLabels]), never
+  /// the salon's custom display name.
+  bool _matchesPreselection(
+    String? slug,
+    String? serviceTypeNameUk,
+    PendingServicePreselection pre,
+  ) {
+    if (slug != null && slug.isNotEmpty) {
+      return pre.serviceTypeSlugs.contains(slug);
+    }
+    final String label = (serviceTypeNameUk ?? '').trim();
+    return label.isNotEmpty && pre.serviceTypeLabels.contains(label);
   }
 
   void _toggleExpand(String key) {
@@ -197,12 +297,13 @@ class _SalonServiceSelectionScreenState
                   );
                 },
                 data: (List<SalonServiceCategoryEntry> categories) {
-                  _seedExpansionOnce(categories);
+                  _seedOnce(categories);
                   if (categories.isEmpty) {
                     return const _EmptyCatalogue();
                   }
                   return _CatalogueBody(
                     categories: categories,
+                    hoistedKeys: _hoistedKeys,
                     expandedKeys: _expandedKeys,
                     selectedIdsListenable: _selectionController,
                     onToggleService: _selectionController.toggleService,
@@ -324,9 +425,7 @@ class _StepIndicator extends StatelessWidget {
             ),
             child: Text(
               l10n.salonBookingStepLabel(current, total),
-              style: VelvetText.feedback(
-                BrandColors.textSecondary,
-              ).copyWith(fontSize: 12, fontWeight: FontWeight.w800),
+              style: VelvetText.bookChipSecW800,
             ),
           ),
           const SizedBox(height: VelvetSpacing.sm),
@@ -426,7 +525,7 @@ class _EmptyCatalogue extends StatelessWidget {
             Text(
               l10n.salonServicesEmpty,
               key: const Key('salon-service-selection-empty'),
-              style: VelvetText.heading().copyWith(fontSize: 20),
+              style: VelvetText.heading20,
               textAlign: TextAlign.center,
             ),
           ],
@@ -451,16 +550,6 @@ CatalogueRow _toCatalogueRow(SalonCatalogService s) => CatalogueRow(
   priceLabel: s.priceDisplay,
 );
 
-CatalogueCategoryGroup _toCatalogueCategoryGroup(
-  SalonServiceCategoryEntry entry,
-) => CatalogueCategoryGroup(
-  key: entry.category,
-  label: entry.displayName,
-  rows: <CatalogueRow>[
-    for (final SalonCatalogService s in entry.services) _toCatalogueRow(s),
-  ],
-);
-
 /// This screen never showed a plain count/selected badge in the header's
 /// trailing slot — that slot used to hold the now-deleted tri-state
 /// "select all" pill instead. See the shared widget's `showCountBadges`.
@@ -469,6 +558,7 @@ Key _salonTileKeyForId(String id) => Key('salon_booking_service_tile_$id');
 class _CatalogueBody extends StatefulWidget {
   const _CatalogueBody({
     required this.categories,
+    required this.hoistedKeys,
     required this.expandedKeys,
     required this.selectedIdsListenable,
     required this.onToggleService,
@@ -476,6 +566,10 @@ class _CatalogueBody extends StatefulWidget {
   });
 
   final List<SalonServiceCategoryEntry> categories;
+
+  /// Category keys hoisted to the top of the accordion (they contain a
+  /// search-matched service). Empty ⇒ normal server-provided category order.
+  final Set<String> hoistedKeys;
   final Set<String> expandedKeys;
   final ValueListenable<Set<String>> selectedIdsListenable;
   final ValueChanged<String> onToggleService;
@@ -503,17 +597,36 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
   List<CatalogueCategoryGroup> _groupsFor(
     List<SalonServiceCategoryEntry> categories,
   ) {
-    final List<CatalogueCategoryGroup>? cached = _cachedGroups;
-    if (cached != null && identical(_cachedCategories, categories)) {
-      return cached;
+    _rebuildIfNeeded(categories);
+    return _cachedGroups!;
+  }
+
+  void _rebuildIfNeeded(List<SalonServiceCategoryEntry> categories) {
+    if (_cachedGroups != null && identical(_cachedCategories, categories)) {
+      return;
     }
-    final List<CatalogueCategoryGroup> groups = <CatalogueCategoryGroup>[
-      for (final SalonServiceCategoryEntry entry in categories)
-        _toCatalogueCategoryGroup(entry),
-    ];
-    _cachedGroups = groups;
+    // Map each server category to a display group (all its services), then
+    // hoist the matched categor(ies) to the top in the SAME memoized pass.
+    // `hoistedKeys` is a stable reference for this screen's lifetime (seeded
+    // once), so it needs no separate cache key.
+    final List<CatalogueCategoryGroup> matched = <CatalogueCategoryGroup>[];
+    final List<CatalogueCategoryGroup> rest = <CatalogueCategoryGroup>[];
+    for (final SalonServiceCategoryEntry entry in categories) {
+      final List<CatalogueRow> rows = <CatalogueRow>[
+        for (final SalonCatalogService s in entry.services) _toCatalogueRow(s),
+      ];
+      if (rows.isEmpty) continue;
+      final CatalogueCategoryGroup group = CatalogueCategoryGroup(
+        key: entry.category,
+        label: entry.displayName,
+        rows: rows,
+      );
+      // Stable partition: matched categories keep their relative order and
+      // lead; everything else keeps its original order behind them.
+      (widget.hoistedKeys.contains(entry.category) ? matched : rest).add(group);
+    }
+    _cachedGroups = <CatalogueCategoryGroup>[...matched, ...rest];
     _cachedCategories = categories;
-    return groups;
   }
 
   @override
@@ -543,9 +656,11 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
             0,
           ),
           sliver: SliverToBoxAdapter(
-            child: Text(
-              l10n.salonBookingServicesIntro,
-              style: VelvetText.body().copyWith(fontSize: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(l10n.salonBookingServicesIntro, style: VelvetText.body14),
+              ],
             ),
           ),
         ),

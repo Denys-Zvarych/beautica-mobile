@@ -17,6 +17,7 @@ Name | Type | Description | Notes
 **isActive** | **bool** |  | [optional] 
 **serviceTypeId** | **String** | Chosen service type id; null when no service type was selected. | [optional] 
 **serviceTypeNameUk** | **String** | Ukrainian display name of the chosen service type; null when none was selected. | [optional] 
+**serviceTypeSlug** | **String** | Stable slug of the chosen platform service type (matches CategoryServiceOption.key on the client); null when none was selected. | [optional] 
 **photoUrl** | **String** |  | [optional] 
 **priceType** | **String** |  | [optional] 
 **priceMin** | **num** |  | [optional] 

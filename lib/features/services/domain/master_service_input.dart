@@ -53,13 +53,17 @@ abstract class MasterServiceCreate with _$MasterServiceCreate {
     /// Optional service category string (e.g. "MANICURE", "HAIRCUT").
     String? category,
 
-    /// Optional id of the chosen platform service type (Phase 16.3).
+    /// Id of the chosen platform service type. Required on create — the picker
+    /// can no longer be skipped (backend `CreateServiceDefinitionRequest.
+    /// serviceTypeId` is `@NotNull`; the DB column is NOT NULL).
     ///
-    /// Null when the master skipped the (optional) service-type picker. When
-    /// set, the mapper assigns it to [CreateServiceDefinitionRequest.serviceTypeId]
-    /// (omitted from the wire body otherwise). The backend cross-validates that
-    /// the type belongs to [category]; a mismatch surfaces as a
-    /// [ValidationFailure] keyed on the `serviceTypeId` field.
+    /// Typed nullable only so the form can hold a not-yet-chosen value; the
+    /// form blocks submit until it is set, and
+    /// [MasterServiceMapper.toCreateRequest] fail-fasts with an [ArgumentError]
+    /// on a null/empty value. When set, the mapper assigns it to
+    /// [CreateServiceDefinitionRequest.serviceTypeId]. The backend
+    /// cross-validates that the type belongs to [category]; a mismatch surfaces
+    /// as a [ValidationFailure] keyed on the `serviceTypeId` field.
     String? serviceTypeId,
 
     /// Optional buffer in minutes after the appointment.

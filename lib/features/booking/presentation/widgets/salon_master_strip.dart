@@ -76,7 +76,11 @@ class SalonMasterStrip extends StatelessWidget {
               height: 48,
               width: 48,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
+                // RRect (radius = half the 48dp side) reads as a circle but
+                // avoids Impeller-GLES's broken circle box-shadow blur path
+                // (a blurred BoxShadow on BoxShape.circle rasterizes as a hard
+                // white square under the opengles backend).
+                borderRadius: BorderRadius.circular(24),
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,

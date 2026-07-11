@@ -238,12 +238,14 @@ class _ServiceFormState extends State<ServiceForm> {
   String? _selectedCategory;
 
   /// Currently selected platform service-type id (Phase 16.3). Null = the
-  /// master has not chosen a service type (the picker is optional). Submitted
-  /// as [MasterServiceCreate.serviceTypeId]; a null value sends no type.
+  /// master has not chosen a service type yet. Submitted as
+  /// [MasterServiceCreate.serviceTypeId].
   ///
-  /// The picker UI that drives this lives in Phase 16.4 — it calls
-  /// [onServiceTypeSelected] / [clearServiceType]; this phase only wires the
-  /// behavior.
+  /// On CREATE the type is mandatory (backend `@NotNull`): [_serviceTypeError]
+  /// raises a required error and [_isValid] blocks submit while this is null.
+  /// On EDIT the PATCH leaves an unchanged type alone, so a null here is
+  /// tolerated. The picker drives this via [onServiceTypeSelected] /
+  /// [clearServiceType].
   String? _selectedServiceTypeId;
 
   /// Ukrainian name of the currently-selected service type. Captured alongside
@@ -398,12 +400,31 @@ class _ServiceFormState extends State<ServiceForm> {
     );
   }
 
-  /// Inline error for the service type, sourced solely from the backend
-  /// cross-field validation (Phase 16.3 — e.g. the chosen type does not belong
-  /// to the selected category). There is no client-side validator because the
-  /// service type is optional; the error is purely the mapped-back
-  /// `serviceTypeId` server message. Null when there is none.
-  String? _serviceTypeError() => _serverFieldErrors['serviceTypeId'];
+  /// Inline error for the service type.
+  ///
+  /// Two sources, in precedence order:
+  ///   1. The mapped-back `serviceTypeId` server message (Phase 16.3 cross-field
+  ///      validation — e.g. the chosen type does not belong to the selected
+  ///      category, or a contract-drift 400). Always wins when present.
+  ///   2. A client-side REQUIRED check — the service type is mandatory on CREATE
+  ///      (backend `CreateServiceDefinitionRequest.serviceTypeId` is `@NotNull`;
+  ///      the DB column is NOT NULL). Surfaces after the first submit attempt
+  ///      when no type is selected, mirroring `_categoryError`. In EDIT mode the
+  ///      picker stays optional (PATCH `UpdateServiceDefinitionRequest`
+  ///      `serviceTypeId` = null means "leave unchanged"), so no required error
+  ///      is raised.
+  ///
+  /// Null when there is no error.
+  String? _serviceTypeError(AppLocalizations l10n) {
+    final String? server = _serverFieldErrors['serviceTypeId'];
+    if (server != null) return server;
+    // Required only on create; edit uses PATCH "no change" semantics.
+    if (widget.initial != null) return null;
+    if (!_submitted) return null;
+    return (_selectedServiceTypeId == null || _selectedServiceTypeId!.isEmpty)
+        ? l10n.serviceTypeRequired
+        : null;
+  }
 
   /// Name-controller listener. Behaves exactly like `_onChanged('name')` for
   /// re-validation / dirty tracking, but additionally resets
@@ -627,6 +648,9 @@ class _ServiceFormState extends State<ServiceForm> {
       _durationError(l10n) == null &&
       _pricingValid(l10n) &&
       _categoryError(l10n) == null &&
+      // Service type is mandatory on create (backend @NotNull); blocks submit
+      // client-side so the user gets an inline error instead of a 400 round-trip.
+      _serviceTypeError(l10n) == null &&
       _durationCtrl.text.trim().isNotEmpty;
 
   // --- Submit ---------------------------------------------------------------
@@ -910,7 +934,7 @@ class _ServiceFormState extends State<ServiceForm> {
           ValueListenableBuilder<int>(
             valueListenable: _revalidateTick,
             builder: (BuildContext context, _, _) =>
-                _ServiceTypeError(errorText: _serviceTypeError()),
+                _ServiceTypeError(errorText: _serviceTypeError(l10n)),
           ),
         ],
         const SizedBox(height: VelvetSpacing.lg),

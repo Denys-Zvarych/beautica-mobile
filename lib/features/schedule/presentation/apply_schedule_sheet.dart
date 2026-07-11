@@ -342,10 +342,7 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
                 ],
               ),
               const SizedBox(height: VelvetSpacing.sm),
-              Text(
-                l10n.applyScheduleBody,
-                style: VelvetText.body().copyWith(fontSize: 13),
-              ),
+              Text(l10n.applyScheduleBody, style: VelvetText.body13),
               const SizedBox(height: VelvetSpacing.md + 2),
 
               // ── Quick-pick presets ─────────────────────────────────────────
@@ -442,7 +439,7 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
                         const SizedBox(width: VelvetSpacing.sm),
                         Text(
                           l10n.applyScheduleDayCount(_dayCount!),
-                          style: VelvetText.bodyStrong().copyWith(fontSize: 13),
+                          style: VelvetText.bodyStrong13,
                         ),
                       ],
                     ),
@@ -526,7 +523,6 @@ class _PresetChip extends StatelessWidget {
           child: Text(
             label,
             style: VelvetText.label().copyWith(
-              fontSize: 12,
               color: selected ? BrandColors.accentDeep : BrandColors.muted,
             ),
           ),

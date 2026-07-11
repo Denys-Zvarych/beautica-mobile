@@ -83,6 +83,8 @@ class SalonMasterCard extends StatefulWidget {
 
   /// Position in the rail — selects the avatar gradient deterministically.
   final int avatarIndex;
+
+  /// Tapping the card body opens the master's public profile.
   final VoidCallback onTap;
 
   @override
@@ -104,7 +106,13 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
         widget.role,
         widget.ratingLabel,
       ),
+      // Opaque + full-tile so a tap anywhere on the card body (incl. its
+      // center and padding) always resolves onto this detector and fires
+      // `onTap`, opening the master's public profile. `width: double.infinity`
+      // (clamped to the grid tile's tight width) keeps the card spanning the
+      // whole column so the tile's center tap always lands on the card body.
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTapDown: (_) => setState(() => _pressed = true),
         onTapCancel: () => setState(() => _pressed = false),
         onTapUp: (_) {
@@ -117,8 +125,12 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
           curve: Curves.easeOut,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            // No explicit width: the parent grid tile constrains this
-            // tightly per column (see the class doc comment above).
+            // Fill the full tile in BOTH axes. The grid tile constrains
+            // this tightly per column; `width: double.infinity` (clamped to
+            // the tile's maxWidth) keeps the card spanning the whole column.
+            // Height is exactly the tile's `mainAxisExtent`, so this adds no
+            // overflow.
+            width: double.infinity,
             height: kSalonMasterCardHeight,
             decoration: BoxDecoration(
               color: BrandColors.base,
@@ -168,7 +180,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                 const SizedBox(height: VelvetSpacing.sm),
                 Text(
                   widget.name,
-                  style: VelvetText.subheading().copyWith(fontSize: 14),
+                  style: VelvetText.subheading14,
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -176,9 +188,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                 const SizedBox(height: 2),
                 Text(
                   widget.role,
-                  style: VelvetText.feedback(
-                    BrandColors.muted,
-                  ).copyWith(fontSize: 11),
+                  style: VelvetText.feedbackMutedXs,
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -193,10 +203,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                       color: BrandColors.accentDeep,
                     ),
                     const SizedBox(width: 3),
-                    Text(
-                      widget.ratingLabel,
-                      style: VelvetText.bodyStrong().copyWith(fontSize: 12),
-                    ),
+                    Text(widget.ratingLabel, style: VelvetText.bodyStrong12),
                   ],
                 ),
               ],

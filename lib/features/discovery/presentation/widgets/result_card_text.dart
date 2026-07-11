@@ -3,7 +3,6 @@
 // All TextStyles are computed once at class-load (perf house-rule: never
 // allocate a TextStyle per build inside a scrolling list).
 
-import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:flutter/widgets.dart';
 
@@ -16,37 +15,23 @@ export '../../domain/master_search_item.dart' show kServiceNamesSeparator;
 /// Pre-composed card text styles (master + salon cards).
 abstract final class ResultCardText {
   /// Locality / muted secondary line (12.5sp muted).
-  static final TextStyle locality = VelvetText.body().copyWith(
-    fontSize: 12.5,
-    color: BrandColors.muted,
-  );
+  static final TextStyle locality = VelvetText.discLocality;
 
   /// The auth-gated street-detail line under the locality (street, building,
   /// note). A hair smaller than [locality] so the city reads first and the
   /// precise street reads as supporting detail — same muted tone, no new color.
-  static final TextStyle addressDetail = VelvetText.body().copyWith(
-    fontSize: 12,
-    color: BrandColors.muted,
-  );
+  static final TextStyle addressDetail = VelvetText.discCaptionMuted;
 
   /// Bold numeric rating value (13sp).
-  static final TextStyle ratingValue = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
-  );
+  static final TextStyle ratingValue = VelvetText.discRatingValue;
 
   /// «від N грн» / price-range accent line (14sp accentDeep).
-  static final TextStyle price = VelvetText.bodyStrong().copyWith(
-    fontSize: 14,
-    color: BrandColors.accentDeep,
-  );
+  static final TextStyle price = VelvetText.discPriceAccent;
 
   /// Procedure / service-names preview line on the master card (e.g.
   /// «Манікюр · Педикюр»). A touch smaller than the name, in the secondary tone
   /// so it reads as supporting detail rather than competing with the name.
-  static final TextStyle services = VelvetText.body().copyWith(
-    fontSize: 12.5,
-    color: BrandColors.textSecondary,
-  );
+  static final TextStyle services = VelvetText.discServicesPreview;
 }
 
 // NOTE (2026-06-25): the former `formatAddress(street, buildingNo)` helper was

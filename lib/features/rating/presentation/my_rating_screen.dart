@@ -39,9 +39,7 @@ class MyRatingScreen extends StatelessWidget {
 
   // Pre-composed AppBar title style — static final so it is computed once at
   // class-load time, never per-build (house pattern: styles on the owning class).
-  static final TextStyle _titleStyle = VelvetText.heading().copyWith(
-    fontSize: 18,
-  );
+  static final TextStyle _titleStyle = VelvetText.heading18;
 
   /// The client's aggregate rating; null = no rating yet.
   ///
@@ -117,18 +115,9 @@ class _RatingDisplay extends StatelessWidget {
   final AppLocalizations l10n;
 
   // Big number style: Comfortaa-like weight via Manrope bold at large size.
-  static final TextStyle _bigNumberStyle = VelvetText.displayName().copyWith(
-    fontSize: 56,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.accentDeep,
-    height: 1.0,
-  );
+  static final TextStyle _bigNumberStyle = VelvetText.ratingBigNumber;
 
-  static final TextStyle _explanationStyle = VelvetText.body().copyWith(
-    fontSize: 13,
-    color: BrandColors.textSecondary,
-    height: 1.4,
-  );
+  static final TextStyle _explanationStyle = VelvetText.ratingExplanation;
 
   @override
   Widget build(BuildContext context) {

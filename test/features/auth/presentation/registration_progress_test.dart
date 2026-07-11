@@ -277,7 +277,7 @@ void main() {
     );
 
     testWidgets(
-      'active label TextStyle is italic Comfortaa w600 14 px camel '
+      'active label TextStyle is italic Comfortaa w600 11 px camel '
       '(locks the design-token contract; guards CormorantGaramond→Comfortaa fix)',
       (tester) async {
         await _pumpProgress(
@@ -290,7 +290,7 @@ void main() {
         );
         final style = labelText.style!;
         expect(style.fontStyle, FontStyle.italic);
-        expect(style.fontSize, 14);
+        expect(style.fontSize, 11);
         expect(style.fontWeight, FontWeight.w600);
         // Brand camel #B89A7A → 0xFFB89A7A.
         expect(style.color, const Color(0xFFB89A7A));

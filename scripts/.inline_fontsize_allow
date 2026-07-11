@@ -1,0 +1,25 @@
+# Allowlist for scripts/forbid_inline_fontsize.sh — the ONLY inline `fontSize:`
+# sites permitted under lib/features/**. Every OTHER `fontSize:` in a feature
+# TextStyle(...) / .copyWith(fontSize:) literal must route through a cached
+# VelvetText token (lib/core/theme/velvet_text.dart) — the VelvetText
+# font-size consolidation moved 212 inline sites onto 116 shared tokens and
+# this ratchet stops a new inline literal from silently re-fragmenting them.
+#
+# Format: <repo-relative-path>:<line>   # reason
+# Line-level (not file-level) on purpose: exempting a whole file would let a
+# genuinely-new inline literal slip in beside a legitimate one. Kept tight.
+# When a listed file is edited and its line shifts, the gate fails loudly and
+# the allowlist line is updated — that is the intended ratchet behaviour.
+#
+# --- Widget-constructor params (NOT a TextStyle literal) ---------------------
+# `fontSize:` here is forwarded to the HubAvatar/HubPhoto CONSTRUCTOR; the
+# widget itself builds a cached TextStyle internally (see hub_widgets.dart).
+lib/features/passport/presentation/passport_screen.dart:396          # HubAvatar(fontSize:) ctor arg
+lib/features/home/presentation/widgets/home_profile_card.dart:58     # HubAvatar(fontSize:) ctor arg
+lib/features/home/presentation/widgets/favorite_masters_card.dart:161 # HubPhoto(fontSize:) ctor arg
+#
+# --- Runtime-computed (cannot be a compile-time VelvetText token) ------------
+lib/features/salon/presentation/widgets/salon_cover_widgets.dart:83  # diameter * 0.44 monogram glyph
+lib/features/home/presentation/widgets/hub_widgets.dart:57           # fontSize pass-through into cached HubAvatar style
+lib/features/home/presentation/widgets/hub_widgets.dart:112          # fontSize pass-through into cached HubPhoto style
+lib/features/home/presentation/widgets/hub_widgets.dart:602          # size * 0.5 fallback-avatar glyph

@@ -308,12 +308,8 @@ class _ClientNavTileState extends State<_ClientNavTile> {
 
   // Hoisted label styles (one per active/inactive color) — computed once at
   // class-load time so no TextStyle is allocated per build/tap.
-  static final TextStyle _labelActive = VelvetText.feedback(
-    BrandColors.accentDeep,
-  ).copyWith(fontSize: 9, height: 1.1, letterSpacing: 0.1);
-  static final TextStyle _labelInactive = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 9, height: 1.1, letterSpacing: 0.1);
+  static final TextStyle _labelActive = VelvetText.shellNavLabelActive;
+  static final TextStyle _labelInactive = VelvetText.shellNavLabelInactive;
 
   static const LinearGradient _pillGradient = LinearGradient(
     colors: <Color>[BrandColors.accentDeep, BrandColors.accent],

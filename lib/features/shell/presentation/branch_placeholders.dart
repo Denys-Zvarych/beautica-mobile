@@ -187,12 +187,7 @@ class _ComingSoonChip extends StatelessWidget {
             color: BrandColors.accent,
           ),
           const SizedBox(width: VelvetSpacing.sm - 2),
-          Text(
-            label,
-            style: VelvetText.feedback(
-              BrandColors.textSecondary,
-            ).copyWith(fontSize: 12),
-          ),
+          Text(label, style: VelvetText.shellComingSoonLabel),
         ],
       ),
     );

@@ -90,7 +90,7 @@ class SalonBookingComingSoonScreen extends StatelessWidget {
                       Text(
                         l10n.salonBookingComingSoonMessage,
                         key: const Key('salon-booking-coming-soon-message'),
-                        style: VelvetText.heading().copyWith(fontSize: 20),
+                        style: VelvetText.heading20,
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: VelvetSpacing.xl),

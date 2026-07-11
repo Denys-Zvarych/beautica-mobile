@@ -40,6 +40,7 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_create_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -157,6 +158,24 @@ const _defaultCategories = <ServiceCategoryOption>[
   ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
   ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
 ];
+
+/// A service type for [category]. Service type is MANDATORY on create, so every
+/// happy-path submit must select one (for the currently-selected category).
+ServiceTypeOption _typeFor(String category) => ServiceTypeOption(
+  id: 'stype-${category.toLowerCase()}',
+  slug: '${category}_A',
+  nameUk: 'Тип $category',
+  categoryName: category,
+);
+
+/// Selects the mandatory service type for [category] via the form State. Call
+/// AFTER the category is selected (a category change clears an incompatible
+/// type). Provider list stays populated so the picker is consistent.
+Future<void> selectServiceType(WidgetTester tester, String category) async {
+  final dynamic state = tester.state(find.byType(ServiceForm));
+  state.onServiceTypeSelected(_typeFor(category));
+  await tester.pump();
+}
 
 /// Overrides [serviceRepositoryProvider] with [mock] in a [ProviderScope].
 ///
@@ -335,6 +354,17 @@ void main() {
       '100',
     );
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
+    // Selecting the mandatory type auto-fills the empty name — RE-BLANK it to
+    // prove a blank name still submits (backend defaults it to the type name).
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      '',
+    );
+    await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
 
@@ -447,6 +477,7 @@ void main() {
       '100',
     );
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tapSubmit(tester);
 
     expect(find.text(l10n.errDurationMax), findsOneWidget);
@@ -516,6 +547,7 @@ void main() {
     // Category is required by the backend — select the stubbed MANICURE chip.
     await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
@@ -570,6 +602,7 @@ void main() {
       // category provider first, so the only CircularProgressIndicator below is
       // the CTA spinner).
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
 
       await tapSubmit(tester);
       await tester.pump();
@@ -663,6 +696,7 @@ void main() {
     );
     // Category is required — select the stubbed MANICURE chip.
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester
@@ -709,6 +743,7 @@ void main() {
       );
       // Category is required — select the stubbed MANICURE option.
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -751,6 +786,7 @@ void main() {
     // Category is required — select the stubbed MANICURE chip.
     await tester.pumpAndSettle();
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
@@ -777,6 +813,7 @@ void main() {
 
     // Tap the MANICURE chip.
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pumpAndSettle();
 
     // Fill the required text fields.
@@ -871,7 +908,9 @@ void main() {
 
     // Select HAIRCUT via the dropdown, then re-select it a second time.
     await selectCategoryOption(tester, 'HAIRCUT');
+    await selectServiceType(tester, 'HAIRCUT');
     await selectCategoryOption(tester, 'HAIRCUT');
+    await selectServiceType(tester, 'HAIRCUT');
 
     // The closed field shows the Ukrainian label (not the raw slug).
     expect(
@@ -974,6 +1013,7 @@ void main() {
       '500',
     );
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
 
     // Baseline AFTER the category dropdown sheet has opened+closed (that sheet
     // dismissal is itself a pop). The create-screen pop is the next one.
@@ -1004,8 +1044,11 @@ void main() {
 
       // Select → switch (deselects MANICURE) → reselect MANICURE.
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
       await selectCategoryOption(tester, 'HAIRCUT');
+      await selectServiceType(tester, 'HAIRCUT');
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
 
       // The closed field reflects the final (re-selected) category's UK label,
       // not the intermediate HAIRCUT label and not the raw slug.
@@ -1124,6 +1167,7 @@ void main() {
     );
     // Category is required — select the stubbed MANICURE chip.
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pump(); // let Riverpod fire the invalidation rebuild
@@ -1188,6 +1232,7 @@ void main() {
       );
       // Select category via the dropdown.
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
 
       await tapSubmit(tester);
       await tester.pumpAndSettle();

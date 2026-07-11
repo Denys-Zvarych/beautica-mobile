@@ -339,7 +339,7 @@ class _CommentField extends StatelessWidget {
               minLines: 2,
               maxLength: maxLength,
               cursorColor: BrandColors.accentDeep,
-              style: VelvetText.bodyStrong().copyWith(fontSize: 14),
+              style: VelvetText.bodyStrong14,
               buildCounter:
                   (
                     BuildContext context, {
@@ -352,10 +352,7 @@ class _CommentField extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 border: InputBorder.none,
                 hintText: l10n.bookingCommentHint,
-                hintStyle: VelvetText.body().copyWith(
-                  fontSize: 14,
-                  color: BrandColors.placeholder,
-                ),
+                hintStyle: VelvetText.bookCommentHint,
               ),
             ),
           ),
@@ -365,9 +362,7 @@ class _CommentField extends StatelessWidget {
           alignment: Alignment.centerRight,
           child: Text(
             '${controller.text.characters.length} / $maxLength',
-            style: VelvetText.feedback(
-              BrandColors.muted,
-            ).copyWith(fontSize: 11),
+            style: VelvetText.feedbackMutedXs,
           ),
         ),
       ],

@@ -61,15 +61,7 @@ class CalendarWeekdayBar extends StatelessWidget {
         children: <Widget>[
           for (final String w in kWeekdaysUkShort)
             Expanded(
-              child: Center(
-                child: Text(
-                  w,
-                  style: VelvetText.label().copyWith(
-                    fontSize: 11,
-                    color: BrandColors.muted,
-                  ),
-                ),
-              ),
+              child: Center(child: Text(w, style: VelvetText.label11)),
             ),
         ],
       ),
@@ -436,8 +428,7 @@ class _DayCell extends StatelessWidget {
           : null,
       child: Text(
         '${info.day}',
-        style: VelvetText.bodyStrong().copyWith(
-          fontSize: 15,
+        style: VelvetText.bodyStrong15.copyWith(
           color: numberColor,
           fontWeight: info.selected ? FontWeight.w700 : FontWeight.w600,
         ),

@@ -39,6 +39,11 @@ class _MockServiceCatalogControllerApi extends Mock
 const _masterId = 'master-abc';
 const _serviceId = 'svc-001';
 
+/// A valid service-type id. Service type is MANDATORY on create (backend
+/// `@NotNull` on `CreateServiceDefinitionRequest.serviceTypeId`), so every
+/// create fixture that is expected to reach the mapper/network must carry one.
+const _serviceTypeId = 'stype-777';
+
 /// The service-definition id used for update/deactivate (distinct from the
 /// assignment id [_serviceId]). The backend keys
 /// `PATCH/DELETE /api/v1/services/{serviceDefId}` on this id.
@@ -173,7 +178,8 @@ void main() {
           ..baseDurationMinutes = 30
           ..priceType = CreateServiceDefinitionRequestPriceTypeEnum.FIXED
           ..price = 100
-          ..category = 'FALLBACK',
+          ..category = 'FALLBACK'
+          ..serviceTypeId = _serviceTypeId,
       ),
     );
     registerFallbackValue(
@@ -524,6 +530,7 @@ void main() {
           price: 350.0,
           description: 'Оформлення брів',
           category: 'BROWS',
+          serviceTypeId: _serviceTypeId,
         );
 
         final result = await repository.create(input);
@@ -552,6 +559,8 @@ void main() {
         expect(captured.price, 350.0);
         expect(captured.description, 'Оформлення брів');
         expect(captured.category, 'BROWS');
+        // Service type is mandatory on create — the mapper must forward it.
+        expect(captured.serviceTypeId, _serviceTypeId);
       },
     );
 
@@ -571,6 +580,9 @@ void main() {
               priceType: ServicePriceType.fixed,
               price: 0,
               category: 'MANICURE',
+              // Type present so the ArgumentError provably comes from price=0,
+              // not from the (earlier) mandatory-service-type guard.
+              serviceTypeId: _serviceTypeId,
             ),
           ),
           throwsA(isA<ArgumentError>()),
@@ -639,6 +651,9 @@ void main() {
             priceType: ServicePriceType.fixed,
             price: 100,
             category: 'MANICURE',
+            // Valid type so the mapper passes and the call reaches the network,
+            // exercising the pre-mapped-Failure re-throw path.
+            serviceTypeId: _serviceTypeId,
           ),
         ),
         throwsA(same(mapped)),

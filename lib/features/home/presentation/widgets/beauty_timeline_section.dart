@@ -119,10 +119,8 @@ class _TimelineNode extends StatelessWidget {
 
   final TimelineEntry entry;
 
-  static final TextStyle _categoryStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 12,
-  );
-  static final TextStyle _dateStyle = VelvetText.body().copyWith(fontSize: 11);
+  static final TextStyle _categoryStyle = VelvetText.bodyStrong12;
+  static final TextStyle _dateStyle = VelvetText.body11;
 
   @override
   Widget build(BuildContext context) {

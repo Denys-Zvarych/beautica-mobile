@@ -215,6 +215,45 @@ void main() {
     });
   });
 
+  group('ClientSearchScreen — 5-digit price entry (cap raised 4 → 5)', () {
+    testWidgets(
+      'entering a 5-digit MAX value (12000) is accepted in FULL and drives '
+      'maxPrice=12000 — under the old 4-char cap this truncated to «1200»',
+      (tester) async {
+        await _pumpScreen(tester);
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('search_price_max_field')),
+          '12000',
+        );
+        await tester.pumpAndSettle();
+
+        // The field itself must retain all five digits (the raised
+        // LengthLimitingTextInputFormatter(5) cap — a regression here would
+        // truncate the visible text to "1200").
+        final TextField maxField = tester.widget<TextField>(
+          find.byKey(const Key('search_price_max_field')),
+        );
+        expect(
+          maxField.controller!.text,
+          '12000',
+          reason: 'the 5-char length cap must keep all five digits on screen',
+        );
+
+        // And the parsed value flows into the controller as a finite 12000 max
+        // (12000 < 20000 ceiling → not collapsed to null).
+        expect(
+          _filters(tester).maxPrice,
+          12000,
+          reason:
+              'a full 5-digit entry drives the raised-ceiling finite max; the '
+              'old 4-digit cap would have parsed only 1200',
+        );
+      },
+    );
+  });
+
   group('ClientSearchScreen — slider ↔ field reflection', () {
     testWidgets(
       'a MAX-field entry reflects back into the slider thumb position '
@@ -246,6 +285,70 @@ void main() {
           find.byKey(const Key('search_price_max_field')),
         );
         expect(maxField.controller!.text, '1200');
+      },
+    );
+  });
+
+  group('ClientSearchScreen — price slider tick-mark regression', () {
+    // Regression guard for the "................" bug: the price RangeSlider
+    // painted a visible dot at every division. The fix hides the ticks via the
+    // local SliderThemeData (radius 0 + transparent colours) while KEEPING
+    // `divisions` so the 500-грн snapping UX survives. This test asserts BOTH
+    // halves so neither can silently regress: the dots can never return, and
+    // the snapping can never be silently dropped by "just deleting divisions".
+    testWidgets(
+      'price slider hides the per-division tick dots yet keeps 500-грн snapping',
+      (tester) async {
+        await _pumpScreen(tester);
+        await tester.pumpAndSettle();
+
+        final Finder sliderFinder = find.byKey(
+          const Key('search_price_slider'),
+        );
+
+        // Half 1 — ticks hidden. Resolve the SliderThemeData actually applied
+        // to the slider via its enclosing SliderTheme ancestor.
+        final SliderTheme sliderTheme = tester.widget<SliderTheme>(
+          find.ancestor(of: sliderFinder, matching: find.byType(SliderTheme)),
+        );
+        final SliderThemeData themeData = sliderTheme.data;
+
+        expect(
+          themeData.rangeTickMarkShape,
+          isA<RoundRangeSliderTickMarkShape>(),
+          reason: 'the tick-mark shape must be the round shape we zero out',
+        );
+        expect(
+          (themeData.rangeTickMarkShape as RoundRangeSliderTickMarkShape)
+              .tickMarkRadius,
+          0,
+          reason: 'a non-zero radius repaints the "................" dot row',
+        );
+        expect(
+          themeData.activeTickMarkColor,
+          Colors.transparent,
+          reason: 'active tick colour must be transparent so no dot shows',
+        );
+        expect(
+          themeData.inactiveTickMarkColor,
+          Colors.transparent,
+          reason: 'inactive tick colour must be transparent so no dot shows',
+        );
+
+        // Half 2 — snapping preserved. `divisions` must stay non-null and equal
+        // the 40-step (500-грн) constant; dropping it would lose the snap UX.
+        final RangeSlider slider = tester.widget<RangeSlider>(sliderFinder);
+        expect(
+          slider.divisions,
+          isNotNull,
+          reason:
+              'divisions must remain set — the fix hides dots, not snapping',
+        );
+        expect(
+          slider.divisions,
+          kSearchPriceDivisions,
+          reason: 'snapping stays at the 40-division (500-грн) step',
+        );
       },
     );
   });

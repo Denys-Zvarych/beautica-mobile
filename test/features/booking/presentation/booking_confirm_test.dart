@@ -701,7 +701,7 @@ void main() {
     // dropped from the shared VelvetText.body() default size down to an
     // explicit `fontSize: 13`. Pin the rendered TextStyle so a future revert
     // (or an accidental copy-paste of a different body style) is caught.
-    testWidgets('subline text renders at fontSize: 13', (tester) async {
+    testWidgets('subline text renders at fontSize: 11', (tester) async {
       await pump(tester);
 
       final l10n = AppLocalizations.of(
@@ -712,9 +712,9 @@ void main() {
       );
       expect(
         subline.style?.fontSize,
-        13.0,
+        11.0,
         reason:
-            'bookingSuccessSubline must render at fontSize: 13, not the '
+            'bookingSuccessSubline must render at fontSize: 11, not the '
             'shared VelvetText.body() default.',
       );
     });
