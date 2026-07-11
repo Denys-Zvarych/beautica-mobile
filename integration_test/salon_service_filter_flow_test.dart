@@ -79,8 +79,7 @@ void main() {
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
         unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
-        // fixed-wait-ok: settles the real async route-push + parallel salon
-        // detail/masters-rail reads.
+        // fixed-wait-ok: settles the route-push + parallel masters-rail reads.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
         expectLocation(router, '/salons/salon-xyz');
@@ -107,8 +106,7 @@ void main() {
         expect(serviceRow, findsOneWidget);
 
         await tester.tap(serviceRow);
-        // fixed-wait-ok: settles the tab jump + the real
-        // `GET /salons/salon-xyz/services/salon-svc-shared/masters` call.
+        // fixed-wait-ok: settles the tab jump + the real coverage-fetch call.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
         // ── The call actually hit the network, exactly once, for the ONE

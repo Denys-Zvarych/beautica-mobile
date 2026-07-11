@@ -1355,6 +1355,7 @@ void main() {
       expect(card, findsOneWidget);
 
       expect(
+        // i18n-finder-ok: 'Тарас' is fixture data, not UI copy.
         find.descendant(of: card, matching: find.text('Тарас')),
         findsOneWidget,
         reason: 'the card must render the master first name',
@@ -1365,6 +1366,7 @@ void main() {
         reason: 'the surname must never reach the salon master card',
       );
       expect(
+        // i18n-finder-ok: fixture master's first+last name, not UI copy.
         find.text('Тарас Шевченко'),
         findsNothing,
         reason: 'the old combined "first last" label must not reappear',
@@ -1620,9 +1622,8 @@ void main() {
         );
         expect(card, findsOneWidget);
 
-        // i18n-finder-ok: 'Топ-стиліст' is the master's own title (fixture
-        // data set on the domain model), not UI copy from the l10n bundle.
         expect(
+          // i18n-finder-ok: 'Топ-стиліст' is fixture data, not UI copy.
           find.descendant(of: card, matching: find.text('Топ-стиліст')),
           findsOneWidget,
           reason:
