@@ -3995,15 +3995,6 @@
   "@salonScheduleWindowPrompt": {
     "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."
   },
-  "salonScheduleMasterStripSemantics": "Booking with: {name}. Services: {services}. Duration: {duration}.",
-  "@salonScheduleMasterStripSemantics": {
-    "description": "Accessibility label for the per-master strip header on each slide of the salon booking time screen.",
-    "placeholders": {
-      "name": { "type": "String", "example": "Olena Kovalchuk" },
-      "services": { "type": "String", "example": "Manicure with coating" },
-      "duration": { "type": "String", "example": "1 h 30 min" }
-    }
-  },
   "salonScheduleProgress": "{scheduled} of {total} scheduled",
   "@salonScheduleProgress": {
     "description": "Progress line in the salon booking time screen's pinned confirm bar.",

@@ -1,11 +1,10 @@
 // Shared 48×48 master avatar badge.
 //
-// Extracted from the inline circular-gradient + `person_rounded` glyph that
-// both `widgets/master_strip.dart` (independent flow) and
-// `widgets/salon_master_strip.dart` (salon flow) hand-rolled. Edit the badge
-// once, both strips change.
+// The single home of the booking flow's avatar glyph (a circular gradient +
+// `person_rounded`), rendered through [MasterStripShell] by every booking
+// screen in both flows. Edit the badge once, every card changes.
 //
-// IMPELLER-GLES WORKAROUND (ported verbatim from `SalonMasterStrip`): the
+// IMPELLER-GLES WORKAROUND (ported verbatim from the deleted salon strip): the
 // circle is drawn as an RRect (`borderRadius` = half the 48 dp side), NOT
 // `shape: BoxShape.circle`. Under Impeller's OpenGLES backend a blurred
 // `BoxShadow` on a `BoxShape.circle` rasterizes as a hard white square (the

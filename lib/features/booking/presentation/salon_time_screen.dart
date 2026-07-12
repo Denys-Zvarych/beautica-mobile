@@ -417,6 +417,14 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
       firstName: master.firstName,
       lastName: master.lastName,
       type: master.type,
+      professionalTitle: master.professionalTitle,
+      // Normalized here (once) rather than at each card: an unrated master is
+      // `avgRating == null` downstream, which is exactly the em-dash branch
+      // `MasterStrip` renders. Guards the (contract-wise impossible, but
+      // cheap to rule out) case of a stale non-null rating on a zero-review
+      // roster entry.
+      avgRating: master.reviewCount > 0 ? master.avgRating : null,
+      reviewCount: master.reviewCount,
       services: services,
       primaryServiceAssignmentId: assignmentId,
     );

@@ -3,13 +3,17 @@
 // submit, with live per-appointment submit status) and the salon success
 // screen (the confirmed recap).
 //
-// The independent-master flow's shared `BookingSummaryCards` is
-// `Master`/`MasterService`-typed and single-appointment, so it can't be
-// reused for the salon N-master model. This card is the salon analogue:
-// [SalonMasterStrip] (identity + services + summed duration — the SAME strip
-// the "Час" slide showed) over a details card carrying the chosen Дата/Час,
-// plus an optional per-appointment submit-status line the confirm screen
-// feeds from `SalonBookingSubmitState`.
+// The independent-master flow's shared `BookingSummaryCards` is used
+// directly by the SUCCESS screen's per-appointment recap (via
+// `BookingSummaryCards.fromSchedule` — see that widget's file header), but
+// the CONFIRM screen still needs this bespoke card: it is the only one that
+// must carry a live per-appointment submit-status line
+// (`SalonBookingSubmitState`), which `BookingSummaryCards` has no concept of.
+// This card mirrors `BookingSummaryCards`' details-card structure by hand for
+// that reason: the SHARED [MasterStrip] identity card (the SAME widget every
+// other booking screen in both flows renders) over a details card carrying
+// Дата → Час → a hairline [SectionRule] → this master's own [BookingRecap]
+// (services + subtotal) → the optional submit-status line.
 
 import 'package:flutter/material.dart';
 
@@ -23,21 +27,31 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../../application/salon_booking_submit_notifier.dart';
 import '../../domain/salon_booking_confirm_args.dart';
+import 'booking_recap.dart';
 import 'labelled_row.dart';
-import 'salon_master_strip.dart';
+import 'master_strip.dart';
+import 'section_rule.dart';
 
-/// A single salon appointment summary — [SalonMasterStrip] over a Дата/Час
-/// details card, with an optional [status]/[failure] line.
+/// A single salon appointment summary — the shared [MasterStrip] over a
+/// Дата/Час details card, with an optional [status]/[failure] line.
 class SalonAppointmentCard extends StatelessWidget {
   const SalonAppointmentCard({
     super.key,
     required this.appointment,
+    required this.selections,
     required this.avatarGradient,
     this.status,
     this.failure,
   });
 
   final SalonBookingAppointment appointment;
+
+  /// This appointment's services, already mapped to [BookingSelection] by the
+  /// caller — kept out of `build()` so the ~2-3 rebuilds a submit pass drives
+  /// per card (pending → submitting → succeeded/failed) don't reallocate this
+  /// small list on every status transition (mobile-perf LOW, Phase 14.18
+  /// audit). Callers should compute it once per appointment, not per build.
+  final List<BookingSelection> selections;
 
   /// Avatar gradient — the same per-position gradient the "Час" slide used.
   final List<Color> avatarGradient;
@@ -63,9 +77,12 @@ class SalonAppointmentCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        SalonMasterStrip(
-          schedule: appointment.schedule,
+        MasterStrip.fromSchedule(
+          appointment.schedule,
+          showRole: true,
+          showRating: true,
           avatarGradient: avatarGradient,
+          avatarBordered: true,
         ),
         const SizedBox(height: VelvetSpacing.sm),
         NeumorphicCard(
@@ -77,6 +94,8 @@ class SalonAppointmentCard extends StatelessWidget {
               LabelledRow(label: l10n.bookingDateLabel, value: dateLabel),
               const SizedBox(height: VelvetSpacing.sm),
               LabelledRow(label: l10n.bookingTimeLabel, value: timeLabel),
+              const SectionRule(),
+              BookingRecap(selections: selections),
               if (status != null &&
                   status != SalonAppointmentSubmitStatus.pending)
                 Padding(

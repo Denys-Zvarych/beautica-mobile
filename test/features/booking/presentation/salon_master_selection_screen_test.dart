@@ -20,6 +20,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -592,6 +593,73 @@ void main() {
               'non-offset shadow (VelvetShadows.borderedCard).',
         );
       }
+    },
+  );
+
+  // ===========================================================================
+  // mobile-qa gap (card-unification audit): the picker's rows render the
+  // SHARED `MasterStrip(showRating: true)` card (the same widget the
+  // calendar/time/confirm/success screens render) — but no test ever
+  // asserted the ACTUAL rating digits/review-count render here. Rating on
+  // the salon picker is the whole point of the card-unification change (the
+  // deleted bespoke `_MasterPickRow` header never showed one). Scoped to
+  // each master's own row so a coincidental match elsewhere can't
+  // false-pass this.
+  // ===========================================================================
+  testWidgets(
+    "each eligible master's row renders its OWN ★rating(reviewCount) via "
+    'the shared MasterStrip card',
+    (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+      await tester.pumpAndSettle();
+
+      final Finder m1Row = find.byKey(const Key('salon_booking_master_row_m1'));
+      expect(
+        find.descendant(of: m1Row, matching: find.text('4.9')),
+        findsOneWidget,
+        reason:
+            "MasterStrip(showRating: true) must render m1's own "
+            'avgRating.toStringAsFixed(1) (4.9) — this is the whole point '
+            'of the card-unification change: rating on the salon picker, '
+            'which the deleted bespoke row never showed.',
+      );
+      expect(
+        find.descendant(of: m1Row, matching: find.text('(12)')),
+        findsOneWidget,
+        reason: 'reviewCount (12) > 0 -> the parenthetical suffix must render',
+      );
+
+      final Finder m2Row = find.byKey(const Key('salon_booking_master_row_m2'));
+      expect(
+        find.descendant(of: m2Row, matching: find.text('5.0')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: m2Row, matching: find.text('(3)')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  // mobile-qa gap (M2-adjacent, KNOWN COVERAGE GAP): the picker is the ONLY
+  // one of the nine `MasterStrip` call sites that sets `showLabel: false` —
+  // no master has been chosen yet here, so the muted "Запис до майстра"
+  // caption every OTHER booking screen shows would be both untrue and
+  // repeated once per row. A regression that dropped (or flipped) the flag
+  // would silently reintroduce it.
+  testWidgets(
+    'the picker\'s master rows never render the "Запис до майстра" caption '
+    '(showLabel: false — no master has been chosen yet)',
+    (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonMasterSelectionScreen)),
+      );
+      expect(find.text(l10n.bookingMasterStripLabel), findsNothing);
     },
   );
 }

@@ -349,7 +349,7 @@ abstract final class VelvetText {
   // ---------------------------------------------------------------------------
   // mobile-perf Finding C (Phase 14.16/14.17 salon booking time-picker audit)
   // — pre-composed statics replacing per-`build()` `.copyWith()` allocations
-  // across salon_time_screen.dart, salon_master_strip.dart,
+  // across salon_time_screen.dart, master_strip_shell.dart,
   // schedule_confirm_bar.dart, and master_schedule_page.dart. Each field is
   // computed exactly once at class-load time (zero per-frame cost).
   // ---------------------------------------------------------------------------
@@ -371,32 +371,16 @@ abstract final class VelvetText {
     fontWeight: FontWeight.w800,
   );
 
-  /// `SalonMasterStrip`'s small "Ви записуєтесь до" prefix label — feedback
+  /// [MasterStripShell]'s small «Запис до майстра» prefix label — feedback
   /// base, textSecondary, 11 sp.
   static final TextStyle masterStripLabel = _feedbackBase.copyWith(
     color: BrandColors.textSecondary,
     fontSize: 11,
   );
 
-  /// `SalonMasterStrip`'s master display name — subheading at 16 sp.
+  /// [MasterStripShell]'s master display name — subheading at 16 sp.
   static final TextStyle masterStripName = _subheadingStyle.copyWith(
     fontSize: 13,
-  );
-
-  /// `SalonMasterStrip`'s assigned-services line — feedback base,
-  /// accentDeep, 12 sp, w800.
-  static final TextStyle masterStripServiceLabel = _feedbackBase.copyWith(
-    color: BrandColors.accentDeep,
-    fontSize: 11,
-    fontWeight: FontWeight.w800,
-  );
-
-  /// `SalonMasterStrip`'s summed-duration pill label — bodyStrong at 12 sp,
-  /// w800, accentDeep.
-  static final TextStyle masterStripDurationLabel = _bodyStrongStyle.copyWith(
-    fontSize: 11,
-    fontWeight: FontWeight.w800,
-    color: BrandColors.accentDeep,
   );
 
   /// `ScheduleConfirmBar`'s summed-duration caption beside the "Разом"

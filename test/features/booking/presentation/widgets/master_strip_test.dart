@@ -121,8 +121,8 @@ class _FromScreen extends StatelessWidget {
       body: Center(
         child: Hero(
           tag: _heroTag(_kMaster),
-          child: const MasterStrip(
-            master: _kMaster,
+          child: MasterStrip.fromMaster(
+            _kMaster,
             showRole: true,
             showRating: true,
           ),
@@ -142,8 +142,8 @@ class _ToScreen extends StatelessWidget {
         alignment: Alignment.topCenter,
         child: Hero(
           tag: _heroTag(_kMaster),
-          child: const MasterStrip(
-            master: _kMaster,
+          child: MasterStrip.fromMaster(
+            _kMaster,
             showRole: true,
             showRating: true,
           ),
@@ -164,7 +164,7 @@ void main() {
           // only possible Material ancestor is the one MasterStrip itself
           // installs. This is exactly the situation the Hero-flight shuttle
           // reproduces (mounted directly under the Overlay, no Scaffold).
-          const Center(child: MasterStrip(master: _kMaster)),
+          Center(child: MasterStrip.fromMaster(_kMaster)),
         );
         await tester.pumpAndSettle();
 
@@ -298,9 +298,7 @@ void main() {
       'generic role label) and the Semantics label reflects the title too',
       (tester) async {
         await tester.pumpApp(
-          const Center(
-            child: MasterStrip(master: _kTitledMaster, showRole: true),
-          ),
+          Center(child: MasterStrip.fromMaster(_kTitledMaster, showRole: true)),
         );
         await tester.pumpAndSettle();
 
@@ -374,8 +372,8 @@ void main() {
       'role label',
       (tester) async {
         await tester.pumpApp(
-          const Center(
-            child: MasterStrip(master: _kNullTitleMaster, showRole: true),
+          Center(
+            child: MasterStrip.fromMaster(_kNullTitleMaster, showRole: true),
           ),
         );
         await tester.pumpAndSettle();
@@ -401,8 +399,8 @@ void main() {
       'to the generic role label (trimmed-empty is treated as unset)',
       (tester) async {
         await tester.pumpApp(
-          const Center(
-            child: MasterStrip(master: _kEmptyTitleMaster, showRole: true),
+          Center(
+            child: MasterStrip.fromMaster(_kEmptyTitleMaster, showRole: true),
           ),
         );
         await tester.pumpAndSettle();

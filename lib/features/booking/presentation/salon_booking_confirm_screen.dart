@@ -2,9 +2,22 @@
 // review + submit). Mirrors the independent-master `BookingConfirmScreen`
 // (`booking_confirm_screen.dart`) structure — a flat read of the whole
 // booking, an optional "Коментар для майстра" note, a pinned CTA — extended
-// to the salon's N-master model: it lists ONE `SalonAppointmentCard` per
-// assigned master and submits N `POST /bookings` calls via
-// `SalonBookingSubmit`.
+// to the salon's N-master model: a single shared salon address card, ONE
+// `SalonAppointmentCard` per assigned master (each carrying its OWN
+// Дата/Час/services/subtotal), a grand total across every master when N > 1,
+// and N `POST /bookings` calls via `SalonBookingSubmit`.
+//
+// INFORMATION PARITY (salon booking rework): the independent flow's
+// `BookingConfirmScreen` shows address once + date/time + services/subtotal
+// for its single booking. The salon flow carries the SAME information, just
+// reshaped for N masters: the salon address is identical for every
+// appointment (all N masters work at the SAME salon), so it is shown ONCE at
+// the top rather than repeated per card (see `_SalonAddressCard` below); each
+// master's OWN date/time/services/subtotal still renders per-card (via
+// `SalonAppointmentCard`, which now also carries a `BookingRecap` of that
+// master's services — see that widget's file header); and a grand total
+// across every master's services closes the picture — suppressed when N == 1
+// since it would just repeat that one card's own subtotal.
 //
 // PARTIAL FAILURE (the reason this screen can't just reuse `BookingConfirm`):
 // each master's booking succeeds/fails independently. On «Записатись» every
@@ -19,23 +32,38 @@
 // DATA SOURCE: `SalonBookingConfirmArgs` carries the fully-resolved
 // appointments forward from `SalonTimeScreen` (the step-3 picks live in an
 // autoDispose provider that would be gone by the time this screen mounts) —
-// no re-fetch.
+// no re-fetch. The salon's ADDRESS is a separate, secondary read via
+// `publicSalonProfileProvider(salonId)` — the SAME 5-minute-keepAlive family
+// `PublicSalonProfileScreen` / `SalonMasterSelectionScreen` already warmed
+// earlier in this exact flow, so reaching this screen normally costs zero
+// extra round trips. Being secondary, its loading/error states NEVER block or
+// error the whole screen — the address row falls back to
+// `l10n.bookingAddressUnknown` (the same fallback `BookingSummaryCards`
+// already uses for a master with no address) while the salon profile is
+// loading or failed; the appointments themselves always render from `args`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 
 import '../application/salon_booking_submit_notifier.dart';
 import '../domain/salon_booking_confirm_args.dart';
 import 'widgets/booking_comment_field.dart';
 import 'widgets/booking_cta_footer.dart';
+import 'widgets/booking_recap.dart';
 import 'widgets/booking_top_bar.dart';
+import 'widgets/labelled_row.dart';
 import 'widgets/salon_appointment_card.dart';
 import 'widgets/salon_avatar_gradients.dart';
 
@@ -56,8 +84,48 @@ class _SalonBookingConfirmScreenState
 
   final TextEditingController _comment = TextEditingController();
 
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read).
+  late final ScreenProtectionManager _screenProtection;
+
+  // `widget.args.appointments` never changes for this screen's lifetime, so
+  // the flattened grand-total selection list is computed once here instead of
+  // on every build() (mobile-perf MEDIUM, Phase 14.18 salon-confirm audit).
+  late final List<BookingSelection> _allSelections = widget.args.appointments
+      .expand((SalonBookingAppointment a) => a.schedule.services)
+      .map(BookingSelection.fromSalonCatalogService)
+      .toList();
+
+  // Per-appointment selection lists, indexed the same as
+  // `widget.args.appointments` — computed once here (rather than inside
+  // `SalonAppointmentCard.build()`) so the ~2-3 rebuilds a submit pass drives
+  // per card (pending → submitting → succeeded/failed, via
+  // `_AppointmentCardSlot`'s own scoped `select`) don't reallocate the same
+  // small list on every transition (mobile-perf LOW, Phase 14.18 audit).
+  late final List<List<BookingSelection>> _selectionsByAppointment = widget
+      .args
+      .appointments
+      .map(
+        (SalonBookingAppointment a) => a.schedule.services
+            .map(BookingSelection.fromSalonCatalogService)
+            .toList(),
+      )
+      .toList();
+
+  @override
+  void initState() {
+    super.initState();
+    // SEC: this screen renders the salon's address (PII: street/buildingNo/
+    // city + free-text locationNote) — guard against screenshots /
+    // app-switcher snapshots while it is mounted. Mirrors the INTENTIONAL
+    // PRODUCT DECISION on `PublicSalonProfileScreen` — do not remove in a
+    // future audit pass.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
   @override
   void dispose() {
+    _screenProtection.release();
     _comment.dispose();
     super.dispose();
   }
@@ -129,6 +197,29 @@ class _SalonBookingConfirmScreenState
     );
     final List<SalonBookingAppointment> appointments = widget.args.appointments;
 
+    // Secondary read — never blocks or errors the whole screen. Scoped via
+    // `select` to just the resolved salon so a still-loading/resolving family
+    // instance only rebuilds THIS read, not the whole screen (which would
+    // reconstruct every `_AppointmentCardSlot` and defeat their own `select`
+    // memoization below) — mobile-perf MEDIUM, Phase 14.18 audit. See file
+    // header DATA SOURCE note.
+    final Salon? salon = ref.watch(
+      publicSalonProfileProvider(
+        widget.args.salonId,
+      ).select((AsyncValue<PublicSalonProfileData> v) => v.value?.$1),
+    );
+    final String? addressLine = salon == null
+        ? null
+        : formatStreetCityLine(
+            street: salon.street,
+            buildingNo: salon.buildingNo,
+            city: salon.city,
+          );
+    final String? addressDetail =
+        (salon?.locationNote?.trim().isNotEmpty ?? false)
+        ? salon!.locationNote!.trim()
+        : null;
+
     final String ctaLabel = inFlight
         ? l10n.bookingSubmitCtaLoading
         : (hasFailures ? l10n.salonBookingRetryCta : l10n.bookingSubmitCta);
@@ -174,10 +265,33 @@ class _SalonBookingConfirmScreenState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
+                      NeumorphicCard(
+                        key: const Key('salon-confirm-address-card'),
+                        padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+                        child: LabelledRow(
+                          label: l10n.bookingAddressLabel,
+                          value: addressLine ?? l10n.bookingAddressUnknown,
+                          detail: addressDetail,
+                        ),
+                      ),
+                      const SizedBox(height: VelvetSpacing.md),
                       for (int i = 0; i < appointments.length; i++) ...<Widget>[
                         _AppointmentCardSlot(
                           appointment: appointments[i],
+                          selections: _selectionsByAppointment[i],
                           position: i,
+                        ),
+                        const SizedBox(height: VelvetSpacing.md),
+                      ],
+                      if (appointments.length > 1) ...<Widget>[
+                        NeumorphicCard(
+                          key: const Key('salon-confirm-grand-total-card'),
+                          showBorder: true,
+                          padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+                          child: BookingRecap(
+                            selections: _allSelections,
+                            totalOnly: true,
+                          ),
                         ),
                         const SizedBox(height: VelvetSpacing.md),
                       ],
@@ -207,10 +321,16 @@ class _SalonBookingConfirmScreenState
 class _AppointmentCardSlot extends StatelessWidget {
   const _AppointmentCardSlot({
     required this.appointment,
+    required this.selections,
     required this.position,
   });
 
   final SalonBookingAppointment appointment;
+
+  /// This appointment's services, pre-mapped once by the parent state's
+  /// `_selectionsByAppointment` — a stable identity across this slot's own
+  /// submit-status-driven rebuilds (see that field's doc comment).
+  final List<BookingSelection> selections;
   final int position;
 
   @override
@@ -228,6 +348,7 @@ class _AppointmentCardSlot extends StatelessWidget {
         return SalonAppointmentCard(
           key: ValueKey<String>('salon-confirm-appt-$masterId'),
           appointment: appointment,
+          selections: selections,
           avatarGradient: salonAvatarGradient(position),
           // `statusFor` returns `pending` before the first submit pass; the
           // card renders no status line for `pending`, so no extra "attempted"

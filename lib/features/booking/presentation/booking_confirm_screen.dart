@@ -218,7 +218,7 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        BookingSummaryCards(
+                        BookingSummaryCards.fromMaster(
                           master: master,
                           service: service,
                           start: widget.args.startAt,

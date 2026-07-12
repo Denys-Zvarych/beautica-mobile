@@ -2,7 +2,8 @@
 // picker slide on the salon booking flow's step-3 "Час" screen.
 //
 // Ports `docs/signup-designs/SalonBookingTime/lib/widgets/master_schedule_page.dart`
-// onto real data + providers: the carried [SalonMasterStrip] header, the
+// onto real data + providers: the SHARED [MasterStrip] identity header (the
+// same card the independent-master flow's date/time screens render), the
 // SHARED [MonthCalendar]/[CalendarWeekdayBar] for the DATE (day-gated via the
 // real `workingDaysProvider`, exactly like `SlotDateScreen`, Phase 14.14),
 // and the SHARED [SlotGroup]/[SlotChip] Ранок/День/Вечір clusters for the
@@ -11,9 +12,10 @@
 // `salon_booking_schedule_notifier.dart`'s file header for the full
 // architecture note, and `SalonMasterSchedule.primaryServiceAssignmentId`'s
 // doc comment for why this is an assignment id and not the salon catalog id).
-// [MonthCalendar]/[SlotChip] are the ONLY widgets shared verbatim with the
-// independent-master flow — see the phase docs' "Architecture decision"
-// section.
+// [MasterStrip]/[MonthCalendar]/[SlotChip] are all shared verbatim with the
+// independent-master flow — the identity card was unified onto [MasterStrip]
+// (the salon-only `SalonMasterStrip` fork is gone), so a change to that one
+// widget now reaches every booking screen in both flows.
 //
 // Two inline phases on the one slide: pick a DATE → the slide swaps to the
 // TIME chips for that date → picking a slot completes the master (the host
@@ -47,8 +49,8 @@ import '../../domain/salon_master_day_slots_query.dart';
 import '../../domain/salon_master_schedule.dart';
 import '../../domain/working_day.dart';
 import '../../domain/working_days_query.dart';
+import 'master_strip.dart';
 import 'month_calendar.dart';
-import 'salon_master_strip.dart';
 import 'slot_chip.dart';
 
 class MasterSchedulePage extends ConsumerStatefulWidget {
@@ -206,9 +208,12 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-            child: SalonMasterStrip(
-              schedule: widget.schedule,
+            child: MasterStrip.fromSchedule(
+              widget.schedule,
+              showRole: true,
+              showRating: true,
               avatarGradient: widget.avatarGradient,
+              avatarBordered: true,
             ),
           ),
           const SizedBox(height: VelvetSpacing.lg),

@@ -79,7 +79,7 @@ class BookingSuccessScreen extends StatelessWidget {
       onHome: () => context.go(RouteNames.clientHome),
       belowRecap: const _CalendarLink(),
       recapCards: <Widget>[
-        BookingSummaryCards(
+        BookingSummaryCards.fromMaster(
           master: args.master,
           service: args.service,
           start: args.start,

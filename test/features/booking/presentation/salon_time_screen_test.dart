@@ -718,19 +718,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Roster/catalog filtering resolved BOTH assigned service ids
-      // (svc-1, svc-2) into their real `SalonCatalogService` entries — the
-      // strip's services label lists both, not just the first assigned id.
-      expect(find.textContaining('Манікюр з покриттям'), findsOneWidget);
-      expect(find.textContaining('Стрижка'), findsOneWidget);
-
+      // CARD-UNIFICATION CHANGE (2026-07): the per-master identity card is now
+      // the SHARED `MasterStrip` (name · title/role · ★ rating), which — unlike
+      // the deleted `SalonMasterStrip` fork — does NOT list this master's
+      // service names, so there is no per-master services label on this screen
+      // any more. That both assigned ids still resolve into real
+      // `SalonCatalogService` entries is proven instead by the summed total
+      // below, which can only be right if BOTH were resolved.
+      //
       // Summed duration across BOTH assigned services (90 + 60 = 150 min =
       // "2 год 30 хв"), not just svc-1's 90 minutes alone — proves
-      // `summedDurationMinutes` folds the full assigned set. Rendered
-      // TWICE at rest (the strip's duration pill AND the pinned
-      // `ScheduleConfirmBar`'s "Разом" total), both independently sourced
-      // from the same `summedDurationMinutes` getter.
-      expect(find.textContaining('2 год 30 хв'), findsNWidgets(2));
+      // `summedDurationMinutes` folds the full assigned set. Rendered ONCE now
+      // (the pinned `ScheduleConfirmBar`'s "Разом" total); the card's
+      // duration pill went with the fork.
+      expect(find.textContaining('2 год 30 хв'), findsOneWidget);
 
       // Pick today's date so the time phase's slot query fires.
       final Finder todayCell = find.byKey(
@@ -1103,4 +1104,61 @@ void main() {
       );
     });
   });
+
+  // ===========================================================================
+  // mobile-qa gap (card-unification audit): the schedule page's identity
+  // header is the SHARED `MasterStrip(showRole: true, showRating: true)`
+  // card, but no test asserted the ACTUAL rating digits render here, nor
+  // that this call site is one of the "everywhere else" screens where the
+  // "Запис до майстра" caption (showLabel) stays ON — only the picker
+  // (`salon_master_selection_screen_test.dart`) opts it off.
+  // ===========================================================================
+  testWidgets(
+    "the schedule page's MasterStrip renders the assigned master's own "
+    '★rating(reviewCount), and (unlike the picker) the "Запис до майстра" '
+    'caption',
+    (tester) async {
+      const args = SalonBookingTimeArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1', 'svc-2'],
+        assignedServiceIdsByMaster: <String, List<String>>{
+          'm1': <String>['svc-1'],
+        },
+      );
+      final fake = _FakeSlotRepository(const <BookingSlot>[]);
+      await tester.pumpRoutedApp(
+        _router(args: args),
+        overrides: _baseOverrides(slotRepository: fake),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder slide = find.byKey(const Key('salon-schedule-page-m1'));
+      expect(
+        find.descendant(of: slide, matching: find.text('4.9')),
+        findsOneWidget,
+        reason:
+            "MasterStrip(showRating: true) must render m1's "
+            'avgRating.toStringAsFixed(1) (4.9) on the calendar/time slide.',
+      );
+      expect(
+        find.descendant(of: slide, matching: find.text('(12)')),
+        findsOneWidget,
+      );
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonTimeScreen)),
+      );
+      expect(
+        find.descendant(
+          of: slide,
+          matching: find.text(l10n.bookingMasterStripLabel),
+        ),
+        findsOneWidget,
+        reason:
+            'unlike the master picker (showLabel: false), every other '
+            'salon booking screen — including this one — must still show '
+            'the "Запис до майстра" caption above the shared identity card',
+      );
+    },
+  );
 }

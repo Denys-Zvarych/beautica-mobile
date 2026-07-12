@@ -1,27 +1,17 @@
-// Shared "who you're booking with" card shell.
+// Shared "who you're booking with" card shell — the fixed outer frame behind
+// [MasterStrip], the single identity card every booking screen (both flows)
+// renders.
 //
-// Extracted from the two hand-rolled strips that carried an identical outer
-// structure — `widgets/master_strip.dart` (independent-master flow) and
-// `widgets/salon_master_strip.dart` (salon flow). Both wrapped the SAME
-// `Semantics` + `Material(type: transparency)` Hero-flight guard +
+// Owns the `Semantics` + `Material(type: transparency)` Hero-flight guard +
 // `NeumorphicCard(#EDE4D5)` + `Row[ MasterAvatarBadge, Expanded(Column[ top
-// label, name, one subtitle line ]), trailing ]` around content that only
-// differed in three slots:
+// label, name, one subtitle line ]), trailing ]` structure, and exposes the
+// variable parts as slots ([middleLine], [trailing], [avatarGradient]/
+// [avatarBordered], [topLabel], [semanticsLabel]) so the card's surface,
+// radius, paddings, text tokens and avatar badge live in exactly one place.
 //
-//   • the subtitle line ([middleLine]) — independent: the master's
-//     professional title / role; salon: the services this master performs;
-//   • the [trailing] widget — independent: a ★ rating readout; salon: a
-//     summed-duration pill;
-//   • the avatar wash ([avatarGradient]/[avatarBordered]) and the localized
-//     [semanticsLabel].
-//
-// Lifting the common frame here means both cards are now the SAME shell/
-// appearance (radius, fill, paddings, text tokens, avatar badge, Hero-flight
-// text guard), so a theme refactor touches one place and the two flows can
-// never visually drift. The `Material(type: transparency)` wrapper is kept
-// unconditionally: it paints nothing (only installs an ambient
-// `Theme`/`DefaultTextStyle`) and guards the independent strip's Hero flight —
-// harmless dead-weight for the salon strip, which isn't Hero-wrapped.
+// The `Material(type: transparency)` wrapper is unconditional: it paints
+// nothing (only installs an ambient `Theme`/`DefaultTextStyle`) and guards the
+// Hero flight on the call sites that fly this card between screens.
 //
 // Any `Hero(tag:)` stays OUTSIDE this shell, at the call sites that already
 // own it (`slot_picker_screen.dart`, `booking_summary_cards.dart`).
@@ -34,10 +24,10 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 
 import 'master_avatar_badge.dart';
 
-/// The shared camel-wash identity card frame. Callers supply the three
-/// content slots ([middleLine], [trailing], [avatarGradient]) plus the
-/// localized [name]/[topLabel]/[semanticsLabel]; the shell owns the fixed
-/// structure, surface, paddings and the Hero-flight `Material` guard.
+/// The camel-wash identity card frame. Callers supply the three content slots
+/// ([middleLine], [trailing], [avatarGradient]) plus the localized
+/// [name]/[topLabel]/[semanticsLabel]; the shell owns the fixed structure,
+/// surface, paddings and the Hero-flight `Material` guard.
 class MasterStripShell extends StatelessWidget {
   const MasterStripShell({
     super.key,
@@ -61,12 +51,11 @@ class MasterStripShell extends StatelessWidget {
   /// renders no top label.
   final String? topLabel;
 
-  /// Optional subtitle line under the name — the master's title/role
-  /// (independent flow) or their services line (salon flow).
+  /// Optional subtitle line under the name — the master's professional title,
+  /// falling back to their role label.
   final Widget? middleLine;
 
-  /// Optional trailing widget — the ★ rating readout (independent flow) or the
-  /// summed-duration pill (salon flow).
+  /// Optional trailing widget — the ★ rating readout.
   final Widget? trailing;
 
   /// Two-stop diagonal avatar gradient; `null` falls back to
@@ -76,8 +65,8 @@ class MasterStripShell extends StatelessWidget {
   /// Adds the salon flow's translucent-white avatar ring.
   final bool avatarBordered;
 
-  /// Vertical gap between the name and [middleLine]. Independent flow uses 2;
-  /// the salon flow's services row uses 4 for a little more breathing room.
+  /// Vertical gap between the name and [middleLine]. [MasterStrip] leaves it
+  /// at the default 2.
   final double middleGap;
 
   /// Camel-wash surface — the same lighter taupe used by the pinned booking

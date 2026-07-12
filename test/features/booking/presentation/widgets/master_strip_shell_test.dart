@@ -1,12 +1,12 @@
-// Widget tests for `MasterStripShell` — the slot-based shared identity card
-// (`lib/features/booking/presentation/widgets/master_strip_shell.dart`) that
-// BOTH booking strips now compose: the independent-master `MasterStrip` and the
-// salon `SalonMasterStrip`.
+// Widget tests for `MasterStripShell` — the slot-based frame
+// (`lib/features/booking/presentation/widgets/master_strip_shell.dart`) behind
+// `MasterStrip`, the ONE identity card every booking screen in BOTH flows
+// (independent-master and salon) now renders.
 //
 // The shell owns the fixed frame (avatar + optional topLabel + name + optional
-// middleLine + optional trailing); its two real callers differ only in which
-// slots they fill. These tests drive the shell directly with stand-in slot
-// content to prove no slot is dropped in either composition, and that the
+// middleLine + optional trailing); call sites differ only in which slots they
+// fill. These tests drive the shell directly with stand-in slot content to
+// prove no slot is dropped in any composition, and that the
 // avatar is rendered through the Impeller-safe RRect badge (never a
 // `BoxShape.circle`, whose blurred box-shadow rasterizes as a hard white square
 // under Impeller-GLES — see `impeller_circle_shadow_guard_test.dart`).

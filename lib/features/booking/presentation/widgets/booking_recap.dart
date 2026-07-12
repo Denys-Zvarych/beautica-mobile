@@ -8,29 +8,44 @@
 // `VelvetSpacing`/`VelvetText` already share the exact same names in this
 // project's `core/theme/`).
 //
-// SCOPE NOTE: the preview app was designed for a (since-superseded)
-// multi-service booking model. The Phase 14.0 data layer + Phase 14.1
-// slot-picker/confirm-args scope boundary (see `slot_picker_screen.dart`'s
+// SCOPE NOTE (independent-master flow): the Phase 14.0 data layer + Phase
+// 14.1 slot-picker/confirm-args scope boundary (see `slot_picker_screen.dart`'s
 // file header) locks booking creation to exactly ONE service per booking, so
-// every real call site in `beautica-mobile` feeds this widget a
-// SINGLE-element `selections` list. The multi-item rendering path (hairline
-// dividers between rows) is kept verbatim anyway — it degrades gracefully to
-// a single row + "1 послуга" count and costs nothing to keep faithful to the
-// approved design, and it is exercised as-is (not dead code) any time the
-// selection list has more than one entry.
+// `BookingSummaryCards.fromMaster` always feeds this widget a SINGLE-element
+// `selections` list there.
+//
+// MULTI-SERVICE SCOPE UPDATE (salon booking rework): the salon flow's
+// N-master model is a REAL multi-item caller — each assigned master can carry
+// 2+ services, so `SalonAppointmentCard` and `BookingSummaryCards.fromSchedule`
+// feed this widget that master's FULL assigned-service list. The multi-item
+// rendering path (hairline dividers between rows, the plural "N послуги"
+// count) is therefore exercised in production on the salon flow, not merely
+// "kept faithful to the approved design" as a dormant fallback the way it was
+// before this rework.
+//
+// [totalOnly] adds a second render mode: the salon confirm/success screens'
+// GRAND total (summing every service across every appointed master) reuses
+// this widget's exact `_TotalRow`/[_BookingTotals] treatment instead of
+// re-implementing a second "Разом" band from scratch — see [totalOnly]'s own
+// doc comment.
 //
 // Pure widget/presentation logic — no Riverpod, no networking. [selection]
-// display strings are built by the call site from the real domain
-// [MasterService] via the existing `ServicePriceDisplay.format` /
-// `DurationMinutes.format` formatters (both already Ukrainian, and their
-// output is compatible with the [_parsePrice] / [parseDurationMinutes]
-// round-trip parsing below — see those formatters' own files).
+// display strings are built by the call site: the independent flow derives
+// them from the real domain [MasterService] via the existing
+// `ServicePriceDisplay.format` / `DurationMinutes.format` formatters, while
+// the salon flow derives them from a [SalonCatalogService] via
+// [BookingSelection.fromSalonCatalogService] — that type's `priceDisplay` /
+// `durationLabel` are ALREADY server/mapper-formatted display strings (see
+// `salon_service_catalog.dart`'s file header), so no separate formatter call
+// is needed there. Both sources are compatible with the [_parsePrice] /
+// [parseDurationMinutes] round-trip parsing below.
 
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
 
@@ -44,7 +59,28 @@ class BookingSelection {
     required this.name,
     required this.price,
     required this.duration,
+    this.durationMinutes,
+    this.priceMin,
+    this.priceMax,
   });
+
+  /// Builds a selection straight from a salon catalogue service. Its
+  /// [SalonCatalogService.priceDisplay] / [SalonCatalogService.durationLabel]
+  /// are already server/mapper-formatted display strings (see
+  /// `salon_service_catalog.dart`'s file header) — unlike the independent
+  /// flow's [MasterService], which routes through `ServicePriceDisplay.format`
+  /// / `DurationMinutes.format` at its own call site, no formatter call is
+  /// needed here. Also carries the catalogue's typed [durationMinutes] /
+  /// [priceMin] / [priceMax] straight through so [_BookingTotals.from] can sum
+  /// them directly instead of regex-reparsing [price] / [duration] (mobile-
+  /// perf MEDIUM, Phase 14.18 salon-confirm audit).
+  BookingSelection.fromSalonCatalogService(SalonCatalogService service)
+    : name = service.name,
+      price = service.priceDisplay,
+      duration = service.durationLabel,
+      durationMinutes = service.durationMinutes,
+      priceMin = service.priceMin,
+      priceMax = service.priceMax;
 
   /// Service name, e.g. "Манікюр з покриттям".
   final String name;
@@ -54,6 +90,22 @@ class BookingSelection {
 
   /// Duration display string, e.g. "1 год 30 хв" or "3 год".
   final String duration;
+
+  /// Typed duration in minutes, mirroring [duration] — when present,
+  /// [_BookingTotals.from] sums this directly instead of regex-parsing
+  /// [duration]. `null` for a caller that only has the display string (e.g.
+  /// an older fixture), which falls back to [parseDurationMinutes].
+  final int? durationMinutes;
+
+  /// Typed price floor in UAH, mirroring [price] — when present,
+  /// [_BookingTotals.from] sums this (and [priceMax]) directly instead of
+  /// regex-parsing [price]. `null` falls back to [_parsePrice].
+  final double? priceMin;
+
+  /// Typed price ceiling in UAH for a RANGE-priced service; `null` for a
+  /// FIXED-priced service (where [priceMin] alone is the price) or when the
+  /// caller only has the display string.
+  final double? priceMax;
 }
 
 /// The "Послуги" multi-service list + "Разом" total, rendered as a flat,
@@ -67,10 +119,11 @@ class BookingRecap extends StatelessWidget {
     required this.selections,
     this.dense = false,
     this.compactText = false,
+    this.totalOnly = false,
   });
 
   /// The services carried from the selection step (1..n — see file header
-  /// SCOPE NOTE for why every real call site passes exactly 1).
+  /// MULTI-SERVICE SCOPE UPDATE for which flow/call site feeds >1).
   final List<BookingSelection> selections;
 
   /// Compact spacing — tighter service rows — so the success screen fits one
@@ -85,10 +138,33 @@ class BookingRecap extends StatelessWidget {
   /// `false`.
   final bool compactText;
 
+  /// Renders ONLY the bold "Разом" total row — no "Послуги" header, no
+  /// per-service rows, no hairline dividers. The salon booking confirm/
+  /// success screens use this for the GRAND total across every appointed
+  /// master's services: it needs the exact same summed-price-band +
+  /// summed-duration treatment [_TotalRow] already gives a single
+  /// appointment's own subtotal, without duplicating [_BookingTotals]'s
+  /// parse/sum logic in a second widget. Defaults to `false` (the existing
+  /// full "Послуги" + "Разом" rendering, unaffected).
+  final bool totalOnly;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final _BookingTotals totals = _BookingTotals.from(selections);
+    final Widget totalRow = _TotalRow(
+      label: l10n.bookingTotalLabel,
+      semanticsLabel: l10n.bookingTotalSemantics(
+        totals.durationLabel ?? '',
+        totals.priceLabel,
+      ),
+      price: totals.priceLabel,
+      duration: totals.durationLabel,
+      compactText: compactText,
+    );
+
+    if (totalOnly) return totalRow;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -125,16 +201,7 @@ class BookingRecap extends StatelessWidget {
         SizedBox(height: dense ? VelvetSpacing.xs + 2 : VelvetSpacing.sm),
         Container(height: 1, color: BrandColors.faint.withValues(alpha: 0.6)),
         SizedBox(height: dense ? VelvetSpacing.sm : VelvetSpacing.sm + 2),
-        _TotalRow(
-          label: l10n.bookingTotalLabel,
-          semanticsLabel: l10n.bookingTotalSemantics(
-            totals.durationLabel ?? '',
-            totals.priceLabel,
-          ),
-          price: totals.priceLabel,
-          duration: totals.durationLabel,
-          compactText: compactText,
-        ),
+        totalRow,
       ],
     );
   }
@@ -281,10 +348,17 @@ class _BookingTotals {
     int maxSum = 0;
     int minutes = 0;
     for (final BookingSelection s in selections) {
-      final (int lo, int hi) = _parsePrice(s.price);
+      // Prefer the typed fields (populated by every current call site — see
+      // `BookingSelection.fromSalonCatalogService` / `BookingSummaryCards
+      // .fromMaster`); regex-reparsing the display strings is kept ONLY as a
+      // fallback for a selection built without them (e.g. an older fixture),
+      // per-selection so a mixed list still sums correctly.
+      final (int lo, int hi) = s.priceMin != null
+          ? (s.priceMin!.round(), (s.priceMax ?? s.priceMin!).round())
+          : _parsePrice(s.price);
       minSum += lo;
       maxSum += hi;
-      minutes += parseDurationMinutes(s.duration);
+      minutes += s.durationMinutes ?? parseDurationMinutes(s.duration);
     }
     final String priceLabel = minSum == maxSum
         ? '$minSum грн'

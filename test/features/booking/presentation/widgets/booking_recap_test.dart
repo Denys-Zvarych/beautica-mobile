@@ -7,6 +7,8 @@
 // the constructor as an inert argument that never reaches any Text style.
 
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_recap.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -201,6 +203,299 @@ void main() {
               'proves the name actually WRAPPED (not merely "didn\'t '
               'throw") — an 89-char Cyrillic name cannot fit on one line at '
               '320dp without wrapping onto a second line.',
+        );
+      },
+    );
+  });
+
+  // ===========================================================================
+  // mobile-qa gap (salon confirm/success rework, KNOWN COVERAGE GAPS): neither
+  // `BookingRecap.totalOnly` nor `BookingSelection.fromSalonCatalogService` had
+  // ANY direct unit/widget pinning — both shipped in this session and are only
+  // exercised indirectly through the salon confirm/success screens.
+  // ===========================================================================
+
+  group('BookingRecap.totalOnly', () {
+    const twoServices = <BookingSelection>[
+      BookingSelection(
+        name: 'Манікюр класичний',
+        price: '400 грн',
+        duration: '1 год',
+        durationMinutes: 60,
+        priceMin: 400,
+      ),
+      BookingSelection(
+        name: 'Корекція брів',
+        price: '300 грн',
+        duration: '45 хв',
+        durationMinutes: 45,
+        priceMin: 300,
+      ),
+    ];
+
+    testWidgets('totalOnly: true renders ONLY the bold "Разом" total row — no '
+        '"Послуги" header, no per-service rows, no hairline dividers', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const Scaffold(
+          body: BookingRecap(selections: twoServices, totalOnly: true),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingRecap)),
+      );
+
+      expect(
+        find.text(l10n.bookingServicesRecapLabel),
+        findsNothing,
+        reason:
+            'totalOnly must suppress the "Послуги" header entirely — the '
+            'salon confirm/success grand-total card wants ONLY the bold '
+            'total line, not a second services list',
+      );
+      // i18n-finder-ok: service names are fixture data (twoServices), not translated UI copy.
+      expect(find.text('Манікюр класичний'), findsNothing);
+      // i18n-finder-ok: service names are fixture data (twoServices), not translated UI copy.
+      expect(find.text('Корекція брів'), findsNothing);
+      expect(find.byType(Divider), findsNothing);
+
+      // The SUMMED total still renders (400 + 300 = 700 грн, 60 + 45 = 105
+      // min = "1 год 45 хв").
+      // i18n-finder-ok: price/duration are fixture-derived data strings, not translated UI copy.
+      expect(find.text('700 грн'), findsOneWidget);
+      // i18n-finder-ok: price/duration are fixture-derived data strings, not translated UI copy.
+      expect(find.text('1 год 45 хв'), findsOneWidget);
+    });
+
+    testWidgets(
+      'totalOnly: false (the default) still renders the full "Послуги" list '
+      'alongside the total — the flag genuinely branches rendering, it is '
+      'not always-total',
+      (tester) async {
+        await tester.pumpApp(
+          const Scaffold(body: BookingRecap(selections: twoServices)),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingRecap)),
+        );
+        expect(find.text(l10n.bookingServicesRecapLabel), findsOneWidget);
+        // i18n-finder-ok: service names are fixture data (twoServices), not translated UI copy.
+        expect(find.text('Манікюр класичний'), findsOneWidget);
+        // i18n-finder-ok: service names are fixture data (twoServices), not translated UI copy.
+        expect(find.text('Корекція брів'), findsOneWidget);
+      },
+    );
+  });
+
+  group('BookingSelection.fromSalonCatalogService', () {
+    test(
+      'maps every field 1:1 from a FIXED-price SalonCatalogService, carrying '
+      'the TYPED durationMinutes/priceMin through (priceMax stays null)',
+      () {
+        const service = SalonCatalogService(
+          id: 'svc-1',
+          name: 'Манікюр класичний',
+          durationLabel: '1 год',
+          priceDisplay: '400 грн',
+          durationMinutes: 60,
+          priceType: ServicePriceType.fixed,
+          priceMin: 400,
+        );
+
+        final BookingSelection selection =
+            BookingSelection.fromSalonCatalogService(service);
+
+        expect(selection.name, 'Манікюр класичний');
+        expect(selection.price, '400 грн');
+        expect(selection.duration, '1 год');
+        expect(
+          selection.durationMinutes,
+          60,
+          reason:
+              'the typed field must be carried straight through, not '
+              're-derived by parsing `durationLabel`',
+        );
+        expect(selection.priceMin, 400);
+        expect(selection.priceMax, isNull);
+      },
+    );
+
+    test('carries a RANGE service\'s priceMax through too (priceMin = floor, '
+        'priceMax = ceiling)', () {
+      const service = SalonCatalogService(
+        id: 'svc-2',
+        name: 'Нарощення вій',
+        durationLabel: '2 год',
+        priceDisplay: '600 - 900 грн',
+        durationMinutes: 120,
+        priceType: ServicePriceType.range,
+        priceMin: 600,
+        priceMax: 900,
+      );
+
+      final BookingSelection selection =
+          BookingSelection.fromSalonCatalogService(service);
+
+      expect(selection.name, 'Нарощення вій');
+      expect(selection.durationMinutes, 120);
+      expect(selection.priceMin, 600);
+      expect(selection.priceMax, 900);
+    });
+  });
+
+  // ===========================================================================
+  // mobile-perf MEDIUM regression (Phase 14.18 salon-confirm audit): assert
+  // the SUMMED total is actually derived from the TYPED durationMinutes/
+  // priceMin/priceMax fields, not a regex re-parse of the display strings —
+  // AND that the regex-parse fallback still works for a selection built
+  // without the typed fields (e.g. an older fixture).
+  // ===========================================================================
+
+  group('BookingRecap typed-totals path', () {
+    testWidgets(
+      'when typed durationMinutes/priceMin are present, the "Разом" total '
+      'sums the TYPED fields — proven with a selection whose display '
+      'strings would parse to a DIFFERENT (wrong) number via the regex '
+      'fallback',
+      (tester) async {
+        // The display strings are deliberately WRONG/stale: the regex
+        // fallback would parse "999 грн" -> 999 and "3 год" -> 180 minutes.
+        // If `_BookingTotals.from` ever regressed to always re-parsing the
+        // display string instead of preferring the typed fields, the total
+        // below would read "999 грн" / "3 год" instead of the typed "400
+        // грн" / "1 год".
+        const selection = BookingSelection(
+          name: 'Манікюр класичний',
+          price: '999 грн',
+          duration: '3 год',
+          durationMinutes: 60,
+          priceMin: 400,
+        );
+
+        await tester.pumpApp(
+          const Scaffold(
+            body: BookingRecap(selections: <BookingSelection>[selection]),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingRecap)),
+        );
+
+        final String expectedLabel = l10n.bookingTotalSemantics(
+          '1 год',
+          '400 грн',
+        );
+        final Finder totalSemantics = find.byWidgetPredicate(
+          (Widget w) => w is Semantics && w.properties.label == expectedLabel,
+        );
+        expect(
+          totalSemantics,
+          findsOneWidget,
+          reason:
+              'the total must reflect the TYPED fields (400 грн / 1 год), '
+              'never the stale display strings (999 грн / 3 год) a regex '
+              're-parse would have produced',
+        );
+        // And the WRONG (regex-derived) total must never appear either.
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) =>
+                w is Semantics &&
+                w.properties.label ==
+                    l10n.bookingTotalSemantics('3 год', '999 грн'),
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'when typed fields are ABSENT (null) on every selection, the total '
+      'still sums correctly via the regex-parse fallback on the display '
+      'strings — the pre-existing behaviour for a selection/fixture that '
+      'carries no typed data',
+      (tester) async {
+        const selectionA = BookingSelection(
+          name: 'Манікюр класичний',
+          price: '400 грн',
+          duration: '1 год',
+        );
+        const selectionB = BookingSelection(
+          name: 'Корекція брів',
+          price: '300 грн',
+          duration: '45 хв',
+        );
+
+        await tester.pumpApp(
+          const Scaffold(
+            body: BookingRecap(
+              selections: <BookingSelection>[selectionA, selectionB],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingRecap)),
+        );
+        final String expectedLabel = l10n.bookingTotalSemantics(
+          '1 год 45 хв',
+          '700 грн',
+        );
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is Semantics && w.properties.label == expectedLabel,
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'a MIXED list (one selection WITH typed fields, one WITHOUT) sums '
+      'both correctly — the typed-vs-fallback branch is chosen '
+      'independently per selection, not for the whole list at once',
+      (tester) async {
+        const typedSelection = BookingSelection(
+          name: 'Манікюр класичний',
+          price: '400 грн',
+          duration: '1 год',
+          durationMinutes: 60,
+          priceMin: 400,
+        );
+        const untypedSelection = BookingSelection(
+          name: 'Корекція брів',
+          price: '300 грн',
+          duration: '45 хв',
+        );
+
+        await tester.pumpApp(
+          const Scaffold(
+            body: BookingRecap(
+              selections: <BookingSelection>[typedSelection, untypedSelection],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingRecap)),
+        );
+        final String expectedLabel = l10n.bookingTotalSemantics(
+          '1 год 45 хв',
+          '700 грн',
+        );
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is Semantics && w.properties.label == expectedLabel,
+          ),
+          findsOneWidget,
         );
       },
     );

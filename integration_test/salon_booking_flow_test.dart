@@ -482,6 +482,35 @@ void main() {
         );
       }
 
+      // ── mobile-qa Rule 3b (card-unification audit): the picker's rows
+      // render the SHARED `MasterStrip(showRating: true)` card end to end
+      // against the REAL bookable-masters response — pin the ACTUAL rating
+      // digits reach the screen through the whole real chain (never proven
+      // outside an isolated widget test until now). master-ccc/master-ddd's
+      // ratings come straight from `_salonMasters` above (4.6/9, 4.8/15).
+      final Finder masterCccRow = find.byKey(
+        const Key('salon_booking_master_row_master-ccc'),
+      );
+      final Finder masterDddRow = find.byKey(
+        const Key('salon_booking_master_row_master-ddd'),
+      );
+      expect(
+        find.descendant(of: masterCccRow, matching: find.text('4.6')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: masterCccRow, matching: find.text('(9)')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: masterDddRow, matching: find.text('4.8')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: masterDddRow, matching: find.text('(15)')),
+        findsOneWidget,
+      );
+
       // ── Pick both eligible masters → each is the sole candidate for its
       // service → auto-attach → "Підтвердити" becomes enabled ────────────
       await tester.tap(
@@ -523,6 +552,17 @@ void main() {
       // previous step → exactly two slider slides/dots.
       expect(find.byKey(const Key('salon-time-pager-dot-0')), findsOneWidget);
       expect(find.byKey(const Key('salon-time-pager-dot-1')), findsOneWidget);
+
+      // mobile-qa Rule 3b: the schedule page's identity card is the SAME
+      // shared `MasterStrip` — its ★rating must reach the current (master-ccc)
+      // slide through the real chain too.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('salon-schedule-page-master-ccc')),
+          matching: find.text('4.6'),
+        ),
+        findsOneWidget,
+      );
 
       // Scopes an interaction/assertion to one master's slide — needed
       // because BOTH slides can be simultaneously mounted (mobile-perf's
@@ -694,6 +734,66 @@ void main() {
         findsOneWidget,
       );
 
+      // ── mobile-qa Rule 3b (KNOWN COVERAGE GAPS): the shared salon-address
+      // card, the grand-total card, and each appointment card's ★rating had
+      // no end-to-end proof against the REAL public-salon-profile response
+      // and the REAL bookable-masters roster. ──────────────────────────────
+      final Finder confirmAddressCard = find.byKey(
+        const Key('salon-confirm-address-card'),
+      );
+      expect(confirmAddressCard, findsOneWidget);
+      expect(
+        find.descendant(
+          of: confirmAddressCard,
+          // i18n-finder-ok: address is real fixture wire data, not translated UI copy.
+          matching: find.text('вул. Хрещатик, 12'),
+        ),
+        findsOneWidget,
+        reason:
+            'the real `publicSalonProfileProvider` response must resolve '
+            "into the address card's value — salon-xyz has no legacy "
+            '`city` field (Phase 10.6+ taxonomy-only fixture), so the line '
+            'is street+buildingNo only, no trailing city',
+      );
+
+      // Grand total across BOTH masters: salon-svc-shared (400 грн/60 min) +
+      // salon-svc-exclusive (300 грн/45 min) = 700 грн / 1 год 45 хв.
+      final Finder confirmGrandTotal = find.byKey(
+        const Key('salon-confirm-grand-total-card'),
+      );
+      expect(confirmGrandTotal, findsOneWidget);
+      expect(
+        find.descendant(
+          of: confirmGrandTotal,
+          // i18n-finder-ok: summed price is real fixture-derived data, not translated UI copy.
+          matching: find.text('700 грн'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: confirmGrandTotal,
+          // i18n-finder-ok: summed duration is real fixture-derived data, not translated UI copy.
+          matching: find.text('1 год 45 хв'),
+        ),
+        findsOneWidget,
+      );
+
+      final Finder confirmCccCard = find.byKey(
+        const ValueKey<String>('salon-confirm-appt-master-ccc'),
+      );
+      final Finder confirmDddCard = find.byKey(
+        const ValueKey<String>('salon-confirm-appt-master-ddd'),
+      );
+      expect(
+        find.descendant(of: confirmCccCard, matching: find.text('4.6')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: confirmDddCard, matching: find.text('4.8')),
+        findsOneWidget,
+      );
+
       // ── Submit: one `POST /bookings` per master → all succeed → success
       // screen. This is the Phase 14.18 booking-WRITE the flow now performs
       // end to end (Step 2.7 Rule 3b). ────────────────────────────────────
@@ -726,6 +826,57 @@ void main() {
       );
       expect(
         find.byKey(const ValueKey<String>('salon-success-appt-master-ddd')),
+        findsOneWidget,
+      );
+
+      // ── mobile-qa Rule 3b: the same shared address/grand-total/rating
+      // info-parity gaps, now proven on the CONFIRMED recap too. ──────────
+      final Finder successAddressCard = find.byKey(
+        const Key('salon-success-address-card'),
+      );
+      expect(successAddressCard, findsOneWidget);
+      expect(
+        find.descendant(
+          of: successAddressCard,
+          // i18n-finder-ok: address is real fixture wire data, not translated UI copy.
+          matching: find.text('вул. Хрещатик, 12'),
+        ),
+        findsOneWidget,
+      );
+
+      final Finder successGrandTotal = find.byKey(
+        const Key('salon-success-grand-total-card'),
+      );
+      expect(successGrandTotal, findsOneWidget);
+      expect(
+        find.descendant(
+          of: successGrandTotal,
+          // i18n-finder-ok: summed price is real fixture-derived data, not translated UI copy.
+          matching: find.text('700 грн'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: successGrandTotal,
+          // i18n-finder-ok: summed duration is real fixture-derived data, not translated UI copy.
+          matching: find.text('1 год 45 хв'),
+        ),
+        findsOneWidget,
+      );
+
+      final Finder successCccCard = find.byKey(
+        const ValueKey<String>('salon-success-appt-master-ccc'),
+      );
+      final Finder successDddCard = find.byKey(
+        const ValueKey<String>('salon-success-appt-master-ddd'),
+      );
+      expect(
+        find.descendant(of: successCccCard, matching: find.text('4.6')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: successDddCard, matching: find.text('4.8')),
         findsOneWidget,
       );
     });
