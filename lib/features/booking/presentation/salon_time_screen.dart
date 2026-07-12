@@ -79,6 +79,17 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
   int _current = 0;
   bool _poppedForMissingSchedule = false;
 
+  /// The resolved masterIds from the most recent successful `build()`,
+  /// retained as a field — mirrors `_current`/`_pager`'s existing "mutate
+  /// directly inside `build()`, no `setState`" convention already used in
+  /// this file (see the `_current` clamp a few lines below) — so the back
+  /// handlers (`PopScope` + `_TopBar`'s in-app arrow) can resolve the ACTIVE
+  /// slide's master without threading it through as a parameter. Empty
+  /// before the first successful load (loading/error state); the back
+  /// handlers below treat that as "not in time phase", so back correctly
+  /// falls through to a real pop while there's nothing to be mid-flow of yet.
+  List<String> _masterIds = const <String>[];
+
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
   // throws on a post-dispose `ref` read).
   late final ScreenProtectionManager _screenProtection;
@@ -152,6 +163,57 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
         appointments: appointments,
       ),
     );
+  }
+
+  /// Pure predicate — reads (never mutates) whether the ACTIVE slide's
+  /// master is past the date pick, i.e. `MasterSchedulePage`'s in-widget
+  /// `AnimatedSwitcher` (`master_schedule_page.dart:220-235`) is currently
+  /// showing the time-slot grid rather than the calendar. Must stay
+  /// side-effect-free — the actual `clearDate` mutation lives in
+  /// [_exitActiveMasterTimePhase] instead, called only from
+  /// `onPopInvokedWithResult` / the top-bar tap handler below.
+  ///
+  /// Used ONLY by [_handleTopBarBack] (an event callback, a one-shot
+  /// `ref.read` is correct there). `PopScope.canPop` does NOT call this —
+  /// it has its own scoped `ref.watch(...select(...))` inline in the
+  /// `Consumer` wrapping it at the bottom of `build()`, so that the ACTIVE
+  /// slide's date-phase flip only rebuilds `PopScope`, never the outer
+  /// `build()` / the `Scaffold` subtree below it. See that `Consumer`'s
+  /// comment for why duplicating the read (rather than reusing this method
+  /// from inside `ref.watch`) is the point, not an oversight.
+  bool _activeMasterIsInTimePhase() {
+    if (_current < 0 || _current >= _masterIds.length) return false;
+    final String masterId = _masterIds[_current];
+    return ref.read(salonBookingScheduleProvider).entryFor(masterId).date !=
+        null;
+  }
+
+  /// The mutating half of the split above — clears the ACTIVE slide's date
+  /// (and therefore its slot, per `SalonScheduleEntry`'s contract), which
+  /// returns that ONE master's `MasterSchedulePage` to its date/calendar
+  /// phase. Reuses `salonBookingScheduleProvider.clearDate` verbatim — the
+  /// SAME notifier method `_ChangeDateButton`/`_NoSlotsEmptyState` already
+  /// call (`master_schedule_page.dart:167-169, 519-599`) — so no other
+  /// master's entry, and no pager position (`_current`), is ever touched.
+  void _exitActiveMasterTimePhase() {
+    if (_current < 0 || _current >= _masterIds.length) return;
+    ref
+        .read(salonBookingScheduleProvider.notifier)
+        .clearDate(_masterIds[_current]);
+  }
+
+  /// The in-app ‹ arrow's tap handler (`_TopBar.onBack`) — routes through
+  /// the SAME predicate/mutation split as the `PopScope` in `build()` below,
+  /// mirroring `SalonBookingConfirmScreen._onBack`'s identical "check a
+  /// predicate, either handle locally or `context.pop()`" shape — so both
+  /// back affordances (system gesture and in-app arrow) stay behaviourally
+  /// identical.
+  void _handleTopBarBack() {
+    if (_activeMasterIsInTimePhase()) {
+      _exitActiveMasterTimePhase();
+      return;
+    }
+    context.pop();
   }
 
   @override
@@ -244,6 +306,7 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
       final List<String> masterIds = <String>[
         for (final SalonMasterSchedule s in schedules) s.masterId,
       ];
+      _masterIds = masterIds;
 
       // Computed once per outer `build()` (never per the `Consumer` below,
       // which only reruns on a `scheduledCount` change) — flattens every
@@ -267,10 +330,17 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
         // `build()` — and therefore reconstruct the `PageView.builder`
         // below with a brand-new `SliverChildBuilderDelegate` — on every
         // single per-master date/slot pick anywhere in the flow. That was
-        // mobile-perf Finding A (HIGH); `_MasterPager` and
-        // `ScheduleConfirmBar` below now read the schedule state through
-        // their own scoped `Consumer`s instead, so this outer `build()`
-        // only reruns when `salonData`/`catalog` change.
+        // mobile-perf Finding A (HIGH); `_MasterPager`, `ScheduleConfirmBar`,
+        // and the `PopScope`-wrapping `Consumer` at the bottom of `build()`
+        // all read the schedule state through their own scoped `Consumer`s
+        // instead, so this outer `build()` only reruns when
+        // `salonData`/`catalog`/`coverage` change — NEVER on a date/slot
+        // pick, including a date pick (or `clearDate`) on the ACTIVE slide.
+        // (A narrower version of this same watch briefly lived directly in
+        // this outer `build()` to keep `PopScope.canPop` fresh — that
+        // reopened a slice of Finding A: a date pick on the active slide
+        // rebuilt the outer `build()` and therefore the mounted ±1
+        // neighbour slides. Hoisted into the `Consumer` below instead.)
         final int initialPage =
             ref
                 .read(salonBookingScheduleProvider)
@@ -376,20 +446,78 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
       );
     }
 
-    return Scaffold(
-      backgroundColor: BrandColors.base,
-      bottomNavigationBar: bottomBar,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: <Widget>[
-            _TopBar(
-              title: l10n.salonBookingTimeTitle,
-              backSemantics: l10n.salonBookingTimeBackSemantics,
-              onBack: () => context.pop(),
-            ),
-            Expanded(child: body),
-          ],
+    // `PopScope` is wrapped in its OWN scoped `Consumer` — mirroring the
+    // `_MasterPager`/`ScheduleConfirmBar` pattern above — rather than reading
+    // the ACTIVE slide's date phase via `ref.watch` directly in this outer
+    // `build()`. `canPop` still needs to be fresh on every date/`clearDate`
+    // pick (else it silently reintroduces the "back pops past a live
+    // time-phase slide" bug this screen exists to fix), but this outer
+    // `build()` must NOT rerun for that — per the mobile-perf Finding A note
+    // above, rerunning it reconstructs `PageView.builder`'s
+    // `SliverChildBuilderDelegate` and rebuilds the mounted ±1 neighbour
+    // slides. So the `select` bool lives in a `Consumer` whose `builder`
+    // returns ONLY `PopScope`; everything else — the whole `Scaffold`,
+    // including the `PageView`, `_TopBar`, and the pinned `bottomBar`
+    // (`SelectedServicesShelf`) — is passed through as `child`, built ONCE
+    // by this outer `build()` and reused untouched across the `Consumer`'s
+    // internal rebuilds (same "child param bypasses the rebuilt subtree"
+    // contract `AnimatedBuilder`/`ValueListenableBuilder` use). A date pick
+    // on the active slide therefore only rebuilds `PopScope` itself now —
+    // nothing under `child`.
+    //
+    // Bounds-guarded inline (mirrors `_activeMasterIsInTimePhase()`'s own
+    // `_current`/`_masterIds` guard) rather than reusing that method here:
+    // that method does a one-shot `ref.read` correct for an event callback
+    // (`_handleTopBarBack`), but `canPop` needs a build-time `ref.watch` —
+    // this `Consumer` is the ONLY place that watch may live without
+    // reopening Finding A.
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, Widget? child) {
+        final int current = _current;
+        final List<String> masterIds = _masterIds;
+        final bool inTimePhase = ref.watch(
+          salonBookingScheduleProvider.select((SalonBookingScheduleState s) {
+            if (current < 0 || current >= masterIds.length) return false;
+            return s.entryFor(masterIds[current]).date != null;
+          }),
+        );
+        return PopScope(
+          // System back gesture / hardware back: while the ACTIVE slide is
+          // in its time-slot phase, block the real pop and step that ONE
+          // master back to its date/calendar phase instead
+          // (`_exitActiveMasterTimePhase`) — otherwise allow a normal pop
+          // out to master-selection. Mirrors the `canPop` +
+          // `onPopInvokedWithResult` shape of `SalonBookingConfirmScreen`'s
+          // `PopScope` (`salon_booking_confirm_screen.dart:227-235`), and
+          // `BookingSuccessScaffold`'s `PopScope(canPop: false, ...)`
+          // (`booking_success_scaffold.dart:173-174`) for the "stay mounted
+          // on a blocked pop" precedent — this widget's `dispose()` only
+          // fires on a real, allowed pop (`didPop == true`), never on the
+          // handled case below, so `ScreenProtectionManager.release()` and
+          // the pinned `SelectedServicesShelf` (via `bottomBar`, inside
+          // `child`) are unaffected by a blocked back press.
+          canPop: !inTimePhase,
+          onPopInvokedWithResult: (bool didPop, Object? result) {
+            if (!didPop) _exitActiveMasterTimePhase();
+          },
+          child: child!,
+        );
+      },
+      child: Scaffold(
+        backgroundColor: BrandColors.base,
+        bottomNavigationBar: bottomBar,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: <Widget>[
+              _TopBar(
+                title: l10n.salonBookingTimeTitle,
+                backSemantics: l10n.salonBookingTimeBackSemantics,
+                onBack: _handleTopBarBack,
+              ),
+              Expanded(child: body),
+            ],
+          ),
         ),
       ),
     );

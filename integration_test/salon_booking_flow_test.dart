@@ -794,6 +794,64 @@ void main() {
             'working-days endpoint, not render from stale/absent state',
       );
 
+      // ── Phase 14.16/14.17 back-navigation BUGFIX regression guard
+      // (Step 2.7 Rule 3b) — end-to-end proof, over the REAL router/
+      // backend chain, of the exact production bug: once master-ccc's date
+      // was picked, this slide's in-widget `AnimatedSwitcher` swapped from
+      // the calendar to the time-slot grid with NO route behind that
+      // transition, so pressing back used to pop the ENTIRE
+      // `SalonTimeScreen` route all the way out to master-selection instead
+      // of returning just this slide to its calendar — losing the client's
+      // place. The widget tier (`salon_time_screen_test.dart`) proves both
+      // back affordances (the in-app arrow AND the Android system back
+      // gesture) against a hand-written fake; this is the ONE place the fix
+      // is proven against the real `GoRouter`/`AppHarness` stack this
+      // journey actually runs on. ────────────────────────────────────────
+      expect(
+        withinSlide('master-ccc', find.byKey(const ValueKey<String>('time'))),
+        findsOneWidget,
+        reason:
+            'picking the date must have swapped this slide into the '
+            'time phase before the back press below is meaningful',
+      );
+
+      await tester.tap(find.byKey(const Key('salon-time-back')));
+      await AppHarness.settle(tester);
+
+      expectLocation(router, RouteNames.salonBookingTime);
+      expect(
+        find.byType(SalonTimeScreen),
+        findsOneWidget,
+        reason:
+            'back from the time phase must NOT pop the whole screen out to '
+            'master-selection — the exact production bug this guards',
+      );
+      expect(find.byType(SalonMasterSelectionScreen), findsNothing);
+      expect(
+        withinSlide(
+          'master-ccc',
+          find.byKey(const Key('booking-month-calendar')),
+        ),
+        findsOneWidget,
+        reason:
+            'master-ccc\'s slide must have reverted to its OWN calendar, '
+            'not lost the client\'s place in the flow',
+      );
+      expect(
+        withinSlide('master-ccc', find.byKey(const ValueKey<String>('time'))),
+        findsNothing,
+      );
+
+      // Re-pick the date so the flow below (slot selection) proceeds
+      // exactly as it did before this regression guard was inserted.
+      await tester.tap(
+        withinSlide(
+          'master-ccc',
+          find.byKey(Key('booking-calendar-day-${today.day}')),
+        ),
+      );
+      await AppHarness.settle(tester);
+
       final Finder ccdMorningSlot = withinSlide(
         'master-ccc',
         find.byKey(Key('salon-slot-chip-$todaysMorningSlotIso')),

@@ -24,6 +24,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/application/salon_booking_schedule_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
@@ -45,6 +46,7 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -1351,5 +1353,559 @@ void main() {
         expect(counting.acquireCount, counting.releaseCount);
       },
     );
+
+    // ── Back-navigation BUGFIX × FLAG_SECURE interaction (mobile-qa audit,
+    // build-verifier gap) ──────────────────────────────────────────────────
+    // The two tests above only cover a REAL pop (arrow from the DATE phase →
+    // dispose → release). Neither wires `_CountingScreenProtection` into the
+    // BLOCKED-back path the bugfix introduced: a back press while the ACTIVE
+    // slide is in its TIME phase only calls `clearDate` and must keep the
+    // screen MOUNTED.
+    //
+    // The back-navigation regression tests further down assert
+    // `find.byType(SalonTimeScreen) findsOneWidget` afterwards, which
+    // structurally IMPLIES dispose (and therefore `release()`) never fired —
+    // but that is an inference, not an assertion. The whole point of the
+    // `PopScope` is that a handled back does NOT unmount this screen, and a
+    // premature `release()` here would silently drop FLAG_SECURE on a screen
+    // still rendering the client's selected service names + prices (via the
+    // pinned `SelectedServicesShelf`). That is a security-relevant invariant
+    // and deserves a DIRECT assertion on the acquire/release counters, for
+    // BOTH affordances the fix touches.
+    //
+    // `_pushableRouter` (not `_router`) is used deliberately: it puts a real
+    // route BEHIND this screen, so a regression that let the back through
+    // would genuinely pop + dispose it — making `releaseCount == 0` a
+    // meaningful assertion rather than a vacuous one.
+
+    /// Pushes the time screen and drives m1 into its TIME phase (date picked,
+    /// no slot yet) — the state in which a back press must be HANDLED
+    /// (clearDate) rather than popping the route.
+    Future<_CountingScreenProtection> pushInTimePhase(
+      WidgetTester tester,
+    ) async {
+      await _pumpTall(tester);
+      final fake = _FakeSlotRepository(const <BookingSlot>[]);
+      final GoRouter router = _pushableRouter(args: args);
+      final _CountingScreenProtection counting = _CountingScreenProtection();
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._baseOverrides(
+            slotRepository: fake,
+            selectedServiceIds: const <String>['svc-1'],
+          ),
+          screenProtectionProvider.overrideWithValue(counting),
+        ],
+      );
+      unawaited(router.push(RouteNames.salonBookingTime));
+      await tester.pumpAndSettle();
+
+      final DateTime today = DateTime.now();
+      await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+      await tester.pumpAndSettle();
+
+      // Sanity: m1 really is in the time phase before the back press.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('salon-schedule-page-m1')),
+          matching: find.byKey(const ValueKey<String>('time')),
+        ),
+        findsOneWidget,
+      );
+      return counting;
+    }
+
+    testWidgets(
+      'a HANDLED back from the TIME phase via the in-app arrow keeps the '
+      'screen mounted and does NOT release() — FLAG_SECURE must stay on '
+      "while the client's service names + prices are still rendered",
+      (tester) async {
+        final _CountingScreenProtection counting = await pushInTimePhase(
+          tester,
+        );
+
+        await tester.tap(find.byKey(const Key('salon-time-back')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonTimeScreen), findsOneWidget);
+        expect(
+          counting.releaseCount,
+          0,
+          reason:
+              'a back press the PopScope/arrow HANDLES (clearDate only) must '
+              'never dispose the screen — a release() here would drop '
+              'FLAG_SECURE on a screen still showing the selected service '
+              'names + prices',
+        );
+        expect(
+          counting.acquireCount,
+          1,
+          reason:
+              'the screen never remounted either — acquire() stays at the '
+              'single initState call',
+        );
+      },
+    );
+
+    testWidgets(
+      'a HANDLED back from the TIME phase via the Android system back '
+      '(PopScope) likewise keeps the screen mounted and does NOT release()',
+      (tester) async {
+        final _CountingScreenProtection counting = await pushInTimePhase(
+          tester,
+        );
+
+        final bool handled = await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+
+        expect(
+          handled,
+          isTrue,
+          reason:
+              'PopScope must intercept the system back while the active '
+              'slide is in the time phase',
+        );
+        expect(find.byType(SalonTimeScreen), findsOneWidget);
+        expect(
+          counting.releaseCount,
+          0,
+          reason:
+              'the system-back affordance must honour the SAME FLAG_SECURE '
+              'invariant as the in-app arrow — a handled back never '
+              'disposes, so it never releases',
+        );
+        expect(counting.acquireCount, 1);
+      },
+    );
   });
+
+  // ===========================================================================
+  // BUGFIX REGRESSION GUARD — "Час" step back navigation (mobile-qa audit).
+  //
+  // THE BUG: once a master's date was picked, that master's slide swapped
+  // in-widget from the calendar to the time-slot grid (no route behind that
+  // transition). Pressing back — EITHER the in-app arrow (`onBack: () =>
+  // context.pop()`) OR the Android system back gesture (no `PopScope`
+  // existed at all) — popped the ENTIRE `SalonTimeScreen` route out to
+  // master-selection instead of returning that one slide to its calendar.
+  // The client lost their place, including any OTHER master's already-
+  // completed date+time.
+  //
+  // THE FIX: `_exitActiveMasterTimePhase()` calls the SAME
+  // `salonBookingScheduleProvider.notifier.clearDate(activeMasterId)`
+  // `_ChangeDateButton` already uses, reached from BOTH `_handleTopBarBack`
+  // (the arrow) and a `PopScope` wrapping the `Scaffold` (the system
+  // gesture) — so both affordances now stay mounted and revert only the
+  // ACTIVE slide while every other master's picks are untouched. On the
+  // DATE phase (nothing to revert), both affordances fall through to a
+  // real route pop — this file also guards against overcorrecting that
+  // into "back never exits".
+  //
+  // `_router` (NOT `_pushableRouter`) is used for the two time-phase tests
+  // below: it mounts `SalonTimeScreen` as the ONLY route (no route behind
+  // it) — the exact shape that made the original bug's real pop land
+  // somewhere wrong/nowhere. `tester.binding.handlePopRoute()` is the
+  // established convention for driving the platform back gesture in this
+  // codebase (mirrors `client_shell_back_to_home_test.dart`), distinct from
+  // tapping the in-app arrow key.
+  // ===========================================================================
+  group('back navigation from the TIME phase reverts only the active master, '
+      'never the whole screen (mobile-qa bugfix regression guard)', () {
+    const args = SalonBookingTimeArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1', 'svc-2'],
+      assignedServiceIdsByMaster: <String, List<String>>{
+        'm1': <String>['svc-1'],
+        'm2': <String>['svc-2'],
+      },
+    );
+
+    Finder withinSlide(String masterId, Finder matching) => find.descendant(
+      of: find.byKey(Key('salon-schedule-page-$masterId'), skipOffstage: false),
+      matching: matching,
+      skipOffstage: false,
+    );
+
+    /// Completes m1 (date + slot, fully scheduled) then picks ONLY m2's
+    /// date — the slider auto-advances onto m2, leaving its slide in the
+    /// TIME phase with no slot chosen yet: the exact state the original
+    /// bug lost. m1 stays mounted (current ± 1 keep-alive) so this file's
+    /// "m1 untouched" assertions are non-vacuous.
+    Future<void> setUpM1DoneM2TimePhase(WidgetTester tester) async {
+      await _pumpTall(tester);
+      final DateTime today = DateTime.now();
+      DateTime at(int hour) =>
+          DateTime(today.year, today.month, today.day, hour);
+      final fake = _PerMasterFakeSlotRepository(<String, List<BookingSlot>>{
+        'm1': <BookingSlot>[
+          BookingSlot(
+            startAt: at(9),
+            endAt: at(9).add(const Duration(minutes: 90)),
+            available: true,
+          ),
+        ],
+        'm2': <BookingSlot>[
+          BookingSlot(
+            startAt: at(11),
+            endAt: at(11).add(const Duration(minutes: 60)),
+            available: true,
+          ),
+        ],
+      });
+
+      await tester.pumpRoutedApp(
+        _router(args: args),
+        overrides: _baseOverrides(
+          masters: const <SalonMasterSummary>[_m1, _m2],
+          slotRepository: fake,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        withinSlide('m1', find.byKey(Key('booking-calendar-day-${today.day}'))),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        withinSlide(
+          'm1',
+          find.byKey(Key('salon-slot-chip-${at(9).toIso8601String()}')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        withinSlide('m2', find.byKey(Key('booking-calendar-day-${today.day}'))),
+      );
+      await tester.pumpAndSettle();
+
+      // Sanity: m2 really is in the time phase before the back press.
+      expect(
+        withinSlide('m2', find.byKey(const ValueKey<String>('time'))),
+        findsOneWidget,
+      );
+      expect(
+        withinSlide('m2', find.byKey(const ValueKey<String>('date'))),
+        findsNothing,
+      );
+    }
+
+    testWidgets(
+      "the in-app back arrow clears only the active master's (m2) date, "
+      "reverting its slide to the calendar; m1's completed date+slot and "
+      'the screen itself are untouched',
+      (tester) async {
+        await setUpM1DoneM2TimePhase(tester);
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SalonTimeScreen)),
+        );
+        final SalonScheduleEntry m1Before = container
+            .read(salonBookingScheduleProvider)
+            .entryFor('m1');
+        expect(
+          m1Before.isScheduled,
+          isTrue,
+          reason: 'sanity: m1 must be fully scheduled before the back press',
+        );
+
+        await tester.tap(find.byKey(const Key('salon-time-back')));
+        await tester.pumpAndSettle();
+
+        // Still mounted — a real pop would have removed this screen.
+        expect(find.byType(SalonTimeScreen), findsOneWidget);
+
+        // m2's slide reverted to the calendar; the time-phase subtree is
+        // gone.
+        expect(
+          withinSlide('m2', find.byKey(const ValueKey<String>('date'))),
+          findsOneWidget,
+        );
+        expect(
+          withinSlide('m2', find.byKey(const ValueKey<String>('time'))),
+          findsNothing,
+        );
+
+        final SalonBookingScheduleState after = container.read(
+          salonBookingScheduleProvider,
+        );
+        expect(
+          after.entryFor('m2').date,
+          isNull,
+          reason: "the back arrow must clear ONLY m2's date",
+        );
+        expect(after.entryFor('m2').slot, isNull);
+
+        // m1's completed pick is untouched.
+        expect(
+          after.entryFor('m1').date,
+          m1Before.date,
+          reason: "m1's already-picked date must survive m2's back press",
+        );
+        expect(after.entryFor('m1').slot, m1Before.slot);
+      },
+    );
+
+    testWidgets(
+      'the Android system back gesture (PopScope) clears only the active '
+      "master's (m2) date, reverting its slide to the calendar — the "
+      'SECOND affordance the original bug broke identically',
+      (tester) async {
+        await setUpM1DoneM2TimePhase(tester);
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SalonTimeScreen)),
+        );
+        final SalonScheduleEntry m1Before = container
+            .read(salonBookingScheduleProvider)
+            .entryFor('m1');
+
+        final bool handled = await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+
+        expect(
+          handled,
+          isTrue,
+          reason:
+              'PopScope must intercept the system back while the active '
+              'slide is in the time phase (canPop: false) — `handled == '
+              'false` would mean nothing intercepted it and the OS would '
+              'have exited/popped past this screen, exactly the original '
+              'bug',
+        );
+        expect(find.byType(SalonTimeScreen), findsOneWidget);
+        expect(
+          withinSlide('m2', find.byKey(const ValueKey<String>('date'))),
+          findsOneWidget,
+        );
+        expect(
+          withinSlide('m2', find.byKey(const ValueKey<String>('time'))),
+          findsNothing,
+        );
+
+        final SalonBookingScheduleState after = container.read(
+          salonBookingScheduleProvider,
+        );
+        expect(
+          after.entryFor('m2').date,
+          isNull,
+          reason: 'the system back gesture must clear ONLY m2\'s date',
+        );
+        expect(after.entryFor('m2').slot, isNull);
+        expect(after.entryFor('m1').date, m1Before.date);
+        expect(after.entryFor('m1').slot, m1Before.slot);
+      },
+    );
+  });
+
+  testWidgets(
+    'back while the active master is still on the DATE phase performs a '
+    'real route pop to master-selection — guards against overcorrecting '
+    'into "back never exits" (mobile-qa bugfix regression guard)',
+    (tester) async {
+      const args = SalonBookingTimeArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1'],
+        assignedServiceIdsByMaster: <String, List<String>>{
+          'm1': <String>['svc-1'],
+        },
+      );
+      final fake = _FakeSlotRepository(const <BookingSlot>[]);
+      final GoRouter router = _pushableRouter(args: args);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _baseOverrides(
+          slotRepository: fake,
+          selectedServiceIds: const <String>['svc-1'],
+        ),
+      );
+      unawaited(router.push(RouteNames.salonBookingTime));
+      await tester.pumpAndSettle();
+
+      // Fresh mount — m1 defaults to the date phase (no date picked yet).
+      expect(find.byKey(const Key('salon-schedule-page-m1')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('date')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('salon-time-back')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(SalonTimeScreen),
+        findsNothing,
+        reason: 'a date-phase back must be a REAL pop out to master-selection',
+      );
+      // English sentinel text from `_pushableRouter`'s own placeholder route
+      // — not app UI copy, so no i18n-finder-ok annotation is needed here.
+      expect(find.text('start'), findsOneWidget);
+    },
+  );
+
+  // ===========================================================================
+  // PERMANENT PERF GUARD (mobile-perf) — the `PopScope`-wrapping `Consumer`
+  // added by this bugfix (`build()`'s trailing `Consumer` around `PopScope`)
+  // exists ONLY so a date pick on the active slide can keep `canPop` fresh
+  // WITHOUT the outer `build()` re-running (which would reconstruct
+  // `PageView.builder` and rebuild every mounted neighbour slide — the
+  // original mobile-perf Finding A). `mobile-dev` proved this with a
+  // throwaway probe during the fix, then deleted it; this recreates it as a
+  // standing regression guard, mirroring the pre-existing slot-pick probe
+  // above (`salon-schedule-page-m1`/`salon-schedule-page-m2` rebuild-scoping
+  // test) with the SAME `debugPrintRebuildDirtyWidgets` proxy technique and
+  // the SAME anti-vacuity canary shape: assert the thing that SHOULD
+  // rebuild (PopScope itself) actually did, so a dead/disconnected hook
+  // fails loudly instead of silently satisfying the negative assertions.
+  // ===========================================================================
+  testWidgets(
+    "picking master 2's DATE (not a slot) rebuilds the PopScope-wrapping "
+    "Consumer but never PageView.builder nor master 1's already-completed "
+    'slide — standing perf guard for the back-navigation fix\'s Consumer '
+    'hoist (was a throwaway mobile-perf probe)',
+    (tester) async {
+      await _pumpTall(tester);
+      const args = SalonBookingTimeArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1', 'svc-2'],
+        assignedServiceIdsByMaster: <String, List<String>>{
+          'm1': <String>['svc-1'],
+          'm2': <String>['svc-2'],
+        },
+      );
+      final DateTime today = DateTime.now();
+      DateTime at(int hour) =>
+          DateTime(today.year, today.month, today.day, hour);
+      final fake = _PerMasterFakeSlotRepository(<String, List<BookingSlot>>{
+        'm1': <BookingSlot>[
+          BookingSlot(
+            startAt: at(9),
+            endAt: at(9).add(const Duration(minutes: 90)),
+            available: true,
+          ),
+        ],
+        'm2': <BookingSlot>[
+          BookingSlot(
+            startAt: at(11),
+            endAt: at(11).add(const Duration(minutes: 60)),
+            available: true,
+          ),
+        ],
+      });
+
+      Finder withinSlide(String masterId, Finder matching) => find.descendant(
+        of: find.byKey(
+          Key('salon-schedule-page-$masterId'),
+          skipOffstage: false,
+        ),
+        matching: matching,
+        skipOffstage: false,
+      );
+
+      await tester.pumpRoutedApp(
+        _router(args: args),
+        overrides: _baseOverrides(
+          masters: const <SalonMasterSummary>[_m1, _m2],
+          slotRepository: fake,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Complete m1 (date + slot) so the slider auto-advances onto m2,
+      // landing it current ± 1 from m1 (Finding B's retention bound keeps
+      // m1's slide mounted — required for the "m1 never rebuilds"
+      // assertion below to be non-vacuous).
+      await tester.tap(
+        withinSlide('m1', find.byKey(Key('booking-calendar-day-${today.day}'))),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        withinSlide(
+          'm1',
+          find.byKey(Key('salon-slot-chip-${at(9).toIso8601String()}')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // m2 is now current, still on its DATE (calendar) phase — the trigger
+      // below picks its date, NOT a slot (the slot-pick path is already
+      // covered by the pre-existing probe above; this one isolates the
+      // DATE-pick path specifically, since that's what flips
+      // `PopScope.canPop`).
+      expect(
+        withinSlide('m2', find.byKey(const ValueKey<String>('date'))),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-schedule-page-m1'), skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-schedule-page-m2'), skipOffstage: false),
+        findsOneWidget,
+      );
+
+      final List<String> rebuiltLines = <String>[];
+      final DebugPrintCallback previousDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) rebuiltLines.add(message);
+      };
+      debugPrintRebuildDirtyWidgets = true;
+      addTearDown(() {
+        debugPrintRebuildDirtyWidgets = false;
+        debugPrint = previousDebugPrint;
+      });
+
+      // The trigger: picking m2's DATE flips its schedule entry from
+      // date==null to non-null, which is exactly what the `PopScope`
+      // Consumer's `select` watches.
+      await tester.tap(
+        withinSlide('m2', find.byKey(Key('booking-calendar-day-${today.day}'))),
+      );
+      // Exactly ONE frame — the frame the tap's Riverpod state change
+      // schedules.
+      await tester.pump();
+
+      debugPrintRebuildDirtyWidgets = false;
+      debugPrint = previousDebugPrint;
+
+      final bool popScopeRebuilt = rebuiltLines.any(
+        (String l) => l.contains('PopScope'),
+      );
+      final bool pageViewRebuilt = rebuiltLines.any(
+        (String l) => l.contains('PageView'),
+      );
+      final bool m1SlideRebuilt = rebuiltLines.any(
+        (String l) => l.contains('salon-schedule-page-m1'),
+      );
+
+      expect(
+        popScopeRebuilt,
+        isTrue,
+        reason:
+            "the PopScope-wrapping Consumer's own scoped `select` must "
+            "rebuild PopScope when the ACTIVE slide's date phase flips — "
+            'if this is false the proxy technique itself is broken (or the '
+            'Consumer/select was removed), not proving isolation',
+      );
+      expect(
+        pageViewRebuilt,
+        isFalse,
+        reason:
+            'a date pick on the active slide must never reconstruct '
+            '`PageView.builder` — a regression that moved the `canPop` '
+            'watch back into the outer `build()` (reopening mobile-perf '
+            'Finding A) would rebuild it here',
+      );
+      expect(
+        m1SlideRebuilt,
+        isFalse,
+        reason:
+            "master 1's already-completed, merely-kept-alive slide must "
+            "never rebuild from a DATE pick on master 2's slide",
+      );
+
+      await tester.pumpAndSettle();
+    },
+  );
 }
