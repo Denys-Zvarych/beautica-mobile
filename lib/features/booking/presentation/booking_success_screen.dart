@@ -49,10 +49,22 @@
 // path back to confirm from here at all; see `app_router.dart`'s
 // `bookingSuccess` route comment for why no additional `redirect` guard is
 // layered on top of this.
+//
+// SEC (mobile-backlog 2026-07-12): `ConsumerStatefulWidget` (rather than the
+// original `StatelessWidget`) so it can acquire the app-wide
+// [ScreenProtectionManager] for its lifetime — this screen's recap card
+// renders the INDEPENDENT master's address (street/buildingNo/city/
+// locationNote, via `BookingSummaryCards.fromMaster` → `formatStreetCityLine`
+// — for a solo master that may be a HOME address). Converges this screen (and
+// `BookingConfirmScreen`) on the SAME acquire-in-`initState` pattern already
+// used by the salon flow's equivalents (`salon_booking_confirm_screen.dart`,
+// `salon_booking_success_screen.dart`).
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -64,10 +76,35 @@ import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 
 /// Booking flow Step 3b — the post-submit celebration screen.
-class BookingSuccessScreen extends StatelessWidget {
+class BookingSuccessScreen extends ConsumerStatefulWidget {
   const BookingSuccessScreen({super.key, required this.args});
 
   final BookingSuccessArgs args;
+
+  @override
+  ConsumerState<BookingSuccessScreen> createState() =>
+      _BookingSuccessScreenState();
+}
+
+class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read).
+  late final ScreenProtectionManager _screenProtection;
+
+  @override
+  void initState() {
+    super.initState();
+    // See file header SEC note — mirrors the INTENTIONAL PRODUCT DECISION
+    // already applied to `PublicMasterProfileScreen` / the salon success
+    // screen. Do not remove in a future audit pass.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
+  @override
+  void dispose() {
+    _screenProtection.release();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,9 +117,9 @@ class BookingSuccessScreen extends StatelessWidget {
       belowRecap: const _CalendarLink(),
       recapCards: <Widget>[
         BookingSummaryCards.fromMaster(
-          master: args.master,
-          service: args.service,
-          start: args.start,
+          master: widget.args.master,
+          service: widget.args.service,
+          start: widget.args.start,
           showMasterCard: false,
           dense: true,
           // See NeumorphicCard.showBorder's doc: this card's fill

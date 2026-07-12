@@ -30,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
@@ -430,6 +431,74 @@ void main() {
       // All tokens must be wiped from storage.
       expect(await storage.readRefreshToken(), isNull);
     });
+
+    // -----------------------------------------------------------------------
+    // Test 5a2 — mobile-qa gap-fix (KNOWN COVERAGE GAP 3, mobile-security
+    // MEDIUM regression guard): logout() must reset screenProtectionProvider.
+    //
+    // `AuthNotifier.logout()` (auth_notifier.dart:829-837) calls
+    // `ref.read(screenProtectionProvider).reset()` after wiping storage, so a
+    // PII screen's dialog (e.g. `ClientBookingConflictDialog` open over
+    // `BookingConfirmScreen`) that is still holding an acquired ref count when
+    // a logout fires (e.g. `RefreshInterceptor` force-logout on a failed
+    // token refresh) cannot leave FLAG_SECURE / the iOS app-switcher blur
+    // latched on past the auth boundary. This pins that contract directly —
+    // a future refactor that drops the `.reset()` call would otherwise only
+    // be caught manually on a real device.
+    // -----------------------------------------------------------------------
+    test(
+      'logout resets screenProtectionProvider — a non-zero acquirer count '
+      'is force-zeroed even though no screen ever called release()',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => testTokens);
+        when(() => repo.me()).thenAnswer((_) async => testUser);
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        final screenProtection = ScreenProtectionManager();
+
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            screenProtectionProvider.overrideWithValue(screenProtection),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(authProvider.future);
+
+        // Simulate a PII screen (e.g. BookingConfirmScreen with the conflict
+        // dialog open above it) holding protection acquired — WITHOUT ever
+        // calling release(), mirroring a logout fired mid-dialog.
+        screenProtection.acquire();
+        expect(screenProtection.acquirerCount, 1);
+
+        await container.read(authProvider.notifier).logout();
+
+        expect(
+          screenProtection.acquirerCount,
+          0,
+          reason:
+              'logout() must force-reset the screen-protection acquirer '
+              'count to 0 even when the acquiring screen never disposed / '
+              'released it — otherwise FLAG_SECURE / the app-switcher blur '
+              'stays latched on past the auth boundary (mobile-security '
+              'MEDIUM)',
+        );
+
+        // Sanity: logout itself still completed normally.
+        expect(
+          container.read(authProvider).value,
+          equals(const AuthSession.unauthenticated()),
+        );
+      },
+    );
 
     // -----------------------------------------------------------------------
     // Test 5b — Logout cascades teardown to servicesListProvider (keepAlive)

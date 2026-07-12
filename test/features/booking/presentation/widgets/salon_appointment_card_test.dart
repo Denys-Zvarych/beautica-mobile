@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -191,6 +192,61 @@ void main() {
         },
       );
     }
+  });
+
+  // mobile-qa gap-fix — Step 2.7 Rule 3b: a ClientBookingConflictFailure on
+  // ONE master's card must render the SAME composed "you already have a
+  // booking" sentence the dialog uses (never a generic/blank error), proving
+  // the card renders the conflict on a PER-MASTER basis via
+  // `failure.userMessage(context)` — the salon submit notifier's own unit
+  // test (`salon_booking_submit_notifier_test.dart`) pins that only the
+  // conflicting master's STATE carries the failure; this pins that the CARD
+  // actually surfaces it correctly once it does.
+  group('SalonAppointmentCard — ClientBookingConflictFailure renders the '
+      'composed clash sentence', () {
+    testWidgets('status=failed with a ClientBookingConflictFailure renders the '
+        'composed service/master/window sentence, not a generic message', (
+      tester,
+    ) async {
+      final DateTime clashStart = DateTime.utc(2026, 7, 20, 9);
+      final ClientBookingConflictFailure conflict =
+          ClientBookingConflictFailure(
+            conflictingBookingId: 'other-booking-1',
+            serviceName: 'Педикюр апаратний',
+            masterName: 'Ірина Шевченко',
+            startsAt: clashStart,
+            endsAt: clashStart.add(const Duration(minutes: 45)),
+          );
+
+      await _pumpCard(
+        tester,
+        status: SalonAppointmentSubmitStatus.failed,
+        failure: conflict,
+        showSucceededStatus: true,
+      );
+      final AppLocalizations l10n = _l10n(tester);
+
+      expect(
+        find.text(
+          l10n.bookingErrClientConflict(
+            'Педикюр апаратний',
+            'Ірина Шевченко',
+            formatBookingWindow(
+              clashStart,
+              clashStart.add(const Duration(minutes: 45)),
+            ),
+          ),
+        ),
+        findsOneWidget,
+        reason:
+            'the failed card must surface the SAME composed sentence '
+            'ClientBookingConflictDialog uses — the clashing service, '
+            'master, and formatted window, not a generic conflict message',
+      );
+      expect(find.byIcon(Icons.error_outline_rounded), findsOneWidget);
+      // The generic conflict copy must NOT be the one rendered here.
+      expect(find.text(l10n.errConflict), findsNothing);
+    });
   });
 
   group('SalonAppointmentCard.showSucceededStatus — pending/null are always '

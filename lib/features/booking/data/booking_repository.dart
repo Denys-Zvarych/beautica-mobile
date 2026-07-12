@@ -72,7 +72,11 @@ abstract interface class BookingRepository {
   /// `booking_mapper.dart` for why `Booking` mirrors `BookingDetailResponse`.
   ///
   /// Throws [ConflictFailure] on HTTP 409 (the slot was taken between the
-  /// client fetching available slots and submitting).
+  /// client fetching available slots and submitting — or, under contention, a
+  /// server-side lock timeout), or [ClientBookingConflictFailure] on HTTP 409
+  /// when the CLIENT already has an overlapping booking of their own (see that
+  /// failure's doc). Throws [BookingRateLimitedFailure] on HTTP 429 (per-user
+  /// booking-write rate limit).
   Future<Booking> createBooking(CreateBookingRequest req);
 
   /// Fetches one page of the authenticated client's bookings, most-recent
@@ -108,7 +112,11 @@ abstract interface class BookingRepository {
   /// CONFIRMED booking is moved back to PENDING server-side — the returned
   /// [Booking] simply reflects whatever status the server computed. Throws
   /// [ConflictFailure] on HTTP 409 (new slot taken, or the booking is no
-  /// longer in a reschedulable state).
+  /// longer in a reschedulable state — or, under contention, a server-side
+  /// lock timeout), or [ClientBookingConflictFailure] on HTTP 409 when the
+  /// CLIENT already has a DIFFERENT overlapping booking of their own at the
+  /// new time (see that failure's doc). Throws [BookingRateLimitedFailure] on
+  /// HTTP 429 (per-user booking-write rate limit).
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt);
 }
 
@@ -351,18 +359,95 @@ final class HttpBookingRepository implements BookingRepository {
   /// Maps a [DioException] from a booking WRITE (create/reschedule) to a typed
   /// [Failure].
   ///
-  ///   - **409** → [ConflictFailure] (the slot was taken / no longer
-  ///     reschedulable). Checked BEFORE deferring to any [Failure] the
-  ///     [ErrorMapperInterceptor] may have attached (it maps a generic 409 to
-  ///     [ServerFailure], which lacks the slot-conflict copy) — mirrors the
-  ///     `MasterAlreadyHasServicesFailure` precedent in
-  ///     `services/data/service_repository.dart`.
-  ///   - All other statuses defer to [_mapDioException].
+  ///   - **409** with `data.code == "CLIENT_BOOKING_CONFLICT"` →
+  ///     [ClientBookingConflictFailure] — the authenticated CLIENT already has
+  ///     an overlapping PENDING/CONFIRMED booking (backend commit f95d8fd).
+  ///     Distinct from a plain 409, which still means the MASTER's slot is
+  ///     taken (or, under contention, a server-side lock timeout — the backend
+  ///     surfaces both as the same bare `data: null` envelope, so both
+  ///     legitimately fall through to the line below).
+  ///   - **409** otherwise → [ConflictFailure] (the slot was taken / no longer
+  ///     reschedulable / a lock-timeout retry case).
+  ///   - **429** → [BookingRateLimitedFailure] (per-user booking-write rate
+  ///     limit, backend commit f95d8fd).
+  ///
+  /// The 409/429 status checks run BEFORE deferring to any [Failure] the
+  /// [ErrorMapperInterceptor] may have attached — it maps a generic 409 to
+  /// [ServerFailure] (no slot-conflict copy) and has no booking-specific 429
+  /// case at all (an unmatched 429 would otherwise surface as [UnknownFailure])
+  /// — mirroring the `MasterAlreadyHasServicesFailure` /
+  /// `CategoryRequestThrottledFailure` precedents in
+  /// `services/data/service_repository.dart`.
+  ///
+  /// All other statuses defer to [_mapDioException].
   Failure _mapBookingWriteException(DioException e) {
     final statusCode = e.response?.statusCode;
-    if (statusCode == 409) return ConflictFailure(cause: e);
+    if (statusCode == 409) {
+      return _extractClientBookingConflict(e) ?? ConflictFailure(cause: e);
+    }
+    if (statusCode == 429) return BookingRateLimitedFailure(cause: e);
     if (e.error is Failure) return e.error as Failure;
     return _mapDioException(e);
+  }
+
+  /// Extracts a [ClientBookingConflictFailure] from a 409 response body whose
+  /// `data.code == "CLIENT_BOOKING_CONFLICT"` (backend commit f95d8fd — see
+  /// that failure's doc for the full envelope shape).
+  ///
+  /// This response is NOT part of the generated OpenAPI client (the local
+  /// backend cannot currently boot to refresh the spec snapshot — see
+  /// CLAUDE.md), so it is decoded by hand from the raw JSON body, mirroring
+  /// the `_isEmailAlreadyRegistered` / `_extractVerificationCode` precedent in
+  /// `ErrorMapperInterceptor`. `startsAt`/`endsAt` are parsed with the exact
+  /// same `DateTime.parse(...).toUtc()` the generated client's
+  /// `Iso8601DateTimeSerializer` applies to every other booking DateTime field
+  /// (`api/lib/src/…`), so this failure's window formats identically to the
+  /// rest of the booking flow.
+  ///
+  /// Returns `null` (swallowing any parse error) when the body is not this
+  /// exact shape — the caller then falls back to the generic [ConflictFailure]
+  /// so a malformed or future-shaped envelope still surfaces a sane error
+  /// instead of throwing out of the mapper.
+  ClientBookingConflictFailure? _extractClientBookingConflict(DioException e) {
+    try {
+      final body = e.response?.data;
+      if (body is! Map<String, dynamic>) return null;
+      final data = body['data'];
+      if (data is! Map<String, dynamic>) return null;
+      if (data['code'] != 'CLIENT_BOOKING_CONFLICT') return null;
+
+      final String? conflictingBookingId =
+          data['conflictingBookingId'] as String?;
+      final String? serviceName = data['serviceName'] as String?;
+      final String? masterName = data['masterName'] as String?;
+      final String? startsAtRaw = data['startsAt'] as String?;
+      final String? endsAtRaw = data['endsAt'] as String?;
+      if (conflictingBookingId == null ||
+          serviceName == null ||
+          masterName == null ||
+          startsAtRaw == null ||
+          endsAtRaw == null) {
+        return null;
+      }
+
+      return ClientBookingConflictFailure(
+        conflictingBookingId: conflictingBookingId,
+        serviceName: serviceName,
+        masterName: masterName,
+        startsAt: DateTime.parse(startsAtRaw).toUtc(),
+        endsAt: DateTime.parse(endsAtRaw).toUtc(),
+        cause: e,
+      );
+    } catch (err) {
+      if (kDebugMode) {
+        log(
+          'Failed to parse CLIENT_BOOKING_CONFLICT envelope: $err',
+          name: _tag,
+          level: 900,
+        );
+      }
+      return null;
+    }
   }
 
   /// Maps a [DioException] to a typed [Failure]. Mirrors the identical

@@ -30,6 +30,19 @@
 // picker and choose a different time (this screen never "auto re-opens" the
 // picker itself). The back button itself always just cancels the flow
 // (`context.pop()`) — no booking is created.
+//
+// CLIENT_BOOKING_CONFLICT (backend commit f95d8fd, Phase 19.x): a DIFFERENT
+// 409 shape — the authenticated CLIENT already has an overlapping booking
+// (with any master/salon), decoded into `ClientBookingConflictFailure` by
+// `HttpBookingRepository`. Dense enough (clashing service + master + time
+// window) that the generic SnackBar treatment above would truncate it, so it
+// gets its own modal (`showClientBookingConflictDialog` —
+// `widgets/client_booking_conflict_dialog.dart`) naming the clashing booking.
+// The dialog itself never navigates (an overlay route has no go_router
+// ancestor) — it only resolves whether the client chose "Обрати інший час",
+// and THIS screen pops back to the slot picker on that signal. Either way the
+// selection/comment on this screen are left fully intact, same as the plain
+// `ConflictFailure` case.
 
 import 'dart:developer';
 
@@ -40,6 +53,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
@@ -59,6 +73,7 @@ import 'widgets/booking_comment_field.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
+import 'widgets/client_booking_conflict_dialog.dart';
 
 const String _tag = 'feature.booking.confirm';
 
@@ -79,8 +94,28 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
 
   final TextEditingController _comment = TextEditingController();
 
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read).
+  late final ScreenProtectionManager _screenProtection;
+
+  @override
+  void initState() {
+    super.initState();
+    // SEC (mobile-backlog 2026-07-12, "converge all four on the
+    // acquire-in-initState pattern"): this screen renders the INDEPENDENT
+    // master's address (street/buildingNo/city/locationNote — for a solo
+    // master that may be a HOME address) via
+    // `BookingSummaryCards.fromMaster` → `formatStreetCityLine`. Mirrors the
+    // INTENTIONAL PRODUCT DECISION already applied to the salon flow's
+    // equivalent screens (`salon_booking_confirm_screen.dart`,
+    // `salon_booking_success_screen.dart`) — do not remove in a future audit
+    // pass.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
   @override
   void dispose() {
+    _screenProtection.release();
     _comment.dispose();
     super.dispose();
   }
@@ -120,6 +155,23 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
         );
       }
       if (!mounted) return;
+      // CLIENT_BOOKING_CONFLICT (backend commit f95d8fd) gets its own modal —
+      // dense enough (clashing service/master/time) that a transient SnackBar
+      // would truncate or vanish before the client finishes reading it. See
+      // `client_booking_conflict_dialog.dart`'s file header. The dialog only
+      // dismisses ITS OWN overlay route; THIS screen (a real go_router
+      // context) decides whether to pop back to slot selection based on the
+      // resolved choice — the selection/comment on this screen are left
+      // fully intact either way (no navigation on `false`/`null`).
+      if (e is ClientBookingConflictFailure) {
+        final bool? pickAnotherTime = await showClientBookingConflictDialog(
+          context,
+          e,
+        );
+        if (!mounted) return;
+        if (pickAnotherTime ?? false) context.pop();
+        return;
+      }
       final l10n = AppLocalizations.of(context);
       final String message = e is Failure
           ? e.userMessage(context)

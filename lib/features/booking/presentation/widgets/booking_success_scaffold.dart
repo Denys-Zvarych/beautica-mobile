@@ -129,16 +129,21 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
     final Animation<double> curved = _controller.drive(
       CurveTween(curve: Interval(start, end, curve: Curves.easeOutCubic)),
     );
-    return AnimatedBuilder(
-      animation: curved,
-      builder: (BuildContext context, Widget? c) => Opacity(
-        opacity: curved.value.clamp(0.0, 1.0),
-        child: Transform.translate(
-          offset: Offset(0, (1 - curved.value) * 18),
-          child: c,
+    // PERF: isolate this animated subtree's repaints from its static siblings
+    // (title/subline/recap cards/button all sit in the same Column) — mirrors
+    // NeumorphicButton.build()'s press-animation RepaintBoundary.
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: curved,
+        builder: (BuildContext context, Widget? c) => Opacity(
+          opacity: curved.value.clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: Offset(0, (1 - curved.value) * 18),
+            child: c,
+          ),
         ),
+        child: child,
       ),
-      child: child,
     );
   }
 

@@ -262,6 +262,63 @@ void main() {
       );
     });
 
+    // mobile-qa gap-fix — Step 2.7 Rule 3b: a CLIENT_BOOKING_CONFLICT on ONE
+    // master (the client already has an overlapping booking with a DIFFERENT
+    // master/salon) must behave exactly like the generic ConflictFailure
+    // partial-failure case above: it surfaces on ONLY that master's slot in
+    // the state map, and must NOT fail (or even touch the status of) the
+    // rest of the batch.
+    test(
+      'a ClientBookingConflictFailure on ONE master surfaces on that master '
+      'only — the rest of the batch still succeeds, allSucceeded is false',
+      () async {
+        final DateTime clashStart = _kStart.subtract(const Duration(days: 1));
+        final ClientBookingConflictFailure conflict =
+            ClientBookingConflictFailure(
+              conflictingBookingId: 'other-booking-1',
+              serviceName: 'Педикюр апаратний',
+              masterName: 'Ірина Шевченко',
+              startsAt: clashStart,
+              endsAt: clashStart.add(const Duration(minutes: 60)),
+            );
+        final _RecordingBookingRepository repo = _RecordingBookingRepository(
+          failFor: <String, Object>{'m2': conflict},
+        );
+        final ProviderContainer c = _container(repo);
+        final List<SalonBookingAppointment> appts = <SalonBookingAppointment>[
+          _appt('m1'),
+          _appt('m2'),
+        ];
+
+        final SalonBookingSubmitState result = await c
+            .read(salonBookingSubmitProvider.notifier)
+            .submit(appts);
+
+        expect(
+          result.allSucceeded(appts),
+          isFalse,
+          reason:
+              'a conflict on m2 must not be reported as a clean all-succeed',
+        );
+        expect(
+          result.statusFor('m1'),
+          SalonAppointmentSubmitStatus.succeeded,
+          reason: 'm1 must be entirely unaffected by m2\'s conflict',
+        );
+        expect(result.statusFor('m2'), SalonAppointmentSubmitStatus.failed);
+        expect(result.failureFor('m2'), isA<ClientBookingConflictFailure>());
+        expect(
+          result.failureFor('m1'),
+          isNull,
+          reason: 'the succeeded m1 must carry no failure at all',
+        );
+        // Exactly one write attempt per master — a conflict on m2 must not
+        // have retried itself or skipped/duplicated m1's write.
+        expect(repo.callsFor('m1'), 1);
+        expect(repo.callsFor('m2'), 1);
+      },
+    );
+
     test(
       'a repo NetworkFailure is surfaced as-is on the failed appointment',
       () async {

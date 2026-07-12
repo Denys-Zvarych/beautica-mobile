@@ -106,6 +106,28 @@
   "@errConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
   },
+  "bookingErrClientConflict": "У вас вже є запис на цей час: {serviceName}, {masterName}, {window}",
+  "@bookingErrClientConflict": {
+    "description": "Error message shown when a booking create/reschedule returns HTTP 409 with data.code == CLIENT_BOOKING_CONFLICT — the client already has an overlapping booking of their own (ClientBookingConflictFailure).",
+    "placeholders": {
+      "serviceName": {
+        "type": "String",
+        "example": "Манікюр класичний"
+      },
+      "masterName": {
+        "type": "String",
+        "example": "Олена Коваль"
+      },
+      "window": {
+        "type": "String",
+        "example": "вт, 15 лип · 14:00–15:30"
+      }
+    }
+  },
+  "bookingErrRateLimited": "Забагато спроб бронювання. Зачекайте кілька секунд і спробуйте ще раз.",
+  "@bookingErrRateLimited": {
+    "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
+  },
   "errEmailAlreadyRegistered": "Ця електронна адреса вже зареєстрована. Увійдіть до облікового запису.",
   "@errEmailAlreadyRegistered": {
     "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."
@@ -3482,6 +3504,30 @@
   "bookingTimeLabel": "Час",
   "@bookingTimeLabel": {
     "description": "Label above the appointment time window on the booking confirm/success summary card."
+  },
+  "bookingServiceLabel": "Послуга",
+  "@bookingServiceLabel": {
+    "description": "Singular label above a single service name — used by the client-booking-conflict dialog's clashing-booking recap."
+  },
+  "bookingMasterLabel": "Майстер",
+  "@bookingMasterLabel": {
+    "description": "Label above a master's display name — used by the client-booking-conflict dialog's clashing-booking recap."
+  },
+  "bookingConflictClientTitle": "У вас вже є запис на цей час",
+  "@bookingConflictClientTitle": {
+    "description": "Title of the modal shown when POST /bookings or PATCH /bookings/{id}/reschedule returns a CLIENT_BOOKING_CONFLICT 409 (ClientBookingConflictFailure)."
+  },
+  "bookingConflictClientSubtitle": "Оберіть інший час, щоб уникнути накладання із записом, який уже заплановано.",
+  "@bookingConflictClientSubtitle": {
+    "description": "Subline under the client-booking-conflict dialog's title, explaining the recommended next step."
+  },
+  "bookingConflictClientPrimaryCta": "Обрати інший час",
+  "@bookingConflictClientPrimaryCta": {
+    "description": "Primary CTA on the client-booking-conflict dialog — dismisses the dialog and signals the confirm screen to navigate back to slot selection."
+  },
+  "bookingConflictClientSecondaryCta": "Залишитись тут",
+  "@bookingConflictClientSecondaryCta": {
+    "description": "Secondary/dismiss CTA on the client-booking-conflict dialog — closes the dialog without navigating, leaving the confirm screen's selection intact."
   },
   "bookingServicesRecapLabel": "Послуги",
   "@bookingServicesRecapLabel": {

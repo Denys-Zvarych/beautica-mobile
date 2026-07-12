@@ -14,6 +14,7 @@
 // inside the notifier itself (see flutter skill § Forbidden Patterns).
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 
 /// Base class for all domain-level failures.
@@ -472,4 +473,99 @@ final class ConflictFailure extends Failure {
 
   @override
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errConflict;
+}
+
+/// Emitted when a booking WRITE (create/reschedule) returns HTTP **409** with
+/// the typed `data.code == "CLIENT_BOOKING_CONFLICT"` envelope (backend
+/// commit f95d8fd): the authenticated CLIENT already has a PENDING/CONFIRMED
+/// booking — with ANY master or salon, not just the one being booked — whose
+/// `[startsAt, endsAt)` window overlaps the requested slot.
+///
+/// Distinct from the generic [ConflictFailure] (the MASTER's slot is taken by
+/// someone else) — here the CLIENT would be double-booking themselves. Carries
+/// enough of the clashing booking to name it in the UI: [conflictingBookingId],
+/// [serviceName], [masterName], [startsAt], [endsAt].
+///
+/// Expected backend envelope:
+/// ```json
+/// {
+///   "success": false,
+///   "data": {
+///     "code": "CLIENT_BOOKING_CONFLICT",
+///     "conflictingBookingId": "3f2a1c1e-…",
+///     "serviceName": "Манікюр класичний",
+///     "masterName": "Олена Коваль",
+///     "startsAt": "2026-07-15T14:00:00+03:00",
+///     "endsAt": "2026-07-15T15:30:00+03:00"
+///   },
+///   "message": "Client already has an overlapping booking"
+/// }
+/// ```
+/// The server-supplied top-level `message` is intentionally NEVER shown (it is
+/// untranslated, internal English copy) — [userMessage] composes its own
+/// Ukrainian sentence from the typed fields via [formatBookingWindow], the SAME
+/// shared formatter the booking confirm/success screens already use for the
+/// "Час" row, so the window reads identically everywhere in the app (never a
+/// raw ISO string).
+///
+/// Decoded by `HttpBookingRepository._mapBookingWriteException` — checked
+/// BEFORE the generic 409 → [ConflictFailure] fallback (mirrors the
+/// `EMAIL_ALREADY_REGISTERED` / `CategoryAlreadyExistsFailure` precedent: the
+/// status-code branch runs before deferring to any [Failure] the interceptor
+/// may already have attached).
+final class ClientBookingConflictFailure extends Failure {
+  const ClientBookingConflictFailure({
+    required this.conflictingBookingId,
+    required this.serviceName,
+    required this.masterName,
+    required this.startsAt,
+    required this.endsAt,
+    super.cause,
+  });
+
+  /// Id of the client's own PENDING/CONFIRMED booking that clashes with the
+  /// requested slot. Not navigated to anywhere yet — kept typed (rather than
+  /// discarded) as the natural extension point for a future "View booking"
+  /// deep link from the conflict dialog.
+  final String conflictingBookingId;
+
+  /// The clashing booking's service name, exactly as returned by the backend
+  /// (an untranslated catalogue/user value, not an l10n key).
+  final String serviceName;
+
+  /// The clashing booking's master (or salon-master) display name.
+  final String masterName;
+
+  /// The clashing booking's window start.
+  final DateTime startsAt;
+
+  /// The clashing booking's window end.
+  final DateTime endsAt;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    return l10n.bookingErrClientConflict(
+      serviceName,
+      masterName,
+      formatBookingWindow(startsAt, endsAt),
+    );
+  }
+}
+
+/// Emitted when `POST /bookings` or `PATCH /bookings/{id}/reschedule` returns
+/// HTTP **429** — the per-user booking-write rate limit (5 requests / 10 s,
+/// backend commit f95d8fd) is exhausted.
+///
+/// Decoded by `HttpBookingRepository._mapBookingWriteException` — checked
+/// BEFORE deferring to any [Failure] the interceptor already attached (the
+/// interceptor has no booking-specific 429 case and would otherwise surface an
+/// [UnknownFailure]), mirroring the `CategoryRequestThrottledFailure`
+/// precedent in `service_repository.dart`.
+final class BookingRateLimitedFailure extends Failure {
+  const BookingRateLimitedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrRateLimited;
 }

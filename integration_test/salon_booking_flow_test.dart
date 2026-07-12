@@ -109,6 +109,7 @@ import 'package:beautica_mobile/features/salon/presentation/public_salon_profile
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -133,7 +134,19 @@ class _FakeBookingRepository implements BookingRepository {
     : _failOnce = <String>{...failOnce};
 
   final Set<String> _failOnce;
+  // mobile-qa gap-fix — masterId → an arbitrary Failure to throw exactly
+  // once (then clear), for scenarios where the plain `ConflictFailure` the
+  // constructor's `failOnce` set always throws is the WRONG failure shape —
+  // e.g. a CLIENT_BOOKING_CONFLICT test needs a typed
+  // `ClientBookingConflictFailure` with specific field values, not a generic
+  // conflict. Checked BEFORE `_failOnce` so a call site can use either knob.
+  final Map<String, Failure> _failOnceWith = <String, Failure>{};
   final List<CreateBookingRequest> requests = <CreateBookingRequest>[];
+
+  /// Configures [masterId]'s NEXT `createBooking` call to throw [failure]
+  /// exactly once; every subsequent call for that master succeeds normally.
+  void failWith(String masterId, Failure failure) =>
+      _failOnceWith[masterId] = failure;
 
   int callsFor(String masterId) =>
       requests.where((CreateBookingRequest r) => r.masterId == masterId).length;
@@ -145,6 +158,8 @@ class _FakeBookingRepository implements BookingRepository {
   @override
   Future<Booking> createBooking(CreateBookingRequest req) async {
     requests.add(req);
+    final Failure? typed = _failOnceWith.remove(req.masterId);
+    if (typed != null) throw typed;
     if (_failOnce.remove(req.masterId)) throw const ConflictFailure();
     return Booking(
       id: 'booking-${req.masterId}',
@@ -1062,6 +1077,153 @@ void main() {
               .toSet(),
           <String>{'idem-m-two'},
         );
+        expect(tester.takeException(), isNull);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // ── mobile-qa gap-fix (Step 2.7 Rule 3b) — CLIENT_BOOKING_CONFLICT on ONE
+  // master must surface on that master's card only and must NOT fail the
+  // whole batch, exactly like the generic-409 partial-failure test above.
+  // The client already has an overlapping booking with a THIRD, unrelated
+  // master/salon — m-two's own slot is perfectly fine, this is the CLIENT
+  // double-booking themselves, not a slot conflict. ─────────────────────────
+  testWidgets(
+    'CLIENT salon confirm: a CLIENT_BOOKING_CONFLICT on one master surfaces '
+    'on that master\'s card only — the other master still succeeds and the '
+    'whole batch is not failed',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.client;
+        final DateTime clashStart = DateTime.utc(2026, 7, 15, 14);
+        final ClientBookingConflictFailure conflict =
+            ClientBookingConflictFailure(
+              conflictingBookingId: 'other-booking-1',
+              serviceName: 'Педикюр апаратний',
+              masterName: 'Ірина Шевченко',
+              startsAt: clashStart,
+              endsAt: clashStart.add(const Duration(minutes: 45)),
+            );
+        final repo = _FakeBookingRepository();
+        final GoRouter router = await AppHarness.boot(
+          tester,
+          fb,
+          extraOverrides: <Object>[
+            bookingRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await AppHarness.settle(tester);
+
+        SalonBookingAppointment appt(String masterId, String firstName) =>
+            SalonBookingAppointment(
+              schedule: SalonMasterSchedule(
+                masterId: masterId,
+                firstName: firstName,
+                lastName: 'Майстер',
+                type: MasterType.salonMaster,
+                services: <SalonCatalogService>[
+                  SalonCatalogService(
+                    id: 'svc-$masterId',
+                    name: 'Манікюр',
+                    durationLabel: '1 год',
+                    priceDisplay: '500 грн',
+                    durationMinutes: 60,
+                    priceType: ServicePriceType.fixed,
+                    priceMin: 500,
+                  ),
+                ],
+                primaryServiceAssignmentId: 'assign-$masterId',
+              ),
+              startAt: DateTime.now().add(const Duration(days: 1)),
+              idempotencyKey: 'idem-$masterId',
+            );
+
+        unawaited(
+          router.push(
+            RouteNames.salonBookingConfirm,
+            extra: SalonBookingConfirmArgs(
+              salonId: 'salon-xyz',
+              appointments: <SalonBookingAppointment>[
+                appt('m-one', 'Олена'),
+                appt('m-two', 'Софія'),
+              ],
+            ),
+          ),
+        );
+        await AppHarness.settle(tester);
+        expectLocation(router, RouteNames.salonBookingConfirm);
+
+        // m-two's write fails with the CLIENT's own conflict (unrelated
+        // third booking) — swap in the failing behaviour on the recording
+        // fake by throwing per-call via a tiny wrapper.
+        repo.failWith('m-two', conflict);
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonBookingConfirmScreen)),
+        );
+        final Finder mOneCard = find.byKey(
+          const ValueKey<String>('salon-confirm-appt-m-one'),
+        );
+        final Finder mTwoCard = find.byKey(
+          const ValueKey<String>('salon-confirm-appt-m-two'),
+        );
+
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await AppHarness.settle(tester);
+
+        // The batch is NOT failed — still on confirm, m-one settled fine.
+        expectLocation(router, RouteNames.salonBookingConfirm);
+        expect(find.byType(SalonBookingSuccessScreen), findsNothing);
+        expect(repo.callsFor('m-one'), 1);
+        expect(repo.callsFor('m-two'), 1);
+
+        // The conflict surfaces on m-two's card ONLY, as the SAME composed
+        // sentence the independent-master dialog uses — never a generic
+        // conflict message, and never on m-one's card.
+        final String expectedMessage = l10n.bookingErrClientConflict(
+          'Педикюр апаратний',
+          'Ірина Шевченко',
+          formatBookingWindow(
+            clashStart,
+            clashStart.add(const Duration(minutes: 45)),
+          ),
+        );
+        expect(
+          find.descendant(of: mTwoCard, matching: find.text(expectedMessage)),
+          findsOneWidget,
+          reason:
+              'm-two\'s own card must surface the CLIENT_BOOKING_CONFLICT '
+              'sentence naming the THIRD, unrelated clashing booking',
+        );
+        expect(
+          find.descendant(
+            of: mOneCard,
+            matching: find.text(l10n.salonBookingAppointmentSucceeded),
+          ),
+          findsOneWidget,
+          reason:
+              'm-one must be entirely unaffected — its own write succeeded '
+              'and its card shows the success line, not m-two\'s conflict',
+        );
+        expect(
+          find.descendant(of: mOneCard, matching: find.text(expectedMessage)),
+          findsNothing,
+          reason: 'the conflict message must never bleed onto m-one\'s card',
+        );
+
+        // Retry: m-two's own slot was always fine — the conflict clears on
+        // retry (the recording fake only fails the ONE configured call) and
+        // the client reaches success.
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await AppHarness.settle(tester);
+
+        expectLocation(router, RouteNames.salonBookingSuccess);
+        expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
+        expect(repo.callsFor('m-one'), 1);
+        expect(repo.callsFor('m-two'), 2);
         expect(tester.takeException(), isNull);
       });
     },

@@ -33,41 +33,46 @@ class SuccessLottieBadge extends StatelessWidget {
       child: SizedBox(
         width: size,
         height: size,
-        child: Lottie.asset(
-          'assets/lottie/success.json',
-          controller: controller,
-          repeat: false,
-          fit: BoxFit.contain,
-          // PERF: the composition decodes asynchronously; without this the
-          // slot renders blank for a frame or two before `onLoaded` fires.
-          // Swap in a static version of the same circular badge so there's
-          // never a blank box, then hand off to the real animation the instant
-          // the composition is ready.
-          frameBuilder:
-              (
-                BuildContext context,
-                Widget child,
-                LottieComposition? composition,
-              ) {
-                if (composition == null) {
-                  return _SuccessBadgePlaceholder(size: size);
-                }
-                return child;
-              },
-          onLoaded: (LottieComposition composition) {
-            final AnimationController? c = controller;
-            if (c == null) return;
-            // Intentional slow-down: the asset's native playback speed reads
-            // as rushed at this size, so the controller is stretched to 1.4x
-            // the composition's authored duration (same frame count, played
-            // back slower) — do not "fix" this back to 1x.
-            c.duration = composition.duration * 1.4;
-            // Reduced-motion already pinned the controller to the last frame;
-            // only play otherwise.
-            if (!(MediaQuery.maybeOf(context)?.disableAnimations ?? false)) {
-              c.forward(from: 0);
-            }
-          },
+        // PERF: isolate the Lottie animation's per-frame repaints from the
+        // rest of the success scaffold — mirrors NeumorphicButton.build()'s
+        // press-animation RepaintBoundary.
+        child: RepaintBoundary(
+          child: Lottie.asset(
+            'assets/lottie/success.json',
+            controller: controller,
+            repeat: false,
+            fit: BoxFit.contain,
+            // PERF: the composition decodes asynchronously; without this the
+            // slot renders blank for a frame or two before `onLoaded` fires.
+            // Swap in a static version of the same circular badge so there's
+            // never a blank box, then hand off to the real animation the instant
+            // the composition is ready.
+            frameBuilder:
+                (
+                  BuildContext context,
+                  Widget child,
+                  LottieComposition? composition,
+                ) {
+                  if (composition == null) {
+                    return _SuccessBadgePlaceholder(size: size);
+                  }
+                  return child;
+                },
+            onLoaded: (LottieComposition composition) {
+              final AnimationController? c = controller;
+              if (c == null) return;
+              // Intentional slow-down: the asset's native playback speed reads
+              // as rushed at this size, so the controller is stretched to 1.4x
+              // the composition's authored duration (same frame count, played
+              // back slower) — do not "fix" this back to 1x.
+              c.duration = composition.duration * 1.4;
+              // Reduced-motion already pinned the controller to the last frame;
+              // only play otherwise.
+              if (!(MediaQuery.maybeOf(context)?.disableAnimations ?? false)) {
+                c.forward(from: 0);
+              }
+            },
+          ),
         ),
       ),
     );

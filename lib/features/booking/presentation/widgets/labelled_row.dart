@@ -23,6 +23,8 @@ class LabelledRow extends StatelessWidget {
     required this.value,
     this.detail,
     this.compactText = false,
+    this.maxLines,
+    this.overflow,
   });
 
   final String label;
@@ -31,6 +33,18 @@ class LabelledRow extends StatelessWidget {
 
   /// Shrinks label/value/detail a further notch (success screen only).
   final bool compactText;
+
+  /// Optional bound on [value]'s line count — defaults to `null`
+  /// (unbounded), matching every pre-existing call site byte-for-byte.
+  ///
+  /// Set alongside [overflow] when [value] is free text authored by another
+  /// entity (e.g. a master/salon-picked service or master name) rather than
+  /// backend-formatted content, so an unusually long or newline-heavy string
+  /// cannot flood the surrounding card/dialog layout.
+  final int? maxLines;
+
+  /// Optional overflow handling for [value], paired with [maxLines].
+  final TextOverflow? overflow;
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +59,8 @@ class LabelledRow extends StatelessWidget {
         const SizedBox(height: 3),
         Text(
           value,
+          maxLines: maxLines,
+          overflow: overflow,
           style: compactText
               ? VelvetText.bookCardValue135
               : VelvetText.bookCardValue15,
