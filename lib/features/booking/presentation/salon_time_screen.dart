@@ -192,9 +192,10 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
   /// (and therefore its slot, per `SalonScheduleEntry`'s contract), which
   /// returns that ONE master's `MasterSchedulePage` to its date/calendar
   /// phase. Reuses `salonBookingScheduleProvider.clearDate` verbatim — the
-  /// SAME notifier method `_ChangeDateButton`/`_NoSlotsEmptyState` already
-  /// call (`master_schedule_page.dart:167-169, 519-599`) — so no other
-  /// master's entry, and no pager position (`_current`), is ever touched.
+  /// SAME notifier method `MasterSchedulePage`'s own `_clearDate()` already
+  /// wraps for its left-edge swipe-back gesture and `_NoSlotsEmptyState`
+  /// (`master_schedule_page.dart:167-169`) — so no other master's entry, and
+  /// no pager position (`_current`), is ever touched.
   void _exitActiveMasterTimePhase() {
     if (_current < 0 || _current >= _masterIds.length) return;
     ref
@@ -214,6 +215,25 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
       return;
     }
     context.pop();
+  }
+
+  /// Shared `select` predicate for "is the ACTIVE slide in its time phase" —
+  /// used by every narrow `Consumer` below that needs this fresh on every
+  /// date/`clearDate` pick WITHOUT the outer `build()` rerunning: the
+  /// `PopScope` `canPop` `Consumer` and the top-bar back-label `Consumer`.
+  /// Takes `current`/`masterIds` as parameters rather than closing over the
+  /// State fields directly — each call site reads `_current`/`_masterIds`
+  /// fresh into locals inside its OWN `Consumer.builder` first (mirroring
+  /// the pre-existing "bounds-guarded inline" pattern), so this stays a pure
+  /// function shared by both without either depending on the other's
+  /// rebuild timing.
+  static bool _activeSlideInTimePhase(
+    SalonBookingScheduleState s,
+    int current,
+    List<String> masterIds,
+  ) {
+    if (current < 0 || current >= masterIds.length) return false;
+    return s.entryFor(masterIds[current]).date != null;
   }
 
   @override
@@ -465,21 +485,24 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
     // on the active slide therefore only rebuilds `PopScope` itself now —
     // nothing under `child`.
     //
-    // Bounds-guarded inline (mirrors `_activeMasterIsInTimePhase()`'s own
+    // Bounds-guarded inline via the shared [_activeSlideInTimePhase]
+    // predicate (mirrors `_activeMasterIsInTimePhase()`'s own
     // `_current`/`_masterIds` guard) rather than reusing that method here:
     // that method does a one-shot `ref.read` correct for an event callback
     // (`_handleTopBarBack`), but `canPop` needs a build-time `ref.watch` —
-    // this `Consumer` is the ONLY place that watch may live without
-    // reopening Finding A.
+    // this `Consumer` and the top-bar back-label `Consumer` inside `child`
+    // below are the ONLY two places that watch may live without reopening
+    // Finding A (each is independently scoped, so neither's rebuild
+    // triggers the other's, nor the outer `build()`'s).
     return Consumer(
       builder: (BuildContext context, WidgetRef ref, Widget? child) {
         final int current = _current;
         final List<String> masterIds = _masterIds;
         final bool inTimePhase = ref.watch(
-          salonBookingScheduleProvider.select((SalonBookingScheduleState s) {
-            if (current < 0 || current >= masterIds.length) return false;
-            return s.entryFor(masterIds[current]).date != null;
-          }),
+          salonBookingScheduleProvider.select(
+            (SalonBookingScheduleState s) =>
+                _activeSlideInTimePhase(s, current, masterIds),
+          ),
         );
         return PopScope(
           // System back gesture / hardware back: while the ACTIVE slide is
@@ -510,10 +533,38 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
           bottom: false,
           child: Column(
             children: <Widget>[
-              _TopBar(
-                title: l10n.salonBookingTimeTitle,
-                backSemantics: l10n.salonBookingTimeBackSemantics,
-                onBack: _handleTopBarBack,
+              // Own scoped `Consumer` — same rationale as the `PopScope`
+              // one above, and independent of it: the back arrow's
+              // semantic label must flip the moment the ACTIVE slide
+              // enters/exits its time phase (see [_activeSlideInTimePhase]
+              // and the HIGH finding this fixes — the label used to be a
+              // STATIC "back to master selection" string that lied once
+              // the arrow started returning to the calendar instead), but
+              // `_TopBar` sits inside this outer `build()`'s `child:` —
+              // built ONCE and reused across the `PopScope` `Consumer`'s
+              // own rebuilds — so its label can only be kept fresh by
+              // watching the schedule state through its OWN `Consumer`
+              // here, never by the outer `build()` watching it directly
+              // (that would reopen Finding A — see the `PopScope`
+              // `Consumer`'s comment above `build()`).
+              Consumer(
+                builder: (BuildContext context, WidgetRef ref, Widget? child) {
+                  final int current = _current;
+                  final List<String> masterIds = _masterIds;
+                  final bool inTimePhase = ref.watch(
+                    salonBookingScheduleProvider.select(
+                      (SalonBookingScheduleState s) =>
+                          _activeSlideInTimePhase(s, current, masterIds),
+                    ),
+                  );
+                  return _TopBar(
+                    title: l10n.salonBookingTimeTitle,
+                    backSemantics: inTimePhase
+                        ? l10n.salonBookingTimeBackToCalendarSemantics
+                        : l10n.salonBookingTimeBackSemantics,
+                    onBack: _handleTopBarBack,
+                  );
+                },
               ),
               Expanded(child: body),
             ],

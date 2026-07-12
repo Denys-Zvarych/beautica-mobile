@@ -20,8 +20,13 @@
 // Two inline phases on the one slide: pick a DATE → the slide swaps to the
 // TIME chips for that date → picking a slot completes the master (the host
 // `SalonTimeScreen` then auto-advances to the next unscheduled master via
-// [onCompleted]). A compact inline «Змінити» button beside the "Вільний час"
-// heading clears the date to re-open the calendar.
+// [onCompleted]). Returning from the TIME phase to the calendar is handled
+// three redundant ways — all of which call the SAME `_clearDate()` — the
+// `SalonTimeScreen` top-bar arrow, the Android system back gesture (both via
+// `salon_time_screen.dart`'s `PopScope`), and a left-edge swipe-back
+// affordance local to this slide's TIME phase (see `_onEdgeSwipeEnd` below),
+// which restores the swipe-back feel the route-level `PopScope(canPop:
+// false)` otherwise silently disarms on the slot grid.
 //
 // Self-sufficient Riverpod integration (mirrors `SlotDateScreen`/
 // `SlotTimeScreen`, NOT the preview's parent-owned local `State`): this
@@ -166,6 +171,63 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
 
   void _clearDate() {
     ref.read(salonBookingScheduleProvider.notifier).clearDate(_masterId);
+  }
+
+  // ---------------------------------------------------------------------
+  // Left-edge swipe-back on the TIME phase — restores the affordance
+  // `PopScope(canPop: !inTimePhase)` in `salon_time_screen.dart` silently
+  // disarms (a `canPop: false` `PopScope` never arms Cupertino's own
+  // edge-drag recognizer at all — see this fix's PR description for the
+  // full trace through `ModalRoute.popGestureEnabled` /
+  // `CupertinoRouteTransitionMixin`). Scoped as a SLIDE-LOCAL gesture
+  // (not a route-level one) so it can never fight the `PageView`'s own
+  // master-to-master swipe in `salon_time_screen.dart` — see `_timePhase`
+  // below for how the detector is confined to a narrow left-edge strip.
+  // Reuses `_clearDate()` verbatim: the exact same call the removed
+  // `_ChangeDateButton`/the still-present `_NoSlotsEmptyState` use, so
+  // there is only ever ONE notion of "go back a phase".
+  // ---------------------------------------------------------------------
+
+  /// Left-edge hit-strip width — same order of magnitude as Cupertino's own
+  /// `_kBackGestureWidth` (`cupertino/route.dart`, 20.0) so the arm-zone
+  /// feels consistent with the real system back-swipe that takes over once
+  /// this master reaches the date phase.
+  static const double _kEdgeSwipeWidth = 20;
+
+  /// Net rightward travel (logical px) that alone commits the gesture, even
+  /// at low velocity — roughly 2.4× the hit-strip width, comfortably above
+  /// touch-slop-scale jitter but well short of a full swipe.
+  static const double _kEdgeSwipeDistanceThreshold = 48;
+
+  /// Rightward fling velocity (logical px/s) that alone commits the gesture
+  /// even if [_kEdgeSwipeDistanceThreshold] wasn't reached yet — mirrors
+  /// Cupertino's own velocity-based "drop the swipe, still commit" escape
+  /// hatch (`_kMinFlingVelocity` in `cupertino/route.dart`).
+  static const double _kEdgeSwipeVelocityThreshold = 400;
+
+  /// Net signed horizontal travel accumulated since the current edge-drag's
+  /// `onHorizontalDragStart` — reset at both the start and the end of every
+  /// gesture.
+  double _edgeSwipeDx = 0;
+
+  void _onEdgeSwipeStart(DragStartDetails details) {
+    _edgeSwipeDx = 0;
+  }
+
+  void _onEdgeSwipeUpdate(DragUpdateDetails details) {
+    _edgeSwipeDx += details.delta.dx;
+  }
+
+  void _onEdgeSwipeEnd(DragEndDetails details) {
+    final double dx = _edgeSwipeDx;
+    final double velocity = details.primaryVelocity ?? 0;
+    _edgeSwipeDx = 0;
+    // Rightward only (the standard "back" direction) — a leftward or
+    // negligible drag never fires.
+    if (dx >= _kEdgeSwipeDistanceThreshold ||
+        velocity >= _kEdgeSwipeVelocityThreshold) {
+      _clearDate();
+    }
   }
 
   void _selectSlot(BookingSlot slot) {
@@ -350,37 +412,57 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       ),
     );
     // Wrapped in a single horizontal Padding — unlike `_datePhase`, nothing
-    // in this phase's subtree (heading row, slot-chip groups,
-    // empty/loading/error states) self-pads horizontally, so
-    // one `VelvetSpacing.lg` inset here is enough and can't double up with
-    // anything (there's no shared `MonthCalendar`/`CalendarWeekdayBar` on
-    // this phase). The `ValueKey` moves to this `Padding` since it — not the
-    // inner `Column` — is now the actual `child` `AnimatedSwitcher` compares.
-    return Padding(
-      key: const ValueKey<String>('time'),
+    // in this phase's subtree (slot-chip groups, empty/loading/error states)
+    // self-pads horizontally, so one `VelvetSpacing.lg` inset here is enough
+    // and can't double up with anything (there's no shared
+    // `MonthCalendar`/`CalendarWeekdayBar` on this phase).
+    //
+    // The row that used to lead this phase — a "Вільний час" heading plus a
+    // compact inline «Змінити» change-date button — is gone entirely. The
+    // button became redundant once the left-edge swipe-back gesture below
+    // joined the top-bar arrow and the system back gesture (all three call
+    // the same `_clearDate()`), and the heading it sat beside was labelling
+    // the only content on the phase, so it carried no information the
+    // Ранок/День/Вечір cluster labels don't already give. `_NoSlotsEmptyState`
+    // still carries its own change-date button for the zero-slot day.
+    //
+    // The slot groups therefore now open the phase directly. No leading
+    // spacer is needed (nor wanted): `build()` already lays a
+    // `VelvetSpacing.lg` gap between the `MasterStrip` identity card and the
+    // `AnimatedSwitcher` this is a child of — the same single section gap
+    // `_datePhase` opens on — so the first `SlotGroup` label lands exactly
+    // where `_datePhase`'s intro line does. Adding another spacer here would
+    // stack a second gap on top of it.
+    final Widget content = Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        // MUST be `.stretch`, not `.start` (mobile-perf audit fix): this
+        // Column is a child of `AnimatedSwitcher`'s default layout builder,
+        // which wraps transitioning children in its own
+        // `Stack(alignment: .center)` fed via `StackFit.loose` — so this
+        // Column receives a LOOSE width and, with `.start`, sizes itself to
+        // its narrowest branch (the bare-`Text` error state or
+        // `_NoSlotsEmptyState`'s centered content) instead of the full
+        // slide width. Verified empirically (`salon_time_screen_test.dart`,
+        // "phase container fills the slide" tests): this does NOT actually
+        // relocate the left-edge swipe-back `GestureDetector` below —
+        // `SizeTransition`'s own `Align` (default `axis: Axis.vertical`,
+        // `axisAlignment: -1` here) already claims full width and
+        // left-pins its child regardless of this Column's width, so the
+        // detector's rendered x stays at the true screen edge either way.
+        // What DOES shrink without `.stretch` is this phase's own
+        // `Semantics(container: true)` node (the `Stack` wrapping `content`
+        // + the detector, returned below) — from the full slide width down
+        // to the narrow branch's natural width — which shrinks the
+        // accessible bounding box TalkBack's Local Context Menu ("reading
+        // menu" → Actions) and Switch Access's per-item action menu use to
+        // surface the `onDismiss` action to a sliver in the top-left corner
+        // instead of the whole slide. `.stretch` restores full width
+        // regardless of the `slotsAsync.when()` branch, mirroring
+        // `_datePhase`'s own `Column(crossAxisAlignment: .stretch, ...)`
+        // above.
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          // The day-header chip that used to lead this phase (date label +
-          // master name/role + a «Змінити» change-date action) was removed;
-          // its only still-needed affordance — re-choosing the date — now
-          // lives as this compact inline button beside the "Вільний час"
-          // heading, so a client who already picked a date and sees slots can
-          // still return to the calendar without relying on back navigation.
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  l10n.bookingFreeTimeHeading,
-                  style: VelvetText.scheduleTimeHeading,
-                ),
-              ),
-              const SizedBox(width: VelvetSpacing.sm),
-              _ChangeDateButton(onChangeDate: _clearDate),
-            ],
-          ),
-          const SizedBox(height: VelvetSpacing.md),
           slotsAsync.when(
             loading: () => const Padding(
               padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
@@ -439,6 +521,60 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
                 ],
               );
             },
+          ),
+        ],
+      ),
+    );
+
+    // `Semantics(onDismiss: _clearDate)` exposes the SAME phase-back action
+    // as the edge-swipe below to assistive tech, since the drag itself is
+    // not discoverable by a screen-reader user and is not operable by
+    // switch access. `ACTION_DISMISS` is surfaced through TalkBack's Local
+    // Context Menu ("reading menu" → Actions) and Switch Access's per-item
+    // action menu — NOT any two-finger scrub/Z-gesture, which is a
+    // navigation gesture, not how a labelled `onDismiss` action is reached.
+    // `hint:` names the action explicitly (reusing the still-live
+    // `bookingChangeDateCta` copy, NOT the deleted `bookingChangeDateSemantics`
+    // key — see this file's header for why the visible button it used to
+    // label is gone) so neither menu presents an anonymous, nameless
+    // "Dismiss" action. The `key` lives here (not on the inner `Padding`)
+    // since this `Semantics` is now the actual `child` `AnimatedSwitcher`
+    // compares between the 'date' and 'time' phases.
+    //
+    // The `Stack` confines the drag detector to a narrow LEFT-EDGE strip —
+    // positioned at the slide's true left edge (outside `content`'s own
+    // `VelvetSpacing.lg` padding, matching Cupertino's own edge-anchored
+    // `_kBackGestureWidth` strip) — so it can never compete with the
+    // `PageView`'s master-to-master swipe anywhere else on the slide. A
+    // touch starting mid-slide never even hit-tests this detector, so
+    // there's no gesture-arena contest for it to lose; a touch starting
+    // within the strip DOES enter the same arena as the ancestor
+    // `PageView`'s own horizontal drag recognizer, but — being the deeper
+    // descendant — this detector is dispatched the pointer first each frame
+    // and wins on first sufficient movement, the same "innermost recognizer
+    // wins its own footprint" mechanics Cupertino's real edge-swipe (an
+    // ANCESTOR-positioned recognizer) already relies on to coexist with this
+    // very `PageView` on the DATE phase today.
+    return Semantics(
+      key: const ValueKey<String>('time'),
+      container: true,
+      hint: l10n.bookingChangeDateCta,
+      onDismiss: _clearDate,
+      child: Stack(
+        children: <Widget>[
+          content,
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: _kEdgeSwipeWidth,
+            child: GestureDetector(
+              key: const Key('salon-schedule-time-edge-back-swipe'),
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragStart: _onEdgeSwipeStart,
+              onHorizontalDragUpdate: _onEdgeSwipeUpdate,
+              onHorizontalDragEnd: _onEdgeSwipeEnd,
+            ),
           ),
         ],
       ),
@@ -503,51 +639,6 @@ class _WorkingDaysErrorBody extends StatelessWidget {
               onPressed: onRetry,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A compact, on-palette "change date" text button shown inline beside the
-/// slot-phase "Вільний час" heading. It is the ONLY date re-selection
-/// affordance once a day is chosen and its slots are showing — the
-/// `_NoSlotsEmptyState`'s own change-date button only appears on a zero-slot
-/// day, and the removed `_DayHeaderChip` used to carry this for every other
-/// case. Reuses the same edit-calendar glyph + copy as that empty state so
-/// the "change date" gesture reads identically wherever it surfaces.
-class _ChangeDateButton extends StatelessWidget {
-  const _ChangeDateButton({required this.onChangeDate});
-
-  final VoidCallback onChangeDate;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Semantics(
-      button: true,
-      label: l10n.bookingChangeDateSemantics,
-      child: GestureDetector(
-        key: const Key('salon-schedule-change-date'),
-        behavior: HitTestBehavior.opaque,
-        onTap: onChangeDate,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: VelvetSpacing.xs,
-            vertical: VelvetSpacing.xs,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.edit_calendar_outlined,
-                size: 15,
-                color: BrandColors.accentDeep,
-              ),
-              const SizedBox(width: 4),
-              Text(l10n.bookingChangeDateCta, style: VelvetText.changeDateCta),
-            ],
-          ),
         ),
       ),
     );

@@ -11,9 +11,12 @@
 //      appointment per scheduled master, each carrying a stable idempotency
 //      key) — and NEVER calls any booking-creation repository method (the
 //      N-booking submit happens on the confirm screen, off this screen).
-//   5. The compact inline «Змінити» change-date button (key
-//      `salon-schedule-change-date`, Phase 14.18 — replaced the removed
-//      `_DayHeaderChip`/`_WindowLine`) is present in the time phase.
+//   5. The time phase's left-edge swipe-back affordance (key
+//      `salon-schedule-time-edge-back-swipe`) is present in the time phase —
+//      it replaced the inline «Змінити» change-date button (Phase 14.18's
+//      `_ChangeDateButton`, itself a replacement for the removed
+//      `_DayHeaderChip`/`_WindowLine`), which is now redundant with it plus
+//      the top-bar back arrow / system back gesture.
 //
 // Strategy: mounts the REAL production screen via a test-local GoRouter
 // mirroring app_router.dart's shape, overriding [slotRepositoryProvider]
@@ -46,6 +49,7 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -495,12 +499,12 @@ void main() {
 
       expect(fake.getMasterSlotsCallCount, greaterThan(0));
 
-      // Phase 14.18 — the removed `_DayHeaderChip`/`_WindowLine`'s only
-      // still-needed affordance now lives as this compact inline change-date
-      // button beside the "Вільний час" heading; it must render in the time
-      // phase.
+      // The date re-selection affordance now lives as this left-edge
+      // swipe-back detector (replacing the removed `_ChangeDateButton`,
+      // itself the removed `_DayHeaderChip`/`_WindowLine`'s successor) — it
+      // must render in the time phase.
       expect(
-        find.byKey(const Key('salon-schedule-change-date')),
+        find.byKey(const Key('salon-schedule-time-edge-back-swipe')),
         findsOneWidget,
       );
 
@@ -977,6 +981,25 @@ void main() {
         );
         expect(find.byKey(const Key('booking-month-calendar')), findsNothing);
 
+        // mobile-perf regression guard (HIGH): before the `_timePhase`
+        // `content` fix, the phase's `Column` used `crossAxisAlignment
+        // .start`, which — being a descendant of `AnimatedSwitcher`'s
+        // `Stack(alignment: .center, fit: StackFit.loose)` — sized itself
+        // to its narrowest branch instead of the full slide width,
+        // shrinking the phase's own `Semantics(container: true)` node (the
+        // bounding box TalkBack uses for the "scrub"/Z-gesture `onDismiss`
+        // action) down to a sliver. With `content`'s `Column` forced to
+        // `.stretch`, the phase container must always span the full slide
+        // width, matching `_datePhase`'s sibling phase exactly.
+        expect(
+          tester.getSize(find.byKey(const ValueKey<String>('time'))).width,
+          tester.getSize(find.byKey(const Key('salon-schedule-page-m1'))).width,
+          reason:
+              'the time phase container (and therefore its accessible '
+              'Semantics bounding box) must span the full slide width even '
+              'when the empty-state content is narrower',
+        );
+
         await tester.tap(
           find.byKey(const Key('salon-schedule-no-slots-change-date')),
         );
@@ -1140,6 +1163,26 @@ void main() {
       expect(
         find.byKey(const Key('salon-schedule-no-slots-empty-state')),
         findsNothing,
+      );
+
+      // mobile-perf regression guard (HIGH): the error branch is a bare,
+      // SINGLE-LINE `Text` in a `Padding` — not wrapped in
+      // `Center`/`Expanded` — so it never claims full width on its own.
+      // Before the `_timePhase` `content` fix (`crossAxisAlignment.start`,
+      // a descendant of `AnimatedSwitcher`'s loose-fit `Stack`), this phase
+      // container rendered at only the error text's own narrow natural
+      // width (165px in this test's 800-wide viewport) instead of the full
+      // slide — shrinking the accessible `Semantics(container: true)`
+      // bounding box TalkBack uses for the "scrub"/Z-gesture `onDismiss`
+      // action down to a sliver in the corner. `.stretch` restores the
+      // full-width container regardless of branch content.
+      expect(
+        tester.getSize(find.byKey(const ValueKey<String>('time'))).width,
+        tester.getSize(find.byKey(const Key('salon-schedule-page-m1'))).width,
+        reason:
+            'the time phase container (and therefore its accessible '
+            'Semantics bounding box) must span the full slide width even '
+            'when the error-state content is narrower',
       );
     });
   });
@@ -1698,6 +1741,197 @@ void main() {
         expect(after.entryFor('m1').slot, m1Before.slot);
       },
     );
+
+    testWidgets(
+      "a left-edge swipe-back gesture on the active slide's TIME phase "
+      "clears only that master's (m2) date, reverting its slide to the "
+      'calendar — the THIRD affordance, restoring what the route-level '
+      '`PopScope(canPop: false)` silently disarmed (Cupertino never arms '
+      'its own edge-drag recognizer while `canPop` is false)',
+      (tester) async {
+        await setUpM1DoneM2TimePhase(tester);
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SalonTimeScreen)),
+        );
+        final SalonScheduleEntry m1Before = container
+            .read(salonBookingScheduleProvider)
+            .entryFor('m1');
+
+        // A left-edge drag toward the right, comfortably past the commit
+        // distance threshold — `tester.drag` starts from the found widget's
+        // own center, which sits inside the narrow edge strip by
+        // construction, so this exercises the SAME hit-test path a real
+        // user's swipe-back gesture would.
+        await tester.drag(
+          withinSlide(
+            'm2',
+            find.byKey(const Key('salon-schedule-time-edge-back-swipe')),
+          ),
+          const Offset(120, 0),
+        );
+        await tester.pumpAndSettle();
+
+        // Still mounted — a slide-local gesture, never a route pop.
+        expect(find.byType(SalonTimeScreen), findsOneWidget);
+
+        expect(
+          withinSlide('m2', find.byKey(const ValueKey<String>('date'))),
+          findsOneWidget,
+        );
+        expect(
+          withinSlide('m2', find.byKey(const ValueKey<String>('time'))),
+          findsNothing,
+        );
+
+        final SalonBookingScheduleState after = container.read(
+          salonBookingScheduleProvider,
+        );
+        expect(
+          after.entryFor('m2').date,
+          isNull,
+          reason: "the edge swipe-back must clear ONLY m2's date",
+        );
+        expect(after.entryFor('m2').slot, isNull);
+        expect(after.entryFor('m1').date, m1Before.date);
+        expect(after.entryFor('m1').slot, m1Before.slot);
+      },
+    );
+  });
+
+  // ===========================================================================
+  // Left-edge swipe-back gesture SCOPING (mobile-dev fix regression guards).
+  // The reverting behaviour itself is covered above; these two tests instead
+  // prove the two hard constraints the fix's PR description calls out:
+  //   1. The detector must never be part of the DATE phase's hit-test path —
+  //      proven here by its outright ABSENCE (`findsNothing`), so it can
+  //      never steal the real Cupertino edge-swipe-to-master-selection that
+  //      phase relies on.
+  //   2. A drag that starts mid-slide (nowhere near the left-edge strip)
+  //      must still page the `PageView` between masters, and must NOT clear
+  //      the dragged-FROM master's already-picked date — proving the
+  //      detector's narrow footprint never intercepts a normal
+  //      master-to-master swipe.
+  // ===========================================================================
+  group('left-edge swipe-back gesture scoping (mobile-dev fix)', () {
+    const args = SalonBookingTimeArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1', 'svc-2'],
+      assignedServiceIdsByMaster: <String, List<String>>{
+        'm1': <String>['svc-1'],
+        'm2': <String>['svc-2'],
+      },
+    );
+
+    testWidgets(
+      'the edge detector is absent on the DATE phase and only appears once '
+      'the active slide reaches the TIME phase',
+      (tester) async {
+        await _pumpTall(tester);
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+
+        await tester.pumpRoutedApp(
+          _router(args: args),
+          overrides: _baseOverrides(
+            masters: const <SalonMasterSummary>[_m1, _m2],
+            slotRepository: fake,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-schedule-time-edge-back-swipe')),
+          findsNothing,
+          reason:
+              'fresh mount — m1 starts on the DATE phase, where the real '
+              'Cupertino edge-swipe (armed by `PopScope(canPop: true)`) '
+              'must be the ONLY left-edge affordance; this detector must '
+              'not exist yet to have any chance of competing with it',
+        );
+
+        final DateTime today = DateTime.now();
+        await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-schedule-time-edge-back-swipe')),
+          findsOneWidget,
+          reason: 'once m1 reaches the TIME phase the detector must mount',
+        );
+      },
+    );
+
+    testWidgets(
+      'a drag starting mid-slide (away from the left edge) still pages the '
+      "PageView to the next master and leaves the dragged-from master's "
+      'picked date untouched — the detector\'s narrow footprint must never '
+      "intercept the PageView's own master-to-master swipe",
+      (tester) async {
+        await _pumpTall(tester);
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+
+        await tester.pumpRoutedApp(
+          _router(args: args),
+          overrides: _baseOverrides(
+            masters: const <SalonMasterSummary>[_m1, _m2],
+            slotRepository: fake,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Put m1 (current) on its TIME phase without completing it, so its
+        // `date` is non-null and would reveal a false-positive phase-back if
+        // the upcoming mid-slide drag wrongly reached the edge detector.
+        final DateTime today = DateTime.now();
+        await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+        await tester.pumpAndSettle();
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SalonTimeScreen)),
+        );
+        final DateTime? m1DateBefore = container
+            .read(salonBookingScheduleProvider)
+            .entryFor('m1')
+            .date;
+        expect(
+          m1DateBefore,
+          isNotNull,
+          reason: 'sanity: m1 must have a picked date before the drag',
+        );
+
+        // Starts from m1's slide's own CENTER — nowhere near the 20px-wide
+        // left-edge strip — and drags leftward far enough (well over half
+        // the 800-wide test viewport from `_pumpTall`) to page to m2.
+        await tester.drag(
+          find.byKey(const Key('salon-schedule-page-m1')),
+          const Offset(-500, 0),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonTimeScreen)),
+        );
+        expect(
+          find.text(l10n.salonSchedulePagerCounterLabel(2, 2)),
+          findsOneWidget,
+          reason: 'the mid-slide drag must page the PageView to master 2',
+        );
+
+        final DateTime? m1DateAfter = container
+            .read(salonBookingScheduleProvider)
+            .entryFor('m1')
+            .date;
+        expect(
+          m1DateAfter,
+          m1DateBefore,
+          reason:
+              "a mid-slide master-to-master swipe must NEVER clear the "
+              "dragged-from master's date — if this fails, the edge "
+              'detector is intercepting drags outside its intended '
+              'narrow left-edge footprint',
+        );
+      },
+    );
   });
 
   testWidgets(
@@ -1908,4 +2142,196 @@ void main() {
       await tester.pumpAndSettle();
     },
   );
+
+  // ===========================================================================
+  // mobile-security gap-fix: the visible «Змінити» change-date button (and
+  // its `_ChangeDateButton`) are GONE from the TIME phase — the ONLY way an
+  // assistive-tech user (TalkBack's Local Context Menu / Switch Access) can
+  // still reach the SAME phase-back action is the
+  // `Semantics(container: true, onDismiss: _clearDate, hint: ...)` node this
+  // fix added, and the top-bar arrow's semantic LABEL must correctly name
+  // its OWN destination on each phase. Neither had any test coverage before
+  // this gap-fix — flagged by mobile-security as a HIGH finding (an
+  // unlabelled/untested `onDismiss` is a real accessibility regression, not
+  // a theoretical one, once the only visible affordance is deleted).
+  // ===========================================================================
+  group('assistive-tech phase-back coverage (mobile-security gap-fix)', () {
+    const args = SalonBookingTimeArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1'],
+      assignedServiceIdsByMaster: <String, List<String>>{
+        'm1': <String>['svc-1'],
+      },
+    );
+
+    testWidgets(
+      "the time phase's Semantics(onDismiss:) action clears the active "
+      "master's date exactly like the edge swipe / arrow / system back — "
+      'and carries a non-empty hint naming the action, so TalkBack\'s Local '
+      "Context Menu / Switch Access never surface an anonymous 'Dismiss'",
+      (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+
+        await _pumpTall(tester);
+        final DateTime today = DateTime.now();
+        final fake = _FakeSlotRepository(<BookingSlot>[
+          BookingSlot(
+            startAt: DateTime(today.year, today.month, today.day, 9),
+            endAt: DateTime(today.year, today.month, today.day, 10, 30),
+            available: true,
+          ),
+        ]);
+
+        await tester.pumpRoutedApp(
+          _router(args: args),
+          overrides: _baseOverrides(
+            slotRepository: fake,
+            selectedServiceIds: const <String>['svc-1'],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+        await tester.pumpAndSettle();
+
+        final Finder timePhaseNode = find.descendant(
+          of: find.byKey(const Key('salon-schedule-page-m1')),
+          matching: find.byKey(const ValueKey<String>('time')),
+        );
+        final SemanticsNode node = tester.getSemantics(timePhaseNode);
+        final SemanticsData data = node.getSemanticsData();
+
+        expect(
+          data.hasAction(SemanticsAction.dismiss),
+          isTrue,
+          reason:
+              'the time phase must expose ACTION_DISMISS so TalkBack\'s '
+              'Local Context Menu / Switch Access can reach the phase-back '
+              'action now that the inline «Змінити» button is gone',
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonTimeScreen)),
+        );
+        expect(
+          data.hint,
+          isNotEmpty,
+          reason:
+              'an unlabelled onDismiss action was the original finding — '
+              'the hint must name the action, never present an anonymous '
+              '"Dismiss"',
+        );
+        expect(
+          data.hint,
+          l10n.bookingChangeDateCta,
+          reason:
+              'the hint reuses the still-live bookingChangeDateCta copy '
+              '("Змінити") — the same action name the deleted button used '
+              'to carry',
+        );
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SalonTimeScreen)),
+        );
+        expect(
+          container.read(salonBookingScheduleProvider).entryFor('m1').date,
+          isNotNull,
+          reason: 'sanity: m1 must have a picked date before the dismiss',
+        );
+
+        // `node.owner` (not `tester.binding.rootPipelineOwner.semanticsOwner`
+        // — a multi-view app may root several `PipelineOwner`s, and guessing
+        // wrong silently no-ops the action instead of failing loudly) is the
+        // ACTUAL `SemanticsOwner` this node is attached to; dispatching
+        // through it is the same path `SemanticsController.performAction`
+        // (the `tester.semantics.*` helpers) uses internally, and delivers
+        // to the SAME place a real TalkBack/Switch-Access ACTION_DISMISS
+        // would.
+        node.owner!.performAction(node.id, SemanticsAction.dismiss);
+        await tester.pumpAndSettle();
+
+        expect(
+          container.read(salonBookingScheduleProvider).entryFor('m1').date,
+          isNull,
+          reason:
+              'invoking the onDismiss action must clear the active '
+              "master's date exactly like the edge swipe / arrow / system "
+              'back already do',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon-schedule-page-m1')),
+            matching: find.byKey(const ValueKey<String>('date')),
+          ),
+          findsOneWidget,
+          reason: 'the slide must revert to the calendar/date phase',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon-schedule-page-m1')),
+            matching: find.byKey(const ValueKey<String>('time')),
+          ),
+          findsNothing,
+        );
+
+        handle.dispose();
+      },
+    );
+
+    testWidgets("the top-bar back arrow's semantics label is phase-aware: the "
+        'master-selection string on the DATE phase, and the calendar string '
+        'once the active slide reaches the TIME phase — pins the exact '
+        'defect this fix corrected (a stale label that lied about the '
+        'destination once the arrow started returning to the calendar '
+        'instead of exiting to master-selection)', (tester) async {
+      await _pumpTall(tester);
+      final DateTime today = DateTime.now();
+      final fake = _FakeSlotRepository(<BookingSlot>[
+        BookingSlot(
+          startAt: DateTime(today.year, today.month, today.day, 9),
+          endAt: DateTime(today.year, today.month, today.day, 10, 30),
+          available: true,
+        ),
+      ]);
+
+      await tester.pumpRoutedApp(
+        _router(args: args),
+        overrides: _baseOverrides(
+          slotRepository: fake,
+          selectedServiceIds: const <String>['svc-1'],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonTimeScreen)),
+      );
+      expect(
+        l10n.salonBookingTimeBackToCalendarSemantics,
+        isNot(l10n.salonBookingTimeBackSemantics),
+        reason:
+            'sanity: the two labels must actually differ, or this test '
+            'would pass even against a static (non-phase-aware) label',
+      );
+
+      // DATE phase (fresh mount): the arrow must announce the
+      // master-selection destination — a real route pop, not a phase
+      // revert.
+      SemanticsData backData = tester
+          .getSemantics(find.byKey(const Key('salon-time-back')))
+          .getSemanticsData();
+      expect(backData.label, l10n.salonBookingTimeBackSemantics);
+      expect(backData.flagsCollection.isButton, isTrue);
+
+      await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+      await tester.pumpAndSettle();
+
+      // TIME phase: the SAME arrow must now announce the calendar
+      // destination — a phase revert, not a route pop.
+      backData = tester
+          .getSemantics(find.byKey(const Key('salon-time-back')))
+          .getSemanticsData();
+      expect(backData.label, l10n.salonBookingTimeBackToCalendarSemantics);
+      expect(backData.flagsCollection.isButton, isTrue);
+    });
+  });
 }

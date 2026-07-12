@@ -852,6 +852,62 @@ void main() {
       );
       await AppHarness.settle(tester);
 
+      // ── Left-edge swipe-back regression guard (mobile-qa Rule 3b, salon
+      // "Час" swipe-back gap-fix) — end-to-end proof, over the REAL
+      // router/backend chain, of the THIRD phase-back affordance: a
+      // rightward drag on `MasterSchedulePage`'s left-edge hit-strip
+      // (`salon-schedule-time-edge-back-swipe`) restores the swipe-back
+      // feel the route-level `PopScope(canPop: false)` silently disarms
+      // (Cupertino never arms its own edge-drag recognizer while `canPop`
+      // is false). The widget tier (`salon_time_screen_test.dart`) already
+      // proves this against a hand-written fake; this is the ONE place it
+      // is proven against the real `GoRouter`/`AppHarness` stack this
+      // journey actually runs on — and specifically that it lands the
+      // client back on master-ccc's OWN calendar, never a route pop out to
+      // master-selection. ─────────────────────────────────────────────────
+      await tester.drag(
+        withinSlide(
+          'master-ccc',
+          find.byKey(const Key('salon-schedule-time-edge-back-swipe')),
+        ),
+        const Offset(120, 0),
+      );
+      await AppHarness.settle(tester);
+
+      expectLocation(router, RouteNames.salonBookingTime);
+      expect(
+        find.byType(SalonTimeScreen),
+        findsOneWidget,
+        reason:
+            'the edge swipe is a slide-local gesture, never a route pop — '
+            'SalonTimeScreen itself must stay mounted',
+      );
+      expect(find.byType(SalonMasterSelectionScreen), findsNothing);
+      expect(
+        withinSlide(
+          'master-ccc',
+          find.byKey(const Key('booking-month-calendar')),
+        ),
+        findsOneWidget,
+        reason:
+            "the edge swipe must land the client back on master-ccc's OWN "
+            'calendar, not on master-selection',
+      );
+      expect(
+        withinSlide('master-ccc', find.byKey(const ValueKey<String>('time'))),
+        findsNothing,
+      );
+
+      // Re-pick the date once more so the rest of the flow (slot selection)
+      // proceeds exactly as it did before this guard was inserted.
+      await tester.tap(
+        withinSlide(
+          'master-ccc',
+          find.byKey(Key('booking-calendar-day-${today.day}')),
+        ),
+      );
+      await AppHarness.settle(tester);
+
       final Finder ccdMorningSlot = withinSlide(
         'master-ccc',
         find.byKey(Key('salon-slot-chip-$todaysMorningSlotIso')),

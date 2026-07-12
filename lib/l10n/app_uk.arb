@@ -3468,10 +3468,6 @@
   "@bookingChangeDateCta": {
     "description": "Compact link on the time screen's day-header chip; returns to the date screen."
   },
-  "bookingChangeDateSemantics": "Змінити дату",
-  "@bookingChangeDateSemantics": {
-    "description": "Accessibility label for the time screen's «Змінити» change-date link."
-  },
   "bookingDayHeaderSemantics": "Обрана дата: {label}. Запис до майстра: {masterName}, {masterRole}",
   "@bookingDayHeaderSemantics": {
     "description": "Accessibility label for the time screen's day-header chip.",
@@ -3960,7 +3956,11 @@
   },
   "salonBookingTimeBackSemantics": "Назад до вибору майстрів",
   "@salonBookingTimeBackSemantics": {
-    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen."
+    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen, when the active slide is still on its date/calendar phase (back exits to master selection)."
+  },
+  "salonBookingTimeBackToCalendarSemantics": "Назад до вибору дати",
+  "@salonBookingTimeBackToCalendarSemantics": {
+    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen, when the active slide is in its time-slot phase (back returns to that master's calendar, not master selection)."
   },
   "salonBookingConfirmTitle": "Підтвердження",
   "@salonBookingConfirmTitle": {
