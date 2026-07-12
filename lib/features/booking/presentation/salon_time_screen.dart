@@ -35,10 +35,12 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -57,6 +59,7 @@ import '../domain/salon_master_schedule.dart';
 import 'widgets/master_schedule_page.dart';
 import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/schedule_confirm_bar.dart';
+import 'widgets/selected_services_shelf.dart';
 
 const Uuid _kUuid = Uuid();
 
@@ -76,8 +79,28 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
   int _current = 0;
   bool _poppedForMissingSchedule = false;
 
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read).
+  late final ScreenProtectionManager _screenProtection;
+
+  @override
+  void initState() {
+    super.initState();
+    // SEC: this screen renders the client's selected service names + prices
+    // via `SelectedServicesShelf` (the pinned `ScheduleConfirmBar`) — guard
+    // against screenshots / app-switcher snapshots while it is mounted.
+    // Mirrors the INTENTIONAL PRODUCT DECISION already applied to the salon
+    // flow's booking confirm/success screens
+    // (`salon_booking_confirm_screen.dart`, `salon_booking_success_screen.dart`)
+    // and the independent-master `booking_confirm_screen.dart` — see
+    // `core/security/screen_protection.dart`'s file header. Do not remove in
+    // a future audit pass.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
   @override
   void dispose() {
+    _screenProtection.release();
     _pager?.dispose();
     super.dispose();
   }
@@ -222,6 +245,19 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
         for (final SalonMasterSchedule s in schedules) s.masterId,
       ];
 
+      // Computed once per outer `build()` (never per the `Consumer` below,
+      // which only reruns on a `scheduledCount` change) — flattens every
+      // assigned master's services back into the client's full original
+      // selection (each selected service is assigned to exactly one master,
+      // so this recovers the same set `SalonMasterSelectionScreen` started
+      // from) and adapts it for the pinned selected-services shelf. Mirrors
+      // that screen's identical `shelfServices` precompute.
+      final List<MasterService> selectedServices = <MasterService>[
+        for (final SalonMasterSchedule s in schedules)
+          for (final SalonCatalogService svc in s.services)
+            salonServiceForShelf(svc),
+      ];
+
       if (_pager == null) {
         // One-shot seed only — this branch runs at most once (guarded by
         // the null check), the very first time `masterIds` becomes
@@ -331,6 +367,7 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
           );
           return ScheduleConfirmBar(
             schedules: schedules,
+            selectedServices: selectedServices,
             scheduledCount: scheduledCount,
             totalCount: masterIds.length,
             onConfirm: () => _confirm(schedules),

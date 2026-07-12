@@ -22,6 +22,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
@@ -302,6 +303,42 @@ GoRouter _router({
     ),
   ],
 );
+
+/// A router with a placeholder initial route + this screen pushed onto it —
+/// needed (unlike [_router], which starts ON this screen) so tapping the
+/// screen's own back button actually POPS it (and therefore disposes it),
+/// letting a test observe `ScreenProtectionManager.release()` firing. Mirrors
+/// `salon_master_selection_screen_test.dart`'s identical push-then-pop
+/// approach for the same ScreenProtectionManager lifecycle group.
+GoRouter _pushableRouter({required SalonBookingTimeArgs args}) => GoRouter(
+  initialLocation: '/start',
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/start',
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('start'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonBookingTime,
+      builder: (context, state) => SalonTimeScreen(args: args),
+    ),
+  ],
+);
+
+/// Counts acquire()/release() calls — mirrors
+/// `salon_master_selection_screen_test.dart`'s identical
+/// `_CountingScreenProtection` (the established pattern for pinning a PII
+/// screen's FLAG_SECURE lifecycle).
+class _CountingScreenProtection extends ScreenProtectionManager {
+  int acquireCount = 0;
+  int releaseCount = 0;
+
+  @override
+  void acquire() => acquireCount++;
+
+  @override
+  void release() => releaseCount++;
+}
 
 // Phase 14.16/14.17 bugfix — `salonMasterServiceCoverageProvider` now
 // resolves `SalonMasterSchedule.primaryServiceAssignmentId` (the master's
@@ -1161,4 +1198,158 @@ void main() {
       );
     },
   );
+
+  // mobile-qa gap-fix — `ScheduleConfirmBar`'s shelf composition is pinned in
+  // `schedule_confirm_bar_test.dart` at the widget level, but this screen's
+  // OWN `selectedServices` flattening (every assigned master's
+  // `schedule.services`, back into the client's full original selection — see
+  // this file's header comment on `selectedServices`) had no coverage from
+  // the real screen at all. This drives the actual `SalonTimeScreen` with two
+  // masters assigned DIFFERENT services and asserts BOTH show up in the
+  // expanded shelf, while the pre-existing progress counter + CTA survive.
+  group('selected-services shelf composition (mobile-qa gap-fix)', () {
+    const Key toggleKey = Key('booking-summary-expand-toggle');
+    const Key expandedListKey = Key('booking-summary-expanded-list');
+
+    // Every shelf assertion is scoped to the shelf's OWN `expanded-list`
+    // subtree rather than searching the whole screen. `MasterSchedulePage`
+    // does not currently render the service name anywhere else, so an
+    // unscoped `find.text(_svc1.name)` happens to pass today — but that is
+    // exactly the latent trap that DID bite on
+    // `salon_master_selection_screen_test.dart`, where each eligible master
+    // row's "covers: <service names>" subtitle draws from the SAME fixture
+    // names and made an unscoped finder match two widgets. Scoping here keeps
+    // the assertion proving the SHELF's content specifically, so a future
+    // slide that happens to echo a service name can never silently satisfy
+    // (or falsely break) this test.
+    Finder inShelf(Finder matching) =>
+        find.descendant(of: find.byKey(expandedListKey), matching: matching);
+
+    testWidgets('expanding the shelf shows every assigned master\'s services '
+        '(flattened across masters), while the schedule progress counter and '
+        'CTA stay in place', (tester) async {
+      const args = SalonBookingTimeArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1', 'svc-2'],
+        assignedServiceIdsByMaster: <String, List<String>>{
+          'm1': <String>['svc-1'],
+          'm2': <String>['svc-2'],
+        },
+      );
+      final fake = _FakeSlotRepository(const <BookingSlot>[]);
+      await tester.pumpRoutedApp(
+        _router(args: args),
+        overrides: _baseOverrides(
+          masters: const <SalonMasterSummary>[_m1, _m2],
+          slotRepository: fake,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Collapsed: the shelf's own itemized list is not built at all yet.
+      expect(find.byKey(expandedListKey), findsNothing);
+
+      await tester.tap(find.byKey(toggleKey));
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok: fixture service names (test data), not app UI copy.
+      expect(inShelf(find.text(_svc1.name)), findsOneWidget);
+      // i18n-finder-ok: fixture service names (test data), not app UI copy.
+      expect(inShelf(find.text(_svc2.name)), findsOneWidget);
+
+      // The pre-existing "X з Y заплановано" progress counter + CTA must
+      // still be present once the shelf is expanded.
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonTimeScreen)),
+      );
+      expect(find.text(l10n.salonScheduleProgress(0, 2)), findsOneWidget);
+      final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+        find.byKey(const Key('schedule-confirm-cta')),
+      );
+      expect(cta.onPressed, isNull); // nothing scheduled yet
+    });
+  });
+
+  // ===========================================================================
+  // ScreenProtectionManager lifecycle (mobile-security MEDIUM fix — this
+  // screen now renders the client's selected service names + prices via
+  // `SelectedServicesShelf` inside the pinned `ScheduleConfirmBar`). Mirrors
+  // `salon_master_selection_screen_test.dart`'s established acquire/release
+  // pattern for the SAME class of fix on the previous step.
+  // ===========================================================================
+  group('ScreenProtectionManager lifecycle (mobile-security gap-fix)', () {
+    const args = SalonBookingTimeArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1'],
+      assignedServiceIdsByMaster: <String, List<String>>{
+        'm1': <String>['svc-1'],
+      },
+    );
+
+    testWidgets(
+      'acquire() is called exactly once when the time screen mounts',
+      (tester) async {
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final GoRouter router = _pushableRouter(args: args);
+        final _CountingScreenProtection counting = _CountingScreenProtection();
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._baseOverrides(
+              slotRepository: fake,
+              selectedServiceIds: const <String>['svc-1'],
+            ),
+            screenProtectionProvider.overrideWithValue(counting),
+          ],
+        );
+        unawaited(router.push(RouteNames.salonBookingTime));
+        await tester.pumpAndSettle();
+
+        expect(
+          counting.acquireCount,
+          1,
+          reason:
+              'initState must call acquire() exactly once to enable '
+              'FLAG_SECURE now that this screen renders selected service '
+              'names + prices via SelectedServicesShelf',
+        );
+      },
+    );
+
+    testWidgets(
+      'release() is called exactly once when the time screen is popped '
+      '(disposed) — acquire/release stay symmetric',
+      (tester) async {
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final GoRouter router = _pushableRouter(args: args);
+        final _CountingScreenProtection counting = _CountingScreenProtection();
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._baseOverrides(
+              slotRepository: fake,
+              selectedServiceIds: const <String>['svc-1'],
+            ),
+            screenProtectionProvider.overrideWithValue(counting),
+          ],
+        );
+        unawaited(router.push(RouteNames.salonBookingTime));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-time-back')));
+        await tester.pumpAndSettle();
+
+        expect(
+          counting.releaseCount,
+          1,
+          reason:
+              'dispose() must call release() exactly once so FLAG_SECURE is '
+              'cleared once the time screen is popped',
+        );
+        expect(counting.acquireCount, counting.releaseCount);
+      },
+    );
+  });
 }

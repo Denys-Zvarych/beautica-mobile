@@ -581,6 +581,52 @@ void main() {
         );
       }
 
+      // ── mobile-qa Rule 3b (KNOWN COVERAGE GAP fix): the bottom bar on this
+      // master-assignment step now ALWAYS shows the client's selected
+      // services in the same expandable `SelectedServicesShelf` the
+      // service-selection step already used (previously it showed only the
+      // "N assigned" progress counter, so the client lost sight of what they
+      // picked). Proves the shelf's toggle genuinely expands against the REAL
+      // `_AssignConfirmBar` and shows BOTH still-selected services — the
+      // shelf always renders the client's FULL original selection,
+      // independent of assignment state (neither master has been picked
+      // yet here). ─────────────────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await AppHarness.settle(tester);
+      final Finder masterStepShelfList = find.byKey(
+        const Key('booking-summary-expanded-list'),
+      );
+      expect(masterStepShelfList, findsOneWidget);
+      expect(
+        find.descendant(
+          of: masterStepShelfList,
+          // i18n-finder-ok: real fixture wire data (salon-svc-shared's catalogue name), not translated UI copy.
+          matching: find.text('Манікюр класичний'),
+        ),
+        findsOneWidget,
+        reason:
+            'the master-assignment step\'s pinned shelf must still show '
+            'salon-svc-shared once expanded, exactly like the '
+            'service-selection step did',
+      );
+      expect(
+        find.descendant(
+          of: masterStepShelfList,
+          // i18n-finder-ok: real fixture wire data (salon-svc-exclusive's catalogue name), not translated UI copy.
+          matching: find.text('Корекція брів'),
+        ),
+        findsOneWidget,
+        reason:
+            'and salon-svc-exclusive too — the shelf must never lose sight '
+            'of either service the client picked on the previous step',
+      );
+      // Collapse back down before continuing — subsequent taps on this
+      // screen target the body (master rows), not the bottom bar, but
+      // leaving the shelf's own itemized list mounted needlessly grows the
+      // pinned bar's height for no reason.
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await AppHarness.settle(tester);
+
       // ── mobile-qa Rule 3b (card-unification audit): the picker's rows
       // render the SHARED `MasterStrip(showRating: true)` card end to end
       // against the REAL bookable-masters response — pin the ACTUAL rating
@@ -646,6 +692,46 @@ void main() {
             'assignment feeding into a REAL PageView.builder over two '
             'separately-fetched masters',
       );
+
+      // ── mobile-qa Rule 3b (KNOWN COVERAGE GAP fix): the time step's
+      // pinned `ScheduleConfirmBar` also now ALWAYS shows the client's
+      // selected services (flattened across every assigned master) in the
+      // SAME shelf — proves the toggle expands against the REAL screen and
+      // shows both services, before any date/time has been picked. ────────
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await AppHarness.settle(tester);
+      final Finder timeStepShelfList = find.byKey(
+        const Key('booking-summary-expanded-list'),
+      );
+      expect(timeStepShelfList, findsOneWidget);
+      expect(
+        find.descendant(
+          of: timeStepShelfList,
+          // i18n-finder-ok: real fixture wire data (salon-svc-shared's catalogue name), not translated UI copy.
+          matching: find.text('Манікюр класичний'),
+        ),
+        findsOneWidget,
+        reason:
+            'the time step\'s pinned shelf must show salon-svc-shared '
+            '(master-ccc\'s assigned service) once expanded',
+      );
+      expect(
+        find.descendant(
+          of: timeStepShelfList,
+          // i18n-finder-ok: real fixture wire data (salon-svc-exclusive's catalogue name), not translated UI copy.
+          matching: find.text('Корекція брів'),
+        ),
+        findsOneWidget,
+        reason:
+            'and salon-svc-exclusive (master-ddd\'s assigned service) too — '
+            'the shelf flattens EVERY assigned master\'s services, not just '
+            'the currently-visible slide\'s',
+      );
+      // Collapse back down before driving the calendar/slot taps below —
+      // those target keys scoped to each master's slide, unaffected either
+      // way, but there is no reason to leave the itemized list mounted.
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await AppHarness.settle(tester);
 
       // Two eligible masters (master-ccc, master-ddd) assigned in the
       // previous step → exactly two slider slides/dots.

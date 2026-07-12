@@ -47,6 +47,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -66,6 +67,7 @@ import '../../salon/domain/salon_service_catalog.dart';
 import '../application/salon_master_coverage_notifier.dart';
 import '../domain/salon_booking_args.dart';
 import 'widgets/master_strip.dart';
+import 'widgets/selected_services_shelf.dart';
 
 /// Avatar gradients cycled by roster position — the exact palette
 /// `SalonMasterCard` (Phase 13.6) uses, kept in sync here since only camel/
@@ -109,8 +111,28 @@ class _SalonMasterSelectionScreenState
     const _PickState(picked: <String>{}, choice: <String, String>{}),
   );
 
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read).
+  late final ScreenProtectionManager _screenProtection;
+
+  @override
+  void initState() {
+    super.initState();
+    // SEC: this screen renders the client's selected service names + prices
+    // via `SelectedServicesShelf` (the pinned `_AssignConfirmBar`) — guard
+    // against screenshots / app-switcher snapshots while it is mounted.
+    // Mirrors the INTENTIONAL PRODUCT DECISION already applied to the salon
+    // flow's booking confirm/success screens
+    // (`salon_booking_confirm_screen.dart`, `salon_booking_success_screen.dart`)
+    // and the independent-master `booking_confirm_screen.dart` — see
+    // `core/security/screen_protection.dart`'s file header. Do not remove in
+    // a future audit pass.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
   @override
   void dispose() {
+    _screenProtection.release();
     _pickNotifier.dispose();
     super.dispose();
   }
@@ -220,6 +242,16 @@ class _SalonMasterSelectionScreenState
             allServices.firstWhere((SalonCatalogService s) => s.id == id),
       ];
 
+      // Computed once per outer `build()` (never per pick/choice tap, which
+      // only reruns the narrower `ValueListenableBuilder<_PickState>` below)
+      // — the display-only adapter feeding the pinned selected-services
+      // shelf, so the client never loses sight of what they picked while
+      // assigning masters. Mirrors `SalonServiceSelectionScreen`'s identical
+      // adapter use for `BookingSummaryBar`.
+      final List<MasterService> shelfServices = <MasterService>[
+        for (final SalonCatalogService s in selected) salonServiceForShelf(s),
+      ];
+
       // Recomputed only when the underlying async data changes (masters /
       // catalog / coverage) — never on a pick/choice toggle, since the O(N ×
       // selected) `eligible` filter + `eligibleIndex` map are built once per
@@ -246,6 +278,7 @@ class _SalonMasterSelectionScreenState
           );
           return _AssignConfirmBar(
             selected: selected,
+            shelfServices: shelfServices,
             assignedCount: derived.assignedCount,
             totalCount: selected.length,
             onNext: derived.allAssigned
@@ -1573,12 +1606,18 @@ class _MiniLabel extends StatelessWidget {
 class _AssignConfirmBar extends StatelessWidget {
   const _AssignConfirmBar({
     required this.selected,
+    required this.shelfServices,
     required this.assignedCount,
     required this.totalCount,
     required this.onNext,
   });
 
   final List<SalonCatalogService> selected;
+
+  /// Display adapter of [selected] for the pinned [SelectedServicesShelf] —
+  /// see `salonServiceForShelf`'s doc comment for why this is a separate,
+  /// display-only list rather than reusing [selected] directly.
+  final List<MasterService> shelfServices;
   final int assignedCount;
   final int totalCount;
   final VoidCallback? onNext;
@@ -1629,6 +1668,19 @@ class _AssignConfirmBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              // The same expandable "Послуги та ціни" shelf the
+              // service-selection step shows, so the client never loses
+              // sight of what they picked while assigning masters. No
+              // `onRemove`: deselecting a service here — after masters may
+              // already be assigned to it — would invalidate that
+              // assignment, so the itemized list is read-only on this step.
+              SelectedServicesShelf(services: shelfServices),
+              const SizedBox(height: VelvetSpacing.md),
+              Container(
+                height: 1,
+                color: BrandColors.faint.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: VelvetSpacing.sm + 2),
               Semantics(
                 label: '${l10n.bookingTotalLabel} ${duration ?? ''} $price',
                 child: Row(

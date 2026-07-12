@@ -12,6 +12,7 @@
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/schedule_confirm_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/selected_services_shelf.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -69,6 +70,15 @@ const _m2Schedule = SalonMasterSchedule(
   primaryServiceAssignmentId: 'assignment-m2-svc-3',
 );
 
+/// The client's full original selection across both masters — feeds the
+/// pinned [SelectedServicesShelf], mirroring what `SalonTimeScreen` flattens
+/// out of every assigned master's [SalonMasterSchedule.services].
+final List<MasterService> _selectedServices = <MasterService>[
+  salonServiceForShelf(_svc1),
+  salonServiceForShelf(_svc2),
+  salonServiceForShelf(_svc3),
+];
+
 void main() {
   testWidgets('sums price/duration across every assigned service of every '
       'master (not just each master\'s primary service)', (tester) async {
@@ -76,6 +86,7 @@ void main() {
       Scaffold(
         bottomNavigationBar: ScheduleConfirmBar(
           schedules: const <SalonMasterSchedule>[_m1Schedule, _m2Schedule],
+          selectedServices: _selectedServices,
           scheduledCount: 0,
           totalCount: 2,
           onConfirm: () {},
@@ -94,6 +105,7 @@ void main() {
       Scaffold(
         bottomNavigationBar: ScheduleConfirmBar(
           schedules: const <SalonMasterSchedule>[_m1Schedule, _m2Schedule],
+          selectedServices: _selectedServices,
           scheduledCount: 1,
           totalCount: 2,
           onConfirm: () {},
@@ -110,6 +122,7 @@ void main() {
       Scaffold(
         bottomNavigationBar: ScheduleConfirmBar(
           schedules: const <SalonMasterSchedule>[_m1Schedule, _m2Schedule],
+          selectedServices: _selectedServices,
           scheduledCount: 2,
           totalCount: 2,
           onConfirm: () {},
@@ -127,6 +140,7 @@ void main() {
       Scaffold(
         bottomNavigationBar: ScheduleConfirmBar(
           schedules: const <SalonMasterSchedule>[_m1Schedule, _m2Schedule],
+          selectedServices: _selectedServices,
           scheduledCount: 1,
           totalCount: 2,
           onConfirm: () => confirmed = true,
@@ -142,6 +156,7 @@ void main() {
       Scaffold(
         bottomNavigationBar: ScheduleConfirmBar(
           schedules: const <SalonMasterSchedule>[_m1Schedule, _m2Schedule],
+          selectedServices: _selectedServices,
           scheduledCount: 2,
           totalCount: 2,
           onConfirm: () => confirmed = true,
@@ -156,5 +171,107 @@ void main() {
     await tester.tap(find.byKey(const Key('schedule-confirm-cta')));
     await tester.pumpAndSettle();
     expect(confirmed, isTrue);
+  });
+
+  // mobile-qa gap-fix — the bar's composition of the shared
+  // `SelectedServicesShelf` (the new "always show selected services" bottom
+  // bar behaviour) had NO coverage at all: every test above only drove the
+  // "Разом"/progress/CTA content, never the shelf pinned above it. The main
+  // regression risk of that change is the shelf's toggle interfering with —
+  // or hiding — the progress counter/CTA that already existed on this bar, so
+  // this group expands the shelf FIRST and re-asserts every pre-existing
+  // contract still holds.
+  group('selected-services shelf composition (mobile-qa gap-fix)', () {
+    const Key toggleKey = Key('booking-summary-expand-toggle');
+    const Key expandedListKey = Key('booking-summary-expanded-list');
+
+    // Every shelf assertion is scoped to the shelf's OWN `expanded-list`
+    // subtree rather than searching the whole pumped tree. Nothing else in
+    // this bar renders a service name today, so an unscoped finder happens to
+    // pass — but that is exactly the latent trap that DID bite on
+    // `salon_master_selection_screen_test.dart`, where the master rows'
+    // "covers: <service names>" subtitle draws from the SAME fixture names and
+    // made an unscoped finder match two widgets. Scoping keeps the assertion
+    // proving the SHELF's content specifically.
+    Finder inShelf(Finder matching) =>
+        find.descendant(of: find.byKey(expandedListKey), matching: matching);
+
+    testWidgets(
+      'expanding the shelf reveals every selected service across every '
+      'assigned master, while the progress counter and CTA stay visible',
+      (tester) async {
+        await tester.pumpApp(
+          Scaffold(
+            bottomNavigationBar: ScheduleConfirmBar(
+              schedules: const <SalonMasterSchedule>[_m1Schedule, _m2Schedule],
+              selectedServices: _selectedServices,
+              scheduledCount: 1,
+              totalCount: 2,
+              onConfirm: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Collapsed: the shelf's own itemized list is not built at all yet.
+        expect(find.byKey(expandedListKey), findsNothing);
+
+        await tester.tap(find.byKey(toggleKey));
+        await tester.pumpAndSettle();
+
+        // i18n-finder-ok: fixture service names (test data), not app UI copy.
+        expect(inShelf(find.text(_svc1.name)), findsOneWidget);
+        // i18n-finder-ok: fixture service names (test data), not app UI copy.
+        expect(inShelf(find.text(_svc2.name)), findsOneWidget);
+        // i18n-finder-ok: fixture service names (test data), not app UI copy.
+        expect(inShelf(find.text(_svc3.name)), findsOneWidget);
+
+        // The pre-existing progress counter + CTA must still be present and
+        // functioning once the shelf is expanded — the regression risk this
+        // change introduces.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ScheduleConfirmBar)),
+        );
+        expect(find.text(l10n.salonScheduleProgress(1, 2)), findsOneWidget);
+        final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+          find.byKey(const Key('schedule-confirm-cta')),
+        );
+        expect(
+          cta.onPressed,
+          isNull,
+        ); // still disabled: scheduledCount < totalCount
+      },
+    );
+
+    testWidgets(
+      'the CTA still fires onConfirm once every master is scheduled, even '
+      'with the shelf expanded',
+      (tester) async {
+        bool confirmed = false;
+        await tester.pumpApp(
+          Scaffold(
+            bottomNavigationBar: ScheduleConfirmBar(
+              schedules: const <SalonMasterSchedule>[_m1Schedule, _m2Schedule],
+              selectedServices: _selectedServices,
+              scheduledCount: 2,
+              totalCount: 2,
+              onConfirm: () => confirmed = true,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(toggleKey));
+        await tester.pumpAndSettle();
+
+        // i18n-finder-ok: fixture service name (test data), not app UI copy.
+        expect(inShelf(find.text(_svc1.name)), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('schedule-confirm-cta')));
+        await tester.pumpAndSettle();
+
+        expect(confirmed, isTrue);
+      },
+    );
   });
 }

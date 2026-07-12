@@ -29,14 +29,16 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 
 import '../../../salon/domain/salon_service_catalog.dart';
-import '../../../services/domain/master_service.dart' show ServicePriceType;
+import '../../../services/domain/master_service.dart';
 import '../../domain/salon_master_schedule.dart';
+import 'selected_services_shelf.dart';
 
 /// The pinned "Разом" + progress + CTA shelf for the salon "Час" screen.
 class ScheduleConfirmBar extends StatelessWidget {
   const ScheduleConfirmBar({
     super.key,
     required this.schedules,
+    required this.selectedServices,
     required this.scheduledCount,
     required this.totalCount,
     required this.onConfirm,
@@ -44,6 +46,13 @@ class ScheduleConfirmBar extends StatelessWidget {
 
   /// Every assigned master's schedule slide — drives the «Разом» total.
   final List<SalonMasterSchedule> schedules;
+
+  /// Display adapter of every selected service across every assigned
+  /// master's [schedules], feeding the pinned [SelectedServicesShelf] so the
+  /// client never loses sight of what they picked while scheduling. See
+  /// `salonServiceForShelf`'s doc comment — display-only, never used for the
+  /// booking write path.
+  final List<MasterService> selectedServices;
 
   /// How many masters have BOTH a date and a time chosen.
   final int scheduledCount;
@@ -97,6 +106,19 @@ class ScheduleConfirmBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              // The same expandable "Послуги та ціни" shelf the
+              // service-selection step shows, so the client never loses
+              // sight of what they picked while scheduling. No `onRemove`:
+              // deselecting a service here — after a date/time may already
+              // be scheduled around it — would invalidate that schedule, so
+              // the itemized list is read-only on this step.
+              SelectedServicesShelf(services: selectedServices),
+              const SizedBox(height: VelvetSpacing.md),
+              Container(
+                height: 1,
+                color: BrandColors.faint.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: VelvetSpacing.sm + 2),
               Semantics(
                 label:
                     '${l10n.bookingTotalLabel} ${durationLabel ?? ''} $price',
