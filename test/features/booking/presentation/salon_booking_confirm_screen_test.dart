@@ -549,14 +549,14 @@ void main() {
       expect(_screenPopScope(tester).canPop, isFalse);
 
       // Clear the partial-failure SnackBar the submit surfaced so the next
-      // assertion sees ONLY the back-blocked one (one SnackBar shows at a time).
-      await tester.pump(const Duration(seconds: 5));
-      await tester.pumpAndSettle();
+      // assertion sees ONLY the back-blocked one (one SnackBar shows at a
+      // time). Pump until it's actually gone instead of guessing its
+      // auto-dismiss duration.
+      await tester.pumpUntilGone(find.byType(SnackBar));
 
       // Tap the top-bar back arrow — must be intercepted.
       await tester.tap(find.byKey(const Key('salon-confirm-back')));
-      await tester.pump(); // schedule the SnackBar
-      await tester.pump(const Duration(milliseconds: 400)); // entry animation
+      await tester.pumpAndSettle();
 
       // Did NOT pop, and the localized back-blocked SnackBar is shown.
       expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);

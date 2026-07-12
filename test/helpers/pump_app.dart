@@ -98,6 +98,58 @@ extension PumpApp on WidgetTester {
   }
 }
 
+/// Pump-until-condition helpers (2026-06-24 fixed-wait gate — see
+/// `scripts/forbid_fixed_wait.sh`). A hard-coded `pump(const Duration(...))`
+/// is a guess at how long some async/animated work takes: too short is flaky
+/// on a slow CI runner, too long slows the whole suite. These pump in small
+/// steps and stop the INSTANT the awaited condition is true, so the test
+/// waits exactly as long as the real work takes — no more, no less.
+extension PumpUntil on WidgetTester {
+  /// Pumps in [interval] steps until [finder] matches at least one widget, or
+  /// [timeout] of virtual time has elapsed — then asserts the finder matches
+  /// (surfacing a clear timeout failure instead of a silent false pass).
+  Future<void> pumpUntilFound(
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration interval = const Duration(milliseconds: 100),
+  }) async {
+    final int maxTicks = (timeout.inMicroseconds / interval.inMicroseconds)
+        .ceil();
+    for (int i = 0; i < maxTicks; i++) {
+      if (finder.evaluate().isNotEmpty) return;
+      await pump(interval);
+    }
+    expect(
+      finder,
+      findsWidgets,
+      reason: 'pumpUntilFound timed out after $timeout waiting for $finder',
+    );
+  }
+
+  /// Inverse of [pumpUntilFound] — pumps until [finder] matches nothing (e.g.
+  /// waiting out a SnackBar's own auto-dismiss timer instead of guessing its
+  /// duration).
+  Future<void> pumpUntilGone(
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration interval = const Duration(milliseconds: 100),
+  }) async {
+    final int maxTicks = (timeout.inMicroseconds / interval.inMicroseconds)
+        .ceil();
+    for (int i = 0; i < maxTicks; i++) {
+      if (finder.evaluate().isEmpty) return;
+      await pump(interval);
+    }
+    expect(
+      finder,
+      findsNothing,
+      reason:
+          'pumpUntilGone timed out after $timeout waiting for $finder '
+          'to disappear',
+    );
+  }
+}
+
 /// Applies the [PumpApp.pumpApp] `textScaleFactor` knob.
 ///
 /// When [textScaleFactor] is given, overrides the ambient [MediaQuery] text
