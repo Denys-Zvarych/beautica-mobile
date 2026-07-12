@@ -206,9 +206,11 @@ void main() {
       find.byKey(const Key('client-booking-conflict-dialog')),
       findsOneWidget,
     );
-    // i18n-finder-ok: service/master names are fixture data on the
-    // Failure object, not translated UI copy.
+    // service/master names are fixture data on the Failure object, not
+    // translated UI copy.
+    // i18n-finder-ok: fixture data on the Failure object, not UI copy.
     expect(find.text('Педикюр апаратний'), findsOneWidget);
+    // i18n-finder-ok: fixture data on the Failure object, not UI copy.
     expect(find.text('Ірина Шевченко'), findsOneWidget);
     expect(
       find.text(formatBookingWindow(clashStart, clashEnd)),

@@ -50,6 +50,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(_kIndependentKey), findsOneWidget);
+      // i18n-finder-ok: fixture label supplied by the test, not app copy.
       expect(find.text('Записатись'), findsOneWidget);
     });
 

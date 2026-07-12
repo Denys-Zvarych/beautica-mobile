@@ -90,9 +90,11 @@ void main() {
           find.byKey(const Key('client-booking-conflict-dialog')),
           findsOneWidget,
         );
-        // i18n-finder-ok: service/master names are fixture data carried on
-        // the Failure object, not translated UI copy.
+        // service/master names are fixture data carried on the Failure
+        // object, not translated UI copy.
+        // i18n-finder-ok: fixture data on the Failure object, not UI copy.
         expect(find.text('Манікюр класичний'), findsOneWidget);
+        // i18n-finder-ok: fixture data on the Failure object, not UI copy.
         expect(find.text('Олена Коваль'), findsOneWidget);
 
         final String expectedWindow = formatBookingWindow(starts, ends);

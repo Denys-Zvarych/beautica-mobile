@@ -30,6 +30,7 @@ void main() {
 
       // i18n-finder-ok: fixture strings supplied by this test, not app copy.
       expect(find.text('Дата'), findsOneWidget);
+      // i18n-finder-ok: fixture value, not app copy.
       expect(find.text('вт, 14 лип'), findsOneWidget);
     });
 
@@ -63,6 +64,7 @@ void main() {
 
       // i18n-finder-ok: fixture strings, not app copy.
       expect(find.text('вул. Хрещатик, 1'), findsOneWidget);
+      // i18n-finder-ok: fixture value, not app copy.
       expect(find.text('Київ'), findsOneWidget);
       expect(
         find.descendant(
@@ -87,8 +89,11 @@ void main() {
 
       // The notch-smaller variant must not DROP any content — all three lines
       // stay, only the styles differ.
+      // i18n-finder-ok: fixture strings, not app copy.
       expect(find.text('Адреса'), findsOneWidget);
+      // i18n-finder-ok: fixture value, not app copy.
       expect(find.text('вул. Личаківська, 5'), findsOneWidget);
+      // i18n-finder-ok: fixture value, not app copy.
       expect(find.text('Львів'), findsOneWidget);
     });
   });

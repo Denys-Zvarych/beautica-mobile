@@ -71,6 +71,7 @@ void main() {
         expect(find.byType(MasterStripShell), findsOneWidget);
         // i18n-finder-ok: opaque slot stand-ins below.
         expect(find.text('Запис до майстра'), findsOneWidget); // topLabel slot
+        // i18n-finder-ok: opaque slot stand-in, not app copy.
         expect(find.text('Тарас Мельник'), findsOneWidget); // name slot
         expect(find.byKey(const Key('mid-title')), findsOneWidget); // middle
         expect(find.byKey(const Key('trail-rating')), findsOneWidget); // trail
