@@ -42,6 +42,7 @@ class SalonAppointmentCard extends StatelessWidget {
     required this.avatarGradient,
     this.status,
     this.failure,
+    this.showSucceededStatus = true,
   });
 
   final SalonBookingAppointment appointment;
@@ -64,6 +65,34 @@ class SalonAppointmentCard extends StatelessWidget {
   /// The failure to surface when [status] is
   /// [SalonAppointmentSubmitStatus.failed].
   final Failure? failure;
+
+  /// Whether a [status] of [SalonAppointmentSubmitStatus.succeeded] is worth
+  /// rendering on screen.
+  ///
+  /// This is NOT "did this appointment succeed" — [status] already answers
+  /// that. It answers "is the user actually staying on this screen to look at
+  /// it". The caller passes `inFlight || hasFailures` (see
+  /// `_AppointmentCardSlot` in `salon_booking_confirm_screen.dart`) — i.e.
+  /// "a submit/retry pass is currently in progress, OR it has settled with at
+  /// least one failure":
+  ///
+  /// - While a pass is `inFlight` (mid multi-master submit, or mid retry),
+  ///   this is `true` so an already-succeeded master's "Заплановано" line
+  ///   stays visible — it is the signal telling the user which masters are
+  ///   already booked, don't retry those. Gating on live `hasFailures` alone
+  ///   would hide it here: nothing has failed *yet* partway through a submit,
+  ///   and a retry's pre-loop reset clears `hasFailures` before any network
+  ///   call even starts, so the checkmark would wrongly read as "not
+  ///   attempted" for the whole in-flight duration.
+  /// - Once settled (`inFlight == false`): if every appointment succeeded,
+  ///   this is `false` — the confirm screen `pushReplacement`s away with no
+  ///   `await` between the last state write and the navigation call, so that
+  ///   frame never actually paints and the line would just be noise if it
+  ///   somehow did. If some failed, this is `true` and the line is the same
+  ///   "already booked, don't retry" signal, now shown at rest.
+  ///
+  /// `submitting` and `failed` are unaffected — they always render.
+  final bool showSucceededStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +126,9 @@ class SalonAppointmentCard extends StatelessWidget {
               const SectionRule(),
               BookingRecap(selections: selections),
               if (status != null &&
-                  status != SalonAppointmentSubmitStatus.pending)
+                  status != SalonAppointmentSubmitStatus.pending &&
+                  (status != SalonAppointmentSubmitStatus.succeeded ||
+                      showSucceededStatus))
                 Padding(
                   padding: const EdgeInsets.only(top: VelvetSpacing.sm + 2),
                   child: _StatusLine(status: status!, failure: failure),

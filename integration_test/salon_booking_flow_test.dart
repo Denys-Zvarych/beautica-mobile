@@ -107,6 +107,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -160,6 +161,89 @@ class _FakeBookingRepository implements BookingRepository {
       status: BookingStatus.pending,
       canReview: false,
     );
+  }
+
+  @override
+  Future<PageResponse<Booking>> getMyBookings({
+    required BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Booking> getBookingById(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> cancelBooking(String id, {String? reason}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
+}
+
+// ---------------------------------------------------------------------------
+// mobile-qa regression coverage (Phase 14.18 bugfix follow-up) — Step 2.7
+// Rule 3b: the `showSucceededStatus` gate fix (see
+// `test/features/booking/presentation/widgets/salon_appointment_card_test.dart`'s
+// file header for the full bug narrative) touches a real user journey
+// (salon submit → partial failure → retry), so it needs end-to-end coverage,
+// not only the widget tier.
+//
+// `_FakeBookingRepository` above resolves every call on a plain `async`
+// function with no real `await`, so every request is already settled by the
+// time a single `pump()` looks — it can never hold the retry's in-flight
+// window open long enough to observe it. This gated variant queues a
+// `Completer` per call instead, so the test can resolve master-one and
+// master-two independently and inspect the screen while master-two's retry
+// POST is still pending — the exact window the FIRST (buggy) attempt at this
+// fix got wrong (see `salon_booking_confirm_screen.dart`'s
+// `_AppointmentCardSlot` doc comment).
+// ---------------------------------------------------------------------------
+class _GatedBookingRepository implements BookingRepository {
+  final Map<String, List<Completer<Booking>>> _queue =
+      <String, List<Completer<Booking>>>{};
+  final List<CreateBookingRequest> requests = <CreateBookingRequest>[];
+
+  int callsFor(String masterId) =>
+      requests.where((CreateBookingRequest r) => r.masterId == masterId).length;
+
+  @override
+  Future<Booking> createBooking(CreateBookingRequest req) {
+    requests.add(req);
+    final Completer<Booking> completer = Completer<Booking>();
+    _queue
+        .putIfAbsent(req.masterId, () => <Completer<Booking>>[])
+        .add(completer);
+    return completer.future;
+  }
+
+  /// Resolves the OLDEST not-yet-resolved call for [masterId] as a success.
+  void succeed(String masterId) {
+    final Completer<Booking> completer = _queue[masterId]!.removeAt(0);
+    completer.complete(
+      Booking(
+        id: 'booking-$masterId',
+        masterId: masterId,
+        masterFirstName: 'Майстер',
+        masterLastName: 'Салону',
+        masterType: 'SALON_MASTER',
+        serviceId: 'assign-$masterId',
+        serviceName: 'Послуга',
+        durationMinutes: 60,
+        price: 500,
+        startAt: DateTime.now().add(const Duration(days: 1)),
+        endAt: DateTime.now().add(const Duration(days: 1, minutes: 60)),
+        status: BookingStatus.pending,
+        canReview: false,
+      ),
+    );
+  }
+
+  /// Rejects the OLDEST not-yet-resolved call for [masterId] as [failure].
+  void fail(String masterId, Failure failure) {
+    final Completer<Booking> completer = _queue[masterId]!.removeAt(0);
+    completer.completeError(failure);
   }
 
   @override
@@ -978,6 +1062,145 @@ void main() {
               .toSet(),
           <String>{'idem-m-two'},
         );
+        expect(tester.takeException(), isNull);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // ── Phase 14.18 showSucceededStatus regression guard (Step 2.7 Rule 3b) ──
+  // No native surface is involved here (no OS permission dialog, no deep
+  // link, no FCM/local notification, no WebView, no biometric) — this is
+  // pure Dart/Riverpod state driving a pure Flutter widget tree, so no
+  // Patrol test is added alongside this one.
+  testWidgets(
+    'CLIENT salon confirm: the already-succeeded master\'s «Заплановано» '
+    'status survives BOTH the settled partial failure AND the retry\'s own '
+    'in-flight window — the regression guard for the showSucceededStatus '
+    'gate (first attempt wrongly gated on live hasFailures alone)',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.client;
+        final repo = _GatedBookingRepository();
+        final GoRouter router = await AppHarness.boot(
+          tester,
+          fb,
+          extraOverrides: <Object>[
+            bookingRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await AppHarness.settle(tester);
+
+        SalonBookingAppointment appt(String masterId, String firstName) =>
+            SalonBookingAppointment(
+              schedule: SalonMasterSchedule(
+                masterId: masterId,
+                firstName: firstName,
+                lastName: 'Майстер',
+                type: MasterType.salonMaster,
+                services: <SalonCatalogService>[
+                  SalonCatalogService(
+                    id: 'svc-$masterId',
+                    name: 'Манікюр',
+                    durationLabel: '1 год',
+                    priceDisplay: '500 грн',
+                    durationMinutes: 60,
+                    priceType: ServicePriceType.fixed,
+                    priceMin: 500,
+                  ),
+                ],
+                primaryServiceAssignmentId: 'assign-$masterId',
+              ),
+              startAt: DateTime.now().add(const Duration(days: 1)),
+              idempotencyKey: 'idem-$masterId',
+            );
+
+        unawaited(
+          router.push(
+            RouteNames.salonBookingConfirm,
+            extra: SalonBookingConfirmArgs(
+              salonId: 'salon-xyz',
+              appointments: <SalonBookingAppointment>[
+                appt('m-one', 'Олена'),
+                appt('m-two', 'Софія'),
+              ],
+            ),
+          ),
+        );
+        await AppHarness.settle(tester);
+
+        expectLocation(router, RouteNames.salonBookingConfirm);
+        expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonBookingConfirmScreen)),
+        );
+        final Finder mOneCard = find.byKey(
+          const ValueKey<String>('salon-confirm-appt-m-one'),
+        );
+        final Finder mTwoCard = find.byKey(
+          const ValueKey<String>('salon-confirm-appt-m-two'),
+        );
+
+        // First submit: m-one succeeds, m-two fails (409) — both gated so
+        // the pass only settles once BOTH are resolved.
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await tester.pump();
+        repo.succeed('m-one');
+        await tester.pump();
+        repo.fail('m-two', const ConflictFailure());
+        await AppHarness.settle(tester);
+
+        // SETTLED, PARTIAL FAILURE: m-one's checkmark is visible at rest —
+        // hasFailures=true keeps it showing.
+        expectLocation(router, RouteNames.salonBookingConfirm);
+        expect(find.byType(SalonBookingSuccessScreen), findsNothing);
+        expect(
+          find.descendant(
+            of: mOneCard,
+            matching: find.text(l10n.salonBookingAppointmentSucceeded),
+          ),
+          findsOneWidget,
+          reason:
+              'settled with a partial failure: m-one\'s already-succeeded '
+              'status must stay visible',
+        );
+        expect(
+          find.descendant(of: mTwoCard, matching: find.text(l10n.errConflict)),
+          findsOneWidget,
+        );
+
+        // Retry: tap «Повторити». The pre-loop reset clears m-two's failure
+        // (hasFailures → false) atomically with inFlight → true — the exact
+        // window the buggy hasFailures-only gate got wrong. m-two's retry
+        // POST is gated (pending) so this in-flight frame is observable.
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await tester.pump();
+
+        expect(
+          find.descendant(
+            of: mOneCard,
+            matching: find.text(l10n.salonBookingAppointmentSucceeded),
+          ),
+          findsOneWidget,
+          reason:
+              'MID-RETRY: hasFailures has already been reset to false for '
+              'the new pass and m-two\'s retry POST has not resolved yet — '
+              'inFlight=true must be what keeps m-one\'s checkmark visible '
+              'here, in the REAL end-to-end app, not just an isolated '
+              'widget test',
+        );
+
+        // Resolve the retry → settles all-succeeded → success screen.
+        repo.succeed('m-two');
+        await AppHarness.settle(tester);
+
+        expectLocation(router, RouteNames.salonBookingSuccess);
+        expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
+        expect(repo.callsFor('m-one'), 1);
+        expect(repo.callsFor('m-two'), 2);
         expect(tester.takeException(), isNull);
       });
     },

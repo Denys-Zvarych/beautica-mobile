@@ -314,10 +314,19 @@ class _SalonBookingConfirmScreenState
 
 /// One appointment card wired to ITS OWN slice of [SalonBookingSubmitState].
 ///
-/// Watching `(statusFor(id), failureFor(id))` through a scoped [Consumer] +
-/// `select` (record → value equality) means an unaffected master's card
-/// memoizes across every other master's mutation during a submit pass — only
-/// the card whose status/failure actually changed rebuilds.
+/// Watching `(statusFor(id), failureFor(id), hasFailures, inFlight)` through a
+/// scoped [Consumer] + `select` (record → value equality) means an unaffected
+/// master's card still memoizes across every other master's mutation during a
+/// submit pass. Unlike `hasFailures` (flips at most once per pass, pending →
+/// resolved), `inFlight` flips TWICE per pass (`false → true → false`) — but
+/// that costs nothing extra: the parent `SalonBookingConfirmScreen.build()`
+/// already scopes its own watch to `(inFlight, hasFailures, hasSucceeded)`
+/// (see above), so every emission where `inFlight` flips is by construction
+/// one where the parent's own tuple changes too. The parent therefore already
+/// rebuilds and reconstructs all N `_AppointmentCardSlot`s on both of those
+/// transitions regardless of this widget's own `select` — widening this
+/// record just makes that already-happening rebuild carry the right value,
+/// it does not add a new rebuild wave.
 class _AppointmentCardSlot extends StatelessWidget {
   const _AppointmentCardSlot({
     required this.appointment,
@@ -338,13 +347,21 @@ class _AppointmentCardSlot extends StatelessWidget {
     final String masterId = appointment.schedule.masterId;
     return Consumer(
       builder: (BuildContext context, WidgetRef ref, Widget? child) {
-        final (SalonAppointmentSubmitStatus status, Failure? failure) = ref
-            .watch(
-              salonBookingSubmitProvider.select(
-                (SalonBookingSubmitState s) =>
-                    (s.statusFor(masterId), s.failureFor(masterId)),
-              ),
-            );
+        final (
+          SalonAppointmentSubmitStatus status,
+          Failure? failure,
+          bool hasFailures,
+          bool inFlight,
+        ) = ref.watch(
+          salonBookingSubmitProvider.select(
+            (SalonBookingSubmitState s) => (
+              s.statusFor(masterId),
+              s.failureFor(masterId),
+              s.hasFailures,
+              s.inFlight,
+            ),
+          ),
+        );
         return SalonAppointmentCard(
           key: ValueKey<String>('salon-confirm-appt-$masterId'),
           appointment: appointment,
@@ -355,6 +372,15 @@ class _AppointmentCardSlot extends StatelessWidget {
           // gate is needed.
           status: status,
           failure: failure,
+          // Gate on progress-or-settled-failure, NOT live-failure-only:
+          // `hasFailures` alone means "nothing has failed YET" during the
+          // in-between frames of a multi-master submit/retry (see
+          // `showSucceededStatus`'s doc comment on `SalonAppointmentCard` for
+          // the two windows this closes). Settled-all-succeeded
+          // (`inFlight == false`, `hasFailures == false`) still renders
+          // nothing, because `_submit()` has no `await` between its last
+          // state write and `pushReplacement` — that frame never paints.
+          showSucceededStatus: inFlight || hasFailures,
         );
       },
     );

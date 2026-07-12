@@ -97,6 +97,77 @@ class _FakeBookingRepository implements BookingRepository {
 }
 
 // ---------------------------------------------------------------------------
+// mobile-qa regression coverage — showSucceededStatus gate (Phase 14.18
+// bugfix follow-up, see `salon_appointment_card_test.dart`'s file header for
+// the full bug narrative).
+//
+// `_FakeBookingRepository` above resolves every call INSTANTLY (an `async`
+// function with no real await), so it can never observe a mid-submit or
+// mid-retry frame — every `createBooking` future is already resolved by the
+// time `pumpAndSettle` (or even a single `pump`) gets a chance to look. This
+// gated fake queues a `Completer` per call instead, so a test can hold a
+// master's request open exactly as long as it needs to inspect the in-flight
+// UI, then resolve it explicitly and only then let the pass continue.
+// ---------------------------------------------------------------------------
+class _GatedBookingRepository implements BookingRepository {
+  final Map<String, List<Completer<Booking>>> _queue =
+      <String, List<Completer<Booking>>>{};
+  final List<CreateBookingRequest> requests = <CreateBookingRequest>[];
+
+  int callsFor(String masterId) =>
+      requests.where((CreateBookingRequest r) => r.masterId == masterId).length;
+
+  @override
+  Future<Booking> createBooking(CreateBookingRequest req) {
+    requests.add(req);
+    final Completer<Booking> completer = Completer<Booking>();
+    _queue
+        .putIfAbsent(req.masterId, () => <Completer<Booking>>[])
+        .add(completer);
+    return completer.future;
+  }
+
+  /// Resolves the OLDEST not-yet-resolved call for [masterId] as a success.
+  void succeed(String masterId) {
+    final Completer<Booking> completer = _queue[masterId]!.removeAt(0);
+    completer.complete(
+      _bookingFor(
+        CreateBookingRequest(
+          masterId: masterId,
+          serviceId: 'assign-$masterId',
+          startAt: _kStart,
+          idempotencyKey: 'key-$masterId',
+        ),
+      ),
+    );
+  }
+
+  /// Rejects the OLDEST not-yet-resolved call for [masterId] as [failure].
+  void fail(String masterId, Failure failure) {
+    final Completer<Booking> completer = _queue[masterId]!.removeAt(0);
+    completer.completeError(failure);
+  }
+
+  @override
+  Future<PageResponse<Booking>> getMyBookings({
+    required BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Booking> getBookingById(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> cancelBooking(String id, {String? reason}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
+}
+
+// ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 final DateTime _kStart = DateTime(2026, 7, 20, 14);
@@ -881,6 +952,195 @@ void main() {
               'is cleared once the confirm screen is popped',
         );
         expect(counting.acquireCount, counting.releaseCount);
+      },
+    );
+  });
+
+  // ===========================================================================
+  // mobile-qa regression coverage (Phase 14.18 bugfix follow-up) —
+  // `showSucceededStatus` gate: `_AppointmentCardSlot` must pass
+  // `inFlight || hasFailures`, NOT live `hasFailures` alone. The FIRST attempt
+  // gated on `hasFailures` alone, which both mobile-perf and mobile-security
+  // caught as WRONG: it hid an already-succeeded master's «Заплановано» line
+  // for the whole mid-submit window (nothing has failed YET partway through a
+  // multi-master submit) AND for the whole mid-retry window (the retry's
+  // pre-loop reset clears `hasFailures` before any network call even starts).
+  //
+  // These tests use `_GatedBookingRepository` (not the instant
+  // `_FakeBookingRepository` every other test in this file uses) specifically
+  // so the in-flight frames are actually observable — pins tests 1+2 from the
+  // mobile-qa audit, which are the ones that would have FAILED against the
+  // old `hasFailures`-only gate (see this session's self-check).
+  // ===========================================================================
+  group('showSucceededStatus gate (Phase 14.18 regression guard)', () {
+    testWidgets(
+      'MID-SUBMIT (N=2): once master m1\'s POST resolves but m2 is still '
+      'in flight, m1\'s card shows «Заплановано» immediately — it must not '
+      'wait for the whole pass to settle',
+      (tester) async {
+        await _pumpTall(tester);
+        final _GatedBookingRepository repo = _GatedBookingRepository();
+        SalonBookingSuccessArgs? successArgs;
+        final GoRouter router = _router(
+          onReachedSuccess: (SalonBookingSuccessArgs a) => successArgs = a,
+        );
+
+        await tester.pumpRoutedApp(router, overrides: _baseOverrides(repo));
+        unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonBookingConfirmScreen)),
+        );
+        final Finder m1Card = find.byKey(
+          const ValueKey<String>('salon-confirm-appt-m1'),
+        );
+        final Finder m2Card = find.byKey(
+          const ValueKey<String>('salon-confirm-appt-m2'),
+        );
+
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        // One frame: the pre-loop reset marks BOTH m1/m2 `submitting` and
+        // flips `inFlight` true; the loop then calls createBooking(m1), which
+        // is gated (pending) — nothing has resolved yet.
+        await tester.pump();
+
+        // Resolve ONLY m1 — the loop's `await` on m1 unblocks, `_mark`s it
+        // succeeded, and moves on to call createBooking(m2) (gated, pending).
+        repo.succeed('m1');
+        await tester.pump();
+        await tester.pump();
+
+        // The heart of the regression: m1 succeeded but the PASS has not
+        // settled (m2 is still submitting) — m1's checkmark must be visible
+        // NOW, not only once the whole pass finishes.
+        expect(
+          find.descendant(
+            of: m1Card,
+            matching: find.text(l10n.salonBookingAppointmentSucceeded),
+          ),
+          findsOneWidget,
+          reason:
+              'm1 already succeeded — its «Заплановано» line must render '
+              'while m2 is still in flight (inFlight=true), not only once '
+              'the whole submit pass settles',
+        );
+        expect(
+          find.descendant(
+            of: m2Card,
+            matching: find.text(l10n.salonBookingAppointmentSubmitting),
+          ),
+          findsOneWidget,
+          reason: 'm2 is still awaiting its own createBooking call',
+        );
+
+        // Resolve m2 too so the pass settles and the pending Completer does
+        // not leak past the test.
+        repo.succeed('m2');
+        await tester.pumpAndSettle();
+
+        expect(successArgs, isNotNull);
+        expect(repo.callsFor('m1'), 1);
+        expect(repo.callsFor('m2'), 1);
+      },
+    );
+
+    testWidgets(
+      'SETTLED PARTIAL FAILURE then MID-RETRY: after the first pass settles '
+      'with m1 succeeded + m2 failed, m1 still shows «Заплановано» and m2 '
+      'shows its error; then — the worst window — while the retry\'s POST '
+      'for m2 is in flight, m1\'s «Заплановано» line MUST STAY visible '
+      '(the pre-loop reset clears hasFailures atomically with inFlight=true, '
+      'so the misleading hasFailures=false/inFlight=false gap is never '
+      'emitted)',
+      (tester) async {
+        await _pumpTall(tester);
+        final _GatedBookingRepository repo = _GatedBookingRepository();
+        SalonBookingSuccessArgs? successArgs;
+        final GoRouter router = _router(
+          onReachedSuccess: (SalonBookingSuccessArgs a) => successArgs = a,
+        );
+
+        await tester.pumpRoutedApp(router, overrides: _baseOverrides(repo));
+        unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonBookingConfirmScreen)),
+        );
+        final Finder m1Card = find.byKey(
+          const ValueKey<String>('salon-confirm-appt-m1'),
+        );
+        final Finder m2Card = find.byKey(
+          const ValueKey<String>('salon-confirm-appt-m2'),
+        );
+
+        // First submit pass: m1 succeeds, m2 fails (409) — both settled.
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await tester.pump();
+        repo.succeed('m1');
+        await tester.pump();
+        repo.fail('m2', const ConflictFailure());
+        await tester.pumpAndSettle();
+
+        // SETTLED, PARTIAL FAILURE (item 4 of the mobile-qa audit): m1's
+        // checkmark is visible AND m2's error is visible, at rest.
+        expect(
+          find.descendant(
+            of: m1Card,
+            matching: find.text(l10n.salonBookingAppointmentSucceeded),
+          ),
+          findsOneWidget,
+          reason:
+              'settled with a partial failure: hasFailures=true keeps m1\'s '
+              'already-succeeded checkmark visible',
+        );
+        expect(
+          find.descendant(of: m2Card, matching: find.text(l10n.errConflict)),
+          findsOneWidget,
+        );
+        expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
+        expect(successArgs, isNull);
+
+        // Retry: tap «Повторити». The pre-loop reset marks m2 `submitting`
+        // (clearing its failure) and flips `inFlight` true IN THE SAME
+        // `copyWith` — m1 is skipped by the submit loop (already succeeded)
+        // and its status never changes.
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await tester.pump();
+
+        // MID-RETRY (item 2 — the worst window, and the one the buggy
+        // `hasFailures`-only gate got wrong: hasFailures is reset to false
+        // here, before m2's retry POST has resolved). m1's checkmark must
+        // still be showing.
+        expect(
+          find.descendant(
+            of: m1Card,
+            matching: find.text(l10n.salonBookingAppointmentSucceeded),
+          ),
+          findsOneWidget,
+          reason:
+              'mid-retry: hasFailures has already been reset to false for '
+              'the new pass, and m2\'s retry POST has not resolved yet — '
+              'inFlight=true must be what keeps m1\'s checkmark visible '
+              'here, exactly the window the hasFailures-only gate got wrong',
+        );
+        expect(
+          find.descendant(
+            of: m2Card,
+            matching: find.text(l10n.salonBookingAppointmentSubmitting),
+          ),
+          findsOneWidget,
+          reason: 'm2\'s retry POST is in flight',
+        );
+
+        // Resolve the retry → settles all-succeeded → navigates to success.
+        repo.succeed('m2');
+        await tester.pumpAndSettle();
+
+        expect(successArgs, isNotNull);
+        expect(repo.callsFor('m1'), 1);
+        expect(repo.callsFor('m2'), 2);
       },
     );
   });
