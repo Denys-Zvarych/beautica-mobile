@@ -61,6 +61,12 @@ class ServiceSetupScreen extends ConsumerStatefulWidget {
 class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   static const _tag = 'feature.services.setup_screen';
 
+  /// Matches a backend per-field validation key `items[<zero-based-index>].<field>`
+  /// where the index is into the SUBMITTED items list (see [_submittedRows]).
+  static final RegExp _itemFieldErrorPattern = RegExp(
+    r'^items\[(\d+)\]\.(\w+)$',
+  );
+
   /// Selected (expanded) category wire slugs.
   final Set<String> _expanded = <String>{};
 
@@ -83,6 +89,13 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// Lazily creates (or returns the existing) [GlobalKey] for a row wrapper.
   GlobalKey _rowWrapperKey(String id) =>
       _rowWrapperKeys.putIfAbsent(id, GlobalKey.new);
+
+  /// The [ServiceRowState]s backing the LAST assembled payload, in submitted
+  /// order — so a 400's `items[<index>].<field>` path resolves back to its
+  /// originating row. Only INCLUDED rows are submitted, so this list index is
+  /// NOT the on-screen row index; it must be captured explicitly during
+  /// [_assemble] rather than recomputed. Refilled on every [_assemble] call.
+  final List<ServiceRowState> _submittedRows = <ServiceRowState>[];
 
   /// Aggregate listenable feeding the footer count + chip badges. Re-derived
   /// whenever a row's `included` toggles (rows mutate their own [ServiceRowState]
@@ -145,6 +158,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
         for (final row in _rowsByCategory[slug] ?? const <ServiceRowState>[]) {
           row.included = false;
           row.clearFlag();
+          row.clearServerErrors();
         }
       });
       _notifyAggregate();
@@ -245,23 +259,31 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   List<MasterServiceBulkItem>? _assemble() {
     final items = <MasterServiceBulkItem>[];
     final reasons = <String, RowFlagReason>{};
+    // Capture the row↔submitted-item ordering so a 400's items[i].field path
+    // resolves back to the originating row. Rebuilt from scratch each call.
+    _submittedRows.clear();
 
     for (final rows in _rowsByCategory.values) {
       for (final row in rows) {
         if (!row.included) continue;
         final id = row.serviceTypeId;
         final duration = int.tryParse(row.duration.text.trim());
-        final durationOk = duration != null && duration >= 1;
+        // Client-side mirror of the backend @Max(480) guard, so the common
+        // over-8h case is caught before the network round-trip.
+        final bool durationTooLong = duration != null && duration > 480;
+        final durationOk = duration != null && duration >= 1 && duration <= 480;
 
         if (row.pricingMode == ServicePriceType.fixed) {
           final price = _parsePrice(row.fixed.text);
           final priceOk = price != null;
           if (!durationOk || !priceOk) {
-            reasons[id] = !durationOk && !priceOk
-                ? RowFlagReason.missingBoth
-                : (!durationOk
-                      ? RowFlagReason.missingDuration
-                      : RowFlagReason.missingPrice);
+            reasons[id] = durationTooLong
+                ? RowFlagReason.durationTooLong
+                : (!durationOk && !priceOk
+                      ? RowFlagReason.missingBoth
+                      : (!durationOk
+                            ? RowFlagReason.missingDuration
+                            : RowFlagReason.missingPrice));
             continue;
           }
           items.add(
@@ -272,16 +294,19 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
               price: price,
             ),
           );
+          _submittedRows.add(row);
         } else {
           final min = _parsePrice(row.min.text);
           final max = _parsePrice(row.max.text);
           final priceOk = min != null && max != null && max > min;
           if (!durationOk || !priceOk) {
-            reasons[id] = !durationOk && !priceOk
-                ? RowFlagReason.missingBoth
-                : (!durationOk
-                      ? RowFlagReason.missingDuration
-                      : RowFlagReason.invalidRange);
+            reasons[id] = durationTooLong
+                ? RowFlagReason.durationTooLong
+                : (!durationOk && !priceOk
+                      ? RowFlagReason.missingBoth
+                      : (!durationOk
+                            ? RowFlagReason.missingDuration
+                            : RowFlagReason.invalidRange));
             continue;
           }
           items.add(
@@ -293,6 +318,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
               priceMax: max,
             ),
           );
+          _submittedRows.add(row);
         }
       }
     }
@@ -316,11 +342,15 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// (if any) are simply skipped here; an included flagged row only exists under
   /// an expanded category, so the visible set always contains the candidates.
   void _scrollToFirstFlagged() {
-    // Collect the flagged-row ids; bail early when nothing is flagged.
+    // Collect the flagged-row ids (client flag OR mapped-back server error);
+    // bail early when nothing is flagged.
     final flaggedIds = <String>{
       for (final rows in _rowsByCategory.values)
         for (final row in rows)
-          if (row.included && row.flagReason != RowFlagReason.none)
+          if (row.included &&
+              (row.flagReason != RowFlagReason.none ||
+                  row.serverDurationError != null ||
+                  row.serverPriceError != null))
             row.serviceTypeId,
     };
     if (flaggedIds.isEmpty) return;
@@ -365,6 +395,12 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       return;
     }
 
+    // Clear any server errors mapped from a PRIOR attempt so this response's
+    // field errors are the sole authority (and stale rims vanish on retry).
+    for (final row in _submittedRows) {
+      row.clearServerErrors();
+    }
+
     final created = await ref.read(serviceSetupProvider.notifier).submit(items);
     if (!mounted) return;
 
@@ -394,10 +430,57 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       }
       return;
     }
+
+    // Backend per-field validation (HTTP 400): surface each error inline on the
+    // matching service row instead of the generic snackbar. Only fall through
+    // to the snackbar when NO field key maps to a submitted row.
+    if (error is ValidationFailure &&
+        _applyServerFieldErrors(error.fieldErrors, l10n)) {
+      _scrollToFirstFlagged();
+      return;
+    }
+
     final message = error is Failure
         ? error.userMessage(context)
         : l10n.errUnknown;
     _showSnack(message);
+  }
+
+  /// Parses a 400's `fieldErrors` map, attributing each `items[<index>].<field>`
+  /// entry to the originating [ServiceRowState] (via [_submittedRows], captured
+  /// in submitted order by [_assemble]) and stamping the matching per-row
+  /// server-error channel. Returns true when AT LEAST ONE field mapped to a
+  /// submitted row — the caller only suppresses the generic snackbar then.
+  bool _applyServerFieldErrors(
+    Map<String, String> fieldErrors,
+    AppLocalizations l10n,
+  ) {
+    var mappedAny = false;
+    for (final entry in fieldErrors.entries) {
+      final match = _itemFieldErrorPattern.firstMatch(entry.key);
+      if (match == null) continue;
+      final index = int.tryParse(match.group(1)!);
+      if (index == null || index < 0 || index >= _submittedRows.length) {
+        continue;
+      }
+      final row = _submittedRows[index];
+      final field = match.group(2);
+      if (field == 'durationMinutes') {
+        // The only backend duration constraint on this payload is @Max(480), so
+        // any durationMinutes error is localized to the known max copy rather
+        // than echoing the server's English string.
+        row.serverDurationError = l10n.serviceSetupDurationMax;
+        mappedAny = true;
+      } else if (field == 'price' ||
+          field == 'priceMin' ||
+          field == 'priceMax') {
+        // No localized copy for the price constraints (rare — the client
+        // validates price shape). Fall back to the raw server message.
+        row.serverPriceError = entry.value;
+        mappedAny = true;
+      }
+    }
+    return mappedAny;
   }
 
   void _showSnack(String message) {

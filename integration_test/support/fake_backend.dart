@@ -665,6 +665,20 @@ final class FakeBackend {
   int getServicesCalls = 0;
   int createServiceCalls = 0;
 
+  /// Count of `POST /independent-masters/me/services/bulk` (first-time setup)
+  /// calls, and the exact `items` list of the last one — lets a flow prove the
+  /// bulk-save actually reached the network (vs. being blocked client-side).
+  int bulkCreateCalls = 0;
+  List<dynamic>? lastBulkItems;
+
+  /// When true, the bulk-setup route replies HTTP 400 with a per-field error
+  /// envelope (`errors: {"items[<i>].durationMinutes": …}`) for the item index
+  /// in [bulkRejectItemIndex], mirroring the backend's `@Max(480)` per-item
+  /// validation. Off by default so every OTHER flow's bulk save (none today)
+  /// stays a clean 201.
+  bool bulkRejectDurationField = false;
+  int bulkRejectItemIndex = 0;
+
   /// Test-support: empties the pre-seeded services list so
   /// `GET /api/v1/independent-masters/me/services` returns `[]`. Used by flows
   /// that must exercise the zero-services empty state (e.g. the master-home
@@ -1996,6 +2010,69 @@ final class FakeBackend {
         _services.add(newService);
         lastCreatedService = newService;
         return _ok(newService);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // POST /api/v1/independent-masters/me/services/bulk — first-time bulk setup.
+    // A DISTINCT path from the single-create route above (exact-string match, so
+    // no collision). Default: 201 echoing one created service per submitted item.
+    // When [bulkRejectDurationField] is set, replies 400 with the backend's
+    // per-field envelope keyed on `items[<bulkRejectItemIndex>].durationMinutes`
+    // — the shape ErrorMapperInterceptor maps to ValidationFailure.fieldErrors,
+    // driving the screen's inline per-row error (NOT the generic snackbar).
+    _adapter.onRoute(
+      '/api/v1/independent-masters/me/services/bulk',
+      (server) => server.replyCallback(bulkRejectDurationField ? 400 : 200, (
+        req,
+      ) {
+        bulkCreateCalls++;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        lastBulkItems = items;
+        if (bulkRejectDurationField) {
+          return <String, dynamic>{
+            'success': false,
+            'message': 'Validation failed',
+            'errors': <String, dynamic>{
+              'items[$bulkRejectItemIndex].durationMinutes':
+                  'Duration must be at most 480 minutes (8 hours)',
+            },
+          };
+        }
+        // Success: echo a created service per submitted item so the envelope
+        // shape matches ApiResponse<List<MasterServiceResponse>>.
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final defId = 'svc-bulk-$_nextServiceSeq';
+          created.add(<String, dynamic>{
+            'id': 'assign-bulk-$_nextServiceSeq',
+            'masterId': 'user-master-1',
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} грн',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': defId,
+              'name': 'Bulk service $_nextServiceSeq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} грн',
+              'photoUrl': null,
+            },
+          });
+          _nextServiceSeq++;
+        }
+        return _okList(created);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );

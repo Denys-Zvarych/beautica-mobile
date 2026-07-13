@@ -2463,6 +2463,10 @@
   "@serviceSetupPriceRequired": {
     "description": "Inline per-field hint shown under the fixed-price input when an included row's price is empty or invalid on save."
   },
+  "serviceSetupDurationMax": "Duration must be at most 480 minutes (8 hours)",
+  "@serviceSetupDurationMax": {
+    "description": "Validation message shown on a service-setup row whose duration exceeds the 480-minute (8-hour) maximum — used both by the client-side guard and when the backend returns a durationMinutes max-constraint error."
+  },
   "serviceSetupDurationLabel": "Duration",
   "@serviceSetupDurationLabel": {
     "description": "Label for the per-row duration (minutes) field on the service-setup screen."

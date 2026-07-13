@@ -24,6 +24,7 @@ import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
+import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 
@@ -50,6 +51,9 @@ void main() {
   // Search service-filter → booking pre-selection (Step 2.7 Rule 3b) — exact
   // serviceTypeSlug pre-check on the master + salon booking catalogues.
   group('service_preselection_flow', service_preselection.main);
+  // Service-setup per-field 400 → inline row error (Step 2.7 Rule 3b) — the
+  // bulk-save validation-error display fix, end-to-end.
+  group('service_setup_field_error_flow', service_setup_field_error.main);
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);
