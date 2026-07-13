@@ -722,6 +722,10 @@
   "@registerDoneDescMaster": {
     "description": "Description body copy on the done screen for INDEPENDENT_MASTER and SALON_MASTER roles — replaces the client-focused registerDoneDesc."
   },
+  "registerDoneDescSalonOwner": "Тепер Ви можете оформити свій профіль, додати майстрів та послуги салону. Активно розвивати свій бізнес, а ми створимо для цього усі необхідні умови.",
+  "@registerDoneDescSalonOwner": {
+    "description": "Description body copy on the done screen for the SALON_OWNER role — replaces the client-focused registerDoneDesc. CLIENT and SALON_ADMIN keep registerDoneDesc; masters keep registerDoneDescMaster."
+  },
   "registerDoneChipRoleClient": "Клієнт",
   "@registerDoneChipRoleClient": {
     "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
