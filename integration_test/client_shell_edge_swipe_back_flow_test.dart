@@ -26,6 +26,7 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
+import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,6 +63,9 @@ void main() {
     );
     await tester.pumpAndSettle(const Duration(seconds: 1));
   }
+
+  int activeIndex(WidgetTester tester) =>
+      tester.widget<ClientBottomNav>(find.byType(ClientBottomNav)).activeIndex;
 
   testWidgets(
     'CLIENT on a non-Home tab swipes back from the left edge and returns to '
@@ -114,5 +118,88 @@ void main() {
       );
     },
     timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // E2E REGRESSION (the reported bug): on a PUSHED DETAIL page a swipe must POP
+  // to the PREVIOUS page, NOT jump to Home. Only from a bare tab ROOT does the
+  // swipe fall back to Home.
+  //
+  // Journey: CLIENT login → Пошук tab → push the REAL /search/results detail
+  // onto the search branch → edge swipe returns to the PREVIOUS page (the search
+  // root), STILL on the Пошук tab (NOT Home) → a second swipe from the tab root
+  // then hops to Home. Pushing the detail via `router.go` exercises the real
+  // results screen on the real branch navigator; the SWIPE (the thing under
+  // test) is the genuine pointer gesture.
+  testWidgets(
+    'CLIENT swipe on a pushed detail page returns to the PREVIOUS page (not '
+    'Home); a second swipe from the tab root then goes Home',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientHome);
+
+      // Land on the Пошук (Search) tab root via the elevated center disc.
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+      expect(activeIndex(tester), kClientSearchBranch);
+
+      // Push the REAL results detail onto the SEARCH branch navigator — the
+      // stack becomes [search root, results], so the branch canPop.
+      router.go(RouteNames.clientSearchResults);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearchResults);
+      expect(
+        find.byKey(const Key('client-search-results')),
+        findsOneWidget,
+        reason: 'the results detail must be on top of the search branch',
+      );
+      expect(activeIndex(tester), kClientSearchBranch);
+
+      // ── FIRST swipe — must POP the detail (→ PREVIOUS page), NOT jump Home ──
+      await edgeSwipeBack(tester);
+
+      expectLocation(router, RouteNames.clientSearch);
+      expect(
+        find.byKey(const Key('client-search-results')),
+        findsNothing,
+        reason:
+            'the swipe must POP the results detail and return to the search '
+            'root (the PREVIOUS page) — the exact reported regression',
+      );
+      expect(
+        find.byKey(const Key('client-branch-search')),
+        findsOneWidget,
+        reason: 'the search root (previous page) is shown again',
+      );
+      expect(
+        activeIndex(tester),
+        kClientSearchBranch,
+        reason: 'popping a detail must NOT change the active tab (stays Пошук)',
+      );
+
+      // ── SECOND swipe — now on the Пошук tab ROOT → falls back to Home ──────
+      await edgeSwipeBack(tester);
+
+      expectLocation(router, RouteNames.clientHome);
+      expect(
+        activeIndex(tester),
+        kClientHomeBranch,
+        reason: 'a swipe from a non-Home tab ROOT falls back to the Home tab',
+      );
+      expect(
+        find.byKey(const Key('client-branch-home')),
+        findsOneWidget,
+        reason: 'the Home branch body is the active IndexedStack child',
+      );
+      expect(
+        find.byType(ClientShell),
+        findsOneWidget,
+        reason: 'the shell stays mounted across both swipes',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 }

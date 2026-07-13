@@ -2,13 +2,16 @@
 //
 // THE FEATURE UNDER TEST
 // ----------------------
-// The shell body is wrapped in an [EdgeSwipeBack] whose `enabled` is `!onHome`
-// and whose `onSwipeBack` fires the SAME primitive the bottom-nav tap and the
-// PopScope system-back use:
-//     navigationShell.goBranch(kClientHomeBranch, initialLocation: false)
-// so a committed left-edge rightward swipe on any NON-Home tab hops back to the
-// Home branch; on the Home branch the detector is not mounted (enabled:false),
-// so a swipe there is inert.
+// The shell body is wrapped in an [EdgeSwipeBack] that is ALWAYS mounted and
+// whose `onSwipeBack` routes through the shared [ShellBackDispatcher] — the same
+// policy the PopScope system-back uses. On a NON-Home tab ROOT a committed
+// left-edge rightward swipe hops back to the Home branch
+// (`goBranch(kClientHomeBranch, initialLocation: false)`); on the Home tab ROOT
+// the dispatcher no-ops, so the swipe is inert (but the strip stays mounted so a
+// detail page pushed onto the Home branch is still swipe-poppable — the fix for
+// the "swipe always jumps Home" regression). Popping a pushed detail page off
+// the active branch's own stack is exercised end-to-end by mobile-qa's shell
+// coverage; THIS file pins the two tab-ROOT cases.
 //
 // This is the gesture twin of the PopScope guard proven in
 // client_shell_back_to_home_test.dart (R1) — it reuses that file's REAL-shell
@@ -16,8 +19,7 @@
 // provider/network deps) and drives the actual pointer gesture instead of the
 // platform back button. The pure EdgeSwipeBack mechanics (strip confinement,
 // rightward-only, thresholds) are pinned in
-// test/shared/widgets/edge_swipe_back_test.dart; THIS file pins only that the
-// shell wires the gesture to a goBranch(0) hop and gates it off Home.
+// test/shared/widgets/edge_swipe_back_test.dart.
 
 import 'package:beautica_mobile/features/shell/presentation/branch_placeholders.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
@@ -161,7 +163,8 @@ void main() {
     );
 
     testWidgets(
-      'on the Home tab the edge detector is NOT mounted, so a swipe is inert',
+      'on the Home tab ROOT the strip is mounted but a swipe is a no-op (stays '
+      'on Home) — the dispatcher has nothing to pop and is already home',
       (tester) async {
         final GoRouter router = _buildClientShellRouter();
         addTearDown(router.dispose);
@@ -169,21 +172,22 @@ void main() {
 
         // Start on Home (initial branch).
         expect(_activeIndex(tester), kClientHomeBranch);
-        // enabled:false on Home ⇒ the detector is absent.
+        // The strip is ALWAYS mounted now (so a Home-branch detail page stays
+        // swipe-poppable); on the Home ROOT the dispatcher simply no-ops.
         expect(
           find.byKey(const Key('edge-swipe-back')),
-          findsNothing,
-          reason: 'the edge strip must be disabled (unmounted) on the Home tab',
+          findsOneWidget,
+          reason: 'the edge strip is always mounted, including on the Home tab',
         );
 
-        // A left-edge rightward drag on Home hits only the Home body — no hop.
-        await tester.dragFrom(const Offset(5, 400), const Offset(220, 0));
-        await tester.pumpAndSettle();
+        // A committed left-edge rightward swipe on the Home root is inert — the
+        // active branch is at its root AND we are already on Home.
+        await _edgeSwipeBack(tester);
 
         expect(
           _activeIndex(tester),
           kClientHomeBranch,
-          reason: 'a swipe on the Home tab must leave the shell on Home',
+          reason: 'a swipe on the Home tab root must leave the shell on Home',
         );
       },
     );
