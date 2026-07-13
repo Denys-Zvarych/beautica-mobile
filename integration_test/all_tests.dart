@@ -67,6 +67,8 @@ import 'client_search_flow_test.dart' as client_search;
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
+import 'client_shell_edge_swipe_back_flow_test.dart'
+    as client_shell_edge_swipe_back;
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
@@ -111,6 +113,9 @@ void main() {
     search_prefill_survives_name_edit.main,
   );
   group('client_shell_flow', client_shell.main);
+  // CLIENT left-edge swipe-back → Home tab (Step 2.7 Rule 3b) — the gesture
+  // twin of the R1 system-back flow in client_shell_flow_test.dart Test 7.
+  group('client_shell_edge_swipe_back_flow', client_shell_edge_swipe_back.main);
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.

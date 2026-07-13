@@ -34,6 +34,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/edge_swipe_back.dart';
 
 import 'widgets/client_bottom_nav.dart';
 import 'widgets/client_top_bar.dart';
@@ -127,7 +128,26 @@ class ClientShell extends StatelessWidget {
                   // provider ships (single call site now).
                 ),
               ),
-              Expanded(child: navigationShell),
+              // Left-edge swipe-back → Home. On every non-Home tab a committed
+              // rightward edge drag hops back to the Home branch — the gesture
+              // twin of the [PopScope] system-back handling above, and it fires
+              // the SAME `goBranch(kClientHomeBranch, initialLocation: false)`
+              // primitive the bottom nav and the blocked system-back both use
+              // (no Navigator, no branch-stack reset). On the Home branch the
+              // detector is not mounted (`enabled: false`), so Home's default
+              // behaviour is left untouched. The 20px edge strip keeps the
+              // gesture off the tabs' own horizontal scrollers (search filter
+              // rail, calendars) — see [EdgeSwipeBack].
+              Expanded(
+                child: EdgeSwipeBack(
+                  enabled: !onHomeBranch,
+                  onSwipeBack: () => navigationShell.goBranch(
+                    kClientHomeBranch,
+                    initialLocation: false,
+                  ),
+                  child: navigationShell,
+                ),
+              ),
             ],
           ),
         ),
