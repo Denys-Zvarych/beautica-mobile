@@ -73,6 +73,7 @@ import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'logout_flow_test.dart' as logout;
+import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
@@ -121,6 +122,9 @@ void main() {
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
   group('logout_flow', logout.main);
+  // Master-home zero-services «Додати послуги» CTA → /services/setup
+  // (Step 2.7 Rule 3b — master home → service-setup journey).
+  group('master_home_add_services_flow', master_home_add_services.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);

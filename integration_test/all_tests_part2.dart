@@ -1,14 +1,16 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 2 of 2 (2026-07-01 split).
 //
 // See `all_tests_part1.dart` for the full rationale. This file carries the
-// remaining 12 of 22 flows (updated by the Beautica OTP task Phase B6
-// additions + the salon-master booking-bug flow) so each `flutter test`
-// process in CI reports a bounded number of
-// tests instead of aggregating all of them into one long-lived run.
+// remaining 13 of 23 flows (updated by the Beautica OTP task Phase B6
+// additions, the salon-master booking-bug flow, and the master-home
+// add-services CTA flow) so each `flutter test` process in CI reports a
+// bounded number of tests instead of aggregating all of them into one
+// long-lived run.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
@@ -28,6 +30,9 @@ import 'support_contact_flow_test.dart' as support_contact;
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  // Master-home zero-services «Додати послуги» CTA → /services/setup
+  // (Step 2.7 Rule 3b — master home → service-setup journey).
+  group('master_home_add_services_flow', master_home_add_services.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);

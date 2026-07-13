@@ -664,6 +664,13 @@ final class FakeBackend {
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
   int createServiceCalls = 0;
+
+  /// Test-support: empties the pre-seeded services list so
+  /// `GET /api/v1/independent-masters/me/services` returns `[]`. Used by flows
+  /// that must exercise the zero-services empty state (e.g. the master-home
+  /// «Додати послуги» CTA). Call BEFORE `AppHarness.boot` / before the master
+  /// profile's services section resolves.
+  void clearServices() => _services.clear();
   Map<String, dynamic>? lastCreatedService;
   int patchServiceCalls = 0;
   Map<String, dynamic>? lastPatchedService;

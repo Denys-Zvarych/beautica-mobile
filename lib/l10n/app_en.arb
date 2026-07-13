@@ -1817,9 +1817,14 @@
     "description": "Field label above the location-note input on the master edit screen."
   },
 
-  "masterProfileCategoriesLabel": "Service categories",
+  "masterProfileCategoriesLabel": "Services",
   "@masterProfileCategoriesLabel": {
-    "description": "Section label above the category cards on the master profile screen."
+    "description": "Section header above the category cards on the master profile (home) screen."
+  },
+
+  "masterAddServices": "Add services",
+  "@masterAddServices": {
+    "description": "Primary CTA shown in the master profile services section when the master has no services yet; opens the first-time bulk service-setup flow."
   },
 
   "masterProfileCategorySemantics": "Category {category}, {count} services. Go to list",

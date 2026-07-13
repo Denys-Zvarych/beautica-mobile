@@ -955,30 +955,72 @@ void main() {
       expect(find.text(l10n.errUnknown), findsOneWidget);
     });
 
-    // ── C. Empty state — servicesEmpty text rendered ────────────────────────
+    // ── C. Empty state — "Додати послуги" CTA replaces the old empty text ────
+    //
+    // The zero-services empty branch of [_ProfileCategoriesSection] no longer
+    // renders the old «Послуг ще немає» body text or the «Усі послуги» header
+    // link. It now renders a single primary CTA (Key('btn-master-add-services'))
+    // labelled l10n.masterAddServices that opens the bulk service-setup flow.
+    // This is the DISCRIMINATING replacement for the previously-stale
+    // `servicesEmpty` assertion: it fails if the empty branch reverts to the
+    // old header + text, and it fails if the CTA is dropped.
 
-    testWidgets('C. services empty state shows servicesEmpty text', (
-      tester,
-    ) async {
-      when(
-        () => mockServiceRepo.listMyServices(),
-      ).thenAnswer((_) async => const <MasterService>[]);
+    testWidgets(
+      'C. services empty state shows the masterAddServices CTA and drops the '
+      'old empty text + all-services link',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => const <MasterService>[]);
 
-      await tester.pumpApp(
-        const MasterProfileScreen(),
-        overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(_stubMaster),
-          repo: repo,
-          serviceRepo: mockServiceRepo,
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(MasterProfileScreen)),
-      );
-      expect(find.text(l10n.servicesEmpty), findsOneWidget);
-    });
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+
+        // NEW affordance — the single primary CTA is present and labelled.
+        expect(
+          find.byKey(const Key('btn-master-add-services')),
+          findsOneWidget,
+          reason:
+              'the zero-services empty state must render the add-services CTA',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('btn-master-add-services')),
+            matching: find.text(l10n.masterAddServices),
+          ),
+          findsOneWidget,
+          reason:
+              'the CTA must show the masterAddServices label «Додати послуги»',
+        );
+
+        // OLD affordances — must be gone from the empty state.
+        expect(
+          find.text(l10n.servicesEmpty),
+          findsNothing,
+          reason:
+              'the old «Послуг ще немає» empty body must no longer render in '
+              'the zero-services empty state',
+        );
+        expect(
+          find.text(l10n.masterAllServices),
+          findsNothing,
+          reason:
+              'the «Усі послуги» header link is dropped in the empty state — '
+              'the CTA stands alone',
+        );
+      },
+    );
 
     // ── D. Data state — category card rendered + count stat tile ──────────
     //
@@ -1038,6 +1080,171 @@ void main() {
         reason: 'Services stat tile must show the live service count',
       );
     });
+  });
+
+  // ── 13a. Empty-state CTA navigation — pushes serviceSetup ─────────────────
+  //
+  // The zero-services CTA (Key('btn-master-add-services')) must push
+  // RouteNames.serviceSetup ('/services/setup') — the SAME entry point the
+  // services-list empty state uses (services_list_screen.dart onCreate →
+  // _openAndRefresh(RouteNames.serviceSetup)). Pump inside a 2-route GoRouter
+  // and assert (a) the setup route content is reached, (b) the router location
+  // is exactly RouteNames.serviceSetup, and (c) canPop() is true — proving the
+  // call used context.push (not context.go) so the swipe-back gesture works.
+
+  group('empty-state CTA pushes serviceSetup', () {
+    testWidgets(
+      'tapping btn-master-add-services navigates to RouteNames.serviceSetup '
+      'and leaves the back stack poppable (canPop true)',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => const <MasterService>[]);
+
+        // Tall surface so the categories section (section 5, near the bottom of
+        // the SingleChildScrollView) is laid out and the CTA is hittable
+        // without fighting the default 800×600 viewport fold.
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        // Observer records the pushed route name so the destination can be
+        // pinned by route string. NOTE: go_router's currentConfiguration.uri
+        // does NOT update after an imperative context.push (it keeps the base
+        // location — see the group-13b note), so the pushed route is asserted
+        // via the observer + the rendered stub, not via the router uri.
+        final pushedRoutes = <String>[];
+        final router = GoRouter(
+          initialLocation: RouteNames.masterProfile,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterProfile,
+              builder: (_, _) => const MasterProfileScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.serviceSetup,
+              builder: (_, _) =>
+                  const Scaffold(body: Text('service-setup-stub')),
+            ),
+          ],
+          observers: <NavigatorObserver>[_ProfilePushObserver(pushedRoutes)],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final cta = find.byKey(const Key('btn-master-add-services'));
+        expect(cta, findsOneWidget);
+        await tester.ensureVisible(cta);
+        await tester.pumpAndSettle();
+
+        await tester.tap(cta);
+        await tester.pumpAndSettle();
+
+        // (a) The setup route content is visible — navigation reached it.
+        expect(
+          find.text('service-setup-stub'),
+          findsOneWidget,
+          reason:
+              'tapping the CTA must navigate to the serviceSetup route '
+              '(${RouteNames.serviceSetup})',
+        );
+        // (b) The observer captured a push to exactly RouteNames.serviceSetup —
+        // pins the destination the services-list empty state also opens.
+        expect(
+          pushedRoutes,
+          contains(contains(RouteNames.serviceSetup)),
+          reason:
+              'CTA must push /services/setup (RouteNames.serviceSetup), the '
+              'same route the services-list empty state opens',
+        );
+        // (c) canPop() must be true — proves context.push (not go); the profile
+        // stays on the back stack so left-edge swipe-back can return to it.
+        expect(
+          router.canPop(),
+          isTrue,
+          reason:
+              'the CTA must use context.push so the profile remains on the '
+              'back stack; if this fails the call reverted to context.go which '
+              'replaces the stack and breaks swipe-back',
+        );
+      },
+    );
+  });
+
+  // ── 13c. Section header rename — «Послуги» not «Категорії послуг» ──────────
+  //
+  // The categories section header key `masterProfileCategoriesLabel` now
+  // resolves to «Послуги» (was «Категорії послуг»; en now "Services"). With
+  // services present the header renders; assert the new value is shown and the
+  // old wording is gone from the whole screen.
+
+  group('services section header rename', () {
+    testWidgets(
+      'non-empty state renders the renamed header value and not the old '
+      '«Категорії послуг»',
+      (tester) async {
+        when(() => mockServiceRepo.listMyServices()).thenAnswer(
+          (_) async => const <MasterService>[
+            MasterService(
+              id: 'svc-1',
+              serviceDefId: 'def-1',
+              name: 'Манікюр',
+              durationMinutes: 30,
+              priceMin: 500,
+              priceDisplay: '500 грн',
+              category: 'MANICURE',
+            ),
+          ],
+        );
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            categories: const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+
+        // The renamed header value is rendered (resolved via l10n, not
+        // hardcoded). NOTE: `masterProfileCategoriesLabel` and the services
+        // stat-tile caption `masterServicesLabel` intentionally share the same
+        // «Послуги» value, so this matches ≥1 widget — findsWidgets, not
+        // findsOneWidget.
+        expect(
+          find.text(l10n.masterProfileCategoriesLabel),
+          findsWidgets,
+          reason:
+              'the categories section header must render its l10n value '
+              '(now «Послуги»)',
+        );
+        // The OLD wording must be gone from the entire screen.
+        expect(
+          find.text('Категорії послуг'),
+          findsNothing,
+          reason:
+              'the pre-rename «Категорії послуг» header must no longer appear '
+              'anywhere on the profile screen',
+        );
+      },
+    );
   });
 
   // ── 13b. Menu button — push-not-go regression guard ─────────────────────────
