@@ -642,4 +642,217 @@ void main() {
       },
     );
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SAME-USER SESSION REFRESH — the `.select(user.id)` narrowing regression.
+  //
+  // THE REPORTED BUG: a CLIENT edits their name+surname. The save calls
+  // `authProvider.notifier.refreshUser()`, which emits a NEW `Authenticated`
+  // session — SAME user id, changed `firstName`/`lastName`, unchanged locality.
+  // Before the fix, the three search controllers `ref.watch(authProvider)`ed the
+  // WHOLE provider, so that same-user emission re-ran `build()` and reset state
+  // to `const SearchFilters()` / empty labels / empty set — WIPING the seeded
+  // search locality. Because the Пошук screen is kept alive in the shell's
+  // IndexedStack, its one-shot `initState` prefill never re-fired, so the
+  // location field stayed empty.
+  //
+  // The fix narrows the watch to `authProvider.select((s) => settled user id)`
+  // so `build()` re-runs ONLY when the SETTLED user id changes (login / logout /
+  // account swap) — a same-user re-emission (name/phone edit) no longer resets.
+  //
+  // These tests emit the SAME-USER refresh directly on the keepAlive controllers
+  // WITHOUT re-mounting/re-seeding the screen (mirroring the alive-in-IndexedStack
+  // repro) and assert the seed SURVIVES — while a genuine different-user flip
+  // still resets (cross-user isolation preserved).
+  // ═══════════════════════════════════════════════════════════════════════════
+  group('same-user session refresh (refreshUser after a name/phone edit)', () {
+    testWidgets(
+      'a same-user refreshUser() emission (changed name, SAME id, unchanged '
+      'locality) does NOT reset the prefilled locality — filter ids + labels '
+      'survive (THE .select(user.id) regression)',
+      (tester) async {
+        installOverflowGuard();
+        _sizeView(tester);
+        _seededUser = _userWithLocation;
+
+        // A single container survives the emission so the keepAlive controllers
+        // persist — exactly as the real root ProviderScope does across a
+        // refreshUser() while the Пошук branch stays alive in the IndexedStack.
+        final ProviderContainer container = ProviderContainer(
+          overrides: _overrides().cast(),
+        );
+        addTearDown(container.dispose);
+
+        // 1. Open Пошук → the initState prefill seeds Київ (+ Печерський).
+        await tester.pumpWidget(
+          UncontrolledProviderScope(container: container, child: _app()),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityWithDistrictsId,
+          reason: 'the saved Київ must seed on first open',
+        );
+        expect(
+          container.read(searchFiltersControllerProvider).districtId,
+          _kDistrictId,
+        );
+        expect(
+          container.read(searchFilterLabelsControllerProvider).cityName,
+          'Київ',
+        );
+
+        // 2. Simulate `refreshUser()` after a name PATCH: emit a NEW
+        //    `Authenticated` value for the SAME user id (u-client-loc) with a
+        //    CHANGED name but the SAME locality — WITHOUT navigating away or
+        //    re-seeding (the Пошук screen stays mounted, so its one-shot
+        //    initState prefill does NOT re-fire). The changed name makes the new
+        //    AsyncData value UNEQUAL to the prior one, so the pre-fix
+        //    whole-provider watch WOULD re-run build() and wipe the seed here.
+        final _StubAuthNotifier auth =
+            container.read(authProvider.notifier) as _StubAuthNotifier;
+        auth.flipTo(
+          _userWithLocation.copyWith(
+            firstName: 'Оновлене',
+            lastName: 'Прізвище',
+          ),
+        );
+        await tester.pump();
+
+        // THE REGRESSION ASSERTION — on the pre-fix `ref.watch(authProvider)`
+        // (whole provider) this same-user emission re-ran build() and reset the
+        // keepAlive filter to `const SearchFilters()` (cityId → null); the city
+        // row would fall back to its placeholder. The `.select(user.id)` narrow
+        // keeps the SETTLED id (u-client-loc) unchanged, so build() does NOT
+        // re-run and the seeded locality survives.
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityWithDistrictsId,
+          reason:
+              'a same-user refreshUser() (name edit) must NOT wipe the seeded '
+              'locality — only a settled user-id change may reset it',
+        );
+        expect(
+          container.read(searchFiltersControllerProvider).oblastId,
+          _kOblastId,
+        );
+        expect(
+          container.read(searchFiltersControllerProvider).districtId,
+          _kDistrictId,
+          reason: 'the seeded district must survive the same-user refresh too',
+        );
+        expect(
+          container.read(searchFilterLabelsControllerProvider).cityName,
+          'Київ',
+          reason: 'the display labels must survive the same-user refresh',
+        );
+        expect(
+          container.read(searchFilterLabelsControllerProvider).cityHasDistricts,
+          isTrue,
+          reason: 'the resolved cityHasDistricts flag must survive too',
+        );
+
+        // The rendered city row still shows the seeded name — never wiped to the
+        // placeholder (the user-visible symptom of the reported bug).
+        final Text cityText = tester.widget<Text>(
+          find.byKey(const Key('search_city_value')),
+        );
+        expect(cityText.data, 'Київ');
+      },
+    );
+
+    testWidgets(
+      'a DIFFERENT-user emission (settled id changes) STILL resets the filter + '
+      'labels — the fix preserves cross-user isolation',
+      (tester) async {
+        installOverflowGuard();
+        _sizeView(tester);
+        _seededUser = _userWithLocation;
+
+        final ProviderContainer container = ProviderContainer(
+          overrides: _overrides().cast(),
+        );
+        addTearDown(container.dispose);
+
+        // Open Пошук → seed Київ for user A (u-client-loc).
+        await tester.pumpWidget(
+          UncontrolledProviderScope(container: container, child: _app()),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityWithDistrictsId,
+        );
+
+        // A genuine account swap: emit user B (u-client-lviv) — a DIFFERENT
+        // settled id. The `.select(user.id)` now yields a NEW value, so build()
+        // re-runs and the per-user filter + labels are shed BEFORE B is seeded.
+        // This is the isolation the narrowing must NOT break.
+        final _StubAuthNotifier auth =
+            container.read(authProvider.notifier) as _StubAuthNotifier;
+        auth.flipTo(_userWithLocationLviv);
+        await tester.pump();
+
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          isNull,
+          reason:
+              "a different settled user id must clear user A's seeded locality "
+              '(no cross-account leak)',
+        );
+        expect(
+          container.read(searchFiltersControllerProvider).oblastId,
+          isNull,
+        );
+        expect(
+          container.read(searchFilterLabelsControllerProvider).cityName,
+          isNull,
+          reason: 'the labels reset on a genuine user swap',
+        );
+      },
+    );
+
+    test('SearchServiceSelectionController: a same-user refresh KEEPS an in-progress '
+        'service selection, but a different user id still resets it', () {
+      _seededUser = _userWithLocation;
+      final ProviderContainer container = ProviderContainer(
+        overrides: _overrides().cast(),
+      );
+      addTearDown(container.dispose);
+
+      // Settle the auth session (the stub sets AsyncData(Authenticated) during
+      // build) so the service controller's `.select(user.id)` reads u-client-loc.
+      container.read(authProvider);
+
+      // Seed an in-progress second-level service selection.
+      container
+          .read(searchServiceSelectionControllerProvider.notifier)
+          .toggle('CLASSIC_MANICURE');
+      expect(container.read(searchServiceSelectionControllerProvider), <String>{
+        'CLASSIC_MANICURE',
+      });
+
+      // Same-user refresh (name edit) → the selection must NOT be dropped.
+      final _StubAuthNotifier auth =
+          container.read(authProvider.notifier) as _StubAuthNotifier;
+      auth.flipTo(_userWithLocation.copyWith(firstName: 'Оновлене'));
+      expect(
+        container.read(searchServiceSelectionControllerProvider),
+        <String>{'CLASSIC_MANICURE'},
+        reason:
+            'a same-user refreshUser() must not drop the in-progress service '
+            'selection (the third narrowed controller)',
+      );
+
+      // A genuine account swap (different settled id) still resets it.
+      auth.flipTo(_userWithLocationLviv);
+      expect(
+        container.read(searchServiceSelectionControllerProvider),
+        isEmpty,
+        reason:
+            'a different settled user id must clear the service selection — '
+            'cross-user isolation preserved',
+      );
+    });
+  });
 }
