@@ -542,7 +542,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **getWorkingDays**
-> ApiResponseListMasterWorkingDayResponse getWorkingDays(masterId, from, to)
+> ApiResponseListMasterWorkingDayResponse getWorkingDays(masterId, from, to, serviceId)
 
 
 
@@ -554,9 +554,10 @@ final api = BeauticaApi().getMasterControllerApi();
 final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 final Date from = 2013-10-20; // Date | 
 final Date to = 2013-10-20; // Date | 
+final String serviceId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 
 try {
-    final response = api.getWorkingDays(masterId, from, to);
+    final response = api.getWorkingDays(masterId, from, to, serviceId);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling MasterControllerApi->getWorkingDays: $e\n');
@@ -570,6 +571,7 @@ Name | Type | Description  | Notes
  **masterId** | **String**|  | 
  **from** | **Date**|  | 
  **to** | **Date**|  | 
+ **serviceId** | **String**|  | [optional] 
 
 ### Return type
 

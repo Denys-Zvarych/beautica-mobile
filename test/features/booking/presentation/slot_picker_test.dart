@@ -96,13 +96,25 @@ class _FakeSlotRepository implements SlotRepository {
   DateTime? lastDate;
 
   /// Per-date override for [getWorkingDays]; `null` (the default) means
-  /// every requested date resolves `working: true`.
-  bool? Function(DateTime day)? workingDaysOverride;
+  /// every requested date resolves `working: true`. The callback also receives
+  /// the `serviceId` the request carried, so a test can model the backend's
+  /// two MODES (Phase 14.20): availability-aware when non-null vs the older
+  /// schedule-shape signal when null — the exact discriminator the
+  /// calendar-vs-slots regression pivots on.
+  bool? Function(DateTime day, String? serviceId)? workingDaysOverride;
   Object? workingDaysErrorToThrow;
   int workingDaysCallCount = 0;
   String? lastWorkingDaysMasterId;
   DateTime? lastWorkingDaysFrom;
   DateTime? lastWorkingDaysTo;
+
+  /// The `serviceId` the MOST RECENT [getWorkingDays] call carried. Phase
+  /// 14.20 fix pins that the booking calendar threads
+  /// `args.services.first.id` into the working-days query (so its `working`
+  /// flags become availability-aware); `null` here would mean the calendar
+  /// silently fell back to the duration-blind schedule-shape mode — the
+  /// pre-fix bug.
+  String? lastWorkingDaysServiceId;
 
   /// When set, [getWorkingDays] awaits this [Completer]'s future before
   /// resolving — lets a test hold a fetch "in flight" to assert the
@@ -141,12 +153,14 @@ class _FakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   }) async {
     workingDaysCallCount++;
     lastWorkingDaysMasterId = masterId;
     lastWorkingDaysFrom = from;
     lastWorkingDaysTo = to;
+    lastWorkingDaysServiceId = serviceId;
     final Completer<void>? gate = workingDaysGate;
     if (gate != null) await gate.future;
     final Object? err = workingDaysErrorToThrow;
@@ -159,7 +173,10 @@ class _FakeSlotRepository implements SlotRepository {
     ) {
       if (omitFromWorkingDaysResponse.contains(d)) continue;
       days.add(
-        WorkingDay(date: d, working: workingDaysOverride?.call(d) ?? true),
+        WorkingDay(
+          date: d,
+          working: workingDaysOverride?.call(d, serviceId) ?? true,
+        ),
       );
     }
     return days;
@@ -244,7 +261,8 @@ void main() {
         );
         final fake = _FakeSlotRepository(
           const <BookingSlot>[],
-          workingDaysOverride: (DateTime day) => day != todayDateOnly,
+          workingDaysOverride: (DateTime day, String? serviceId) =>
+              day != todayDateOnly,
         );
         final router = _router(dateScreen: SlotDateScreen(args: _args()));
 
@@ -275,6 +293,167 @@ void main() {
         await tester.tap(find.byKey(const Key('booking-summary-cta')));
         await tester.pumpAndSettle();
         expect(find.byType(SlotTimeScreen), findsNothing);
+      },
+    );
+
+    // Phase 14.20 REGRESSION — the calendar-vs-slots availability bug. Before
+    // the fix, `SlotDateScreen` requested working-days in SCHEDULE-SHAPE mode
+    // (no serviceId): a day the master had intervals on rendered selectable
+    // even when the chosen service's duration left zero bookable slots on it,
+    // so tapping it dead-ended on «Немає вільного часу». The fix threads
+    // `args.services.first.id` into the query so the `working` flag becomes
+    // AVAILABILITY-AWARE.
+    //
+    // This test discriminates the two modes: the fake returns `working:false`
+    // for TODAY ONLY when a serviceId rode along (availability-aware), and
+    // `working:true` when it did not (the pre-fix schedule-shape path). So it
+    // FAILS against the old behaviour — old code sends no serviceId → today
+    // resolves working:true → the cell is tappable → it loads slots and the
+    // flow advances to the dead-end — and PASSES now: the fix sends the
+    // serviceId → today resolves working:false → the cell is inert.
+    testWidgets(
+      'a day bookable in schedule-shape mode but with no slot for the chosen '
+      'service is disabled once the calendar is service-scoped (Phase 14.20 '
+      'availability-aware gate) — never tappable, never loads slots',
+      (tester) async {
+        final DateTime today = DateTime.now();
+        final DateTime todayDateOnly = DateTime(
+          today.year,
+          today.month,
+          today.day,
+        );
+        final fake = _FakeSlotRepository(
+          const <BookingSlot>[],
+          // Availability-aware mode (serviceId present): TODAY has no bookable
+          // slot for this service → working:false. Schedule-shape mode
+          // (serviceId null — the pre-fix request) is duration-blind and would
+          // wrongly report it working:true. Discriminating on serviceId is
+          // what makes this test catch the original bug rather than merely
+          // re-proving the Phase 14.14 gate.
+          workingDaysOverride: (DateTime day, String? serviceId) {
+            if (serviceId == null) return true;
+            return day != todayDateOnly;
+          },
+        );
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+
+        // Sanity: the calendar really asked in availability-aware mode.
+        expect(
+          fake.lastWorkingDaysServiceId,
+          _kService.id,
+          reason:
+              'the booking calendar must thread the primary service id into '
+              'the working-days query — this is the Phase 14.20 fix under test',
+        );
+
+        final Finder todayCell = find.byKey(
+          Key('booking-calendar-day-${today.day}'),
+        );
+        expect(todayCell, findsOneWidget);
+        expect(
+          find.descendant(
+            of: todayCell,
+            matching: find.byType(GestureDetector),
+          ),
+          findsNothing,
+          reason:
+              'a day the service-scoped endpoint marks working:false must '
+              'render without a tap handler (old, schedule-shape code left it '
+              'tappable — that IS the bug)',
+        );
+
+        await tester.tap(todayCell, warnIfMissed: false);
+        await tester.pumpAndSettle();
+
+        // No slots fetch fired, and «Далі» stays disabled (no date selected),
+        // so the client can never reach the «Немає вільного часу» dead-end.
+        expect(fake.callCount, 0);
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SlotTimeScreen), findsNothing);
+      },
+    );
+
+    // Phase 14.20 positive counterpart — guards against OVER-disabling: a day
+    // the availability-aware endpoint marks working:true must stay tappable
+    // and still load its slots. Without this, a fix that disabled every day
+    // would also make the regression above pass while breaking the app.
+    testWidgets(
+      'a day the service-scoped working-days query marks working:true stays '
+      'enabled and loads its slots on tap',
+      (tester) async {
+        final DateTime today = DateTime.now();
+        final fake = _FakeSlotRepository(
+          const <BookingSlot>[],
+          // Availability-aware mode reports EVERY day working:true here.
+          workingDaysOverride: (DateTime day, String? serviceId) => true,
+        );
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder todayCell = find.byKey(
+          Key('booking-calendar-day-${today.day}'),
+        );
+        expect(todayCell, findsOneWidget);
+        expect(
+          find.descendant(
+            of: todayCell,
+            matching: find.byType(GestureDetector),
+          ),
+          findsOneWidget,
+          reason:
+              'a working:true day must keep its tap handler — the gate must '
+              'not over-disable available days',
+        );
+
+        await tester.tap(todayCell);
+        await tester.pumpAndSettle();
+
+        expect(fake.callCount, 1);
+        expect(fake.lastServiceId, _kService.id);
+        expect(fake.lastDate, DateTime(today.year, today.month, today.day));
+      },
+    );
+
+    // Phase 14.20 wiring pin — the working-days request the calendar issues
+    // must carry `serviceId == args.services.first.id`. A future refactor that
+    // dropped the serviceId (reverting to schedule-shape) would silently
+    // reintroduce the calendar-vs-slots disagreement; this catches it directly
+    // at the query boundary, independent of any particular day's verdict.
+    testWidgets(
+      'the booking calendar issues its working-days query with the primary '
+      'service id (services.first.id), never schedule-shape (null)',
+      (tester) async {
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+
+        expect(fake.workingDaysCallCount, greaterThanOrEqualTo(1));
+        expect(
+          fake.lastWorkingDaysServiceId,
+          isNotNull,
+          reason:
+              'the calendar must NOT fall back to schedule-shape mode — a null '
+              'serviceId here is the pre-fix (Phase 14.20) bug',
+        );
+        expect(fake.lastWorkingDaysServiceId, _kService.id);
+        expect(fake.lastWorkingDaysMasterId, _kMaster.id);
       },
     );
 

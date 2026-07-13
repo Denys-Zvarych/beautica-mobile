@@ -37,6 +37,7 @@ final class FakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   }) async => _workingDays;
 }

@@ -580,6 +580,23 @@ final class FakeBackend {
   /// of month" day).
   DateTime? forceNonWorkingDate;
 
+  /// Like [forceNonWorkingDate], but reports the day `working: false` ONLY
+  /// when the working-days request carried a `serviceId` (the backend's
+  /// AVAILABILITY-AWARE mode). A request WITHOUT a serviceId (schedule-shape
+  /// mode) still sees it `working: true`. This models the exact backend
+  /// behaviour the Phase 14.20 fix relies on, so an E2E test can prove the
+  /// booking calendar now threads the chosen service's id into the query:
+  /// old, schedule-shape code (no serviceId) would resolve the day working and
+  /// dead-end on «Немає вільного часу»; the fixed code sends the serviceId and
+  /// the day is disabled up front.
+  DateTime? forceNonWorkingDateWhenServiceScoped;
+
+  /// The `serviceId` query param the MOST RECENT `master-aaa/working-days`
+  /// request carried (`null` when absent = schedule-shape mode). Lets the
+  /// booking-flow E2E assert the calendar threads `services.first.id` into the
+  /// working-days query — the Phase 14.20 wiring under test.
+  String? lastMasterAaaWorkingDaysServiceId;
+
   /// `GET /api/v1/salons/{salonId}/services/{serviceDefId}/masters` call
   /// count (Phase 23.x bookable-masters rewire) — the salon booking flow's
   /// `salonMasterServiceCoverageProvider` now calls this ONCE PER SELECTED
@@ -1037,12 +1054,23 @@ final class FakeBackend {
   /// `_availableSlotsEnvelope`'s "at least one tappable target" intent —
   /// EXCEPT [forceNonWorkingDate], if set, which reports as `working: false`
   /// so a test can exercise the gate's negative path against the real
-  /// endpoint instead of only wiring the fixture.
-  Map<String, dynamic> _workingDaysEnvelope() {
+  /// endpoint instead of only wiring the fixture — and
+  /// [forceNonWorkingDateWhenServiceScoped], which does the same but ONLY when
+  /// the request carried a [serviceId] (the availability-aware mode the Phase
+  /// 14.20 fix depends on).
+  Map<String, dynamic> _workingDaysEnvelope({String? serviceId}) {
     final DateTime now = DateTime.now();
     final DateTime from = DateTime(now.year, now.month - 5, 1);
     final DateTime to = DateTime(now.year, now.month + 6, 0);
     final DateTime? nonWorking = forceNonWorkingDate;
+    final DateTime? nonWorkingWhenScoped = serviceId != null
+        ? forceNonWorkingDateWhenServiceScoped
+        : null;
+    bool matches(DateTime? forced, DateTime d) =>
+        forced != null &&
+        d.year == forced.year &&
+        d.month == forced.month &&
+        d.day == forced.day;
     final List<Map<String, dynamic>> days = <Map<String, dynamic>>[];
     for (
       DateTime d = from;
@@ -1050,10 +1078,7 @@ final class FakeBackend {
       d = d.add(const Duration(days: 1))
     ) {
       final bool isForcedNonWorking =
-          nonWorking != null &&
-          d.year == nonWorking.year &&
-          d.month == nonWorking.month &&
-          d.day == nonWorking.day;
+          matches(nonWorking, d) || matches(nonWorkingWhenScoped, d);
       days.add(<String, dynamic>{
         'date':
             '${d.year.toString().padLeft(4, '0')}-'
@@ -1730,9 +1755,14 @@ final class FakeBackend {
     // path-only route-match caveat as the `/slots` registration above.
     _adapter.onRoute(
       '/api/v1/masters/master-aaa/working-days',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         getWorkingDaysCalls++;
-        return _workingDaysEnvelope();
+        // Phase 14.20: the fixed booking calendar threads the chosen service's
+        // id into this query (availability-aware mode). Record it, and answer
+        // in the same mode the request asked for.
+        final String? serviceId = req.queryParameters['serviceId'] as String?;
+        lastMasterAaaWorkingDaysServiceId = serviceId;
+        return _workingDaysEnvelope(serviceId: serviceId);
       }),
       request: const Request(method: RequestMethods.get),
     );

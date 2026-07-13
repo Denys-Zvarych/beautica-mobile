@@ -141,6 +141,14 @@ class _FakeSlotRepository implements SlotRepository {
   /// asserting the call happened at all.
   String? lastServiceId;
 
+  /// Whether [getWorkingDays] was ever called, and the `serviceId` its most
+  /// recent call carried. Phase 14.20 boundary guard: the salon step-3
+  /// per-master schedule deliberately stays on the SCHEDULE-SHAPE working-days
+  /// mode (serviceId ABSENT) — unlike the independent-master booking calendar,
+  /// which is availability-aware — so this must stay `null`.
+  bool getWorkingDaysCalled = false;
+  String? lastWorkingDaysServiceId;
+
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
@@ -158,8 +166,11 @@ class _FakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   }) async {
+    getWorkingDaysCalled = true;
+    lastWorkingDaysServiceId = serviceId;
     final List<WorkingDay> days = <WorkingDay>[];
     for (
       DateTime d = from;
@@ -195,6 +206,7 @@ class _PerMasterFakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   }) async {
     final List<WorkingDay> days = <WorkingDay>[];
@@ -223,6 +235,7 @@ class _ThrowOnceWorkingDaysSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   }) async {
     getWorkingDaysCalls++;
@@ -269,6 +282,7 @@ class _ThrowingMasterSlotsSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   }) async {
     final List<WorkingDay> days = <WorkingDay>[];
@@ -413,6 +427,47 @@ void main() {
     expect(find.byKey(const Key('salon-schedule-page-m1')), findsOneWidget);
     expect(find.byKey(const Key('salon-time-pager-dot-0')), findsOneWidget);
     expect(find.byKey(const Key('salon-time-pager-dot-1')), findsOneWidget);
+  });
+
+  // Phase 14.20 boundary guard — the availability-aware working-days mode is
+  // scoped ONLY to the independent-master booking calendar. The salon step-3
+  // per-master schedule (`MasterSchedulePage`) intentionally stays on the
+  // duration-blind schedule-shape signal, so its working-days query must carry
+  // NO serviceId. Threading one here would flip its cache key/mode and change
+  // this screen's behaviour; this pins that the fix did NOT leak across the
+  // boundary.
+  testWidgets('the salon per-master schedule calendar requests working-days in '
+      'schedule-shape mode — serviceId is NOT threaded', (tester) async {
+    const args = SalonBookingTimeArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1'],
+      assignedServiceIdsByMaster: <String, List<String>>{
+        'm1': <String>['svc-1'],
+      },
+    );
+    final fake = _FakeSlotRepository(const <BookingSlot>[]);
+    await tester.pumpRoutedApp(
+      _router(args: args),
+      overrides: _baseOverrides(
+        slotRepository: fake,
+        selectedServiceIds: const <String>['svc-1'],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      fake.getWorkingDaysCalled,
+      isTrue,
+      reason:
+          'MasterSchedulePage resolves its calendar gate via getWorkingDays',
+    );
+    expect(
+      fake.lastWorkingDaysServiceId,
+      isNull,
+      reason:
+          'the salon step-3 picker stays on the schedule-shape signal — '
+          'the Phase 14.20 availability-aware serviceId must not leak here',
+    );
   });
 
   testWidgets('tapping a pager dot changes the active slide', (tester) async {

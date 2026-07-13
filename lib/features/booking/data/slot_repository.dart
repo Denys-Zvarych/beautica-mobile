@@ -57,13 +57,21 @@ abstract interface class SlotRepository {
   /// [from]..[to] (inclusive, date-only; time-of-day is discarded).
   ///
   /// Wraps `GET /masters/{masterId}/working-days`. Callers (the Phase 14.14
-  /// calendar day-availability gate) MUST keep the span bounded — mirrors the
-  /// `/effective-schedule` endpoint's ~365-day cap; the backend rejects an
-  /// over-wide window.
+  /// calendar day-availability gate) MUST keep the span bounded — the backend
+  /// rejects an over-wide window: ~365 days in schedule-shape mode, but only
+  /// 62 days once [serviceId] is supplied (400 beyond that).
+  ///
+  /// When [serviceId] is non-null the returned `working` flag is
+  /// AVAILABILITY-AWARE (Phase 14.20): true iff a free range fits that
+  /// service's full duration with start >= now+15min — the same computation as
+  /// `getMasterSlots`, so the calendar's day gate agrees with the time grid.
+  /// When null the flag is the older schedule-shape signal (master has
+  /// intervals that day, duration-blind).
   Future<List<WorkingDay>> getWorkingDays({
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   });
 }
@@ -115,6 +123,7 @@ final class HttpSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   }) async {
     try {
@@ -123,6 +132,9 @@ final class HttpSlotRepository implements SlotRepository {
         // Date-only wire params — mirrors `getMasterSlots`'s `date` param.
         from: Date(from.year, from.month, from.day),
         to: Date(to.year, to.month, to.day),
+        // Availability-aware mode when non-null; the generated client omits
+        // the query param entirely when null (schedule-shape mode).
+        serviceId: serviceId,
         cancelToken: cancelToken,
       );
       final days = res.data?.data ?? const <MasterWorkingDayResponse>[];

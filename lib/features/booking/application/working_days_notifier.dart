@@ -68,6 +68,12 @@ class WorkingDaysNotifier extends _$WorkingDaysNotifier {
           masterId: query.masterId,
           from: query.from,
           to: query.to,
+          // Phase 14.20: when the caller (the independent-master booking
+          // calendar) supplies a serviceId, the resolved `working` flags become
+          // availability-aware (duration + existing bookings + now+15min
+          // cutoff) instead of schedule-shape. Null for the salon step-3 picker,
+          // which stays on the schedule-shape signal.
+          serviceId: query.serviceId,
           cancelToken: cancelToken,
         );
   }
