@@ -468,6 +468,11 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   /// precise range message is surfaced inline by [PricingField], so the
   /// [RowFlagReason.invalidRange] header copy stays generic to avoid
   /// double-reporting it.
+  ///
+  /// [RowFlagReason.durationTooLong] is deliberately NOT surfaced here — its
+  /// `serviceSetupDurationMax` copy is identical to the inline duration-field
+  /// error, so the header is suppressed for it (see `showHeaderFlag` in
+  /// [build]) and it falls through to the generic fallback below (never read).
   String _flagMessage(AppLocalizations l10n, RowFlagReason reason) {
     switch (reason) {
       case RowFlagReason.missingDuration:
@@ -477,7 +482,6 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
       case RowFlagReason.invalidRange:
         return l10n.serviceSetupRowFixRange;
       case RowFlagReason.durationTooLong:
-        return l10n.serviceSetupDurationMax;
       case RowFlagReason.missingBoth:
       case RowFlagReason.none:
         return l10n.serviceSetupRowMissingPrice;
@@ -503,6 +507,14 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     // error also tints the rim (its message rides the inline field slot).
     final bool clientFlagged = on && row.flagged;
     final bool flagged = clientFlagged || hasServerError;
+    // The "too long" duration reason is field-only: its header copy would be an
+    // exact duplicate of the inline duration-field error (both are
+    // `serviceSetupDurationMax`), so it is excluded from the header flag line.
+    // The other client reasons (missing duration / price / both, invalid range)
+    // carry terse summary copy that differs from the field hints, so they keep
+    // their header line.
+    final bool showHeaderFlag =
+        clientFlagged && reason != RowFlagReason.durationTooLong;
     final String? rangeError = widget.resolveRangeError(row);
 
     // Inline per-field hints derived from the save-time flag reason, so a
@@ -576,7 +588,9 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                     // Header flag line only for CLIENT-side reasons — a pure
                     // server error carries its message on the inline field slot
                     // (below), so a generic header line here would misreport it.
-                    if (clientFlagged) ...<Widget>[
+                    // `durationTooLong` is also excluded (see showHeaderFlag) so
+                    // its message shows on the duration FIELD only, never twice.
+                    if (showHeaderFlag) ...<Widget>[
                       const SizedBox(height: 4),
                       Row(
                         children: <Widget>[
