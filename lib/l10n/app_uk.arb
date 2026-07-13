@@ -2161,7 +2161,7 @@
       "to": { "type": "String" }
     }
   },
-  "weeklyEditorActiveWindowHint": "Тижневий графік діє протягом цього періоду. Окремі дні можна змінити пізніше.",
+  "weeklyEditorActiveWindowHint": "Ваш графік автоматично діятиме на період, який Ви оберете. За потреби - Ви зможете вносити зміни.",
   "@weeklyEditorActiveWindowHint": {
     "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
   },

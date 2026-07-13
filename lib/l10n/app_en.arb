@@ -2161,7 +2161,7 @@
       "to": { "type": "String" }
     }
   },
-  "weeklyEditorActiveWindowHint": "Your weekly schedule applies during this period. Individual days can be changed later.",
+  "weeklyEditorActiveWindowHint": "Your schedule will apply automatically for the period you choose. You can make changes whenever you need to.",
   "@weeklyEditorActiveWindowHint": {
     "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
   },
