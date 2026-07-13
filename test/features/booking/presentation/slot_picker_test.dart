@@ -457,6 +457,125 @@ void main() {
       },
     );
 
+    // Phase 14.20 — the serviceId must survive a MONTH STEP. `_workingDaysQuery`
+    // rebuilds per visible month; a regression that recomputed it without
+    // `services.first.id` on the month-nav path would silently revert the
+    // stepped-to month to schedule-shape mode (duration-blind) while the first
+    // month stayed availability-aware — an inconsistency this pins directly at
+    // the query boundary.
+    testWidgets(
+      'stepping to the next month re-issues the working-days query with the '
+      'primary service id still attached (never drops to schedule-shape)',
+      (tester) async {
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+
+        expect(fake.workingDaysCallCount, 1);
+        expect(fake.lastWorkingDaysServiceId, _kService.id);
+        final DateTime firstMonthFrom = fake.lastWorkingDaysFrom!;
+
+        await tester.tap(find.byKey(const Key('booking-calendar-next-month')));
+        await tester.pumpAndSettle();
+
+        expect(
+          fake.workingDaysCallCount,
+          2,
+          reason: 'a month step must trigger a fresh working-days fetch',
+        );
+        expect(
+          fake.lastWorkingDaysFrom!.isAfter(firstMonthFrom),
+          isTrue,
+          reason: 'the second fetch must be for the (later) stepped-to month',
+        );
+        expect(
+          fake.lastWorkingDaysServiceId,
+          _kService.id,
+          reason:
+              'the month-nav reload must keep threading services.first.id — '
+              'dropping it here re-introduces the calendar-vs-slots '
+              'disagreement for every month past the first',
+        );
+      },
+    );
+
+    // Phase 14.20 — proves the availability gate is NOT a today-only client
+    // guard: a genuinely FUTURE day the service-scoped endpoint marks
+    // working:false (fully booked / duration doesn't fit) is disabled just the
+    // same, while a sibling future working:true day stays tappable.
+    testWidgets(
+      'a FUTURE day (not today) the service-scoped query marks working:false is '
+      'disabled and untappable, while a sibling working:true future day is not',
+      (tester) async {
+        final DateTime now = DateTime.now();
+        // The 15th of NEXT month is unconditionally in the future regardless
+        // of when this test runs; the 16th is its always-working sibling.
+        final DateTime nextMonth = DateTime(now.year, now.month + 1, 1);
+        final DateTime disabledDay = DateTime(
+          nextMonth.year,
+          nextMonth.month,
+          15,
+        );
+        final fake = _FakeSlotRepository(
+          const <BookingSlot>[],
+          // Availability-aware mode: only the 15th of next month is fully
+          // booked for this service; every other day fits.
+          workingDaysOverride: (DateTime day, String? serviceId) =>
+              day != disabledDay,
+        );
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+
+        // Step onto the future month (every day there is > today).
+        await tester.tap(find.byKey(const Key('booking-calendar-next-month')));
+        await tester.pumpAndSettle();
+
+        final Finder disabledCell = find.byKey(
+          const Key('booking-calendar-day-15'),
+        );
+        expect(disabledCell, findsOneWidget);
+        expect(
+          find.descendant(
+            of: disabledCell,
+            matching: find.byType(GestureDetector),
+          ),
+          findsNothing,
+          reason:
+              'a future working:false day must be inert — the gate is '
+              'availability-driven, not a today-only cutoff',
+        );
+
+        await tester.tap(disabledCell, warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(fake.callCount, 0);
+
+        // The sibling future day (working:true) keeps its tap handler — the
+        // gate does not over-disable the whole future month.
+        final Finder enabledCell = find.byKey(
+          const Key('booking-calendar-day-16'),
+        );
+        expect(enabledCell, findsOneWidget);
+        expect(
+          find.descendant(
+            of: enabledCell,
+            matching: find.byType(GestureDetector),
+          ),
+          findsOneWidget,
+          reason: 'a working:true future day must stay tappable',
+        );
+      },
+    );
+
     // Phase 14.14 QA gap-fix — the acceptance criterion "a day absent from
     // the resolved set defaults to non-working, never tappable" was
     // previously unverified: every existing fixture (including the test

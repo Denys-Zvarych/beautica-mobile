@@ -854,5 +854,230 @@ void main() {
             'cross-user isolation preserved',
       );
     });
+
+    test('a MANUAL locality pick survives a same-user refreshUser() — the '
+        '_userTouchedLocality guard is NOT re-armed by a same-id emission, so '
+        'a later prefill still respects the manual choice', () async {
+      _seededUser = _userWithLocation;
+      final ProviderContainer container = ProviderContainer(
+        overrides: _overrides().cast(),
+      );
+      addTearDown(container.dispose);
+
+      // Settle the session, then seed Київ from the profile.
+      container.read(authProvider);
+      await container
+          .read(searchFiltersControllerProvider.notifier)
+          .prefillFromProfileIfNeeded();
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityWithDistrictsId,
+      );
+
+      // The user manually overrides to Львів (marks _userTouchedLocality).
+      container.read(searchFiltersControllerProvider.notifier)
+        ..selectOblast(oblastId: _kOblastId)
+        ..selectCity(cityId: _kCityNoDistrictsId);
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityNoDistrictsId,
+      );
+
+      // Same-user refresh (name edit): SAME id, so build() must NOT re-run —
+      // the manual pick AND its _userTouchedLocality guard both survive.
+      final _StubAuthNotifier auth =
+          container.read(authProvider.notifier) as _StubAuthNotifier;
+      auth.flipTo(_userWithLocation.copyWith(firstName: 'Оновлене'));
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityNoDistrictsId,
+        reason:
+            'a same-user refresh must not reset the manual pick back to empty '
+            '(nor reseed it from the profile)',
+      );
+
+      // Proof the guard itself survived: a subsequent profile-driven prefill
+      // is a no-op against the manual choice (had build() re-run, the guard
+      // would be false and this would reseed to the profile Київ).
+      await container
+          .read(searchFiltersControllerProvider.notifier)
+          .prefillFromProfileIfNeeded();
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityNoDistrictsId,
+        reason:
+            '_userTouchedLocality must remain latched across the same-user '
+            'refresh — the profile Київ must never clobber the manual Львів',
+      );
+    });
+
+    testWidgets('a PHONE-only edit (refreshUser with SAME id, changed '
+        'phoneNumber, unchanged name+locality) keeps the prefilled locality — '
+        'phone edits ride the same refreshUser() path as name edits', (
+      tester,
+    ) async {
+      installOverflowGuard();
+      _sizeView(tester);
+      _seededUser = _userWithLocation;
+
+      final ProviderContainer container = ProviderContainer(
+        overrides: _overrides().cast(),
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(container: container, child: _app()),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityWithDistrictsId,
+      );
+
+      // refreshUser() after a phone-number PATCH — nothing but phoneNumber
+      // changes; the settled user id is unchanged.
+      final _StubAuthNotifier auth =
+          container.read(authProvider.notifier) as _StubAuthNotifier;
+      auth.flipTo(_userWithLocation.copyWith(phoneNumber: '+380671112233'));
+      await tester.pump();
+
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityWithDistrictsId,
+        reason:
+            'a phone-only refresh must not wipe the seeded locality any more '
+            'than a name edit does — both emit a same-id Authenticated value',
+      );
+      expect(
+        container.read(searchFilterLabelsControllerProvider).cityName,
+        'Київ',
+      );
+    });
+
+    test('two BACK-TO-BACK same-user refreshUser() emissions keep the seeded '
+        'locality — the narrowed watch is idempotent across rapid '
+        're-emissions', () async {
+      _seededUser = _userWithLocation;
+      final ProviderContainer container = ProviderContainer(
+        overrides: _overrides().cast(),
+      );
+      addTearDown(container.dispose);
+
+      container.read(authProvider);
+      await container
+          .read(searchFiltersControllerProvider.notifier)
+          .prefillFromProfileIfNeeded();
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityWithDistrictsId,
+      );
+
+      // Two same-user emissions in a row (e.g. a debounce miss firing
+      // refreshUser twice) — the settled id never changes, so neither may
+      // reset the seed.
+      final _StubAuthNotifier auth =
+          container.read(authProvider.notifier) as _StubAuthNotifier;
+      auth.flipTo(_userWithLocation.copyWith(firstName: 'Раз'));
+      auth.flipTo(_userWithLocation.copyWith(firstName: 'Два'));
+
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityWithDistrictsId,
+        reason:
+            'rapid same-user re-emissions must be idempotent — the seed '
+            'survives all of them',
+      );
+      expect(
+        container.read(searchFilterLabelsControllerProvider).cityName,
+        'Київ',
+      );
+    });
+
+    testWidgets(
+      'cross-user round trip A(Київ) → B(no locality) → back to A: B never sees '
+      "A's locality, and returning to A re-seeds Київ on the next screen entry",
+      (tester) async {
+        installOverflowGuard();
+        _sizeView(tester);
+        _seededUser = _userWithLocation; // A signs in first (Київ)
+
+        final ProviderContainer container = ProviderContainer(
+          overrides: _overrides().cast(),
+        );
+        addTearDown(container.dispose);
+
+        // 1. A opens Пошук → Київ seeded.
+        await tester.pumpWidget(
+          UncontrolledProviderScope(container: container, child: _app()),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityWithDistrictsId,
+        );
+
+        final _StubAuthNotifier auth =
+            container.read(authProvider.notifier) as _StubAuthNotifier;
+
+        // 2. Swap to B (no saved locality). The settled id changes → build()
+        //    re-runs and A's Київ is shed immediately.
+        auth.flipTo(_userNoLocation);
+        await tester.pump();
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          isNull,
+          reason: "A's locality must not leak into B's session",
+        );
+
+        // 3. B navigates away + back → prefill runs against B's empty profile
+        //    → the filter stays empty (B has no saved locality, and no A leak).
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: SizedBox(key: Key('away'))),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          UncontrolledProviderScope(container: container, child: _app()),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          isNull,
+          reason:
+              "B's Пошук must show an empty locality — never a stale Київ from A",
+        );
+
+        // 4. Swap BACK to A → build() re-runs (id changes again) → cleared.
+        auth.flipTo(_userWithLocation);
+        await tester.pump();
+
+        // 5. A navigates away + back → prefill re-seeds A's Київ (no stale B
+        //    emptiness sticking, no stale A state either — a clean re-seed).
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: SizedBox(key: Key('away'))),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          UncontrolledProviderScope(container: container, child: _app()),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityWithDistrictsId,
+          reason:
+              'returning to A must re-seed Київ on the next screen entry — the '
+              'per-session guards re-armed cleanly on each id change',
+        );
+        expect(
+          container.read(searchFilterLabelsControllerProvider).cityName,
+          'Київ',
+        );
+      },
+    );
   });
 }

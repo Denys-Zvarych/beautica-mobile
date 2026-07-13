@@ -476,5 +476,93 @@ void main() {
         throwsA(same(mapped)),
       );
     });
+
+    // Phase 14.20 — the repository must forward the caller's serviceId to the
+    // generated client verbatim (the client itself drops the query param when
+    // it is null — see MasterControllerApi.getWorkingDays' `if (serviceId !=
+    // null)` guard). The success/error tests above all call getWorkingDays
+    // WITHOUT a serviceId, so neither the present nor the null path is pinned
+    // at this layer.
+    test('forwards a non-null serviceId to the generated client '
+        '(availability-aware mode)', () async {
+      when(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          serviceId: any(named: 'serviceId'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseListMasterWorkingDayResponse>(
+          data: ApiResponseListMasterWorkingDayResponse(
+            (b) => b
+              ..data = ListBuilder<MasterWorkingDayResponse>([])
+              ..success = true,
+          ),
+          requestOptions: RequestOptions(path: workingDaysPath),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.getWorkingDays(
+        masterId: 'master-1',
+        from: DateTime(2026, 7, 1),
+        to: DateTime(2026, 7, 31),
+        serviceId: 'svc-1',
+      );
+
+      final captured = verify(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          serviceId: captureAny(named: 'serviceId'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).captured;
+      expect(captured.single, 'svc-1');
+    });
+
+    test('passes serviceId: null to the generated client when the caller omits '
+        'it (schedule-shape mode → client drops the query param)', () async {
+      when(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          serviceId: any(named: 'serviceId'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseListMasterWorkingDayResponse>(
+          data: ApiResponseListMasterWorkingDayResponse(
+            (b) => b
+              ..data = ListBuilder<MasterWorkingDayResponse>([])
+              ..success = true,
+          ),
+          requestOptions: RequestOptions(path: workingDaysPath),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.getWorkingDays(
+        masterId: 'master-1',
+        from: DateTime(2026, 7, 1),
+        to: DateTime(2026, 7, 31),
+        // serviceId intentionally omitted.
+      );
+
+      final captured = verify(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          serviceId: captureAny(named: 'serviceId'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).captured;
+      expect(captured.single, isNull);
+    });
   });
 }
