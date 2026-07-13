@@ -1695,13 +1695,14 @@ void main() {
 
     // Golden for the _DayCard discrete state (+ structural assertion, per the
     // golden-is-not-acceptance rule). The STRUCTURAL pin is the acceptance: the
-    // discrete day-1 card hosts a DiscreteTimesEditor with one chip + the window
-    // label after a time is added. The golden that follows is a SUPPLEMENTARY
-    // pixel snapshot, blessed only once the structure is confirmed correct so
-    // the self-referential re-bless can never silently mask a regression.
+    // discrete day-1 card hosts a DiscreteTimesEditor with one chip + the
+    // discrete-hours summary after a time is added. The golden that follows is a
+    // SUPPLEMENTARY pixel snapshot, blessed only once the structure is confirmed
+    // correct so the self-referential re-bless can never silently mask a
+    // regression.
     testWidgets(
-      'the _DayCard discrete state renders the chip + window label (structural) '
-      'and matches its golden (supplementary)',
+      'the _DayCard discrete state renders the chip + discrete-hours summary '
+      '(structural) and matches its golden (supplementary)',
       (tester) async {
         final ProviderContainer c = await _pumpLoaded(tester, _template());
         addTearDown(c.dispose);
@@ -1720,7 +1721,10 @@ void main() {
         await tester.pumpAndSettle();
 
         // STRUCTURAL acceptance: the discrete card shows the 09:00 chip and the
-        // localised window label (read from l10n — never a raw UA literal).
+        // localised discrete-hours summary enumerating the single start (read
+        // from l10n — never a raw UA literal). This is the exact reported bug:
+        // a single discrete time must read «Запис можливий в години: 09:00», NOT
+        // the misleading «Вікно 09:00 - 09:00» / min–max window.
         final Finder dayCard = find.byKey(const Key('weekly-day-1'));
         expect(
           find.descendant(
@@ -1734,10 +1738,18 @@ void main() {
           find.descendant(
             of: dayCard,
             matching: find.text(
-              '${l10n.discreteTimesWindowLabel}  09:00 – 09:00',
+              l10n.scheduleDiscreteTimesWindowSummary('09:00'),
             ),
           ),
           findsOneWidget,
+        );
+        // The degenerate min–max window must NOT appear anywhere in the card.
+        expect(
+          find.descendant(
+            of: dayCard,
+            matching: find.textContaining('09:00 – 09:00'),
+          ),
+          findsNothing,
         );
 
         // SUPPLEMENTARY golden of just the day-1 card in its discrete state.

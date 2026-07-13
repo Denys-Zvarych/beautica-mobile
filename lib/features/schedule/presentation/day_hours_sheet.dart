@@ -702,7 +702,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   DiscreteTimesEditorStrings _discreteStrings(AppLocalizations l10n) =>
       DiscreteTimesEditorStrings(
         addTimeLabel: l10n.discreteTimesAddTime,
-        windowLabel: l10n.discreteTimesWindowLabel,
+        windowSummary: l10n.scheduleDiscreteTimesWindowSummary,
         removeTimeSemantic: l10n.discreteTimesRemoveSemantic,
         timePickerTitle: l10n.discreteTimesPickerTitle,
         timePickerConfirm: l10n.timePickerConfirm,

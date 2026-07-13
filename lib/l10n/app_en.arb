@@ -2633,6 +2633,15 @@
       }
     }
   },
+  "scheduleDiscreteTimesWindowSummary": "Booking available at: {times}",
+  "@scheduleDiscreteTimesWindowSummary": {
+    "description": "Summary line for an EXPLICIT_TIMES day enumerating the discrete bookable start times instead of a misleading min–max window. Used on both the schedule editor and the read-only day panel. {times} is the comma-separated list of HH:MM times.",
+    "placeholders": {
+      "times": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHubHelp": "Help / Contact us",
   "@settingsHubHelp": {
     "description": "Label for the Help / Contact-us row in the master settings hub; navigates to the support-contact screen."

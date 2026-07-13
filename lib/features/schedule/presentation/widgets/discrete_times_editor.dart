@@ -19,8 +19,10 @@
 //     exists in [times] is REJECTED: a transient inline info message is shown for
 //     2.5 s (auto-dismissed), nothing is mutated, [onChanged] is NOT called.
 //   • Remove chip ✕: removes the time, calls [onChanged].
-//   • Window label "HH:MM – HH:MM" (min–max of [times]) is shown above the chips
-//     when [times] is non-empty; hidden when empty.
+//   • A discrete-hours summary line enumerating every bookable start
+//     ("Запис можливий в години: 09:00, 11:00, …") is shown above the chips when
+//     [times] is non-empty; hidden when empty. NOT a min–max window — EXPLICIT_
+//     TIMES is a discrete set, so a "09:00 – 09:00"-style span would mislead.
 //   • Empty-list error row is shown when [times] is empty (a working day with
 //     EXPLICIT_TIMES mode and zero times is invalid and blocks Save via the
 //     notifier gate; the editor surfaces this inline so the save gate is never
@@ -48,7 +50,7 @@ import 'velvet_time_picker.dart';
 class DiscreteTimesEditorStrings {
   const DiscreteTimesEditorStrings({
     required this.addTimeLabel,
-    required this.windowLabel,
+    required this.windowSummary,
     required this.removeTimeSemantic,
     required this.timePickerTitle,
     required this.timePickerConfirm,
@@ -61,8 +63,10 @@ class DiscreteTimesEditorStrings {
   /// Button label for the "add a discrete time" action.
   final String addTimeLabel;
 
-  /// Prefix shown before the derived "HH:MM – HH:MM" window range label.
-  final String windowLabel;
+  /// `(comma-joined HH:MM list) → full summary line` enumerating the discrete
+  /// bookable start times (e.g. "Запис можливий в години: 09:00, 11:00"). Not a
+  /// min–max window — EXPLICIT_TIMES is a discrete set, not a continuous span.
+  final String Function(String times) windowSummary;
 
   /// `(formattedTime) → accessibility label` for a chip's remove button.
   final String Function(String time) removeTimeSemantic;
@@ -225,16 +229,17 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
     // A working EXPLICIT_TIMES day with no times is an error (Save blocked).
     final bool hasError = times.isEmpty;
 
-    // Derived window summary: min–max of the sorted list.
-    final String? windowRange = times.isNotEmpty
-        ? '${_fmt(times.first)} – ${_fmt(times.last)}'
+    // EXPLICIT_TIMES is a discrete set of bookable starts, not a continuous
+    // span — enumerate the hours instead of deriving a misleading min–max window.
+    final String? summaryLine = times.isNotEmpty
+        ? s.windowSummary(times.map(_fmt).join(', '))
         : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // ── Derived window label ─────────────────────────────────────────────
-        if (windowRange != null) ...<Widget>[
+        // ── Discrete-hours summary line ──────────────────────────────────────
+        if (summaryLine != null) ...<Widget>[
           Row(
             children: <Widget>[
               const Icon(
@@ -243,7 +248,7 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
                 color: BrandColors.accentDeep,
               ),
               const SizedBox(width: VelvetSpacing.xs + 2),
-              Text('${s.windowLabel}  $windowRange', style: _windowLabelStyle),
+              Expanded(child: Text(summaryLine, style: _windowLabelStyle)),
             ],
           ),
           const SizedBox(height: VelvetSpacing.sm + 2),

@@ -977,7 +977,7 @@ class _LoadedBody extends StatelessWidget {
   DiscreteTimesEditorStrings _buildDiscreteStrings() =>
       DiscreteTimesEditorStrings(
         addTimeLabel: l10n.discreteTimesAddTime,
-        windowLabel: l10n.discreteTimesWindowLabel,
+        windowSummary: l10n.scheduleDiscreteTimesWindowSummary,
         removeTimeSemantic: l10n.discreteTimesRemoveSemantic,
         timePickerTitle: l10n.discreteTimesPickerTitle,
         timePickerConfirm: l10n.timePickerConfirm,

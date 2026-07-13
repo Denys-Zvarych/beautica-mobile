@@ -127,8 +127,8 @@ void main() {
     );
 
     testWidgets(
-      'adding two times keeps them sorted and shows the derived min–max window '
-      'label (09:00 – 10:00)',
+      'adding two times keeps them sorted and shows the discrete-hours summary '
+      'enumerating both starts (09:00, 10:00) — NOT a min–max window',
       (tester) async {
         final List<TimeOfDay> times = <TimeOfDay>[];
         await pumpEditor(tester, times);
@@ -143,20 +143,24 @@ void main() {
         expect(find.byKey(const Key('discrete-chip-09:00')), findsOneWidget);
         expect(find.byKey(const Key('discrete-chip-10:00')), findsOneWidget);
 
-        // The derived window label renders the min–max span with the localised
-        // prefix (read from l10n; the "HH:MM – HH:MM" range is the widget's
-        // contract).
+        // The summary line ENUMERATES every discrete start (read from l10n; the
+        // comma-joined "HH:MM, HH:MM" list is the widget's contract). It is NOT
+        // a continuous min–max span — a "09:00 – 10:00"-style window would
+        // mislead for a discrete set.
         final AppLocalizations l10n = l10nOf(tester);
         expect(
-          find.text('${l10n.discreteTimesWindowLabel}  09:00 – 10:00'),
+          find.text(l10n.scheduleDiscreteTimesWindowSummary('09:00, 10:00')),
           findsOneWidget,
         );
+        // The old min–max window copy must be gone (regression guard for the
+        // «Вікно … – …» / min–max render).
+        expect(find.textContaining('09:00 – 10:00'), findsNothing);
       },
     );
 
     testWidgets(
       'a time added out of order is re-sorted into the list (the chip set + '
-      'window label reflect the canonical order)',
+      'discrete-hours summary reflect the canonical order)',
       (tester) async {
         // Seed the host with a single later time so the next add (which seeds
         // the next hour after the last = wraps to 09:00 only when empty) lands
@@ -177,11 +181,69 @@ void main() {
 
         final AppLocalizations l10n = l10nOf(tester);
         expect(
-          find.text('${l10n.discreteTimesWindowLabel}  09:00 – 15:00'),
+          find.text(l10n.scheduleDiscreteTimesWindowSummary('09:00, 15:00')),
           findsOneWidget,
         );
+        // Not the old continuous min–max window.
+        expect(find.textContaining('09:00 – 15:00'), findsNothing);
       },
     );
+  });
+
+  // ── Feature regression: enumerate hours, never a min–max window ─────────────
+  //
+  // The reported bug: a discrete («Окремі години») day showed a misleading
+  // continuous window («Вікно 09:00 - 09:00» for a single time). The fix
+  // enumerates every discrete start via `windowSummary`. These tests seed the
+  // host list directly (the summary renders from `widget.times` on first build,
+  // no picker needed) and pin BOTH the positive enumerated copy AND the absence
+  // of any min–max window string — so a revert to the old render fails here.
+
+  group('DiscreteTimesEditor — discrete-hours summary (window regression)', () {
+    testWidgets('a SINGLE discrete time [09:00] renders the enumerated summary '
+        '«…: 09:00» and NEVER the degenerate «Вікно 09:00 – 09:00» window', (
+      tester,
+    ) async {
+      await pumpEditor(tester, <TimeOfDay>[
+        const TimeOfDay(hour: 9, minute: 0),
+      ]);
+
+      final AppLocalizations l10n = l10nOf(tester);
+      // Positive: the enumerated single-hour summary.
+      expect(
+        find.text(l10n.scheduleDiscreteTimesWindowSummary('09:00')),
+        findsOneWidget,
+      );
+      // Negative (the exact reported bug): NO min–max window in any form —
+      // neither the old «Вікно:» prefix nor a «09:00 – 09:00» span. This
+      // assertion FAILS against a revert to the pre-fix window render.
+      expect(find.text(l10n.discreteTimesWindowLabel), findsNothing);
+      expect(find.textContaining('09:00 – 09:00'), findsNothing);
+      // The chip is still present.
+      expect(find.byKey(const Key('discrete-chip-09:00')), findsOneWidget);
+    });
+
+    testWidgets('MULTIPLE discrete times [09:00, 11:00] enumerate ALL starts '
+        '(«…: 09:00, 11:00») and never collapse to a continuous 09:00 – 11:00 '
+        'window', (tester) async {
+      await pumpEditor(tester, <TimeOfDay>[
+        const TimeOfDay(hour: 9, minute: 0),
+        const TimeOfDay(hour: 11, minute: 0),
+      ]);
+
+      final AppLocalizations l10n = l10nOf(tester);
+      // Both starts are listed (proves it is not just the degenerate single
+      // case, and the 10:00 gap between them is honestly represented).
+      expect(
+        find.text(l10n.scheduleDiscreteTimesWindowSummary('09:00, 11:00')),
+        findsOneWidget,
+      );
+      // Never a continuous min–max span across the discrete set.
+      expect(find.textContaining('09:00 – 11:00'), findsNothing);
+      expect(find.text(l10n.discreteTimesWindowLabel), findsNothing);
+      expect(find.byKey(const Key('discrete-chip-09:00')), findsOneWidget);
+      expect(find.byKey(const Key('discrete-chip-11:00')), findsOneWidget);
+    });
   });
 
   // ── Dedupe guard ─────────────────────────────────────────────────────────────
@@ -380,7 +442,7 @@ class _EditorHostState extends State<_EditorHost> {
 DiscreteTimesEditorStrings _discreteStrings(AppLocalizations l10n) =>
     DiscreteTimesEditorStrings(
       addTimeLabel: l10n.discreteTimesAddTime,
-      windowLabel: l10n.discreteTimesWindowLabel,
+      windowSummary: l10n.scheduleDiscreteTimesWindowSummary,
       removeTimeSemantic: l10n.discreteTimesRemoveSemantic,
       timePickerTitle: l10n.discreteTimesPickerTitle,
       timePickerConfirm: l10n.timePickerConfirm,
