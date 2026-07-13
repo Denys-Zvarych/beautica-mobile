@@ -2529,7 +2529,7 @@
   "@locationTitle": {
     "description": "Top-bar title of the location edit page."
   },
-  "locationSubheading": "Щоб показувати майстрів поруч із вами",
+  "locationSubheading": "Оберіть свою локацію, щоб ми могли показувати Вам майстрів у цьому місті",
   "@locationSubheading": {
     "description": "Subheading on the location edit page."
   },
