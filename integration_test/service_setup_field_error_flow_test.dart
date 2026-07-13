@@ -37,6 +37,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -46,9 +47,13 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   // Bounded pumps — the ServiceSetupScreen can hold an in-flight provider /
-  // loading animation that never settles, so pumpAndSettle would hang.
+  // loading animation that never settles, so pumpAndSettle would hang. This
+  // generic helper is called at sites with no single stable pump-until target
+  // (post include-switch toggle, post enterText, post save), so a bounded
+  // fixed-frame advance is the only correct wait here.
   Future<void> pumpFor(WidgetTester tester, {int frames = 12}) async {
     for (int i = 0; i < frames; i++) {
+      // fixed-wait-ok: ServiceSetupScreen holds a never-settling in-flight loading animation (pumpAndSettle hangs); no single finder to pump-until across this helper's call sites — advance bounded fixed frames to yield real-async event-loop turns.
       await tester.pump(const Duration(milliseconds: 100));
     }
   }
@@ -92,7 +97,7 @@ void main() {
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpUntilFound(cta);
       await tester.ensureVisible(cta);
       await tester.tap(cta);
       await pumpFor(tester, frames: 20);

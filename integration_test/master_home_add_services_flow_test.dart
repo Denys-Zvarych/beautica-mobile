@@ -30,6 +30,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -71,7 +72,7 @@ void main() {
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpUntilFound(cta);
       expect(
         cta,
         findsOneWidget,
@@ -80,15 +81,15 @@ void main() {
             'add-services CTA (Key btn-master-add-services)',
       );
 
-      // Tap the CTA — pushes RouteNames.serviceSetup. Use bounded pumps rather
-      // than pumpAndSettle: the ServiceSetupScreen can hold an in-flight
-      // provider/loading animation that never settles.
+      // Tap the CTA — pushes RouteNames.serviceSetup. Pump UNTIL the setup
+      // screen's chrome mounts rather than pumpAndSettle: the ServiceSetupScreen
+      // can hold an in-flight provider/loading animation that never settles.
+      // pumpUntilFound pumps in fixed steps (not to quiescence), so it waits
+      // exactly until the destination appears without hanging on that animation.
       await tester.ensureVisible(cta);
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpAndSettle();
       await tester.tap(cta);
-      for (int i = 0; i < 20; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
+      await tester.pumpUntilFound(find.byKey(const Key('btn-setup-close')));
 
       // Destination reached. NOTE: go_router's currentConfiguration.uri does
       // not update after an imperative context.push, so the destination is

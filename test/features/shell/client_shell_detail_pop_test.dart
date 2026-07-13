@@ -147,9 +147,11 @@ Future<void> _pumpShell(WidgetTester tester, GoRouter router) async {
     ),
   );
   await tester.pump();
-  // fixed-wait-ok: running out a time-driven CurvedAnimation reveal — no
-  // condition to pump-until.
-  await tester.pump(const Duration(milliseconds: 1200));
+  // Run out the one-shot staggered-reveal CurvedAnimation on the visible
+  // branch. It is finite (a single `controller.forward()`, never `.repeat()`),
+  // so pumpAndSettle terminates the instant the reveal completes — waiting
+  // exactly as long as the animation takes rather than a hard-coded guess.
+  await tester.pumpAndSettle();
 }
 
 int _activeIndex(WidgetTester tester) =>

@@ -61,7 +61,10 @@ void main() {
       strip.centerLeft + const Offset(5, 0),
       const Offset(220, 0),
     );
-    await tester.pumpAndSettle(const Duration(seconds: 1));
+    // Settle the branch hop + its one-shot staggered reveal. Every branch
+    // animation is finite (a single controller.forward(), never .repeat()), so
+    // pumpAndSettle terminates the instant the swipe/navigation completes.
+    await tester.pumpAndSettle();
   }
 
   int activeIndex(WidgetTester tester) =>
@@ -74,12 +77,12 @@ void main() {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientHome);
 
       // Hop to the Bookings tab (branch 3) via the bottom nav.
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientBookings);
       expect(
         find.byKey(const Key('client-branch-bookings')),
@@ -137,19 +140,19 @@ void main() {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientHome);
 
       // Land on the Пошук (Search) tab root via the elevated center disc.
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientSearch);
       expect(activeIndex(tester), kClientSearchBranch);
 
       // Push the REAL results detail onto the SEARCH branch navigator — the
       // stack becomes [search root, results], so the branch canPop.
       router.go(RouteNames.clientSearchResults);
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientSearchResults);
       expect(
         find.byKey(const Key('client-search-results')),

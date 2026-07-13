@@ -114,12 +114,12 @@ void main() {
 
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientHome);
 
       // ── 1. Open Пошук → the initState prefill renders the saved city ────────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientSearch);
       expect(find.byKey(const Key('client-branch-search')), findsOneWidget);
       expect(
@@ -139,15 +139,15 @@ void main() {
       // (and the alive Пошук branch in its IndexedStack) stays mounted underneath
       // — the exact keep-alive condition of the reported bug.
       await tester.tap(find.byKey(const Key('client-nav-tile-0')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientHome);
 
       await tester.tap(find.byKey(const Key('btn-menu-client')));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientMenu);
 
       await tester.tap(find.byKey(const Key('row-personal')));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientEditPersonal);
 
       // ── 3. Change firstName + lastName → Save ───────────────────────────────
@@ -175,7 +175,7 @@ void main() {
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('btn-save-personal')));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
 
       // The Save lands back on the client home hub.
       expectLocation(router, RouteNames.clientHome);
@@ -217,7 +217,7 @@ void main() {
       // location field is STILL populated (never blanked). The keepAlive branch
       // survived, so the row renders the surviving seed.
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expectLocation(router, RouteNames.clientSearch);
 
       final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
