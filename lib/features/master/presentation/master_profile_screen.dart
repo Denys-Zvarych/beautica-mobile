@@ -868,45 +868,50 @@ class _ProfileCategoriesSectionState
     final servicesAsync = ref.watch(servicesListProvider);
     final categoriesAsync = ref.watch(approvedCategoriesProvider);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-          child: Row(
-            children: <Widget>[
-              // Flexible so the section label ellipsizes instead of overflowing
-              // the header Row at 320 dp / textScale 1.3 (was a 12 px right
-              // overflow when both labels rendered at their natural width).
-              Flexible(
-                child: Text(
-                  l10n.masterProfileCategoriesLabel,
-                  style: VelvetText.sectionLabel(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => context.push(RouteNames.services),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(l10n.masterAllServices, style: VelvetText.link()),
-                    const SizedBox(width: 2),
-                    const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 12,
-                      color: BrandColors.accentDeep,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    // Section header (label + "all services" link). Built on demand so it can
+    // be omitted entirely in the zero-services empty state, where the single
+    // "Додати послуги" CTA is the only call to action.
+    Widget buildHeader() => Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+      child: Row(
+        children: <Widget>[
+          // Flexible so the section label ellipsizes instead of overflowing
+          // the header Row at 320 dp / textScale 1.3 (was a 12 px right
+          // overflow when both labels rendered at their natural width).
+          Flexible(
+            child: Text(
+              l10n.masterProfileCategoriesLabel,
+              style: VelvetText.sectionLabel(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-        ),
-        servicesAsync.when(
-          loading: () => const SkeletonShimmerScope(
+          const Spacer(),
+          GestureDetector(
+            onTap: () => context.push(RouteNames.services),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(l10n.masterAllServices, style: VelvetText.link()),
+                const SizedBox(width: 2),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 12,
+                  color: BrandColors.accentDeep,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return servicesAsync.when(
+      loading: () => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          buildHeader(),
+          const SkeletonShimmerScope(
             child: Column(
               children: <Widget>[
                 SkeletonBlock(
@@ -923,28 +928,50 @@ class _ProfileCategoriesSectionState
               ],
             ),
           ),
-          error: (_, _) => Padding(
+        ],
+      ),
+      error: (_, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          buildHeader(),
+          Padding(
             padding: const EdgeInsets.only(top: VelvetSpacing.xs),
             child: Text(l10n.errUnknown, style: VelvetText.feedbackMutedXs),
           ),
-          data: (List<MasterService> services) {
-            if (services.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.only(top: VelvetSpacing.xs),
-                child: Text(
-                  l10n.servicesEmpty,
-                  style: VelvetText.feedbackMutedXs,
-                ),
-              );
-            }
-            _rebuild(services, categoriesAsync.value, l10n);
-            return Column(
+        ],
+      ),
+      data: (List<MasterService> services) {
+        // Zero-services empty state: a single primary CTA that opens the
+        // first-time bulk service-setup flow — the SAME entry point the
+        // services-list empty state uses (RouteNames.serviceSetup). The
+        // section header and "all services" link are intentionally dropped
+        // here so the CTA stands alone.
+        if (services.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.only(top: VelvetSpacing.xs),
+            child: SizedBox(
+              width: double.infinity,
+              child: NeumorphicButton(
+                key: const Key('btn-master-add-services'),
+                label: l10n.masterAddServices,
+                icon: Icons.add_rounded,
+                onPressed: () => context.push(RouteNames.serviceSetup),
+              ),
+            ),
+          );
+        }
+        _rebuild(services, categoriesAsync.value, l10n);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            buildHeader(),
+            Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: _cachedCards!,
-            );
-          },
-        ),
-      ],
+            ),
+          ],
+        );
+      },
     );
   }
 }

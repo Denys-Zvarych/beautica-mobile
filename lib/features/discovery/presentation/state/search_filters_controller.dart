@@ -23,8 +23,10 @@
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../auth/domain/auth_session.dart';
 import '../../../auth/domain/user.dart';
 import '../../../auth/presentation/auth_notifier.dart';
 import '../../../booking/application/pending_service_preselection_provider.dart';
@@ -124,8 +126,19 @@ class SearchFilterLabels {
 class SearchFilterLabelsController extends _$SearchFilterLabelsController {
   @override
   SearchFilterLabels build() {
-    // Reset to empty labels whenever the session changes (logout → login).
-    ref.watch(authProvider);
+    // Reset to empty labels whenever the session IDENTITY changes (logout →
+    // login, or a different user). Narrowed with `.select` to the settled user
+    // id so a same-user session emission — e.g. `refreshUser()` after a
+    // name/phone edit rebuilds the `Authenticated` value — does NOT re-run
+    // `build()` and wipe the prefilled locality labels. A genuine account swap
+    // (id → null → new id) still re-runs this and clears the labels, so no
+    // label leaks between accounts.
+    ref.watch(
+      authProvider.select((AsyncValue<AuthSession> s) {
+        final AuthSession? v = s.value;
+        return v is Authenticated ? v.user.id : null;
+      }),
+    );
     return const SearchFilterLabels();
   }
 
@@ -193,10 +206,27 @@ class SearchFiltersController extends _$SearchFiltersController {
 
   @override
   SearchFilters build() {
-    // Reset to an empty filter set whenever the session changes (logout →
-    // login) — the same self-clearing pattern every keepAlive per-user provider
-    // uses. Without this, one user's last search would leak to the next login.
-    ref.watch(authProvider);
+    // Reset to an empty filter set whenever the session IDENTITY changes
+    // (logout → login, or a different user) — the same self-clearing pattern
+    // every keepAlive per-user provider uses. Without this, one user's last
+    // search would leak to the next login.
+    //
+    // Narrowed with `.select` to the settled user id so a same-user session
+    // emission does NOT re-run `build()`. `refreshUser()` (after a name/phone
+    // edit) emits a NEW `Authenticated` value for the SAME user; watching the
+    // whole provider would re-run this, reset `state` to `const SearchFilters()`
+    // and re-arm the seed guards below — wiping the locality prefilled by
+    // `prefillFromProfileIfNeeded` (which only re-seeds from the Пошук screen's
+    // one-shot `initState`, and the shell keeps that screen mounted, so it
+    // never re-seeds). Keying the reset off the user id alone keeps the seeded
+    // locality + guards alive across a name edit, while a genuine account swap
+    // (id → null → new id) still re-runs this and clears the filters.
+    ref.watch(
+      authProvider.select((AsyncValue<AuthSession> s) {
+        final AuthSession? v = s.value;
+        return v is Authenticated ? v.user.id : null;
+      }),
+    );
     // Re-arm the profile-seed tracking for the (possibly new) session.
     _userTouchedLocality = false;
     _lastSeededOblastId = null;
@@ -580,8 +610,13 @@ class SearchServiceSelectionController
     extends _$SearchServiceSelectionController {
   @override
   Set<String> build() {
-    // Reset to an empty set whenever the session changes (logout → login) —
-    // the same self-clearing pattern every keepAlive per-user provider uses.
+    // Reset to an empty set whenever the session IDENTITY changes (logout →
+    // login, or a different user) — the same self-clearing pattern every
+    // keepAlive per-user provider uses. Narrowed with `.select` to the settled
+    // user id (identical to the two sibling controllers) so a same-user session
+    // emission — e.g. `refreshUser()` after a name/phone edit — does NOT re-run
+    // `build()` and drop the service selection. A genuine account swap still
+    // resets it, so no selection leaks between accounts.
     //
     // The category-change reset is driven imperatively (the rail/sheet call
     // [clear] when the parent category changes) rather than by watching
@@ -589,7 +624,12 @@ class SearchServiceSelectionController
     // would wrongly drop the service selection on an unrelated mutation (a
     // price drag, a city pick), since this generated notifier's `build()`
     // ref.watch cannot `.select` a single slice.
-    ref.watch(authProvider);
+    ref.watch(
+      authProvider.select((AsyncValue<AuthSession> s) {
+        final AuthSession? v = s.value;
+        return v is Authenticated ? v.user.id : null;
+      }),
+    );
     return const <String>{};
   }
 

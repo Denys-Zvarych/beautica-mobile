@@ -20,7 +20,19 @@ import 'package:flutter_test/flutter_test.dart';
 ///   • `_SelectToken` (selected)         — salon_master_selection_screen.dart
 ///   • `_MasterPickRow` avatar (52dp)    — salon_master_selection_screen.dart
 ///   • `_GroupRow` avatar (40dp)         — salon_master_selection_screen.dart
-///   • `SalonMasterStrip` avatar (48dp)  — salon_master_strip.dart
+///   • `SalonMasterStrip` avatar (48dp)  — salon_master_strip.dart (deleted)
+///
+/// WIDGET-CONSOLIDATION REFACTOR (2026-07): every master avatar in both booking
+/// flows now renders through the shared `widgets/master_avatar_badge.dart`
+/// (`MasterAvatarBadge`) — the identity card was unified onto the single
+/// `MasterStrip` and `salon_master_strip.dart` is gone, as is `_MasterPickRow`'s
+/// hand-rolled 52 dp avatar (the row renders the shared card instead). The
+/// shadow-bearing `BoxDecoration` that carries the RRect workaround therefore
+/// lives at ONE source, `master_avatar_badge.dart`, which is guarded below —
+/// otherwise a future edit reintroducing `shape: BoxShape.circle` at the
+/// avatar's new home would sail past this guard.
+/// `salon_master_selection_screen.dart` stays guarded for its remaining
+/// selection-screen circles (`_SelectToken`, `_GroupRow`).
 ///
 /// WHY THIS IS A STRUCTURAL TEST, NOT A GOLDEN
 /// -------------------------------------------
@@ -53,7 +65,10 @@ void main() {
   // beautica-mobile/), matching the manifest contract test's convention.
   const List<String> guardedFiles = <String>[
     'lib/features/booking/presentation/salon_master_selection_screen.dart',
-    'lib/features/booking/presentation/widgets/salon_master_strip.dart',
+    // Single-source home of the shared master avatar's shadow-bearing
+    // decoration (widget-consolidation refactor) — the RRect workaround now
+    // lives here for EVERY booking-flow avatar, so it must be guarded here.
+    'lib/features/booking/presentation/widgets/master_avatar_badge.dart',
   ];
 
   group('Impeller-GLES circle+shadow guard', () {

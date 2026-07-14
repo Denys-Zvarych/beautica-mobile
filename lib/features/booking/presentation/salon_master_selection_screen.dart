@@ -47,6 +47,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -65,6 +66,8 @@ import '../../salon/domain/salon_master_summary.dart';
 import '../../salon/domain/salon_service_catalog.dart';
 import '../application/salon_master_coverage_notifier.dart';
 import '../domain/salon_booking_args.dart';
+import 'widgets/master_strip.dart';
+import 'widgets/selected_services_shelf.dart';
 
 /// Avatar gradients cycled by roster position — the exact palette
 /// `SalonMasterCard` (Phase 13.6) uses, kept in sync here since only camel/
@@ -81,17 +84,6 @@ const List<List<Color>> _kAvatarGradients = <List<Color>>[
 
 List<Color> _avatarGradient(int index) =>
     _kAvatarGradients[index % _kAvatarGradients.length];
-
-String _roleLabel(MasterType type, AppLocalizations l10n) {
-  switch (type) {
-    case MasterType.independentMaster:
-      return l10n.masterRoleIndependent;
-    case MasterType.salonMaster:
-      return l10n.masterRoleSalonMaster;
-    case MasterType.salonOwner:
-      return l10n.masterRoleSalonOwner;
-  }
-}
 
 /// Salon booking flow step 2 — multi-select master assignment, opened by
 /// `SalonServiceSelectionScreen`'s "Далі" CTA.
@@ -119,8 +111,28 @@ class _SalonMasterSelectionScreenState
     const _PickState(picked: <String>{}, choice: <String, String>{}),
   );
 
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read).
+  late final ScreenProtectionManager _screenProtection;
+
+  @override
+  void initState() {
+    super.initState();
+    // SEC: this screen renders the client's selected service names + prices
+    // via `SelectedServicesShelf` (the pinned `_AssignConfirmBar`) — guard
+    // against screenshots / app-switcher snapshots while it is mounted.
+    // Mirrors the INTENTIONAL PRODUCT DECISION already applied to the salon
+    // flow's booking confirm/success screens
+    // (`salon_booking_confirm_screen.dart`, `salon_booking_success_screen.dart`)
+    // and the independent-master `booking_confirm_screen.dart` — see
+    // `core/security/screen_protection.dart`'s file header. Do not remove in
+    // a future audit pass.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
   @override
   void dispose() {
+    _screenProtection.release();
     _pickNotifier.dispose();
     super.dispose();
   }
@@ -230,6 +242,16 @@ class _SalonMasterSelectionScreenState
             allServices.firstWhere((SalonCatalogService s) => s.id == id),
       ];
 
+      // Computed once per outer `build()` (never per pick/choice tap, which
+      // only reruns the narrower `ValueListenableBuilder<_PickState>` below)
+      // — the display-only adapter feeding the pinned selected-services
+      // shelf, so the client never loses sight of what they picked while
+      // assigning masters. Mirrors `SalonServiceSelectionScreen`'s identical
+      // adapter use for `BookingSummaryBar`.
+      final List<MasterService> shelfServices = <MasterService>[
+        for (final SalonCatalogService s in selected) salonServiceForShelf(s),
+      ];
+
       // Recomputed only when the underlying async data changes (masters /
       // catalog / coverage) — never on a pick/choice toggle, since the O(N ×
       // selected) `eligible` filter + `eligibleIndex` map are built once per
@@ -256,6 +278,7 @@ class _SalonMasterSelectionScreenState
           );
           return _AssignConfirmBar(
             selected: selected,
+            shelfServices: shelfServices,
             assignedCount: derived.assignedCount,
             totalCount: selected.length,
             onNext: derived.allAssigned
@@ -761,22 +784,18 @@ class _Body extends StatelessWidget {
                 const SizedBox(height: VelvetSpacing.sm + 4),
             itemBuilder: (BuildContext context, int i) {
               final SalonMasterSummary m = staticModel.eligible[i];
-              // Prefer the master's own professional title/label; fall back to
-              // the generic type role ("Майстер салону" etc.) only when the
-              // master has not set one. Mirrors the canonical salon roster card
-              // (`public_salon_profile_screen.dart`).
-              final String? ownTitle = m.professionalTitle?.trim();
-              final String role = (ownTitle != null && ownTitle.isNotEmpty)
-                  ? ownTitle
-                  : _roleLabel(m.type, l10n);
               return _MasterPickRowListener(
                 key: Key('salon_booking_master_row_${m.masterId}'),
                 masterId: m.masterId,
                 name: '${m.firstName} ${m.lastName}'.trim(),
-                role: role,
-                ratingLabel: m.reviewCount > 0
-                    ? (m.avgRating?.toStringAsFixed(1) ?? '—')
-                    : '—',
+                type: m.type,
+                professionalTitle: m.professionalTitle,
+                // `SalonMasterSummary.avgRating` is null exactly when the
+                // master has no reviews; re-assert it here so a stale non-null
+                // rating on a zero-review roster entry still reads as "no
+                // rating yet" (the card's em-dash branch).
+                avgRating: m.reviewCount > 0 ? m.avgRating : null,
+                reviewCount: m.reviewCount,
                 covered: staticModel.coveredLabel(m),
                 avatarGradient: _avatarGradient(
                   staticModel.eligibleIndex[m.masterId] ?? i,
@@ -847,8 +866,10 @@ class _MasterPickRowListener extends StatefulWidget {
     super.key,
     required this.masterId,
     required this.name,
-    required this.role,
-    required this.ratingLabel,
+    required this.type,
+    required this.professionalTitle,
+    required this.avgRating,
+    required this.reviewCount,
     required this.covered,
     required this.avatarGradient,
     required this.pickListenable,
@@ -857,8 +878,10 @@ class _MasterPickRowListener extends StatefulWidget {
 
   final String masterId;
   final String name;
-  final String role;
-  final String ratingLabel;
+  final MasterType type;
+  final String? professionalTitle;
+  final double? avgRating;
+  final int reviewCount;
 
   /// The selected services this master covers, e.g. "Манікюр · Педикюр".
   final String covered;
@@ -908,8 +931,10 @@ class _MasterPickRowListenerState extends State<_MasterPickRowListener> {
   Widget build(BuildContext context) {
     return _MasterPickRow(
       name: widget.name,
-      role: widget.role,
-      ratingLabel: widget.ratingLabel,
+      type: widget.type,
+      professionalTitle: widget.professionalTitle,
+      avgRating: widget.avgRating,
+      reviewCount: widget.reviewCount,
       covered: widget.covered,
       avatarGradient: widget.avatarGradient,
       selected: _selected,
@@ -987,14 +1012,25 @@ class _SelectToken extends StatelessWidget {
   }
 }
 
+/// One selectable master row: the SHARED [MasterStrip] identity card (the same
+/// widget the calendar/time/confirm/success screens render, so a change there
+/// lands here too) wrapped in this screen's selection chrome — the tap target,
+/// the press-scale, the [_SelectToken] checkbox, and the "covers these
+/// services" line beneath the card.
+///
+/// The card's own surface is fixed (`#EDE4D5`), so — unlike the bespoke row it
+/// replaced — selection is no longer signalled by swapping the row's fill;
+/// the [_SelectToken] (gradient check vs. empty inset well) carries it.
 class _MasterPickRow extends StatefulWidget {
   // No `key` param: this widget is only ever built by
   // `_MasterPickRowListener` (its own key sits on that outer wrapper — the
   // one Widgets/Element/Key needs for identity in the sliver list above).
   const _MasterPickRow({
     required this.name,
-    required this.role,
-    required this.ratingLabel,
+    required this.type,
+    required this.professionalTitle,
+    required this.avgRating,
+    required this.reviewCount,
     required this.covered,
     required this.avatarGradient,
     required this.selected,
@@ -1002,8 +1038,10 @@ class _MasterPickRow extends StatefulWidget {
   });
 
   final String name;
-  final String role;
-  final String ratingLabel;
+  final MasterType type;
+  final String? professionalTitle;
+  final double? avgRating;
+  final int reviewCount;
 
   /// The selected services this master covers, e.g. "Манікюр · Педикюр".
   final String covered;
@@ -1022,135 +1060,92 @@ class _MasterPickRowState extends State<_MasterPickRow> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final bool sel = widget.selected;
+    final String? ownTitle = widget.professionalTitle?.trim();
+    // Recomputed here (rather than passed in) purely for the row's semantics
+    // label — the card itself derives the very same two strings internally.
+    final String role = (ownTitle != null && ownTitle.isNotEmpty)
+        ? ownTitle
+        : masterRoleLabel(widget.type, l10n);
+    final String ratingLabel =
+        widget.avgRating?.toStringAsFixed(1) ?? MasterStrip.noRatingLabel;
+
     return Semantics(
       button: true,
       checked: sel,
       label: l10n.salonMasterPickRowSemantics(
         widget.name,
-        widget.role,
-        widget.ratingLabel,
+        role,
+        ratingLabel,
         widget.covered,
       ),
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onTap();
-        },
-        child: AnimatedScale(
-          scale: _pressed ? 0.99 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              color: sel ? const Color(0xFFEDE4D5) : BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.field),
-              boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.sm + 4,
-              vertical: VelvetSpacing.sm + 4,
-            ),
-            child: Row(
+      // The row speaks for its whole subtree (identity card + covered line),
+      // so the card's own Semantics node is folded away rather than read out
+      // a second time after this label.
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTapUp: (_) {
+            setState(() => _pressed = false);
+            widget.onTap();
+          },
+          child: AnimatedScale(
+            scale: _pressed ? 0.99 : 1,
+            duration: const Duration(milliseconds: 110),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Container(
-                  height: 52,
-                  width: 52,
-                  decoration: BoxDecoration(
-                    // RRect (radius = half the 52dp side) reads as a circle but
-                    // avoids Impeller-GLES's broken circle box-shadow blur path.
-                    borderRadius: BorderRadius.circular(26),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: widget.avatarGradient,
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      // THE shared card — identical widget to the one on the
+                      // calendar / time / confirm / success screens. Only the
+                      // «Запис до майстра» caption is off: no master has been
+                      // picked yet on this screen.
+                      child: MasterStrip(
+                        name: widget.name,
+                        type: widget.type,
+                        professionalTitle: widget.professionalTitle,
+                        avgRating: widget.avgRating,
+                        reviewCount: widget.reviewCount,
+                        showLabel: false,
+                        showRole: true,
+                        showRating: true,
+                        avatarGradient: widget.avatarGradient,
+                        avatarBordered: true,
+                      ),
                     ),
-                    boxShadow: VelvetShadows.extrudedSmall,
-                    border: Border.all(
-                      color: BrandColors.white.withValues(alpha: 0.35),
-                      width: 2,
-                    ),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.person_rounded,
-                      color: BrandColors.white.withValues(alpha: 0.82),
-                      size: 26,
-                    ),
-                  ),
+                    const SizedBox(width: VelvetSpacing.sm + 2),
+                    _SelectToken(selected: sel),
+                  ],
                 ),
-                const SizedBox(width: VelvetSpacing.md),
-                Expanded(
-                  child: Column(
+                const SizedBox(height: VelvetSpacing.sm),
+                // Kept OUTSIDE the shared card: which of the picked services
+                // this master covers is a property of this screen's selection,
+                // not of the master's identity.
+                Padding(
+                  padding: const EdgeInsets.only(left: VelvetSpacing.sm + 4),
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Text(
-                        widget.name,
-                        style: VelvetText.subheading15,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      const Icon(
+                        Icons.check_circle_outline_rounded,
+                        size: 13,
+                        color: BrandColors.accent,
                       ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: <Widget>[
-                          const Icon(
-                            Icons.star_rounded,
-                            size: 14,
-                            color: BrandColors.accentDeep,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            widget.ratingLabel,
-                            style: VelvetText.bodyStrong13,
-                          ),
-                          const SizedBox(width: VelvetSpacing.sm),
-                          Container(
-                            width: 3,
-                            height: 3,
-                            decoration: const BoxDecoration(
-                              color: BrandColors.faint,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: VelvetSpacing.sm),
-                          Flexible(
-                            child: Text(
-                              widget.role,
-                              style: VelvetText.feedbackMutedSm,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          const Icon(
-                            Icons.check_circle_outline_rounded,
-                            size: 13,
-                            color: BrandColors.accent,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              widget.covered,
-                              style: VelvetText.bookCoveredLabel,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          widget.covered,
+                          style: VelvetText.bookCoveredLabel,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: VelvetSpacing.sm + 2),
-                _SelectToken(selected: sel),
               ],
             ),
           ),
@@ -1611,12 +1606,18 @@ class _MiniLabel extends StatelessWidget {
 class _AssignConfirmBar extends StatelessWidget {
   const _AssignConfirmBar({
     required this.selected,
+    required this.shelfServices,
     required this.assignedCount,
     required this.totalCount,
     required this.onNext,
   });
 
   final List<SalonCatalogService> selected;
+
+  /// Display adapter of [selected] for the pinned [SelectedServicesShelf] —
+  /// see `salonServiceForShelf`'s doc comment for why this is a separate,
+  /// display-only list rather than reusing [selected] directly.
+  final List<MasterService> shelfServices;
   final int assignedCount;
   final int totalCount;
   final VoidCallback? onNext;
@@ -1667,6 +1668,19 @@ class _AssignConfirmBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              // The same expandable "Послуги та ціни" shelf the
+              // service-selection step shows, so the client never loses
+              // sight of what they picked while assigning masters. No
+              // `onRemove`: deselecting a service here — after masters may
+              // already be assigned to it — would invalidate that
+              // assignment, so the itemized list is read-only on this step.
+              SelectedServicesShelf(services: shelfServices),
+              const SizedBox(height: VelvetSpacing.md),
+              Container(
+                height: 1,
+                color: BrandColors.faint.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: VelvetSpacing.sm + 2),
               Semantics(
                 label: '${l10n.bookingTotalLabel} ${duration ?? ''} $price',
                 child: Row(

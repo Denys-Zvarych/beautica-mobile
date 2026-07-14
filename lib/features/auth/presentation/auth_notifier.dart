@@ -36,6 +36,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
@@ -825,6 +826,15 @@ class AuthNotifier extends _$AuthNotifier {
       }
     }
     await ref.read(secureStorageProvider).deleteAll();
+    // Security (mobile-security MEDIUM) — force-clear the screen-protection
+    // reference count and tear down FLAG_SECURE / the iOS app-switcher blur.
+    // Without this, a logout triggered while a PII screen's dialog is still
+    // showing above a live `screenProtectionProvider` acquirer (e.g.
+    // `RefreshInterceptor` force-logs-out on a failed token refresh while
+    // `ClientBookingConflictDialog` is open over `BookingConfirmScreen`)
+    // would leave protection latched on past the auth boundary — see
+    // `ScreenProtectionManager.reset()`'s doc comment.
+    ref.read(screenProtectionProvider).reset();
     // Security (Phase 2.16 HIGH-1) — clear any in-flight registration draft
     // so the password fields it holds in memory do not linger past the user's
     // explicit logout. The draft survives across nav (keepAlive) so without

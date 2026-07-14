@@ -34,6 +34,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/navigation/shell_back_dispatcher.dart';
+import 'package:beautica_mobile/shared/widgets/edge_swipe_back.dart';
 
 import 'widgets/client_bottom_nav.dart';
 import 'widgets/client_top_bar.dart';
@@ -72,26 +74,36 @@ class ClientShell extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final _TopBarConfig config = _configFor(navigationShell.currentIndex, l10n);
 
-    // System-back / predictive-back handling for the tab roots.
-    //
-    // The shell is the only route on the root navigator, so a system-back on a
-    // branch root has nothing to pop and would EXIT the app from any tab. We
-    // make that the standard behaviour ONLY on the Home branch (back exits, as
-    // users expect on a home screen); on every OTHER tab a blocked back hops
-    // back to the Home branch instead of leaving the app — the conventional
-    // Android multi-tab back contract. No confirm dialog, no Navigator (the hop
-    // is `navigationShell.goBranch`, the same primitive the bottom nav uses).
+    // ONE back-navigation policy for BOTH the platform back button (the
+    // [PopScope] below) and the left-edge swipe (the [EdgeSwipeBack] further
+    // down) — so the gesture and the button can never diverge. It pops a pushed
+    // detail page off the ACTIVE branch's own stack first (→ PREVIOUS page), and
+    // only when that branch is at its root hops to the Home tab; on the Home tab
+    // root it no-ops. See [ShellBackDispatcher] for the full contract.
+    final ShellBackDispatcher backDispatcher = ShellBackDispatcher(
+      navigationShell: navigationShell,
+      branchNavigatorKeys: clientBranchNavigatorKeys,
+      homeIndex: kClientHomeBranch,
+    );
     final bool onHomeBranch = navigationShell.currentIndex == kClientHomeBranch;
 
+    // System-back / predictive-back handling.
+    //
+    // Flutter dispatches the back button to the innermost (active branch)
+    // Navigator FIRST, so a detail page pushed onto a branch is popped before
+    // this shell-level PopScope is ever consulted. The PopScope therefore only
+    // fires when the active branch is AT ITS ROOT: on the Home branch root back
+    // exits the app (canPop:true — standard home behaviour); on any other tab
+    // root the blocked back hops to Home via the shared dispatcher (the SAME
+    // `goBranch` the bottom nav and the edge swipe use — no Navigator route call).
     return PopScope(
       canPop: onHomeBranch,
       onPopInvokedWithResult: (bool didPop, Object? result) {
-        // Pop already happened (Home branch → app exit) — nothing to do.
+        // Pop already happened (Home branch root → app exit) — nothing to do.
         if (didPop) return;
-        // Blocked pop on a non-Home tab → return to the Home tab. Preserve the
-        // Home branch's own stack (initialLocation: false) — we are switching
-        // tabs, not resetting Home.
-        navigationShell.goBranch(kClientHomeBranch, initialLocation: false);
+        // Blocked pop on a non-Home tab root → hop to Home (dispatcher no-ops
+        // the branch-pop branch here since the branch is already at its root).
+        backDispatcher.handleBack();
       },
       child: Scaffold(
         backgroundColor: BrandColors.base,
@@ -127,7 +139,29 @@ class ClientShell extends StatelessWidget {
                   // provider ships (single call site now).
                 ),
               ),
-              Expanded(child: navigationShell),
+              // Left-edge swipe-back — the gesture twin of the [PopScope]
+              // system-back above, routed through the SAME [ShellBackDispatcher]
+              // so the two can never drift. A committed rightward edge drag:
+              //   • pops a pushed detail page off the active branch (e.g.
+              //     `/search/results` → back to the filters) — the PREVIOUS page;
+              //   • or, on a non-Home tab ROOT, hops to the Home branch;
+              //   • or, on the Home tab root, no-ops.
+              // The strip is ALWAYS mounted (`enabled: true`) rather than gated on
+              // `!onHomeBranch`: a detail page can be pushed onto the HOME branch
+              // too, and it MUST stay swipe-poppable — the previous `!onHomeBranch`
+              // gate wrongly disarmed the swipe there (and on every branch it fired
+              // `goBranch(Home)` UNCONDITIONALLY, jumping Home instead of popping
+              // the detail — the regression this fixes). The handler no-ops on the
+              // Home tab root, so an always-mounted strip is harmless there. The
+              // 20px edge strip keeps the gesture off the tabs' own horizontal
+              // scrollers (search filter rail, calendars) — see [EdgeSwipeBack].
+              Expanded(
+                child: EdgeSwipeBack(
+                  enabled: true,
+                  onSwipeBack: backDispatcher.handleBack,
+                  child: navigationShell,
+                ),
+              ),
             ],
           ),
         ),

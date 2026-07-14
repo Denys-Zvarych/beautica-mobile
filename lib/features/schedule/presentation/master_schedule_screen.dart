@@ -1244,14 +1244,14 @@ class _SelectedDayView extends StatelessWidget {
 
   // ── Selected-day panel ───────────────────────────────────────────────────--
   Widget _dayPanel(AppLocalizations l10n) {
-    // Phase 15.9: an EXPLICIT_TIMES day has no intervals — derive its secondary
-    // window summary from the discrete `times` min–max (matching the editor's
-    // derived window-label formatting) so the day panel still shows a span.
+    // Phase 15.9: an EXPLICIT_TIMES day has no intervals — it is a discrete set
+    // of bookable starts, not a continuous span. Enumerate the hours instead of
+    // deriving a misleading min–max window.
     final String summary = switch (day.source) {
       EffectiveSource.overrideDayOff => l10n.workingHoursClosedLabel,
       EffectiveSource.noSchedule => l10n.scheduleDaySummaryUnset,
-      _ when day.isExplicitTimes => l10n.scheduleDaySummaryWorking(
-        '${formatTime(day.times.first)}–${formatTime(day.times.last)}',
+      _ when day.isExplicitTimes => l10n.scheduleDiscreteTimesWindowSummary(
+        day.times.map(formatTime).join(', '),
       ),
       _ =>
         day.intervals.isEmpty

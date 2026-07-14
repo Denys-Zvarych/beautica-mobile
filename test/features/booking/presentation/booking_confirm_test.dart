@@ -49,6 +49,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -168,6 +169,7 @@ class _FakeChainSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
+    String? serviceId,
     CancelToken? cancelToken,
   }) async {
     final List<WorkingDay> days = <WorkingDay>[];
@@ -504,6 +506,139 @@ void main() {
           isNot(equals(fake.requests[0].idempotencyKey)),
         );
         expect(locationOf(router), equals(RouteNames.bookingSuccess));
+      },
+    );
+
+    // -------------------------------------------------------------------
+    // mobile-qa gap-fix — Step 2.7 Rule 3b widget-tier companion to the
+    // `client_booking_conflict_flow_test.dart` integration test: a
+    // CLIENT_BOOKING_CONFLICT 409 opens `ClientBookingConflictDialog` naming
+    // the clashing booking (instead of the generic ConflictFailure SnackBar
+    // above), and dismissing it ("Залишитись тут") leaves the screen and the
+    // in-progress comment/selection fully intact.
+    // -------------------------------------------------------------------
+    testWidgets(
+      'a CLIENT_BOOKING_CONFLICT (409) opens the conflict dialog naming the '
+      'clashing booking; dismissing it ("Залишитись тут") keeps the screen '
+      'and the in-progress selection/comment fully intact',
+      (tester) async {
+        final DateTime clashStart = DateTime.utc(2026, 7, 15, 14);
+        final DateTime clashEnd = DateTime.utc(2026, 7, 15, 15, 30);
+        final conflict = ClientBookingConflictFailure(
+          conflictingBookingId: 'other-booking-1',
+          serviceName: 'Педикюр апаратний',
+          masterName: 'Ірина Шевченко',
+          startsAt: clashStart,
+          endsAt: clashEnd,
+        );
+        final fake = _FakeBookingRepository(
+          bookingToReturn: _bookingFixture(),
+          errorToThrow: conflict,
+        );
+        final router = await pump(tester, fake);
+
+        await tester.enterText(
+          find.byKey(const Key('booking-confirm-comment-field')),
+          'Прошу зателефонувати',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        // The dedicated dialog opened — never the generic SnackBar.
+        expect(
+          find.byKey(const Key('client-booking-conflict-dialog')),
+          findsOneWidget,
+        );
+        expect(find.byType(SnackBar), findsNothing);
+        // service/master names are fixture data on the Failure object, not
+        // translated UI copy.
+        // i18n-finder-ok: fixture data on the Failure object, not UI copy.
+        expect(find.text('Педикюр апаратний'), findsOneWidget);
+        // i18n-finder-ok: fixture data on the Failure object, not UI copy.
+        expect(find.text('Ірина Шевченко'), findsOneWidget);
+        expect(
+          find.text(formatBookingWindow(clashStart, clashEnd)),
+          findsOneWidget,
+        );
+        // Still on the confirm screen underneath the dialog.
+        expect(locationOf(router), equals(RouteNames.bookingConfirm));
+
+        // Dismiss via "Залишитись тут" — must NOT navigate anywhere.
+        await tester.tap(find.byKey(const Key('client-booking-conflict-stay')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('client-booking-conflict-dialog')),
+          findsNothing,
+        );
+        expect(locationOf(router), equals(RouteNames.bookingConfirm));
+        expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+        // The in-progress comment survived the whole round trip — the
+        // client's selection is fully intact, exactly as promised.
+        // i18n-finder-ok: arbitrary test-entered text (round-trip check).
+        expect(find.text('Прошу зателефонувати'), findsOneWidget);
+
+        // The client can still pick another time / retry from here.
+        fake.errorToThrow = null;
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingSuccess));
+        expect(fake.requests, hasLength(2));
+      },
+    );
+
+    testWidgets(
+      'tapping «Обрати інший час» in the conflict dialog pops back to slot '
+      'selection, never submitting again on its own',
+      (tester) async {
+        final conflict = ClientBookingConflictFailure(
+          conflictingBookingId: 'other-booking-1',
+          serviceName: 'Педикюр апаратний',
+          masterName: 'Ірина Шевченко',
+          startsAt: DateTime.utc(2026, 7, 15, 14),
+          endsAt: DateTime.utc(2026, 7, 15, 15, 30),
+        );
+        final fake = _FakeBookingRepository(
+          bookingToReturn: _bookingFixture(),
+          errorToThrow: conflict,
+        );
+        final router = await pump(tester, fake);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('client-booking-conflict-dialog')),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const Key('client-booking-conflict-pick-another-time')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('client-booking-conflict-dialog')),
+          findsNothing,
+        );
+        expect(
+          find.byType(BookingConfirmScreen),
+          findsNothing,
+          reason:
+              '«Обрати інший час» must pop BookingConfirmScreen back to slot '
+              'selection',
+        );
+        expect(
+          locationOf(router),
+          isNot(equals(RouteNames.bookingConfirm)),
+          reason: 'the router must have actually navigated away',
+        );
+        // Exactly one submit attempt was made — the pop itself never
+        // triggers a second, unrequested submit.
+        expect(fake.requests, hasLength(1));
       },
     );
 

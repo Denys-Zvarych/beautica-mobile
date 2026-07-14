@@ -84,11 +84,14 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
     final roleLabel = user?.role.label(l10n) ?? l10n.registerDoneChipRoleClient;
     final roleIcon = user?.role.icon ?? Icons.person_outline_rounded;
 
-    final descText =
-        (user?.role == UserRole.independentMaster ||
-            user?.role == UserRole.salonMaster)
-        ? l10n.registerDoneDescMaster
-        : l10n.registerDoneDesc;
+    final descText = switch (user?.role) {
+      UserRole.independentMaster ||
+      UserRole.salonMaster => l10n.registerDoneDescMaster,
+      UserRole.salonOwner => l10n.registerDoneDescSalonOwner,
+      // CLIENT, SALON_ADMIN and the null (not-yet-loaded) case keep the
+      // client-focused copy — unchanged from before.
+      UserRole.client || UserRole.salonAdmin || null => l10n.registerDoneDesc,
+    };
 
     return AuthScaffold(
       showBack: false,

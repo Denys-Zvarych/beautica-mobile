@@ -106,6 +106,28 @@
   "@errConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
   },
+  "bookingErrClientConflict": "You already have a booking at this time: {serviceName}, {masterName}, {window}",
+  "@bookingErrClientConflict": {
+    "description": "Error message shown when a booking create/reschedule returns HTTP 409 with data.code == CLIENT_BOOKING_CONFLICT — the client already has an overlapping booking of their own (ClientBookingConflictFailure).",
+    "placeholders": {
+      "serviceName": {
+        "type": "String",
+        "example": "Classic manicure"
+      },
+      "masterName": {
+        "type": "String",
+        "example": "Olena Koval"
+      },
+      "window": {
+        "type": "String",
+        "example": "Tue, 15 Jul · 14:00–15:30"
+      }
+    }
+  },
+  "bookingErrRateLimited": "Too many booking attempts. Please wait a few seconds and try again.",
+  "@bookingErrRateLimited": {
+    "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
+  },
   "errEmailAlreadyRegistered": "This email is already registered. Please sign in instead.",
   "@errEmailAlreadyRegistered": {
     "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."
@@ -699,6 +721,10 @@
   "registerDoneDescMaster": "You can now accept clients, manage your schedule and grow your business.",
   "@registerDoneDescMaster": {
     "description": "Description body copy on the done screen for INDEPENDENT_MASTER and SALON_MASTER roles — replaces the client-focused registerDoneDesc."
+  },
+  "registerDoneDescSalonOwner": "Now you can set up your profile, add masters and salon services. Actively grow your business — we'll create all the conditions you need for it.",
+  "@registerDoneDescSalonOwner": {
+    "description": "Description body copy on the done screen for the SALON_OWNER role — replaces the client-focused registerDoneDesc. CLIENT and SALON_ADMIN keep registerDoneDesc; masters keep registerDoneDescMaster."
   },
   "registerDoneChipRoleClient": "Client",
   "@registerDoneChipRoleClient": {
@@ -1791,9 +1817,14 @@
     "description": "Field label above the location-note input on the master edit screen."
   },
 
-  "masterProfileCategoriesLabel": "Service categories",
+  "masterProfileCategoriesLabel": "Services",
   "@masterProfileCategoriesLabel": {
-    "description": "Section label above the category cards on the master profile screen."
+    "description": "Section header above the category cards on the master profile (home) screen."
+  },
+
+  "masterAddServices": "Add services",
+  "@masterAddServices": {
+    "description": "Primary CTA shown in the master profile services section when the master has no services yet; opens the first-time bulk service-setup flow."
   },
 
   "masterProfileCategorySemantics": "Category {category}, {count} services. Go to list",
@@ -2130,7 +2161,7 @@
       "to": { "type": "String" }
     }
   },
-  "weeklyEditorActiveWindowHint": "Your weekly schedule applies during this period. Individual days can be changed later.",
+  "weeklyEditorActiveWindowHint": "Your schedule will apply automatically for the period you choose. You can make changes whenever you need to.",
   "@weeklyEditorActiveWindowHint": {
     "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
   },
@@ -2432,6 +2463,10 @@
   "@serviceSetupPriceRequired": {
     "description": "Inline per-field hint shown under the fixed-price input when an included row's price is empty or invalid on save."
   },
+  "serviceSetupDurationMax": "Duration must be at most 480 minutes (8 hours)",
+  "@serviceSetupDurationMax": {
+    "description": "Validation message shown on a service-setup row whose duration exceeds the 480-minute (8-hour) maximum — used both by the client-side guard and when the backend returns a durationMinutes max-constraint error."
+  },
   "serviceSetupDurationLabel": "Duration",
   "@serviceSetupDurationLabel": {
     "description": "Label for the per-row duration (minutes) field on the service-setup screen."
@@ -2507,7 +2542,7 @@
   "@locationTitle": {
     "description": "Top-bar title of the location edit page."
   },
-  "locationSubheading": "So we can show masters near you",
+  "locationSubheading": "Choose your location so we can show you masters in this city",
   "@locationSubheading": {
     "description": "Subheading on the location edit page."
   },
@@ -2592,6 +2627,15 @@
   "scheduleDiscreteTimesSemantic": "Appointment times: {times}",
   "@scheduleDiscreteTimesSemantic": {
     "description": "Accessibility label collapsing the read-only discrete start-time chips into one announcement for an EXPLICIT_TIMES day (Phase 15.9). {times} is the comma-separated list of HH:MM times.",
+    "placeholders": {
+      "times": {
+        "type": "String"
+      }
+    }
+  },
+  "scheduleDiscreteTimesWindowSummary": "Booking available at: {times}",
+  "@scheduleDiscreteTimesWindowSummary": {
+    "description": "Summary line for an EXPLICIT_TIMES day enumerating the discrete bookable start times instead of a misleading min–max window. Used on both the schedule editor and the read-only day panel. {times} is the comma-separated list of HH:MM times.",
     "placeholders": {
       "times": {
         "type": "String"
@@ -3446,10 +3490,6 @@
   "@bookingChangeDateCta": {
     "description": "Compact link on the time screen's day-header chip; returns to the date screen."
   },
-  "bookingChangeDateSemantics": "Change date",
-  "@bookingChangeDateSemantics": {
-    "description": "Accessibility label for the time screen's change-date link."
-  },
   "bookingDayHeaderSemantics": "Chosen date: {label}. Booking with master: {masterName}, {masterRole}",
   "@bookingDayHeaderSemantics": {
     "description": "Accessibility label for the time screen's day-header chip.",
@@ -3482,6 +3522,30 @@
   "bookingTimeLabel": "Time",
   "@bookingTimeLabel": {
     "description": "Label above the appointment time window on the booking confirm/success summary card."
+  },
+  "bookingServiceLabel": "Service",
+  "@bookingServiceLabel": {
+    "description": "Singular label above a single service name — used by the client-booking-conflict dialog's clashing-booking recap."
+  },
+  "bookingMasterLabel": "Master",
+  "@bookingMasterLabel": {
+    "description": "Label above a master's display name — used by the client-booking-conflict dialog's clashing-booking recap."
+  },
+  "bookingConflictClientTitle": "You already have a booking at this time",
+  "@bookingConflictClientTitle": {
+    "description": "Title of the modal shown when POST /bookings or PATCH /bookings/{id}/reschedule returns a CLIENT_BOOKING_CONFLICT 409 (ClientBookingConflictFailure)."
+  },
+  "bookingConflictClientSubtitle": "Choose a different time to avoid overlapping with a booking you already have.",
+  "@bookingConflictClientSubtitle": {
+    "description": "Subline under the client-booking-conflict dialog's title, explaining the recommended next step."
+  },
+  "bookingConflictClientPrimaryCta": "Choose another time",
+  "@bookingConflictClientPrimaryCta": {
+    "description": "Primary CTA on the client-booking-conflict dialog — dismisses the dialog and signals the confirm screen to navigate back to slot selection."
+  },
+  "bookingConflictClientSecondaryCta": "Stay here",
+  "@bookingConflictClientSecondaryCta": {
+    "description": "Secondary/dismiss CTA on the client-booking-conflict dialog — closes the dialog without navigating, leaving the confirm screen's selection intact."
   },
   "bookingServicesRecapLabel": "Services",
   "@bookingServicesRecapLabel": {
@@ -3914,7 +3978,43 @@
   },
   "salonBookingTimeBackSemantics": "Back to master selection",
   "@salonBookingTimeBackSemantics": {
-    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen."
+    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen, when the active slide is still on its date/calendar phase (back exits to master selection)."
+  },
+  "salonBookingTimeBackToCalendarSemantics": "Back to date selection",
+  "@salonBookingTimeBackToCalendarSemantics": {
+    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen, when the active slide is in its time-slot phase (back returns to that master's calendar, not master selection)."
+  },
+  "salonBookingConfirmTitle": "Confirmation",
+  "@salonBookingConfirmTitle": {
+    "description": "Top bar title of the salon booking flow's step-4 confirmation screen."
+  },
+  "salonBookingRetryCta": "Retry",
+  "@salonBookingRetryCta": {
+    "description": "Submit-button label on the salon confirmation screen after a partial failure — retries only the appointments that failed."
+  },
+  "salonBookingPartialFailureMessage": "Some appointments could not be created. Please try again.",
+  "@salonBookingPartialFailureMessage": {
+    "description": "SnackBar shown when some (not all) of the salon's per-master bookings failed to submit."
+  },
+  "salonBookingBackBlockedMessage": "Some appointments were already created. Finish the rest with Retry.",
+  "@salonBookingBackBlockedMessage": {
+    "description": "SnackBar shown when the user tries to leave the salon confirmation screen after at least one appointment already succeeded; back is blocked so the remaining failed ones must be finished via Retry (which reuses idempotency keys)."
+  },
+  "salonBookingAppointmentSubmitting": "Submitting…",
+  "@salonBookingAppointmentSubmitting": {
+    "description": "Per-appointment status line on the salon confirmation screen while that master's booking is being submitted."
+  },
+  "salonBookingAppointmentSucceeded": "Scheduled",
+  "@salonBookingAppointmentSucceeded": {
+    "description": "Per-appointment status line on the salon confirmation screen once that master's booking succeeded."
+  },
+  "salonBookingSuccessTitle": "Booked!",
+  "@salonBookingSuccessTitle": {
+    "description": "Headline on the salon booking success screen after every per-master booking succeeded."
+  },
+  "salonBookingSuccessSubline": "The masters will confirm your appointments shortly.\nYou'll be notified as soon as they respond.",
+  "@salonBookingSuccessSubline": {
+    "description": "Reassuring subline under the salon booking success headline."
   },
   "salonSchedulePagerSemantics": "Master {current} of {count}. {done} scheduled.",
   "@salonSchedulePagerSemantics": {
@@ -3962,15 +4062,6 @@
   "salonScheduleWindowPrompt": "Choose a time",
   "@salonScheduleWindowPrompt": {
     "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."
-  },
-  "salonScheduleMasterStripSemantics": "Booking with: {name}. Services: {services}. Duration: {duration}.",
-  "@salonScheduleMasterStripSemantics": {
-    "description": "Accessibility label for the per-master strip header on each slide of the salon booking time screen.",
-    "placeholders": {
-      "name": { "type": "String", "example": "Olena Kovalchuk" },
-      "services": { "type": "String", "example": "Manicure with coating" },
-      "duration": { "type": "String", "example": "1 h 30 min" }
-    }
   },
   "salonScheduleProgress": "{scheduled} of {total} scheduled",
   "@salonScheduleProgress": {

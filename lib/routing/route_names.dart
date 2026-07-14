@@ -176,6 +176,22 @@ abstract final class RouteNames {
   /// step 2's confirm CTA anymore.
   static const String salonBookingTime = '/booking/salon/time';
 
+  /// Step 4 — salon booking confirmation (review + submit), Phase 14.18.
+  /// Pushed from `SalonTimeScreen`'s «Підтвердити» CTA with a
+  /// `SalonBookingConfirmArgs` (the N resolved per-master appointments) in
+  /// `extra`. Renders `SalonBookingConfirmScreen`, CLIENT-guarded; submits one
+  /// `POST /bookings` per master. Replaces [salonBookingComingSoon] as the
+  /// step-3 «Підтвердити» hand-off target — the coming-soon stub is retired
+  /// (no longer routed to, but its route stays registered harmlessly).
+  static const String salonBookingConfirm = '/booking/salon/confirm';
+
+  /// Step 4b — salon booking success recap, Phase 14.18. Reached ONLY via
+  /// `SalonBookingConfirmScreen`'s `pushReplacement` once EVERY appointment's
+  /// booking succeeded, carrying a `SalonBookingSuccessArgs` in `extra`.
+  /// Renders `SalonBookingSuccessScreen` (`PopScope(canPop: false)`),
+  /// CLIENT-guarded; a missing/invalid `extra` bounces to [clientHome].
+  static const String salonBookingSuccess = '/booking/salon/success';
+
   // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
   // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).
   // The three edit pages all PATCH /users/me via ClientProfileRepository,

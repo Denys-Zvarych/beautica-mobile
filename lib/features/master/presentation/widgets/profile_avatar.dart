@@ -315,7 +315,7 @@ class _NavItem {
   final String label;
 }
 
-/// Full left→right layout: [Послуги(0)] [Мої записи(1)] [Календар(2)] [Профіль(3)].
+/// Full left→right layout: [Послуги(0)] [Мої записи(1)] [Графік(2)] [Профіль(3)].
 const List<_NavItem> _navItems = <_NavItem>[
   _NavItem(
     icon: Icons.design_services_outlined,
@@ -330,7 +330,7 @@ const List<_NavItem> _navItems = <_NavItem>[
   _NavItem(
     icon: Icons.calendar_month_outlined,
     activeIcon: Icons.calendar_month_rounded,
-    label: 'Календар',
+    label: 'Графік',
   ),
   _NavItem(
     icon: Icons.person_outline,
@@ -344,7 +344,7 @@ const List<_NavItem> _navItems = <_NavItem>[
 /// content, the dark shadow anchors it to the page floor.
 ///
 /// [activeIndex] selects the highlighted item (0 = Послуги, 1 = Мої записи,
-/// 2 = Календар, 3 = Профіль). A camel accent pill floats above the active icon.
+/// 2 = Графік, 3 = Профіль). A camel accent pill floats above the active icon.
 ///
 /// Ported verbatim from
 /// `docs/signup-designs/MasterProfileScreen/lib/widgets/profile_widgets.dart`.
@@ -436,7 +436,7 @@ class _VelvetNavTile extends StatelessWidget {
     if (active) return null;
     return switch (index) {
       0 => RouteNames.services, // Послуги
-      2 => RouteNames.masterSchedule, // Календар → Phase 15.2 schedule screen
+      2 => RouteNames.masterSchedule, // Графік → Phase 15.2 schedule screen
       _ => null, // Мої записи (1) — no route yet; Профіль (3) — current shell.
     };
   }

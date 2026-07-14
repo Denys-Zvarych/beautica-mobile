@@ -44,10 +44,14 @@
 // visually identical ("Послуги та ціни" list + "Разом" total + camel CTA),
 // already tested, and avoids the exact string-parsing anti-pattern that
 // widget's own file header documents moving away from. `BookingSummaryBar`
-// is typed over `MasterService`; [_toMasterService] below is a pure display
-// adapter from [SalonCatalogService] — never sent over the network, never
-// used for the actual booking write path (that stays [SalonCatalogService]
-// / raw service ids all the way to `SalonBookingMasterSelectionArgs`).
+// is typed over `MasterService`; `salonServiceForShelf`
+// (`widgets/selected_services_shelf.dart`) is a pure display adapter from
+// [SalonCatalogService] — shared with `SalonMasterSelectionScreen`'s
+// `_AssignConfirmBar` and `SalonTimeScreen`'s `ScheduleConfirmBar`, which
+// pin the same shelf on the following two booking steps. Never sent over
+// the network, never used for the actual booking write path (that stays
+// [SalonCatalogService] / raw service ids all the way to
+// `SalonBookingMasterSelectionArgs`).
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -71,6 +75,7 @@ import '../application/pending_service_preselection_provider.dart';
 import '../domain/pending_service_preselection.dart';
 import '../domain/salon_booking_args.dart';
 import 'widgets/booking_summary_bar.dart';
+import 'widgets/selected_services_shelf.dart';
 import 'widgets/service_catalogue_accordion.dart';
 
 /// Salon booking flow step 1 — multi-select service picker, opened by the
@@ -253,16 +258,17 @@ class _SalonServiceSelectionScreenState
               return BookingSummaryBar(
                 services: <MasterService>[
                   for (final SalonCatalogService s in selected)
-                    _toMasterService(s),
+                    salonServiceForShelf(s),
                 ],
                 ctaLabel: l10n.bookingNextCta,
                 ctaIcon: Icons.arrow_forward_rounded,
                 enabled: selected.isNotEmpty,
                 onAction: () => _goNext(selected),
                 // The mapped MasterService.id round-trips to the original
-                // SalonCatalogService.id (see _toMasterService above), so
-                // this is the same toggle the catalogue checkbox uses — both
-                // removal paths converge on identical end-state.
+                // SalonCatalogService.id (see salonServiceForShelf's doc
+                // comment), so this is the same toggle the catalogue
+                // checkbox uses — both removal paths converge on identical
+                // end-state.
                 onRemove: (MasterService s) =>
                     _selectionController.toggleService(s.id),
               );
@@ -325,23 +331,6 @@ class _SalonServiceSelectionScreenState
     );
   }
 }
-
-/// Pure display adapter — [SalonCatalogService] → [MasterService] — so this
-/// screen can reuse the existing [BookingSummaryBar] widget verbatim. Never
-/// used for the actual booking write path; [priceDisplay]/[durationLabel]
-/// pass straight through, so the rendered totals never diverge from what the
-/// service tile above shows.
-MasterService _toMasterService(SalonCatalogService s) => MasterService(
-  id: s.id,
-  serviceDefId: s.id,
-  name: s.name,
-  category: s.category,
-  durationMinutes: s.durationMinutes ?? 0,
-  priceType: s.priceType ?? ServicePriceType.fixed,
-  priceMin: s.priceMin ?? 0,
-  priceMax: s.priceMax,
-  priceDisplay: s.priceDisplay,
-);
 
 // ---------------------------------------------------------------------------
 // Top bar

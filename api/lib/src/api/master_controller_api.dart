@@ -1080,6 +1080,7 @@ class MasterControllerApi {
   /// * [masterId]
   /// * [from]
   /// * [to]
+  /// * [serviceId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -1093,6 +1094,7 @@ class MasterControllerApi {
     required String masterId,
     required Date from,
     required Date to,
+    String? serviceId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -1119,6 +1121,9 @@ class MasterControllerApi {
     final _queryParameters = <String, dynamic>{
       r'from': encodeQueryParameter(_serializers, from, const FullType(Date)),
       r'to': encodeQueryParameter(_serializers, to, const FullType(Date)),
+      if (serviceId != null)
+        r'serviceId': encodeQueryParameter(
+            _serializers, serviceId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(

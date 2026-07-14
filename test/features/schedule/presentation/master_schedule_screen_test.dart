@@ -1242,11 +1242,13 @@ void main() {
       },
     );
 
-    testWidgets('discrete day panel summary shows the derived min–max window '
-        '(times.first–times.last)', (tester) async {
-      // Non-contiguous discrete times → the secondary window summary is derived
-      // from first–last (08:30–17:00), proving the panel reads `times`, not
-      // empty `intervals` (which would render the closed-day summary).
+    testWidgets('discrete day panel summary ENUMERATES the discrete starts '
+        '(not a min–max window)', (tester) async {
+      // Non-contiguous discrete times → the panel summary must list EVERY start
+      // («Запис можливий в години: 08:30, 12:00, 17:00»), proving it reads
+      // `times` as a discrete set, NOT deriving a misleading first–last span
+      // («Робочий день: 08:30–17:00») nor the closed-day summary (empty
+      // intervals).
       const List<TimeOfDay> times = <TimeOfDay>[
         TimeOfDay(hour: 8, minute: 30),
         TimeOfDay(hour: 12, minute: 0),
@@ -1259,12 +1261,20 @@ void main() {
       await _pump(tester, overrides: _editableData(days));
 
       final AppLocalizations l10n = _l10n(tester);
-      // The day-panel summary derives the span from first–last (M11 — built
-      // from the l10n template + formatTime, not a hardcoded string).
+      // The day-panel summary enumerates the discrete starts (M11 — built from
+      // the l10n template, not a hardcoded string).
       expect(
-        find.text(l10n.scheduleDaySummaryWorking('08:30–17:00')),
+        find.text(
+          l10n.scheduleDiscreteTimesWindowSummary('08:30, 12:00, 17:00'),
+        ),
         findsOneWidget,
       );
+      // The old min–max working-day window must NOT appear.
+      expect(
+        find.text(l10n.scheduleDaySummaryWorking('08:30–17:00')),
+        findsNothing,
+      );
+      expect(find.textContaining('08:30–17:00'), findsNothing);
       // The chips still match the (non-contiguous) source times by key.
       for (final TimeOfDay t in times) {
         expect(
@@ -1273,6 +1283,67 @@ void main() {
         );
       }
     });
+
+    // Feature regression — the reported bug was a SINGLE discrete time reading
+    // «Вікно 09:00 - 09:00» / «Робочий день: 09:00–09:00». The read-only day
+    // panel must enumerate the one start instead. FAILS on a revert to the
+    // min–max window render.
+    testWidgets('SINGLE discrete time day panel enumerates the one start '
+        '(«…: 09:00») and NEVER a degenerate 09:00–09:00 working-day window', (
+      tester,
+    ) async {
+      const List<TimeOfDay> times = <TimeOfDay>[TimeOfDay(hour: 9, minute: 0)];
+      final List<EffectiveDay> days = _weekWith(
+        todayDay: (DateTime d) => _discrete(d, times: times),
+        filler: _working,
+      );
+      await _pump(tester, overrides: _editableData(days));
+
+      final AppLocalizations l10n = _l10n(tester);
+      // Positive: the enumerated single-hour summary.
+      expect(
+        find.text(l10n.scheduleDiscreteTimesWindowSummary('09:00')),
+        findsOneWidget,
+      );
+      // Negative: NO min–max working-day window for a single discrete start —
+      // this is the exact reported bug and must never render.
+      expect(
+        find.text(l10n.scheduleDaySummaryWorking('09:00–09:00')),
+        findsNothing,
+      );
+      expect(find.textContaining('09:00 – 09:00'), findsNothing);
+      expect(
+        find.byKey(const Key('schedule-discrete-chip-09:00')),
+        findsOneWidget,
+      );
+    });
+
+    // Negative guard — the discrete-enumeration branch must NOT leak into
+    // INTERVAL mode. A plain working interval day keeps its window summary and
+    // renders NO discrete-times block.
+    testWidgets(
+      'INTERVAL day panel keeps its working-day window summary and shows NO '
+      'discrete-times block (the explicitTimes branch did not leak)',
+      (tester) async {
+        // Today is an INTERVAL working day (09:00–13:00, 14:00–18:00 → span
+        // 09:00–18:00), not a discrete day.
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+        await _pump(tester, overrides: _editableData(days));
+
+        final AppLocalizations l10n = _l10n(tester);
+        // The interval window summary is unchanged.
+        expect(
+          find.text(l10n.scheduleDaySummaryWorking('09:00–18:00')),
+          findsOneWidget,
+        );
+        // No discrete enumeration for an interval day (structural proof the
+        // guard did not leak): the discrete container is absent.
+        expect(find.byKey(const Key('schedule-discrete-times')), findsNothing);
+      },
+    );
 
     testWidgets(
       'override-sourced discrete day also renders the discrete block (source '

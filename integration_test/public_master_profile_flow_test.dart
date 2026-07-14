@@ -458,4 +458,94 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Flow D — Phase 14.20 REGRESSION (E2E): the calendar-vs-slots availability
+  // bug. Before the fix, `SlotDateScreen` requested working-days in
+  // SCHEDULE-SHAPE mode (no serviceId), so a day the master had intervals on
+  // rendered SELECTABLE even when the chosen service's duration left it with
+  // zero bookable slots — tapping it dead-ended on «Немає вільного часу». The
+  // fix threads `services.first.id` into the working-days query, putting it in
+  // the same AVAILABILITY-AWARE mode `/slots` uses.
+  //
+  // This flow drives the WHOLE journey against the real router + repositories
+  // and asks the fake backend to mark "today" non-working ONLY WHEN the
+  // request carries a serviceId (`forceNonWorkingDateWhenServiceScoped`). So it
+  // discriminates the two code paths end-to-end: pre-fix code sends no
+  // serviceId → the endpoint answers schedule-shape → today is working:true →
+  // the client taps through to the dead-end; the fixed code sends the
+  // serviceId → today is working:false → the cell is inert and the dead-end is
+  // unreachable. "Today" is the forced day so the assertion is
+  // real-world-date-safe (mirrors Flow C).
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'SlotDateScreen: a day with no slot for the CHOSEN SERVICE is disabled '
+    'because the calendar threads the serviceId into GET /working-days — the '
+    'client can never tap through to the «Немає вільного часу» dead-end '
+    '(Phase 14.20 regression, E2E)',
+    (tester) async {
+      final DateTime today = DateTime.now();
+      final DateTime todayDateOnly = DateTime(
+        today.year,
+        today.month,
+        today.day,
+      );
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..forceNonWorkingDateWhenServiceScoped = todayDateOnly;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await bootToSlotDateScreen(tester, fb, router);
+
+      // The calendar issued a SERVICE-SCOPED working-days request: the chosen
+      // service's id (the ServiceSelectorSheet's `pub-assign-1`) rode along, so
+      // the endpoint answered in availability-aware mode. A `null` here would
+      // mean the calendar silently fell back to schedule-shape — the pre-fix
+      // bug this whole flow guards.
+      expect(fb.getWorkingDaysCalls, greaterThanOrEqualTo(1));
+      expect(
+        fb.lastMasterAaaWorkingDaysServiceId,
+        'pub-assign-1',
+        reason:
+            'the booking calendar must thread services.first.id into '
+            'GET /working-days — without it the day resolves schedule-shape-'
+            'working and the dead-end bug returns',
+      );
+
+      // Today is therefore disabled (no tap handler).
+      final Finder todayCell = find.byKey(
+        Key('booking-calendar-day-${todayDateOnly.day}'),
+      );
+      expect(todayCell, findsOneWidget);
+      expect(
+        find.descendant(of: todayCell, matching: find.byType(GestureDetector)),
+        findsNothing,
+        reason:
+            'a day unbookable for the chosen service must render without a tap '
+            'handler once the calendar is service-scoped',
+      );
+
+      // Forcing a tap never fetches slots and never advances the flow, so the
+      // «Немає вільного часу» time screen is unreachable for this day.
+      await tester.tap(todayCell, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(
+        fb.getMasterSlotsCalls,
+        0,
+        reason:
+            'a forced tap on a service-unbookable day must never fetch slots',
+      );
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+      expectLocation(router, RouteNames.bookingSlots);
+      expect(
+        find.byType(SlotTimeScreen),
+        findsNothing,
+        reason:
+            'the client must never reach the time screen (the «Немає вільного '
+            'часу» dead-end) for a day unbookable with the chosen service',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
 }

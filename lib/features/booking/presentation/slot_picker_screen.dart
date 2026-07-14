@@ -113,10 +113,22 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   List<WorkingDay>? _lastWorkingDays;
 
   /// The family key for `workingDaysProvider`, scoped to the master carried
-  /// by [widget.args] and the currently-visible month.
+  /// by [widget.args], the currently-visible month, and the PRIMARY service.
+  ///
+  /// Passing `services.first.id` (Phase 14.20) is the fix for the
+  /// calendar-vs-slots disagreement: it puts working-days into the backend's
+  /// availability-aware mode, so a day's `working` flag now means "this
+  /// service's full duration fits a free range starting >= now+15min" — the
+  /// SAME computation `getMasterSlots` runs. Before, the flag was
+  /// schedule-shape (duration-blind), so a day could show selectable yet have
+  /// zero bookable slots. `services.first` is the operative/primary service for
+  /// the whole independent-master flow (slot fetch in [_selectDay] + booking
+  /// creation in [SlotTimeScreen._confirm] both key off it), so gating the
+  /// calendar on the same id keeps all three consistent.
   WorkingDaysQuery get _workingDaysQuery => WorkingDaysQuery.month(
     masterId: widget.args.masterId,
     anyDayInMonth: _visibleMonth,
+    serviceId: widget.args.services.first.id,
   );
 
   static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
@@ -218,8 +230,8 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               // at mismatched y-offsets the instant the push settles.
               child: Hero(
                 tag: 'master-strip-${widget.args.master.id}',
-                child: MasterStrip(
-                  master: widget.args.master,
+                child: MasterStrip.fromMaster(
+                  widget.args.master,
                   showRole: true,
                   showRating: true,
                 ),
@@ -509,8 +521,8 @@ class SlotTimeScreen extends ConsumerWidget {
                     // `onChange` performed.
                     Hero(
                       tag: 'master-strip-${args.master.id}',
-                      child: MasterStrip(
-                        master: args.master,
+                      child: MasterStrip.fromMaster(
+                        args.master,
                         showRole: true,
                         showRating: true,
                       ),

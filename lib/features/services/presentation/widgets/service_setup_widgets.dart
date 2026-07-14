@@ -44,6 +44,11 @@ enum RowFlagReason {
   /// (max must exceed min). The precise range message is surfaced inline by
   /// [PricingField] beneath the price fields, so the flag stays terse.
   invalidRange,
+
+  /// Included row whose duration exceeds the backend maximum (480 min / 8 h).
+  /// Caught client-side before the network round-trip; the inline duration
+  /// message mirrors the backend's own `items[i].durationMinutes` max error.
+  durationTooLong,
 }
 
 /// Returns the uniform category glyph used for every chip / group-header icon
@@ -300,6 +305,48 @@ class ServiceRowState extends ChangeNotifier {
   /// pricing mode changes, giving the master a clean slate before re-saving).
   void clearFlag() => flagReason = RowFlagReason.none;
 
+  String? _serverDurationError;
+
+  /// A backend per-field validation message for this row's duration
+  /// (`items[i].durationMinutes`), mapped back from a 400 response. Coalesced
+  /// into the duration well's inline-error slot ahead of any client hint, so a
+  /// server constraint surfaces on the exact row + field instead of a generic
+  /// snackbar. Null when the row has no outstanding server duration error.
+  String? get serverDurationError => _serverDurationError;
+  set serverDurationError(String? value) {
+    if (_serverDurationError == value) return;
+    _serverDurationError = value;
+    notifyListeners();
+  }
+
+  String? _serverPriceError;
+
+  /// A backend per-field validation message for this row's price
+  /// (`items[i].price` / `priceMin` / `priceMax`), mapped back from a 400
+  /// response. Coalesced into the price field's inline-error slot. Null when
+  /// there is no outstanding server price error.
+  String? get serverPriceError => _serverPriceError;
+  set serverPriceError(String? value) {
+    if (_serverPriceError == value) return;
+    _serverPriceError = value;
+    notifyListeners();
+  }
+
+  /// Clears the mapped-back server duration error (e.g. when the master edits
+  /// the duration field, so the red state disappears as they fix the value).
+  void clearServerDurationError() => serverDurationError = null;
+
+  /// Clears the mapped-back server price error (e.g. when the master edits a
+  /// price field).
+  void clearServerPriceError() => serverPriceError = null;
+
+  /// Clears BOTH server-error channels — used on include-toggle / mode-change
+  /// and before a fresh save so a stale server error never lingers.
+  void clearServerErrors() {
+    serverDurationError = null;
+    serverPriceError = null;
+  }
+
   @override
   void dispose() {
     duration.dispose();
@@ -349,39 +396,55 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   @override
   void initState() {
     super.initState();
-    widget.row.addListener(_onRowChanged);
-    // Recompute the range error locally as the user edits min/max — no screen
-    // rebuild, just this one card.
-    widget.row.min.addListener(_onFieldChanged);
-    widget.row.max.addListener(_onFieldChanged);
+    _attach(widget.row);
   }
 
   @override
   void didUpdateWidget(ServiceTypeRowCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.row, widget.row)) {
-      oldWidget.row.removeListener(_onRowChanged);
-      oldWidget.row.min.removeListener(_onFieldChanged);
-      oldWidget.row.max.removeListener(_onFieldChanged);
-      widget.row.addListener(_onRowChanged);
-      widget.row.min.addListener(_onFieldChanged);
-      widget.row.max.addListener(_onFieldChanged);
+      _detach(oldWidget.row);
+      _attach(widget.row);
     }
   }
 
   @override
   void dispose() {
-    widget.row.removeListener(_onRowChanged);
-    widget.row.min.removeListener(_onFieldChanged);
-    widget.row.max.removeListener(_onFieldChanged);
+    _detach(widget.row);
     super.dispose();
+  }
+
+  void _attach(ServiceRowState row) {
+    row.addListener(_onRowChanged);
+    // Editing the duration clears any mapped-back server duration error so the
+    // red state disappears as the master fixes the value.
+    row.duration.addListener(_onDurationChanged);
+    // Editing any price field clears the server price error; min/max also
+    // recompute the cross-field range error locally (no screen rebuild).
+    row.fixed.addListener(_onPriceChanged);
+    row.min.addListener(_onPriceChanged);
+    row.max.addListener(_onPriceChanged);
+  }
+
+  void _detach(ServiceRowState row) {
+    row.removeListener(_onRowChanged);
+    row.duration.removeListener(_onDurationChanged);
+    row.fixed.removeListener(_onPriceChanged);
+    row.min.removeListener(_onPriceChanged);
+    row.max.removeListener(_onPriceChanged);
   }
 
   void _onRowChanged() {
     if (mounted) setState(() {});
   }
 
-  void _onFieldChanged() {
+  void _onDurationChanged() {
+    widget.row.clearServerDurationError();
+    if (mounted) setState(() {});
+  }
+
+  void _onPriceChanged() {
+    widget.row.clearServerPriceError();
     if (mounted) setState(() {});
   }
 
@@ -390,12 +453,14 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     // Toggling clears any stale flag — an excluded row is never required, and a
     // freshly-included one starts clean (its inline hints fire only on save).
     widget.row.clearFlag();
+    widget.row.clearServerErrors();
     widget.onChanged?.call();
   }
 
   void _setMode(ServicePriceType m) {
     widget.row.pricingMode = m;
     widget.row.clearFlag();
+    widget.row.clearServerErrors();
     widget.onChanged?.call();
   }
 
@@ -403,6 +468,11 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   /// precise range message is surfaced inline by [PricingField], so the
   /// [RowFlagReason.invalidRange] header copy stays generic to avoid
   /// double-reporting it.
+  ///
+  /// [RowFlagReason.durationTooLong] is deliberately NOT surfaced here — its
+  /// `serviceSetupDurationMax` copy is identical to the inline duration-field
+  /// error, so the header is suppressed for it (see `showHeaderFlag` in
+  /// [build]) and it falls through to the generic fallback below (never read).
   String _flagMessage(AppLocalizations l10n, RowFlagReason reason) {
     switch (reason) {
       case RowFlagReason.missingDuration:
@@ -411,6 +481,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         return l10n.serviceSetupRowMissingPriceOnly;
       case RowFlagReason.invalidRange:
         return l10n.serviceSetupRowFixRange;
+      case RowFlagReason.durationTooLong:
       case RowFlagReason.missingBoth:
       case RowFlagReason.none:
         return l10n.serviceSetupRowMissingPrice;
@@ -423,30 +494,59 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     final ServiceRowState row = widget.row;
     final bool on = row.included;
     final RowFlagReason reason = row.flagReason;
+    // Backend per-field validation mapped back onto this row (null when none).
+    // Only ever set on included rows (only included rows are submitted).
+    final String? serverDurationError = on ? row.serverDurationError : null;
+    final String? serverPriceError = on ? row.serverPriceError : null;
+    final bool hasServerError =
+        serverDurationError != null || serverPriceError != null;
     // Only INCLUDED rows are ever validated, so an excluded row must never paint
     // a flag — gate the build-local flag on inclusion. This suppresses the flag
     // message, the error rim, and the inline field hints for an excluded row, and
-    // lets the "виключено" off-state sub-label take over.
-    final bool flagged = on && row.flagged;
+    // lets the "виключено" off-state sub-label take over. A mapped-back server
+    // error also tints the rim (its message rides the inline field slot).
+    final bool clientFlagged = on && row.flagged;
+    final bool flagged = clientFlagged || hasServerError;
+    // The "too long" duration reason is field-only: its header copy would be an
+    // exact duplicate of the inline duration-field error (both are
+    // `serviceSetupDurationMax`), so it is excluded from the header flag line.
+    // The other client reasons (missing duration / price / both, invalid range)
+    // carry terse summary copy that differs from the field hints, so they keep
+    // their header line.
+    final bool showHeaderFlag =
+        clientFlagged && reason != RowFlagReason.durationTooLong;
     final String? rangeError = widget.resolveRangeError(row);
 
     // Inline per-field hints derived from the save-time flag reason, so a
     // flagged row points the master at the exact empty field rather than
     // relying on the header line alone. The range case is left to
     // PricingField's own inline cross-field hint.
-    final bool durationFlagged =
+    final bool durationMissing =
         reason == RowFlagReason.missingDuration ||
         reason == RowFlagReason.missingBoth;
     final bool fixedPriceFlagged =
         reason == RowFlagReason.missingPrice ||
         reason == RowFlagReason.missingBoth;
-    final String? durationError = durationFlagged
-        ? l10n.serviceSetupDurationRequired
-        : null;
-    final String? fixedPriceError =
+    // Client-side duration hint: the "too long" (≤480) guard shows the max
+    // message; an empty/invalid duration shows the "required" hint.
+    final String? clientDurationError = reason == RowFlagReason.durationTooLong
+        ? l10n.serviceSetupDurationMax
+        : (durationMissing ? l10n.serviceSetupDurationRequired : null);
+    // Server error wins over the client hint (it is the authoritative,
+    // just-returned constraint), then falls back to the client-side hint.
+    final String? durationError = serverDurationError ?? clientDurationError;
+    final String? clientFixedPriceError =
         fixedPriceFlagged && row.pricingMode == ServicePriceType.fixed
         ? l10n.serviceSetupPriceRequired
         : null;
+    // A mapped-back server price error surfaces via a message-capable slot:
+    // the fixed field in FIXED mode, the "min" field in RANGE mode (the "max"
+    // field carries only a ring, so it has no text slot).
+    final bool fixedMode = row.pricingMode == ServicePriceType.fixed;
+    final String? fixedPriceError = fixedMode
+        ? (serverPriceError ?? clientFixedPriceError)
+        : clientFixedPriceError;
+    final String? minPriceError = fixedMode ? null : serverPriceError;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
@@ -485,7 +585,12 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                       ),
                       child: Text(row.nameUk),
                     ),
-                    if (flagged) ...<Widget>[
+                    // Header flag line only for CLIENT-side reasons — a pure
+                    // server error carries its message on the inline field slot
+                    // (below), so a generic header line here would misreport it.
+                    // `durationTooLong` is also excluded (see showHeaderFlag) so
+                    // its message shows on the duration FIELD only, never twice.
+                    if (showHeaderFlag) ...<Widget>[
                       const SizedBox(height: 4),
                       Row(
                         children: <Widget>[
@@ -557,6 +662,9 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           maxController: row.max,
                           rangeError: rangeError,
                           fixedError: fixedPriceError,
+                          // RANGE-mode server price errors ride the "min" slot
+                          // (the "max" well exposes only a ring, no text slot).
+                          minError: minPriceError,
                           // compact=true: label-less wells, tight padding so
                           // duration + price always share one line at ~320 dp.
                           compact: true,

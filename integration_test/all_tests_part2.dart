@@ -1,14 +1,16 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 2 of 2 (2026-07-01 split).
 //
 // See `all_tests_part1.dart` for the full rationale. This file carries the
-// remaining 12 of 22 flows (updated by the Beautica OTP task Phase B6
-// additions + the salon-master booking-bug flow) so each `flutter test`
-// process in CI reports a bounded number of
-// tests instead of aggregating all of them into one long-lived run.
+// remaining 13 of 23 flows (updated by the Beautica OTP task Phase B6
+// additions, the salon-master booking-bug flow, and the master-home
+// add-services CTA flow) so each `flutter test` process in CI reports a
+// bounded number of tests instead of aggregating all of them into one
+// long-lived run.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
@@ -22,12 +24,16 @@ import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
+import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  // Master-home zero-services «Додати послуги» CTA → /services/setup
+  // (Step 2.7 Rule 3b — master home → service-setup journey).
+  group('master_home_add_services_flow', master_home_add_services.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);
@@ -45,6 +51,9 @@ void main() {
   // Search service-filter → booking pre-selection (Step 2.7 Rule 3b) — exact
   // serviceTypeSlug pre-check on the master + salon booking catalogues.
   group('service_preselection_flow', service_preselection.main);
+  // Service-setup per-field 400 → inline row error (Step 2.7 Rule 3b) — the
+  // bulk-save validation-error display fix, end-to-end.
+  group('service_setup_field_error_flow', service_setup_field_error.main);
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);

@@ -59,15 +59,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
+import 'client_booking_conflict_flow_test.dart' as client_booking_conflict;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
+import 'search_prefill_survives_name_edit_flow_test.dart'
+    as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
+import 'client_shell_edge_swipe_back_flow_test.dart'
+    as client_shell_edge_swipe_back;
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'logout_flow_test.dart' as logout;
+import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
@@ -81,6 +87,7 @@ import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
+import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 
@@ -96,16 +103,29 @@ void main() {
   // and resets global state via AppHarness.tearDownHarness — the per-test
   // re-launch model that directory-mode batching cannot provide.
   group('auth_login_flow', auth_login.main);
+  group('client_booking_conflict_flow', client_booking_conflict.main);
   group('client_home_hub_flow', client_home_hub.main);
   group('client_logout_flow', client_logout.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
+  // Search prefill survives a mid-session name edit (refreshUser) — the
+  // `.select(user.id)` narrowing regression (Step 2.7 Rule 3b).
+  group(
+    'search_prefill_survives_name_edit_flow',
+    search_prefill_survives_name_edit.main,
+  );
   group('client_shell_flow', client_shell.main);
+  // CLIENT left-edge swipe-back → Home tab (Step 2.7 Rule 3b) — the gesture
+  // twin of the R1 system-back flow in client_shell_flow_test.dart Test 7.
+  group('client_shell_edge_swipe_back_flow', client_shell_edge_swipe_back.main);
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
   group('logout_flow', logout.main);
+  // Master-home zero-services «Додати послуги» CTA → /services/setup
+  // (Step 2.7 Rule 3b — master home → service-setup journey).
+  group('master_home_add_services_flow', master_home_add_services.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);
@@ -123,6 +143,9 @@ void main() {
   // Search service-filter → booking pre-selection (Step 2.7 Rule 3b) — exact
   // serviceTypeSlug pre-check on the master + salon booking catalogues.
   group('service_preselection_flow', service_preselection.main);
+  // Service-setup per-field 400 → inline row error (Step 2.7 Rule 3b) — the
+  // bulk-save validation-error display fix, end-to-end.
+  group('service_setup_field_error_flow', service_setup_field_error.main);
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);

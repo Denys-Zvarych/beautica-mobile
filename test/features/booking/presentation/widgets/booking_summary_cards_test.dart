@@ -56,7 +56,7 @@ void main() {
       await tester.pumpApp(
         Scaffold(
           body: SingleChildScrollView(
-            child: BookingSummaryCards(
+            child: BookingSummaryCards.fromMaster(
               master: _kMaster,
               service: _kService,
               start: DateTime(2026, 7, 20, 14),
@@ -122,7 +122,7 @@ void main() {
     Future<void> pumpCard(WidgetTester tester, {required bool showBorder}) =>
         tester.pumpApp(
           Scaffold(
-            body: BookingSummaryCards(
+            body: BookingSummaryCards.fromMaster(
               master: _kMaster,
               service: _kService,
               start: DateTime(2026, 7, 20, 14),
@@ -205,7 +205,7 @@ void main() {
     }) async {
       await tester.pumpApp(
         Scaffold(
-          body: BookingSummaryCards(
+          body: BookingSummaryCards.fromMaster(
             master: _kMaster,
             service: _kService,
             start: DateTime(2026, 7, 20, 14),

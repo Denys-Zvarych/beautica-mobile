@@ -9,6 +9,9 @@
 //   5. Navigates to /booking/salon/coming-soon on confirm.
 //   6. No "any available master" option is ever rendered.
 
+import 'dart:async';
+
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
@@ -20,6 +23,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -272,6 +276,42 @@ Finder _subtitleInRow(String masterId, String text) => find.descendant(
   of: find.byKey(Key('salon_booking_master_row_$masterId')),
   matching: find.text(text),
 );
+
+/// A router with a placeholder initial route + this screen pushed onto it —
+/// needed (unlike [_routerFor], which starts ON this screen) so tapping the
+/// screen's own back button actually POPS it (and therefore disposes it),
+/// letting a test observe `ScreenProtectionManager.release()` firing. Mirrors
+/// `salon_booking_confirm_screen_test.dart`'s identical push-then-pop
+/// approach for its own ScreenProtectionManager lifecycle group.
+GoRouter _pushableRouter() => GoRouter(
+  initialLocation: '/start',
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/start',
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('start'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonBookingMasters,
+      builder: (context, state) => SalonMasterSelectionScreen(args: _args()),
+    ),
+  ],
+);
+
+/// Counts acquire()/release() calls — mirrors
+/// `salon_booking_confirm_screen_test.dart`'s identical
+/// `_CountingScreenProtection` (the established pattern for pinning a PII
+/// screen's FLAG_SECURE lifecycle).
+class _CountingScreenProtection extends ScreenProtectionManager {
+  int acquireCount = 0;
+  int releaseCount = 0;
+
+  @override
+  void acquire() => acquireCount++;
+
+  @override
+  void release() => releaseCount++;
+}
 
 void main() {
   testWidgets(
@@ -594,4 +634,230 @@ void main() {
       }
     },
   );
+
+  // ===========================================================================
+  // mobile-qa gap (card-unification audit): the picker's rows render the
+  // SHARED `MasterStrip(showRating: true)` card (the same widget the
+  // calendar/time/confirm/success screens render) — but no test ever
+  // asserted the ACTUAL rating digits/review-count render here. Rating on
+  // the salon picker is the whole point of the card-unification change (the
+  // deleted bespoke `_MasterPickRow` header never showed one). Scoped to
+  // each master's own row so a coincidental match elsewhere can't
+  // false-pass this.
+  // ===========================================================================
+  testWidgets(
+    "each eligible master's row renders its OWN ★rating(reviewCount) via "
+    'the shared MasterStrip card',
+    (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+      await tester.pumpAndSettle();
+
+      final Finder m1Row = find.byKey(const Key('salon_booking_master_row_m1'));
+      expect(
+        find.descendant(of: m1Row, matching: find.text('4.9')),
+        findsOneWidget,
+        reason:
+            "MasterStrip(showRating: true) must render m1's own "
+            'avgRating.toStringAsFixed(1) (4.9) — this is the whole point '
+            'of the card-unification change: rating on the salon picker, '
+            'which the deleted bespoke row never showed.',
+      );
+      expect(
+        find.descendant(of: m1Row, matching: find.text('(12)')),
+        findsOneWidget,
+        reason: 'reviewCount (12) > 0 -> the parenthetical suffix must render',
+      );
+
+      final Finder m2Row = find.byKey(const Key('salon_booking_master_row_m2'));
+      expect(
+        find.descendant(of: m2Row, matching: find.text('5.0')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: m2Row, matching: find.text('(3)')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  // mobile-qa gap (M2-adjacent, KNOWN COVERAGE GAP): the picker is the ONLY
+  // one of the nine `MasterStrip` call sites that sets `showLabel: false` —
+  // no master has been chosen yet here, so the muted "Запис до майстра"
+  // caption every OTHER booking screen shows would be both untrue and
+  // repeated once per row. A regression that dropped (or flipped) the flag
+  // would silently reintroduce it.
+  testWidgets(
+    'the picker\'s master rows never render the "Запис до майстра" caption '
+    '(showLabel: false — no master has been chosen yet)',
+    (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonMasterSelectionScreen)),
+      );
+      expect(find.text(l10n.bookingMasterStripLabel), findsNothing);
+    },
+  );
+
+  // mobile-qa gap-fix — the pinned `_AssignConfirmBar`'s new composition of
+  // `SelectedServicesShelf` (the "always show selected services" bottom bar
+  // behaviour) had NO coverage: every test above only drives the master-pick
+  // interaction, never the shelf pinned above the bar's own "Разом"/assigned-
+  // progress/CTA content. The main regression risk is the shelf's own toggle
+  // interfering with — or hiding — that pre-existing content, so this group
+  // expands the shelf and re-asserts the progress counter + CTA both survive.
+  group('selected-services shelf composition (mobile-qa gap-fix)', () {
+    const Key toggleKey = Key('booking-summary-expand-toggle');
+    const Key expandedListKey = Key('booking-summary-expanded-list');
+
+    // Every eligible master row ALSO renders a "covers: <service names>"
+    // subtitle sourced from the SAME [_svc1]/[_svc2] fixture names, so a raw
+    // unscoped `find.text(_svc1.name)` would match BOTH that subtitle AND
+    // the shelf's own itemized entry — scope every assertion to the shelf's
+    // `expanded-list` subtree so it only ever proves the SHELF's own
+    // content, never coincides with an unrelated row.
+    Finder inShelf(Finder matching) =>
+        find.descendant(of: find.byKey(expandedListKey), matching: matching);
+
+    testWidgets('expanding the shelf shows every client-selected service (both '
+        'svc-1 and svc-2, regardless of assignment state) while the assign '
+        'progress counter and CTA stay in place', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+      await tester.pumpAndSettle();
+
+      // Collapsed: the shelf's own itemized list is not built at all yet.
+      expect(find.byKey(expandedListKey), findsNothing);
+
+      await tester.tap(find.byKey(toggleKey));
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok: fixture service names (test data), not app UI copy.
+      expect(inShelf(find.text(_svc1.name)), findsOneWidget);
+      // i18n-finder-ok: fixture service names (test data), not app UI copy.
+      expect(inShelf(find.text(_svc2.name)), findsOneWidget);
+
+      // The pre-existing "N assigned" progress counter + CTA must still be
+      // present once the shelf is expanded — the regression risk this
+      // change introduces.
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonMasterSelectionScreen)),
+      );
+      expect(
+        find.text(l10n.salonBookingAssignedProgress(0, 2)),
+        findsOneWidget,
+      );
+      final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+        find.byKey(const Key('salon-assign-confirm-cta')),
+      );
+      expect(cta.onPressed, isNull); // nothing assigned yet
+    });
+
+    testWidgets(
+      'the assign progress counter updates and the CTA stays reachable '
+      'after assigning a master, even with the shelf left expanded',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(toggleKey));
+        await tester.pumpAndSettle();
+        // i18n-finder-ok: fixture service name (test data), not app UI copy.
+        expect(inShelf(find.text(_svc1.name)), findsOneWidget);
+
+        // Pick m1 (covers ONLY svc-1) -> svc-1 auto-attaches; svc-2 stays
+        // unassigned (m1 doesn't cover it).
+        await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonMasterSelectionScreen)),
+        );
+        expect(
+          find.text(l10n.salonBookingAssignedProgress(1, 2)),
+          findsOneWidget,
+          reason:
+              'the shelf remaining expanded must not prevent the '
+              '_ProgressHint from rebuilding with the new assigned count',
+        );
+        // The itemized shelf list must still be intact after the pick too.
+        // i18n-finder-ok: fixture service name (test data), not app UI copy.
+        expect(inShelf(find.text(_svc1.name)), findsOneWidget);
+      },
+    );
+  });
+
+  // ===========================================================================
+  // ScreenProtectionManager lifecycle (mobile-security MEDIUM fix — this
+  // screen now renders the client's selected service names + prices via
+  // `SelectedServicesShelf` inside the pinned `_AssignConfirmBar`). Mirrors
+  // `salon_booking_confirm_screen_test.dart`'s established acquire/release
+  // pattern.
+  // ===========================================================================
+  group('ScreenProtectionManager lifecycle (mobile-security gap-fix)', () {
+    testWidgets(
+      'acquire() is called exactly once when the master-selection screen '
+      'mounts',
+      (tester) async {
+        await _pumpTall(tester);
+        final GoRouter router = _pushableRouter();
+        final _CountingScreenProtection counting = _CountingScreenProtection();
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(),
+            screenProtectionProvider.overrideWithValue(counting),
+          ],
+        );
+        unawaited(router.push(RouteNames.salonBookingMasters));
+        await tester.pumpAndSettle();
+
+        expect(
+          counting.acquireCount,
+          1,
+          reason:
+              'initState must call acquire() exactly once to enable '
+              'FLAG_SECURE now that this screen renders selected service '
+              'names + prices via SelectedServicesShelf',
+        );
+      },
+    );
+
+    testWidgets(
+      'release() is called exactly once when the master-selection screen is '
+      'popped (disposed) — acquire/release stay symmetric',
+      (tester) async {
+        await _pumpTall(tester);
+        final GoRouter router = _pushableRouter();
+        final _CountingScreenProtection counting = _CountingScreenProtection();
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(),
+            screenProtectionProvider.overrideWithValue(counting),
+          ],
+        );
+        unawaited(router.push(RouteNames.salonBookingMasters));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-master-selection-back')));
+        await tester.pumpAndSettle();
+
+        expect(
+          counting.releaseCount,
+          1,
+          reason:
+              'dispose() must call release() exactly once so FLAG_SECURE is '
+              'cleared once the master-selection screen is popped',
+        );
+        expect(counting.acquireCount, counting.releaseCount);
+      },
+    );
+  });
 }

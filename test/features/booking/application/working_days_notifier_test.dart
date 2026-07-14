@@ -208,4 +208,83 @@ void main() {
     // into a later test.
     pending.complete(const <WorkingDay>[]);
   });
+
+  // Phase 14.20 — the notifier must thread the query's serviceId straight to
+  // the repository. The two other tests above use serviceId-less queries (they
+  // match the repo stub's null default), so neither exercises the non-null
+  // path the availability-aware booking calendar actually takes.
+  group('serviceId threading (Phase 14.20)', () {
+    test(
+      'forwards the query\'s serviceId to SlotRepository.getWorkingDays when '
+      'the query carries one (availability-aware mode)',
+      () async {
+        when(
+          () => repo.getWorkingDays(
+            masterId: any(named: 'masterId'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            serviceId: any(named: 'serviceId'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer((_) async => const <WorkingDay>[]);
+
+        final container = makeContainer();
+        final query = WorkingDaysQuery.month(
+          masterId: 'master-1',
+          anyDayInMonth: DateTime(2026, 7, 1),
+          serviceId: 'svc-42',
+        );
+        await container.read(workingDaysProvider(query).future);
+
+        final captured = verify(
+          () => repo.getWorkingDays(
+            masterId: any(named: 'masterId'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            serviceId: captureAny(named: 'serviceId'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).captured;
+        expect(
+          captured.single,
+          'svc-42',
+          reason:
+              'a null serviceId here would silently drop the calendar back to '
+              'the duration-blind schedule-shape mode — the pre-fix bug',
+        );
+      },
+    );
+
+    test('forwards serviceId as null when the query omits it (schedule-shape '
+        'mode — the salon step-3 picker path)', () async {
+      when(
+        () => repo.getWorkingDays(
+          masterId: any(named: 'masterId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          serviceId: any(named: 'serviceId'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => const <WorkingDay>[]);
+
+      final container = makeContainer();
+      final query = WorkingDaysQuery.month(
+        masterId: 'master-1',
+        anyDayInMonth: DateTime(2026, 7, 1),
+        // serviceId intentionally omitted.
+      );
+      await container.read(workingDaysProvider(query).future);
+
+      final captured = verify(
+        () => repo.getWorkingDays(
+          masterId: any(named: 'masterId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          serviceId: captureAny(named: 'serviceId'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).captured;
+      expect(captured.single, isNull);
+    });
+  });
 }

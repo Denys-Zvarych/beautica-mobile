@@ -130,6 +130,47 @@ DioException _dioBadResponse(int statusCode, String path) => DioException(
   ),
 );
 
+/// Like [_dioBadResponse] but carries an arbitrary raw JSON [body] on
+/// `response.data` — mirrors the shape `_extractClientBookingConflict` reads
+/// by hand (mobile-qa gap-fix: backend commit f95d8fd).
+DioException _dioBadResponseWithBody(
+  int statusCode,
+  String path,
+  dynamic body,
+) => DioException(
+  requestOptions: RequestOptions(path: path),
+  type: DioExceptionType.badResponse,
+  response: Response<dynamic>(
+    requestOptions: RequestOptions(path: path),
+    statusCode: statusCode,
+    data: body,
+  ),
+);
+
+/// Builds the `data` envelope backend commit f95d8fd sends on a 409
+/// `CLIENT_BOOKING_CONFLICT`. Every field is overridable (including to
+/// `null`/a wrong type) so malformed-envelope fallback tests can target one
+/// field at a time without duplicating the whole map shape.
+Map<String, dynamic> _clientBookingConflictBody({
+  Object? code = 'CLIENT_BOOKING_CONFLICT',
+  Object? conflictingBookingId = 'conflict-booking-1',
+  Object? serviceName = 'Манікюр класичний',
+  Object? masterName = 'Олена Коваль',
+  Object? startsAt = '2026-07-15T14:00:00+03:00',
+  Object? endsAt = '2026-07-15T15:30:00+03:00',
+}) => <String, dynamic>{
+  'success': false,
+  'data': <String, dynamic>{
+    'code': code,
+    'conflictingBookingId': conflictingBookingId,
+    'serviceName': serviceName,
+    'masterName': masterName,
+    'startsAt': startsAt,
+    'endsAt': endsAt,
+  },
+  'message': 'Client already has an overlapping booking',
+};
+
 DioException _dioConnectionError(String path) => DioException(
   requestOptions: RequestOptions(path: path),
   type: DioExceptionType.connectionError,
@@ -298,6 +339,171 @@ void main() {
             isNull,
           ),
         ),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // mobile-qa gap-fix (KNOWN COVERAGE GAP 1) — `_extractClientBookingConflict`
+  // had NO test at all before this. Exercised through the PUBLIC
+  // `createBooking` entrypoint (the private method has no direct seam) so the
+  // full `_mapBookingWriteException` → `_extractClientBookingConflict` chain
+  // is proven exactly as production hits it. Covers: the happy-path decode,
+  // 429 → BookingRateLimitedFailure, and every malformed-body fallback path —
+  // each of which must degrade to the generic ConflictFailure and MUST NOT
+  // throw a raw (non-Failure) exception, since an uncaught parse error here
+  // would be a DoS of the booking-write flow.
+  // ---------------------------------------------------------------------------
+  group('createBooking — CLIENT_BOOKING_CONFLICT / 429 / malformed-409 mapping '
+      '(mobile-qa gap-fix)', () {
+    final req = CreateBookingRequest(
+      masterId: 'master-1',
+      serviceId: 'service-1',
+      startAt: DateTime.utc(2026, 7, 10, 10),
+      idempotencyKey: 'key-1',
+    );
+
+    void stub409(dynamic body) {
+      when(
+        () => bookingApi.createBooking(
+          createBookingRequest: any(named: 'createBookingRequest'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(_dioBadResponseWithBody(409, _createPath, body));
+    }
+
+    test(
+      '409 with a well-formed CLIENT_BOOKING_CONFLICT body → '
+      'ClientBookingConflictFailure with every field decoded correctly',
+      () async {
+        stub409(_clientBookingConflictBody());
+
+        await expectLater(
+          repository.createBooking(req),
+          throwsA(
+            isA<ClientBookingConflictFailure>()
+                .having(
+                  (f) => f.conflictingBookingId,
+                  'conflictingBookingId',
+                  'conflict-booking-1',
+                )
+                .having(
+                  (f) => f.serviceName,
+                  'serviceName',
+                  'Манікюр класичний',
+                )
+                .having((f) => f.masterName, 'masterName', 'Олена Коваль')
+                .having(
+                  (f) => f.startsAt,
+                  'startsAt',
+                  DateTime.parse('2026-07-15T14:00:00+03:00').toUtc(),
+                )
+                .having(
+                  (f) => f.endsAt,
+                  'endsAt',
+                  DateTime.parse('2026-07-15T15:30:00+03:00').toUtc(),
+                ),
+          ),
+        );
+      },
+    );
+
+    test('429 → BookingRateLimitedFailure', () async {
+      when(
+        () => bookingApi.createBooking(
+          createBookingRequest: any(named: 'createBookingRequest'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(_dioBadResponse(429, _createPath));
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<BookingRateLimitedFailure>()),
+      );
+    });
+
+    test('409 with data: null falls back to generic ConflictFailure, does '
+        'not throw a raw exception', () async {
+      stub409(<String, dynamic>{'success': false, 'data': null});
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    test('409 with a non-Map data (wrong shape entirely) falls back to '
+        'generic ConflictFailure', () async {
+      stub409(<String, dynamic>{
+        'success': false,
+        'data': 'unexpected-string-payload',
+      });
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    test('409 with an unrecognized data.code falls back to generic '
+        'ConflictFailure (a plain slot-taken/lock-timeout 409)', () async {
+      stub409(_clientBookingConflictBody(code: 'SOME_OTHER_CODE'));
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    for (final String field in <String>[
+      'conflictingBookingId',
+      'serviceName',
+      'masterName',
+      'startsAt',
+      'endsAt',
+    ]) {
+      test('409 with a missing/null "$field" falls back to generic '
+          'ConflictFailure instead of throwing', () async {
+        final Map<String, dynamic> body = _clientBookingConflictBody();
+        (body['data'] as Map<String, dynamic>)[field] = null;
+        stub409(body);
+
+        await expectLater(
+          repository.createBooking(req),
+          throwsA(isA<ConflictFailure>()),
+        );
+      });
+    }
+
+    test('409 with a wrong-typed conflictingBookingId (int, not String) '
+        'falls back to generic ConflictFailure — the bad cast must be '
+        'caught, never escape as a raw TypeError', () async {
+      stub409(_clientBookingConflictBody(conflictingBookingId: 12345));
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    test('409 with an unparseable startsAt falls back to generic '
+        'ConflictFailure — the DateTime.parse FormatException must be '
+        'caught, never escape raw', () async {
+      stub409(_clientBookingConflictBody(startsAt: 'not-a-real-date'));
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    test('409 with an unparseable endsAt falls back to generic '
+        'ConflictFailure', () async {
+      stub409(_clientBookingConflictBody(endsAt: 'also-not-a-date'));
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<ConflictFailure>()),
       );
     });
   });
@@ -529,6 +735,52 @@ void main() {
       await expectLater(
         repository.rescheduleBooking('booking-1', newStart),
         throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    // mobile-qa gap-fix — reschedule is the SECOND booking-WRITE call site
+    // `_mapBookingWriteException` covers (see that method's doc comment);
+    // the createBooking group above exhaustively covers the decode/fallback
+    // matrix, so this just pins that the same mapping is wired for reschedule
+    // too, not a second full sweep.
+    test('409 with a well-formed CLIENT_BOOKING_CONFLICT body → '
+        'ClientBookingConflictFailure', () async {
+      when(
+        () => bookingApi.rescheduleBooking(
+          bookingId: 'booking-1',
+          rescheduleBookingRequest: any(named: 'rescheduleBookingRequest'),
+        ),
+      ).thenThrow(
+        _dioBadResponseWithBody(
+          409,
+          _reschedulePath,
+          _clientBookingConflictBody(),
+        ),
+      );
+
+      await expectLater(
+        repository.rescheduleBooking('booking-1', newStart),
+        throwsA(
+          isA<ClientBookingConflictFailure>().having(
+            (f) => f.conflictingBookingId,
+            'conflictingBookingId',
+            'conflict-booking-1',
+          ),
+        ),
+      );
+    });
+
+    test('429 → BookingRateLimitedFailure', () async {
+      when(
+        () => bookingApi.rescheduleBooking(
+          bookingId: 'booking-1',
+          rescheduleBookingRequest: any(named: 'rescheduleBookingRequest'),
+        ),
+      ).thenThrow(_dioBadResponse(429, _reschedulePath));
+
+      await expectLater(
+        repository.rescheduleBooking('booking-1', newStart),
+        throwsA(isA<BookingRateLimitedFailure>()),
       );
     });
   });

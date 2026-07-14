@@ -46,6 +46,21 @@ abstract class SalonMasterSchedule with _$SalonMasterSchedule {
     required String lastName,
     required MasterType type,
 
+    /// The master's own professional title, or `null` when unset — the
+    /// identity card ([MasterStrip]) prefers it over the generic role label.
+    /// Carried from the [SalonMasterSummary] the master-selection step already
+    /// resolved, so the salon flow's card can render the SAME name/title/
+    /// rating triple the independent flow's card does.
+    String? professionalTitle,
+
+    /// Average review rating, or `null` when the master has no reviews yet
+    /// (mirrors [SalonMasterSummary.avgRating]'s own null-when-unrated
+    /// contract — the card renders an em-dash for it).
+    double? avgRating,
+
+    /// Total number of reviews — the muted `(n)` suffix beside the rating.
+    @Default(0) int reviewCount,
+
     /// This master's assigned services (1..n), in selection order — the SAME
     /// [SalonCatalogService] entries the catalogue screen carries, so
     /// pricing and duration are always the typed numeric fields, never

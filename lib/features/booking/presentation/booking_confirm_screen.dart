@@ -30,6 +30,19 @@
 // picker and choose a different time (this screen never "auto re-opens" the
 // picker itself). The back button itself always just cancels the flow
 // (`context.pop()`) — no booking is created.
+//
+// CLIENT_BOOKING_CONFLICT (backend commit f95d8fd, Phase 19.x): a DIFFERENT
+// 409 shape — the authenticated CLIENT already has an overlapping booking
+// (with any master/salon), decoded into `ClientBookingConflictFailure` by
+// `HttpBookingRepository`. Dense enough (clashing service + master + time
+// window) that the generic SnackBar treatment above would truncate it, so it
+// gets its own modal (`showClientBookingConflictDialog` —
+// `widgets/client_booking_conflict_dialog.dart`) naming the clashing booking.
+// The dialog itself never navigates (an overlay route has no go_router
+// ancestor) — it only resolves whether the client chose "Обрати інший час",
+// and THIS screen pops back to the slot picker on that signal. Either way the
+// selection/comment on this screen are left fully intact, same as the plain
+// `ConflictFailure` case.
 
 import 'dart:developer';
 
@@ -40,10 +53,9 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -57,8 +69,11 @@ import '../domain/booking.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_success_args.dart';
 import '../domain/create_booking_request.dart';
+import 'widgets/booking_comment_field.dart';
+import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
+import 'widgets/client_booking_conflict_dialog.dart';
 
 const String _tag = 'feature.booking.confirm';
 
@@ -78,25 +93,31 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
   static const Uuid _uuid = Uuid();
 
   final TextEditingController _comment = TextEditingController();
-  final FocusNode _commentFocus = FocusNode();
+
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read).
+  late final ScreenProtectionManager _screenProtection;
 
   @override
   void initState() {
     super.initState();
-    // Drives the live "x / 500" counter below the comment field.
-    _comment.addListener(_onCommentChanged);
+    // SEC (mobile-backlog 2026-07-12, "converge all four on the
+    // acquire-in-initState pattern"): this screen renders the INDEPENDENT
+    // master's address (street/buildingNo/city/locationNote — for a solo
+    // master that may be a HOME address) via
+    // `BookingSummaryCards.fromMaster` → `formatStreetCityLine`. Mirrors the
+    // INTENTIONAL PRODUCT DECISION already applied to the salon flow's
+    // equivalent screens (`salon_booking_confirm_screen.dart`,
+    // `salon_booking_success_screen.dart`) — do not remove in a future audit
+    // pass.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
   @override
   void dispose() {
-    _comment.removeListener(_onCommentChanged);
+    _screenProtection.release();
     _comment.dispose();
-    _commentFocus.dispose();
     super.dispose();
-  }
-
-  void _onCommentChanged() {
-    if (mounted) setState(() {});
   }
 
   Future<void> _submit(Master master, MasterService service) async {
@@ -134,6 +155,23 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
         );
       }
       if (!mounted) return;
+      // CLIENT_BOOKING_CONFLICT (backend commit f95d8fd) gets its own modal —
+      // dense enough (clashing service/master/time) that a transient SnackBar
+      // would truncate or vanish before the client finishes reading it. See
+      // `client_booking_conflict_dialog.dart`'s file header. The dialog only
+      // dismisses ITS OWN overlay route; THIS screen (a real go_router
+      // context) decides whether to pop back to slot selection based on the
+      // resolved choice — the selection/comment on this screen are left
+      // fully intact either way (no navigation on `false`/`null`).
+      if (e is ClientBookingConflictFailure) {
+        final bool? pickAnotherTime = await showClientBookingConflictDialog(
+          context,
+          e,
+        );
+        if (!mounted) return;
+        if (pickAnotherTime ?? false) context.pop();
+        return;
+      }
       final l10n = AppLocalizations.of(context);
       final String message = e is Failure
           ? e.userMessage(context)
@@ -178,10 +216,15 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     return Scaffold(
       backgroundColor: BrandColors.base,
       bottomNavigationBar: (master != null && service != null)
-          ? _CtaFooter(
+          ? BookingCtaFooter(
               key: const Key('booking-confirm-cta-footer'),
-              submitting: submitting,
-              onSubmit: () => _submit(master!, service!),
+              buttonKey: const Key('booking-confirm-submit-cta'),
+              label: submitting
+                  ? l10n.bookingSubmitCtaLoading
+                  : l10n.bookingSubmitCta,
+              enabled: true,
+              loading: submitting,
+              onPressed: () => _submit(master!, service!),
             )
           : null,
       body: SafeArea(
@@ -227,7 +270,7 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        BookingSummaryCards(
+                        BookingSummaryCards.fromMaster(
                           master: master,
                           service: service,
                           start: widget.args.startAt,
@@ -246,9 +289,9 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                           dense: true,
                         ),
                         const SizedBox(height: VelvetSpacing.md),
-                        _CommentField(
+                        BookingCommentField(
                           controller: _comment,
-                          focusNode: _commentFocus,
+                          fieldKey: const Key('booking-confirm-comment-field'),
                           maxLength: _maxComment,
                         ),
                       ],
@@ -295,135 +338,6 @@ class _LoadingBody extends StatelessWidget {
             radius: VelvetRadii.card,
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Comment field
-// ---------------------------------------------------------------------------
-
-/// Optional note for the master — a muted label above a multi-line
-/// [TextField] inside a [NeumorphicInset], with a live "x / 500" counter.
-class _CommentField extends StatelessWidget {
-  const _CommentField({
-    required this.controller,
-    required this.focusNode,
-    required this.maxLength,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final int maxLength;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(l10n.bookingCommentLabel, style: VelvetText.label()),
-        const SizedBox(height: VelvetSpacing.xs),
-        NeumorphicInset(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.sm,
-            ),
-            child: TextField(
-              key: const Key('booking-confirm-comment-field'),
-              controller: controller,
-              focusNode: focusNode,
-              maxLines: 3,
-              minLines: 2,
-              maxLength: maxLength,
-              cursorColor: BrandColors.accentDeep,
-              style: VelvetText.bodyStrong14,
-              buildCounter:
-                  (
-                    BuildContext context, {
-                    required int currentLength,
-                    required int? maxLength,
-                    required bool isFocused,
-                  }) => null,
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                border: InputBorder.none,
-                hintText: l10n.bookingCommentHint,
-                hintStyle: VelvetText.bookCommentHint,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.xs),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            '${controller.text.characters.length} / $maxLength',
-            style: VelvetText.feedbackMutedXs,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// CTA footer
-// ---------------------------------------------------------------------------
-
-/// Pinned bottom footer carrying the full-width "Записатись" CTA.
-class _CtaFooter extends StatelessWidget {
-  const _CtaFooter({
-    super.key,
-    required this.submitting,
-    required this.onSubmit,
-  });
-
-  final bool submitting;
-  final VoidCallback onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: BrandColors.base,
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: BrandColors.shadowDarkCard,
-            offset: Offset(0, -8),
-            blurRadius: 20,
-          ),
-          BoxShadow(
-            color: BrandColors.shadowLightStrong,
-            offset: Offset(0, -1),
-            blurRadius: 3,
-            spreadRadius: -1,
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.sm + 2,
-            VelvetSpacing.lg,
-            VelvetSpacing.sm + 2,
-          ),
-          child: NeumorphicButton(
-            key: const Key('booking-confirm-submit-cta'),
-            label: submitting
-                ? l10n.bookingSubmitCtaLoading
-                : l10n.bookingSubmitCta,
-            icon: submitting ? null : Icons.check_circle_outline_rounded,
-            loading: submitting,
-            onPressed: onSubmit,
-          ),
-        ),
       ),
     );
   }

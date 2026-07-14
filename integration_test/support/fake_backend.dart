@@ -580,6 +580,23 @@ final class FakeBackend {
   /// of month" day).
   DateTime? forceNonWorkingDate;
 
+  /// Like [forceNonWorkingDate], but reports the day `working: false` ONLY
+  /// when the working-days request carried a `serviceId` (the backend's
+  /// AVAILABILITY-AWARE mode). A request WITHOUT a serviceId (schedule-shape
+  /// mode) still sees it `working: true`. This models the exact backend
+  /// behaviour the Phase 14.20 fix relies on, so an E2E test can prove the
+  /// booking calendar now threads the chosen service's id into the query:
+  /// old, schedule-shape code (no serviceId) would resolve the day working and
+  /// dead-end on «Немає вільного часу»; the fixed code sends the serviceId and
+  /// the day is disabled up front.
+  DateTime? forceNonWorkingDateWhenServiceScoped;
+
+  /// The `serviceId` query param the MOST RECENT `master-aaa/working-days`
+  /// request carried (`null` when absent = schedule-shape mode). Lets the
+  /// booking-flow E2E assert the calendar threads `services.first.id` into the
+  /// working-days query — the Phase 14.20 wiring under test.
+  String? lastMasterAaaWorkingDaysServiceId;
+
   /// `GET /api/v1/salons/{salonId}/services/{serviceDefId}/masters` call
   /// count (Phase 23.x bookable-masters rewire) — the salon booking flow's
   /// `salonMasterServiceCoverageProvider` now calls this ONCE PER SELECTED
@@ -647,6 +664,27 @@ final class FakeBackend {
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
   int createServiceCalls = 0;
+
+  /// Count of `POST /independent-masters/me/services/bulk` (first-time setup)
+  /// calls, and the exact `items` list of the last one — lets a flow prove the
+  /// bulk-save actually reached the network (vs. being blocked client-side).
+  int bulkCreateCalls = 0;
+  List<dynamic>? lastBulkItems;
+
+  /// When true, the bulk-setup route replies HTTP 400 with a per-field error
+  /// envelope (`errors: {"items[<i>].durationMinutes": …}`) for the item index
+  /// in [bulkRejectItemIndex], mirroring the backend's `@Max(480)` per-item
+  /// validation. Off by default so every OTHER flow's bulk save (none today)
+  /// stays a clean 201.
+  bool bulkRejectDurationField = false;
+  int bulkRejectItemIndex = 0;
+
+  /// Test-support: empties the pre-seeded services list so
+  /// `GET /api/v1/independent-masters/me/services` returns `[]`. Used by flows
+  /// that must exercise the zero-services empty state (e.g. the master-home
+  /// «Додати послуги» CTA). Call BEFORE `AppHarness.boot` / before the master
+  /// profile's services section resolves.
+  void clearServices() => _services.clear();
   Map<String, dynamic>? lastCreatedService;
   int patchServiceCalls = 0;
   Map<String, dynamic>? lastPatchedService;
@@ -1037,12 +1075,23 @@ final class FakeBackend {
   /// `_availableSlotsEnvelope`'s "at least one tappable target" intent —
   /// EXCEPT [forceNonWorkingDate], if set, which reports as `working: false`
   /// so a test can exercise the gate's negative path against the real
-  /// endpoint instead of only wiring the fixture.
-  Map<String, dynamic> _workingDaysEnvelope() {
+  /// endpoint instead of only wiring the fixture — and
+  /// [forceNonWorkingDateWhenServiceScoped], which does the same but ONLY when
+  /// the request carried a [serviceId] (the availability-aware mode the Phase
+  /// 14.20 fix depends on).
+  Map<String, dynamic> _workingDaysEnvelope({String? serviceId}) {
     final DateTime now = DateTime.now();
     final DateTime from = DateTime(now.year, now.month - 5, 1);
     final DateTime to = DateTime(now.year, now.month + 6, 0);
     final DateTime? nonWorking = forceNonWorkingDate;
+    final DateTime? nonWorkingWhenScoped = serviceId != null
+        ? forceNonWorkingDateWhenServiceScoped
+        : null;
+    bool matches(DateTime? forced, DateTime d) =>
+        forced != null &&
+        d.year == forced.year &&
+        d.month == forced.month &&
+        d.day == forced.day;
     final List<Map<String, dynamic>> days = <Map<String, dynamic>>[];
     for (
       DateTime d = from;
@@ -1050,10 +1099,7 @@ final class FakeBackend {
       d = d.add(const Duration(days: 1))
     ) {
       final bool isForcedNonWorking =
-          nonWorking != null &&
-          d.year == nonWorking.year &&
-          d.month == nonWorking.month &&
-          d.day == nonWorking.day;
+          matches(nonWorking, d) || matches(nonWorkingWhenScoped, d);
       days.add(<String, dynamic>{
         'date':
             '${d.year.toString().padLeft(4, '0')}-'
@@ -1730,9 +1776,14 @@ final class FakeBackend {
     // path-only route-match caveat as the `/slots` registration above.
     _adapter.onRoute(
       '/api/v1/masters/master-aaa/working-days',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         getWorkingDaysCalls++;
-        return _workingDaysEnvelope();
+        // Phase 14.20: the fixed booking calendar threads the chosen service's
+        // id into this query (availability-aware mode). Record it, and answer
+        // in the same mode the request asked for.
+        final String? serviceId = req.queryParameters['serviceId'] as String?;
+        lastMasterAaaWorkingDaysServiceId = serviceId;
+        return _workingDaysEnvelope(serviceId: serviceId);
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -1959,6 +2010,69 @@ final class FakeBackend {
         _services.add(newService);
         lastCreatedService = newService;
         return _ok(newService);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // POST /api/v1/independent-masters/me/services/bulk — first-time bulk setup.
+    // A DISTINCT path from the single-create route above (exact-string match, so
+    // no collision). Default: 201 echoing one created service per submitted item.
+    // When [bulkRejectDurationField] is set, replies 400 with the backend's
+    // per-field envelope keyed on `items[<bulkRejectItemIndex>].durationMinutes`
+    // — the shape ErrorMapperInterceptor maps to ValidationFailure.fieldErrors,
+    // driving the screen's inline per-row error (NOT the generic snackbar).
+    _adapter.onRoute(
+      '/api/v1/independent-masters/me/services/bulk',
+      (server) => server.replyCallback(bulkRejectDurationField ? 400 : 200, (
+        req,
+      ) {
+        bulkCreateCalls++;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        lastBulkItems = items;
+        if (bulkRejectDurationField) {
+          return <String, dynamic>{
+            'success': false,
+            'message': 'Validation failed',
+            'errors': <String, dynamic>{
+              'items[$bulkRejectItemIndex].durationMinutes':
+                  'Duration must be at most 480 minutes (8 hours)',
+            },
+          };
+        }
+        // Success: echo a created service per submitted item so the envelope
+        // shape matches ApiResponse<List<MasterServiceResponse>>.
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final defId = 'svc-bulk-$_nextServiceSeq';
+          created.add(<String, dynamic>{
+            'id': 'assign-bulk-$_nextServiceSeq',
+            'masterId': 'user-master-1',
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} грн',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': defId,
+              'name': 'Bulk service $_nextServiceSeq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} грн',
+              'photoUrl': null,
+            },
+          });
+          _nextServiceSeq++;
+        }
+        return _okList(created);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );

@@ -1,0 +1,225 @@
+// Widget tests for the shared post-submit celebration scaffold
+// `BookingSuccessScaffold`
+// (`lib/features/booking/presentation/widgets/booking_success_scaffold.dart`).
+//
+// Extracted from the ~90%-identical success structure in BOTH
+// `booking_success_screen.dart` (independent flow — ONE recap card + a
+// `belowRecap` "Додати в календар" link, default `homeGap`) and
+// `salon_booking_success_screen.dart` (salon flow — N recap cards, no
+// `belowRecap`, tighter `homeGap`). The scaffold owns the PopScope back-block,
+// the staggered reveal, the Lottie badge and the pinned "На головну" CTA.
+//
+// These pin the contract BOTH composition sites depend on:
+//   • N recap cards render, staggered — none dropped (salon N≥2 path);
+//   • PopScope(canPop:false) blocks back (both flows);
+//   • `disableAnimations` jumps the reveal straight to its resting state;
+//   • the optional `belowRecap` / `homeGap` param paths (independent passes
+//     belowRecap; salon doesn't).
+//
+// Recap cards are keyed test stand-ins (`recap-0…`) — the real recap widgets
+// have their own tests (`booking_summary_cards_test.dart`,
+// `salon_booking_success_screen_test.dart`); here we exercise the SCAFFOLD.
+
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_success_scaffold.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../helpers/pump_app.dart';
+
+const Key _kHomeKey = Key('booking-success-home-cta');
+const Key _kBelowRecapKey = Key('below-recap-probe');
+
+Widget _card(int i) => SizedBox(
+  key: ValueKey<String>('recap-$i'),
+  height: 120,
+  child: const ColoredBox(color: Color(0xFF222222)),
+);
+
+/// Wraps [scaffold] in a MediaQuery that forces `disableAnimations` on, so the
+/// staggered reveal jumps straight to its resting state (all opacity == 1) on
+/// the first frame — deterministic, no Lottie/animation timing to settle.
+Widget _reducedMotion(Widget scaffold) => Builder(
+  builder: (BuildContext context) => MediaQuery(
+    data: MediaQuery.of(context).copyWith(disableAnimations: true),
+    child: scaffold,
+  ),
+);
+
+BookingSuccessScaffold _scaffold({
+  required int cardCount,
+  Widget? belowRecap,
+  double? homeGap,
+  VoidCallback? onHome,
+}) {
+  return BookingSuccessScaffold(
+    // i18n-finder-ok: fixture copy — the real screens pass their own l10n keys;
+    // this test exercises the scaffold, not the copy.
+    title: 'Записано!',
+    subline: 'Тестовий підзаголовок',
+    homeButtonKey: _kHomeKey,
+    onHome: onHome ?? () {},
+    recapCards: <Widget>[for (int i = 0; i < cardCount; i++) _card(i)],
+    belowRecap: belowRecap,
+    homeGap: homeGap ?? 16,
+  );
+}
+
+Future<void> _pumpTall(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(900, 2600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+void main() {
+  group('BookingSuccessScaffold — recap cards', () {
+    testWidgets('renders every recap card (salon N≥2 path) — none dropped', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      // 3 cards proves the loop keeps ALL of them, not just first/last.
+      await tester.pumpApp(_reducedMotion(_scaffold(cardCount: 3)));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey<String>('recap-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('recap-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('recap-2')), findsOneWidget);
+    });
+
+    testWidgets('renders a single recap card (independent path)', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(_reducedMotion(_scaffold(cardCount: 1)));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey<String>('recap-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('recap-1')), findsNothing);
+    });
+  });
+
+  group('BookingSuccessScaffold — back block', () {
+    testWidgets('wraps the tree in PopScope(canPop: false)', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(_reducedMotion(_scaffold(cardCount: 2)));
+      await tester.pumpAndSettle();
+
+      final PopScope popScope = tester.widget<PopScope>(
+        find.byType(PopScope).first,
+      );
+      expect(popScope.canPop, isFalse);
+    });
+  });
+
+  group('BookingSuccessScaffold — home CTA', () {
+    testWidgets('the pinned "На головну" button fires onHome', (tester) async {
+      await _pumpTall(tester);
+      int homeTaps = 0;
+      await tester.pumpApp(
+        _reducedMotion(_scaffold(cardCount: 2, onHome: () => homeTaps++)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(_kHomeKey));
+      await tester.pumpAndSettle();
+
+      expect(homeTaps, 1);
+    });
+  });
+
+  group('BookingSuccessScaffold — reduced motion', () {
+    testWidgets(
+      'disableAnimations jumps the reveal to its resting state — the home CTA '
+      'is at full opacity on the first frame (no settle needed)',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(_reducedMotion(_scaffold(cardCount: 2)));
+        // Deliberately NO pumpAndSettle — with reduced motion the reveal must
+        // already be resting after didChangeDependencies pins the controller.
+        await tester.pump();
+
+        final Finder revealOpacity = find
+            .ancestor(of: find.byKey(_kHomeKey), matching: find.byType(Opacity))
+            .first;
+        final Opacity opacity = tester.widget<Opacity>(revealOpacity);
+        expect(
+          opacity.opacity,
+          1.0,
+          reason:
+              'reduced motion must pin the staggered-reveal controller to its '
+              'end (value == 1) so the CTA is fully visible immediately — not '
+              'faded in over 1350ms.',
+        );
+      },
+    );
+  });
+
+  group('BookingSuccessScaffold — optional param paths', () {
+    testWidgets('belowRecap is rendered when supplied (independent flow)', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        _reducedMotion(
+          _scaffold(
+            cardCount: 1,
+            belowRecap: const SizedBox(
+              key: _kBelowRecapKey,
+              height: 24,
+              child: ColoredBox(color: Color(0xFF333333)),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_kBelowRecapKey), findsOneWidget);
+    });
+
+    testWidgets('belowRecap is absent when not supplied (salon flow)', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(_reducedMotion(_scaffold(cardCount: 2)));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_kBelowRecapKey), findsNothing);
+    });
+
+    testWidgets(
+      'homeGap sets the gap between the scrolling recap and the pinned CTA',
+      (tester) async {
+        await _pumpTall(tester);
+
+        // The CTA is bottom-anchored (the Flexible scroll above it absorbs
+        // slack), so homeGap does NOT move the CTA — it sets the gap between
+        // the scroll viewport's bottom edge and the CTA's top. Measure THAT.
+        Future<double> gapFor(double homeGap) async {
+          await tester.pumpApp(
+            _reducedMotion(_scaffold(cardCount: 1, homeGap: homeGap)),
+          );
+          await tester.pumpAndSettle();
+          final double scrollBottom = tester
+              .getBottomLeft(find.byType(SingleChildScrollView))
+              .dy;
+          final double ctaTop = tester.getTopLeft(find.byKey(_kHomeKey)).dy;
+          return ctaTop - scrollBottom;
+        }
+
+        final double smallGap = await gapFor(8);
+        final double largeGap = await gapFor(32);
+
+        expect(smallGap, closeTo(8, 0.5));
+        expect(largeGap, closeTo(32, 0.5));
+        expect(
+          largeGap,
+          greaterThan(smallGap),
+          reason:
+              'homeGap is the only spacing the two success screens differ on '
+              '(md independent / sm salon) — it must drive the gap above the '
+              'pinned CTA.',
+        );
+      },
+    );
+  });
+}

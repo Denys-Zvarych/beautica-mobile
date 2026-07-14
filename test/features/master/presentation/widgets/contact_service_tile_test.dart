@@ -224,8 +224,11 @@ void main() {
 
       expect(find.text('Послуги'), findsOneWidget);
       expect(find.text('Мої записи'), findsOneWidget);
-      expect(find.text('Календар'), findsOneWidget);
+      expect(find.text('Графік'), findsOneWidget);
       expect(find.text('Профіль'), findsOneWidget);
+      // Guard the «Календар» → «Графік» rename both ways: the old label must
+      // never render on the master nav bar (catches a silent revert).
+      expect(find.text('Календар'), findsNothing);
     });
 
     testWidgets(

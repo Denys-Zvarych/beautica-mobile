@@ -197,7 +197,7 @@ class PricingField extends StatelessWidget {
           ? _buildFixed(l10n, compact: compact)
           : _buildRange(l10n, compact: compact);
     } else if (mode == ServicePriceType.fixed) {
-      pricingBody = Row(
+      final Widget wellsRow = Row(
         crossAxisAlignment: compact
             ? CrossAxisAlignment.center
             : CrossAxisAlignment.start,
@@ -207,88 +207,112 @@ class PricingField extends StatelessWidget {
           Expanded(child: _buildFixed(l10n, compact: compact)),
         ],
       );
+      // Compact: the duration + fixed-price messages stack beneath the
+      // equal-height wells Row (hoisted out of the wells so neither column
+      // grows and re-centers the Row). Non-compact keeps the inline messages
+      // inside each well (CrossAxisAlignment.start → no jump).
+      pricingBody = compact
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                wellsRow,
+                _compactErrorSlot(<String?>[durationError, fixedError]),
+              ],
+            )
+          : wellsRow;
     } else {
       final bool hasRangeError = rangeError != null;
+      final Widget wellsRow = Row(
+        crossAxisAlignment: compact
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.start,
+        children: <Widget>[
+          Expanded(child: _buildDurationWell(l10n, compact: compact)),
+          SizedBox(width: compact ? VelvetSpacing.xs : VelvetSpacing.sm),
+          Expanded(
+            child: _PricingInputField(
+              fieldKey: const Key('pricing-range-min'),
+              label: l10n.pricingFromLabel,
+              compact: compact,
+              controller: minController,
+              enabled: enabled,
+              hint: '500',
+              suffixText: 'грн',
+              formatters: _priceFormatters,
+              errorText: minError,
+              // Compact rows hoist the message beneath the Row (ring stays).
+              hoistError: compact,
+              hideSuffixWhenActive: true,
+            ),
+          ),
+          _buildDash(compact: compact),
+          Expanded(
+            child: _PricingInputField(
+              fieldKey: const Key('pricing-range-max'),
+              label: l10n.pricingToLabel,
+              compact: compact,
+              controller: maxController,
+              enabled: enabled,
+              hint: '800',
+              suffixText: 'грн',
+              formatters: _priceFormatters,
+              // Flag the error ring without a duplicate message below: the
+              // cross-field "max > min" message is rendered once beneath the
+              // pair (mirrors the approved preview).
+              errorRing: hasRangeError,
+              hideSuffixWhenActive: true,
+            ),
+          ),
+        ],
+      );
       pricingBody = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            crossAxisAlignment: compact
-                ? CrossAxisAlignment.center
-                : CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(child: _buildDurationWell(l10n, compact: compact)),
-              SizedBox(width: compact ? VelvetSpacing.xs : VelvetSpacing.sm),
-              Expanded(
-                child: _PricingInputField(
-                  fieldKey: const Key('pricing-range-min'),
-                  label: l10n.pricingFromLabel,
-                  compact: compact,
-                  controller: minController,
-                  enabled: enabled,
-                  hint: '500',
-                  suffixText: 'грн',
-                  formatters: _priceFormatters,
-                  errorText: minError,
-                  hideSuffixWhenActive: true,
-                ),
-              ),
-              _buildDash(compact: compact),
-              Expanded(
-                child: _PricingInputField(
-                  fieldKey: const Key('pricing-range-max'),
-                  label: l10n.pricingToLabel,
-                  compact: compact,
-                  controller: maxController,
-                  enabled: enabled,
-                  hint: '800',
-                  suffixText: 'грн',
-                  formatters: _priceFormatters,
-                  // Flag the error ring without a duplicate message below: the
-                  // cross-field "max > min" message is rendered once beneath the
-                  // pair (mirrors the approved preview).
-                  errorRing: hasRangeError,
-                  hideSuffixWhenActive: true,
-                ),
-              ),
-            ],
-          ),
-          // Range validation line: AnimatedSize handles the height transition
-          // when the error appears / disappears (no layout jump).
-          AnimatedSize(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: hasRangeError
-                ? Padding(
-                    padding: const EdgeInsets.only(
-                      left: VelvetSpacing.xs,
-                      right: VelvetSpacing.xs,
-                      top: VelvetSpacing.sm - 2,
-                    ),
-                    child: Semantics(
-                      liveRegion: true,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          const Padding(
-                            padding: EdgeInsets.only(top: 1.5),
-                            child: Icon(
-                              Icons.error_outline_rounded,
-                              size: 15,
-                              color: BrandColors.error,
-                            ),
-                          ),
-                          const SizedBox(width: VelvetSpacing.xs + 2),
-                          Expanded(
-                            child: Text(rangeError!, style: _rangeErrorStyle),
-                          ),
-                        ],
+          wellsRow,
+          if (compact)
+            // Compact: every per-field message (duration, min) plus the
+            // cross-field range message stacks beneath the equal-height wells
+            // Row, so no well ever grows/realigns. AnimatedSize keeps the
+            // grow-in smooth.
+            _compactErrorSlot(<String?>[durationError, minError, rangeError])
+          else
+            // Non-compact (create/edit form): the duration/min messages render
+            // inline inside their own wells (CrossAxisAlignment.start → no
+            // jump), and only the cross-field range line sits beneath.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: hasRangeError
+                  ? Padding(
+                      padding: const EdgeInsets.only(
+                        left: VelvetSpacing.xs,
+                        right: VelvetSpacing.xs,
+                        top: VelvetSpacing.sm - 2,
                       ),
-                    ),
-                  )
-                : const SizedBox.shrink(),
-          ),
+                      child: Semantics(
+                        liveRegion: true,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Padding(
+                              padding: EdgeInsets.only(top: 1.5),
+                              child: Icon(
+                                Icons.error_outline_rounded,
+                                size: 15,
+                                color: BrandColors.error,
+                              ),
+                            ),
+                            const SizedBox(width: VelvetSpacing.xs + 2),
+                            Expanded(
+                              child: Text(rangeError!, style: _rangeErrorStyle),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
         ],
       );
     }
@@ -343,7 +367,71 @@ class PricingField extends StatelessWidget {
       suffixText: l10n.serviceSetupDurationSuffix,
       formatters: _durationFormatters,
       errorText: durationError,
+      // Compact rows hoist the message beneath the wells Row (ring stays here).
+      hoistError: compact,
       hideSuffixWhenActive: false,
+    );
+  }
+
+  /// The hoisted error slot rendered BENEATH the compact wells Row.
+  ///
+  /// Stacks every present per-field message (duration, price) plus any
+  /// cross-field range message into a single column beneath the equal-height
+  /// wells, wrapped in an [AnimatedSize] so it grows/collapses smoothly — the
+  /// exact treatment the range "max > min" line already uses. Keeping the
+  /// messages OUT of the wells means no well column ever grows, so the
+  /// [CrossAxisAlignment.center] wells Row never re-centers and the wells never
+  /// shift up when an error appears. Nulls/empties are skipped.
+  Widget _compactErrorSlot(List<String?> messages) {
+    final List<String> present = <String>[
+      for (final String? m in messages)
+        if (m != null && m.isNotEmpty) m,
+    ];
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: present.isEmpty
+          ? const SizedBox.shrink()
+          : Padding(
+              padding: const EdgeInsets.only(
+                left: VelvetSpacing.xs,
+                right: VelvetSpacing.xs,
+                top: VelvetSpacing.sm - 2,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  for (int i = 0; i < present.length; i++) ...<Widget>[
+                    if (i > 0) const SizedBox(height: VelvetSpacing.xs),
+                    _compactErrorRow(present[i]),
+                  ],
+                ],
+              ),
+            ),
+    );
+  }
+
+  /// One error line for the hoisted [_compactErrorSlot] — icon + message,
+  /// reusing the same glyph/style as the range validation line (no new visuals).
+  Widget _compactErrorRow(String message) {
+    return Semantics(
+      liveRegion: true,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Padding(
+            padding: EdgeInsets.only(top: 1.5),
+            child: Icon(
+              Icons.error_outline_rounded,
+              size: 15,
+              color: BrandColors.error,
+            ),
+          ),
+          const SizedBox(width: VelvetSpacing.xs + 2),
+          Expanded(child: Text(message, style: _rangeErrorStyle)),
+        ],
+      ),
     );
   }
 
@@ -358,6 +446,8 @@ class PricingField extends StatelessWidget {
       suffixText: 'грн',
       formatters: _priceFormatters,
       errorText: fixedError,
+      // Compact rows hoist the message beneath the wells Row (ring stays here).
+      hoistError: compact,
       // Hide "грн" while the price field is active/non-empty to prevent the
       // suffix from overlapping digits on narrow screens. "хв" on the duration
       // well always stays visible (hideSuffixWhenActive defaults to false).
@@ -713,6 +803,7 @@ class _PricingInputField extends StatefulWidget {
     this.errorRing = false,
     this.compact = false,
     this.hideSuffixWhenActive = false,
+    this.hoistError = false,
   });
 
   final Key fieldKey;
@@ -748,6 +839,17 @@ class _PricingInputField extends StatefulWidget {
   /// screens. Should be true for price fields ("грн") and false for the
   /// duration well ("хв" must stay visible at all times).
   final bool hideSuffixWhenActive;
+
+  /// When true the field still paints its recessed error RING (so the invalid
+  /// well is visibly flagged) but suppresses its own inline message row — the
+  /// caller renders the message elsewhere (beneath the shared wells Row).
+  ///
+  /// Used by the compact bulk service-setup row: rendering the per-field
+  /// message inside a well would grow only that column, so the [CrossAxisAlignment.center]
+  /// wells Row would re-center and shove the well upward. Hoisting every message
+  /// beneath the Row keeps all wells equal-height, so the well never shifts and
+  /// the message still grows in with the existing AnimatedSize slot.
+  final bool hoistError;
 
   @override
   State<_PricingInputField> createState() => _PricingInputFieldState();
@@ -925,8 +1027,9 @@ class _PricingInputFieldState extends State<_PricingInputField> {
         else
           tappableWell,
 
-        // Inline error row (only when there's a non-empty error message).
-        if (hasError)
+        // Inline error row (only when there's a non-empty error message and the
+        // caller hasn't hoisted the message beneath the shared wells Row).
+        if (hasError && !widget.hoistError)
           Padding(
             padding: const EdgeInsets.only(
               left: VelvetSpacing.xs,
