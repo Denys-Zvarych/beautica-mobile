@@ -32,13 +32,14 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/independent_booking_schedule_notifier.dart';
 import '../domain/booking_appointment.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_slot.dart';
 import '../domain/booking_slot_picker_args.dart';
-import 'widgets/booking_cta_footer.dart';
+import 'widgets/independent_schedule_confirm_bar.dart';
 import 'widgets/service_schedule_page.dart';
 
 const Uuid _kUuid = Uuid();
@@ -312,18 +313,30 @@ class _BookingTimeScreenState extends ConsumerState<BookingTimeScreen> {
 
     final Widget bottomBar = Consumer(
       builder: (BuildContext context, WidgetRef ref, Widget? child) {
-        final bool allScheduled = ref.watch(
-          independentBookingScheduleProvider.select(
-            (IndependentBookingScheduleState s) => s.allScheduled(serviceIds),
-          ),
+        // The whole schedule state drives this bar: `allScheduled` gates the
+        // CTA, and every scheduled service's slot feeds its chosen-window
+        // label into the shelf. Watching the state (not a narrow `.select`) is
+        // deliberate — a slot pick on any slide must both re-evaluate the CTA
+        // and refresh that service's shelf row. This is an isolated `Consumer`,
+        // so only this small bar rebuilds, never the calendar/time grid above.
+        final IndependentBookingScheduleState schedule = ref.watch(
+          independentBookingScheduleProvider,
         );
-        return BookingCtaFooter(
+        final Map<String, String> chosenWindows = <String, String>{
+          for (final MasterService s in services)
+            if (schedule.entryFor(s.id).slot case final BookingSlot slot?)
+              s.id: formatBookingWindow(
+                slot.startAt,
+                slot.startAt.add(Duration(minutes: s.durationMinutes)),
+              ),
+        };
+        return IndependentScheduleConfirmBar(
           key: const Key('booking-time-cta-footer'),
-          buttonKey: const Key('booking-time-confirm-cta'),
-          label: l10n.bookingConfirmCta,
-          enabled: allScheduled,
-          loading: false,
-          onPressed: () => _confirm(services),
+          ctaKey: const Key('booking-time-confirm-cta'),
+          services: services,
+          chosenWindowByServiceId: chosenWindows,
+          enabled: schedule.allScheduled(serviceIds),
+          onConfirm: () => _confirm(services),
         );
       },
     );

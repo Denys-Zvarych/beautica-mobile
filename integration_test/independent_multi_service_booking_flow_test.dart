@@ -41,6 +41,14 @@
 // REAL `IndependentBookingSubmit` notifier + confirm/success screens + router
 // end to end).
 //
+// Test 3 (added with the "selected services" shelf) enters AT the time step
+// (`/booking/slots/time`, real `BookingTimeScreen` + real
+// `slotRepositoryProvider` over the fake backend's working-days/slots routes)
+// and proves the pinned shelf lists both selected services and that a
+// service's per-service chosen-window line appears in the shelf only after its
+// slot is picked — the one end-to-end place the time-step shelf is exercised
+// (Tests 1–2 deliberately push past this screen).
+//
 // No native surface is involved (no OS permission dialog, deep link,
 // FCM/local notification, WebView, or biometric) — pure Dart/Riverpod state
 // driving a pure Flutter widget tree, so no companion Patrol test is added.
@@ -55,10 +63,14 @@ import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_time_screen.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -165,6 +177,40 @@ void main() {
   );
   final DateTime startB = DateTime.now().add(
     const Duration(days: 1, hours: 14),
+  );
+
+  // Display fixtures for the TIME-STEP variant (Test 3). The shelf itemises
+  // these `MasterService`s; the slot fetch itself is path-only on
+  // `master-aaa/slots` (query ignored), so the ids only need to match
+  // `master-aaa`'s two public catalogue ids for realism.
+  const MasterService svcADisplay = MasterService(
+    id: serviceA,
+    serviceDefId: 'def-$serviceA',
+    name: 'Манікюр з покриттям',
+    durationMinutes: 60,
+    priceMin: 500,
+    priceDisplay: '500 ₴',
+    category: 'NAILS',
+  );
+  const MasterService svcBDisplay = MasterService(
+    id: serviceB,
+    serviceDefId: 'def-$serviceB',
+    name: 'Педикюр апаратний',
+    durationMinutes: 60,
+    priceMin: 400,
+    priceDisplay: '400 ₴',
+    category: 'NAILS',
+  );
+  const Master masterDisplay = Master(
+    id: masterId,
+    firstName: 'Софія',
+    lastName: 'Бондар',
+    city: 'Київ',
+    street: 'вул. Хрещатик',
+    buildingNo: '22',
+    avgRating: 4.8,
+    reviewCount: 47,
+    type: MasterType.independentMaster,
   );
 
   BookingConfirmArgs twoServiceArgs({
@@ -405,6 +451,152 @@ void main() {
             'the retried submit must REUSE the failed appointment\'s stable '
             'key, never mint a fresh one',
       );
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // =========================================================================
+  // Test 3 — TIME-STEP SHELF (mobile-qa Rule 3b, "selected services" shelf
+  // addition): the independent `BookingTimeScreen` now pins the SAME
+  // expandable "Послуги та ціни" shelf the salon flow carries, PLUS a
+  // per-service chosen-window line. Tests 1–2 deliberately enter PAST this
+  // screen (at `/booking/confirm`), so the shelf on the time step was
+  // otherwise unexercised end to end. This variant enters AT the time step
+  // (real `BookingTimeScreen`, real `slotRepositoryProvider` over the fake
+  // backend's `GET /masters/master-aaa/working-days` + `/slots` routes) and
+  // proves: (a) the shelf is present and lists both selected services before
+  // any pick with NO chosen-window line; (b) after picking service A's slot,
+  // that service's chosen-window line (the camel `event_available_rounded`
+  // beat) appears in the shelf while the still-unscheduled sibling shows none.
+  // =========================================================================
+  testWidgets(
+    'CLIENT on the time step sees the pinned selected-services shelf; a '
+    'service\'s chosen-window line appears in the shelf only after its slot '
+    'is picked',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await AppHarness.settle(tester);
+
+      // Enter AT the time step with the two-service selection (mirrors the
+      // push `ServiceSelectorSheet` makes into `/booking/slots/time`).
+      unawaited(
+        router.push(
+          RouteNames.bookingSlotsTime,
+          extra: const BookingSlotPickerArgs(
+            masterId: masterId,
+            master: masterDisplay,
+            services: <MasterService>[svcADisplay, svcBDisplay],
+          ),
+        ),
+      );
+      await AppHarness.settle(tester);
+
+      expectLocation(router, RouteNames.bookingSlotsTime);
+      expect(find.byType(BookingTimeScreen), findsOneWidget);
+
+      // Scopes a finder to ONE service's slide (both are kept-alive-mounted by
+      // the pager's current±1 bound, so the shared calendar/slot keys would
+      // otherwise be ambiguous). Mirrors `booking_time_screen_test.dart`.
+      Finder inSlide(String serviceId, Finder matching) => find.descendant(
+        of: find.byKey(
+          Key('service-schedule-page-$serviceId'),
+          skipOffstage: false,
+        ),
+        matching: matching,
+        skipOffstage: false,
+      );
+
+      final Finder shelfList = find.byKey(
+        const Key('booking-summary-expanded-list'),
+      );
+
+      // ── Before any pick: expand the shelf → both services listed, NO
+      // chosen-window line yet ─────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await AppHarness.settle(tester);
+      expect(shelfList, findsOneWidget);
+      expect(
+        find.descendant(
+          of: shelfList,
+          matching: find.byKey(const ValueKey<String>(serviceA)),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: shelfList,
+          matching: find.byKey(const ValueKey<String>(serviceB)),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: shelfList,
+          matching: find.byIcon(Icons.event_available_rounded),
+        ),
+        findsNothing,
+        reason:
+            'no service is scheduled yet, so no chosen-window line may render',
+      );
+
+      // Collapse before driving the calendar/slot taps (the shelf toggle and
+      // the slide keys are independent, but there is no reason to leave the
+      // itemized list mounted over the taps).
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await AppHarness.settle(tester);
+
+      // ── Pick service A's date + its 10:00 slot over the REAL working-days /
+      // slots endpoints. The slot chip key mirrors the salon flow's own
+      // local-iso convention (`booking_time_screen_test.dart`). ────────────
+      final DateTime today = DateTime.now();
+      final String morningIso = DateTime(
+        today.year,
+        today.month,
+        today.day,
+        10,
+      ).toIso8601String();
+
+      await tester.tap(
+        inSlide(serviceA, find.byKey(Key('booking-calendar-day-${today.day}'))),
+      );
+      await AppHarness.settle(tester);
+
+      final Finder morningSlotA = inSlide(
+        serviceA,
+        find.byKey(Key('independent-slot-chip-$morningIso')),
+      );
+      expect(morningSlotA, findsOneWidget);
+      await tester.tap(morningSlotA);
+      // Drains service A's post-slot auto-advance onto service B's slide.
+      await AppHarness.settle(tester);
+
+      // ── After the pick: expand the shelf → service A now carries its
+      // chosen-window line; the still-unscheduled service B does not ────────
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await AppHarness.settle(tester);
+      expect(shelfList, findsOneWidget);
+      expect(
+        find.descendant(
+          of: shelfList,
+          matching: find.byIcon(Icons.event_available_rounded),
+        ),
+        findsOneWidget,
+        reason:
+            'exactly one service (A) is scheduled → exactly one chosen-window '
+            'line updates into the shelf',
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>(serviceA)),
+          matching: find.byIcon(Icons.event_available_rounded),
+        ),
+        findsOneWidget,
+        reason: 'the chosen-window line sits inside service A\'s own row',
+      );
+      expect(tester.takeException(), isNull);
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );

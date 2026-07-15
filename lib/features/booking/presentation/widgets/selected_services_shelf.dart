@@ -45,6 +45,7 @@ class SelectedServicesShelf extends StatefulWidget {
     super.key,
     required this.services,
     this.onRemove,
+    this.chosenLabelFor,
   });
 
   /// The client's selected service(s) (0..n) to itemize when expanded.
@@ -56,6 +57,19 @@ class SelectedServicesShelf extends StatefulWidget {
   /// screens), where deselecting a service after masters/times have already
   /// been assigned to it would invalidate that assignment.
   final void Function(MasterService service)? onRemove;
+
+  /// Optional per-service chosen appointment-window label (e.g.
+  /// "вт, 14 лип · 14:00–15:00"), rendered as a third accent line inside the
+  /// service's expanded row once the client has picked its date+time.
+  ///
+  /// Returning `null` for a service (or leaving this callback `null`, the
+  /// default) renders NO third line at all — the salon bars
+  /// (`BookingSummaryBar` / `ScheduleConfirmBar` / `_AssignConfirmBar`) omit it
+  /// and stay pixel-identical. Only the independent-master
+  /// `IndependentScheduleConfirmBar` wires it, since that flow schedules a
+  /// SEPARATE date/time per SERVICE (the salon flow schedules one window per
+  /// master-slide, shown in the pager, not per service in the shelf).
+  final String? Function(MasterService service)? chosenLabelFor;
 
   /// Maximum height the expanded itemized list may occupy — bounds every
   /// host bar's worst-case height inside a `bottomNavigationBar`.
@@ -176,6 +190,7 @@ class _SelectedServicesShelfState extends State<SelectedServicesShelf> {
                             // matching purely by list position.
                             key: ValueKey<String>(service.id),
                             service: service,
+                            chosenLabel: widget.chosenLabelFor?.call(service),
                             onRemove: widget.onRemove == null
                                 ? null
                                 : () => widget.onRemove!(service),
@@ -193,10 +208,16 @@ class _SelectedServicesShelfState extends State<SelectedServicesShelf> {
   }
 }
 
-/// One 2-line selected-service entry: name + price (+ optional remove
-/// affordance) on line one, duration on line two.
+/// One selected-service entry: name + price (+ optional remove affordance) on
+/// line one, duration on line two, and — only in the independent flow, once a
+/// slot is picked — the chosen appointment window as a third accent line.
 class _SelectionEntry extends StatelessWidget {
-  const _SelectionEntry({super.key, required this.service, this.onRemove});
+  const _SelectionEntry({
+    super.key,
+    required this.service,
+    this.onRemove,
+    this.chosenLabel,
+  });
 
   final MasterService service;
 
@@ -204,14 +225,27 @@ class _SelectionEntry extends StatelessWidget {
   /// affordance at all (see [SelectedServicesShelf.onRemove]).
   final VoidCallback? onRemove;
 
+  /// This service's chosen appointment-window label, or `null` when it has no
+  /// pick yet (or this host bar never supplies one). See
+  /// [SelectedServicesShelf.chosenLabelFor].
+  final String? chosenLabel;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final String name = _serviceLabel(service);
     final String duration = DurationMinutes.format(service.durationMinutes);
     final String price = ServicePriceDisplay.format(service);
+    final String? chosen = chosenLabel;
+    // Fold the chosen window into the entry's own semantics node (reusing the
+    // existing "Запис:" key) so a screen-reader user hears the picked time as
+    // part of the service, not as a separate unlabelled node.
+    final String semanticsLabel = chosen == null
+        ? l10n.bookingServiceTileSemantics(name, duration, price)
+        : '${l10n.bookingServiceTileSemantics(name, duration, price)}, '
+              '${l10n.bookingChosenWindowLabel} $chosen';
     return Semantics(
-      label: l10n.bookingServiceTileSemantics(name, duration, price),
+      label: semanticsLabel,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -261,8 +295,64 @@ class _SelectionEntry extends StatelessWidget {
               Text(duration, style: VelvetText.feedbackMutedSm),
             ],
           ),
+          // Third line — the chosen appointment window, in the camel accent so
+          // it reads as the "resolved" beat above the muted duration line
+          // (hierarchy by colour, not size). Absent (SizedBox.shrink) until the
+          // client picks a slot; fades + grows in when it lands.
+          _ChosenLine(label: chosen),
         ],
       ),
+    );
+  }
+}
+
+/// The per-service chosen-window line inside an expanded [_SelectionEntry].
+/// Renders nothing until [label] is non-null, then reveals with a gentle
+/// fade + size beat (matching the shelf's own 220 ms expand animation).
+class _ChosenLine extends StatelessWidget {
+  const _ChosenLine({required this.label});
+
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final String? chosen = label;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutCubic,
+      transitionBuilder: (Widget child, Animation<double> anim) =>
+          FadeTransition(
+            opacity: anim,
+            child: SizeTransition(
+              sizeFactor: anim,
+              axisAlignment: -1,
+              child: child,
+            ),
+          ),
+      child: chosen == null
+          ? const SizedBox(key: ValueKey<bool>(false), width: double.infinity)
+          : Padding(
+              key: const ValueKey<bool>(true),
+              padding: const EdgeInsets.only(top: 3),
+              child: Row(
+                children: <Widget>[
+                  const Icon(
+                    Icons.event_available_rounded,
+                    size: 12,
+                    color: BrandColors.accentDeep,
+                  ),
+                  const SizedBox(width: 3),
+                  Expanded(
+                    child: Text(
+                      chosen,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: VelvetText.bookAccentValue14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }
