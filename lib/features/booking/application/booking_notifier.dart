@@ -34,7 +34,10 @@ import '../data/booking_providers.dart';
 import '../data/booking_repository.dart';
 import '../domain/booking.dart';
 import '../domain/booking_appointment.dart';
+import '../domain/booking_tab.dart';
 import '../domain/create_booking_request.dart';
+import 'booking_detail_notifier.dart';
+import 'my_bookings_notifier.dart';
 
 part 'booking_notifier.g.dart';
 
@@ -184,10 +187,18 @@ class IndependentBookingSubmit extends _$IndependentBookingSubmit {
   /// Reuses each appointment's stable [BookingAppointment.idempotencyKey] so a
   /// retry de-duplicates rather than duplicates. Never throws — every
   /// per-appointment error is captured into state.
+  /// When [rescheduleBookingId] is non-null the flow is a RESCHEDULE, not a
+  /// create: there is exactly one appointment, and it is submitted via
+  /// `PATCH /bookings/{id}/reschedule` (never a new `POST /bookings`). The
+  /// [comment] and each appointment's idempotency key are create-only concerns
+  /// and are unused on that path. On a successful reschedule the moved
+  /// booking's detail and the upcoming My Bookings list are invalidated so both
+  /// reflect the new time (mirrors the cancel flow's refetch).
   Future<IndependentBookingSubmitState> submit(
     String masterId,
     List<BookingAppointment> appointments, {
     String? comment,
+    String? rescheduleBookingId,
   }) async {
     if (state.inFlight) return state;
 
@@ -224,15 +235,19 @@ class IndependentBookingSubmit extends _$IndependentBookingSubmit {
         continue;
       }
       try {
-        await repo.createBooking(
-          CreateBookingRequest(
-            masterId: masterId,
-            serviceId: a.serviceId,
-            startAt: a.startAt,
-            idempotencyKey: a.idempotencyKey,
-            clientComment: trimmedComment,
-          ),
-        );
+        if (rescheduleBookingId != null) {
+          await repo.rescheduleBooking(rescheduleBookingId, a.startAt);
+        } else {
+          await repo.createBooking(
+            CreateBookingRequest(
+              masterId: masterId,
+              serviceId: a.serviceId,
+              startAt: a.startAt,
+              idempotencyKey: a.idempotencyKey,
+              clientComment: trimmedComment,
+            ),
+          );
+        }
         _mark(a.serviceId, IndependentAppointmentSubmitStatus.succeeded, null);
       } catch (e, st) {
         final Failure failure = e is Failure ? e : UnknownFailure(cause: e);
@@ -256,6 +271,17 @@ class IndependentBookingSubmit extends _$IndependentBookingSubmit {
     }
 
     state = state.copyWith(inFlight: false);
+
+    // A successful reschedule moved an EXISTING booking — its detail page and
+    // the upcoming My Bookings list must re-fetch to show the new time. Mirrors
+    // the cancel flow's post-write invalidation in `booking_detail_screen`.
+    if (rescheduleBookingId != null &&
+        !state.hasFailures &&
+        state.hasSucceeded) {
+      ref.invalidate(bookingDetailProvider(rescheduleBookingId));
+      ref.invalidate(myBookingsProvider(BookingTab.upcoming));
+    }
+
     return state;
   }
 

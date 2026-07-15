@@ -42,5 +42,11 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     /// non-empty (the success screen is only reached once every appointment
     /// succeeded).
     required List<BookingSuccessAppointment> appointments,
+
+    /// `true` when the flow was a RESCHEDULE (a single existing booking moved
+    /// to a new time) rather than a fresh booking — the success screen swaps
+    /// its celebration title/subline copy accordingly. Defaults to `false` for
+    /// the create flow.
+    @Default(false) bool isReschedule,
   }) = _BookingSuccessArgs;
 }

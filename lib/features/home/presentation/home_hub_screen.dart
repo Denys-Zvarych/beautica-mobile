@@ -21,6 +21,7 @@
 //   • "BEAUTY TIMELINE" in BeautyTimelineSection
 // Those are intentionally untranslated per the locked product decision.
 
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -34,6 +35,8 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
+import '../../booking/application/booking_reschedule_in_flight_notifier.dart';
+import '../../booking/presentation/reschedule_navigation.dart';
 import '../application/home_hub_notifier.dart';
 import '../domain/home_hub_models.dart';
 import 'widgets/beauty_timeline_section.dart';
@@ -128,6 +131,10 @@ class _HomeHubBody extends ConsumerWidget {
     final nextApptAsync = ref.watch(nextAppointmentProvider);
     final favoritesAsync = ref.watch(favoriteMastersProvider);
     final timelineAsync = ref.watch(beautyTimelineProvider);
+    // Drives the «Перенести» spinner while the shared reschedule navigation
+    // loads its seeding GETs — `_HomeHubBody` is stateless, so a provider flag
+    // (not local State) is the right mechanism.
+    final bool rescheduleLoading = ref.watch(bookingRescheduleInFlightProvider);
 
     return RepaintBoundary(
       child: _StaggeredReveal(
@@ -180,13 +187,19 @@ class _HomeHubBody extends ConsumerWidget {
                 child: nextApptAsync.when(
                   data: (NextAppointment? appt) => NextAppointmentCard(
                     appointment: appt,
+                    rescheduleLoading: rescheduleLoading,
                     onReschedule: () {
-                      // TODO(14.8): route to reschedule screen
-                      if (kDebugMode) {
-                        log(
-                          'reschedule tapped — placeholder',
-                          name: 'feature.home',
-                          level: 700,
+                      // Route into the SAME reschedule flow the «Деталі запису»
+                      // screen uses — the card only has the booking id, so the
+                      // shared helper loads the rest (master + booked service)
+                      // before seeding the slot picker.
+                      if (appt != null) {
+                        unawaited(
+                          startBookingReschedule(
+                            context: context,
+                            ref: ref,
+                            bookingId: appt.id,
+                          ),
                         );
                       }
                     },

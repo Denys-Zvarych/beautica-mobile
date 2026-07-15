@@ -131,6 +131,7 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           widget.args.masterId,
           widget.args.appointments,
           comment: _comment.text,
+          rescheduleBookingId: widget.args.rescheduleBookingId,
         );
     if (!mounted) return;
     if (result.allSucceeded(widget.args.appointments)) {
@@ -145,6 +146,7 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                 start: r.appointment.startAt,
               ),
           ],
+          isReschedule: widget.args.rescheduleBookingId != null,
         ),
       );
       return;
@@ -201,9 +203,14 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     }
 
     final bool ready = master != null && resolved != null;
+    final bool isReschedule = widget.args.rescheduleBookingId != null;
     final String ctaLabel = inFlight
         ? l10n.bookingSubmitCtaLoading
-        : (hasFailures ? l10n.salonBookingRetryCta : l10n.bookingSubmitCta);
+        : hasFailures
+        ? l10n.salonBookingRetryCta
+        : isReschedule
+        ? l10n.bookingRescheduleSubmitCta
+        : l10n.bookingSubmitCta;
 
     return PopScope(
       canPop: !hasSucceeded,
@@ -249,6 +256,10 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                       resolved: resolved!,
                       comment: _comment,
                       maxComment: _maxComment,
+                      // The reschedule endpoint takes only the new start —
+                      // a note-to-master input would be silently ignored, so
+                      // it is hidden on the reschedule path.
+                      showComment: !isReschedule,
                     );
                   },
                 ),
@@ -287,12 +298,17 @@ class _ConfirmBody extends StatelessWidget {
     required this.resolved,
     required this.comment,
     required this.maxComment,
+    required this.showComment,
   });
 
   final Master master;
   final List<_ResolvedAppointment> resolved;
   final TextEditingController comment;
   final int maxComment;
+
+  /// Whether the optional «Коментар для майстра» field is shown — false on the
+  /// reschedule path (the reschedule endpoint has no comment channel).
+  final bool showComment;
 
   @override
   Widget build(BuildContext context) {
@@ -346,11 +362,12 @@ class _ConfirmBody extends StatelessWidget {
             ),
             const SizedBox(height: VelvetSpacing.md),
           ],
-          BookingCommentField(
-            controller: comment,
-            fieldKey: const Key('booking-confirm-comment-field'),
-            maxLength: maxComment,
-          ),
+          if (showComment)
+            BookingCommentField(
+              controller: comment,
+              fieldKey: const Key('booking-confirm-comment-field'),
+              maxLength: maxComment,
+            ),
         ],
       ),
     );

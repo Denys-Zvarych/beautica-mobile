@@ -43,6 +43,8 @@
 // every other PII screen's acquire-in-`initState`/release-in-`dispose`
 // pattern.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -58,6 +60,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_detail_notifier.dart';
+import '../application/booking_reschedule_in_flight_notifier.dart';
 import '../application/my_bookings_notifier.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
@@ -73,6 +76,7 @@ import 'widgets/booking_success_scaffold.dart';
 import 'widgets/calendar_button.dart';
 import 'widgets/cancel_booking_dialog.dart';
 import 'widgets/master_strip.dart';
+import 'reschedule_navigation.dart';
 
 /// «Деталі запису» for the booking identified by [bookingId].
 class BookingDetailScreen extends ConsumerStatefulWidget {
@@ -132,13 +136,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     ref.invalidate(myBookingsProvider(BookingTab.cancelled));
   }
 
-  void _onReschedule(BuildContext context) {
-    // Phase 14.8 (reschedule) is not built yet — a calm, honest "not yet"
-    // rather than a silent no-op.
-    final l10n = AppLocalizations.of(context);
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(l10n.bookingRescheduleComingSoon)));
+  void _onReschedule(BuildContext context, Booking booking) {
+    // Reuse the create-booking slot picker, seeded to reschedule THIS booking
+    // (the confirm-step submit swaps POST → PATCH /reschedule on the non-null
+    // rescheduleBookingId). Confirmed-only — the CTA below is gated to match.
+    unawaited(
+      startBookingReschedule(context: context, ref: ref, bookingId: booking.id),
+    );
   }
 
   void _onAddToCalendar() {
@@ -160,6 +164,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     final AsyncValue<Booking> async = ref.watch(
       bookingDetailProvider(widget.bookingId),
     );
+    // Drives the «Перенести» button's spinner while the shared reschedule
+    // navigation loads its seeding GETs (before it pushes the slot picker).
+    final bool rescheduleLoading = ref.watch(bookingRescheduleInFlightProvider);
 
     return async.when(
       loading: () => const _DetailLoading(),
@@ -169,7 +176,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       ),
       data: (Booking booking) => _DetailBody(
         booking: booking,
-        onReschedule: () => _onReschedule(context),
+        rescheduleLoading: rescheduleLoading,
+        onReschedule: () => _onReschedule(context, booking),
         onCancel: () => _confirmCancel(context, booking),
         onRebook: () => _onRebook(booking),
         onAddToCalendar: _onAddToCalendar,
@@ -183,6 +191,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
 class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.booking,
+    required this.rescheduleLoading,
     required this.onReschedule,
     required this.onCancel,
     required this.onRebook,
@@ -190,6 +199,7 @@ class _DetailBody extends StatelessWidget {
   });
 
   final Booking booking;
+  final bool rescheduleLoading;
   final VoidCallback onReschedule;
   final VoidCallback onCancel;
   final VoidCallback onRebook;
@@ -292,12 +302,19 @@ class _DetailBody extends StatelessWidget {
       case BookingStatus.pending:
       case BookingStatus.confirmed:
         return <Widget>[
-          NeumorphicButton(
-            label: l10n.bookingDetailRescheduleCta,
-            icon: Icons.event_repeat_rounded,
-            onPressed: onReschedule,
-          ),
-          const SizedBox(height: VelvetSpacing.xs),
+          // Reschedule is CONFIRMED-only (backend `PATCH …/reschedule`); a
+          // PENDING booking would 409, so the «Перенести» CTA is shown only
+          // for CONFIRMED. Cancel stays available on both.
+          if (booking.status == BookingStatus.confirmed) ...<Widget>[
+            NeumorphicButton(
+              key: const Key('booking-detail-reschedule'),
+              label: l10n.bookingDetailRescheduleCta,
+              icon: Icons.event_repeat_rounded,
+              loading: rescheduleLoading,
+              onPressed: onReschedule,
+            ),
+            const SizedBox(height: VelvetSpacing.xs),
+          ],
           _DestructiveSecondaryButton(
             label: l10n.bookingDetailCancelCta,
             icon: Icons.close_rounded,

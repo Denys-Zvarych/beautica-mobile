@@ -340,10 +340,20 @@ class _CountdownChipState extends State<CountdownChip> {
 
 /// A filled camel/mocha primary action (e.g. "Перенести"). Compact pill.
 class HubFilledButton extends StatefulWidget {
-  const HubFilledButton({super.key, required this.label, required this.onTap});
+  const HubFilledButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.loading = false,
+  });
 
   final String label;
   final VoidCallback onTap;
+
+  /// When true the button swaps its label for a spinner and ignores taps —
+  /// used while an action seeded from this button is loading (e.g. the
+  /// reschedule navigation's up-to-two seeding GETs).
+  final bool loading;
 
   @override
   State<HubFilledButton> createState() => _HubFilledButtonState();
@@ -356,16 +366,20 @@ class _HubFilledButtonState extends State<HubFilledButton> {
 
   @override
   Widget build(BuildContext context) {
+    final bool loading = widget.loading;
     return Semantics(
       button: true,
+      enabled: !loading,
       label: widget.label,
       child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onTap();
-        },
+        onTapDown: loading ? null : (_) => setState(() => _pressed = true),
+        onTapCancel: loading ? null : () => setState(() => _pressed = false),
+        onTapUp: loading
+            ? null
+            : (_) {
+                setState(() => _pressed = false);
+                widget.onTap();
+              },
         child: AnimatedScale(
           scale: _pressed ? 0.96 : 1,
           duration: const Duration(milliseconds: 110),
@@ -378,15 +392,24 @@ class _HubFilledButtonState extends State<HubFilledButton> {
             ),
             // Overflow-hardening: scale the label down instead of clipping when
             // the button is squeezed (narrow widths + large font scale).
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                widget.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _style,
-              ),
-            ),
+            child: loading
+                ? const SizedBox(
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: BrandColors.white,
+                    ),
+                  )
+                : FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      widget.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _style,
+                    ),
+                  ),
           ),
         ),
       ),

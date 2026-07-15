@@ -3788,9 +3788,21 @@
   "@bookingDetailRebookCta": {
     "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
   },
-  "bookingRescheduleComingSoon": "This feature will be available soon.",
-  "@bookingRescheduleComingSoon": {
-    "description": "Snackbar shown when the client taps Reschedule before reschedule (Phase 14.8) ships."
+  "bookingRescheduleSubmitCta": "Reschedule booking",
+  "@bookingRescheduleSubmitCta": {
+    "description": "Primary CTA on the booking confirm screen when the flow is a reschedule (moving an existing booking) rather than a new booking."
+  },
+  "bookingRescheduleSuccessTitle": "Booking rescheduled!",
+  "@bookingRescheduleSuccessTitle": {
+    "description": "Title on the booking success screen after a successful reschedule."
+  },
+  "bookingRescheduleSuccessSubline": "Your booking has been moved to the new time.\nThe specialist has been notified.",
+  "@bookingRescheduleSuccessSubline": {
+    "description": "Subline on the booking success screen after a successful reschedule."
+  },
+  "bookingRescheduleUnavailable": "This booking can't be rescheduled.",
+  "@bookingRescheduleUnavailable": {
+    "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
   },
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {

@@ -7,7 +7,7 @@
 // pass found — every one is a tap the state suite only asserted the PRESENCE
 // of, never fired:
 //   • the back affordance → context.pop();
-//   • «Перенести» → the calm "not yet" reschedule SnackBar (Phase 14.8 unbuilt);
+//   • «Перенести» → pushes the slot picker seeded to reschedule this booking;
 //   • «Записатись знову» → context.push('/masters/:id');
 //   • «Додати в календар» → a DELIBERATE, documented no-op (present on
 //     CONFIRMED, absent otherwise, and — this is the point — tapping it changes
@@ -25,9 +25,14 @@ import 'package:beautica_mobile/features/booking/application/booking_detail_noti
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -162,6 +167,76 @@ Future<_RebookProbe> _pumpDetailRouted(
 AppLocalizations _l10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byType(BookingDetailScreen)));
 
+// Reschedule fixtures — the master + the booked service the slot picker is
+// seeded with. Ids match `_booking`'s masterId ('m1') / serviceId ('s1') so
+// the shared reschedule helper resolves the service by id.
+const Master _kRescheduleMaster = Master(
+  id: 'm1',
+  firstName: 'Марія',
+  lastName: 'Іванюк',
+  avgRating: 4.9,
+  reviewCount: 20,
+  type: MasterType.independentMaster,
+);
+
+const MasterService _kRescheduleService = MasterService(
+  id: 's1',
+  serviceDefId: 'def-1',
+  name: 'Манікюр з покриттям',
+  durationMinutes: 90,
+  priceMin: 650,
+  priceDisplay: '650 ₴',
+  category: 'MANICURE',
+);
+
+/// Pumps the detail screen inside a router with a [RouteNames.bookingSlots]
+/// stub, taps «Перенести», and returns the [BookingSlotPickerArgs] the picker
+/// was seeded with (null if navigation never occurred). The
+/// `publicMasterProfileProvider` is overridden so the shared helper can resolve
+/// the master + booked service without a real fetch.
+Future<BookingSlotPickerArgs?> _tapReschedule(
+  WidgetTester tester,
+  Booking booking,
+) async {
+  final _MockBookingRepository repo = _MockBookingRepository();
+  BookingSlotPickerArgs? captured;
+  final router = GoRouter(
+    initialLocation: '/bookings/${Uri.encodeComponent(booking.id)}',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/bookings/:bookingId',
+        builder: (_, _) => BookingDetailScreen(bookingId: booking.id),
+      ),
+      GoRoute(
+        path: RouteNames.bookingSlots,
+        builder: (BuildContext context, GoRouterState state) {
+          captured = state.extra as BookingSlotPickerArgs?;
+          return const Scaffold(key: Key('slots_stub'));
+        },
+      ),
+    ],
+  );
+  await tester.pumpRoutedApp(
+    router,
+    overrides: <Object>[
+      ..._overrides(booking, repo),
+      publicMasterProfileProvider(booking.masterId).overrideWith(
+        (ref) async =>
+            (_kRescheduleMaster, const <MasterService>[_kRescheduleService]),
+      ),
+    ],
+  );
+  await tester.pumpAndSettle();
+
+  final l10n = _l10n(tester);
+  final Finder reschedule = find.text(l10n.bookingDetailRescheduleCta);
+  await tester.ensureVisible(reschedule);
+  await tester.pumpAndSettle();
+  await tester.tap(reschedule);
+  await tester.pumpAndSettle();
+  return captured;
+}
+
 void main() {
   setUpAll(() => registerFallbackValue(BookingStatus.confirmed));
 
@@ -192,26 +267,28 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // «Перенести» → the honest "not yet" SnackBar (Phase 14.8 unbuilt)
+  // «Перенести» → seed the slot picker for a reschedule
   // -------------------------------------------------------------------------
 
   group('reschedule', () {
-    testWidgets('tapping «Перенести» shows the coming-soon SnackBar', (
-      tester,
-    ) async {
-      await _pumpDetail(tester, _booking(status: BookingStatus.confirmed));
-      final l10n = _l10n(tester);
+    testWidgets(
+      'tapping «Перенести» pushes the slot picker seeded with rescheduleBookingId',
+      (tester) async {
+        final Booking booking = _booking(status: BookingStatus.confirmed);
+        final BookingSlotPickerArgs? args = await _tapReschedule(
+          tester,
+          booking,
+        );
 
-      final Finder reschedule = find.text(l10n.bookingDetailRescheduleCta);
-      await tester.ensureVisible(reschedule);
-      await tester.pumpAndSettle();
-      await tester.tap(reschedule);
-      // Bounded wait for the SnackBar's own entrance animation — never a fixed
-      // pump(Duration).
-      await tester.pumpUntilFound(find.text(l10n.bookingRescheduleComingSoon));
-
-      expect(find.text(l10n.bookingRescheduleComingSoon), findsOneWidget);
-    });
+        // Navigated into the picker stub, seeded to reschedule THIS booking.
+        expect(find.byKey(const Key('slots_stub')), findsOneWidget);
+        expect(find.byType(BookingDetailScreen), findsNothing);
+        expect(args, isNotNull);
+        expect(args!.rescheduleBookingId, booking.id);
+        expect(args.masterId, booking.masterId);
+        expect(args.services.single.id, booking.serviceId);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

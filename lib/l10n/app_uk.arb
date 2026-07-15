@@ -3788,9 +3788,21 @@
   "@bookingDetailRebookCta": {
     "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
   },
-  "bookingRescheduleComingSoon": "Ця функція скоро буде доступна.",
-  "@bookingRescheduleComingSoon": {
-    "description": "Snackbar shown when the client taps «Перенести» before reschedule (Phase 14.8) ships."
+  "bookingRescheduleSubmitCta": "Перенести запис",
+  "@bookingRescheduleSubmitCta": {
+    "description": "Primary CTA on the booking confirm screen when the flow is a reschedule (moving an existing booking) rather than a new booking."
+  },
+  "bookingRescheduleSuccessTitle": "Запис перенесено!",
+  "@bookingRescheduleSuccessTitle": {
+    "description": "Title on the booking success screen after a successful reschedule."
+  },
+  "bookingRescheduleSuccessSubline": "Ваш запис перенесено на новий час.\nСповіщення надіслано майстрові.",
+  "@bookingRescheduleSuccessSubline": {
+    "description": "Subline on the booking success screen after a successful reschedule."
+  },
+  "bookingRescheduleUnavailable": "Цей запис не можна перенести.",
+  "@bookingRescheduleUnavailable": {
+    "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
   },
   "salonProfileBackLabel": "Назад",
   "@salonProfileBackLabel": {

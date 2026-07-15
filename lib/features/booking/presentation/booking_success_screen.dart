@@ -99,9 +99,15 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         ? master.locationNote!.trim()
         : null;
 
+    final bool isReschedule = widget.args.isReschedule;
+
     return BookingSuccessScaffold(
-      title: l10n.bookingSuccessTitle,
-      subline: l10n.bookingSuccessSubline,
+      title: isReschedule
+          ? l10n.bookingRescheduleSuccessTitle
+          : l10n.bookingSuccessTitle,
+      subline: isReschedule
+          ? l10n.bookingRescheduleSuccessSubline
+          : l10n.bookingSuccessSubline,
       actions: <Widget>[
         SuccessSecondaryButton(
           buttonKey: const Key('booking-success-home-cta'),
