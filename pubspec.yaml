@@ -118,6 +118,16 @@ dependencies:
   # version bump of any other resolved package.
   uuid: ^4.5.3
 
+  # IANA timezone database (Dart-team `timezone` package) — pins all
+  # booking/slot wall-clock rendering to the salon market zone Europe/Kyiv,
+  # DST-aware (UTC+2 winter / UTC+3 summer). Booking instants stay canonical
+  # UTC on the wire and in the model; conversion is DISPLAY-ONLY via
+  # `shared/time/time_zones.dart` (`toBeauticaTime`). Replaces the earlier
+  # device `.toLocal()` convention, which rendered wrong on non-Kyiv devices
+  # and failed on CI's UTC runner. `tz.initializeTimeZones()` must run once at
+  # startup (main + test harnesses) before any formatter reads the zone.
+  timezone: ^0.11.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

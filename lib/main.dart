@@ -13,6 +13,7 @@ import 'core/network/dio_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
+import 'shared/time/time_zones.dart';
 
 /// Beautica mobile entry point.
 ///
@@ -57,6 +58,14 @@ Future<void> main() async {
   // The dioProvider also calls this guard, but that fires lazily; this call
   // ensures the guard runs unconditionally on every startup path.
   AppConfig.assertSecureUrl();
+
+  // Load the IANA timezone database and pin the Beautica market zone
+  // (Europe/Kyiv) BEFORE any booking/slot formatter runs. Booking instants are
+  // canonical UTC; every wall-clock the user sees is converted to Kyiv
+  // (DST-aware) via shared/time/time_zones.dart. Synchronous + cheap; must
+  // complete before the first frame so the slot picker never reads the zone
+  // uninitialised.
+  initBeauticaTimeZones();
 
   // Splash timing is recorded in SplashScreen.initState — see
   // lib/features/auth/presentation/splash_screen.dart. The gate must measure

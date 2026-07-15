@@ -95,6 +95,7 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -174,6 +175,13 @@ abstract final class AppHarness {
     List<Object> extraOverrides = const <Object>[],
   }) async {
     installOverflowGuard();
+
+    // Load the IANA timezone database so booking/slot formatters can convert to
+    // the pinned Europe/Kyiv wall-clock. The E2E harness boots the real app tree
+    // via `_HarnessApp` (NOT `main()`), so main.dart's initBeauticaTimeZones()
+    // never runs here — do it explicitly. Idempotent across the aggregated
+    // per-test re-boots.
+    initBeauticaTimeZones();
 
     // RC1 — prime the splash-duration gate so the auth redirect is not stuck
     // on /splash. [AppStartTime.elapsed()] must return > [minSplashDuration]
