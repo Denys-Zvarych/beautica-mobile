@@ -27,6 +27,8 @@ import 'dart:io';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
@@ -37,6 +39,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
@@ -52,6 +55,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lottie/lottie.dart';
@@ -117,6 +121,23 @@ Booking _bookingFixture() => Booking(
   canReview: false,
 );
 
+/// Same shape as [_confirmArgs] but on the RESCHEDULE path — carries a non-null
+/// `rescheduleBookingId` (matching [_bookingFixture]'s id) so the confirm
+/// screen's `_submit` takes the `PATCH /reschedule` branch and, on success,
+/// fires the widget-layer detail + upcoming-list invalidation.
+BookingConfirmArgs _rescheduleArgs() => BookingConfirmArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  appointments: <BookingAppointment>[
+    BookingAppointment(
+      serviceId: _kService.id,
+      startAt: DateTime(2026, 7, 20, 14),
+      idempotencyKey: _kIdemKey,
+    ),
+  ],
+  rescheduleBookingId: 'booking-1',
+);
+
 /// Records every [createBooking] call (request + resulting idempotency key)
 /// so the "fresh key per submit" criterion can be asserted directly, and
 /// either returns [bookingToReturn] or throws [errorToThrow] when set —
@@ -152,6 +173,58 @@ class _FakeBookingRepository implements BookingRepository {
 
   @override
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
+}
+
+/// Records reschedule + create calls and COUNTS the detail / my-bookings reads
+/// so the widget-layer invalidation's re-fetch is observable: a still-listened
+/// autoDispose provider only re-fetches when it is invalidated, so a second
+/// `getBookingById` / `getMyBookings` call is direct proof
+/// `BookingConfirmScreen._submit` invalidated it on reschedule success. The
+/// notifier-level analogue lives in
+/// `independent_booking_submit_reschedule_test.dart`; this one drives the REAL
+/// screen so the invalidation's NEW home (the widget layer) is what's exercised.
+class _RecordingRescheduleRepository implements BookingRepository {
+  final List<(String, DateTime)> rescheduleCalls = <(String, DateTime)>[];
+  final List<CreateBookingRequest> createCalls = <CreateBookingRequest>[];
+  int getBookingByIdCalls = 0;
+  int getMyBookingsCalls = 0;
+
+  @override
+  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) async {
+    rescheduleCalls.add((id, newStartAt));
+    return _bookingFixture();
+  }
+
+  @override
+  Future<Booking> createBooking(CreateBookingRequest req) async {
+    createCalls.add(req);
+    return _bookingFixture();
+  }
+
+  @override
+  Future<Booking> getBookingById(String id) async {
+    getBookingByIdCalls++;
+    return _bookingFixture();
+  }
+
+  @override
+  Future<PageResponse<Booking>> getMyBookings({
+    required BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+  }) async {
+    getMyBookingsCalls++;
+    return PageResponse<Booking>(
+      items: <Booking>[_bookingFixture()],
+      page: page,
+      totalPages: 1,
+      totalElements: 1,
+    );
+  }
+
+  @override
+  Future<void> cancelBooking(String id, {String? reason}) =>
       throw UnimplementedError();
 }
 
@@ -553,6 +626,95 @@ void main() {
 
       expect(fake.requests, isEmpty);
     });
+
+    // Track 24.x follow-up — the post-reschedule refetch was MOVED out of
+    // `IndependentBookingSubmit` (a Notifier can't `ref.invalidate` a
+    // cross-provider without tripping the `forbid_provider_self_invalidation`
+    // cycle gate) into THIS screen's `_submit`, mirroring the cancel flow's
+    // widget-layer invalidation in `booking_detail_screen._confirmCancel`. This
+    // pins the relocated behavior at its NEW home: a successful reschedule
+    // submit invalidates BOTH `bookingDetailProvider(id)` and
+    // `myBookingsProvider(upcoming)` (each re-fetches) and never POSTs a create.
+    testWidgets(
+      'a successful RESCHEDULE invalidates bookingDetail(id) + upcoming My '
+      'Bookings from the widget layer (both re-fetch) and navigates to success',
+      (tester) async {
+        final fake = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWith((_) => fake),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+        );
+        await tester.pumpAndSettle();
+
+        // Warm + keep alive the two invalidation targets. A still-listened
+        // autoDispose provider only re-fetches when invalidated, so the second
+        // repo call below is the observable proof each one was invalidated.
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        final ProviderSubscription<AsyncValue<Booking>> subDetail = container
+            .listen(
+              bookingDetailProvider('booking-1'),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subDetail.close);
+        final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
+            container.listen(
+              myBookingsProvider(BookingTab.upcoming),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subList.close);
+        await container.read(bookingDetailProvider('booking-1').future);
+        await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        expect(fake.getBookingByIdCalls, 1);
+        expect(fake.getMyBookingsCalls, 1);
+
+        // Tap the reschedule CTA → the screen submits via PATCH /reschedule.
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        // The reschedule endpoint was hit once with the moved booking's id; the
+        // create endpoint was never touched; the flow reached the success screen.
+        expect(fake.rescheduleCalls, hasLength(1));
+        expect(fake.rescheduleCalls.single.$1, 'booking-1');
+        expect(
+          fake.createCalls,
+          isEmpty,
+          reason: 'a reschedule must never POST a new booking',
+        );
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        // BOTH targets re-fetched — the widget-layer invalidation fired.
+        await container.read(bookingDetailProvider('booking-1').future);
+        await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        expect(
+          fake.getBookingByIdCalls,
+          2,
+          reason:
+              'bookingDetailProvider(id) must have been invalidated by '
+              'BookingConfirmScreen._submit on reschedule success',
+        );
+        expect(
+          fake.getMyBookingsCalls,
+          2,
+          reason:
+              'myBookingsProvider(upcoming) must have been invalidated by '
+              'BookingConfirmScreen._submit on reschedule success',
+        );
+      },
+    );
   });
 
   group('BookingSuccessScreen', () {

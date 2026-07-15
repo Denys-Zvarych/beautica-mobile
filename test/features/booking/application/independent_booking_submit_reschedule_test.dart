@@ -3,44 +3,51 @@
 //
 // The create path is covered by booking_confirm_test.dart +
 // independent_multi_service_booking_flow_test.dart. This suite pins the
-// reschedule-specific contract the notifier owns:
+// reschedule-specific contract the notifier OWNS:
 //
 //   1. A non-null `rescheduleBookingId` submit calls
 //      `BookingRepository.rescheduleBooking(id, startAt)` — NEVER
-//      `createBooking` — and, on success, fires BOTH invalidations
-//      (`bookingDetailProvider(id)` + `myBookingsProvider(upcoming)`) so the
-//      moved booking's detail and the upcoming list re-fetch.
+//      `createBooking` — and, on success, surfaces the single appointment as
+//      SUCCEEDED (`hasSucceeded` / `allSucceeded`).
 //   2. A per-appointment failure (409 / 403 / 400, whatever mapped Failure the
 //      repository throws) surfaces on that appointment EXACTLY like the create
-//      path — `failureFor(serviceId)` set, `hasFailures` true — and fires
-//      NEITHER invalidation (a failed reschedule must not refresh anything).
+//      path — `failureFor(serviceId)` set, `hasFailures` true — with NO create
+//      fallback.
+//
+// MOVED OUT OF THIS NOTIFIER (track 24.x follow-up): the post-reschedule
+// REFETCH of the moved booking's detail + the upcoming My Bookings list is no
+// longer fired here. Cross-provider `ref.invalidate(...)` from inside a Notifier
+// can close a watch cycle (`CircularDependencyError`, debug-only) — the
+// `forbid_provider_self_invalidation` CI gate's footgun — so that refetch was
+// relocated to the WIDGET layer (`BookingConfirmScreen._submit`), mirroring how
+// the cancel flow refreshes the same providers in
+// `booking_detail_screen._confirmCancel`. Its coverage now lives in the
+// "successful RESCHEDULE invalidates bookingDetail + upcoming My Bookings"
+// widget test in `booking_confirm_test.dart`. This suite therefore asserts only
+// what the notifier itself still owns (which endpoint is hit + how each
+// appointment's outcome is surfaced), never an invalidation side effect.
 //
 // Strategy: a fresh `ProviderContainer` per test (M1 — disposed via
 // addTearDown) overriding `bookingRepositoryProvider` with a hand-written
-// recording fake. The two invalidation targets are kept alive with a listener
-// and their post-submit RE-FETCH is the observable proof that each invalidation
-// took effect (a plain read of an unchanged, still-listened autoDispose provider
-// returns its cache — only an invalidation forces a fresh repo call).
+// recording fake.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
-import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
-// Recording fake — records reschedule + create calls, and counts the
-// detail/list reads (so an invalidation re-fetch is observable). `rescheduleErr`
-// makes the NEXT rescheduleBooking throw the given Failure.
+// Recording fake — records reschedule + create calls. `rescheduleErr` makes the
+// NEXT rescheduleBooking throw the given Failure. The read endpoints are never
+// exercised by the notifier (the refetch now lives in the widget layer), so
+// they throw UnimplementedError.
 // ---------------------------------------------------------------------------
 
 class _RecordingRepo implements BookingRepository {
@@ -50,8 +57,6 @@ class _RecordingRepo implements BookingRepository {
 
   final List<(String, DateTime)> rescheduleCalls = <(String, DateTime)>[];
   final List<CreateBookingRequest> createCalls = <CreateBookingRequest>[];
-  int getBookingByIdCalls = 0;
-  int getMyBookingsCalls = 0;
 
   @override
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt) async {
@@ -68,25 +73,14 @@ class _RecordingRepo implements BookingRepository {
   }
 
   @override
-  Future<Booking> getBookingById(String id) async {
-    getBookingByIdCalls++;
-    return _booking(id, DateTime.utc(2026, 7, 20, 15));
-  }
+  Future<Booking> getBookingById(String id) => throw UnimplementedError();
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
     required BookingStatus? status,
     required int page,
     int size = kBookingsPageSize,
-  }) async {
-    getMyBookingsCalls++;
-    return PageResponse<Booking>(
-      items: <Booking>[_booking('booking-1', DateTime.utc(2026, 7, 20, 15))],
-      page: page,
-      totalPages: 1,
-      totalElements: 1,
-    );
-  }
+  }) => throw UnimplementedError();
 
   @override
   Future<void> cancelBooking(String id, {String? reason}) =>
@@ -129,43 +123,13 @@ ProviderContainer _container(BookingRepository repo) {
   return c;
 }
 
-/// Keeps the two invalidation targets alive + resolved, and returns their
-/// initial repo-call counts (each == 1 after the first resolve).
-Future<void> _warmInvalidationTargets(
-  ProviderContainer c,
-  _RecordingRepo repo,
-) async {
-  final ProviderSubscription<AsyncValue<Booking>> subDetail = c.listen(
-    bookingDetailProvider(_bookingId),
-    (_, _) {},
-    fireImmediately: true,
-  );
-  addTearDown(subDetail.close);
-  final ProviderSubscription<AsyncValue<MyBookingsState>> subList = c.listen(
-    myBookingsProvider(BookingTab.upcoming),
-    (_, _) {},
-    fireImmediately: true,
-  );
-  addTearDown(subList.close);
-
-  await c.read(bookingDetailProvider(_bookingId).future);
-  await c.read(myBookingsProvider(BookingTab.upcoming).future);
-  expect(repo.getBookingByIdCalls, 1);
-  expect(
-    repo.getMyBookingsCalls,
-    1,
-    reason: 'the upcoming tab fans out one fetch (CONFIRMED only)',
-  );
-}
-
 void main() {
   group('IndependentBookingSubmit.submit — reschedule path', () {
     test('a non-null rescheduleBookingId calls rescheduleBooking (never '
-        'createBooking) with the picked start, and on success fires BOTH '
-        'invalidations (detail + upcoming list re-fetch)', () async {
+        'createBooking) with the picked start, and surfaces the appointment '
+        'as succeeded', () async {
       final _RecordingRepo repo = _RecordingRepo();
       final ProviderContainer c = _container(repo);
-      await _warmInvalidationTargets(c, repo);
 
       final List<BookingAppointment> appts = <BookingAppointment>[_appt()];
       final IndependentBookingSubmitState result = await c
@@ -183,37 +147,19 @@ void main() {
         reason: 'a reschedule must never POST a new booking',
       );
 
-      // The appointment succeeded.
+      // The appointment succeeded — the notifier's own observable contract.
       expect(result.hasFailures, isFalse);
+      expect(result.hasSucceeded, isTrue);
       expect(
         result.statusFor(_serviceId),
         IndependentAppointmentSubmitStatus.succeeded,
       );
       expect(result.allSucceeded(appts), isTrue);
-
-      // Let the listened providers' scheduled rebuilds run, then re-read.
-      await Future<void>.delayed(Duration.zero);
-      await c.read(bookingDetailProvider(_bookingId).future);
-      await c.read(myBookingsProvider(BookingTab.upcoming).future);
-
-      // BOTH invalidations took effect — each target re-fetched exactly once
-      // more (a still-listened autoDispose provider only re-fetches when it
-      // is invalidated).
-      expect(
-        repo.getBookingByIdCalls,
-        2,
-        reason: 'bookingDetailProvider(id) must have been invalidated',
-      );
-      expect(
-        repo.getMyBookingsCalls,
-        2,
-        reason: 'myBookingsProvider(upcoming) must have been invalidated',
-      );
     });
 
     // 409 / 403 / 400 — whatever mapped Failure the repository throws must
-    // surface on the appointment EXACTLY like the create path, and must fire
-    // NEITHER invalidation.
+    // surface on the appointment EXACTLY like the create path, with no create
+    // fallback.
     for (final (String label, Failure failure) in <(String, Failure)>[
       ('409 → ConflictFailure', const ConflictFailure()),
       ('403 → ServerFailure(403)', const ServerFailure(statusCode: 403)),
@@ -222,11 +168,10 @@ void main() {
         const ValidationFailure(fieldErrors: <String, String>{}),
       ),
     ]) {
-      test('a reschedule $label surfaces on the appointment (hasFailures) and '
-          'fires no invalidation', () async {
+      test('a reschedule $label surfaces on the appointment (hasFailures) with '
+          'no create fallback', () async {
         final _RecordingRepo repo = _RecordingRepo(rescheduleErr: failure);
         final ProviderContainer c = _container(repo);
-        await _warmInvalidationTargets(c, repo);
 
         final List<BookingAppointment> appts = <BookingAppointment>[_appt()];
         final IndependentBookingSubmitState result = await c
@@ -239,25 +184,13 @@ void main() {
 
         // The failure landed on the appointment, mapped 1:1.
         expect(result.hasFailures, isTrue);
+        expect(result.hasSucceeded, isFalse);
         expect(result.allSucceeded(appts), isFalse);
         expect(
           result.statusFor(_serviceId),
           IndependentAppointmentSubmitStatus.failed,
         );
         expect(result.failureFor(_serviceId), same(failure));
-
-        // Neither target re-fetched — a failed reschedule refreshes nothing.
-        await Future<void>.delayed(Duration.zero);
-        expect(
-          repo.getBookingByIdCalls,
-          1,
-          reason: 'a failed reschedule must not invalidate the detail',
-        );
-        expect(
-          repo.getMyBookingsCalls,
-          1,
-          reason: 'a failed reschedule must not invalidate the upcoming list',
-        );
       });
     }
   });

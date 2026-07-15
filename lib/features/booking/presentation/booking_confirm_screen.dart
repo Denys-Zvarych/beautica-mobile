@@ -55,10 +55,13 @@ import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import '../application/booking_detail_notifier.dart';
 import '../application/booking_notifier.dart';
+import '../application/my_bookings_notifier.dart';
 import '../domain/booking_appointment.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_success_args.dart';
+import '../domain/booking_tab.dart';
 import 'widgets/booking_comment_field.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
@@ -125,16 +128,29 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     List<_ResolvedAppointment> resolved,
   ) async {
     FocusScope.of(context).unfocus();
+    final String? rescheduleId = widget.args.rescheduleBookingId;
     final IndependentBookingSubmitState result = await ref
         .read(independentBookingSubmitProvider.notifier)
         .submit(
           widget.args.masterId,
           widget.args.appointments,
           comment: _comment.text,
-          rescheduleBookingId: widget.args.rescheduleBookingId,
+          rescheduleBookingId: rescheduleId,
         );
     if (!mounted) return;
     if (result.allSucceeded(widget.args.appointments)) {
+      if (rescheduleId != null) {
+        // A successful RESCHEDULE moved an EXISTING booking — its detail page
+        // and the upcoming My Bookings list must re-fetch to show the new
+        // time. Fired HERE in the widget layer (a `ref` outside a Notifier),
+        // mirroring the cancel flow's post-write invalidation in
+        // `booking_detail_screen._confirmCancel`, so a cross-provider
+        // invalidate never runs from inside a Notifier (the
+        // `forbid_provider_self_invalidation` cycle footgun). On the create
+        // path there is no pre-existing booking to refresh.
+        ref.invalidate(bookingDetailProvider(rescheduleId));
+        ref.invalidate(myBookingsProvider(BookingTab.upcoming));
+      }
       context.pushReplacement(
         RouteNames.bookingSuccess,
         extra: BookingSuccessArgs(

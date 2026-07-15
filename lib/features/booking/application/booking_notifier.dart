@@ -34,10 +34,7 @@ import '../data/booking_providers.dart';
 import '../data/booking_repository.dart';
 import '../domain/booking.dart';
 import '../domain/booking_appointment.dart';
-import '../domain/booking_tab.dart';
 import '../domain/create_booking_request.dart';
-import 'booking_detail_notifier.dart';
-import 'my_bookings_notifier.dart';
 
 part 'booking_notifier.g.dart';
 
@@ -191,9 +188,15 @@ class IndependentBookingSubmit extends _$IndependentBookingSubmit {
   /// create: there is exactly one appointment, and it is submitted via
   /// `PATCH /bookings/{id}/reschedule` (never a new `POST /bookings`). The
   /// [comment] and each appointment's idempotency key are create-only concerns
-  /// and are unused on that path. On a successful reschedule the moved
-  /// booking's detail and the upcoming My Bookings list are invalidated so both
-  /// reflect the new time (mirrors the cancel flow's refetch).
+  /// and are unused on that path.
+  ///
+  /// This notifier deliberately does NOT invalidate the moved booking's detail
+  /// or the upcoming My Bookings list itself — cross-provider invalidation from
+  /// inside a Notifier can close a watch cycle (`CircularDependencyError`, the
+  /// `forbid_provider_self_invalidation` gate's footgun). Instead the CALLER
+  /// (the confirm screen's `_submit`) observes the returned state and fires
+  /// those refetches from the widget layer on reschedule success — exactly how
+  /// the cancel flow refreshes them in `booking_detail_screen._confirmCancel`.
   Future<IndependentBookingSubmitState> submit(
     String masterId,
     List<BookingAppointment> appointments, {
@@ -272,16 +275,11 @@ class IndependentBookingSubmit extends _$IndependentBookingSubmit {
 
     state = state.copyWith(inFlight: false);
 
-    // A successful reschedule moved an EXISTING booking — its detail page and
-    // the upcoming My Bookings list must re-fetch to show the new time. Mirrors
-    // the cancel flow's post-write invalidation in `booking_detail_screen`.
-    if (rescheduleBookingId != null &&
-        !state.hasFailures &&
-        state.hasSucceeded) {
-      ref.invalidate(bookingDetailProvider(rescheduleBookingId));
-      ref.invalidate(myBookingsProvider(BookingTab.upcoming));
-    }
-
+    // NOTE: a successful reschedule's post-write refetch (the moved booking's
+    // detail + the upcoming My Bookings list) is fired by the CALLER from the
+    // widget layer — see this method's doc and `BookingConfirmScreen._submit`.
+    // It is intentionally NOT done here to avoid a cross-provider invalidate
+    // from inside a Notifier (the self-invalidation cycle footgun).
     return state;
   }
 
