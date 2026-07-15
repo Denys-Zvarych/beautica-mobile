@@ -96,7 +96,8 @@ const double _worstScale = 2.0;
 /// name is GUARANTEED to ellipsise (the deliberate truncation this file
 /// asserts) at every cell, on both the card and the detail recap.
 const String _longService =
-    'Комбінований манікюр з покриттям гель-лаком, зміцненням та дизайном нігтів';
+    'Комбінований апаратний манікюр з покриттям гель-лаком, зміцненням бази, '
+    'парафінотерапією та художнім дизайном усіх нігтів на обох руках';
 const String _longFirstName = 'Олександра-Валентина';
 const String _longLastName = 'Коваленко-Тестівська-Довгопрізвищенко';
 const String _longTitle =

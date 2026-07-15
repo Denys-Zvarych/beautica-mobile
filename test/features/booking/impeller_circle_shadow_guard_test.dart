@@ -71,6 +71,20 @@ void main() {
     'lib/features/booking/presentation/widgets/master_avatar_badge.dart',
   ];
 
+  // The SECOND Impeller-GLES artifact, same backend, different trigger: a
+  // shadow-only rounded `BoxDecoration` (a non-null `boxShadow` but NO top-level
+  // `color:` fill) rasterizes its pale blurred shadow (VelvetShadows'
+  // near-white light pair) as an OPAQUE SQUARE in the corners. A `ClipRRect`
+  // around the child can't clip the PARENT's shadow, so the earlier
+  // "shadow box -> ClipRRect -> fill" split never worked. The fix collapses
+  // each surface back to ONE `BoxDecoration` that carries `color` AND
+  // `boxShadow` together (the NeumorphicCard idiom). These two surfaces were
+  // the offenders; guard them so a future edit can't re-split them.
+  const List<String> shadowFillFiles = <String>[
+    'lib/features/booking/presentation/widgets/calendar_button.dart',
+    'lib/features/booking/presentation/widgets/master_strip_shell.dart',
+  ];
+
   group('Impeller-GLES circle+shadow guard', () {
     test('salon-booking avatars never combine BoxShape.circle with a boxShadow', () {
       final List<String> offenders = <String>[];
@@ -101,6 +115,72 @@ void main() {
             '`borderRadius: BorderRadius.circular(<half the side length>)`. '
             'Offending file(s): ${offenders.toSet().join(', ')}.',
       );
+    });
+
+    test(
+      'shadowed booking surfaces carry a fill color on the SAME BoxDecoration',
+      () {
+        final List<String> offenders = <String>[];
+        for (final String path in shadowFillFiles) {
+          final File file = File(path);
+          expect(
+            file.existsSync(),
+            isTrue,
+            reason:
+                'Guarded source "$path" not found (relative to beautica-mobile/). '
+                'If the file moved, update this guard\'s `shadowFillFiles` list.',
+          );
+          final String code = _stripCommentsAndStrings(file.readAsStringSync());
+          for (final String args in _boxDecorationArgs(code)) {
+            if (_hasNonNullBoxShadow(args) && !_hasTopLevelColor(args)) {
+              offenders.add(path);
+            }
+          }
+        }
+        expect(
+          offenders,
+          isEmpty,
+          reason:
+              'A BoxDecoration in these booking surfaces declares a non-null '
+              '`boxShadow` but no top-level `color:` fill — the shadow-only '
+              'pattern Impeller-GLES rasterizes as opaque near-white corner '
+              'squares. Put the `color:` on the SAME BoxDecoration as the '
+              '`boxShadow` (do NOT split the shadow onto an outer box behind a '
+              'ClipRRect — a ClipRRect cannot clip the parent shadow). '
+              'Offending file(s): ${offenders.toSet().join(', ')}.',
+        );
+      },
+    );
+
+    test('each shadow-fill surface actually declares a shadowed BoxDecoration '
+        '(the fill-color guard is never vacuous)', () {
+      // The "carries a fill color" test above only proves an ABSENCE (no
+      // shadow-only decoration). If a future refactor moved the shadowed card
+      // out of these files entirely, that test would pass with nothing left to
+      // guard — silent rot. This positive assertion forces the shadowFillFiles
+      // list to stay pointed at a real shadowed surface.
+      for (final String path in shadowFillFiles) {
+        final File file = File(path);
+        expect(
+          file.existsSync(),
+          isTrue,
+          reason: 'Guarded source "$path" not found.',
+        );
+        final String code = _stripCommentsAndStrings(file.readAsStringSync());
+        final bool hasShadowed = _boxDecorationArgs(
+          code,
+        ).any(_hasNonNullBoxShadow);
+        expect(
+          hasShadowed,
+          isTrue,
+          reason:
+              '"$path" no longer declares any shadow-bearing BoxDecoration, so '
+              'the "carries a fill color on the SAME BoxDecoration" guard now '
+              'passes vacuously. If the shadowed surface moved, repoint '
+              '`shadowFillFiles` at its new home; if the shadow was removed on '
+              'purpose, drop this file from the list.',
+        );
+      }
     });
 
     // --- Meta-tests: prove the detector actually detects. ------------------
@@ -160,6 +240,69 @@ void main() {
         _stripCommentsAndStrings(ok),
       ).single;
       expect(_hasNonNullBoxShadow(args), isFalse);
+    });
+
+    test('color detector flags a shadow-only decoration (no fill)', () {
+      const String bad = '''
+        BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: VelvetShadows.extrudedCard,
+        )
+      ''';
+      final String args = _boxDecorationArgs(
+        _stripCommentsAndStrings(bad),
+      ).single;
+      expect(_hasNonNullBoxShadow(args), isTrue);
+      expect(_hasTopLevelColor(args), isFalse);
+    });
+
+    test('color detector accepts a decoration with fill + shadow together', () {
+      const String ok = '''
+        BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: cond ? null : VelvetShadows.extrudedButton,
+        )
+      ''';
+      final String args = _boxDecorationArgs(
+        _stripCommentsAndStrings(ok),
+      ).single;
+      expect(_hasNonNullBoxShadow(args), isTrue);
+      expect(_hasTopLevelColor(args), isTrue);
+    });
+
+    test('color detector treats an explicit `color: null` as no fill', () {
+      // Symmetric with the `boxShadow: null` case: a decoration that sets
+      // `color: null` while carrying a real boxShadow renders the shadow-only
+      // square at runtime, so it MUST still be flagged as an offender.
+      const String bad = '''
+        BoxDecoration(
+          color: null,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: VelvetShadows.extrudedCard,
+        )
+      ''';
+      final String args = _boxDecorationArgs(
+        _stripCommentsAndStrings(bad),
+      ).single;
+      expect(_hasNonNullBoxShadow(args), isTrue);
+      expect(_hasTopLevelColor(args), isFalse);
+    });
+
+    test('color detector ignores a nested Border.all(color:) as a fill', () {
+      // A `border: Border.all(color: X)` must NOT count as the surface fill —
+      // the fill `color:` lives at the top level of the BoxDecoration args.
+      const String borderOnly = '''
+        BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: BrandColors.accent),
+          boxShadow: VelvetShadows.extrudedButton,
+        )
+      ''';
+      final String args = _boxDecorationArgs(
+        _stripCommentsAndStrings(borderOnly),
+      ).single;
+      expect(_hasTopLevelColor(args), isFalse);
     });
 
     test('comment/string stripping keeps parentheses balanced', () {
@@ -281,6 +424,42 @@ bool _hasNonNullBoxShadow(String args) {
   final RegExpMatch? m = RegExp(r'boxShadow\s*:\s*').firstMatch(args);
   if (m == null) return false;
   final String rest = args.substring(m.end).trimLeft();
+  if (rest.startsWith('null')) return false;
+  return true;
+}
+
+/// Removes the contents of every nested parenthesised group, leaving only the
+/// BoxDecoration's TOP-LEVEL argument tokens. Needed so a nested
+/// `Border.all(color: …)` / `LinearGradient(colors: …)` is not mistaken for the
+/// surface's own `color:` fill.
+String _stripNestedParens(String s) {
+  final StringBuffer buf = StringBuffer();
+  int depth = 0;
+  for (int i = 0; i < s.length; i++) {
+    final String c = s[i];
+    if (c == '(') {
+      depth++;
+      continue;
+    }
+    if (c == ')') {
+      if (depth > 0) depth--;
+      continue;
+    }
+    if (depth == 0) buf.write(c);
+  }
+  return buf.toString();
+}
+
+/// True when the BoxDecoration declares a NON-NULL top-level `color:` fill
+/// (ignoring any `color:` that lives inside a nested `Border.all(...)` /
+/// gradient call). An explicit `color: null` is treated as NO fill — symmetric
+/// with [_hasNonNullBoxShadow] — so `color: null` + a real `boxShadow` is still
+/// flagged as the shadow-only pattern it renders as at runtime.
+bool _hasTopLevelColor(String args) {
+  final String top = _stripNestedParens(args);
+  final RegExpMatch? m = RegExp(r'\bcolor\s*:\s*').firstMatch(top);
+  if (m == null) return false;
+  final String rest = top.substring(m.end).trimLeft();
   if (rest.startsWith('null')) return false;
   return true;
 }

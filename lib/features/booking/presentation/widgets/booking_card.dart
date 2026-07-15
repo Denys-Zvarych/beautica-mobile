@@ -322,9 +322,16 @@ class _BookingCardState extends State<BookingCard> {
             children: <Widget>[
               Text(
                 _b.masterName,
-                maxLines: 1,
+                key: ValueKey<String>('master-name-${_b.id}'),
+                // A long «Ім'я Прізвище» wraps to a second line rather than
+                // being cut mid-name; the ellipsis stays only as a defensive
+                // floor for a pathological 3-lines-worth name. The identity
+                // column is MainAxisSize.min inside a min-height body Column,
+                // so the extra line grows the card instead of clipping.
+                maxLines: 2,
+                softWrap: true,
                 overflow: TextOverflow.ellipsis,
-                style: VelvetText.cardTitle().copyWith(
+                style: VelvetText.bookingCardName.copyWith(
                   color: _isDead ? BrandColors.textSecondary : BrandColors.text,
                 ),
               ),
@@ -334,7 +341,7 @@ class _BookingCardState extends State<BookingCard> {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: VelvetText.feedbackMutedSm,
+                  style: VelvetText.bookingCardSubtle,
                 ),
               ],
               if (salon != null) ...<Widget>[
@@ -354,7 +361,7 @@ class _BookingCardState extends State<BookingCard> {
                         salon,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: VelvetText.statCaption().copyWith(
+                        style: VelvetText.bookingCardCaption.copyWith(
                           color: _isDead
                               ? BrandColors.muted
                               : BrandColors.textSecondary,
@@ -504,7 +511,7 @@ class _DateStub extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: VelvetText.statCaption().copyWith(
+            style: VelvetText.bookingCardCaption.copyWith(
               color: dimmed ? BrandColors.faint : BrandColors.muted,
             ),
           ),
@@ -651,7 +658,7 @@ class _ServiceLine extends StatelessWidget {
             key: ValueKey<String>('service-$bookingId'),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: VelvetText.bodyStrong().copyWith(
+            style: VelvetText.bookingCardService.copyWith(
               color: dimmed ? BrandColors.textSecondary : BrandColors.text,
             ),
           ),
@@ -671,7 +678,7 @@ class _ServiceLine extends StatelessWidget {
                 price!,
                 key: ValueKey<String>('price-$bookingId'),
                 maxLines: 1,
-                style: VelvetText.bookAccentBold15,
+                style: VelvetText.bookingCardPrice,
               ),
             ),
           ),

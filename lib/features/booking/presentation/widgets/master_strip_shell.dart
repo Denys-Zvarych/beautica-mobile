@@ -3,8 +3,9 @@
 // renders.
 //
 // Owns the `Semantics` + `Material(type: transparency)` Hero-flight guard +
-// the extruded `#EDE4D5` camel-wash card (shadow layer + RRect-clipped fill,
-// mirroring `NeumorphicCard` but Impeller-GLES-safe — see the build comment) +
+// the extruded `#EDE4D5` camel-wash card (a single `NeumorphicCard`-style
+// decoration carrying the fill colour AND shadow together — Impeller-GLES-safe,
+// see the build comment) +
 // `Row[ MasterAvatarBadge, Expanded(Column[ top
 // label, name, one subtitle line ]), trailing ]` structure, and exposes the
 // variable parts as slots ([middleLine], [trailing], [avatarGradient]/
@@ -74,8 +75,8 @@ class MasterStripShell extends StatelessWidget {
   /// summary shelf, so the strip reads as sitting on its own elevated card.
   static const Color _stripSurface = Color(0xFFEDE4D5);
 
-  // The card radius, shared by the shadow layer, the clip, and the fill layer.
-  // Compile-time const so the whole BorderRadius is const.
+  // The card radius on the single decoration that carries the fill colour and
+  // the shadow together. Compile-time const so the whole BorderRadius is const.
   static const BorderRadius _radius = BorderRadius.all(
     Radius.circular(VelvetRadii.card),
   );
@@ -94,63 +95,55 @@ class MasterStripShell extends StatelessWidget {
         // installs the ambient Theme/DefaultTextStyle — so it doesn't
         // interfere with the card's own shadow/decoration painting.
         type: MaterialType.transparency,
-        // IMPELLER-GLES CORNER FIX: the extruded card shadow lives on an OUTER
-        // shadow-only box, while the taupe fill is painted inside a ClipRRect.
-        // Drawn as one `BoxDecoration(color + borderRadius + boxShadow)` (what
-        // NeumorphicCard does), Impeller's OpenGLES backend leaks this card's
-        // square fill corners out from behind the rounded arc as opaque
-        // (near-white) rectangles — mirrors the master avatar's own RRect
-        // workaround and the locality picker sheet's surface clip.
+        // IMPELLER-GLES CORNER FIX: the taupe fill colour and the extruded card
+        // shadow MUST share ONE BoxDecoration. A shadow-only BoxDecoration (no
+        // `color:`) makes Impeller's OpenGLES backend rasterize the pale blurred
+        // shadow as opaque near-white SQUARES in the corners; a ClipRRect around
+        // the child cannot clip the PARENT's shadow, so the earlier split
+        // "shadow box -> ClipRRect -> fill" never cleared it. This is the
+        // canonical single-decoration idiom `NeumorphicCard` uses.
         child: DecoratedBox(
           decoration: const BoxDecoration(
+            color: _stripSurface,
             borderRadius: _radius,
             boxShadow: VelvetShadows.extrudedCard,
           ),
-          child: ClipRRect(
-            borderRadius: _radius,
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                color: _stripSurface,
-                borderRadius: _radius,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-                child: Row(
-                  children: <Widget>[
-                    MasterAvatarBadge(
-                      gradient: avatarGradient,
-                      bordered: avatarBordered,
-                    ),
-                    const SizedBox(width: VelvetSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          if (topLabel != null) ...<Widget>[
-                            Text(topLabel!, style: VelvetText.masterStripLabel),
-                            const SizedBox(height: 2),
-                          ],
-                          Text(
-                            name,
-                            style: VelvetText.masterStripName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (middleLine != null) ...<Widget>[
-                            SizedBox(height: middleGap),
-                            middleLine!,
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (trailing != null) ...<Widget>[
-                      const SizedBox(width: VelvetSpacing.sm),
-                      trailing!,
-                    ],
-                  ],
+          child: Padding(
+            padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+            child: Row(
+              children: <Widget>[
+                MasterAvatarBadge(
+                  gradient: avatarGradient,
+                  bordered: avatarBordered,
                 ),
-              ),
+                const SizedBox(width: VelvetSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (topLabel != null) ...<Widget>[
+                        Text(topLabel!, style: VelvetText.masterStripLabel),
+                        const SizedBox(height: 2),
+                      ],
+                      Text(
+                        name,
+                        style: VelvetText.masterStripName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (middleLine != null) ...<Widget>[
+                        SizedBox(height: middleGap),
+                        middleLine!,
+                      ],
+                    ],
+                  ),
+                ),
+                if (trailing != null) ...<Widget>[
+                  const SizedBox(width: VelvetSpacing.sm),
+                  trailing!,
+                ],
+              ],
             ),
           ),
         ),

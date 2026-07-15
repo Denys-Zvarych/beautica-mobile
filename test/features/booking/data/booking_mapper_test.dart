@@ -37,6 +37,8 @@
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/data/booking_mapper.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -94,7 +96,139 @@ BookingDetailResponse _dtoWithUnrecognisedStatus(String id) =>
           ..masterType = BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
         .build();
 
+/// A valid CONFIRMED DTO carrying the four location fields + arrival note.
+/// Any of the address parameters may be left `null` to exercise a fallback
+/// branch of `composeAddressBlock`.
+BookingDetailResponse _dtoWithAddress({
+  String id = 'booking-addr',
+  String? cityLabel = 'Львів',
+  String? districtLabel = 'Галицький',
+  String? street = 'вулиця Городоцька',
+  String? buildingNo = '15',
+  String? locationNote = 'Третій поверх, код 1234',
+}) {
+  final builder = BookingDetailResponseBuilder()
+    ..id = id
+    ..masterId = 'master-1'
+    ..masterServiceId = 'service-1'
+    ..masterFirstName = 'Оля'
+    ..masterLastName = 'Коваль'
+    ..serviceName = 'Манікюр'
+    ..status = BookingDetailResponseStatusEnum.CONFIRMED
+    ..startsAt = DateTime.utc(2026, 7, 10, 10)
+    ..endsAt = DateTime.utc(2026, 7, 10, 11)
+    ..priceAtBooking = 500
+    ..durationMinutesAtBooking = 60
+    ..canReview = false
+    ..masterType = BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER;
+  // built_value builders reject a `= null` assignment as a no-op only for
+  // set fields; leaving them unset is how a null wire value is represented,
+  // so assign ONLY the non-null parameters.
+  if (cityLabel != null) builder.cityLabel = cityLabel;
+  if (districtLabel != null) builder.districtLabel = districtLabel;
+  if (street != null) builder.street = street;
+  if (buildingNo != null) builder.buildingNo = buildingNo;
+  if (locationNote != null) builder.locationNote = locationNote;
+  return builder.build();
+}
+
 void main() {
+  // ==========================================================================
+  // Address-block mapping (feat/booking-auto-confirm defensive guard).
+  //
+  // The booking-detail "city only" address bug was a DATA problem (a seed
+  // master with null street/building/note), NOT a mobile mapping bug — the DTO
+  // → Booking → composeAddressBlock chain is correct. These tests PIN that
+  // chain so a FUTURE mobile change that drops the finer fields (street /
+  // buildingNo / districtLabel / locationNote) between the wire DTO and the
+  // rendered «Адреса» block fails here, loudly, at unit level.
+  //
+  // Both branches are documented on purpose: the FULL address (street present)
+  // and the intentional CITY-ONLY fallback (street + district absent), so the
+  // test also records that the sparse-data path is by design, not a regression.
+  // ==========================================================================
+  group('BookingMapper.fromDto — address enrichment', () {
+    test('carries every location field through to the full addressBlock '
+        '(value «street, no» + detail «district район, city»)', () {
+      final Booking b = BookingMapper.fromDto(_dtoWithAddress());
+
+      // Raw fields survive the mapping unchanged.
+      expect(b.street, 'вулиця Городоцька');
+      expect(b.buildingNo, '15');
+      expect(b.districtLabel, 'Галицький');
+      expect(b.cityLabel, 'Львів');
+      expect(
+        b.locationNote,
+        'Третій поверх, код 1234',
+        reason: 'the arrival note must be preserved for «Деталі запису»',
+      );
+
+      // The composed «Деталі запису» block: precise value on top, coarse
+      // locators beneath — the exact shape a future field-drop would break.
+      final (String? value, String? detail) = b.addressBlock;
+      expect(
+        value,
+        'вулиця Городоцька, 15',
+        reason:
+            'the full-address value must join street + building — dropping '
+            'buildingNo or street silently reintroduces the city-only bug',
+      );
+      expect(
+        detail,
+        'Галицький район, Львів',
+        reason:
+            'the coarse detail must keep BOTH the district and the city on '
+            'the detail screen (rule 1 is relaxed here by design)',
+      );
+    });
+
+    test('street present but building absent → value is the bare street '
+        '(a lone street is still a real address)', () {
+      final Booking b = BookingMapper.fromDto(
+        _dtoWithAddress(buildingNo: null),
+      );
+
+      final (String? value, String? detail) = b.addressBlock;
+      expect(value, 'вулиця Городоцька');
+      expect(detail, 'Галицький район, Львів');
+    });
+
+    test('street + district BOTH absent → intentional city-only fallback '
+        '(«Львів», null), documenting the sparse-data branch is by design', () {
+      final Booking b = BookingMapper.fromDto(
+        _dtoWithAddress(street: null, buildingNo: null, districtLabel: null),
+      );
+
+      final (String? value, String? detail) = b.addressBlock;
+      expect(
+        value,
+        'Львів',
+        reason:
+            'with no street and no district the city alone is the whole '
+            'address — this is the intended fallback, not a regression',
+      );
+      expect(detail, isNull, reason: 'city-only has no coarse line beneath it');
+    });
+
+    test(
+      'no location fields at all → (null, null) so the caller omits the row',
+      () {
+        final Booking b = BookingMapper.fromDto(
+          _dtoWithAddress(
+            cityLabel: null,
+            districtLabel: null,
+            street: null,
+            buildingNo: null,
+            locationNote: null,
+          ),
+        );
+
+        expect(b.addressBlock, (null, null));
+        expect(b.locationNote, isNull);
+      },
+    );
+  });
+
   group('BookingStatus.fromWire', () {
     test('throws ArgumentError on an unrecognised wire value', () {
       expect(() => BookingStatus.fromWire('RESCHEDULED'), throwsArgumentError);
