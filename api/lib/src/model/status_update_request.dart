@@ -22,7 +22,7 @@ abstract class StatusUpdateRequest
   // enum cancellationReasonEnum {  CLIENT_NO_SHOW,  CLIENT_CANCELLED,  PROVIDER_UNAVAILABLE,  DUPLICATE,  OTHER,  };
 
   @BuiltValueField(wireName: r'comment')
-  String get comment;
+  String? get comment;
 
   StatusUpdateRequest._();
 
@@ -61,11 +61,13 @@ class _$StatusUpdateRequestSerializer
             const FullType(StatusUpdateRequestCancellationReasonEnum),
       );
     }
-    yield r'comment';
-    yield serializers.serialize(
-      object.comment,
-      specifiedType: const FullType(String),
-    );
+    if (object.comment != null) {
+      yield r'comment';
+      yield serializers.serialize(
+        object.comment,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
