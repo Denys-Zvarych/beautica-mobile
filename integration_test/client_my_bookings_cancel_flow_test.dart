@@ -126,17 +126,15 @@ void main() {
       expect(fb.lastCancelComment, 'Захворіла, вибачте.');
       expect(fb.bookingStatus, 'CANCELLED');
 
-      // ── 5. The detail re-rendered as a CLIENT cancellation. ───────────────
+      // ── 5. The detail re-rendered as a cancellation. ──────────────────────
+      // Client-cancelled and provider-declined now share the single neutral
+      // «Скасовано» label (locked product decision), so there is no longer a
+      // distinct provider-decline string to assert the absence of.
       final AppLocalizations detailL10n = l10nOf(tester, BookingDetailScreen);
       expect(
-        find.text(detailL10n.bookingStatusCancelledByClient),
+        find.text(detailL10n.bookingStatusCancelled),
         findsWidgets,
-        reason: 'the detail must now say «Ви скасували» (client agency)',
-      );
-      expect(
-        find.text(detailL10n.bookingStatusDeclinedBySalon),
-        findsNothing,
-        reason: 'a client cancellation must NEVER read as a provider decline',
+        reason: 'the detail must now say «Скасовано»',
       );
 
       // ── 6. Back on the list: it has left Майбутні, and shows in Скасовані. ─
@@ -167,9 +165,9 @@ void main() {
         reason: 'the cancelled booking must now appear under Скасовані',
       );
       expect(
-        find.text(tabsL10n.bookingStatusCancelledByClient),
+        find.text(tabsL10n.bookingStatusCancelled),
         findsOneWidget,
-        reason: 'and it must be labelled «Ви скасували»',
+        reason: 'and it must be labelled «Скасовано»',
       );
     },
   );

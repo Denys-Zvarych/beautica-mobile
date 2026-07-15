@@ -4,9 +4,10 @@
 // screen never CLIPS at any status/width; this suite proves it renders the
 // RIGHT THING at each status — the state machine the whole feature exists for:
 //   • loading spinner (behind a live back button) / error + retry;
-//   • the status-distinct headline + subline — CANCELLED («Ви скасували») is
-//     never DECLINED («Салон/Майстер скасував»); COMPLETED and NOT_COMPLETED
-//     read distinctly;
+//   • the per-status hero + subline — only COMPLETED and NOT_COMPLETED still
+//     carry the status medallion + title; CONFIRMED, CANCELLED and DECLINED
+//     drop the hero entirely and speak through the subline alone (the
+//     who-cancelled label collapsed to a neutral «Скасовано» on 2026-07-15);
 //   • the action footer by status — CONFIRMED = reschedule + cancel;
 //     COMPLETED/CANCELLED/DECLINED = rebook; NOT_COMPLETED = nothing;
 //   • price shown only where money is a true statement (Booking.showsPrice);
@@ -30,6 +31,7 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_medallion.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -183,7 +185,7 @@ void main() {
 
   group('CONFIRMED', () {
     testWidgets(
-      'headline + subline, reschedule & cancel actions, price shown',
+      'subline (no status hero/title), reschedule & cancel actions, price shown',
       (tester) async {
         await _pumpDetail(
           tester,
@@ -194,7 +196,10 @@ void main() {
         );
         final l10n = _l10n(tester);
 
-        expect(find.text(l10n.bookingStatusConfirmed), findsWidgets);
+        // The big status hero (medallion + «Підтверджено» title) is gone on a
+        // CONFIRMED booking — only the reworded subline speaks to the state.
+        expect(find.byType(BookingStatusMedallion), findsNothing);
+        expect(find.text(l10n.bookingStatusConfirmed), findsNothing);
         expect(find.text(l10n.bookingDetailSublineConfirmed), findsOneWidget);
         // Both pinned actions.
         expect(find.text(l10n.bookingDetailRescheduleCta), findsOneWidget);
@@ -223,16 +228,15 @@ void main() {
 
   group('CANCELLED (client backed out)', () {
     testWidgets(
-      'says «Ви скасували», rebook action, NO price, optional note absent',
+      'no status hero/title, subline, rebook action, NO price, optional note absent',
       (tester) async {
         await _pumpDetail(tester, _booking(status: BookingStatus.cancelled));
         final l10n = _l10n(tester);
 
-        expect(find.text(l10n.bookingStatusCancelledByClient), findsWidgets);
+        // The medallion + big status title are gone (2026-07-15 collapse) —
+        // the subline carries the neutral cancelled state.
+        expect(find.byType(BookingStatusMedallion), findsNothing);
         expect(find.text(l10n.bookingDetailSublineCancelled), findsOneWidget);
-        // Never the provider-agency copy.
-        expect(find.text(l10n.bookingStatusDeclinedBySalon), findsNothing);
-        expect(find.text(l10n.bookingStatusDeclinedByMaster), findsNothing);
         expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
         // A cancelled appointment owes nothing — price suppressed.
         expect(find.textContaining('₴'), findsNothing);
@@ -262,8 +266,8 @@ void main() {
 
   group('DECLINED (provider backed out)', () {
     testWidgets(
-      'a SALON decline says «Салон скасував» and renders the provider note '
-      'as INbound',
+      'a SALON decline drops the hero, keeps its subline and renders the '
+      'provider note as INbound',
       (tester) async {
         await _pumpDetail(
           tester,
@@ -275,13 +279,12 @@ void main() {
         );
         final l10n = _l10n(tester);
 
-        expect(find.text(l10n.bookingStatusDeclinedBySalon), findsWidgets);
+        // No medallion, no big status title — the neutral collapse.
+        expect(find.byType(BookingStatusMedallion), findsNothing);
         expect(
           find.text(l10n.bookingDetailSublineDeclinedSalon),
           findsOneWidget,
         );
-        // Never the client-agency copy.
-        expect(find.text(l10n.bookingStatusCancelledByClient), findsNothing);
         expect(find.textContaining('₴'), findsNothing);
         // The provider's words arrive — recessed InboundNote (depth = authorship).
         expect(find.text(_providerDeclineNote), findsOneWidget);
@@ -289,7 +292,7 @@ void main() {
       },
     );
 
-    testWidgets('an INDEPENDENT-master decline says «Майстер скасував»', (
+    testWidgets('an INDEPENDENT-master decline keeps its own subline', (
       tester,
     ) async {
       await _pumpDetail(
@@ -301,12 +304,11 @@ void main() {
       );
       final l10n = _l10n(tester);
 
-      expect(find.text(l10n.bookingStatusDeclinedByMaster), findsWidgets);
+      expect(find.byType(BookingStatusMedallion), findsNothing);
       expect(
         find.text(l10n.bookingDetailSublineDeclinedMaster),
         findsOneWidget,
       );
-      expect(find.text(l10n.bookingStatusDeclinedBySalon), findsNothing);
     });
   });
 

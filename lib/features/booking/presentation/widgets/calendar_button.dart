@@ -43,6 +43,12 @@ class CalendarButton extends StatefulWidget {
 }
 
 class _CalendarButtonState extends State<CalendarButton> {
+  // Compile-time constant so the whole BorderRadius is const and shared by the
+  // shadow layer + the clip + the fill layer.
+  static const BorderRadius _radius = BorderRadius.all(
+    Radius.circular(VelvetRadii.button),
+  );
+
   bool _pressed = false;
 
   @override
@@ -59,36 +65,54 @@ class _CalendarButtonState extends State<CalendarButton> {
           setState(() => _pressed = false);
           widget.onTap();
         },
+        // IMPELLER-GLES CORNER FIX: the extruded shadow lives on an OUTER
+        // shadow-only box, while the base-tone fill + border are painted inside
+        // a ClipRRect. Left as a single `BoxDecoration(color + borderRadius +
+        // boxShadow)`, Impeller's OpenGLES backend leaks the fill's square
+        // corners out from behind the rounded arc as opaque (near-white) rects
+        // — the same class of bug the shared master avatar dodges by drawing an
+        // RRect, and the locality picker sheet dodges by clipping its surface.
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          height: VelvetSizes.cta,
           decoration: BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: BorderRadius.circular(VelvetRadii.button),
+            borderRadius: _radius,
             boxShadow: _pressed ? null : VelvetShadows.extrudedButton,
-            border: Border.all(
-              color: BrandColors.accent.withValues(alpha: 0.35),
-            ),
           ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.calendar_today_rounded,
-                size: 17,
-                color: BrandColors.accentDeep,
-              ),
-              const SizedBox(width: VelvetSpacing.sm),
-              Flexible(
-                child: Text(
-                  l10n.bookingSuccessAddCalendarCta,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: VelvetText.bookCalendarCta,
+          child: ClipRRect(
+            borderRadius: _radius,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: BrandColors.base,
+                borderRadius: _radius,
+                border: Border.all(
+                  color: BrandColors.accent.withValues(alpha: 0.35),
                 ),
               ),
-            ],
+              child: SizedBox(
+                height: VelvetSizes.cta,
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.calendar_today_rounded,
+                        size: 17,
+                        color: BrandColors.accentDeep,
+                      ),
+                      const SizedBox(width: VelvetSpacing.sm),
+                      Flexible(
+                        child: Text(
+                          l10n.bookingSuccessAddCalendarCta,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: VelvetText.bookCalendarCta,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

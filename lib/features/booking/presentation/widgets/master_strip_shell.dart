@@ -3,7 +3,9 @@
 // renders.
 //
 // Owns the `Semantics` + `Material(type: transparency)` Hero-flight guard +
-// `NeumorphicCard(#EDE4D5)` + `Row[ MasterAvatarBadge, Expanded(Column[ top
+// the extruded `#EDE4D5` camel-wash card (shadow layer + RRect-clipped fill,
+// mirroring `NeumorphicCard` but Impeller-GLES-safe — see the build comment) +
+// `Row[ MasterAvatarBadge, Expanded(Column[ top
 // label, name, one subtitle line ]), trailing ]` structure, and exposes the
 // variable parts as slots ([middleLine], [trailing], [avatarGradient]/
 // [avatarBordered], [topLabel], [semanticsLabel]) so the card's surface,
@@ -20,7 +22,6 @@ import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 
 import 'master_avatar_badge.dart';
 
@@ -73,6 +74,12 @@ class MasterStripShell extends StatelessWidget {
   /// summary shelf, so the strip reads as sitting on its own elevated card.
   static const Color _stripSurface = Color(0xFFEDE4D5);
 
+  // The card radius, shared by the shadow layer, the clip, and the fill layer.
+  // Compile-time const so the whole BorderRadius is const.
+  static const BorderRadius _radius = BorderRadius.all(
+    Radius.circular(VelvetRadii.card),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -85,45 +92,66 @@ class MasterStripShell extends StatelessWidget {
         // producing a brief flash of underlined/tight-line-height text on
         // the master's name. `transparency` paints nothing itself — it only
         // installs the ambient Theme/DefaultTextStyle — so it doesn't
-        // interfere with NeumorphicCard's own shadow/decoration painting.
+        // interfere with the card's own shadow/decoration painting.
         type: MaterialType.transparency,
-        child: NeumorphicCard(
-          color: _stripSurface,
-          padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-          child: Row(
-            children: <Widget>[
-              MasterAvatarBadge(
-                gradient: avatarGradient,
-                bordered: avatarBordered,
+        // IMPELLER-GLES CORNER FIX: the extruded card shadow lives on an OUTER
+        // shadow-only box, while the taupe fill is painted inside a ClipRRect.
+        // Drawn as one `BoxDecoration(color + borderRadius + boxShadow)` (what
+        // NeumorphicCard does), Impeller's OpenGLES backend leaks this card's
+        // square fill corners out from behind the rounded arc as opaque
+        // (near-white) rectangles — mirrors the master avatar's own RRect
+        // workaround and the locality picker sheet's surface clip.
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            borderRadius: _radius,
+            boxShadow: VelvetShadows.extrudedCard,
+          ),
+          child: ClipRRect(
+            borderRadius: _radius,
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                color: _stripSurface,
+                borderRadius: _radius,
               ),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+              child: Padding(
+                padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+                child: Row(
                   children: <Widget>[
-                    if (topLabel != null) ...<Widget>[
-                      Text(topLabel!, style: VelvetText.masterStripLabel),
-                      const SizedBox(height: 2),
-                    ],
-                    Text(
-                      name,
-                      style: VelvetText.masterStripName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    MasterAvatarBadge(
+                      gradient: avatarGradient,
+                      bordered: avatarBordered,
                     ),
-                    if (middleLine != null) ...<Widget>[
-                      SizedBox(height: middleGap),
-                      middleLine!,
+                    const SizedBox(width: VelvetSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          if (topLabel != null) ...<Widget>[
+                            Text(topLabel!, style: VelvetText.masterStripLabel),
+                            const SizedBox(height: 2),
+                          ],
+                          Text(
+                            name,
+                            style: VelvetText.masterStripName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (middleLine != null) ...<Widget>[
+                            SizedBox(height: middleGap),
+                            middleLine!,
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (trailing != null) ...<Widget>[
+                      const SizedBox(width: VelvetSpacing.sm),
+                      trailing!,
                     ],
                   ],
                 ),
               ),
-              if (trailing != null) ...<Widget>[
-                const SizedBox(width: VelvetSpacing.sm),
-                trailing!,
-              ],
-            ],
+            ),
           ),
         ),
       ),

@@ -28,9 +28,11 @@ extension BookingDisplayX on Booking {
   }
 
   /// A salon booking (`salonName != null`) was acted on BY THE SALON; an
-  /// independent-master booking was acted on BY THE MASTER. Drives «Салон
-  /// скасував» vs «Майстер скасував», and «Коментар салону» vs «Коментар
-  /// майстра» — see `booking_notes.dart`.
+  /// independent-master booking was acted on BY THE MASTER. The cancelled /
+  /// declined LABEL no longer varies on this (both read the neutral
+  /// «Скасовано» since 2026-07-15); it still drives the decline glyph
+  /// (storefront vs scissors) and «Коментар салону» vs «Коментар майстра» —
+  /// see `booking_notes.dart`.
   bool get atSalon => salonName != null;
 
   /// The provider in the genitive, for a note heading: «Коментар **салону**»

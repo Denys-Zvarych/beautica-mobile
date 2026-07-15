@@ -14,10 +14,15 @@
 //      snapshots the picks into TWO `BookingAppointment`s — distinct serviceId,
 //      distinct chosen `startAt`, and a distinct NON-EMPTY stable idempotency
 //      key each (generated once here, per `BookingTimeScreen._confirm`).
-//   4. The client-side self-overlap guard rejects two services scheduled at
-//      overlapping windows with the Ukrainian overlap message and does NOT
-//      navigate (pre-empting the backend's per-appointment
-//      CLIENT_BOOKING_CONFLICT 409).
+//   4. Sibling pre-disable: once one service is scheduled on a date, the slot
+//      chips on a SIBLING service's SAME-day time grid that would overlap that
+//      chosen window are rendered UNAVAILABLE and are non-tappable — the app
+//      computes availability so the client can never reach an overlapping
+//      selection through the UI. The post-pick self-overlap guard
+//      (`_hasOverlap`, pre-empting the backend's per-appointment
+//      CLIENT_BOOKING_CONFLICT 409) stays in the code as a defensive backstop
+//      but is no longer reachable via this two-slide flow. (The exhaustive
+//      disable-logic matrix is authored separately by mobile-qa.)
 //
 // Strategy mirrors `salon_time_screen_test.dart`: mounts the REAL production
 // screen via a test-local GoRouter whose `/booking/confirm` route is a STUB
@@ -35,6 +40,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_time_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -317,10 +323,13 @@ void main() {
   );
 
   testWidgets(
-    'the self-overlap guard rejects two services scheduled at overlapping '
-    'times with the Ukrainian overlap message and does not navigate',
+    'a sibling service scheduled on the same date pre-disables the overlapping '
+    'slot chips so an overlap can never be selected through the UI',
     (tester) async {
       await _pumpTall(tester);
+      // Both windows offered on every day: 10:00–11:00 and 14:00–15:00. Both
+      // services are 60 min, so scheduling A at 10:00 must disable B's 10:00
+      // chip (10:00–11:00 overlaps) while leaving B's 14:00 chip free.
       final fake = _FakeSlotRepository(<BookingSlot>[morning, afternoon]);
       BookingConfirmArgs? captured;
       await tester.pumpRoutedApp(
@@ -332,49 +341,55 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Slide A → 10:00.
+      // Slide A → 10:00 (window 10:00–11:00). Auto-advances to slide B.
       await tester.tap(calendarDay('svc-a'));
       await tester.pumpAndSettle();
       await tester.tap(slotChip('svc-a', at(10)));
       await tester.pumpUntilFound(calendarDay('svc-b'));
       await tester.pumpAndSettle();
 
-      // Slide B → the SAME 10:00 window (A is 10:00–11:00, so this overlaps).
+      // Slide B, same date: the 10:00 chip is now pre-disabled (overlaps A's
+      // 10:00–11:00), the non-overlapping 14:00 chip stays available.
       await tester.tap(calendarDay('svc-b'));
       await tester.pumpAndSettle();
+      expect(
+        tester.widget<SlotChip>(slotChip('svc-b', at(10))).available,
+        isFalse,
+        reason: "B's 10:00 window overlaps A's 10:00–11:00 → pre-disabled",
+      );
+      expect(
+        tester.widget<SlotChip>(slotChip('svc-b', at(14))).available,
+        isTrue,
+        reason: "B's 14:00 window is clear of A → still selectable",
+      );
+
+      // Tapping the disabled chip does nothing: B stays unscheduled, so the CTA
+      // stays disabled and the overlap can never be pushed to confirm.
       await tester.tap(slotChip('svc-b', at(10)));
       await tester.pumpAndSettle();
-
-      expect(confirmCta(tester).onPressed, isNotNull);
-      await tester.tap(find.byKey(const Key('booking-time-confirm-cta')));
-
-      // The overlap guard fires: a SnackBar with the overlap message, and NO
-      // navigation. Asserting via `l10n.<key>` (not a raw literal) keeps the
-      // finder locale-invariant.
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(BookingTimeScreen)),
-      );
-      await tester.pumpUntilFound(find.text(l10n.bookingServiceOverlapError));
-
       expect(
-        find.text('confirm-reached'),
-        findsNothing,
-        reason: 'an overlapping selection must NOT reach the confirm screen',
-      );
-      expect(
-        captured,
+        confirmCta(tester).onPressed,
         isNull,
-        reason: 'the overlap guard blocks the push before any args are built',
+        reason: 'the disabled overlapping chip must not schedule service B',
       );
-      expect(find.byType(BookingTimeScreen), findsOneWidget);
 
-      // Drain the SnackBar's own auto-dismiss timer (and service B's post-slot
-      // 360 ms timer) via pump-until-gone so nothing is left pending at
-      // teardown — deterministic, no fixed wait.
-      await tester.pumpUntilGone(
-        find.text(l10n.bookingServiceOverlapError),
-        timeout: const Duration(seconds: 8),
+      // Picking the clear 14:00 window schedules B and enables the CTA — the
+      // pre-disable steers the client to a valid, non-overlapping selection.
+      await tester.tap(slotChip('svc-b', at(14)));
+      await tester.pumpAndSettle();
+      expect(confirmCta(tester).onPressed, isNotNull);
+
+      await tester.tap(find.byKey(const Key('booking-time-confirm-cta')));
+      await tester.pumpUntilGone(find.byType(BookingTimeScreen));
+
+      // No overlap → the flow navigates to confirm with two non-overlapping
+      // appointments; the backstop snackbar never appears.
+      expect(find.text('confirm-reached'), findsOneWidget);
+      expect(captured, isNotNull);
+      final l10n = AppLocalizations.of(
+        tester.element(find.text('confirm-reached')),
       );
+      expect(find.text(l10n.bookingServiceOverlapError), findsNothing);
     },
   );
 }

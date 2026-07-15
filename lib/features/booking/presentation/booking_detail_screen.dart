@@ -201,13 +201,25 @@ class _DetailBody extends StatelessWidget {
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
 
+    // Only COMPLETED and NOT_COMPLETED still carry the big status hero (the
+    // medallion + status title). CONFIRMED drops it (a confirmed booking needs
+    // no ceremony — the subline suffices); CANCELLED and DECLINED drop it too
+    // (product decision 2026-07-15: no medallion, no big «Скасовано» title —
+    // the neutral state reads through the subline alone).
+    final bool showStatusHero =
+        booking.status == BookingStatus.completed ||
+        booking.status == BookingStatus.notCompleted;
+
     return BookingSuccessScaffold(
-      title: v.label,
+      title: showStatusHero ? v.label : null,
       subline: _subline(booking, l10n),
       canPop: true,
       leading: _BackButton(semanticLabel: l10n.bookingDetailBackSemantics),
-      heroBuilder: (AnimationController controller) =>
-          BookingStatusMedallion(visual: v, controller: controller),
+      showHero: showStatusHero,
+      heroBuilder: showStatusHero
+          ? (AnimationController controller) =>
+                BookingStatusMedallion(visual: v, controller: controller)
+          : null,
       belowRecap: booking.canAddToCalendar
           ? CalendarButton(onTap: onAddToCalendar)
           : null,

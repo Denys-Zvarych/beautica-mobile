@@ -4,9 +4,9 @@
 //   • the three-tab status partition (Майбутні = CONFIRMED; Минулі =
 //     COMPLETED + NOT_COMPLETED; Скасовані = CANCELLED + DECLINED) is
 //     correct — each tab only ever shows its own statuses;
-//   • a CANCELLED and a DECLINED booking both render under Скасовані with
-//     DISTINCT copy ("Ви скасували" vs "Салон скасував" / "Майстер
-//     скасував");
+//   • a CANCELLED and a DECLINED booking both render under Скасовані sharing
+//     ONE neutral label — «Скасовано» (the who-cancelled copy distinction was
+//     dropped by product decision 2026-07-15);
 //   • the loading skeleton shows while the first page is in flight;
 //   • salon name renders on the card only when the booking carries one;
 //   • pull-to-refresh calls `getMyBookings(page: 0)` again for the active
@@ -230,8 +230,8 @@ void main() {
       expect(find.byKey(const ValueKey<String>('service-b3')), findsOneWidget);
     });
 
-    testWidgets('Скасовані shows CANCELLED + DECLINED with DISTINCT copy — '
-        '"Ви скасували" vs "Салон скасував"', (tester) async {
+    testWidgets('Скасовані shows CANCELLED + DECLINED both labelled the same '
+        'neutral «Скасовано»', (tester) async {
       final repo = _MockBookingRepository();
       final cancelled = _booking(
         id: 'b4',
@@ -262,19 +262,15 @@ void main() {
       expect(find.byKey(const ValueKey<String>('service-b4')), findsOneWidget);
       expect(find.byKey(const ValueKey<String>('service-b5')), findsOneWidget);
 
-      // Distinct agency copy — both statuses share the tab but must never
-      // share a label.
+      // Collapsed label (product decision 2026-07-15) — a client cancellation
+      // and a provider decline now read the SAME neutral «Скасовано». Both
+      // cards carry it (one badge each → two total).
       expect(
-        find.text(l10n.bookingStatusCancelledByClient),
-        findsOneWidget,
-        reason: 'the client-cancelled card must say "Ви скасували"',
-      );
-      expect(
-        find.text(l10n.bookingStatusDeclinedBySalon),
-        findsOneWidget,
+        find.text(l10n.bookingStatusCancelled),
+        findsNWidgets(2),
         reason:
-            'the salon-declined card must say "Салон скасував", never the '
-            'same copy as the client-cancelled card',
+            'both the client-cancelled and the salon-declined card must show '
+            'the neutral «Скасовано» label',
       );
     });
   });

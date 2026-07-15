@@ -54,12 +54,24 @@ class ServiceSchedulePage extends ConsumerStatefulWidget {
     super.key,
     required this.master,
     required this.service,
+    required this.occupancyMinutesByServiceId,
     required this.onCompleted,
     required this.keepAlive,
   });
 
   final Master master;
   final MasterService service;
+
+  /// Per-service occupancy length in minutes — `durationMinutes +
+  /// bufferMinutesAfter` for EVERY selected service (this slide's own service
+  /// AND its siblings), keyed by serviceId. Threaded from `BookingTimeScreen`
+  /// (which holds the full `BookingSlotPickerArgs.services`) so this slide can
+  /// pre-disable the candidate slots that would overlap a sibling service the
+  /// client has already scheduled on the SAME calendar day — the backend's
+  /// available-slots endpoint only reflects CONFIRMED bookings, so these
+  /// in-session sibling picks must be excluded purely client-side (the backend
+  /// `CLIENT_BOOKING_CONFLICT` 409 stays the authoritative backstop).
+  final Map<String, int> occupancyMinutesByServiceId;
 
   /// Fires once this service transitions from unscheduled to fully scheduled
   /// (both date AND time set) — drives `BookingTimeScreen`'s slider
@@ -346,6 +358,50 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
         ),
       ),
     );
+
+    // Sibling exclusion: every OTHER selected service that is already fully
+    // scheduled on the SAME calendar day occupies `[slot.startAt, slot.startAt
+    // + its duration + buffer)`. Watching the whole schedule (not a `.select`)
+    // is intentional — a sibling's date/slot changing must re-disable this
+    // slide's overlapping chips. See [occupancyMinutesByServiceId].
+    final IndependentBookingScheduleState schedule = ref.watch(
+      independentBookingScheduleProvider,
+    );
+    final List<(DateTime start, DateTime end)> siblingWindows =
+        <(DateTime, DateTime)>[
+          for (final MapEntry<String, IndependentScheduleEntry> e
+              in schedule.entries.entries)
+            if (e.key != _serviceId &&
+                e.value.isScheduled &&
+                _sameCalendarDay(e.value.date!, date))
+              (
+                e.value.slot!.startAt,
+                e.value.slot!.startAt.add(
+                  Duration(minutes: occupancyMinutesFor(e.key)),
+                ),
+              ),
+        ];
+    final int currentOccupancy = occupancyMinutesFor(_serviceId);
+
+    // Effective availability for a candidate slot of the CURRENT service:
+    // keeps the existing backend/working-hours gating (`s.available`) and ANDs
+    // in the sibling-overlap exclusion. Overlap is half-open on canonical-UTC
+    // instants — durations are zone-independent, so no timezone conversion is
+    // needed here (grouping by calendar day is done on the user-picked dates,
+    // which already read at the Europe/Kyiv display zone).
+    bool slotAvailable(BookingSlot s) {
+      if (!s.available) return false;
+      final DateTime slotEnd = s.startAt.add(
+        Duration(minutes: currentOccupancy),
+      );
+      for (final (DateTime occStart, DateTime occEnd) in siblingWindows) {
+        if (s.startAt.isBefore(occEnd) && slotEnd.isAfter(occStart)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     final Widget content = Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Column(
@@ -376,6 +432,23 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
               if (slots.isEmpty) {
                 return _NoSlotsEmptyState(onChangeDate: _clearDate);
               }
+              // Evaluate `slotAvailable` ONCE per slot into a set, then derive
+              // both the empty-state probe (below) and each chip's `available:`
+              // from membership — avoids re-running the O(siblings) overlap scan
+              // per slot a second time inside `_slotGroup`. `BookingSlot` has
+              // freezed value equality, so set membership is a faithful stand-in
+              // for the predicate.
+              final Set<BookingSlot> availableSlots = <BookingSlot>{
+                for (final BookingSlot s in slots)
+                  if (slotAvailable(s)) s,
+              };
+              // Every slot pre-disabled by a sibling service on this date →
+              // the day is effectively fully taken by the client's own other
+              // service; surface a distinct hint instead of a bare grid of
+              // disabled chips.
+              if (siblingWindows.isNotEmpty && availableSlots.isEmpty) {
+                return _SiblingBlockedEmptyState(onChangeDate: _clearDate);
+              }
               final List<BookingSlot> morning = <BookingSlot>[];
               final List<BookingSlot> afternoon = <BookingSlot>[];
               final List<BookingSlot> evening = <BookingSlot>[];
@@ -393,7 +466,12 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   if (morning.isNotEmpty) ...<Widget>[
-                    _slotGroup(l10n.bookingMorningLabel, morning, selectedSlot),
+                    _slotGroup(
+                      l10n.bookingMorningLabel,
+                      morning,
+                      selectedSlot,
+                      availableSlots.contains,
+                    ),
                     const SizedBox(height: VelvetSpacing.md),
                   ],
                   if (afternoon.isNotEmpty) ...<Widget>[
@@ -401,11 +479,17 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
                       l10n.bookingAfternoonLabel,
                       afternoon,
                       selectedSlot,
+                      availableSlots.contains,
                     ),
                     const SizedBox(height: VelvetSpacing.md),
                   ],
                   if (evening.isNotEmpty)
-                    _slotGroup(l10n.bookingEveningLabel, evening, selectedSlot),
+                    _slotGroup(
+                      l10n.bookingEveningLabel,
+                      evening,
+                      selectedSlot,
+                      availableSlots.contains,
+                    ),
                 ],
               );
             },
@@ -444,6 +528,7 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
     String label,
     List<BookingSlot> group,
     BookingSlot? selectedSlot,
+    bool Function(BookingSlot) available,
   ) {
     return SlotGroup(
       label: label,
@@ -451,10 +536,14 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
         for (final BookingSlot s in group)
           SizedBox(
             width: 74,
+            // Reuse SlotChip's existing disabled/non-tappable look: a chip
+            // blocked by a sibling service passes `available: false`, so
+            // SlotChip renders the greyed inset well and nulls its own tap
+            // handlers (onTap is never invoked while unavailable).
             child: SlotChip(
               key: Key('independent-slot-chip-${s.startAt.toIso8601String()}'),
               time: formatSlotTime(s.startAt),
-              available: s.available,
+              available: available(s),
               selected: selectedSlot == s,
               onTap: () => _selectSlot(s),
             ),
@@ -462,6 +551,22 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
       ],
     );
   }
+
+  /// Occupancy length (minutes) for [serviceId] — `durationMinutes +
+  /// bufferMinutesAfter`, from the map threaded by `BookingTimeScreen`. Missing
+  /// ids contribute a zero-length window (they can never overlap), which is the
+  /// safe default should the map ever omit a service.
+  int occupancyMinutesFor(String serviceId) =>
+      widget.occupancyMinutesByServiceId[serviceId] ?? 0;
+
+  /// Whether [a] and [b] fall on the same calendar day. Both are the
+  /// user-picked date-only values from the calendar, which already read at the
+  /// Europe/Kyiv display zone (see `IndependentBookingSchedule.selectDate`), so
+  /// a naive year/month/day comparison IS the display-zone day check — deriving
+  /// the day from a slot's UTC `startAt` instead would misgroup a late-evening
+  /// Kyiv slot.
+  static bool _sameCalendarDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 }
 
 class _WorkingDaysErrorBody extends StatelessWidget {
@@ -538,6 +643,55 @@ class _NoSlotsEmptyState extends StatelessWidget {
           const SizedBox(height: VelvetSpacing.lg),
           NeumorphicButton(
             key: const Key('service-schedule-no-slots-change-date'),
+            label: l10n.bookingChangeDateCta,
+            icon: Icons.edit_calendar_outlined,
+            onPressed: onChangeDate,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown when EVERY bookable slot on the chosen date overlaps a sibling
+/// service the client has already scheduled for the same day — the day is not
+/// fully booked on the backend, it is fully taken by the client's own other
+/// selection, so the copy points them at their sibling picks rather than
+/// implying the master is unavailable.
+class _SiblingBlockedEmptyState extends StatelessWidget {
+  const _SiblingBlockedEmptyState({required this.onChangeDate});
+
+  final VoidCallback onChangeDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Padding(
+      key: const Key('service-schedule-sibling-blocked-empty-state'),
+      padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          const Icon(
+            Icons.event_busy_rounded,
+            size: 32,
+            color: BrandColors.faint,
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          Text(
+            l10n.bookingSiblingBlockedTitle,
+            textAlign: TextAlign.center,
+            style: VelvetText.bodyStrong(),
+          ),
+          const SizedBox(height: VelvetSpacing.xs),
+          Text(
+            l10n.bookingSiblingBlockedMessage,
+            textAlign: TextAlign.center,
+            style: VelvetText.body(),
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
+          NeumorphicButton(
+            key: const Key('service-schedule-sibling-blocked-change-date'),
             label: l10n.bookingChangeDateCta,
             icon: Icons.edit_calendar_outlined,
             onPressed: onChangeDate,

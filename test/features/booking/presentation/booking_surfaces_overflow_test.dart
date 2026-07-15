@@ -64,7 +64,6 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/cancel_booking_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -424,12 +423,10 @@ void main() {
           );
           await pumpDetail(tester, b, width: width, scale: scale);
 
-          // The status label IS the headline — must render, unclipped.
+          // CONFIRMED drops the status hero/title (2026-07-15) — the subline is
+          // the anchor text that must render, unclipped.
           final AppLocalizations l10n = _l10n(tester, BookingDetailScreen);
-          expect(
-            find.text(BookingStatusVisual.of(b, l10n).label),
-            findsWidgets,
-          );
+          expect(find.text(l10n.bookingDetailSublineConfirmed), findsOneWidget);
           // The CONFIRMED-only calendar button laid out (see canAddToCalendar).
           expect(find.byType(CalendarButton), findsOneWidget);
           // Price is a true statement here — it renders.

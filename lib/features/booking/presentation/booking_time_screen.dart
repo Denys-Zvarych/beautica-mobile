@@ -229,6 +229,17 @@ class _BookingTimeScreenState extends ConsumerState<BookingTimeScreen> {
     ];
     _serviceIds = serviceIds;
 
+    // Per-service occupancy (duration + post-booking buffer), threaded into
+    // every slide so each `ServiceSchedulePage` can pre-disable the slots that
+    // would overlap a sibling service already scheduled on the same day. This
+    // is client-side only — the slots endpoint reflects CONFIRMED bookings, not
+    // these in-session picks (the backend CLIENT_BOOKING_CONFLICT 409 remains
+    // the authoritative backstop, still pre-empted by `_hasOverlap` below).
+    final Map<String, int> occupancyMinutesByServiceId = <String, int>{
+      for (final MasterService s in services)
+        s.id: s.durationMinutes + s.bufferMinutesAfter,
+    };
+
     if (_pager == null) {
       final int initialPage =
           ref
@@ -289,6 +300,7 @@ class _BookingTimeScreenState extends ConsumerState<BookingTimeScreen> {
                 key: ValueKey<String>('service-schedule-page-${service.id}'),
                 master: widget.args.master,
                 service: service,
+                occupancyMinutesByServiceId: occupancyMinutesByServiceId,
                 onCompleted: () => _handleCompleted(i, serviceIds),
                 keepAlive: (i - _current).abs() <= 1,
               );

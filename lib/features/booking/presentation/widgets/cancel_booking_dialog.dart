@@ -147,8 +147,7 @@ class _CancelBookingDialogState extends State<CancelBookingDialog> {
                 ),
                 const SizedBox(height: VelvetSpacing.md),
 
-                // ── The note. Optional, and the client is told plainly that
-                //    a real person will read it.
+                // ── The note. Optional free text the client may add.
                 _NoteField(controller: _note, maxLength: _maxLength),
                 const SizedBox(height: VelvetSpacing.md),
 
@@ -226,10 +225,6 @@ class _NoteField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(l10n.cancelBookingNoteLabel, style: VelvetText.label()),
-        const SizedBox(height: VelvetSpacing.xs - 2),
-        // The provider's own note composer tells THEM the client will read
-        // their words; this is the same courtesy in reverse.
-        Text(l10n.cancelBookingNotePromise, style: VelvetText.feedbackMutedSm),
         const SizedBox(height: VelvetSpacing.xs),
         NeumorphicInset(
           child: Padding(

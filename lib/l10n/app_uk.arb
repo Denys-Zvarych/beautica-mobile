@@ -3636,17 +3636,9 @@
   "@bookingStatusNotCompleted": {
     "description": "Booking status badge label — NOT_COMPLETED (no-show)."
   },
-  "bookingStatusCancelledByClient": "Ви скасували",
-  "@bookingStatusCancelledByClient": {
-    "description": "Booking status badge label — CANCELLED (the client backed out)."
-  },
-  "bookingStatusDeclinedBySalon": "Салон скасував",
-  "@bookingStatusDeclinedBySalon": {
-    "description": "Booking status badge label — DECLINED at a salon booking (the salon backed out)."
-  },
-  "bookingStatusDeclinedByMaster": "Майстер скасував",
-  "@bookingStatusDeclinedByMaster": {
-    "description": "Booking status badge label — DECLINED at an independent-master booking (the master backed out)."
+  "bookingStatusCancelled": "Скасовано",
+  "@bookingStatusCancelled": {
+    "description": "Booking status badge label — CANCELLED and DECLINED share one neutral label (the who-cancelled distinction was dropped by product decision 2026-07-15)."
   },
   "bookingStatusSemantics": "Статус: {label}",
   "@bookingStatusSemantics": {
@@ -3733,10 +3725,6 @@
   "@cancelBookingNoteLabel": {
     "description": "Label above the optional cancellation-note field."
   },
-  "cancelBookingNotePromise": "Майстер побачить цей коментар.",
-  "@cancelBookingNotePromise": {
-    "description": "Assurance line under the cancellation-note field label — the provider will read it."
-  },
   "cancelBookingNoteHint": "Напр.: захворіла, перенесла поїздку…",
   "@cancelBookingNoteHint": {
     "description": "Placeholder hint text inside the cancellation-note field."
@@ -3761,7 +3749,7 @@
   "@bookingDetailBackSemantics": {
     "description": "Accessibility label for the booking detail screen's back button."
   },
-  "bookingDetailSublineConfirmed": "Запис підтверджено. Нагадаємо про нього напередодні.",
+  "bookingDetailSublineConfirmed": "Нагадаємо про запис напередодні.",
   "@bookingDetailSublineConfirmed": {
     "description": "Booking detail subline — CONFIRMED."
   },
@@ -4269,6 +4257,14 @@
   "bookingServiceScheduleDateIntro": "Оберіть зручну дату для цієї послуги — далі підберемо вільний час.",
   "@bookingServiceScheduleDateIntro": {
     "description": "Intro line above the calendar on each service's slide of the independent-master per-service booking time screen."
+  },
+  "bookingSiblingBlockedTitle": "Час зайнято іншою послугою",
+  "@bookingSiblingBlockedTitle": {
+    "description": "Empty-state heading on the independent-master time screen when every slot on the chosen date overlaps another service the client already scheduled for the same day."
+  },
+  "bookingSiblingBlockedMessage": "Усі години на цю дату перетинаються з іншою вашою послугою. Оберіть інший час або дату.",
+  "@bookingSiblingBlockedMessage": {
+    "description": "Empty-state body copy on the independent-master time screen when every slot on the chosen date is taken by the client's own other scheduled service."
   },
   "bookingServicePagerSemantics": "Послуга {current} з {count}. {done} заплановано.",
   "@bookingServicePagerSemantics": {

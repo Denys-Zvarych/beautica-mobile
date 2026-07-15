@@ -66,20 +66,23 @@ import 'success_lottie_badge.dart';
 class BookingSuccessScaffold extends StatefulWidget {
   const BookingSuccessScaffold({
     super.key,
-    required this.title,
+    this.title,
     required this.subline,
     required this.recapCards,
     this.actions = const <Widget>[],
     this.belowRecap,
     this.homeGap = VelvetSpacing.md,
     this.heroBuilder,
+    this.showHero = true,
     this.canPop = false,
     this.leading,
   });
 
-  /// Headline — "Записано!" for a celebration, the status label ("Салон
-  /// скасував") for a reference view.
-  final String title;
+  /// Headline — "Записано!" for a celebration, the status label for a
+  /// reference view. `null` renders no headline at all: the CONFIRMED and the
+  /// CANCELLED/DECLINED detail states drop the big status title entirely (the
+  /// subline alone carries the state).
+  final String? title;
 
   /// Sub-line under the headline.
   final String subline;
@@ -107,6 +110,13 @@ class BookingSuccessScaffold extends StatefulWidget {
   /// [SuccessLottieBadge] via the scaffold's internal Lottie controller,
   /// unchanged from before this generalisation.
   final Widget Function(AnimationController revealController)? heroBuilder;
+
+  /// Whether to render the hero slot at all. `true` (both success screens, and
+  /// the COMPLETED / NOT_COMPLETED detail states) renders either the caller's
+  /// [heroBuilder] or — when that is null — the celebratory Lottie. `false`
+  /// (the CONFIRMED and CANCELLED/DECLINED detail states) renders no hero at
+  /// all: no medallion, no Lottie, and no space reserved for one.
+  final bool showHero;
 
   /// Whether hardware back / iOS edge-swipe may pop this screen. Defaults to
   /// `false` — the success screens' existing block-back contract.
@@ -143,7 +153,10 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
       vsync: this,
       duration: const Duration(milliseconds: 1350),
     );
-    if (widget.heroBuilder == null) {
+    // Only allocate a Lottie controller when a Lottie will actually be built:
+    // no caller hero AND the hero slot is shown. A hidden hero (the CONFIRMED /
+    // CANCELLED / DECLINED detail states) never needs one.
+    if (widget.heroBuilder == null && widget.showHero) {
       _lottieController = AnimationController(vsync: this);
     }
   }
@@ -261,22 +274,26 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
                   Align(alignment: Alignment.centerLeft, child: widget.leading),
                   const SizedBox(height: VelvetSpacing.xs),
                 ],
-                Center(
-                  child: widget.heroBuilder != null
-                      ? widget.heroBuilder!(_controller)
-                      : SuccessLottieBadge(controller: lottieController),
-                ),
-                const SizedBox(height: VelvetSpacing.xs),
-                _reveal(
-                  start: 0.45,
-                  end: 0.7,
-                  child: Text(
-                    widget.title,
-                    textAlign: TextAlign.center,
-                    style: VelvetText.headingLg,
+                if (widget.showHero) ...<Widget>[
+                  Center(
+                    child: widget.heroBuilder != null
+                        ? widget.heroBuilder!(_controller)
+                        : SuccessLottieBadge(controller: lottieController),
                   ),
-                ),
-                const SizedBox(height: VelvetSpacing.xs + 2),
+                  const SizedBox(height: VelvetSpacing.xs),
+                ],
+                if (widget.title != null) ...<Widget>[
+                  _reveal(
+                    start: 0.45,
+                    end: 0.7,
+                    child: Text(
+                      widget.title!,
+                      textAlign: TextAlign.center,
+                      style: VelvetText.headingLg,
+                    ),
+                  ),
+                  const SizedBox(height: VelvetSpacing.xs + 2),
+                ],
                 _reveal(
                   start: 0.52,
                   end: 0.78,

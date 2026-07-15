@@ -18,17 +18,16 @@
 //
 // ## Colour never carries meaning alone
 //
-// The CANCELLED / DECLINED distinction — the one this type exists for, since
-// both statuses share the «Скасовані» tab and the tab itself says nothing
-// about WHO backed out — is encoded three independent ways, any one of which
-// is sufficient on its own:
+// Both CANCELLED and DECLINED now share ONE neutral label — «Скасовано»
+// (product decision 2026-07-15 dropped the «Ви скасували» / «Салон скасував» /
+// «Майстер скасував» who-cancelled copy). The residual client-vs-provider
+// distinction, for anyone who still cares to read it, is carried by the two
+// non-text channels, neither of which was ever the primary signal:
 //   1. Colour — warm mocha when the CLIENT acted; error red when the
 //      PROVIDER did.
 //   2. Glyph — a person mark for the client; the provider's own mark for
 //      them (storefront for a salon, scissors for an independent master).
-//   3. Copy — the label names the actor outright: «Ви скасували» / «Салон
-//      скасував» / «Майстер скасував».
-// A fourth — structure, the recessed-well (received) vs hairline (sent) note
+// A third — structure, the recessed-well (received) vs hairline (sent) note
 // container — lives on «Деталі запису»; see `booking_notes.dart`.
 //
 // All of this survives greyscale and colour-blindness.
@@ -79,9 +78,9 @@ class BookingStatusVisual {
   /// while scanning — a no-show, and a booking the provider took away.
   static const double _exceptional = 0.14;
 
-  /// Resolves the visual for [booking]. [BookingDisplayX.atSalon] is what
-  /// turns a provider cancellation into «Салон скасував» vs «Майстер
-  /// скасував».
+  /// Resolves the visual for [booking]. [BookingDisplayX.atSalon] no longer
+  /// affects the CANCELLED/DECLINED label (both read «Скасовано») — it now
+  /// only picks the provider glyph (storefront vs scissors) for a decline.
   factory BookingStatusVisual.of(Booking booking, AppLocalizations l10n) {
     switch (booking.status) {
       // Common case — every upcoming booking is one — so the wash stays
@@ -122,24 +121,26 @@ class BookingStatusVisual {
         );
 
       // The CLIENT backed out. A person glyph, the brand's own warm mocha, no
-      // alarm — a self-cancellation is a normal, blameless act.
+      // alarm — a self-cancellation is a normal, blameless act. The LABEL is
+      // the neutral «Скасовано» (product decision 2026-07-15 collapsed the
+      // who-cancelled copy); the person glyph + warm mocha still set it apart
+      // from a provider cancellation at a glance.
       case BookingStatus.cancelled:
         return BookingStatusVisual(
-          label: l10n.bookingStatusCancelledByClient,
+          label: l10n.bookingStatusCancelled,
           icon: Icons.person_rounded,
           accent: BrandColors.accentDeep,
           wash: BrandColors.accentDeep.withValues(alpha: _ordinary),
         );
 
-      // The PROVIDER backed out. Red is reserved for exactly this: something
-      // was taken from you. The only red in the list, so scanning
-      // «Скасовані» the eye finds the red caps first — the appointments the
-      // client LOST and may want back.
+      // The PROVIDER backed out. Same neutral «Скасовано» label as a client
+      // cancellation (the who-cancelled copy distinction was dropped); red is
+      // reserved for exactly this — something was taken from you — so scanning
+      // «Скасовані» the eye still finds the red caps first, the appointments
+      // the client LOST and may want back.
       case BookingStatus.declined:
         return BookingStatusVisual(
-          label: booking.atSalon
-              ? l10n.bookingStatusDeclinedBySalon
-              : l10n.bookingStatusDeclinedByMaster,
+          label: l10n.bookingStatusCancelled,
           icon: booking.atSalon
               ? Icons.storefront_rounded
               : Icons.content_cut_rounded,
@@ -196,7 +197,7 @@ class BookingStatusBadge extends StatelessWidget {
               ),
               const SizedBox(width: VelvetSpacing.xs - 2),
               // Flexible + ellipsis: on a 360 dp card the longest label
-              // («Майстер скасував») shares its row with the trailing
+              // («Візит не відбувся») shares its row with the trailing
               // chevron and must yield rather than overflow.
               Flexible(
                 child: Padding(
