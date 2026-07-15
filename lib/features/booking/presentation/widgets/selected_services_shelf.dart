@@ -177,6 +177,19 @@ class _SelectedServicesShelfState extends State<SelectedServicesShelf> {
                       // while extracting this widget).
                       child: ListView.separated(
                         key: const Key('booking-summary-expanded-list'),
+                        // `shrinkWrap: true` so the list sizes to its actual
+                        // row count instead of greedily filling the whole
+                        // [listMaxHeight] the enclosing `ConstrainedBox` allows
+                        // — a non-shrink-wrapped `ListView` in a bounded
+                        // viewport always expands to the max extent, which left
+                        // a large blank gap under the last service whenever the
+                        // rows totalled less than 188dp (visible in every flow
+                        // with only 1–2 selected services, salon and
+                        // independent alike). Shrink-wrapping makes the panel
+                        // fit its content; the `ConstrainedBox` above still
+                        // caps it at [listMaxHeight], and once the rows exceed
+                        // that cap the list is clamped and scrolls as before.
+                        shrinkWrap: true,
                         padding: EdgeInsets.zero,
                         itemCount: widget.services.length,
                         separatorBuilder: (BuildContext context, int i) =>
