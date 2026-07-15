@@ -129,3 +129,23 @@ String formatTimeRange(DateTime start, int totalMinutes) {
   return '${_twoDigits(start.hour)}:${_twoDigits(start.minute)}'
       '–${_twoDigits(end.hour)}:${_twoDigits(end.minute)}';
 }
+
+// Phase 14.3 — My Bookings card date stub.
+
+/// The booking card's date-stub second line: genitive month + short weekday,
+/// e.g. "червня, ср". Sits under the big day number, so the day itself is NOT
+/// repeated here — the two lines read as one date:
+///
+/// ```
+/// 18
+/// червня, ср
+/// ```
+///
+/// The weekday is the short form because on the stub it is a qualifier, not
+/// the subject — the client is scanning for a number, then checking which day
+/// of the week it lands on.
+String formatStubDayLine(DateTime day) {
+  final String mon = kMonthsUkGenitive[day.month - 1];
+  final String wd = kWeekdaysUkShort[day.weekday - 1];
+  return '$mon, $wd';
+}

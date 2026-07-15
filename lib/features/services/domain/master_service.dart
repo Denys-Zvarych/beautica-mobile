@@ -12,8 +12,8 @@
 //   - [priceMin] is the canonical floor (base_price on the backend). For FIXED
 //     mode this IS the price. For RANGE mode this is the minimum.
 //   - [priceMax] is only set for RANGE mode; null for FIXED.
-//   - [priceDisplay] is the server-formatted display string (e.g. "500 грн" or
-//     "від 500 до 800 грн"). Always render from this field — never build the
+//   - [priceDisplay] is the server-formatted display string (e.g. "500 ₴" or
+//     "від 500 до 800 ₴"). Always render from this field — never build the
 //     string client-side.
 //   - [durationMinutes] maps from `effectiveDurationMinutes` (or
 //     `serviceDefinition.baseDurationMinutes` as a fallback).
@@ -113,7 +113,7 @@ abstract class MasterService with _$MasterService {
 
     /// Server-formatted display string for the price.
     ///
-    /// Examples: `"500 грн"` (FIXED) or `"від 500 до 800 грн"` (RANGE).
+    /// Examples: `"500 ₴"` (FIXED) or `"від 500 до 800 ₴"` (RANGE).
     /// ALWAYS render from this field — never build a price string client-side.
     /// Falls back to the empty string when the backend omits the field.
     @Default('') String priceDisplay,

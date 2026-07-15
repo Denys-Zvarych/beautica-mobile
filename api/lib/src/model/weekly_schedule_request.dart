@@ -17,8 +17,8 @@ part 'weekly_schedule_request.g.dart';
 /// * [validFrom]
 /// * [validTo]
 /// * [days]
-/// * [windowOrdered]
 /// * [daysUnique]
+/// * [windowOrdered]
 @BuiltValue()
 abstract class WeeklyScheduleRequest
     implements Built<WeeklyScheduleRequest, WeeklyScheduleRequestBuilder> {
@@ -31,11 +31,11 @@ abstract class WeeklyScheduleRequest
   @BuiltValueField(wireName: r'days')
   BuiltList<WeeklyScheduleDayRequest>? get days;
 
-  @BuiltValueField(wireName: r'windowOrdered')
-  bool? get windowOrdered;
-
   @BuiltValueField(wireName: r'daysUnique')
   bool? get daysUnique;
+
+  @BuiltValueField(wireName: r'windowOrdered')
+  bool? get windowOrdered;
 
   WeeklyScheduleRequest._();
 
@@ -86,17 +86,17 @@ class _$WeeklyScheduleRequestSerializer
             const FullType(BuiltList, [FullType(WeeklyScheduleDayRequest)]),
       );
     }
-    if (object.windowOrdered != null) {
-      yield r'windowOrdered';
-      yield serializers.serialize(
-        object.windowOrdered,
-        specifiedType: const FullType(bool),
-      );
-    }
     if (object.daysUnique != null) {
       yield r'daysUnique';
       yield serializers.serialize(
         object.daysUnique,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.windowOrdered != null) {
+      yield r'windowOrdered';
+      yield serializers.serialize(
+        object.windowOrdered,
         specifiedType: const FullType(bool),
       );
     }
@@ -147,19 +147,19 @@ class _$WeeklyScheduleRequestSerializer
           ) as BuiltList<WeeklyScheduleDayRequest>;
           result.days.replace(valueDes);
           break;
-        case r'windowOrdered':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.windowOrdered = valueDes;
-          break;
         case r'daysUnique':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(bool),
           ) as bool;
           result.daysUnique = valueDes;
+          break;
+        case r'windowOrdered':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.windowOrdered = valueDes;
           break;
         default:
           unhandled.add(key);

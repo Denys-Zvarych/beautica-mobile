@@ -103,7 +103,7 @@ void main() {
         const ServiceTile(
           name: 'Манікюр',
           duration: '60 хв',
-          price: '500 грн',
+          price: '500 ₴',
           photoGradient: <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
         ),
       );
@@ -111,7 +111,7 @@ void main() {
 
       expect(find.text('Манікюр'), findsOneWidget);
       expect(find.text('60 хв'), findsOneWidget);
-      expect(find.text('500 грн'), findsOneWidget);
+      expect(find.text('500 ₴'), findsOneWidget);
     });
 
     testWidgets('wraps its subtree in at least one Semantics widget', (
@@ -121,7 +121,7 @@ void main() {
         const ServiceTile(
           name: 'Педикюр',
           duration: '90 хв',
-          price: '700 грн',
+          price: '700 ₴',
           photoGradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
         ),
       );
@@ -162,7 +162,7 @@ void main() {
               child: ServiceTile(
                 name: name,
                 duration: '90 хв',
-                price: '2 500 грн',
+                price: '2 500 ₴',
                 photoGradient: const <Color>[
                   Color(0xFFB89A7A),
                   Color(0xFF6A4A28),

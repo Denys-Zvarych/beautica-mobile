@@ -41,7 +41,7 @@ const _service = MasterService(
   name: 'Манікюр',
   durationMinutes: 60,
   priceMin: 300.0,
-  priceDisplay: '300 грн',
+  priceDisplay: '300 ₴',
 );
 
 // ---------------------------------------------------------------------------

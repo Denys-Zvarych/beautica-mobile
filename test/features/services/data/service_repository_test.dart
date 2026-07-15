@@ -75,7 +75,7 @@ ServiceDefinitionResponse _buildDef({
           ..priceType = priceType
           ..priceMin = priceMin
           ..priceMax = priceMax
-          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} грн'
+          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} ₴'
           ..bufferMinutesAfter = bufferMinutesAfter
           ..isActive = isActive)
         .build();
@@ -219,7 +219,7 @@ void main() {
           name: 'Манікюр',
           baseDurationMinutes: 60,
           priceMin: 500,
-          priceDisplay: '500 грн',
+          priceDisplay: '500 ₴',
         ),
         isActive: true,
       );
@@ -230,7 +230,7 @@ void main() {
           name: 'Педикюр',
           baseDurationMinutes: 90,
           priceMin: 700,
-          priceDisplay: '700 грн',
+          priceDisplay: '700 ₴',
         ),
         // effectivePrice is the floor for booking but priceMin is used for domain.
         effectivePrice: 650,
@@ -251,7 +251,7 @@ void main() {
       expect(first.name, 'Манікюр');
       expect(first.durationMinutes, 60);
       expect(first.priceMin, 500.0);
-      expect(first.priceDisplay, '500 грн');
+      expect(first.priceDisplay, '500 ₴');
       expect(first.isActive, isTrue);
 
       // Second item — priceMin = 700 (from serviceDefinition).
@@ -318,7 +318,7 @@ void main() {
             name: 'Педикюр',
             baseDurationMinutes: 90,
             priceMin: 700,
-            priceDisplay: '700 грн',
+            priceDisplay: '700 ₴',
           ),
         );
         when(() => serviceApi.getMyServices()).thenAnswer(
@@ -511,7 +511,7 @@ void main() {
             name: 'Брови',
             baseDurationMinutes: 45,
             priceMin: 350,
-            priceDisplay: '350 грн',
+            priceDisplay: '350 ₴',
           ),
         );
 
@@ -754,7 +754,7 @@ void main() {
           name: 'Манікюр Оновлений',
           baseDurationMinutes: 75,
           priceMin: 600,
-          priceDisplay: '600 грн',
+          priceDisplay: '600 ₴',
         );
 
         when(

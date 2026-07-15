@@ -65,7 +65,7 @@ const _services = <MasterService>[
     name: 'Манікюр з покриттям',
     durationMinutes: 90,
     priceMin: 500,
-    priceDisplay: '500 грн',
+    priceDisplay: '500 ₴',
     category: 'NAILS',
   ),
   MasterService(
@@ -74,7 +74,7 @@ const _services = <MasterService>[
     name: 'Дизайн нігтів',
     durationMinutes: 60,
     priceMin: 300,
-    priceDisplay: 'від 300 грн',
+    priceDisplay: 'від 300 ₴',
     category: 'NAILS',
   ),
 ];

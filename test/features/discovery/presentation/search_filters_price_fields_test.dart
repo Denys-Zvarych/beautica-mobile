@@ -11,7 +11,7 @@
 //   4. field → state sync — entering a MIN value drives the controller's
 //      minPrice (the field is the deterministic way to set the lower bound;
 //      a raw RangeSlider drag is ambiguous between its two thumbs).
-//   5. four-state readout — the «від X грн» (MIN-only) branch, which neither of
+//   5. four-state readout — the «від X ₴» (MIN-only) branch, which neither of
 //      the dev's two price tests covers (they cover MAX-only and MIN+MAX).
 //
 // House patterns followed from the sibling screen test: plain `MaterialApp
@@ -134,7 +134,7 @@ void main() {
     );
 
     testWidgets(
-      'MIN-only entry renders the «від X грн» four-state readout branch',
+      'MIN-only entry renders the «від X ₴» four-state readout branch',
       (tester) async {
         await _pumpScreen(tester);
         await tester.pumpAndSettle();
@@ -149,7 +149,7 @@ void main() {
         expect(
           _readout(tester).data,
           l10n.searchPriceFrom(450),
-          reason: 'min set + max null → «від X грн» (the MIN-only branch)',
+          reason: 'min set + max null → «від X ₴» (the MIN-only branch)',
         );
       },
     );
@@ -293,11 +293,11 @@ void main() {
     // Regression guard for the "................" bug: the price RangeSlider
     // painted a visible dot at every division. The fix hides the ticks via the
     // local SliderThemeData (radius 0 + transparent colours) while KEEPING
-    // `divisions` so the 500-грн snapping UX survives. This test asserts BOTH
+    // `divisions` so the 500-₴ snapping UX survives. This test asserts BOTH
     // halves so neither can silently regress: the dots can never return, and
     // the snapping can never be silently dropped by "just deleting divisions".
     testWidgets(
-      'price slider hides the per-division tick dots yet keeps 500-грн snapping',
+      'price slider hides the per-division tick dots yet keeps 500-₴ snapping',
       (tester) async {
         await _pumpScreen(tester);
         await tester.pumpAndSettle();
@@ -336,7 +336,7 @@ void main() {
         );
 
         // Half 2 — snapping preserved. `divisions` must stay non-null and equal
-        // the 40-step (500-грн) constant; dropping it would lose the snap UX.
+        // the 40-step (500-₴) constant; dropping it would lose the snap UX.
         final RangeSlider slider = tester.widget<RangeSlider>(sliderFinder);
         expect(
           slider.divisions,
@@ -347,7 +347,7 @@ void main() {
         expect(
           slider.divisions,
           kSearchPriceDivisions,
-          reason: 'snapping stays at the 40-division (500-грн) step',
+          reason: 'snapping stays at the 40-division (500-₴) step',
         );
       },
     );

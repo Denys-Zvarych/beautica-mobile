@@ -116,7 +116,7 @@ SalonMasterSchedule _schedule(String masterId) => SalonMasterSchedule(
       id: 'svc-$masterId',
       name: 'Манікюр',
       durationLabel: '1 год',
-      priceDisplay: '500 грн',
+      priceDisplay: '500 ₴',
       durationMinutes: 60,
       priceType: ServicePriceType.fixed,
       priceMin: 500,

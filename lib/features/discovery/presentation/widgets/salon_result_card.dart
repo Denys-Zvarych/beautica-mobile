@@ -8,7 +8,7 @@
 //   • `SalonSearchResult` carries NO avgRating field → the ★ rating row is
 //     OMITTED entirely (never invent a value).
 //   • Price range follows decision 5: render `priceMin`–`priceMax`; collapse to
-//     a single «від N грн» when the two are equal; hide the price line when both
+//     a single «від N ₴» when the two are equal; hide the price line when both
 //     are null.
 
 import 'package:flutter/material.dart';
@@ -162,9 +162,9 @@ class SalonResultCard extends ConsumerWidget {
   /// bounds differ; an equal (or single) bound renders one fixed price with no
   /// «від»:
   ///   both null      → null (hide the line)
-  ///   equal bounds   → exact fixed price «N грн» (NO «від»)
-  ///   one bound only → «від N грн» (open-ended on the other side)
-  ///   min < max      → «N–M грн» range
+  ///   equal bounds   → exact fixed price «N ₴» (NO «від»)
+  ///   one bound only → «від N ₴» (open-ended on the other side)
+  ///   min < max      → «N–M ₴» range
   static String? _priceLabel(AppLocalizations l10n, double? min, double? max) {
     final int? lo = min?.round();
     final int? hi = max?.round();

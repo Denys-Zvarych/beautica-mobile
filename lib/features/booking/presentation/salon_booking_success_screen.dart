@@ -142,8 +142,14 @@ class _SalonBookingSuccessScreenState
     return BookingSuccessScaffold(
       title: l10n.salonBookingSuccessTitle,
       subline: l10n.salonBookingSuccessSubline,
-      homeButtonKey: const Key('salon-success-home-cta'),
-      onHome: () => context.go(RouteNames.clientHome),
+      actions: <Widget>[
+        SuccessSecondaryButton(
+          buttonKey: const Key('salon-success-home-cta'),
+          label: l10n.bookingSuccessHomeCta,
+          icon: Icons.home_outlined,
+          onPressed: () => context.go(RouteNames.clientHome),
+        ),
+      ],
       homeGap: VelvetSpacing.sm,
       recapCards: <Widget>[
         NeumorphicCard(

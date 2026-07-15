@@ -399,7 +399,7 @@ void main() {
 
   // -------------------------------------------------------------------------
   // Regression guard — the search price ceiling was raised 5000 → 20000
-  // (kSearchPriceDivisions 50 → 40, i.e. a 500-грн step). The existing
+  // (kSearchPriceDivisions 50 → 40, i.e. a 500-₴ step). The existing
   // setMaxPrice group above asserts only against the *symbol*
   // kSearchPriceCeiling, so it passes under EITHER ceiling and cannot catch a
   // regression of the value itself. THESE cases pin concrete rupee-values that
@@ -408,10 +408,10 @@ void main() {
   // 5000, since 12000 >= 5000). They lock the raised ceiling in place.
   // -------------------------------------------------------------------------
   group('SearchFiltersController — 20000 price ceiling (raised from 5000)', () {
-    test('kSearchPriceCeiling is 20000 and divisions is 40 (500-грн step)', () {
+    test('kSearchPriceCeiling is 20000 and divisions is 40 (500-₴ step)', () {
       expect(kSearchPriceCeiling, 20000);
       expect(kSearchPriceDivisions, 40);
-      // Sanity: 40 divisions over a 20000 span is a 500-грн increment.
+      // Sanity: 40 divisions over a 20000 span is a 500-₴ increment.
       expect(kSearchPriceCeiling / kSearchPriceDivisions, 500);
     });
 

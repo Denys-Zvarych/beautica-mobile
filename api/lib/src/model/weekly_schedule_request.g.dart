@@ -14,9 +14,9 @@ class _$WeeklyScheduleRequest extends WeeklyScheduleRequest {
   @override
   final BuiltList<WeeklyScheduleDayRequest>? days;
   @override
-  final bool? windowOrdered;
-  @override
   final bool? daysUnique;
+  @override
+  final bool? windowOrdered;
 
   factory _$WeeklyScheduleRequest(
           [void Function(WeeklyScheduleRequestBuilder)? updates]) =>
@@ -26,8 +26,8 @@ class _$WeeklyScheduleRequest extends WeeklyScheduleRequest {
       {required this.validFrom,
       this.validTo,
       this.days,
-      this.windowOrdered,
-      this.daysUnique})
+      this.daysUnique,
+      this.windowOrdered})
       : super._();
   @override
   WeeklyScheduleRequest rebuild(
@@ -45,8 +45,8 @@ class _$WeeklyScheduleRequest extends WeeklyScheduleRequest {
         validFrom == other.validFrom &&
         validTo == other.validTo &&
         days == other.days &&
-        windowOrdered == other.windowOrdered &&
-        daysUnique == other.daysUnique;
+        daysUnique == other.daysUnique &&
+        windowOrdered == other.windowOrdered;
   }
 
   @override
@@ -55,8 +55,8 @@ class _$WeeklyScheduleRequest extends WeeklyScheduleRequest {
     _$hash = $jc(_$hash, validFrom.hashCode);
     _$hash = $jc(_$hash, validTo.hashCode);
     _$hash = $jc(_$hash, days.hashCode);
-    _$hash = $jc(_$hash, windowOrdered.hashCode);
     _$hash = $jc(_$hash, daysUnique.hashCode);
+    _$hash = $jc(_$hash, windowOrdered.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -67,8 +67,8 @@ class _$WeeklyScheduleRequest extends WeeklyScheduleRequest {
           ..add('validFrom', validFrom)
           ..add('validTo', validTo)
           ..add('days', days)
-          ..add('windowOrdered', windowOrdered)
-          ..add('daysUnique', daysUnique))
+          ..add('daysUnique', daysUnique)
+          ..add('windowOrdered', windowOrdered))
         .toString();
   }
 }
@@ -90,14 +90,14 @@ class WeeklyScheduleRequestBuilder
       _$this._days ??= ListBuilder<WeeklyScheduleDayRequest>();
   set days(ListBuilder<WeeklyScheduleDayRequest>? days) => _$this._days = days;
 
+  bool? _daysUnique;
+  bool? get daysUnique => _$this._daysUnique;
+  set daysUnique(bool? daysUnique) => _$this._daysUnique = daysUnique;
+
   bool? _windowOrdered;
   bool? get windowOrdered => _$this._windowOrdered;
   set windowOrdered(bool? windowOrdered) =>
       _$this._windowOrdered = windowOrdered;
-
-  bool? _daysUnique;
-  bool? get daysUnique => _$this._daysUnique;
-  set daysUnique(bool? daysUnique) => _$this._daysUnique = daysUnique;
 
   WeeklyScheduleRequestBuilder() {
     WeeklyScheduleRequest._defaults(this);
@@ -109,8 +109,8 @@ class WeeklyScheduleRequestBuilder
       _validFrom = $v.validFrom;
       _validTo = $v.validTo;
       _days = $v.days?.toBuilder();
-      _windowOrdered = $v.windowOrdered;
       _daysUnique = $v.daysUnique;
+      _windowOrdered = $v.windowOrdered;
       _$v = null;
     }
     return this;
@@ -138,8 +138,8 @@ class WeeklyScheduleRequestBuilder
                 validFrom, r'WeeklyScheduleRequest', 'validFrom'),
             validTo: validTo,
             days: _days?.build(),
-            windowOrdered: windowOrdered,
             daysUnique: daysUnique,
+            windowOrdered: windowOrdered,
           );
     } catch (_) {
       late String _$failedField;

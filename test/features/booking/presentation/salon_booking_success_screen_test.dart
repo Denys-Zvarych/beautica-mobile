@@ -63,7 +63,7 @@ SalonBookingAppointment _appt(String masterId, String firstName) =>
             id: 'svc-$masterId',
             name: 'Манікюр',
             durationLabel: '1 год',
-            priceDisplay: '500 грн',
+            priceDisplay: '500 ₴',
             durationMinutes: 60,
             priceType: ServicePriceType.fixed,
             priceMin: 500,
@@ -114,7 +114,7 @@ SalonBookingAppointment _ratedAppt(
         id: 'svc-$masterId',
         name: 'Манікюр',
         durationLabel: '1 год',
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
         durationMinutes: 60,
         priceType: ServicePriceType.fixed,
         priceMin: 500,
@@ -374,11 +374,11 @@ void main() {
         );
         expect(grandTotal, findsOneWidget);
 
-        // Both m1 + m2 (`_appt`) carry ONE 500 грн / 60 min service each ->
-        // summed total is 1000 грн / 2 год.
+        // Both m1 + m2 (`_appt`) carry ONE 500 ₴ / 60 min service each ->
+        // summed total is 1000 ₴ / 2 год.
         expect(
           // i18n-finder-ok: summed price is fixture-derived data, not translated UI copy.
-          find.descendant(of: grandTotal, matching: find.text('1000 грн')),
+          find.descendant(of: grandTotal, matching: find.text('1000 ₴')),
           findsOneWidget,
         );
         expect(
@@ -465,7 +465,7 @@ void main() {
     );
 
     // Per-master service name + price, each with a matching subtotal — one
-    // service each, so its own price ("500 грн") renders TWICE inside the
+    // service each, so its own price ("500 ₴") renders TWICE inside the
     // card: once on the service row, once on the "Разом" subtotal.
     expect(
       // i18n-finder-ok: service name is fixture data (_ratedAppt), not translated UI copy.
@@ -474,7 +474,7 @@ void main() {
     );
     expect(
       // i18n-finder-ok: price is fixture-derived data, not translated UI copy.
-      find.descendant(of: m1Card, matching: find.text('500 грн')),
+      find.descendant(of: m1Card, matching: find.text('500 ₴')),
       findsNWidgets(2),
     );
     expect(
@@ -484,7 +484,7 @@ void main() {
     );
     expect(
       // i18n-finder-ok: price is fixture-derived data, not translated UI copy.
-      find.descendant(of: m2Card, matching: find.text('500 грн')),
+      find.descendant(of: m2Card, matching: find.text('500 ₴')),
       findsNWidgets(2),
     );
   });

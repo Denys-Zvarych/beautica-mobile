@@ -1474,7 +1474,7 @@
   "@errPriceDecimals": {
     "description": "Validation error when a price field is non-numeric or has more than 2 decimal places (hardened 2026-06-03)."
   },
-  "errPriceMax": "Price cannot exceed 99,999,999.99 UAH",
+  "errPriceMax": "Price cannot exceed 99,999,999.99 ₴",
   "@errPriceMax": {
     "description": "Validation error when a price field exceeds the backend maximum of 99999999.99 (hardened 2026-06-03)."
   },
@@ -1509,6 +1509,10 @@
   "pricingAmountLabel": "Amount",
   "@pricingAmountLabel": {
     "description": "Field label for the fixed price amount field (Phase 5.6 flexible pricing)."
+  },
+  "pricingCurrencySuffix": "₴",
+  "@pricingCurrencySuffix": {
+    "description": "Inline currency suffix (UAH) shown inside the FIXED/RANGE price input fields of PricingField (Phase 5.6 flexible pricing)."
   },
   "pricingFromLabel": "From",
   "@pricingFromLabel": {
@@ -2949,9 +2953,9 @@
   "@passportColumnBudget": {
     "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
   },
-  "passportBudgetCeiling": "up to {max} UAH",
+  "passportBudgetCeiling": "up to {max} ₴",
   "@passportBudgetCeiling": {
-    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in ₴.",
     "placeholders": {
       "max": {
         "type": "int",
@@ -3096,7 +3100,7 @@
   "@searchPriceLabel": {
     "description": "Label above the price slider on the Пошук screen."
   },
-  "searchPriceUpTo": "up to {price} UAH",
+  "searchPriceUpTo": "up to {price} ₴",
   "@searchPriceUpTo": {
     "description": "Live readout of the selected price ceiling on the Пошук slider.",
     "placeholders": {
@@ -3110,15 +3114,15 @@
   "@searchPriceAny": {
     "description": "Price readout when the slider is at the ceiling — no upper price bound."
   },
-  "searchPriceMin": "0 UAH",
+  "searchPriceMin": "0 ₴",
   "@searchPriceMin": {
     "description": "Left end label under the price slider (minimum)."
   },
-  "searchPriceMax": "20000+ UAH",
+  "searchPriceMax": "20000+ ₴",
   "@searchPriceMax": {
     "description": "Right end label under the price slider (ceiling and above)."
   },
-  "searchPriceFrom": "from {price} UAH",
+  "searchPriceFrom": "from {price} ₴",
   "@searchPriceFrom": {
     "description": "Price readout fragment for the lower bound when only a minimum is set (no upper bound).",
     "placeholders": {
@@ -3128,7 +3132,7 @@
       }
     }
   },
-  "searchPriceRange": "from {min} to {max} UAH",
+  "searchPriceRange": "from {min} to {max} ₴",
   "@searchPriceRange": {
     "description": "Price readout when both a minimum and a maximum bound are set.",
     "placeholders": {
@@ -3158,9 +3162,9 @@
   "@searchPriceMaxFieldHint": {
     "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
   },
-  "searchPriceCurrencySuffix": "UAH",
+  "searchPriceCurrencySuffix": "₴",
   "@searchPriceCurrencySuffix": {
-    "description": "Inline currency suffix (UAH) shown inside the min/max price input fields."
+    "description": "Inline currency suffix (₴) shown inside the min/max price input fields."
   },
   "searchCtaShowMasters": "Show masters",
   "@searchCtaShowMasters": {
@@ -3203,7 +3207,7 @@
   "@searchResultsEditFilters": {
     "description": "Button on the empty results state that re-opens the search filter controls."
   },
-  "searchResultPriceRange": "{min}–{max} UAH",
+  "searchResultPriceRange": "{min}–{max} ₴",
   "@searchResultPriceRange": {
     "description": "Price range shown on a salon result card (lower–upper bound).",
     "placeholders": {
@@ -3217,7 +3221,7 @@
       }
     }
   },
-  "searchResultPriceExact": "{price} UAH",
+  "searchResultPriceExact": "{price} ₴",
   "@searchResultPriceExact": {
     "description": "Single fixed price on a result card — shown WITHOUT the «from» prefix when the lower and upper price bounds are equal (one fixed price).",
     "placeholders": {
@@ -3604,6 +3608,201 @@
   "bookingSuccessHomeCta": "Home",
   "@bookingSuccessHomeCta": {
     "description": "Sole onward action on the booking success screen; navigates to the client home."
+  },
+  "bookingWhenLabel": "When",
+  "@bookingWhenLabel": {
+    "description": "Combined date+time label on the cancel-booking dialog's recap row."
+  },
+  "bookingSalonLabel": "Salon",
+  "@bookingSalonLabel": {
+    "description": "Label for the optional salon-name row on the booking detail summary card."
+  },
+  "bookingArrivalNoteSemantics": "How to find it: {text}",
+  "@bookingArrivalNoteSemantics": {
+    "description": "Accessibility label for the provider's arrival-hint line on the booking detail address block.",
+    "placeholders": {
+      "text": { "type": "String" }
+    }
+  },
+  "bookingStatusConfirmed": "Confirmed",
+  "@bookingStatusConfirmed": {
+    "description": "Booking status badge label — CONFIRMED."
+  },
+  "bookingStatusCompleted": "Completed",
+  "@bookingStatusCompleted": {
+    "description": "Booking status badge label — COMPLETED."
+  },
+  "bookingStatusNotCompleted": "No-show",
+  "@bookingStatusNotCompleted": {
+    "description": "Booking status badge label — NOT_COMPLETED (no-show)."
+  },
+  "bookingStatusCancelledByClient": "You cancelled",
+  "@bookingStatusCancelledByClient": {
+    "description": "Booking status badge label — CANCELLED (the client backed out)."
+  },
+  "bookingStatusDeclinedBySalon": "Salon cancelled",
+  "@bookingStatusDeclinedBySalon": {
+    "description": "Booking status badge label — DECLINED at a salon booking (the salon backed out)."
+  },
+  "bookingStatusDeclinedByMaster": "Master cancelled",
+  "@bookingStatusDeclinedByMaster": {
+    "description": "Booking status badge label — DECLINED at an independent-master booking (the master backed out)."
+  },
+  "bookingStatusSemantics": "Status: {label}",
+  "@bookingStatusSemantics": {
+    "description": "Accessibility label for the booking status badge / hero medallion.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "bookingCardSemantics": "{service}, {master}, {date}, {time}. {status}. Open booking details",
+  "@bookingCardSemantics": {
+    "description": "Accessibility label for a whole My Bookings card — the card's sole tap target.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "master": { "type": "String" },
+      "date": { "type": "String" },
+      "time": { "type": "String" },
+      "status": { "type": "String" }
+    }
+  },
+  "bookingNoteHeadingYourWishes": "Your wishes",
+  "@bookingNoteHeadingYourWishes": {
+    "description": "Heading over the client's own booking-time note on the booking detail screen."
+  },
+  "bookingNoteHeadingYourReason": "Your reason",
+  "@bookingNoteHeadingYourReason": {
+    "description": "Heading over the client's own cancellation note on the booking detail screen."
+  },
+  "bookingNoteHeadingProviderComment": "{genitive} comment",
+  "@bookingNoteHeadingProviderComment": {
+    "description": "Heading over the provider's note (decline reason or no-show account) on the booking detail screen — {genitive} is the provider's noun (salon/master).",
+    "placeholders": {
+      "genitive": { "type": "String" }
+    }
+  },
+  "bookingNoteShowMore": "Show more",
+  "@bookingNoteShowMore": {
+    "description": "Expand toggle for a clamped booking note."
+  },
+  "bookingNoteShowLess": "Show less",
+  "@bookingNoteShowLess": {
+    "description": "Collapse toggle for an expanded booking note."
+  },
+  "bookingNoteSemantics": "{heading}: {text}",
+  "@bookingNoteSemantics": {
+    "description": "Accessibility label for a booking note block (sent or received).",
+    "placeholders": {
+      "heading": { "type": "String" },
+      "text": { "type": "String" }
+    }
+  },
+  "myBookingsTabUpcoming": "Upcoming",
+  "@myBookingsTabUpcoming": {
+    "description": "My Bookings tab label — upcoming (CONFIRMED) bookings."
+  },
+  "myBookingsTabPast": "Past",
+  "@myBookingsTabPast": {
+    "description": "My Bookings tab label — past (COMPLETED / NOT_COMPLETED) bookings."
+  },
+  "myBookingsTabCancelled": "Cancelled",
+  "@myBookingsTabCancelled": {
+    "description": "My Bookings tab label — cancelled (CANCELLED / DECLINED) bookings."
+  },
+  "myBookingsEmptyTitle": "No bookings yet",
+  "@myBookingsEmptyTitle": {
+    "description": "Empty-state title on a My Bookings tab with no rows."
+  },
+  "myBookingsEmptyCta": "Find a master",
+  "@myBookingsEmptyCta": {
+    "description": "Empty-state CTA on a My Bookings tab; navigates to search."
+  },
+  "myBookingsLoadingSemantics": "Loading bookings",
+  "@myBookingsLoadingSemantics": {
+    "description": "Accessibility live-region label for the My Bookings loading skeleton."
+  },
+  "cancelBookingDialogTitle": "Cancel this booking?",
+  "@cancelBookingDialogTitle": {
+    "description": "Title of the cancel-booking confirmation dialog."
+  },
+  "cancelBookingDialogSubtitle": "This action cannot be undone.",
+  "@cancelBookingDialogSubtitle": {
+    "description": "Subtitle of the cancel-booking confirmation dialog."
+  },
+  "cancelBookingNoteLabel": "Why are you cancelling? (optional)",
+  "@cancelBookingNoteLabel": {
+    "description": "Label above the optional cancellation-note field."
+  },
+  "cancelBookingNotePromise": "The master will see this comment.",
+  "@cancelBookingNotePromise": {
+    "description": "Assurance line under the cancellation-note field label — the provider will read it."
+  },
+  "cancelBookingNoteHint": "E.g.: fell ill, trip got rescheduled…",
+  "@cancelBookingNoteHint": {
+    "description": "Placeholder hint text inside the cancellation-note field."
+  },
+  "cancelBookingNoteCounter": "{current} / {max}",
+  "@cancelBookingNoteCounter": {
+    "description": "Live character counter under the cancellation-note field.",
+    "placeholders": {
+      "current": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "cancelBookingConfirmCta": "Yes, cancel",
+  "@cancelBookingConfirmCta": {
+    "description": "Destructive confirm button on the cancel-booking dialog."
+  },
+  "cancelBookingKeepCta": "Keep booking",
+  "@cancelBookingKeepCta": {
+    "description": "Safe back-out button on the cancel-booking dialog."
+  },
+  "bookingDetailBackSemantics": "Back to bookings list",
+  "@bookingDetailBackSemantics": {
+    "description": "Accessibility label for the booking detail screen's back button."
+  },
+  "bookingDetailSublineConfirmed": "Booking confirmed. We'll remind you the day before.",
+  "@bookingDetailSublineConfirmed": {
+    "description": "Booking detail subline — CONFIRMED."
+  },
+  "bookingDetailSublineCompleted": "Visit complete. Thanks for choosing Beautica.",
+  "@bookingDetailSublineCompleted": {
+    "description": "Booking detail subline — COMPLETED."
+  },
+  "bookingDetailSublineNotCompleted": "This visit didn't happen. Below is the {genitive}'s comment.",
+  "@bookingDetailSublineNotCompleted": {
+    "description": "Booking detail subline — NOT_COMPLETED; {genitive} is the provider's noun (salon/master).",
+    "placeholders": {
+      "genitive": { "type": "String" }
+    }
+  },
+  "bookingDetailSublineCancelled": "You cancelled this booking. You can book again any time.",
+  "@bookingDetailSublineCancelled": {
+    "description": "Booking detail subline — CANCELLED."
+  },
+  "bookingDetailSublineDeclinedSalon": "The salon cancelled this booking. See the reason below.",
+  "@bookingDetailSublineDeclinedSalon": {
+    "description": "Booking detail subline — DECLINED at a salon booking."
+  },
+  "bookingDetailSublineDeclinedMaster": "The master cancelled this booking. See the reason below.",
+  "@bookingDetailSublineDeclinedMaster": {
+    "description": "Booking detail subline — DECLINED at an independent-master booking."
+  },
+  "bookingDetailRescheduleCta": "Reschedule",
+  "@bookingDetailRescheduleCta": {
+    "description": "Primary pinned action on a CONFIRMED booking's detail screen."
+  },
+  "bookingDetailCancelCta": "Cancel booking",
+  "@bookingDetailCancelCta": {
+    "description": "Secondary pinned action on a CONFIRMED booking's detail screen; opens the cancel dialog."
+  },
+  "bookingDetailRebookCta": "Book again",
+  "@bookingDetailRebookCta": {
+    "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
+  },
+  "bookingRescheduleComingSoon": "This feature will be available soon.",
+  "@bookingRescheduleComingSoon": {
+    "description": "Snackbar shown when the client taps Reschedule before reschedule (Phase 14.8) ships."
   },
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {

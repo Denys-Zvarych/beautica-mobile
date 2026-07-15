@@ -18,14 +18,14 @@ import '../../../../helpers/pump_app.dart';
 
 // A single fixed-price/fixed-duration selection, chosen so the "Разом" total
 // row's derived price/duration strings are IDENTICAL to this selection's own
-// (500 грн summed over one service is still "500 грн"; 1 год 30 хв summed is
+// (500 ₴ summed over one service is still "500 ₴"; 1 год 30 хв summed is
 // still "1 год 30 хв") — see `_BookingTotals.from` in `booking_recap.dart`.
 // That lets the total-row test below reconstruct the expected Semantics
 // label deterministically without depending on the widget's own private
 // parsing helpers.
 const _kSelection = BookingSelection(
   name: 'Манікюр з покриттям',
-  price: '500 грн',
+  price: '500 ₴',
   duration: '1 год 30 хв',
 );
 
@@ -84,11 +84,11 @@ void main() {
           final l10n = AppLocalizations.of(
             tester.element(find.byType(BookingRecap)),
           );
-          // Disambiguates from the per-service row's OWN '500 грн' price
+          // Disambiguates from the per-service row's OWN '500 ₴' price
           // text (a different Text instance, different fontSize) by scoping
           // the search to the "Разом" total row's own Semantics wrapper —
           // see `_TotalRow`'s `Semantics(label: semanticsLabel)` in
-          // booking_recap.dart. A plain `find.text('500 грн')` would match
+          // booking_recap.dart. A plain `find.text('500 ₴')` would match
           // BOTH the service row's price and the total row's price and be
           // ambiguous (findsNWidgets(2)).
           final String totalSemanticsLabel = l10n.bookingTotalSemantics(
@@ -153,7 +153,7 @@ void main() {
 
     const longSelection = BookingSelection(
       name: longName,
-      price: '500 грн',
+      price: '500 ₴',
       duration: '1 год 30 хв',
     );
 
@@ -219,14 +219,14 @@ void main() {
     const twoServices = <BookingSelection>[
       BookingSelection(
         name: 'Манікюр класичний',
-        price: '400 грн',
+        price: '400 ₴',
         duration: '1 год',
         durationMinutes: 60,
         priceMin: 400,
       ),
       BookingSelection(
         name: 'Корекція брів',
-        price: '300 грн',
+        price: '300 ₴',
         duration: '45 хв',
         durationMinutes: 45,
         priceMin: 300,
@@ -262,10 +262,10 @@ void main() {
       expect(find.text('Корекція брів'), findsNothing);
       expect(find.byType(Divider), findsNothing);
 
-      // The SUMMED total still renders (400 + 300 = 700 грн, 60 + 45 = 105
+      // The SUMMED total still renders (400 + 300 = 700 ₴, 60 + 45 = 105
       // min = "1 год 45 хв").
       // i18n-finder-ok: price/duration are fixture-derived data strings, not translated UI copy.
-      expect(find.text('700 грн'), findsOneWidget);
+      expect(find.text('700 ₴'), findsOneWidget);
       // i18n-finder-ok: price/duration are fixture-derived data strings, not translated UI copy.
       expect(find.text('1 год 45 хв'), findsOneWidget);
     });
@@ -301,7 +301,7 @@ void main() {
           id: 'svc-1',
           name: 'Манікюр класичний',
           durationLabel: '1 год',
-          priceDisplay: '400 грн',
+          priceDisplay: '400 ₴',
           durationMinutes: 60,
           priceType: ServicePriceType.fixed,
           priceMin: 400,
@@ -311,7 +311,7 @@ void main() {
             BookingSelection.fromSalonCatalogService(service);
 
         expect(selection.name, 'Манікюр класичний');
-        expect(selection.price, '400 грн');
+        expect(selection.price, '400 ₴');
         expect(selection.duration, '1 год');
         expect(
           selection.durationMinutes,
@@ -331,7 +331,7 @@ void main() {
         id: 'svc-2',
         name: 'Нарощення вій',
         durationLabel: '2 год',
-        priceDisplay: '600 - 900 грн',
+        priceDisplay: '600 - 900 ₴',
         durationMinutes: 120,
         priceType: ServicePriceType.range,
         priceMin: 600,
@@ -364,14 +364,14 @@ void main() {
       'fallback',
       (tester) async {
         // The display strings are deliberately WRONG/stale: the regex
-        // fallback would parse "999 грн" -> 999 and "3 год" -> 180 minutes.
+        // fallback would parse "999 ₴" -> 999 and "3 год" -> 180 minutes.
         // If `_BookingTotals.from` ever regressed to always re-parsing the
         // display string instead of preferring the typed fields, the total
-        // below would read "999 грн" / "3 год" instead of the typed "400
-        // грн" / "1 год".
+        // below would read "999 ₴" / "3 год" instead of the typed "400
+        // ₴" / "1 год".
         const selection = BookingSelection(
           name: 'Манікюр класичний',
-          price: '999 грн',
+          price: '999 ₴',
           duration: '3 год',
           durationMinutes: 60,
           priceMin: 400,
@@ -389,7 +389,7 @@ void main() {
 
         final String expectedLabel = l10n.bookingTotalSemantics(
           '1 год',
-          '400 грн',
+          '400 ₴',
         );
         final Finder totalSemantics = find.byWidgetPredicate(
           (Widget w) => w is Semantics && w.properties.label == expectedLabel,
@@ -398,8 +398,8 @@ void main() {
           totalSemantics,
           findsOneWidget,
           reason:
-              'the total must reflect the TYPED fields (400 грн / 1 год), '
-              'never the stale display strings (999 грн / 3 год) a regex '
+              'the total must reflect the TYPED fields (400 ₴ / 1 год), '
+              'never the stale display strings (999 ₴ / 3 год) a regex '
               're-parse would have produced',
         );
         // And the WRONG (regex-derived) total must never appear either.
@@ -408,7 +408,7 @@ void main() {
             (Widget w) =>
                 w is Semantics &&
                 w.properties.label ==
-                    l10n.bookingTotalSemantics('3 год', '999 грн'),
+                    l10n.bookingTotalSemantics('3 год', '999 ₴'),
           ),
           findsNothing,
         );
@@ -423,12 +423,12 @@ void main() {
       (tester) async {
         const selectionA = BookingSelection(
           name: 'Манікюр класичний',
-          price: '400 грн',
+          price: '400 ₴',
           duration: '1 год',
         );
         const selectionB = BookingSelection(
           name: 'Корекція брів',
-          price: '300 грн',
+          price: '300 ₴',
           duration: '45 хв',
         );
 
@@ -446,7 +446,7 @@ void main() {
         );
         final String expectedLabel = l10n.bookingTotalSemantics(
           '1 год 45 хв',
-          '700 грн',
+          '700 ₴',
         );
         expect(
           find.byWidgetPredicate(
@@ -464,14 +464,14 @@ void main() {
       (tester) async {
         const typedSelection = BookingSelection(
           name: 'Манікюр класичний',
-          price: '400 грн',
+          price: '400 ₴',
           duration: '1 год',
           durationMinutes: 60,
           priceMin: 400,
         );
         const untypedSelection = BookingSelection(
           name: 'Корекція брів',
-          price: '300 грн',
+          price: '300 ₴',
           duration: '45 хв',
         );
 
@@ -489,7 +489,7 @@ void main() {
         );
         final String expectedLabel = l10n.bookingTotalSemantics(
           '1 год 45 хв',
-          '700 грн',
+          '700 ₴',
         );
         expect(
           find.byWidgetPredicate(

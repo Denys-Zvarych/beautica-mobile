@@ -11,7 +11,6 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**cancelBooking**](BookingControllerApi.md#cancelbooking) | **PATCH** /api/v1/bookings/{bookingId}/cancel | 
 [**completeBooking**](BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
-[**confirmBooking**](BookingControllerApi.md#confirmbooking) | **PATCH** /api/v1/bookings/{bookingId}/confirm | 
 [**createBooking**](BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [**declineBooking**](BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
@@ -78,46 +77,6 @@ try {
     api.completeBooking(bookingId);
 } catch on DioException (e) {
     print('Exception when calling BookingControllerApi->completeBooking: $e\n');
-}
-```
-
-### Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **bookingId** | **String**|  | 
-
-### Return type
-
-void (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: Not defined
- - **Accept**: Not defined
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **confirmBooking**
-> confirmBooking(bookingId)
-
-
-
-### Example
-```dart
-import 'package:beautica_api/api.dart';
-
-final api = BeauticaApi().getBookingControllerApi();
-final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-
-try {
-    api.confirmBooking(bookingId);
-} catch on DioException (e) {
-    print('Exception when calling BookingControllerApi->confirmBooking: $e\n');
 }
 ```
 

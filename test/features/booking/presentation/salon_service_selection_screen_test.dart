@@ -35,7 +35,7 @@ const _svcA1 = SalonCatalogService(
   id: 'svc-a1',
   name: 'Класичний манікюр',
   durationLabel: '1 год',
-  priceDisplay: '300 грн',
+  priceDisplay: '300 ₴',
   category: 'MANICURE',
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
@@ -46,7 +46,7 @@ const _svcA2 = SalonCatalogService(
   id: 'svc-a2',
   name: 'Манікюр з покриттям',
   durationLabel: '1 год 30 хв',
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
   category: 'MANICURE',
   durationMinutes: 90,
   priceType: ServicePriceType.fixed,
@@ -57,7 +57,7 @@ const _svcB1 = SalonCatalogService(
   id: 'svc-b1',
   name: 'Педикюр',
   durationLabel: '2 год',
-  priceDisplay: '800 грн',
+  priceDisplay: '800 ₴',
   category: 'PEDICURE',
   durationMinutes: 120,
   priceType: ServicePriceType.fixed,
@@ -278,7 +278,7 @@ void main() {
       // i18n-finder-ok: fixture service name (test data), not app UI copy.
       expect(find.text('Класичний манікюр'), findsNWidgets(2));
       // i18n-finder-ok: fixture price display (test data), not app UI copy.
-      expect(find.text('300 грн'), findsWidgets);
+      expect(find.text('300 ₴'), findsWidgets);
     });
 
     testWidgets(
@@ -427,9 +427,9 @@ void main() {
               'enabled',
         );
         // ...and the summary total now reflects ONLY the surviving
-        // svc-b1 (800 грн), not the stale sum of both.
+        // svc-b1 (800 ₴), not the stale sum of both.
         // i18n-finder-ok: fixture price display (test data), not app UI copy.
-        expect(find.text('800 грн'), findsWidgets);
+        expect(find.text('800 ₴'), findsWidgets);
         // ...the removed service's name disappears from the SHELF
         // specifically — it still renders in the catalogue above (that tile
         // is never removed from the list, only deselected), so the finder

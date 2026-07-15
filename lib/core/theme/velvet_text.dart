@@ -483,7 +483,7 @@ abstract final class VelvetText {
   );
 
   /// Accent price figure — bodyStrong 14 sp, accentDeep. Used by the result
-  /// card «від N грн» line and the filter price readout.
+  /// card «від N ₴» line and the filter price readout.
   static final TextStyle discPriceAccent = _bodyStrongStyle.copyWith(
     fontSize: 11,
     color: BrandColors.accentDeep,
@@ -991,6 +991,25 @@ abstract final class VelvetText {
   static final TextStyle salonApptStatusError = _feedbackBase.copyWith(
     color: BrandColors.error,
   );
+
+  // ---------------------------------------------------------------------------
+  // Phase 14.3 — My Bookings card date stub. A tight-leading numeral is a
+  // recurring need (mirrors `schedWheelDigit` / `salonReviewAverage` /
+  // `ratingBigNumber`, all of which set `height: 1.0` on a display numeral),
+  // not a special case for this one screen.
+  // ---------------------------------------------------------------------------
+
+  /// Booking-card date-stub day number — heading 21 sp, `height: 1.0`. The
+  /// biggest type on the card; against a body set at 11–12 sp that is a
+  /// ~1.8x ratio, so dominance is the CONTRAST, not the absolute size. Only
+  /// the leading is overridden — a display numeral always needs a tight
+  /// line-height.
+  static final TextStyle bookingDayNumber = _headingStyle.copyWith(height: 1.0);
+
+  /// Booking-card top-right time — statValue 17 sp, `height: 1.1`. Colour
+  /// (mocha / muted, plus an optional no-show strikethrough) applied at the
+  /// call site via a single `copyWith`.
+  static final TextStyle bookingTime = _statValueStyle.copyWith(height: 1.1);
 
   // ---------------------------------------------------------------------------
   // Additional generic size variants (home / salon / passport / rating).

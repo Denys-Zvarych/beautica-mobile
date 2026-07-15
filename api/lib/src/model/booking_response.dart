@@ -43,7 +43,7 @@ abstract class BookingResponse
 
   @BuiltValueField(wireName: r'status')
   BookingResponseStatusEnum? get status;
-  // enum statusEnum {  PENDING,  CONFIRMED,  DECLINED,  COMPLETED,  NOT_COMPLETED,  CANCELLED,  };
+  // enum statusEnum {  CONFIRMED,  DECLINED,  COMPLETED,  NOT_COMPLETED,  CANCELLED,  };
 
   @BuiltValueField(wireName: r'startsAt')
   DateTime? get startsAt;
@@ -295,9 +295,6 @@ class _$BookingResponseSerializer
 }
 
 class BookingResponseStatusEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'PENDING')
-  static const BookingResponseStatusEnum PENDING =
-      _$bookingResponseStatusEnum_PENDING;
   @BuiltValueEnumConst(wireName: r'CONFIRMED')
   static const BookingResponseStatusEnum CONFIRMED =
       _$bookingResponseStatusEnum_CONFIRMED;

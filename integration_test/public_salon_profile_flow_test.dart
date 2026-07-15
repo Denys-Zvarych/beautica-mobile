@@ -304,7 +304,7 @@ void main() {
       // i18n-finder-ok: service name is fixture data, not UI copy.
       expect(find.text('Манікюр класичний'), findsOneWidget);
       // i18n-finder-ok: price string is fixture data (priceDisplay), not UI copy.
-      expect(find.text('400 грн'), findsOneWidget);
+      expect(find.text('400 ₴'), findsOneWidget);
       // BROWS starts collapsed — expand it to prove its (exclusive) service
       // genuinely came from the real catalogue response, not a stray render.
       expect(
@@ -318,7 +318,7 @@ void main() {
       // i18n-finder-ok: service name is real-wire catalogue fixture data.
       expect(find.text('Корекція брів'), findsOneWidget);
       // i18n-finder-ok: price string is fixture data (priceDisplay), not UI copy.
-      expect(find.text('300 грн'), findsOneWidget);
+      expect(find.text('300 ₴'), findsOneWidget);
 
       // ── Tab 3 «Відгуки» — summary + 3 reviews across 3 distinct ratings ────
       await tester.tap(find.byKey(const Key('salon-tab-3')));

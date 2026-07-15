@@ -108,9 +108,11 @@ abstract interface class BookingRepository {
 
   /// Reschedules a booking to a new start time.
   ///
-  /// Wraps `PATCH /bookings/{bookingId}/reschedule` (backend 19.2). A
-  /// CONFIRMED booking is moved back to PENDING server-side — the returned
-  /// [Booking] simply reflects whatever status the server computed. Throws
+  /// Wraps `PATCH /bookings/{bookingId}/reschedule` (backend 19.2). Pre-track
+  /// 24.x, a CONFIRMED booking was moved back to PENDING server-side;
+  /// `PENDING` is now retired (booking auto-confirm) and a rescheduled
+  /// booking simply stays CONFIRMED — the returned [Booking] reflects
+  /// whatever status the server computed either way. Throws
   /// [ConflictFailure] on HTTP 409 (new slot taken, or the booking is no
   /// longer in a reschedulable state — or, under contention, a server-side
   /// lock timeout), or [ClientBookingConflictFailure] on HTTP 409 when the
@@ -346,7 +348,7 @@ final class HttpBookingRepository implements BookingRepository {
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          '_deserialize<$T> failed: $e',
+          '_deserialize<$T> failed: ${e.runtimeType}',
           name: _tag,
           level: 1000,
           stackTrace: st,

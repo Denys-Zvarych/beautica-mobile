@@ -28,8 +28,8 @@ abstract class SalonCatalogService with _$SalonCatalogService {
     /// at map time via `DurationMinutes.format`.
     required String durationLabel,
 
-    /// Server-formatted display price — single ("500 грн") or an en-dash range
-    /// ("200–600 грн"). Always render as-is.
+    /// Server-formatted display price — single ("500 ₴") or an en-dash range
+    /// ("200–600 ₴"). Always render as-is.
     required String priceDisplay,
     String? photoUrl,
     String? category,

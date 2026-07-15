@@ -59,7 +59,7 @@ const _editService = MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
 );
 
 const _nailsTypes = <ServiceTypeOption>[

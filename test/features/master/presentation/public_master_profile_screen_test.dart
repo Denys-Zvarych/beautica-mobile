@@ -81,7 +81,7 @@ const _stubServices = <MasterService>[
     name: 'Манікюр з покриттям',
     durationMinutes: 90,
     priceMin: 500,
-    priceDisplay: '500 грн',
+    priceDisplay: '500 ₴',
     category: 'MANICURE',
   ),
 ];

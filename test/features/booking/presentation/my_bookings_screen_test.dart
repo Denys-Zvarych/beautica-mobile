@@ -1,0 +1,436 @@
+// Phase 14.3 — Widget suite for [MyBookingsScreen].
+//
+// Covers the phase's acceptance criteria:
+//   • the three-tab status partition (Майбутні = CONFIRMED; Минулі =
+//     COMPLETED + NOT_COMPLETED; Скасовані = CANCELLED + DECLINED) is
+//     correct — each tab only ever shows its own statuses;
+//   • a CANCELLED and a DECLINED booking both render under Скасовані with
+//     DISTINCT copy ("Ви скасували" vs "Салон скасував" / "Майстер
+//     скасував");
+//   • the loading skeleton shows while the first page is in flight;
+//   • salon name renders on the card only when the booking carries one;
+//   • pull-to-refresh calls `getMyBookings(page: 0)` again for the active
+//     tab's statuses;
+//   • tapping a card navigates to `/bookings/:id`.
+//
+// The card itself carries NO action buttons (reschedule/cancel/add-to-
+// calendar all moved to «Деталі запису» — see `booking_card.dart`'s file
+// header for the full "one affordance" reasoning); this suite does not
+// assert for any card-level actions, matching the approved design over the
+// phase doc's now-superseded prose.
+//
+// Pumping notes (mirrors `search_results_screen_test.dart`, mobile-backlog
+// row 236): AsyncValue-state assertions use a plain `MaterialApp home:`; the
+// card-tap navigation test uses a real `GoRouter` with a stub `/bookings/:id`
+// route so the push is observable.
+
+import 'dart:async';
+
+import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
+import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_empty_state.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
+
+import '../../../helpers/overflow_guard.dart';
+
+class _MockBookingRepository extends Mock implements BookingRepository {}
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+Booking _booking({
+  required String id,
+  required BookingStatus status,
+  String masterFirstName = 'Марія',
+  String masterLastName = 'Іванюк',
+  String? salonName,
+  String? masterProfessionalTitle,
+  String serviceName = 'Манікюр з покриттям',
+  double price = 650,
+  DateTime? startAt,
+  String? clientCancellationNote,
+  String? providerComment,
+}) {
+  final DateTime start = startAt ?? DateTime.utc(2026, 7, 20, 15);
+  return Booking(
+    id: id,
+    masterId: 'master-$id',
+    masterFirstName: masterFirstName,
+    masterLastName: masterLastName,
+    masterAvatarUrl: null,
+    masterType: salonName != null ? 'SALON_MASTER' : 'INDEPENDENT_MASTER',
+    salonName: salonName,
+    serviceId: 'service-$id',
+    serviceName: serviceName,
+    categoryName: 'Манікюр',
+    cityLabel: 'Львів',
+    districtLabel: null,
+    street: null,
+    buildingNo: null,
+    durationMinutes: 60,
+    price: price,
+    startAt: start,
+    endAt: start.add(const Duration(hours: 1)),
+    status: status,
+    canReview: false,
+    clientComment: null,
+    providerComment: providerComment,
+    clientCancellationNote: clientCancellationNote,
+    masterProfessionalTitle: masterProfessionalTitle,
+    locationNote: null,
+  );
+}
+
+PageResponse<Booking> _page(List<Booking> items) => PageResponse<Booking>(
+  items: items,
+  page: 0,
+  totalPages: 1,
+  totalElements: items.length,
+);
+
+/// Wires [repo] to answer every status with an empty page EXCEPT the ones
+/// explicitly listed in [byStatus] — so a test only has to describe the
+/// statuses it cares about.
+void _stubAllStatuses(
+  _MockBookingRepository repo, {
+  Map<BookingStatus, List<Booking>> byStatus =
+      const <BookingStatus, List<Booking>>{},
+}) {
+  for (final BookingStatus status in BookingStatus.values) {
+    when(
+      () => repo.getMyBookings(
+        status: status,
+        page: any(named: 'page'),
+        size: any(named: 'size'),
+      ),
+    ).thenAnswer((_) async => _page(byStatus[status] ?? const <Booking>[]));
+  }
+}
+
+const List<LocalizationsDelegate<Object?>> _delegates =
+    <LocalizationsDelegate<Object?>>[
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ];
+
+const List<Locale> _locales = <Locale>[Locale('uk'), Locale('en')];
+
+Widget _host(_MockBookingRepository repo) {
+  return ProviderScope(
+    // ignore: avoid_dynamic_calls
+    overrides: <Object>[
+      bookingRepositoryProvider.overrideWithValue(repo),
+    ].cast(),
+    child: const MaterialApp(
+      localizationsDelegates: _delegates,
+      supportedLocales: _locales,
+      locale: Locale('uk'),
+      home: MyBookingsScreen(),
+    ),
+  );
+}
+
+AppLocalizations _l10n(WidgetTester tester) =>
+    AppLocalizations.of(tester.element(find.byType(MyBookingsScreen)));
+
+void main() {
+  setUp(installOverflowGuard);
+
+  // -------------------------------------------------------------------------
+  // Loading
+  // -------------------------------------------------------------------------
+
+  group('loading', () {
+    testWidgets('shows the skeleton while the first page is in flight', (
+      tester,
+    ) async {
+      final repo = _MockBookingRepository();
+      final completer = Completer<PageResponse<Booking>>();
+      when(
+        () => repo.getMyBookings(
+          status: BookingStatus.confirmed,
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) => completer.future);
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pump();
+
+      expect(find.byType(BookingsSkeleton), findsOneWidget);
+      completer.complete(_page(const <Booking>[]));
+      await tester.pumpAndSettle();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Tab partition
+  // -------------------------------------------------------------------------
+
+  group('tab partition', () {
+    testWidgets('Майбутні shows only CONFIRMED bookings', (tester) async {
+      final repo = _MockBookingRepository();
+      final confirmed = _booking(id: 'b1', status: BookingStatus.confirmed);
+      _stubAllStatuses(
+        repo,
+        byStatus: <BookingStatus, List<Booking>>{
+          BookingStatus.confirmed: <Booking>[confirmed],
+        },
+      );
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BookingCard), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('service-b1')), findsOneWidget);
+    });
+
+    testWidgets('Минулі shows COMPLETED + NOT_COMPLETED, in one tab', (
+      tester,
+    ) async {
+      final repo = _MockBookingRepository();
+      final completed = _booking(id: 'b2', status: BookingStatus.completed);
+      final noShow = _booking(
+        id: 'b3',
+        status: BookingStatus.notCompleted,
+        providerComment: 'Клієнтка не прийшла.',
+      );
+      _stubAllStatuses(
+        repo,
+        byStatus: <BookingStatus, List<Booking>>{
+          BookingStatus.completed: <Booking>[completed],
+          BookingStatus.notCompleted: <Booking>[noShow],
+        },
+      );
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+
+      // Land on Минулі.
+      final l10n = _l10n(tester);
+      await tester.tap(find.text(l10n.myBookingsTabPast));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey<String>('service-b2')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('service-b3')), findsOneWidget);
+    });
+
+    testWidgets('Скасовані shows CANCELLED + DECLINED with DISTINCT copy — '
+        '"Ви скасували" vs "Салон скасував"', (tester) async {
+      final repo = _MockBookingRepository();
+      final cancelled = _booking(
+        id: 'b4',
+        status: BookingStatus.cancelled,
+        clientCancellationNote: 'Захворіла.',
+      );
+      final declined = _booking(
+        id: 'b5',
+        status: BookingStatus.declined,
+        salonName: 'Lviv Nails Studio',
+        providerComment: 'Майстер захворів.',
+      );
+      _stubAllStatuses(
+        repo,
+        byStatus: <BookingStatus, List<Booking>>{
+          BookingStatus.cancelled: <Booking>[cancelled],
+          BookingStatus.declined: <Booking>[declined],
+        },
+      );
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+
+      final l10n = _l10n(tester);
+      await tester.tap(find.text(l10n.myBookingsTabCancelled));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey<String>('service-b4')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('service-b5')), findsOneWidget);
+
+      // Distinct agency copy — both statuses share the tab but must never
+      // share a label.
+      expect(
+        find.text(l10n.bookingStatusCancelledByClient),
+        findsOneWidget,
+        reason: 'the client-cancelled card must say "Ви скасували"',
+      );
+      expect(
+        find.text(l10n.bookingStatusDeclinedBySalon),
+        findsOneWidget,
+        reason:
+            'the salon-declined card must say "Салон скасував", never the '
+            'same copy as the client-cancelled card',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Optional fields
+  // -------------------------------------------------------------------------
+
+  group('salon name', () {
+    testWidgets('renders only when the booking carries one', (tester) async {
+      final repo = _MockBookingRepository();
+      final atSalon = _booking(
+        id: 'b6',
+        status: BookingStatus.confirmed,
+        salonName: 'Lviv Nails Studio',
+      );
+      final independent = _booking(
+        id: 'b7',
+        status: BookingStatus.confirmed,
+        startAt: DateTime.utc(2026, 7, 21, 10),
+      );
+      _stubAllStatuses(
+        repo,
+        byStatus: <BookingStatus, List<Booking>>{
+          BookingStatus.confirmed: <Booking>[atSalon, independent],
+        },
+      );
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Lviv Nails Studio'), findsOneWidget);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Empty state
+  // -------------------------------------------------------------------------
+
+  group('empty state', () {
+    testWidgets('shows the empty state + Знайти майстра CTA on an empty tab', (
+      tester,
+    ) async {
+      final repo = _MockBookingRepository();
+      _stubAllStatuses(repo);
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BookingsEmptyState), findsOneWidget);
+      expect(
+        find.byKey(const Key('my-bookings-empty-find-master')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Pull-to-refresh
+  // -------------------------------------------------------------------------
+
+  group('pull-to-refresh', () {
+    testWidgets('re-fetches page 0 for the active tab', (tester) async {
+      final repo = _MockBookingRepository();
+      _stubAllStatuses(
+        repo,
+        byStatus: <BookingStatus, List<Booking>>{
+          BookingStatus.confirmed: <Booking>[
+            _booking(id: 'b8', status: BookingStatus.confirmed),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.getMyBookings(
+          status: BookingStatus.confirmed,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(1);
+
+      await tester.fling(
+        find.byType(RefreshIndicator),
+        const Offset(0, 300),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.getMyBookings(
+          status: BookingStatus.confirmed,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Card tap navigation
+  // -------------------------------------------------------------------------
+
+  group('card tap navigation', () {
+    testWidgets('tapping a card pushes /bookings/:id', (tester) async {
+      final repo = _MockBookingRepository();
+      _stubAllStatuses(
+        repo,
+        byStatus: <BookingStatus, List<Booking>>{
+          BookingStatus.confirmed: <Booking>[
+            _booking(id: 'b9', status: BookingStatus.confirmed),
+          ],
+        },
+      );
+
+      String? pushedLocation;
+      final router = GoRouter(
+        initialLocation: '/bookings',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/bookings',
+            builder: (_, _) => const MyBookingsScreen(),
+          ),
+          GoRoute(
+            path: '/bookings/:bookingId',
+            builder: (BuildContext context, GoRouterState state) {
+              pushedLocation = state.uri.toString();
+              return const Scaffold(key: Key('booking_detail_stub'));
+            },
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          // ignore: avoid_dynamic_calls
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: _delegates,
+            supportedLocales: _locales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(BookingCard));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('booking_detail_stub')), findsOneWidget);
+      expect(pushedLocation, '/bookings/b9');
+    });
+  });
+}

@@ -79,7 +79,7 @@ Map<String, Object?> _wireServiceJson({
     'baseDurationMinutes': durationMinutes,
     'priceType': 'FIXED',
     'priceMin': priceMin,
-    'priceDisplay': '${priceMin.toInt()} грн',
+    'priceDisplay': '${priceMin.toInt()} ₴',
     'isActive': true,
   },
   'isActive': true,

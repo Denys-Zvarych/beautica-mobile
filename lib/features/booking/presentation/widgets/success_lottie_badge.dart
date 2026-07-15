@@ -54,7 +54,11 @@ class SuccessLottieBadge extends StatelessWidget {
                   LottieComposition? composition,
                 ) {
                   if (composition == null) {
-                    return _SuccessBadgePlaceholder(size: size);
+                    return StatusMedallion(
+                      color: BrandColors.success,
+                      icon: Icons.check_rounded,
+                      size: size,
+                    );
                   }
                   return child;
                 },
@@ -79,30 +83,38 @@ class SuccessLottieBadge extends StatelessWidget {
   }
 }
 
-/// Static stand-in shown for the brief window before the Lottie composition
-/// finishes its async decode — same footprint + success colour the finished
-/// animation lands on, so the swap is not a visible jump.
-class _SuccessBadgePlaceholder extends StatelessWidget {
-  const _SuccessBadgePlaceholder({required this.size});
+/// A solid-colour disc + a centred glyph — the generic "static badge" shape
+/// shared by every status this app renders as a circle.
+///
+/// Promoted from the private `_SuccessBadgePlaceholder` that used to live
+/// only here (Phase 14.3): [SuccessLottieBadge] still uses it, unchanged, as
+/// its decode-time fallback (`color: BrandColors.success, icon:
+/// Icons.check_rounded`); «Деталі запису» (`booking_status_medallion.dart`)
+/// uses it directly for all five booking statuses, wrapped in its own
+/// entrance animation. One widget, two call sites, no new vocabulary — see
+/// the Phase 14.3 README's "celebration vs reference" section for why the
+/// detail page never gets the Lottie itself.
+class StatusMedallion extends StatelessWidget {
+  const StatusMedallion({
+    super.key,
+    required this.color,
+    required this.icon,
+    this.size = 80,
+  });
 
+  final Color color;
+  final IconData icon;
   final double size;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: BrandColors.success,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       child: SizedBox(
         width: size,
         height: size,
         child: Center(
-          child: Icon(
-            Icons.check_rounded,
-            color: BrandColors.white,
-            size: size * 0.55,
-          ),
+          child: Icon(icon, color: BrandColors.white, size: size * 0.55),
         ),
       ),
     );

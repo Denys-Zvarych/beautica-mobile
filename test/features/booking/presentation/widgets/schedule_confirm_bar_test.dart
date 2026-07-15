@@ -26,7 +26,7 @@ const _svc1 = SalonCatalogService(
   id: 'svc-1',
   name: 'Манікюр з покриттям',
   durationLabel: '1 год 30 хв',
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
   durationMinutes: 90,
   priceType: ServicePriceType.fixed,
   priceMin: 500,
@@ -35,7 +35,7 @@ const _svc2 = SalonCatalogService(
   id: 'svc-2',
   name: 'Педикюр з покриттям',
   durationLabel: '2 год',
-  priceDisplay: '800 грн',
+  priceDisplay: '800 ₴',
   durationMinutes: 120,
   priceType: ServicePriceType.fixed,
   priceMin: 800,
@@ -44,7 +44,7 @@ const _svc3 = SalonCatalogService(
   id: 'svc-3',
   name: 'Стрижка',
   durationLabel: '1 год',
-  priceDisplay: '450 грн',
+  priceDisplay: '450 ₴',
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 450,
@@ -94,7 +94,7 @@ void main() {
       ),
     );
 
-    // 500 + 800 + 450 = 1750 грн; 90 + 120 + 60 = 270 хв = 4 год 30 хв.
+    // 500 + 800 + 450 = 1750 ₴; 90 + 120 + 60 = 270 хв = 4 год 30 хв.
     expect(find.textContaining('1750'), findsOneWidget);
     expect(find.textContaining('4 год 30 хв'), findsOneWidget);
   });

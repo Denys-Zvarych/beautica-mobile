@@ -27,8 +27,10 @@ part 'booking_detail_response.g.dart';
 /// * [clientLastName]
 /// * [masterFirstName]
 /// * [masterLastName]
-/// * [clientComment]
-/// * [providerComment]
+/// * [masterProfessionalTitle] - The master's professional title/headline (e.g. \"Перукар-стиліст\"), same field as MasterSummaryResponse/MasterDetailResponse. Nullable — a master may never have set one.
+/// * [clientComment] - The client's booking-creation note (written once at POST /bookings). Visible to the provider. Distinct from clientCancellationNote below — this is NOT the cancellation reason.
+/// * [providerComment] - Written by the provider on /decline or /not-complete. Visible to the CLIENT on both DECLINED and NOT_COMPLETED bookings — intentional, by locked product decision (\"all notes visible for all sides\"), NOT a privacy leak. Do not suppress this for any audience.
+/// * [clientCancellationNote] - Written by the CLIENT on /cancel. Visible to the provider — the symmetric counterpart of providerComment. Only ever non-null on a CANCELLED booking.
 /// * [masterAvatarUrl]
 /// * [masterType]
 /// * [salonName]
@@ -36,6 +38,7 @@ part 'booking_detail_response.g.dart';
 /// * [districtLabel]
 /// * [street]
 /// * [buildingNo]
+/// * [locationNote] - The provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\", \"вхід з двору, дзвонити двічі\"). Resolved by the identical salon-vs-independent rule as street/buildingNo: a salon booking surfaces the salon's own note, an independent master surfaces their own note. Nullable — most providers never set one.
 /// * [categoryName]
 /// * [canReview]
 @BuiltValue()
@@ -58,7 +61,7 @@ abstract class BookingDetailResponse
 
   @BuiltValueField(wireName: r'status')
   BookingDetailResponseStatusEnum? get status;
-  // enum statusEnum {  PENDING,  CONFIRMED,  DECLINED,  COMPLETED,  NOT_COMPLETED,  CANCELLED,  };
+  // enum statusEnum {  CONFIRMED,  DECLINED,  COMPLETED,  NOT_COMPLETED,  CANCELLED,  };
 
   @BuiltValueField(wireName: r'startsAt')
   DateTime? get startsAt;
@@ -87,11 +90,21 @@ abstract class BookingDetailResponse
   @BuiltValueField(wireName: r'masterLastName')
   String? get masterLastName;
 
+  /// The master's professional title/headline (e.g. \"Перукар-стиліст\"), same field as MasterSummaryResponse/MasterDetailResponse. Nullable — a master may never have set one.
+  @BuiltValueField(wireName: r'masterProfessionalTitle')
+  String? get masterProfessionalTitle;
+
+  /// The client's booking-creation note (written once at POST /bookings). Visible to the provider. Distinct from clientCancellationNote below — this is NOT the cancellation reason.
   @BuiltValueField(wireName: r'clientComment')
   String? get clientComment;
 
+  /// Written by the provider on /decline or /not-complete. Visible to the CLIENT on both DECLINED and NOT_COMPLETED bookings — intentional, by locked product decision (\"all notes visible for all sides\"), NOT a privacy leak. Do not suppress this for any audience.
   @BuiltValueField(wireName: r'providerComment')
   String? get providerComment;
+
+  /// Written by the CLIENT on /cancel. Visible to the provider — the symmetric counterpart of providerComment. Only ever non-null on a CANCELLED booking.
+  @BuiltValueField(wireName: r'clientCancellationNote')
+  String? get clientCancellationNote;
 
   @BuiltValueField(wireName: r'masterAvatarUrl')
   String? get masterAvatarUrl;
@@ -114,6 +127,10 @@ abstract class BookingDetailResponse
 
   @BuiltValueField(wireName: r'buildingNo')
   String? get buildingNo;
+
+  /// The provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\", \"вхід з двору, дзвонити двічі\"). Resolved by the identical salon-vs-independent rule as street/buildingNo: a salon booking surfaces the salon's own note, an independent master surfaces their own note. Nullable — most providers never set one.
+  @BuiltValueField(wireName: r'locationNote')
+  String? get locationNote;
 
   @BuiltValueField(wireName: r'categoryName')
   String? get categoryName;
@@ -255,18 +272,32 @@ class _$BookingDetailResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.masterProfessionalTitle != null) {
+      yield r'masterProfessionalTitle';
+      yield serializers.serialize(
+        object.masterProfessionalTitle,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     if (object.clientComment != null) {
       yield r'clientComment';
       yield serializers.serialize(
         object.clientComment,
-        specifiedType: const FullType(String),
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.providerComment != null) {
       yield r'providerComment';
       yield serializers.serialize(
         object.providerComment,
-        specifiedType: const FullType(String),
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.clientCancellationNote != null) {
+      yield r'clientCancellationNote';
+      yield serializers.serialize(
+        object.clientCancellationNote,
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.masterAvatarUrl != null) {
@@ -316,6 +347,13 @@ class _$BookingDetailResponseSerializer
       yield serializers.serialize(
         object.buildingNo,
         specifiedType: const FullType(String),
+      );
+    }
+    if (object.locationNote != null) {
+      yield r'locationNote';
+      yield serializers.serialize(
+        object.locationNote,
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.categoryName != null) {
@@ -462,19 +500,37 @@ class _$BookingDetailResponseSerializer
           ) as String;
           result.masterLastName = valueDes;
           break;
+        case r'masterProfessionalTitle':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.masterProfessionalTitle = valueDes;
+          break;
         case r'clientComment':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.clientComment = valueDes;
           break;
         case r'providerComment':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.providerComment = valueDes;
+          break;
+        case r'clientCancellationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.clientCancellationNote = valueDes;
           break;
         case r'masterAvatarUrl':
           final valueDes = serializers.deserialize(
@@ -525,6 +581,14 @@ class _$BookingDetailResponseSerializer
           ) as String;
           result.buildingNo = valueDes;
           break;
+        case r'locationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.locationNote = valueDes;
+          break;
         case r'categoryName':
           final valueDes = serializers.deserialize(
             value,
@@ -569,9 +633,6 @@ class _$BookingDetailResponseSerializer
 }
 
 class BookingDetailResponseStatusEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'PENDING')
-  static const BookingDetailResponseStatusEnum PENDING =
-      _$bookingDetailResponseStatusEnum_PENDING;
   @BuiltValueEnumConst(wireName: r'CONFIRMED')
   static const BookingDetailResponseStatusEnum CONFIRMED =
       _$bookingDetailResponseStatusEnum_CONFIRMED;

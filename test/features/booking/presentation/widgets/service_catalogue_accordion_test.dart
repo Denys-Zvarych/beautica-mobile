@@ -32,7 +32,7 @@ const CatalogueRow _rowA = CatalogueRow(
   name: 'Класичний манікюр',
   categoryLabel: 'MANICURE',
   durationLabel: '1 год',
-  priceLabel: '300 грн',
+  priceLabel: '300 ₴',
 );
 
 const CatalogueRow _rowB = CatalogueRow(
@@ -40,7 +40,7 @@ const CatalogueRow _rowB = CatalogueRow(
   name: 'Педикюр',
   categoryLabel: 'PEDICURE',
   durationLabel: '2 год',
-  priceLabel: '800 грн',
+  priceLabel: '800 ₴',
 );
 
 const CatalogueCategoryGroup _group = CatalogueCategoryGroup(
@@ -54,7 +54,7 @@ const CatalogueRow _rowC = CatalogueRow(
   name: 'Стрижка',
   categoryLabel: 'HAIRCUT',
   durationLabel: '30 хв',
-  priceLabel: '200 грн',
+  priceLabel: '200 ₴',
 );
 
 const CatalogueRow _rowD = CatalogueRow(
@@ -62,7 +62,7 @@ const CatalogueRow _rowD = CatalogueRow(
   name: 'Укладка',
   categoryLabel: 'HAIRCUT',
   durationLabel: '20 хв',
-  priceLabel: '150 грн',
+  priceLabel: '150 ₴',
 );
 
 // Two rows (not one) so this group's own row-COUNT badge reads "2" rather
@@ -259,14 +259,14 @@ void main() {
       // i18n-finder-ok: see the fixture-data note above (`_rowA.durationLabel`).
       expect(find.text('1 год'), findsOneWidget);
       // i18n-finder-ok: see the fixture-data note above (`_rowA.priceLabel`).
-      expect(find.text('300 грн'), findsOneWidget);
+      expect(find.text('300 ₴'), findsOneWidget);
 
       // i18n-finder-ok: see the fixture-data note above (`_rowB.name`).
       expect(find.text('Педикюр'), findsOneWidget);
       // i18n-finder-ok: see the fixture-data note above (`_rowB.durationLabel`).
       expect(find.text('2 год'), findsOneWidget);
       // i18n-finder-ok: see the fixture-data note above (`_rowB.priceLabel`).
-      expect(find.text('800 грн'), findsOneWidget);
+      expect(find.text('800 ₴'), findsOneWidget);
     });
 
     testWidgets('rows are absent while collapsed', (tester) async {

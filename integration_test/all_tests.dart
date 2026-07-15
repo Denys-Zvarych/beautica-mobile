@@ -61,6 +61,7 @@ import 'package:integration_test/integration_test.dart';
 import 'auth_login_flow_test.dart' as auth_login;
 import 'client_booking_conflict_flow_test.dart' as client_booking_conflict;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
+import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
 import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
@@ -104,6 +105,9 @@ void main() {
   // re-launch model that directory-mode batching cannot provide.
   group('auth_login_flow', auth_login.main);
   group('client_booking_conflict_flow', client_booking_conflict.main);
+  // My Bookings → Booking Detail → Cancel journey (Step 2.7 Rule 3b) — the
+  // auto-confirm state machine end-to-end against a mutating fake backend.
+  group('client_my_bookings_cancel_flow', client_my_bookings_cancel.main);
   group('client_home_hub_flow', client_home_hub.main);
   group('client_logout_flow', client_logout.main);
   group('client_profile_settings_flow', client_profile_settings.main);

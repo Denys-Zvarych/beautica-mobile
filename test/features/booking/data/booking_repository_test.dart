@@ -46,7 +46,7 @@ BookingDetailResponse _buildDetailDto({
   String masterLastName = 'Коваль',
   String serviceName = 'Манікюр',
   BookingDetailResponseStatusEnum status =
-      BookingDetailResponseStatusEnum.PENDING,
+      BookingDetailResponseStatusEnum.CONFIRMED,
   DateTime? startsAt,
   DateTime? endsAt,
   num priceAtBooking = 500,
@@ -252,7 +252,7 @@ void main() {
         expect(booking.id, 'booking-1');
         expect(booking.masterFirstName, 'Оля');
         expect(booking.masterLastName, 'Коваль');
-        expect(booking.status, BookingStatus.pending);
+        expect(booking.status, BookingStatus.confirmed);
         expect(booking.canReview, isFalse);
 
         final captured = verify(
@@ -681,7 +681,9 @@ void main() {
 
     test('success: maps the returned enriched detail', () async {
       final dto = _buildDetailDto(
-        status: BookingDetailResponseStatusEnum.PENDING,
+        // `PENDING` was retired backend-side by track 24.x booking
+        // auto-confirm — a rescheduled booking now simply stays CONFIRMED.
+        status: BookingDetailResponseStatusEnum.CONFIRMED,
         startsAt: newStart,
         endsAt: newStart.add(const Duration(hours: 1)),
       );
@@ -695,7 +697,7 @@ void main() {
       final booking = await repository.rescheduleBooking('booking-1', newStart);
 
       expect(booking.startAt, newStart);
-      expect(booking.status, BookingStatus.pending);
+      expect(booking.status, BookingStatus.confirmed);
 
       final captured =
           verify(

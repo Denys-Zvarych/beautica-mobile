@@ -1,0 +1,176 @@
+// Track 14.x (booking auto-confirm + My Bookings + Booking Detail + Cancel) —
+// E2E: the CLIENT «МОЇ ЗАПИСИ» → «Деталі запису» → «Скасувати запис» journey.
+//
+// WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
+// --------------------------------------------------------------
+// The widget/unit tier proves each surface in isolation: my_bookings_screen_test
+// (tab partition, CANCELLED-vs-DECLINED copy), booking_detail_screen_test (the
+// per-status state machine + cancel wiring), my_bookings_notifier_test
+// (merge/pagination), booking_display_x_test (money/actor derivation). NONE of
+// them proves the REAL journey wired together against a mutating backend:
+//
+//   1. CLIENT logs in and opens the Записи branch.
+//   2. A booking created CONFIRMED (auto-confirm — no provider approval step)
+//      is visible IMMEDIATELY in Майбутні («Підтверджено»).
+//   3. Opening it lands on «Деталі запису» with the «Скасувати запис» action.
+//   4. Cancelling WITH a note calls PATCH /bookings/{id}/cancel carrying that
+//      note, and the booking transitions to CANCELLED.
+//   5. The detail re-renders as a CLIENT cancellation — «Ви скасували», never
+//      the provider-agency «Салон/Майстер скасував».
+//   6. Back on the list the booking has left Майбутні and appears under
+//      Скасовані.
+//
+// The FakeBackend seeds ONE booking (`booking-1`, CONFIRMED) and mutates it to
+// CANCELLED on the cancel PATCH, so the list/detail re-fetch reflects the move.
+//
+// KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears in
+// CONTENT ASSERTIONS only, and status copy is asserted through l10n.
+
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_tab_bar.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:integration_test/integration_test.dart';
+
+import '../test/helpers/overflow_guard.dart';
+import 'support/app_harness.dart';
+
+void main() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(installOverflowGuard);
+  tearDown(AppHarness.tearDownHarness);
+
+  void expectLocation(GoRouter router, String expected) {
+    final String current = router.routerDelegate.currentConfiguration.uri
+        .toString();
+    expect(
+      current,
+      startsWith(expected),
+      reason: 'Expected router at $expected, got $current',
+    );
+  }
+
+  AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
+      AppLocalizations.of(tester.element(find.byType(screen)));
+
+  testWidgets(
+    'CLIENT opens My Bookings, cancels a CONFIRMED booking with a note, and it '
+    'moves to Скасовані as «Ви скасували»',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      // Cold start → /login.
+      expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      // ── 1. Open the Записи branch (bottom-nav tile 3). ────────────────────
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      expectLocation(router, RouteNames.clientBookings);
+      expect(find.byType(MyBookingsScreen), findsOneWidget);
+
+      // ── 2. Auto-confirm: the booking is visible immediately in Майбутні. ──
+      expect(
+        find.byType(BookingCard),
+        findsOneWidget,
+        reason:
+            'a CONFIRMED booking must show in Майбутні immediately — there is '
+            'no PENDING approval step (auto-confirm)',
+      );
+      expect(
+        find.byKey(const ValueKey<String>('service-booking-1')),
+        findsOneWidget,
+      );
+      final AppLocalizations listL10n = l10nOf(tester, MyBookingsScreen);
+      expect(
+        find.text(listL10n.bookingStatusConfirmed),
+        findsOneWidget,
+        reason: 'the card must carry the «Підтверджено» status badge',
+      );
+
+      // ── 3. Open «Деталі запису». ──────────────────────────────────────────
+      await tester.tap(find.byType(BookingCard));
+      await AppHarness.settle(tester);
+      expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('booking-detail-cancel')),
+        findsOneWidget,
+        reason: 'a CONFIRMED booking must offer «Скасувати запис»',
+      );
+
+      // ── 4. Cancel WITH a note. ────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('booking-detail-cancel')));
+      await AppHarness.settle(tester);
+      expect(find.byKey(const Key('cancel-booking-dialog')), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('cancel-booking-note-field')),
+        'Захворіла, вибачте.',
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
+      await AppHarness.settle(tester);
+
+      // The PATCH fired, carrying the exact note.
+      expect(fb.cancelBookingCalls, 1);
+      expect(fb.lastCancelComment, 'Захворіла, вибачте.');
+      expect(fb.bookingStatus, 'CANCELLED');
+
+      // ── 5. The detail re-rendered as a CLIENT cancellation. ───────────────
+      final AppLocalizations detailL10n = l10nOf(tester, BookingDetailScreen);
+      expect(
+        find.text(detailL10n.bookingStatusCancelledByClient),
+        findsWidgets,
+        reason: 'the detail must now say «Ви скасували» (client agency)',
+      );
+      expect(
+        find.text(detailL10n.bookingStatusDeclinedBySalon),
+        findsNothing,
+        reason: 'a client cancellation must NEVER read as a provider decline',
+      );
+
+      // ── 6. Back on the list: it has left Майбутні, and shows in Скасовані. ─
+      await tester.tap(find.byKey(const Key('booking-detail-back')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MyBookingsScreen), findsOneWidget);
+
+      // Майбутні (the tab we return to) is now empty.
+      expect(
+        find.byType(BookingCard),
+        findsNothing,
+        reason: 'the cancelled booking must have left Майбутні',
+      );
+
+      // Switch to Скасовані.
+      final AppLocalizations tabsL10n = l10nOf(tester, MyBookingsScreen);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(MyBookingsTabBar),
+          matching: find.text(tabsL10n.myBookingsTabCancelled),
+        ),
+      );
+      await AppHarness.settle(tester);
+
+      expect(
+        find.byKey(const ValueKey<String>('service-booking-1')),
+        findsOneWidget,
+        reason: 'the cancelled booking must now appear under Скасовані',
+      );
+      expect(
+        find.text(tabsL10n.bookingStatusCancelledByClient),
+        findsOneWidget,
+        reason: 'and it must be labelled «Ви скасували»',
+      );
+    },
+  );
+}

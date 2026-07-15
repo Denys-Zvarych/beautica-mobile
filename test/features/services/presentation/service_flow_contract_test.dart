@@ -55,7 +55,7 @@ const _editTarget = MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
 );
 
 Map<String, dynamic> _createOkEnvelope() => <String, dynamic>{
@@ -68,7 +68,7 @@ Map<String, dynamic> _createOkEnvelope() => <String, dynamic>{
     'isActive': true,
     'priceType': 'FIXED',
     'priceMin': 500,
-    'priceDisplay': '500 грн',
+    'priceDisplay': '500 ₴',
     'serviceDefinition': <String, dynamic>{
       'id': _serviceDefId,
       'name': 'Манікюр',
@@ -76,7 +76,7 @@ Map<String, dynamic> _createOkEnvelope() => <String, dynamic>{
       'baseDurationMinutes': 60,
       'priceType': 'FIXED',
       'priceMin': 500,
-      'priceDisplay': '500 грн',
+      'priceDisplay': '500 ₴',
       'isActive': true,
     },
   },
@@ -92,7 +92,7 @@ Map<String, dynamic> _updateOkEnvelope() => <String, dynamic>{
     'baseDurationMinutes': 90,
     'priceType': 'FIXED',
     'priceMin': 650,
-    'priceDisplay': '650 грн',
+    'priceDisplay': '650 ₴',
     'isActive': true,
   },
 };

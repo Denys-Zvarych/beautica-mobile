@@ -117,7 +117,7 @@ void main() {
         serviceTypeNameUk: 'Стрижка',
         durationMinutes: 45,
         priceMin: 750,
-        priceDisplay: '750 грн',
+        priceDisplay: '750 ₴',
       );
       await pumpList(tester, const <MasterService>[svc]);
 
@@ -150,7 +150,7 @@ void main() {
         serviceTypeNameUk: 'Стрижка',
         durationMinutes: 30,
         priceMin: 500,
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
       );
       await pumpList(tester, const <MasterService>[svc]);
 
@@ -176,7 +176,7 @@ void main() {
       serviceTypeNameUk: 'Манікюр',
       durationMinutes: 60,
       priceMin: 400,
-      priceDisplay: '400 грн',
+      priceDisplay: '400 ₴',
     );
     await pumpList(tester, const <MasterService>[svc]);
 
@@ -195,7 +195,7 @@ void main() {
         // serviceTypeId / serviceTypeNameUk intentionally null.
         durationMinutes: 90,
         priceMin: 1200,
-        priceDisplay: '1200 грн',
+        priceDisplay: '1200 ₴',
       );
       await pumpList(tester, const <MasterService>[svc]);
 

@@ -17,56 +17,105 @@
 // N-card list). [belowRecap] is an optional extra scroll widget revealed a
 // touch later (`_reveal(0.66, 0.9)`) — the independent flow's "Додати в
 // календар" link, which the salon flow has no analogue for. [homeGap] tunes
-// the gap above the pinned button (the only spacing the two originals differ
-// on: `md` independent, `sm` salon).
+// the gap above the pinned footer.
+//
+// GENERALIZATION (Phase 14.3 — «Деталі запису»): the scaffold gained three
+// knobs so a REFERENCE view (opened any time, for any booking, including
+// ones that went badly) can compose the exact same structural bones as the
+// CELEBRATION screens, with the affect swapped out — see the Phase 14.3
+// README's "celebration vs. reference" section for the full reasoning:
+//   * [heroBuilder] — replaces the hard-coded [SuccessLottieBadge]. `null`
+//     (both success screens, unchanged) renders the Lottie via the
+//     scaffold's own `_lottieController`, exactly as before. When supplied,
+//     the builder receives the SAME staggered-reveal `_controller` the
+//     title/subline/recap use, so a caller-built hero (the detail page's
+//     `BookingStatusMedallion`) can derive its own entrance sub-interval from
+//     it — no Lottie is ever created in that case.
+//   * [actions] — replaces the single hard-coded `onHome`/`homeButtonKey`
+//     pinned button. Both success screens now build their own
+//     [SuccessSecondaryButton] and pass it as the sole entry in this list
+//     (byte-identical rendering — the widget itself is unchanged, only WHO
+//     constructs it moved). An empty list (the detail page's NOT_COMPLETED
+//     case) renders no pinned footer at all. N entries stack with `xs` gaps.
+//   * [canPop] — both success screens leave this at the default `false`
+//     (their existing `PopScope(canPop: false)` contract: the route was
+//     `pushReplacement`d over a submitted form, so there is nothing sane to
+//     pop back to). «Деталі запису» is PUSHED from a list and sets this
+//     `true`.
+//   * [leading] — a fourth, small addition beyond the three above: neither
+//     success screen has ever needed a back affordance (their `canPop:
+//     false` makes one meaningless), so there was no slot for it. «Деталі
+//     запису» IS pushed and DOES pop, so it needs one — an un-animated
+//     top-left affordance rendered before the (possibly staggered-in) hero,
+//     exactly where the design's own detail scaffold places its back
+//     button. `null` (both success screens) renders nothing, byte-identical
+//     to before this addition.
 
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 import 'success_lottie_badge.dart';
 
-/// The shared post-submit celebration scaffold. See the file header for how
-/// [recapCards] / [belowRecap] / [homeGap] map onto the two flows.
+/// The shared post-submit / reference-view scaffold. See the file header for
+/// how [recapCards] / [belowRecap] / [homeGap] / [heroBuilder] / [actions] /
+/// [canPop] map onto the three call sites (two success screens + the booking
+/// detail screen).
 class BookingSuccessScaffold extends StatefulWidget {
   const BookingSuccessScaffold({
     super.key,
     required this.title,
     required this.subline,
     required this.recapCards,
-    required this.onHome,
-    required this.homeButtonKey,
+    this.actions = const <Widget>[],
     this.belowRecap,
     this.homeGap = VelvetSpacing.md,
+    this.heroBuilder,
+    this.canPop = false,
+    this.leading,
   });
 
-  /// Celebration headline — "Записано!" (both flows use their own l10n key).
+  /// Headline — "Записано!" for a celebration, the status label ("Салон
+  /// скасував") for a reference view.
   final String title;
 
-  /// Reassuring sub-line under the headline.
+  /// Sub-line under the headline.
   final String subline;
 
   /// The confirmed-booking recap cards — one for the independent flow, N (one
-  /// per master) for the salon flow. Each is wrapped in the staggered reveal
-  /// and separated by a `md` gap.
+  /// per master) for the salon flow, one for the detail page. Each is
+  /// wrapped in the staggered reveal and separated by a `md` gap.
   final List<Widget> recapCards;
 
-  /// Fires when the pinned "На головну" button is tapped.
-  final VoidCallback onHome;
-
-  /// Key for the pinned button's tappable — distinct per flow
-  /// (`booking-success-home-cta` / `salon-success-home-cta`).
-  final Key homeButtonKey;
+  /// The pinned footer's content, top-to-bottom, separated by `xs` gaps. An
+  /// empty list (the default) renders no pinned footer at all — no reserved
+  /// padding for a control that is not there.
+  final List<Widget> actions;
 
   /// Optional extra scroll content revealed just after the recap (the
-  /// independent flow's calendar link). `null` for the salon flow.
+  /// independent flow's / detail screen's calendar affordance). `null` for
+  /// the salon flow.
   final Widget? belowRecap;
 
-  /// Gap between the scrolling recap and the pinned button.
+  /// Gap between the scrolling recap and the pinned footer.
   final double homeGap;
+
+  /// Builds the 80 dp hero slot from the scaffold's own staggered-reveal
+  /// controller. `null` (both success screens) renders the celebratory
+  /// [SuccessLottieBadge] via the scaffold's internal Lottie controller,
+  /// unchanged from before this generalisation.
+  final Widget Function(AnimationController revealController)? heroBuilder;
+
+  /// Whether hardware back / iOS edge-swipe may pop this screen. Defaults to
+  /// `false` — the success screens' existing block-back contract.
+  final bool canPop;
+
+  /// An un-animated top-left affordance rendered above the hero — the
+  /// detail page's back button. `null` (both success screens) renders
+  /// nothing.
+  final Widget? leading;
 
   @override
   State<BookingSuccessScaffold> createState() => _BookingSuccessScaffoldState();
@@ -74,13 +123,16 @@ class BookingSuccessScaffold extends StatefulWidget {
 
 class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
     with TickerProviderStateMixin {
-  // Drives the staggered fade/slide reveal of the headline, subline, recap and
-  // pinned button.
+  // Drives the staggered fade/slide reveal of the headline, subline, recap,
+  // hero (when caller-built) and pinned footer.
   late final AnimationController _controller;
 
   // Drives the Lottie success animation; its duration is set from the loaded
   // composition inside [SuccessLottieBadge]'s `onLoaded` (stretched to 1.4x).
-  late final AnimationController _lottieController;
+  // Only allocated when [BookingSuccessScaffold.heroBuilder] is null — a
+  // caller-built hero (the detail page's static medallion) never plays a
+  // Lottie, so there is nothing for this controller to drive.
+  AnimationController? _lottieController;
 
   bool _started = false;
 
@@ -91,7 +143,9 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
       vsync: this,
       duration: const Duration(milliseconds: 1350),
     );
-    _lottieController = AnimationController(vsync: this);
+    if (widget.heroBuilder == null) {
+      _lottieController = AnimationController(vsync: this);
+    }
   }
 
   @override
@@ -100,10 +154,10 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
     if (_started) return;
     _started = true;
     // Respect reduced-motion: jump straight to the resting state and hold the
-    // Lottie on its final frame.
+    // Lottie (when present) on its final frame.
     if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
       _controller.value = 1;
-      _lottieController.value = 1;
+      _lottieController?.value = 1;
     } else {
       _controller.forward();
     }
@@ -112,7 +166,7 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
   @override
   void dispose() {
     _controller.dispose();
-    _lottieController.dispose();
+    _lottieController?.dispose();
     super.dispose();
   }
 
@@ -167,11 +221,29 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
     return children;
   }
 
+  /// Stacks [BookingSuccessScaffold.actions] with `xs` gaps between them —
+  /// the two-tier hierarchy `BookingDetailScreen`'s CONFIRMED footer needs
+  /// («Перенести» primary + «Скасувати запис» secondary), and the single
+  /// entry both success screens now supply.
+  Widget _actionsColumn() {
+    final List<Widget> actions = widget.actions;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        for (int i = 0; i < actions.length; i++) ...<Widget>[
+          if (i > 0) const SizedBox(height: VelvetSpacing.xs),
+          actions[i],
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
+    final AnimationController? lottieController = _lottieController;
     return PopScope(
-      canPop: false,
+      canPop: widget.canPop,
       child: Scaffold(
         backgroundColor: BrandColors.base,
         body: SafeArea(
@@ -185,8 +257,14 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
+                if (widget.leading != null) ...<Widget>[
+                  Align(alignment: Alignment.centerLeft, child: widget.leading),
+                  const SizedBox(height: VelvetSpacing.xs),
+                ],
                 Center(
-                  child: SuccessLottieBadge(controller: _lottieController),
+                  child: widget.heroBuilder != null
+                      ? widget.heroBuilder!(_controller)
+                      : SuccessLottieBadge(controller: lottieController),
                 ),
                 const SizedBox(height: VelvetSpacing.xs),
                 _reveal(
@@ -218,17 +296,10 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
                     ),
                   ),
                 ),
-                SizedBox(height: widget.homeGap),
-                _reveal(
-                  start: 0.8,
-                  end: 1.0,
-                  child: _SecondaryButton(
-                    buttonKey: widget.homeButtonKey,
-                    label: l10n.bookingSuccessHomeCta,
-                    icon: Icons.home_outlined,
-                    onPressed: widget.onHome,
-                  ),
-                ),
+                if (widget.actions.isNotEmpty) ...<Widget>[
+                  SizedBox(height: widget.homeGap),
+                  _reveal(start: 0.8, end: 1.0, child: _actionsColumn()),
+                ],
               ],
             ),
           ),
@@ -238,10 +309,14 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
   }
 }
 
-/// The sole onward action — a raised base-tone neumorphic pill with camel text
-/// (no gradient fill). Shared verbatim between both success screens.
-class _SecondaryButton extends StatefulWidget {
-  const _SecondaryButton({
+/// One onward action — a raised base-tone neumorphic pill with camel text (no
+/// gradient fill). Both success screens build exactly one of these and pass
+/// it as their scaffold's sole [BookingSuccessScaffold.actions] entry
+/// (unchanged rendering from before the actions-list generalisation — only
+/// the construction site moved from the scaffold itself to its callers).
+class SuccessSecondaryButton extends StatefulWidget {
+  const SuccessSecondaryButton({
+    super.key,
     required this.buttonKey,
     required this.label,
     required this.icon,
@@ -254,10 +329,10 @@ class _SecondaryButton extends StatefulWidget {
   final VoidCallback onPressed;
 
   @override
-  State<_SecondaryButton> createState() => _SecondaryButtonState();
+  State<SuccessSecondaryButton> createState() => _SuccessSecondaryButtonState();
 }
 
-class _SecondaryButtonState extends State<_SecondaryButton> {
+class _SuccessSecondaryButtonState extends State<SuccessSecondaryButton> {
   bool _pressed = false;
 
   @override

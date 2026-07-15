@@ -56,8 +56,21 @@ BookingSuccessScaffold _scaffold({
     // this test exercises the scaffold, not the copy.
     title: 'Записано!',
     subline: 'Тестовий підзаголовок',
-    homeButtonKey: _kHomeKey,
-    onHome: onHome ?? () {},
+    // A bare tappable stand-in for the real screens' `SuccessSecondaryButton`
+    // — the scaffold's `actions` list accepts arbitrary widgets, and this
+    // test exercises the SCAFFOLD's reveal/gap/footer plumbing, not the
+    // button's own chrome (that lives in `booking_success_screen_test.dart`
+    // equivalents).
+    actions: <Widget>[
+      GestureDetector(
+        key: _kHomeKey,
+        onTap: onHome ?? () {},
+        child: const SizedBox(
+          height: 48,
+          child: ColoredBox(color: Color(0xFF111111)),
+        ),
+      ),
+    ],
     recapCards: <Widget>[for (int i = 0; i < cardCount; i++) _card(i)],
     belowRecap: belowRecap,
     homeGap: homeGap ?? 16,

@@ -1097,7 +1097,7 @@ void main() {
       expect(maxPrice, lessThan(kSearchPriceCeiling));
       expect(maxPrice, 800);
 
-      // With no lower bound, the four-state readout collapses to «до Y грн».
+      // With no lower bound, the four-state readout collapses to «до Y ₴».
       final AppLocalizations l10n = await _uk();
       final Text readout = tester.widget<Text>(
         find.byKey(const Key('search_price_readout')),
@@ -1106,7 +1106,7 @@ void main() {
       expect(readout.data, l10n.searchPriceUpTo(maxPrice!.round()));
     });
 
-    testWidgets('entering MIN + MAX shows the «від X до Y грн» range readout', (
+    testWidgets('entering MIN + MAX shows the «від X до Y ₴» range readout', (
       tester,
     ) async {
       await _pumpScreen(tester);

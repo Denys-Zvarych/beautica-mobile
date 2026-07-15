@@ -2,8 +2,8 @@
 //
 // Pins the salon-card contract the golden cannot assert behaviourally:
 //   • Item 2/5 — price label «від» decision (salon side). priceMin == priceMax
-//     renders an EXACT fixed price «N грн» with NO «від»; priceMin < priceMax
-//     renders a «N–M грн» range; a single bound renders the open-ended «від»;
+//     renders an EXACT fixed price «N ₴» with NO «від»; priceMin < priceMax
+//     renders a «N–M ₴» range; a single bound renders the open-ended «від»;
 //     both null hides the line. Item 5 also asserts the price line RENDERS at
 //     all when data is present (the "salon price renders" confirmation).
 //   • Item 6 — the (auth-gated) precomputed `addressLine` renders in place of
@@ -113,7 +113,7 @@ void main() {
   // Item 2/5 — price label «від» decision + the price line renders.
   // -------------------------------------------------------------------------
   group('SalonResultCard price label (item 2/5)', () {
-    testWidgets('priceMin == priceMax → EXACT price «N грн», NO «від» prefix', (
+    testWidgets('priceMin == priceMax → EXACT price «N ₴», NO «від» prefix', (
       tester,
     ) async {
       await _pump(tester, _salon(priceMin: 500, priceMax: 500));
@@ -129,21 +129,17 @@ void main() {
       );
     });
 
-    testWidgets(
-      'priceMin < priceMax → «N–M грн» range label (item 5 renders)',
-      (tester) async {
-        await _pump(tester, _salon(priceMin: 300, priceMax: 1200));
+    testWidgets('priceMin < priceMax → «N–M ₴» range label (item 5 renders)', (
+      tester,
+    ) async {
+      await _pump(tester, _salon(priceMin: 300, priceMax: 1200));
 
-        final l10n = _l10n(tester);
-        // The price line is present (item 5: salon price renders) …
-        expect(
-          find.text(l10n.searchResultPriceRange(300, 1200)),
-          findsOneWidget,
-        );
-        // … and it is a range, not a single exact price.
-        expect(find.text(l10n.searchResultPriceExact(300)), findsNothing);
-      },
-    );
+      final l10n = _l10n(tester);
+      // The price line is present (item 5: salon price renders) …
+      expect(find.text(l10n.searchResultPriceRange(300, 1200)), findsOneWidget);
+      // … and it is a range, not a single exact price.
+      expect(find.text(l10n.searchResultPriceExact(300)), findsNothing);
+    });
 
     testWidgets('a single bound (max only) keeps the open-ended «від» prefix', (
       tester,
@@ -157,7 +153,12 @@ void main() {
     testWidgets('both bounds null → no price line at all', (tester) async {
       await _pump(tester, _salon(priceMin: null, priceMax: null));
 
-      expect(find.textContaining('грн'), findsNothing);
+      // Resolved from l10n (`searchPriceCurrencySuffix`) — a hardcoded literal
+      // here silently rots into a vacuous findsNothing the moment the
+      // backend's currency symbol changes (as happened during the currency
+      // sweep that moved both sides from the old suffix to «₴»).
+      final l10n = _l10n(tester);
+      expect(find.textContaining(l10n.searchPriceCurrencySuffix), findsNothing);
     });
   });
 

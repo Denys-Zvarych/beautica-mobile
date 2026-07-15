@@ -96,13 +96,14 @@ class _$StatusUpdateRequest extends StatusUpdateRequest {
   @override
   final StatusUpdateRequestCancellationReasonEnum? cancellationReason;
   @override
-  final String? comment;
+  final String comment;
 
   factory _$StatusUpdateRequest(
           [void Function(StatusUpdateRequestBuilder)? updates]) =>
       (StatusUpdateRequestBuilder()..update(updates))._build();
 
-  _$StatusUpdateRequest._({this.cancellationReason, this.comment}) : super._();
+  _$StatusUpdateRequest._({this.cancellationReason, required this.comment})
+      : super._();
   @override
   StatusUpdateRequest rebuild(
           void Function(StatusUpdateRequestBuilder) updates) =>
@@ -184,7 +185,8 @@ class StatusUpdateRequestBuilder
     final _$result = _$v ??
         _$StatusUpdateRequest._(
           cancellationReason: cancellationReason,
-          comment: comment,
+          comment: BuiltValueNullFieldError.checkNotNull(
+              comment, r'StatusUpdateRequest', 'comment'),
         );
     replace(_$result);
     return _$result;

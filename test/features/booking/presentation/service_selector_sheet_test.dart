@@ -57,7 +57,7 @@ const _kManicure = MasterService(
   name: 'Манікюр з покриттям',
   durationMinutes: 90,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
   category: 'MANICURE',
 );
 
@@ -69,7 +69,7 @@ const _kPedicure = MasterService(
   priceType: ServicePriceType.range,
   priceMin: 200,
   priceMax: 600,
-  priceDisplay: 'від 200 до 600 грн',
+  priceDisplay: 'від 200 до 600 ₴',
   category: 'PEDICURE',
 );
 

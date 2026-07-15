@@ -39,11 +39,11 @@ import '../../domain/search_filters.dart';
 
 part 'search_filters_controller.g.dart';
 
-/// Price ceiling at/above which the «до N грн» readout collapses to "будь-яка"
+/// Price ceiling at/above which the «до N ₴» readout collapses to "будь-яка"
 /// (any) and [SearchFilters.maxPrice] is cleared (no upper bound sent).
 const double kSearchPriceCeiling = 20000;
 
-/// The price slider's discrete step count (0 → 20000 in 500-грн increments).
+/// The price slider's discrete step count (0 → 20000 in 500-₴ increments).
 const int kSearchPriceDivisions = 40;
 
 /// Human-readable display labels for the current [SearchFilters] selection.

@@ -6,8 +6,6 @@ part of 'booking_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
-const BookingResponseStatusEnum _$bookingResponseStatusEnum_PENDING =
-    const BookingResponseStatusEnum._('PENDING');
 const BookingResponseStatusEnum _$bookingResponseStatusEnum_CONFIRMED =
     const BookingResponseStatusEnum._('CONFIRMED');
 const BookingResponseStatusEnum _$bookingResponseStatusEnum_DECLINED =
@@ -21,8 +19,6 @@ const BookingResponseStatusEnum _$bookingResponseStatusEnum_CANCELLED =
 
 BookingResponseStatusEnum _$bookingResponseStatusEnumValueOf(String name) {
   switch (name) {
-    case 'PENDING':
-      return _$bookingResponseStatusEnum_PENDING;
     case 'CONFIRMED':
       return _$bookingResponseStatusEnum_CONFIRMED;
     case 'DECLINED':
@@ -40,7 +36,6 @@ BookingResponseStatusEnum _$bookingResponseStatusEnumValueOf(String name) {
 
 final BuiltSet<BookingResponseStatusEnum> _$bookingResponseStatusEnumValues =
     BuiltSet<BookingResponseStatusEnum>(const <BookingResponseStatusEnum>[
-  _$bookingResponseStatusEnum_PENDING,
   _$bookingResponseStatusEnum_CONFIRMED,
   _$bookingResponseStatusEnum_DECLINED,
   _$bookingResponseStatusEnum_COMPLETED,
@@ -54,7 +49,6 @@ Serializer<BookingResponseStatusEnum> _$bookingResponseStatusEnumSerializer =
 class _$BookingResponseStatusEnumSerializer
     implements PrimitiveSerializer<BookingResponseStatusEnum> {
   static const Map<String, Object> _toWire = const <String, Object>{
-    'PENDING': 'PENDING',
     'CONFIRMED': 'CONFIRMED',
     'DECLINED': 'DECLINED',
     'COMPLETED': 'COMPLETED',
@@ -62,7 +56,6 @@ class _$BookingResponseStatusEnumSerializer
     'CANCELLED': 'CANCELLED',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
-    'PENDING': 'PENDING',
     'CONFIRMED': 'CONFIRMED',
     'DECLINED': 'DECLINED',
     'COMPLETED': 'COMPLETED',

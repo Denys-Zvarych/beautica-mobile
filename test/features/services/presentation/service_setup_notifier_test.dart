@@ -47,7 +47,7 @@ const _created = <MasterService>[
     name: 'Манікюр',
     durationMinutes: 60,
     priceMin: 500,
-    priceDisplay: '500 грн',
+    priceDisplay: '500 ₴',
   ),
 ];
 

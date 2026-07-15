@@ -56,7 +56,7 @@ const _stubService = MasterService(
   name: 'Стрижка',
   durationMinutes: 45,
   priceMin: 750,
-  priceDisplay: '750 грн',
+  priceDisplay: '750 ₴',
 );
 
 const _stubServiceList = <MasterService>[_stubService];
@@ -83,7 +83,7 @@ MasterService _makeService(int i) => MasterService(
   name: 'Test $i',
   durationMinutes: 30,
   priceMin: 100,
-  priceDisplay: '100 грн',
+  priceDisplay: '100 ₴',
 );
 
 // ---------------------------------------------------------------------------
@@ -377,7 +377,7 @@ void main() {
       expect(find.byType(ListView), findsOneWidget);
       expect(find.text('Стрижка'), findsOneWidget);
       // Phase 5.6: price rendered from priceDisplay (server-formatted).
-      expect(find.text('750 грн'), findsOneWidget);
+      expect(find.text('750 ₴'), findsOneWidget);
       expect(find.text('45 хв'), findsOneWidget);
     },
   );
@@ -420,7 +420,7 @@ void main() {
 
       // The card and its plain duration·price meta line are present.
       expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
-      expect(find.text('750 грн'), findsOneWidget);
+      expect(find.text('750 ₴'), findsOneWidget);
       expect(find.text('45 хв'), findsOneWidget);
 
       // No draft affordance — the badge and the set-price CTA the deleted draft
@@ -606,7 +606,7 @@ void main() {
       name: 'Корекція брів',
       durationMinutes: 30,
       priceMin: 250,
-      priceDisplay: '250 грн',
+      priceDisplay: '250 ₴',
       category: 'BROWS',
     );
 
@@ -691,7 +691,7 @@ void main() {
       name: 'Сервіс A',
       durationMinutes: 30,
       priceMin: 100,
-      priceDisplay: '100 грн',
+      priceDisplay: '100 ₴',
       category: 'HAIRCUT',
     );
     const bBrows = MasterService(
@@ -700,7 +700,7 @@ void main() {
       name: 'Сервіс B',
       durationMinutes: 30,
       priceMin: 200,
-      priceDisplay: '200 грн',
+      priceDisplay: '200 ₴',
       category: 'BROWS',
     );
     const cHaircut = MasterService(
@@ -709,7 +709,7 @@ void main() {
       name: 'Сервіс C',
       durationMinutes: 30,
       priceMin: 300,
-      priceDisplay: '300 грн',
+      priceDisplay: '300 ₴',
       category: 'HAIRCUT',
     );
 
@@ -883,7 +883,7 @@ void main() {
           name: 'Сервіс Z',
           durationMinutes: 30,
           priceMin: 400,
-          priceDisplay: '400 грн',
+          priceDisplay: '400 ₴',
           // no category → uncategorized bucket
         );
 
@@ -947,7 +947,7 @@ void main() {
       name: 'Регресія A',
       durationMinutes: 20,
       priceMin: 150,
-      priceDisplay: '150 грн',
+      priceDisplay: '150 ₴',
       category: 'HAIR',
     );
     const bodyService = MasterService(
@@ -956,7 +956,7 @@ void main() {
       name: 'Регресія B',
       durationMinutes: 20,
       priceMin: 200,
-      priceDisplay: '200 грн',
+      priceDisplay: '200 ₴',
       category: 'BODY',
     );
 
@@ -1236,7 +1236,7 @@ void main() {
         name: 'Манікюр',
         durationMinutes: 60,
         priceMin: 500,
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
       );
       var calls = 0;
       when(() => mockRepo.listMyServices()).thenAnswer((_) async {

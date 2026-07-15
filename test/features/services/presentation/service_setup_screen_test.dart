@@ -85,7 +85,7 @@ const _createdService = <MasterService>[
     name: 'Класичний манікюр',
     durationMinutes: 60,
     priceMin: 500,
-    priceDisplay: '500 грн',
+    priceDisplay: '500 ₴',
   ),
 ];
 
@@ -580,7 +580,7 @@ void main() {
   // ── Bug 1 regression — narrow-width layout (no RenderFlex overflow) ────────
   //
   // The compact duration+price line used to overflow horizontally on narrow
-  // phones — worst in RANGE mode (two numeric fields + two "грн" suffixes
+  // phones — worst in RANGE mode (two numeric fields + two "₴" suffixes
   // beside the duration). pricing_field.dart now stacks duration above price
   // below 360dp, and range min/max stack below 220dp. These tests pump the
   // screen at 320 / 360 / 412 dp, include + expand a row in each pricing mode,

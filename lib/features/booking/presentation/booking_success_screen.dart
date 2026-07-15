@@ -5,15 +5,23 @@
 // booking_success_screen.dart` (approved 2026-06-30) — transcribed literally:
 // an animated check medallion → "Записано!" headline → reassuring subline →
 // the SAME `BookingSummaryCards` recap the confirm screen showed (WITHOUT the
-// master card, `dense: true`) → a calm "Додати в календар" link → a single
+// master card, `dense: true`) → a "Додати в календар" button → a single
 // pinned onward action ("На головну").
 //
 // The shared celebration structure (PopScope, animated badge, staggered
-// title/subline/recap reveal, pinned home button) now lives in
+// title/subline/recap reveal, pinned footer) now lives in
 // `widgets/booking_success_scaffold.dart` — composed by BOTH this screen and
-// the salon success screen. This screen just supplies its copy, its single
-// `BookingSummaryCards` recap, and the (independent-only) "Додати в календар"
-// link as the scaffold's `belowRecap`.
+// the salon success screen (and, since Phase 14.3, `BookingDetailScreen`).
+// This screen supplies its copy, its single `BookingSummaryCards` recap, and
+// the (independent-only) `CalendarButton` as the scaffold's `belowRecap`; the
+// pinned "На головну" is now a `SuccessSecondaryButton` this screen
+// constructs itself and passes via the scaffold's `actions` list.
+//
+// Phase 14.3: "Додати в календар" was promoted from a borderless text link
+// (`_CalendarLink`) to the shared `CalendarButton` — see that widget's file
+// header for why the port makes both success screens AND the booking detail
+// screen render the same button, not a link on one and a button on the
+// other.
 //
 // DEVIATION — "Мої записи" CTA removed: the preview shipped a second pinned
 // action ("Мої записи" → `RouteNames.clientBookings`) alongside "На
@@ -33,9 +41,9 @@
 // DEVIATION — "Додати в календар": the preview's production notes call for
 // `add_2_calendar`/ICS wiring. That package is not in `pubspec.yaml` (checked
 // before writing this file) and pulling in a new, unreviewed third-party
-// dependency is out of scope for this pass — the link is fully rendered and
-// tappable but its action is a documented `// TODO` no-op (see
-// `_CalendarLink`).
+// dependency is out of scope for this pass — the button is fully rendered
+// and tappable but its action is a documented `// TODO` no-op (see
+// `_onAddToCalendar`).
 //
 // NAVIGATION: `RouteNames.clientHome` ("/home") is an ALREADY registered
 // route (the CLIENT shell's «Головна» branch) — no TODO/no-op needed for the
@@ -65,15 +73,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
-import 'package:beautica_mobile/core/theme/brand_colors.dart';
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../domain/booking_success_args.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
+import 'widgets/calendar_button.dart';
 
 /// Booking flow Step 3b — the post-submit celebration screen.
 class BookingSuccessScreen extends ConsumerStatefulWidget {
@@ -112,9 +118,15 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
     return BookingSuccessScaffold(
       title: l10n.bookingSuccessTitle,
       subline: l10n.bookingSuccessSubline,
-      homeButtonKey: const Key('booking-success-home-cta'),
-      onHome: () => context.go(RouteNames.clientHome),
-      belowRecap: const _CalendarLink(),
+      actions: <Widget>[
+        SuccessSecondaryButton(
+          buttonKey: const Key('booking-success-home-cta'),
+          label: l10n.bookingSuccessHomeCta,
+          icon: Icons.home_outlined,
+          onPressed: () => context.go(RouteNames.clientHome),
+        ),
+      ],
+      belowRecap: CalendarButton(onTap: _onAddToCalendar),
       recapCards: <Widget>[
         BookingSummaryCards.fromMaster(
           master: widget.args.master,
@@ -135,72 +147,13 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
       ],
     );
   }
-}
 
-// ---------------------------------------------------------------------------
-// Calendar link (no-op — see file header DEVIATION note)
-// ---------------------------------------------------------------------------
-
-/// The tertiary onward action — a calm, borderless "Додати в календар" text
-/// link. See file header: real OS-calendar wiring is deferred (no
-/// `add_2_calendar` dependency added in this pass).
-class _CalendarLink extends StatefulWidget {
-  const _CalendarLink();
-
-  @override
-  State<_CalendarLink> createState() => _CalendarLinkState();
-}
-
-class _CalendarLinkState extends State<_CalendarLink> {
-  bool _pressed = false;
-
-  void _onTap() {
+  /// See `calendar_button.dart`'s file header: real OS-calendar wiring is
+  /// deferred (no `add_2_calendar` dependency in `pubspec.yaml` yet).
+  void _onAddToCalendar() {
     // TODO(phase-14.x): wire a real OS calendar event (title = service name,
     // location = master address, window = booked start→end) via
     // `add_2_calendar` or an ICS export once that dependency is reviewed and
-    // added to pubspec.yaml. Intentionally a no-op for this pass — see the
-    // file header DEVIATION note.
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Semantics(
-      button: true,
-      label: l10n.bookingAddCalendarSemantics,
-      child: GestureDetector(
-        key: const Key('booking-success-add-calendar'),
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          _onTap();
-        },
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 120),
-          opacity: _pressed ? 0.55 : 1,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.sm),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(
-                  Icons.calendar_today_rounded,
-                  size: 18,
-                  color: BrandColors.accentDeep,
-                ),
-                const SizedBox(width: VelvetSpacing.sm),
-                Text(
-                  l10n.bookingSuccessAddCalendarCta,
-                  style: VelvetText.bookCalendarCta,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    // added to pubspec.yaml. Intentionally a no-op for this pass.
   }
 }

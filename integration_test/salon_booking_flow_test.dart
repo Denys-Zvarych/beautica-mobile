@@ -1055,8 +1055,12 @@ void main() {
             'is street+buildingNo only, no trailing city',
       );
 
-      // Grand total across BOTH masters: salon-svc-shared (400 грн/60 min) +
-      // salon-svc-exclusive (300 грн/45 min) = 700 грн / 1 год 45 хв.
+      // Grand total across BOTH masters: salon-svc-shared (400 ₴/60 min,
+      // raw backend `priceDisplay` fixture) + salon-svc-exclusive (300
+      // ₴/45 min) = 700 ₴ / 1 год 45 хв. The sum itself is CLIENT-computed
+      // and CLIENT-formatted (BookingRecap._BookingTotals) — it is not a
+      // pass-through of either fixture string, even though both the fixtures
+      // and the client formatter now render the same "₴" glyph.
       final Finder confirmGrandTotal = find.byKey(
         const Key('salon-confirm-grand-total-card'),
       );
@@ -1065,7 +1069,7 @@ void main() {
         find.descendant(
           of: confirmGrandTotal,
           // i18n-finder-ok: summed price is real fixture-derived data, not translated UI copy.
-          matching: find.text('700 грн'),
+          matching: find.text('700 ₴'),
         ),
         findsOneWidget,
       );
@@ -1150,8 +1154,10 @@ void main() {
       expect(
         find.descendant(
           of: successGrandTotal,
-          // i18n-finder-ok: summed price is real fixture-derived data, not translated UI copy.
-          matching: find.text('700 грн'),
+          // i18n-finder-ok: summed price is real fixture-derived data (client-
+          // computed + client-formatted total, not the raw backend string),
+          // not translated UI copy.
+          matching: find.text('700 ₴'),
         ),
         findsOneWidget,
       );
@@ -1221,7 +1227,7 @@ void main() {
                     id: 'svc-$masterId',
                     name: 'Манікюр',
                     durationLabel: '1 год',
-                    priceDisplay: '500 грн',
+                    priceDisplay: '500 ₴',
                     durationMinutes: 60,
                     priceType: ServicePriceType.fixed,
                     priceMin: 500,
@@ -1329,7 +1335,7 @@ void main() {
                     id: 'svc-$masterId',
                     name: 'Манікюр',
                     durationLabel: '1 год',
-                    priceDisplay: '500 грн',
+                    priceDisplay: '500 ₴',
                     durationMinutes: 60,
                     priceType: ServicePriceType.fixed,
                     priceMin: 500,
@@ -1467,7 +1473,7 @@ void main() {
                     id: 'svc-$masterId',
                     name: 'Манікюр',
                     durationLabel: '1 год',
-                    priceDisplay: '500 грн',
+                    priceDisplay: '500 ₴',
                     durationMinutes: 60,
                     priceType: ServicePriceType.fixed,
                     priceMin: 500,

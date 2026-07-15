@@ -123,7 +123,7 @@ const _kService = MasterService(
   name: 'Манікюр з покриттям',
   durationMinutes: 60,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
   category: 'NAILS',
 );
 
@@ -166,7 +166,7 @@ const _kSalonCatalog = <SalonServiceCategoryEntry>[
         id: 'svc-1',
         name: 'Манікюр з покриттям',
         durationLabel: '1 год',
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
       ),
     ],
   ),

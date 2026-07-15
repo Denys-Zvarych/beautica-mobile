@@ -1474,7 +1474,7 @@
   "@errPriceDecimals": {
     "description": "Validation error when a price field is non-numeric or has more than 2 decimal places (hardened 2026-06-03)."
   },
-  "errPriceMax": "Ціна не може перевищувати 99 999 999.99 грн",
+  "errPriceMax": "Ціна не може перевищувати 99 999 999.99 ₴",
   "@errPriceMax": {
     "description": "Validation error when a price field exceeds the backend maximum of 99999999.99 (hardened 2026-06-03)."
   },
@@ -1509,6 +1509,10 @@
   "pricingAmountLabel": "Сума",
   "@pricingAmountLabel": {
     "description": "Field label for the fixed price amount field (Phase 5.6 flexible pricing)."
+  },
+  "pricingCurrencySuffix": "₴",
+  "@pricingCurrencySuffix": {
+    "description": "Inline currency suffix (UAH) shown inside the FIXED/RANGE price input fields of PricingField (Phase 5.6 flexible pricing)."
   },
   "pricingFromLabel": "Від",
   "@pricingFromLabel": {
@@ -2949,7 +2953,7 @@
   "@passportColumnBudget": {
     "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
   },
-  "passportBudgetCeiling": "до {max} грн",
+  "passportBudgetCeiling": "до {max} ₴",
   "@passportBudgetCeiling": {
     "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
     "placeholders": {
@@ -3096,7 +3100,7 @@
   "@searchPriceLabel": {
     "description": "Label above the price slider on the Пошук screen."
   },
-  "searchPriceUpTo": "до {price} грн",
+  "searchPriceUpTo": "до {price} ₴",
   "@searchPriceUpTo": {
     "description": "Live readout of the selected price ceiling on the Пошук slider.",
     "placeholders": {
@@ -3110,15 +3114,15 @@
   "@searchPriceAny": {
     "description": "Price readout when the slider is at the ceiling — no upper price bound."
   },
-  "searchPriceMin": "0 грн",
+  "searchPriceMin": "0 ₴",
   "@searchPriceMin": {
     "description": "Left end label under the price slider (minimum)."
   },
-  "searchPriceMax": "20000+ грн",
+  "searchPriceMax": "20000+ ₴",
   "@searchPriceMax": {
     "description": "Right end label under the price slider (ceiling and above)."
   },
-  "searchPriceFrom": "від {price} грн",
+  "searchPriceFrom": "від {price} ₴",
   "@searchPriceFrom": {
     "description": "Price readout fragment for the lower bound when only a minimum is set (no upper bound).",
     "placeholders": {
@@ -3128,7 +3132,7 @@
       }
     }
   },
-  "searchPriceRange": "від {min} до {max} грн",
+  "searchPriceRange": "від {min} до {max} ₴",
   "@searchPriceRange": {
     "description": "Price readout when both a minimum and a maximum bound are set.",
     "placeholders": {
@@ -3158,7 +3162,7 @@
   "@searchPriceMaxFieldHint": {
     "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
   },
-  "searchPriceCurrencySuffix": "грн",
+  "searchPriceCurrencySuffix": "₴",
   "@searchPriceCurrencySuffix": {
     "description": "Inline currency suffix (UAH) shown inside the min/max price input fields."
   },
@@ -3203,7 +3207,7 @@
   "@searchResultsEditFilters": {
     "description": "Button on the empty results state that re-opens the search filter controls."
   },
-  "searchResultPriceRange": "{min}–{max} грн",
+  "searchResultPriceRange": "{min}–{max} ₴",
   "@searchResultPriceRange": {
     "description": "Price range shown on a salon result card (lower–upper bound).",
     "placeholders": {
@@ -3217,7 +3221,7 @@
       }
     }
   },
-  "searchResultPriceExact": "{price} грн",
+  "searchResultPriceExact": "{price} ₴",
   "@searchResultPriceExact": {
     "description": "Single fixed price on a result card — shown WITHOUT the «від» prefix when the lower and upper price bounds are equal (one fixed price).",
     "placeholders": {
@@ -3604,6 +3608,201 @@
   "bookingSuccessHomeCta": "На головну",
   "@bookingSuccessHomeCta": {
     "description": "Sole onward action on the booking success screen; navigates to the client home."
+  },
+  "bookingWhenLabel": "Коли",
+  "@bookingWhenLabel": {
+    "description": "Combined date+time label on the cancel-booking dialog's recap row."
+  },
+  "bookingSalonLabel": "Салон",
+  "@bookingSalonLabel": {
+    "description": "Label for the optional salon-name row on the booking detail summary card."
+  },
+  "bookingArrivalNoteSemantics": "Як знайти: {text}",
+  "@bookingArrivalNoteSemantics": {
+    "description": "Accessibility label for the provider's arrival-hint line on the booking detail address block.",
+    "placeholders": {
+      "text": { "type": "String" }
+    }
+  },
+  "bookingStatusConfirmed": "Підтверджено",
+  "@bookingStatusConfirmed": {
+    "description": "Booking status badge label — CONFIRMED."
+  },
+  "bookingStatusCompleted": "Виконано",
+  "@bookingStatusCompleted": {
+    "description": "Booking status badge label — COMPLETED."
+  },
+  "bookingStatusNotCompleted": "Візит не відбувся",
+  "@bookingStatusNotCompleted": {
+    "description": "Booking status badge label — NOT_COMPLETED (no-show)."
+  },
+  "bookingStatusCancelledByClient": "Ви скасували",
+  "@bookingStatusCancelledByClient": {
+    "description": "Booking status badge label — CANCELLED (the client backed out)."
+  },
+  "bookingStatusDeclinedBySalon": "Салон скасував",
+  "@bookingStatusDeclinedBySalon": {
+    "description": "Booking status badge label — DECLINED at a salon booking (the salon backed out)."
+  },
+  "bookingStatusDeclinedByMaster": "Майстер скасував",
+  "@bookingStatusDeclinedByMaster": {
+    "description": "Booking status badge label — DECLINED at an independent-master booking (the master backed out)."
+  },
+  "bookingStatusSemantics": "Статус: {label}",
+  "@bookingStatusSemantics": {
+    "description": "Accessibility label for the booking status badge / hero medallion.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "bookingCardSemantics": "{service}, {master}, {date}, {time}. {status}. Відкрити деталі запису",
+  "@bookingCardSemantics": {
+    "description": "Accessibility label for a whole My Bookings card — the card's sole tap target.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "master": { "type": "String" },
+      "date": { "type": "String" },
+      "time": { "type": "String" },
+      "status": { "type": "String" }
+    }
+  },
+  "bookingNoteHeadingYourWishes": "Ваші побажання",
+  "@bookingNoteHeadingYourWishes": {
+    "description": "Heading over the client's own booking-time note on the booking detail screen."
+  },
+  "bookingNoteHeadingYourReason": "Ваша причина",
+  "@bookingNoteHeadingYourReason": {
+    "description": "Heading over the client's own cancellation note on the booking detail screen."
+  },
+  "bookingNoteHeadingProviderComment": "Коментар {genitive}",
+  "@bookingNoteHeadingProviderComment": {
+    "description": "Heading over the provider's note (decline reason or no-show account) on the booking detail screen — {genitive} is «салону» or «майстра».",
+    "placeholders": {
+      "genitive": { "type": "String" }
+    }
+  },
+  "bookingNoteShowMore": "Показати більше",
+  "@bookingNoteShowMore": {
+    "description": "Expand toggle for a clamped booking note."
+  },
+  "bookingNoteShowLess": "Згорнути",
+  "@bookingNoteShowLess": {
+    "description": "Collapse toggle for an expanded booking note."
+  },
+  "bookingNoteSemantics": "{heading}: {text}",
+  "@bookingNoteSemantics": {
+    "description": "Accessibility label for a booking note block (sent or received).",
+    "placeholders": {
+      "heading": { "type": "String" },
+      "text": { "type": "String" }
+    }
+  },
+  "myBookingsTabUpcoming": "Майбутні",
+  "@myBookingsTabUpcoming": {
+    "description": "My Bookings tab label — upcoming (CONFIRMED) bookings."
+  },
+  "myBookingsTabPast": "Минулі",
+  "@myBookingsTabPast": {
+    "description": "My Bookings tab label — past (COMPLETED / NOT_COMPLETED) bookings."
+  },
+  "myBookingsTabCancelled": "Скасовані",
+  "@myBookingsTabCancelled": {
+    "description": "My Bookings tab label — cancelled (CANCELLED / DECLINED) bookings."
+  },
+  "myBookingsEmptyTitle": "Записів поки немає",
+  "@myBookingsEmptyTitle": {
+    "description": "Empty-state title on a My Bookings tab with no rows."
+  },
+  "myBookingsEmptyCta": "Знайти майстра",
+  "@myBookingsEmptyCta": {
+    "description": "Empty-state CTA on a My Bookings tab; navigates to search."
+  },
+  "myBookingsLoadingSemantics": "Завантаження записів",
+  "@myBookingsLoadingSemantics": {
+    "description": "Accessibility live-region label for the My Bookings loading skeleton."
+  },
+  "cancelBookingDialogTitle": "Скасувати запис?",
+  "@cancelBookingDialogTitle": {
+    "description": "Title of the cancel-booking confirmation dialog."
+  },
+  "cancelBookingDialogSubtitle": "Цю дію не можна відмінити.",
+  "@cancelBookingDialogSubtitle": {
+    "description": "Subtitle of the cancel-booking confirmation dialog."
+  },
+  "cancelBookingNoteLabel": "Чому скасовуєте? (необов'язково)",
+  "@cancelBookingNoteLabel": {
+    "description": "Label above the optional cancellation-note field."
+  },
+  "cancelBookingNotePromise": "Майстер побачить цей коментар.",
+  "@cancelBookingNotePromise": {
+    "description": "Assurance line under the cancellation-note field label — the provider will read it."
+  },
+  "cancelBookingNoteHint": "Напр.: захворіла, перенесла поїздку…",
+  "@cancelBookingNoteHint": {
+    "description": "Placeholder hint text inside the cancellation-note field."
+  },
+  "cancelBookingNoteCounter": "{current} / {max}",
+  "@cancelBookingNoteCounter": {
+    "description": "Live character counter under the cancellation-note field.",
+    "placeholders": {
+      "current": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "cancelBookingConfirmCta": "Так, скасувати",
+  "@cancelBookingConfirmCta": {
+    "description": "Destructive confirm button on the cancel-booking dialog."
+  },
+  "cancelBookingKeepCta": "Не скасовувати",
+  "@cancelBookingKeepCta": {
+    "description": "Safe back-out button on the cancel-booking dialog."
+  },
+  "bookingDetailBackSemantics": "Назад до списку записів",
+  "@bookingDetailBackSemantics": {
+    "description": "Accessibility label for the booking detail screen's back button."
+  },
+  "bookingDetailSublineConfirmed": "Запис підтверджено. Нагадаємо про нього напередодні.",
+  "@bookingDetailSublineConfirmed": {
+    "description": "Booking detail subline — CONFIRMED."
+  },
+  "bookingDetailSublineCompleted": "Візит відбувся. Дякуємо, що обрали Beautica.",
+  "@bookingDetailSublineCompleted": {
+    "description": "Booking detail subline — COMPLETED."
+  },
+  "bookingDetailSublineNotCompleted": "Цей візит не відбувся. Нижче — коментар {genitive}.",
+  "@bookingDetailSublineNotCompleted": {
+    "description": "Booking detail subline — NOT_COMPLETED; {genitive} is «салону» or «майстра».",
+    "placeholders": {
+      "genitive": { "type": "String" }
+    }
+  },
+  "bookingDetailSublineCancelled": "Ви скасували цей запис. Записатись знову можна будь-коли.",
+  "@bookingDetailSublineCancelled": {
+    "description": "Booking detail subline — CANCELLED."
+  },
+  "bookingDetailSublineDeclinedSalon": "Салон скасував цей запис. Причину вказано нижче.",
+  "@bookingDetailSublineDeclinedSalon": {
+    "description": "Booking detail subline — DECLINED at a salon booking."
+  },
+  "bookingDetailSublineDeclinedMaster": "Майстер скасував цей запис. Причину вказано нижче.",
+  "@bookingDetailSublineDeclinedMaster": {
+    "description": "Booking detail subline — DECLINED at an independent-master booking."
+  },
+  "bookingDetailRescheduleCta": "Перенести",
+  "@bookingDetailRescheduleCta": {
+    "description": "Primary pinned action on a CONFIRMED booking's detail screen."
+  },
+  "bookingDetailCancelCta": "Скасувати запис",
+  "@bookingDetailCancelCta": {
+    "description": "Secondary pinned action on a CONFIRMED booking's detail screen; opens the cancel dialog."
+  },
+  "bookingDetailRebookCta": "Записатись знову",
+  "@bookingDetailRebookCta": {
+    "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
+  },
+  "bookingRescheduleComingSoon": "Ця функція скоро буде доступна.",
+  "@bookingRescheduleComingSoon": {
+    "description": "Snackbar shown when the client taps «Перенести» before reschedule (Phase 14.8) ships."
   },
   "salonProfileBackLabel": "Назад",
   "@salonProfileBackLabel": {

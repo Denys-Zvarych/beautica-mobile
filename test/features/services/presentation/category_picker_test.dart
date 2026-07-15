@@ -131,7 +131,7 @@ MasterService _serviceWithCategory(String category) => MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
 );
 
 /// Pumps a [ServiceForm] seeded with [initial] (edit flow). Optionally clamps

@@ -107,7 +107,7 @@ void main() {
       );
       await tester.pump();
 
-      // Fill fixed price (required): 400 грн.
+      // Fill fixed price (required): 400 ₴.
       await tester.enterText(
         find.descendant(
           of: find.byKey(const Key('pricing-fixed-amount')),

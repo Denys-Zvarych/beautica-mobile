@@ -47,7 +47,9 @@ import '../features/booking/domain/booking_success_args.dart';
 import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
+import '../features/booking/presentation/booking_detail_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
+import '../features/booking/presentation/my_bookings_screen.dart';
 import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
 import '../features/booking/presentation/salon_booking_success_screen.dart';
@@ -445,12 +447,25 @@ GoRouter appRouter(Ref ref) {
           StatefulShellBranch(
             navigatorKey: clientBranchNavigatorKeys[kClientBookingsBranch],
             routes: [
+              // Phase 14.3 — real MyBookingsScreen replaces the placeholder.
               GoRoute(
                 path: RouteNames.clientBookings,
-                pageBuilder: (context, state) => _instantPage(
-                  state,
-                  const ClientBookingsPlaceholderScreen(),
-                ),
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const MyBookingsScreen()),
+                routes: [
+                  // /bookings/:bookingId — «Деталі запису» (14.3/14.4),
+                  // pushed onto this branch's own navigator (swipe-back
+                  // returns to the still-scrolled list) from a BookingCard
+                  // tap. `builder:` (not `pageBuilder: _instantPage`) so the
+                  // default Material transition + swipe-back gesture apply,
+                  // matching every other pushed-detail route in this file.
+                  GoRoute(
+                    path: ':bookingId',
+                    builder: (context, state) => BookingDetailScreen(
+                      bookingId: state.pathParameters['bookingId']!,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

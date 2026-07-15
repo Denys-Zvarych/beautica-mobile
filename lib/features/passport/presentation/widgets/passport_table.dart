@@ -49,7 +49,7 @@ class PassportCard extends StatelessWidget {
   /// Top-3 favourite district labels (rank-ordered, most-frequent first).
   final List<String> districts;
 
-  /// The single budget value chip, e.g. «до 800 грн».
+  /// The single budget value chip, e.g. «до 800 ₴».
   final String budgetValue;
 
   final int reviewsLeft;

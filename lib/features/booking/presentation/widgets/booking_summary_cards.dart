@@ -41,7 +41,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -75,15 +77,20 @@ class BookingSummaryCards extends StatelessWidget {
   const BookingSummaryCards({
     super.key,
     this.masterCard,
+    this.salonName,
     this.showAddress = true,
     this.addressLine,
     this.addressDetail,
+    this.locationNote,
+    this.hideAddressWhenEmpty = false,
     required this.dateLabel,
     required this.timeLabel,
-    required this.selections,
+    this.selections = const <BookingSelection>[],
+    this.singleSelection,
     this.dense = false,
     this.showBorder = false,
     this.compactText = false,
+    this.showPrice = true,
   });
 
   /// Builds the cards from the independent flow's [Master] / [MasterService]
@@ -202,6 +209,16 @@ class BookingSummaryCards extends StatelessWidget {
   /// the two factory constructors). `null` renders no master card at all.
   final Widget? masterCard;
 
+  /// Phase 14.3 addition — an optional «Салон» row, rendered above «Адреса»
+  /// (closed by its own [SectionRule]). Null for an independent-master
+  /// booking — no row built at all, never an empty one.
+  ///
+  /// The booking-FLOW screens (`fromMaster` / `fromSchedule`) never set this:
+  /// mid-flow the client already knows which salon they're in. «Деталі
+  /// запису», looked up months later, does not — a salon is a *party to the
+  /// appointment* and belongs with identity, not with the address.
+  final String? salonName;
+
   /// Whether to render the Адреса row at all. Defaults to `true` (every
   /// pre-generalization call site's original behaviour). The salon success
   /// screen's PER-APPOINTMENT cards set this `false` since the shared salon
@@ -209,13 +226,37 @@ class BookingSummaryCards extends StatelessWidget {
   final bool showAddress;
 
   /// The composed "street, buildingNo, city" address line, or `null` to fall
-  /// back to [AppLocalizations.bookingAddressUnknown]. Ignored entirely when
-  /// [showAddress] is `false`.
+  /// back to [AppLocalizations.bookingAddressUnknown] (or, when
+  /// [hideAddressWhenEmpty] is `true`, to omit the whole block). Ignored
+  /// entirely when [showAddress] is `false`.
   final String? addressLine;
 
   /// An optional muted sub-line under the address (e.g. a locality note).
   /// Ignored entirely when [showAddress] is `false`.
   final String? addressDetail;
+
+  /// Phase 14.3 addition — the provider's free-text arrival hint («3-й
+  /// поверх, код на дверях 1234»), rendered via [ArrivalNote] directly under
+  /// the address, inside the SAME [SectionRule]-closed block (no rule
+  /// between them — it is the last thing you read before setting off). Null
+  /// (the common case — most providers never write one) builds nothing.
+  ///
+  /// NOT part of the composed address — `composeAddressLine` /
+  /// `formatStreetCityLine` must never see this field. It is an
+  /// *instruction*, not a postal address; see [ArrivalNote]'s doc for the
+  /// full "three registers" reasoning.
+  final String? locationNote;
+
+  /// Phase 14.3 addition — when `true`, the entire Адреса block (row +
+  /// [locationNote] + its closing [SectionRule]) is omitted when
+  /// [addressLine] is `null`, instead of falling back to
+  /// [AppLocalizations.bookingAddressUnknown]. Defaults to `false` (every
+  /// pre-existing booking-FLOW call site is unaffected — mid-flow the
+  /// address is always known, so the fallback string is dead code there
+  /// anyway). «Деталі запису» opts in: a provider with genuinely no address
+  /// on file gets no row at all, not a "не вказано" placeholder — mirrors
+  /// every other optional field on this card (see [salonName]).
+  final bool hideAddressWhenEmpty;
 
   /// The chosen appointment date, already formatted (e.g. "понеділок, 14
   /// липня" via [formatFullDate]).
@@ -228,8 +269,17 @@ class BookingSummaryCards extends StatelessWidget {
   /// The service(s) rendered by the inner [BookingRecap] — a single-element
   /// list for the independent flow ([BookingSummaryCards.fromMaster]), the
   /// master's full assigned-service list for the salon flow
-  /// ([BookingSummaryCards.fromSchedule]).
+  /// ([BookingSummaryCards.fromSchedule]). Ignored when [singleSelection] is
+  /// set.
   final List<BookingSelection> selections;
+
+  /// Phase 14.3 addition — «Деталі запису»'s single-booking mode. **A
+  /// booking has exactly ONE service** — see `BookingRecap.single`'s doc for
+  /// why a single-element [selections] list is the wrong shape (it would
+  /// still render the "N послуг" count / dividers / "Разом" total built for
+  /// a multi-service SELECTION). When set, [selections] is ignored and the
+  /// recap renders via [BookingRecap.single].
+  final BookingSelection? singleSelection;
 
   /// Compact spacing — tighter details-card padding + section-rule gaps —
   /// so the success screens fit one viewport without excess scroll. The
@@ -252,9 +302,19 @@ class BookingSummaryCards extends StatelessWidget {
   /// [compactText] too. Defaults to `false`.
   final bool compactText;
 
+  /// Phase 14.3 addition — forwarded to [BookingRecap]/[BookingRecap.single].
+  /// Whether money is a true statement about this card at all (see
+  /// `Booking.showsPrice`). The booking-FLOW screens always have a price and
+  /// leave this at the default `true`; «Деталі запису» sets it `false` on a
+  /// cancelled / declined / missed booking.
+  final bool showPrice;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+
+    final bool renderAddress =
+        showAddress && !(hideAddressWhenEmpty && addressLine == null);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -272,13 +332,27 @@ class BookingSummaryCards extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              if (showAddress) ...<Widget>[
+              if (salonName != null) ...<Widget>[
+                LabelledRow(
+                  label: l10n.bookingSalonLabel,
+                  value: salonName!,
+                  compactText: compactText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SectionRule(dense: dense),
+              ],
+              if (renderAddress) ...<Widget>[
                 LabelledRow(
                   label: l10n.bookingAddressLabel,
                   value: addressLine ?? l10n.bookingAddressUnknown,
                   detail: addressDetail,
                   compactText: compactText,
                 ),
+                if (locationNote != null) ...<Widget>[
+                  const SizedBox(height: VelvetSpacing.sm),
+                  ArrivalNote(text: locationNote!),
+                ],
                 SectionRule(dense: dense),
               ],
               LabelledRow(
@@ -293,15 +367,90 @@ class BookingSummaryCards extends StatelessWidget {
                 compactText: compactText,
               ),
               SectionRule(dense: dense),
-              BookingRecap(
-                selections: selections,
-                dense: dense,
-                compactText: compactText,
-              ),
+              singleSelection != null
+                  ? BookingRecap.single(
+                      selection: singleSelection!,
+                      dense: dense,
+                      compactText: compactText,
+                      showPrice: showPrice,
+                    )
+                  : BookingRecap(
+                      selections: selections,
+                      dense: dense,
+                      compactText: compactText,
+                      showPrice: showPrice,
+                    ),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Phase 14.3 — the provider's **arrival hint**: «3-й поверх, код на дверях
+/// 1234», «вхід з двору, дзвонити двічі».
+///
+/// ## The third register
+///
+/// «Деталі запису» carries three *kinds* of text, and each announces which
+/// kind it is structurally, before a word is read:
+///
+///   * **A fact** — the app stating a field: a muted [LabelledRow] label
+///     above a strong value (Салон · Адреса · Дата · Час · Послуга).
+///   * **An instruction** — a property of the place: a glyph, no label, no
+///     container. *This widget.*
+///   * **Correspondence** — a human's words: an author heading + a container
+///     (recessed well = received, hairline rule = sent).
+///
+/// This note is emphatically the middle row: it is not addressed to anyone
+/// and nobody is speaking to the client — a door code is as impersonal as
+/// the street name. So it gets NEITHER note container (the recessed well /
+/// hairline rule are the only carriers of the sent/received distinction on
+/// the page; spending one on a building's entry code would blunt that
+/// signal) and NO author heading (there is no author to name). What it gets
+/// instead is a **door glyph** — wayfinding signage, not speech.
+///
+/// Set in `body()` (12 sp / textSecondary), one notch above the address's
+/// muted 11 sp coarse-locator sub-line, because it is the one line on the
+/// page you might act on while standing in the street. The glyph is mocha
+/// (`accentDeep`) — the brand's "something for you to do" colour.
+///
+/// ## No clamp — deliberately
+///
+/// The correspondence notes ([InboundNote]/[OutboundNote] in
+/// `booking_notes.dart`) clamp to 6 lines because they run to 1000 chars.
+/// This one does **not** clamp at all: it wraps freely and is never
+/// truncated. An arrival hint is short by nature, and it is the one string
+/// on this page where an ellipsis could genuinely strand somebody at a
+/// locked door — «3-й поверх, код на дверях…» is worse than useless.
+class ArrivalNote extends StatelessWidget {
+  const ArrivalNote({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Semantics(
+      label: l10n.bookingArrivalNoteSemantics(text),
+      excludeSemantics: true,
+      child: Row(
+        key: const Key('arrival-note'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.meeting_room_outlined,
+              size: 14,
+              color: BrandColors.accentDeep,
+            ),
+          ),
+          const SizedBox(width: VelvetSpacing.xs),
+          Expanded(child: Text(text, style: VelvetText.body())),
+        ],
+      ),
     );
   }
 }
