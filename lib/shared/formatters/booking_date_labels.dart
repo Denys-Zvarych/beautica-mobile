@@ -92,42 +92,67 @@ const List<String> kWeekdaysUkFull = <String>[
 String _twoDigits(int v) => v.toString().padLeft(2, '0');
 
 /// Formats [day] as a compact day-header chip label, e.g. "пн, 14 лип".
+///
+/// The incoming instant is canonical UTC (the generated built_value client
+/// normalises every wire `DateTime` to UTC); it is converted to the device's
+/// local zone here so the DATE reads at the Kyiv wall-clock — a late-evening
+/// Kyiv slot is a previous-day date in UTC, so the day/weekday/month must all
+/// come from the `.toLocal()` value. See `relative_date.dart` for the same
+/// display-layer `.toLocal()` convention.
 String formatBookingDayHeader(DateTime day) {
-  final String wd = kWeekdaysUkShort[day.weekday - 1];
-  final String mon = kMonthsUkShort[day.month - 1];
-  return '$wd, ${day.day} $mon';
+  final DateTime local = day.toLocal();
+  final String wd = kWeekdaysUkShort[local.weekday - 1];
+  final String mon = kMonthsUkShort[local.month - 1];
+  return '$wd, ${local.day} $mon';
 }
 
 /// Formats the chosen appointment window, e.g. "вт, 14 лип · 14:00–18:30".
+///
+/// Both instants are converted to the device local zone first (see
+/// [formatBookingDayHeader]) so the date and both times read at the Kyiv
+/// wall-clock rather than the raw UTC hour.
 String formatBookingWindow(DateTime start, DateTime end) {
-  final String wd = kWeekdaysUkShort[start.weekday - 1];
-  final String mon = kMonthsUkShort[start.month - 1];
-  final String s = '${_twoDigits(start.hour)}:${_twoDigits(start.minute)}';
-  final String e = '${_twoDigits(end.hour)}:${_twoDigits(end.minute)}';
-  return '$wd, ${start.day} $mon · $s–$e';
+  final DateTime startLocal = start.toLocal();
+  final DateTime endLocal = end.toLocal();
+  final String wd = kWeekdaysUkShort[startLocal.weekday - 1];
+  final String mon = kMonthsUkShort[startLocal.month - 1];
+  final String s =
+      '${_twoDigits(startLocal.hour)}:${_twoDigits(startLocal.minute)}';
+  final String e =
+      '${_twoDigits(endLocal.hour)}:${_twoDigits(endLocal.minute)}';
+  return '$wd, ${startLocal.day} $mon · $s–$e';
 }
 
 /// Formats a bare time-of-day as "HH:mm".
-String formatSlotTime(DateTime time) =>
-    '${_twoDigits(time.hour)}:${_twoDigits(time.minute)}';
+///
+/// Converts the canonical-UTC instant to the device local zone first so the
+/// picker prints the Kyiv wall-clock (09:00), not the raw UTC hour (06:00).
+String formatSlotTime(DateTime time) {
+  final DateTime local = time.toLocal();
+  return '${_twoDigits(local.hour)}:${_twoDigits(local.minute)}';
+}
 
 /// The chosen day spelled out in full, e.g. "понеділок, 14 липня" — full
 /// weekday + day + genitive full month. Used by the booking confirm/success
 /// summary cards' full-width "Дата" row so it is never abbreviated or clipped
 /// (unlike [formatBookingDayHeader]'s compact chip form).
 String formatFullDate(DateTime day) {
-  final String wd = kWeekdaysUkFull[day.weekday - 1];
-  final String mon = kMonthsUkGenitive[day.month - 1];
-  return '$wd, ${day.day} $mon';
+  final DateTime local = day.toLocal();
+  final String wd = kWeekdaysUkFull[local.weekday - 1];
+  final String mon = kMonthsUkGenitive[local.month - 1];
+  return '$wd, ${local.day} $mon';
 }
 
 /// The booked time range only (no date): [start] → `start +` [totalMinutes],
 /// e.g. "14:00–18:30". Used by the booking confirm/success summary cards'
 /// "Час" row, paired with [formatFullDate] on its own "Дата" row.
 String formatTimeRange(DateTime start, int totalMinutes) {
-  final DateTime end = start.add(Duration(minutes: totalMinutes));
-  return '${_twoDigits(start.hour)}:${_twoDigits(start.minute)}'
-      '–${_twoDigits(end.hour)}:${_twoDigits(end.minute)}';
+  // Convert to the device local zone BEFORE adding the duration so both ends
+  // read at the Kyiv wall-clock (see [formatSlotTime]).
+  final DateTime startLocal = start.toLocal();
+  final DateTime endLocal = startLocal.add(Duration(minutes: totalMinutes));
+  return '${_twoDigits(startLocal.hour)}:${_twoDigits(startLocal.minute)}'
+      '–${_twoDigits(endLocal.hour)}:${_twoDigits(endLocal.minute)}';
 }
 
 // Phase 14.3 — My Bookings card date stub.
@@ -145,7 +170,8 @@ String formatTimeRange(DateTime start, int totalMinutes) {
 /// the subject — the client is scanning for a number, then checking which day
 /// of the week it lands on.
 String formatStubDayLine(DateTime day) {
-  final String mon = kMonthsUkGenitive[day.month - 1];
-  final String wd = kWeekdaysUkShort[day.weekday - 1];
+  final DateTime local = day.toLocal();
+  final String mon = kMonthsUkGenitive[local.month - 1];
+  final String wd = kWeekdaysUkShort[local.weekday - 1];
   return '$mon, $wd';
 }
