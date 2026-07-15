@@ -4258,6 +4258,61 @@
   "@salonScheduleDateIntro": {
     "description": "Intro line above the calendar on each master's slide of the salon booking time screen."
   },
+  "bookingServiceTimeTitle": "Time",
+  "@bookingServiceTimeTitle": {
+    "description": "Top-bar title of the independent-master per-service booking time screen (a PageView, one slide per selected service)."
+  },
+  "bookingServiceTimeBackSemantics": "Back to service selection",
+  "@bookingServiceTimeBackSemantics": {
+    "description": "Accessibility label for the independent-master per-service booking time screen's back arrow while on the date phase (returns to service selection)."
+  },
+  "bookingServiceScheduleDateIntro": "Choose a convenient date for this service — we'll find free time next.",
+  "@bookingServiceScheduleDateIntro": {
+    "description": "Intro line above the calendar on each service's slide of the independent-master per-service booking time screen."
+  },
+  "bookingServicePagerSemantics": "Service {current} of {count}. {done} scheduled.",
+  "@bookingServicePagerSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's service-pager row (arrows + dots + counter).",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" },
+      "done": { "type": "int", "example": "1" }
+    }
+  },
+  "bookingServicePagerCounterLabel": "Service {current} of {count}",
+  "@bookingServicePagerCounterLabel": {
+    "description": "Visible counter text under the pager dots on the independent-master booking time screen.",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "bookingServicePagerPrevSemantics": "Previous service",
+  "@bookingServicePagerPrevSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's previous-service arrow."
+  },
+  "bookingServicePagerNextSemantics": "Next service",
+  "@bookingServicePagerNextSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's next-service arrow."
+  },
+  "bookingServicePagerDotLabel": "Service {index}",
+  "@bookingServicePagerDotLabel": {
+    "description": "Accessibility label for an unscheduled service's pager dot on the independent-master booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "bookingServicePagerDotDoneLabel": "Service {index}, scheduled",
+  "@bookingServicePagerDotDoneLabel": {
+    "description": "Accessibility label for an already-scheduled service's pager dot on the independent-master booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "bookingServiceOverlapError": "These services overlap in time. Choose a different time for one of them.",
+  "@bookingServiceOverlapError": {
+    "description": "Snackbar/error shown when two of the client's selected services are scheduled at overlapping times in the independent-master booking flow (pre-empts the backend CLIENT_BOOKING_CONFLICT 409)."
+  },
   "salonScheduleWindowPrompt": "Choose a time",
   "@salonScheduleWindowPrompt": {
     "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."

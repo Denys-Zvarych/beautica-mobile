@@ -4258,6 +4258,61 @@
   "@salonScheduleDateIntro": {
     "description": "Intro line above the calendar on each master's slide of the salon booking time screen."
   },
+  "bookingServiceTimeTitle": "Час",
+  "@bookingServiceTimeTitle": {
+    "description": "Top-bar title of the independent-master per-service booking time screen (a PageView, one slide per selected service)."
+  },
+  "bookingServiceTimeBackSemantics": "Назад до вибору послуг",
+  "@bookingServiceTimeBackSemantics": {
+    "description": "Accessibility label for the independent-master per-service booking time screen's back arrow while on the date phase (returns to service selection)."
+  },
+  "bookingServiceScheduleDateIntro": "Оберіть зручну дату для цієї послуги — далі підберемо вільний час.",
+  "@bookingServiceScheduleDateIntro": {
+    "description": "Intro line above the calendar on each service's slide of the independent-master per-service booking time screen."
+  },
+  "bookingServicePagerSemantics": "Послуга {current} з {count}. {done} заплановано.",
+  "@bookingServicePagerSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's service-pager row (arrows + dots + counter).",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" },
+      "done": { "type": "int", "example": "1" }
+    }
+  },
+  "bookingServicePagerCounterLabel": "Послуга {current} з {count}",
+  "@bookingServicePagerCounterLabel": {
+    "description": "Visible counter text under the pager dots on the independent-master booking time screen.",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "bookingServicePagerPrevSemantics": "Попередня послуга",
+  "@bookingServicePagerPrevSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's previous-service arrow."
+  },
+  "bookingServicePagerNextSemantics": "Наступна послуга",
+  "@bookingServicePagerNextSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's next-service arrow."
+  },
+  "bookingServicePagerDotLabel": "Послуга {index}",
+  "@bookingServicePagerDotLabel": {
+    "description": "Accessibility label for an unscheduled service's pager dot on the independent-master booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "bookingServicePagerDotDoneLabel": "Послуга {index}, заплановано",
+  "@bookingServicePagerDotDoneLabel": {
+    "description": "Accessibility label for an already-scheduled service's pager dot on the independent-master booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "bookingServiceOverlapError": "Ці послуги перетинаються в часі. Оберіть інший час для однієї з них.",
+  "@bookingServiceOverlapError": {
+    "description": "Snackbar/error shown when two of the client's selected services are scheduled at overlapping times in the independent-master booking flow (pre-empts the backend CLIENT_BOOKING_CONFLICT 409)."
+  },
   "salonScheduleWindowPrompt": "Оберіть час",
   "@salonScheduleWindowPrompt": {
     "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."

@@ -36,7 +36,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
-import 'client_booking_conflict_flow_test.dart' as client_booking_conflict;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
 import 'client_logout_flow_test.dart' as client_logout;
@@ -50,13 +49,21 @@ import 'client_shell_edge_swipe_back_flow_test.dart'
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
+import 'independent_multi_service_booking_flow_test.dart'
+    as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('auth_login_flow', auth_login.main);
-  group('client_booking_conflict_flow', client_booking_conflict.main);
+  // Independent-master MULTI-SERVICE booking (Step 2.7 Rule 3b) — acceptance +
+  // partial-failure/same-key-retry (re-authored from the removed
+  // client_booking_conflict_flow against the new per-appointment contract).
+  group(
+    'independent_multi_service_booking_flow',
+    independent_multi_service_booking.main,
+  );
   // My Bookings → Booking Detail → Cancel journey (Step 2.7 Rule 3b).
   group('client_my_bookings_cancel_flow', client_my_bookings_cancel.main);
   group('client_home_hub_flow', client_home_hub.main);
