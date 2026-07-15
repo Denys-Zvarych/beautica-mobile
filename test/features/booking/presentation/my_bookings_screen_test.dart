@@ -330,6 +330,41 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('past + cancelled empty tabs show the empty state WITHOUT the '
+        '«Знайти майстра» CTA (gated to Майбутні only)', (tester) async {
+      final repo = _MockBookingRepository();
+      _stubAllStatuses(repo); // every tab empty
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+
+      final l10n = _l10n(tester);
+
+      // Минулі — empty state renders, but the CTA (and its spacer) is omitted:
+      // «Знайти майстра» only belongs on the upcoming tab, where the client has
+      // no future appointments yet. On a past/cancelled empty history there is
+      // nothing to book AWAY from, so the CTA must be absent.
+      await tester.tap(find.text(l10n.myBookingsTabPast));
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingsEmptyState), findsOneWidget);
+      expect(
+        find.byKey(const Key('my-bookings-empty-find-master')),
+        findsNothing,
+        reason: 'the CTA is gated to Майбутні — it must not render on Минулі',
+      );
+
+      // Скасовані — same gated-off behaviour on the second non-upcoming tab.
+      await tester.tap(find.text(l10n.myBookingsTabCancelled));
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingsEmptyState), findsOneWidget);
+      expect(
+        find.byKey(const Key('my-bookings-empty-find-master')),
+        findsNothing,
+        reason:
+            'the CTA is gated to Майбутні — it must not render on Скасовані',
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

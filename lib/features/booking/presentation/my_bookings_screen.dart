@@ -231,7 +231,11 @@ class _BookingsTabViewState extends ConsumerState<_BookingsTabView> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: kMyBookingsListPadding,
               children: <Widget>[
-                BookingsEmptyState(onFindMaster: widget.onFindMaster),
+                BookingsEmptyState(
+                  onFindMaster: widget.tab == BookingTab.upcoming
+                      ? widget.onFindMaster
+                      : null,
+                ),
               ],
             );
           }

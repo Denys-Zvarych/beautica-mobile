@@ -458,9 +458,16 @@ class _DateStub extends StatelessWidget {
   final bool dimmed;
   final bool struck;
 
-  /// Wide enough for the longest Ukrainian genitive month + weekday
-  /// («листопада, ср»); the line below scales down rather than wrap or clip.
-  static const double width = 68;
+  /// Sized to the widest UNBREAKABLE token the day line can produce — the
+  /// genitive month «листопада,» measures 61.7 dp at statCaption's natural
+  /// size (the whole «листопада, нд» line is 79 dp, but the weekday breaks
+  /// onto a second line). 64 dp (`VelvetSpacing.xxl + VelvetSpacing.md`) clears
+  /// that widest token with ~2 dp of margin, so the month never clips and never
+  /// has to scale down: the 9 shorter months stay on one line, the three long
+  /// ones («березня», «вересня», «листопада») wrap to two centred lines. It is
+  /// narrower than the old scale-to-fit width (68), so [_tearLineX] shifts left
+  /// and the Expanded body gains the freed space.
+  static const double width = VelvetSpacing.xxl + VelvetSpacing.md; // 64
 
   @override
   Widget build(BuildContext context) {
@@ -471,11 +478,12 @@ class _DateStub extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(
             start.day.toString(),
+            textAlign: TextAlign.center,
             style: VelvetText.bookingDayNumber.copyWith(
               color: dayColor,
               decoration: struck
@@ -486,18 +494,18 @@ class _DateStub extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                formatStubDayLine(start),
-                maxLines: 1,
-                style: VelvetText.statCaption().copyWith(
-                  color: dimmed ? BrandColors.faint : BrandColors.muted,
-                ),
-              ),
+          // Centred under the day number. At the stub's natural size no month
+          // clips: the short ones sit on one line, «березня»/«вересня»/
+          // «листопада» wrap to a second centred line rather than scaling. The
+          // ellipsis is a defensive floor for extreme accessibility text scales
+          // — it never triggers on real labels at normal scale.
+          Text(
+            formatStubDayLine(start),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: VelvetText.statCaption().copyWith(
+              color: dimmed ? BrandColors.faint : BrandColors.muted,
             ),
           ),
         ],

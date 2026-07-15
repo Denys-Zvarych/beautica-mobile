@@ -10,10 +10,12 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 class BookingsEmptyState extends StatelessWidget {
-  const BookingsEmptyState({super.key, required this.onFindMaster});
+  const BookingsEmptyState({super.key, this.onFindMaster});
 
-  /// Invoked by «Знайти майстра» — navigates to `/search`.
-  final VoidCallback onFindMaster;
+  /// Invoked by «Знайти майстра» — navigates to `/search`. When null (the
+  /// Минулі / Скасовані tabs), the CTA and its spacer are omitted entirely,
+  /// leaving just the icon + title.
+  final VoidCallback? onFindMaster;
 
   @override
   Widget build(BuildContext context) {
@@ -38,16 +40,19 @@ class BookingsEmptyState extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: VelvetText.subheading(),
               ),
-              const SizedBox(height: VelvetSpacing.lg),
-              SizedBox(
-                width: double.infinity,
-                child: NeumorphicButton(
-                  key: const Key('my-bookings-empty-find-master'),
-                  label: l10n.myBookingsEmptyCta,
-                  icon: Icons.search_rounded,
-                  onPressed: onFindMaster,
+              if (onFindMaster
+                  case final VoidCallback onFindMaster) ...<Widget>[
+                const SizedBox(height: VelvetSpacing.lg),
+                SizedBox(
+                  width: double.infinity,
+                  child: NeumorphicButton(
+                    key: const Key('my-bookings-empty-find-master'),
+                    label: l10n.myBookingsEmptyCta,
+                    icon: Icons.search_rounded,
+                    onPressed: onFindMaster,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
