@@ -364,15 +364,15 @@ class _CommentCounter extends StatelessWidget {
   final TextEditingController controller;
   final int maxChars;
 
-  static final TextStyle _fullStyle = VelvetText.feedback(
-    BrandColors.error,
-  ).copyWith(fontSize: 11);
-  static final TextStyle _activeStyle = VelvetText.feedback(
-    BrandColors.textSecondary,
-  ).copyWith(fontSize: 11);
-  static final TextStyle _emptyStyle = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 11);
+  static final TextStyle _fullStyle = VelvetText.feedbackCounter.copyWith(
+    color: BrandColors.error,
+  );
+  static final TextStyle _activeStyle = VelvetText.feedbackCounter.copyWith(
+    color: BrandColors.textSecondary,
+  );
+  static final TextStyle _emptyStyle = VelvetText.feedbackCounter.copyWith(
+    color: BrandColors.muted,
+  );
 
   @override
   Widget build(BuildContext context) {

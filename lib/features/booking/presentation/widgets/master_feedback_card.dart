@@ -41,9 +41,7 @@ class MasterFeedbackCard extends StatelessWidget {
   static const Color _cardColor = Color(0xFFEDE4D5);
 
   // Hoisted display styles.
-  static final TextStyle _nameStyle = VelvetText.displayName().copyWith(
-    fontSize: 16,
-  );
+  static final TextStyle _nameStyle = VelvetText.feedbackName;
   static final TextStyle _contextStyle = VelvetText.bodyStrong13;
 
   @override
@@ -123,12 +121,12 @@ class ReviewSectionLabel extends StatelessWidget {
   /// [BrandColors.accentDeep]; otherwise muted (the optional comment section).
   final bool emphasized;
 
-  static final TextStyle _tagAccent = VelvetText.feedback(
-    BrandColors.accentDeep,
-  ).copyWith(fontSize: 10);
-  static final TextStyle _tagMuted = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 10);
+  static final TextStyle _tagAccent = VelvetText.feedbackTag.copyWith(
+    color: BrandColors.accentDeep,
+  );
+  static final TextStyle _tagMuted = VelvetText.feedbackTag.copyWith(
+    color: BrandColors.muted,
+  );
 
   @override
   Widget build(BuildContext context) {

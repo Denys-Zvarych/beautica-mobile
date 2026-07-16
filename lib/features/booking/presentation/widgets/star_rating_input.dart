@@ -62,14 +62,8 @@ class _StarRatingInputState extends State<StarRatingInput>
   static const double _starBox = 52; // generous 52 dp tap target per star.
 
   // Hoisted display styles — computed once, never per build/frame.
-  static final TextStyle _labelRatedStyle = VelvetText.displayName().copyWith(
-    color: BrandColors.accentDeep,
-    fontSize: 18,
-  );
-  static final TextStyle _labelPromptStyle = VelvetText.body().copyWith(
-    color: BrandColors.muted,
-    fontSize: 13,
-  );
+  static final TextStyle _labelRatedStyle = VelvetText.feedbackRatingWord;
+  static final TextStyle _labelPromptStyle = VelvetText.feedbackPrompt;
 
   late final AnimationController _sweep;
 
