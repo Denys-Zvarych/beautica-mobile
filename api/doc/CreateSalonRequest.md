@@ -17,8 +17,8 @@ Name | Type | Description | Notes
 **instagramUrl** | **String** |  | [optional] 
 **cityId** | **String** |  | [optional] 
 **districtId** | **String** |  | [optional] 
-**street** | **String** |  | [optional] 
-**buildingNo** | **String** |  | [optional] 
+**street** | **String** |  | 
+**buildingNo** | **String** |  | 
 **locationNote** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
