@@ -248,9 +248,11 @@ void main() {
       );
       // …replaced by the single rebook CTA.
       expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
-      // It is still a CONFIRMED booking (the confirmed subline persists) —
-      // only its action set changed, not the whole screen.
-      expect(find.text(l10n.bookingDetailSublineConfirmed), findsOneWidget);
+      // The forward-looking reminder subline is now SUPPRESSED once the booking
+      // has elapsed — part of the read-only treatment: `_subline(...)` returns
+      // null for CONFIRMED && isPast, so «Нагадаємо про запис напередодні.»
+      // (which can no longer be true) never renders on an elapsed detail.
+      expect(find.text(l10n.bookingDetailSublineConfirmed), findsNothing);
     });
   });
 

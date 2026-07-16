@@ -85,8 +85,12 @@ class BookingSuccessScaffold extends StatefulWidget {
   /// subline alone carries the state).
   final String? title;
 
-  /// Sub-line under the headline.
-  final String subline;
+  /// Sub-line under the headline. `null` renders no subline at all — the
+  /// detail page passes `null` for an ELAPSED CONFIRMED booking, whose
+  /// reminder line ("we'll remind you the day before") is meaningless once
+  /// the slot has passed and is dropped alongside its other read-only
+  /// affordances.
+  final String? subline;
 
   /// The confirmed-booking recap cards — one for the independent flow, N (one
   /// per master) for the salon flow, one for the detail page. Each is
@@ -316,15 +320,17 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
                   ),
                   const SizedBox(height: VelvetSpacing.xs + 2),
                 ],
-                _reveal(
-                  start: 0.52,
-                  end: 0.78,
-                  child: Text(
-                    widget.subline,
-                    textAlign: TextAlign.center,
-                    style: VelvetText.bookSuccessSubline,
+                if (widget.subline != null) ...<Widget>[
+                  _reveal(
+                    start: 0.52,
+                    end: 0.78,
+                    child: Text(
+                      widget.subline!,
+                      textAlign: TextAlign.center,
+                      style: VelvetText.bookSuccessSubline,
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: VelvetSpacing.lg),
                 Flexible(
                   child: SingleChildScrollView(

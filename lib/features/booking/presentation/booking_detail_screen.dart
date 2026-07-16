@@ -340,10 +340,18 @@ class _DetailBody extends StatelessWidget {
   /// no-show line is agent-less on purpose — the app records that the visit
   /// did not happen and points at the provider's own words; it never itself
   /// tells the client they failed to show up.
-  String _subline(Booking b, AppLocalizations l10n) {
+  String? _subline(Booking b, AppLocalizations l10n) {
     switch (b.status) {
       case BookingStatus.pending:
       case BookingStatus.confirmed:
+        // The reminder ("Нагадаємо про запис напередодні.") is an
+        // upcoming-only affordance. An ELAPSED CONFIRMED booking is already
+        // read-only (Reschedule/Cancel/Add-to-calendar all hidden, «Записатись
+        // знову» shown), so drop the reminder too — reminding about a visit
+        // whose time has passed is meaningless.
+        if (b.status == BookingStatus.confirmed && b.isPast) {
+          return null;
+        }
         return l10n.bookingDetailSublineConfirmed;
       case BookingStatus.completed:
         return l10n.bookingDetailSublineCompleted;
