@@ -11,7 +11,7 @@
 //   modes. Dirty-state tracking includes the selected category.
 // Phase 5.6 — Flexible pricing: replaced the single price field with
 //   [PricingField] — a two-mode segmented control (Фіксована / Діапазон).
-//   - FIXED mode: one "Сума" amount field with "грн" suffix.
+//   - FIXED mode: one "Сума" amount field with "₴" suffix.
 //   - RANGE mode: side-by-side "Від" / "До" fields with an inline range error hint.
 //   - Edit form pre-fills the toggle + fields from [MasterService.priceType],
 //     [priceMin], [priceMax].

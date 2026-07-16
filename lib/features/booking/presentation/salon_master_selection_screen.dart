@@ -1629,8 +1629,8 @@ class _AssignConfirmBar extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final (double minSum, double maxSum, int minutes) = _totals(selected);
     final String price = minSum == maxSum
-        ? '${minSum.toStringAsFixed(0)} грн'
-        : '${minSum.toStringAsFixed(0)}–${maxSum.toStringAsFixed(0)} грн';
+        ? '${minSum.toStringAsFixed(0)} ₴'
+        : '${minSum.toStringAsFixed(0)}–${maxSum.toStringAsFixed(0)} ₴';
     final String? duration = minutes > 0
         ? DurationMinutes.format(minutes)
         : null;

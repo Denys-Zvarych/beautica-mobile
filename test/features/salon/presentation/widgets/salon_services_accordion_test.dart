@@ -35,7 +35,7 @@ const _kCategories = <SalonServiceCategoryEntry>[
         id: 'svc-1',
         name: 'Класичний манікюр',
         durationLabel: '1 год',
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
       ),
     ],
   ),
@@ -61,7 +61,7 @@ const _kDistinctLabelCategories = <SalonServiceCategoryEntry>[
         id: 'svc-hc-1',
         name: 'Чистка обличчя',
         durationLabel: '1 год',
-        priceDisplay: '800 грн',
+        priceDisplay: '800 ₴',
       ),
     ],
   ),
@@ -77,7 +77,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // i18n-finder-ok: fixture price string, not UI copy
-      final priceFinder = find.text('500 грн');
+      final priceFinder = find.text('500 ₴');
       expect(priceFinder, findsOneWidget);
 
       final Text priceText = tester.widget<Text>(priceFinder);
@@ -270,7 +270,7 @@ void main() {
             id: 'svc-long',
             name: 'Класичний манікюр',
             durationLabel: longDuration,
-            priceDisplay: '500 грн',
+            priceDisplay: '500 ₴',
           ),
         ],
       ),

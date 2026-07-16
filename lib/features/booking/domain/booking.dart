@@ -57,7 +57,42 @@ abstract class Booking with _$Booking {
     /// has not already left a review for this booking. Server-computed —
     /// the client must not re-derive this from [status] alone.
     required bool canReview,
+
+    /// The client's free-text note written at booking time
+    /// (`CreateBookingRequest.clientComment`). Visible to the provider; the
+    /// client sees their own words echoed back on «Деталі запису» under
+    /// «Ваші побажання». Distinct from [clientCancellationNote] — this is
+    /// NOT the cancellation reason.
     String? clientComment,
+
+    /// **Free text written by the PROVIDER** — never the `CancellationReason`
+    /// enum. Set on exactly two statuses and required by the backend on
+    /// both, so treat it as effectively always present there:
+    ///   * [BookingStatus.declined]     — why the provider cancelled.
+    ///   * [BookingStatus.notCompleted] — the provider's account of the
+    ///     no-show.
+    /// Null on every other status. See the Phase 14.3 README: if a value
+    /// here ever reads `SCREAMING_SNAKE_CASE`, the wrong field was bound.
     String? providerComment,
+
+    /// **Free text written by the CLIENT** at the moment they cancelled
+    /// ([BookingStatus.cancelled]). Optional — a client may cancel without
+    /// saying anything, so a null value here is the common case, not a
+    /// missing one. The provider reads it; the client sees it echoed back
+    /// under «Ваша причина».
+    String? clientCancellationNote,
+
+    /// The master's own free-text professional title/headline (e.g.
+    /// «Перукар-стиліст»). Independently nullable — most masters never set
+    /// one, and an absent value renders no fallback text (see `MasterStrip`'s
+    /// generic-role fallback for where a placeholder DOES belong).
+    String? masterProfessionalTitle,
+
+    /// The provider's free-text arrival hint («3-й поверх, код на дверях
+    /// 1234»), resolved server-side by the same salon-vs-independent rule as
+    /// [street]/[buildingNo]. Never part of the composed address — see
+    /// `composeAddressLine`'s doc. Independently nullable; most providers
+    /// never set one.
+    String? locationNote,
   }) = _Booking;
 }

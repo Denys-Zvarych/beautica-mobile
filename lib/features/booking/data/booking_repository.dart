@@ -108,9 +108,11 @@ abstract interface class BookingRepository {
 
   /// Reschedules a booking to a new start time.
   ///
-  /// Wraps `PATCH /bookings/{bookingId}/reschedule` (backend 19.2). A
-  /// CONFIRMED booking is moved back to PENDING server-side — the returned
-  /// [Booking] simply reflects whatever status the server computed. Throws
+  /// Wraps `PATCH /bookings/{bookingId}/reschedule` (backend 19.2). Pre-track
+  /// 24.x, a CONFIRMED booking was moved back to PENDING server-side;
+  /// `PENDING` is now retired (booking auto-confirm) and a rescheduled
+  /// booking simply stays CONFIRMED — the returned [Booking] reflects
+  /// whatever status the server computed either way. Throws
   /// [ConflictFailure] on HTTP 409 (new slot taken, or the booking is no
   /// longer in a reschedulable state — or, under contention, a server-side
   /// lock timeout), or [ClientBookingConflictFailure] on HTTP 409 when the
@@ -260,7 +262,7 @@ final class HttpBookingRepository implements BookingRepository {
           stackTrace: st,
         );
       }
-      throw _mapDioException(e);
+      throw _mapBookingCancelException(e);
     }
   }
 
@@ -346,7 +348,7 @@ final class HttpBookingRepository implements BookingRepository {
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          '_deserialize<$T> failed: $e',
+          '_deserialize<$T> failed: ${e.runtimeType}',
           name: _tag,
           level: 1000,
           stackTrace: st,
@@ -383,11 +385,45 @@ final class HttpBookingRepository implements BookingRepository {
   Failure _mapBookingWriteException(DioException e) {
     final statusCode = e.response?.statusCode;
     if (statusCode == 409) {
+      // BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's window is
+      // already past the SERVER clock — checked before the slot-conflict
+      // fallbacks (the reschedule endpoint shares the 409 status with both).
+      if (_isBookingAlreadyElapsed(e)) {
+        return BookingAlreadyElapsedFailure(cause: e);
+      }
       return _extractClientBookingConflict(e) ?? ConflictFailure(cause: e);
     }
     if (statusCode == 429) return BookingRateLimitedFailure(cause: e);
     if (e.error is Failure) return e.error as Failure;
     return _mapDioException(e);
+  }
+
+  /// Maps a [DioException] from `PATCH /bookings/{id}/cancel` to a typed
+  /// [Failure]. The one case that needs special handling is the
+  /// `BOOKING_ALREADY_ELAPSED` 409 (backend 952e441) — the booking already
+  /// ended server-side, so it can no longer be cancelled. Everything else
+  /// defers to the shared [_mapDioException] (a plain 409 stays a
+  /// [ServerFailure], as before).
+  Failure _mapBookingCancelException(DioException e) {
+    if (e.response?.statusCode == 409 && _isBookingAlreadyElapsed(e)) {
+      return BookingAlreadyElapsedFailure(cause: e);
+    }
+    return _mapDioException(e);
+  }
+
+  /// `true` when [e] is a 409 whose body is the
+  /// `{ "data": { "code": "BOOKING_ALREADY_ELAPSED" } }` envelope (backend
+  /// 952e441). Hand-decoded from the raw JSON body — like
+  /// [_extractClientBookingConflict], this code is not part of the generated
+  /// OpenAPI client (the local backend can't currently boot to refresh the
+  /// spec snapshot — see CLAUDE.md). Any non-map / non-matching body returns
+  /// `false` so the caller falls back to its generic mapping.
+  bool _isBookingAlreadyElapsed(DioException e) {
+    final body = e.response?.data;
+    if (body is! Map<String, dynamic>) return false;
+    final data = body['data'];
+    if (data is! Map<String, dynamic>) return false;
+    return data['code'] == 'BOOKING_ALREADY_ELAPSED';
   }
 
   /// Extracts a [ClientBookingConflictFailure] from a 409 response body whose

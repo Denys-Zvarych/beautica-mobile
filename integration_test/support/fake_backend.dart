@@ -255,7 +255,7 @@ final class FakeBackend {
       'priceType': 'FIXED',
       'priceMin': 400,
       'priceMax': null,
-      'priceDisplay': '400 грн',
+      'priceDisplay': '400 ₴',
       'effectiveDurationMinutes': 60,
       'serviceDefinition': <String, dynamic>{
         'id': 'svc-1',
@@ -268,7 +268,7 @@ final class FakeBackend {
         'priceType': 'FIXED',
         'priceMin': 400,
         'priceMax': null,
-        'priceDisplay': '400 грн',
+        'priceDisplay': '400 ₴',
         'photoUrl': null,
       },
     },
@@ -279,7 +279,7 @@ final class FakeBackend {
       'priceType': 'RANGE',
       'priceMin': 200,
       'priceMax': 350,
-      'priceDisplay': 'від 200 до 350 грн',
+      'priceDisplay': 'від 200 до 350 ₴',
       'effectiveDurationMinutes': 45,
       'serviceDefinition': <String, dynamic>{
         'id': 'svc-2',
@@ -292,7 +292,7 @@ final class FakeBackend {
         'priceType': 'RANGE',
         'priceMin': 200,
         'priceMax': 350,
-        'priceDisplay': 'від 200 до 350 грн',
+        'priceDisplay': 'від 200 до 350 ₴',
         'photoUrl': null,
       },
     },
@@ -307,7 +307,7 @@ final class FakeBackend {
       'priceType': 'FIXED',
       'priceMin': 500,
       'priceMax': null,
-      'priceDisplay': '500 грн',
+      'priceDisplay': '500 ₴',
       'effectiveDurationMinutes': 60,
       'serviceTypeId': 'type-nails-classic',
       'serviceTypeNameUk': 'Класичний манікюр',
@@ -322,7 +322,7 @@ final class FakeBackend {
         'priceType': 'FIXED',
         'priceMin': 500,
         'priceMax': null,
-        'priceDisplay': '500 грн',
+        'priceDisplay': '500 ₴',
         'photoUrl': null,
         'serviceTypeId': 'type-nails-classic',
         'serviceTypeNameUk': 'Класичний манікюр',
@@ -341,7 +341,7 @@ final class FakeBackend {
       'priceType': 'FIXED',
       'priceMin': 500,
       'priceMax': null,
-      'priceDisplay': '500 грн',
+      'priceDisplay': '500 ₴',
       'effectiveDurationMinutes': 60,
       'serviceTypeId': 'type-nails-classic',
       'serviceTypeNameUk': 'Класичний манікюр',
@@ -356,7 +356,7 @@ final class FakeBackend {
         'priceType': 'FIXED',
         'priceMin': 500,
         'priceMax': null,
-        'priceDisplay': '500 грн',
+        'priceDisplay': '500 ₴',
         'photoUrl': null,
         'serviceTypeId': 'type-nails-classic',
         'serviceTypeNameUk': 'Класичний манікюр',
@@ -951,7 +951,7 @@ final class FakeBackend {
           'priceType': 'FIXED',
           'priceMin': 500,
           'priceMax': null,
-          'priceDisplay': '500 грн',
+          'priceDisplay': '500 ₴',
           'effectiveDurationMinutes': 90,
           'serviceDefinition': <String, dynamic>{
             'id': 'pub-svc-1',
@@ -970,7 +970,7 @@ final class FakeBackend {
             'priceType': 'FIXED',
             'priceMin': 500,
             'priceMax': null,
-            'priceDisplay': '500 грн',
+            'priceDisplay': '500 ₴',
             'photoUrl': null,
           },
         },
@@ -981,7 +981,7 @@ final class FakeBackend {
           'priceType': 'RANGE',
           'priceMin': 300,
           'priceMax': 600,
-          'priceDisplay': 'від 300 до 600 грн',
+          'priceDisplay': 'від 300 до 600 ₴',
           'effectiveDurationMinutes': 60,
           'serviceDefinition': <String, dynamic>{
             'id': 'pub-svc-2',
@@ -998,7 +998,7 @@ final class FakeBackend {
             'priceType': 'RANGE',
             'priceMin': 300,
             'priceMax': 600,
-            'priceDisplay': 'від 300 до 600 грн',
+            'priceDisplay': 'від 300 до 600 ₴',
             'photoUrl': null,
           },
         },
@@ -1287,7 +1287,7 @@ final class FakeBackend {
               'priceType': 'FIXED',
               'priceMin': 400,
               'priceMax': null,
-              'priceDisplay': '400 грн',
+              'priceDisplay': '400 ₴',
               'photoUrl': null,
             },
             // REGRESSION FIXTURE (salon-prefill label-fallback bug): this
@@ -1312,7 +1312,7 @@ final class FakeBackend {
               'priceType': 'FIXED',
               'priceMin': 550,
               'priceMax': null,
-              'priceDisplay': '550 грн',
+              'priceDisplay': '550 ₴',
               'photoUrl': null,
             },
           ],
@@ -1335,7 +1335,7 @@ final class FakeBackend {
               'priceType': 'FIXED',
               'priceMin': 300,
               'priceMax': null,
-              'priceDisplay': '300 грн',
+              'priceDisplay': '300 ₴',
               'photoUrl': null,
             },
           ],
@@ -1454,6 +1454,106 @@ final class FakeBackend {
     'numberOfElements': _salonPortfolioPhotos.length,
     'empty': false,
   });
+
+  // ── My-bookings / booking-detail / cancel state (track 14.x) ───────────────
+  //
+  // A single seeded CONFIRMED booking (`booking-1`) drives the client's «МОЇ
+  // ЗАПИСИ» → «Деталі запису» → «Скасувати запис» journey end-to-end. Cancel
+  // mutates [bookingStatus] to `CANCELLED` and stores the free-text note, so a
+  // re-fetch of the list (page 0 per status) and the detail moves the booking
+  // out of Майбутні and into Скасовані as a client cancellation. `PENDING` is
+  // retired (auto-confirm) — the seed is CONFIRMED, visible immediately.
+
+  /// Current wire status of the seeded `booking-1`. Starts CONFIRMED; a
+  /// successful cancel flips it to CANCELLED.
+  String bookingStatus = 'CONFIRMED';
+
+  /// The client's free-text cancellation note, captured on cancel (may be null
+  /// — a silent self-cancellation).
+  String? bookingClientCancellationNote;
+
+  /// The seeded booking's current start/end instants (ISO-8601 UTC). Mutable so
+  /// a successful RESCHEDULE (`PATCH /bookings/{id}/reschedule`, track 24.x)
+  /// moves the booking to a new time and a subsequent detail / My-Bookings
+  /// re-fetch reflects it. The 90-minute span mirrors the booked service
+  /// (`pub-assign-1`, `effectiveDurationMinutes: 90`).
+  String bookingStartsAt = '2026-07-20T15:00:00Z';
+  String bookingEndsAt = '2026-07-20T16:30:00Z';
+
+  /// `PATCH /bookings/{id}/cancel` call count + the last comment sent.
+  int cancelBookingCalls = 0;
+  String? lastCancelComment;
+
+  /// `PATCH /bookings/{id}/reschedule` call count + the last `newStartsAt`
+  /// wire value the client submitted (track 24.x auto-confirm reschedule).
+  int rescheduleBookingCalls = 0;
+  String? lastRescheduleNewStartsAt;
+
+  /// `GET /bookings/booking-1` (detail) + `GET /bookings/me` (list) call
+  /// counts. A reschedule invalidates BOTH `bookingDetailProvider(id)` and
+  /// `myBookingsProvider(upcoming)`, so a test asserts these counters climb
+  /// AFTER the submit — proving each invalidation actually re-fetched (not a
+  /// silent no-op). `getMyBookingsCalls` counts every status fan-out call; the
+  /// upcoming tab fetches the single CONFIRMED status.
+  int getBookingDetailCalls = 0;
+  int getMyBookingsCalls = 0;
+
+  /// The enriched `BookingDetailResponse` body for the seeded booking, built
+  /// from the CURRENT mutable status/note so a post-cancel re-fetch reflects
+  /// the new state. Wire keys mirror the DTO the [BookingMapper] reads.
+  Map<String, dynamic> _seededBookingJson() => <String, dynamic>{
+    'id': 'booking-1',
+    'masterId': 'master-aaa',
+    'masterFirstName': 'Софія',
+    'masterLastName': 'Бондар',
+    'masterAvatarUrl': null,
+    'masterType': 'INDEPENDENT_MASTER',
+    'salonName': null,
+    // The booked service's id MUST match one of `master-aaa`'s PUBLIC
+    // catalogue services (`_publicMasterServices`) so the reschedule helper
+    // (`startBookingReschedule`) can resolve the booked `MasterService` by id
+    // from `GET /masters/master-aaa/services`. `pub-assign-1` is
+    // «Манікюр з покриттям», 90 min — consistent with the fields below.
+    'masterServiceId': 'pub-assign-1',
+    'serviceName': 'Манікюр з покриттям',
+    'categoryName': 'Манікюр',
+    'cityLabel': 'Київ',
+    'districtLabel': 'Печерський',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'durationMinutesAtBooking': 90,
+    'priceAtBooking': 650,
+    'startsAt': bookingStartsAt,
+    'endsAt': bookingEndsAt,
+    'status': bookingStatus,
+    'canReview': false,
+    'clientComment': null,
+    'providerComment': null,
+    'clientCancellationNote': bookingClientCancellationNote,
+    'masterProfessionalTitle': 'Майстриня манікюру',
+    'locationNote': null,
+  };
+
+  /// The `ApiResponse<PageResponse<BookingDetailResponse>>` envelope for the
+  /// seeded booking, returned ONLY for the status matching its current
+  /// [bookingStatus]; every other status filter returns an empty page.
+  Map<String, dynamic> _bookingsPageEnvelope(String? statusFilter) {
+    final bool matches = statusFilter == null || statusFilter == bookingStatus;
+    final List<Map<String, dynamic>> rows = matches
+        ? <Map<String, dynamic>>[_seededBookingJson()]
+        : <Map<String, dynamic>>[];
+    return <String, dynamic>{
+      'success': true,
+      'message': 'ok',
+      'data': <String, dynamic>{
+        'data': rows,
+        'page': 0,
+        'size': 20,
+        'totalElements': rows.length,
+        'totalPages': rows.isEmpty ? 0 : 1,
+      },
+    };
+  }
 
   // ── Route wiring ───────────────────────────────────────────────────────────
 
@@ -1989,7 +2089,7 @@ final class FakeBackend {
           'priceType': priceType,
           'priceMin': body['price'] ?? body['priceMin'] ?? 0,
           'priceMax': body['priceMax'],
-          'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} грн',
+          'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
           'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
           'serviceDefinition': <String, dynamic>{
             'id': defId,
@@ -2002,7 +2102,7 @@ final class FakeBackend {
             'priceType': priceType,
             'priceMin': body['price'] ?? body['priceMin'] ?? 0,
             'priceMax': body['priceMax'],
-            'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} грн',
+            'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
             'photoUrl': null,
           },
         };
@@ -2053,7 +2153,7 @@ final class FakeBackend {
             'priceType': map['priceType'] ?? 'FIXED',
             'priceMin': map['price'] ?? map['priceMin'] ?? 0,
             'priceMax': map['priceMax'],
-            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} грн',
+            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
             'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
             'serviceDefinition': <String, dynamic>{
               'id': defId,
@@ -2066,7 +2166,7 @@ final class FakeBackend {
               'priceType': map['priceType'] ?? 'FIXED',
               'priceMin': map['price'] ?? map['priceMin'] ?? 0,
               'priceMax': map['priceMax'],
-              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} грн',
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
               'photoUrl': null,
             },
           });
@@ -2532,6 +2632,76 @@ final class FakeBackend {
         return null;
       }),
       request: const Request(method: RequestMethods.delete),
+    );
+
+    // GET /api/v1/bookings/me?status=&page=&size= — the client's «МОЇ ЗАПИСИ»
+    // list. DioAdapter matches path-only, so the single handler reads the
+    // `status` filter off the query and returns the seeded booking only under
+    // the status it currently holds (track 14.3 fan-out: one GET per status).
+    _adapter.onRoute(
+      '/api/v1/bookings/me',
+      (server) => server.replyCallback(200, (req) {
+        getMyBookingsCalls++;
+        final String? status = req.queryParameters['status'] as String?;
+        return _bookingsPageEnvelope(status);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/bookings/booking-1 — «Деталі запису» for the seeded booking.
+    // Concrete path (DioAdapter has no path-template matching); reflects the
+    // CURRENT mutable status/time so a post-cancel / post-reschedule re-open
+    // shows the new state.
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1',
+      (server) => server.replyCallback(200, (_) {
+        getBookingDetailCalls++;
+        return _ok(_seededBookingJson());
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/bookings/booking-1/reschedule — client reschedule (track
+    // 24.x auto-confirm). Moves the seeded booking to the submitted
+    // `newStartsAt`, keeps it CONFIRMED (a reschedule never changes status),
+    // and returns the enriched `BookingDetailResponse` the repository maps back
+    // (unlike cancel, which is void). The 90-minute span is preserved so the
+    // moved booking's end tracks its new start.
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/reschedule',
+      (server) => server.replyCallback(200, (req) {
+        rescheduleBookingCalls++;
+        final body = _decodeBody(req.data);
+        final String? newStartsAt = body['newStartsAt'] as String?;
+        lastRescheduleNewStartsAt = newStartsAt;
+        if (newStartsAt != null) {
+          final DateTime start = DateTime.parse(newStartsAt).toUtc();
+          final DateTime end = start.add(const Duration(minutes: 90));
+          bookingStartsAt = start.toIso8601String();
+          bookingEndsAt = end.toIso8601String();
+        }
+        // A reschedule leaves the booking CONFIRMED — never touches status.
+        return _ok(_seededBookingJson());
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // PATCH /api/v1/bookings/booking-1/cancel — client cancellation. Flips the
+    // seeded booking to CANCELLED and stores the free-text comment as the
+    // client cancellation note (cancellationReason enum is CLIENT_CANCELLED,
+    // sent by the repository but not asserted here). Returns Response<void>.
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/cancel',
+      (server) => server.replyCallback(200, (req) {
+        cancelBookingCalls++;
+        final body = _decodeBody(req.data);
+        final String? comment = body['comment'] as String?;
+        lastCancelComment = comment;
+        bookingClientCancellationNote = comment;
+        bookingStatus = 'CANCELLED';
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
   }
 

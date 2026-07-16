@@ -128,6 +128,10 @@
   "@bookingErrRateLimited": {
     "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
   },
+  "bookingErrorAlreadyElapsed": "This booking's time has already passed.",
+  "@bookingErrorAlreadyElapsed": {
+    "description": "Error message shown when PATCH /bookings/{id}/reschedule or /cancel returns HTTP 409 with data.code == BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's slot is already past the server clock, so it can no longer be rescheduled or cancelled. Surfaced via BookingAlreadyElapsedFailure.userMessage on a stale-screen / clock-rollback tap."
+  },
   "errEmailAlreadyRegistered": "This email is already registered. Please sign in instead.",
   "@errEmailAlreadyRegistered": {
     "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."
@@ -1474,7 +1478,7 @@
   "@errPriceDecimals": {
     "description": "Validation error when a price field is non-numeric or has more than 2 decimal places (hardened 2026-06-03)."
   },
-  "errPriceMax": "Price cannot exceed 99,999,999.99 UAH",
+  "errPriceMax": "Price cannot exceed 99,999,999.99 ₴",
   "@errPriceMax": {
     "description": "Validation error when a price field exceeds the backend maximum of 99999999.99 (hardened 2026-06-03)."
   },
@@ -1509,6 +1513,10 @@
   "pricingAmountLabel": "Amount",
   "@pricingAmountLabel": {
     "description": "Field label for the fixed price amount field (Phase 5.6 flexible pricing)."
+  },
+  "pricingCurrencySuffix": "₴",
+  "@pricingCurrencySuffix": {
+    "description": "Inline currency suffix (UAH) shown inside the FIXED/RANGE price input fields of PricingField (Phase 5.6 flexible pricing)."
   },
   "pricingFromLabel": "From",
   "@pricingFromLabel": {
@@ -2949,9 +2957,9 @@
   "@passportColumnBudget": {
     "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
   },
-  "passportBudgetCeiling": "up to {max} UAH",
+  "passportBudgetCeiling": "up to {max} ₴",
   "@passportBudgetCeiling": {
-    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in ₴.",
     "placeholders": {
       "max": {
         "type": "int",
@@ -3096,7 +3104,7 @@
   "@searchPriceLabel": {
     "description": "Label above the price slider on the Пошук screen."
   },
-  "searchPriceUpTo": "up to {price} UAH",
+  "searchPriceUpTo": "up to {price} ₴",
   "@searchPriceUpTo": {
     "description": "Live readout of the selected price ceiling on the Пошук slider.",
     "placeholders": {
@@ -3110,15 +3118,15 @@
   "@searchPriceAny": {
     "description": "Price readout when the slider is at the ceiling — no upper price bound."
   },
-  "searchPriceMin": "0 UAH",
+  "searchPriceMin": "0 ₴",
   "@searchPriceMin": {
     "description": "Left end label under the price slider (minimum)."
   },
-  "searchPriceMax": "20000+ UAH",
+  "searchPriceMax": "20000+ ₴",
   "@searchPriceMax": {
     "description": "Right end label under the price slider (ceiling and above)."
   },
-  "searchPriceFrom": "from {price} UAH",
+  "searchPriceFrom": "from {price} ₴",
   "@searchPriceFrom": {
     "description": "Price readout fragment for the lower bound when only a minimum is set (no upper bound).",
     "placeholders": {
@@ -3128,7 +3136,7 @@
       }
     }
   },
-  "searchPriceRange": "from {min} to {max} UAH",
+  "searchPriceRange": "from {min} to {max} ₴",
   "@searchPriceRange": {
     "description": "Price readout when both a minimum and a maximum bound are set.",
     "placeholders": {
@@ -3158,9 +3166,9 @@
   "@searchPriceMaxFieldHint": {
     "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
   },
-  "searchPriceCurrencySuffix": "UAH",
+  "searchPriceCurrencySuffix": "₴",
   "@searchPriceCurrencySuffix": {
-    "description": "Inline currency suffix (UAH) shown inside the min/max price input fields."
+    "description": "Inline currency suffix (₴) shown inside the min/max price input fields."
   },
   "searchCtaShowMasters": "Show masters",
   "@searchCtaShowMasters": {
@@ -3203,7 +3211,7 @@
   "@searchResultsEditFilters": {
     "description": "Button on the empty results state that re-opens the search filter controls."
   },
-  "searchResultPriceRange": "{min}–{max} UAH",
+  "searchResultPriceRange": "{min}–{max} ₴",
   "@searchResultPriceRange": {
     "description": "Price range shown on a salon result card (lower–upper bound).",
     "placeholders": {
@@ -3217,7 +3225,7 @@
       }
     }
   },
-  "searchResultPriceExact": "{price} UAH",
+  "searchResultPriceExact": "{price} ₴",
   "@searchResultPriceExact": {
     "description": "Single fixed price on a result card — shown WITHOUT the «from» prefix when the lower and upper price bounds are equal (one fixed price).",
     "placeholders": {
@@ -3601,9 +3609,248 @@
   "@bookingAddCalendarSemantics": {
     "description": "Accessibility label for the booking success screen's add-to-calendar link."
   },
+  "bookingCalendarEventTitle": "{service} · {provider}",
+  "@bookingCalendarEventTitle": {
+    "description": "Title of the OS calendar event created by the add-to-calendar action — the booked service and the provider (salon or master) name.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "provider": { "type": "String" }
+    }
+  },
+  "bookingAddToCalendarError": "Couldn't open the calendar",
+  "@bookingAddToCalendarError": {
+    "description": "SnackBar shown when add-to-calendar cannot open a calendar app (no calendar installed or a platform error)."
+  },
+  "bookingCalendarNoteService": "Service:",
+  "@bookingCalendarNoteService": {
+    "description": "Label prefixing the service name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteMaster": "Master:",
+  "@bookingCalendarNoteMaster": {
+    "description": "Label prefixing an independent master's name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteSalon": "Salon:",
+  "@bookingCalendarNoteSalon": {
+    "description": "Label prefixing a salon's name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteProvider": "Provider:",
+  "@bookingCalendarNoteProvider": {
+    "description": "Neutral provider label in the OS calendar event's structured-facts note block when salon-vs-master is not distinguishable."
+  },
+  "bookingCalendarNoteDateTime": "Date & time:",
+  "@bookingCalendarNoteDateTime": {
+    "description": "Label prefixing the appointment date and time in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteAddress": "Address:",
+  "@bookingCalendarNoteAddress": {
+    "description": "Label prefixing the address in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNotePrice": "Price:",
+  "@bookingCalendarNotePrice": {
+    "description": "Label prefixing the price in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteStatus": "Status:",
+  "@bookingCalendarNoteStatus": {
+    "description": "Label prefixing the booking status in the OS calendar event's structured-facts note block."
+  },
   "bookingSuccessHomeCta": "Home",
   "@bookingSuccessHomeCta": {
     "description": "Sole onward action on the booking success screen; navigates to the client home."
+  },
+  "bookingWhenLabel": "When",
+  "@bookingWhenLabel": {
+    "description": "Combined date+time label on the cancel-booking dialog's recap row."
+  },
+  "bookingSalonLabel": "Salon",
+  "@bookingSalonLabel": {
+    "description": "Label for the salon-name row shown on the salon booking confirm, success, and detail summary cards."
+  },
+  "bookingArrivalNoteSemantics": "How to find it: {text}",
+  "@bookingArrivalNoteSemantics": {
+    "description": "Accessibility label for the provider's arrival-hint line on the booking detail address block.",
+    "placeholders": {
+      "text": { "type": "String" }
+    }
+  },
+  "bookingStatusConfirmed": "Confirmed",
+  "@bookingStatusConfirmed": {
+    "description": "Booking status badge label — CONFIRMED."
+  },
+  "bookingStatusCompleted": "Completed",
+  "@bookingStatusCompleted": {
+    "description": "Booking status badge label — COMPLETED."
+  },
+  "bookingStatusNotCompleted": "No-show",
+  "@bookingStatusNotCompleted": {
+    "description": "Booking status badge label — NOT_COMPLETED (no-show)."
+  },
+  "bookingStatusCancelled": "Cancelled",
+  "@bookingStatusCancelled": {
+    "description": "Booking status badge label — CANCELLED and DECLINED share one neutral label (the who-cancelled distinction was dropped by product decision 2026-07-15)."
+  },
+  "bookingStatusSemantics": "Status: {label}",
+  "@bookingStatusSemantics": {
+    "description": "Accessibility label for the booking status badge / hero medallion.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "bookingCardSemantics": "{service}, {master}, {date}, {time}. {status}. Open booking details",
+  "@bookingCardSemantics": {
+    "description": "Accessibility label for a whole My Bookings card — the card's sole tap target.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "master": { "type": "String" },
+      "date": { "type": "String" },
+      "time": { "type": "String" },
+      "status": { "type": "String" }
+    }
+  },
+  "bookingNoteHeadingYourWishes": "Your wishes",
+  "@bookingNoteHeadingYourWishes": {
+    "description": "Heading over the client's own booking-time note on the booking detail screen."
+  },
+  "bookingNoteHeadingYourReason": "Your reason",
+  "@bookingNoteHeadingYourReason": {
+    "description": "Heading over the client's own cancellation note on the booking detail screen."
+  },
+  "bookingNoteHeadingProviderComment": "{genitive} comment",
+  "@bookingNoteHeadingProviderComment": {
+    "description": "Heading over the provider's note (decline reason or no-show account) on the booking detail screen — {genitive} is the provider's noun (salon/master).",
+    "placeholders": {
+      "genitive": { "type": "String" }
+    }
+  },
+  "bookingNoteShowMore": "Show more",
+  "@bookingNoteShowMore": {
+    "description": "Expand toggle for a clamped booking note."
+  },
+  "bookingNoteShowLess": "Show less",
+  "@bookingNoteShowLess": {
+    "description": "Collapse toggle for an expanded booking note."
+  },
+  "bookingNoteSemantics": "{heading}: {text}",
+  "@bookingNoteSemantics": {
+    "description": "Accessibility label for a booking note block (sent or received).",
+    "placeholders": {
+      "heading": { "type": "String" },
+      "text": { "type": "String" }
+    }
+  },
+  "myBookingsTabUpcoming": "Upcoming",
+  "@myBookingsTabUpcoming": {
+    "description": "My Bookings tab label — upcoming (CONFIRMED) bookings."
+  },
+  "myBookingsTabPast": "Past",
+  "@myBookingsTabPast": {
+    "description": "My Bookings tab label — past (COMPLETED / NOT_COMPLETED) bookings."
+  },
+  "myBookingsTabCancelled": "Cancelled",
+  "@myBookingsTabCancelled": {
+    "description": "My Bookings tab label — cancelled (CANCELLED / DECLINED) bookings."
+  },
+  "myBookingsEmptyTitle": "No bookings yet",
+  "@myBookingsEmptyTitle": {
+    "description": "Empty-state title on a My Bookings tab with no rows."
+  },
+  "myBookingsEmptyCta": "Find a master",
+  "@myBookingsEmptyCta": {
+    "description": "Empty-state CTA on a My Bookings tab; navigates to search."
+  },
+  "myBookingsLoadingSemantics": "Loading bookings",
+  "@myBookingsLoadingSemantics": {
+    "description": "Accessibility live-region label for the My Bookings loading skeleton."
+  },
+  "cancelBookingDialogTitle": "Cancel this booking?",
+  "@cancelBookingDialogTitle": {
+    "description": "Title of the cancel-booking confirmation dialog."
+  },
+  "cancelBookingDialogSubtitle": "This action cannot be undone.",
+  "@cancelBookingDialogSubtitle": {
+    "description": "Subtitle of the cancel-booking confirmation dialog."
+  },
+  "cancelBookingNoteLabel": "Why are you cancelling? (optional)",
+  "@cancelBookingNoteLabel": {
+    "description": "Label above the optional cancellation-note field."
+  },
+  "cancelBookingNoteHint": "E.g.: fell ill, trip got rescheduled…",
+  "@cancelBookingNoteHint": {
+    "description": "Placeholder hint text inside the cancellation-note field."
+  },
+  "cancelBookingNoteCounter": "{current} / {max}",
+  "@cancelBookingNoteCounter": {
+    "description": "Live character counter under the cancellation-note field.",
+    "placeholders": {
+      "current": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "cancelBookingConfirmCta": "Yes, cancel",
+  "@cancelBookingConfirmCta": {
+    "description": "Destructive confirm button on the cancel-booking dialog."
+  },
+  "cancelBookingKeepCta": "Keep booking",
+  "@cancelBookingKeepCta": {
+    "description": "Safe back-out button on the cancel-booking dialog."
+  },
+  "bookingDetailBackSemantics": "Back to bookings list",
+  "@bookingDetailBackSemantics": {
+    "description": "Accessibility label for the booking detail screen's back button."
+  },
+  "bookingDetailSublineConfirmed": "We'll remind you about your appointment the day before.",
+  "@bookingDetailSublineConfirmed": {
+    "description": "Booking detail subline — CONFIRMED."
+  },
+  "bookingDetailSublineCompleted": "Visit complete. Thanks for choosing Beautica.",
+  "@bookingDetailSublineCompleted": {
+    "description": "Booking detail subline — COMPLETED."
+  },
+  "bookingDetailSublineNotCompleted": "This visit didn't happen. Below is the {genitive}'s comment.",
+  "@bookingDetailSublineNotCompleted": {
+    "description": "Booking detail subline — NOT_COMPLETED; {genitive} is the provider's noun (salon/master).",
+    "placeholders": {
+      "genitive": { "type": "String" }
+    }
+  },
+  "bookingDetailSublineCancelled": "You cancelled this booking. You can book again any time.",
+  "@bookingDetailSublineCancelled": {
+    "description": "Booking detail subline — CANCELLED."
+  },
+  "bookingDetailSublineDeclinedSalon": "The salon cancelled this booking. See the reason below.",
+  "@bookingDetailSublineDeclinedSalon": {
+    "description": "Booking detail subline — DECLINED at a salon booking."
+  },
+  "bookingDetailSublineDeclinedMaster": "The master cancelled this booking. See the reason below.",
+  "@bookingDetailSublineDeclinedMaster": {
+    "description": "Booking detail subline — DECLINED at an independent-master booking."
+  },
+  "bookingDetailRescheduleCta": "Reschedule",
+  "@bookingDetailRescheduleCta": {
+    "description": "Primary pinned action on a CONFIRMED booking's detail screen."
+  },
+  "bookingDetailCancelCta": "Cancel booking",
+  "@bookingDetailCancelCta": {
+    "description": "Secondary pinned action on a CONFIRMED booking's detail screen; opens the cancel dialog."
+  },
+  "bookingDetailRebookCta": "Book again",
+  "@bookingDetailRebookCta": {
+    "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
+  },
+  "bookingRescheduleSubmitCta": "Reschedule booking",
+  "@bookingRescheduleSubmitCta": {
+    "description": "Primary CTA on the booking confirm screen when the flow is a reschedule (moving an existing booking) rather than a new booking."
+  },
+  "bookingRescheduleSuccessTitle": "Booking rescheduled!",
+  "@bookingRescheduleSuccessTitle": {
+    "description": "Title on the booking success screen after a successful reschedule."
+  },
+  "bookingRescheduleSuccessSubline": "Your booking has been moved to the new time.\nThe specialist has been notified.",
+  "@bookingRescheduleSuccessSubline": {
+    "description": "Subline on the booking success screen after a successful reschedule."
+  },
+  "bookingRescheduleUnavailable": "This booking can't be rescheduled.",
+  "@bookingRescheduleUnavailable": {
+    "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
   },
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {
@@ -4058,6 +4305,69 @@
   "salonScheduleDateIntro": "Choose a convenient date for this master — we'll find free time next.",
   "@salonScheduleDateIntro": {
     "description": "Intro line above the calendar on each master's slide of the salon booking time screen."
+  },
+  "bookingServiceTimeTitle": "Time",
+  "@bookingServiceTimeTitle": {
+    "description": "Top-bar title of the independent-master per-service booking time screen (a PageView, one slide per selected service)."
+  },
+  "bookingServiceTimeBackSemantics": "Back to service selection",
+  "@bookingServiceTimeBackSemantics": {
+    "description": "Accessibility label for the independent-master per-service booking time screen's back arrow while on the date phase (returns to service selection)."
+  },
+  "bookingServiceScheduleDateIntro": "Choose a convenient date for this service — we'll find free time next.",
+  "@bookingServiceScheduleDateIntro": {
+    "description": "Intro line above the calendar on each service's slide of the independent-master per-service booking time screen."
+  },
+  "bookingSiblingBlockedTitle": "These times are taken by your other service",
+  "@bookingSiblingBlockedTitle": {
+    "description": "Empty-state heading on the independent-master time screen when every slot on the chosen date overlaps another service the client already scheduled for the same day."
+  },
+  "bookingSiblingBlockedMessage": "Every time on this date overlaps another service you scheduled. Choose a different time or date.",
+  "@bookingSiblingBlockedMessage": {
+    "description": "Empty-state body copy on the independent-master time screen when every slot on the chosen date is taken by the client's own other scheduled service."
+  },
+  "bookingServicePagerSemantics": "Service {current} of {count}. {done} scheduled.",
+  "@bookingServicePagerSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's service-pager row (arrows + dots + counter).",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" },
+      "done": { "type": "int", "example": "1" }
+    }
+  },
+  "bookingServicePagerCounterLabel": "Service {current} of {count}",
+  "@bookingServicePagerCounterLabel": {
+    "description": "Visible counter text under the pager dots on the independent-master booking time screen.",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "bookingServicePagerPrevSemantics": "Previous service",
+  "@bookingServicePagerPrevSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's previous-service arrow."
+  },
+  "bookingServicePagerNextSemantics": "Next service",
+  "@bookingServicePagerNextSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's next-service arrow."
+  },
+  "bookingServicePagerDotLabel": "Service {index}",
+  "@bookingServicePagerDotLabel": {
+    "description": "Accessibility label for an unscheduled service's pager dot on the independent-master booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "bookingServicePagerDotDoneLabel": "Service {index}, scheduled",
+  "@bookingServicePagerDotDoneLabel": {
+    "description": "Accessibility label for an already-scheduled service's pager dot on the independent-master booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "bookingServiceOverlapError": "These services overlap in time. Choose a different time for one of them.",
+  "@bookingServiceOverlapError": {
+    "description": "Snackbar/error shown when two of the client's selected services are scheduled at overlapping times in the independent-master booking flow (pre-empts the backend CLIENT_BOOKING_CONFLICT 409)."
   },
   "salonScheduleWindowPrompt": "Choose a time",
   "@salonScheduleWindowPrompt": {

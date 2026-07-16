@@ -1040,7 +1040,7 @@ void main() {
           name: 'Манікюр',
           durationMinutes: 30,
           priceMin: 500,
-          priceDisplay: '500 грн',
+          priceDisplay: '500 ₴',
           // no category → _none bucket
         ),
       ];
@@ -1180,71 +1180,99 @@ void main() {
     );
   });
 
-  // ── 13c. Section header rename — «Послуги» not «Категорії послуг» ──────────
+  // ── 13c. Section header — title removed, «Усі послуги» link right-aligned ──
   //
-  // The categories section header key `masterProfileCategoriesLabel` now
-  // resolves to «Послуги» (was «Категорії послуг»; en now "Services"). With
-  // services present the header renders; assert the new value is shown and the
-  // old wording is gone from the whole screen.
+  // The standalone «Послуги» section-title (`masterProfileCategoriesLabel`) was
+  // removed from the categories header; the header now renders ONLY the
+  // right-aligned «Усі послуги» link. With services present the header renders;
+  // assert the link is shown, the section-title is gone, and the pre-rename
+  // «Категорії послуг» wording is gone from the whole screen.
+  //
+  // Discriminating count guard: `masterProfileCategoriesLabel` and the services
+  // stat-tile caption `masterServicesLabel` share the same «Послуги» value.
+  // With the header title removed, the stat-tile caption is the ONLY «Послуги»
+  // on screen → findsOneWidget. If the section-title regresses (re-added to the
+  // header), this becomes findsNWidgets(2) and fails.
 
-  group('services section header rename', () {
-    testWidgets(
-      'non-empty state renders the renamed header value and not the old '
-      '«Категорії послуг»',
-      (tester) async {
-        when(() => mockServiceRepo.listMyServices()).thenAnswer(
-          (_) async => const <MasterService>[
-            MasterService(
-              id: 'svc-1',
-              serviceDefId: 'def-1',
-              name: 'Манікюр',
-              durationMinutes: 30,
-              priceMin: 500,
-              priceDisplay: '500 грн',
-              category: 'MANICURE',
-            ),
-          ],
-        );
-
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-            serviceRepo: mockServiceRepo,
-            categories: const <ServiceCategoryOption>[
-              ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-            ],
+  group('services section header title removed + link right-aligned', () {
+    testWidgets('non-empty state drops the «Послуги» section-title, keeps the '
+        '«Усі послуги» link, and never shows the old «Категорії послуг»', (
+      tester,
+    ) async {
+      when(() => mockServiceRepo.listMyServices()).thenAnswer(
+        (_) async => const <MasterService>[
+          MasterService(
+            id: 'svc-1',
+            serviceDefId: 'def-1',
+            name: 'Манікюр',
+            durationMinutes: 30,
+            priceMin: 500,
+            priceDisplay: '500 ₴',
+            category: 'MANICURE',
           ),
-        );
-        await tester.pumpAndSettle();
+        ],
+      );
 
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(MasterProfileScreen)),
-        );
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+          categories: const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        // The renamed header value is rendered (resolved via l10n, not
-        // hardcoded). NOTE: `masterProfileCategoriesLabel` and the services
-        // stat-tile caption `masterServicesLabel` intentionally share the same
-        // «Послуги» value, so this matches ≥1 widget — findsWidgets, not
-        // findsOneWidget.
-        expect(
-          find.text(l10n.masterProfileCategoriesLabel),
-          findsWidgets,
-          reason:
-              'the categories section header must render its l10n value '
-              '(now «Послуги»)',
-        );
-        // The OLD wording must be gone from the entire screen.
-        expect(
-          find.text('Категорії послуг'),
-          findsNothing,
-          reason:
-              'the pre-rename «Категорії послуг» header must no longer appear '
-              'anywhere on the profile screen',
-        );
-      },
-    );
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+
+      // The right-aligned «Усі послуги» link is the sole header affordance in
+      // the has-services state — it must render.
+      expect(
+        find.text(l10n.masterAllServices),
+        findsOneWidget,
+        reason:
+            'the categories header must render the «Усі послуги» link in the '
+            'has-services state',
+      );
+      // The standalone «Послуги» section-title was removed from the header.
+      // Structural guard (value «Послуги» collides with the stat-tile caption
+      // and the nav-bar tile, so a screen-wide count is not discriminating):
+      // scope to the header Row — the nearest Row ancestor of the «Усі послуги»
+      // link — and assert it contains no «Послуги» section-title sibling. A
+      // regression that re-adds the title into the header Row fails here.
+      final Finder headerLinkTap = find
+          .ancestor(
+            of: find.text(l10n.masterAllServices),
+            matching: find.byType(GestureDetector),
+          )
+          .first;
+      final Finder headerRow = find
+          .ancestor(of: headerLinkTap, matching: find.byType(Row))
+          .first;
+      expect(
+        find.descendant(
+          of: headerRow,
+          matching: find.text(l10n.masterProfileCategoriesLabel),
+        ),
+        findsNothing,
+        reason:
+            'the «Послуги» section-title must be gone from the categories '
+            'header Row; only the right-aligned link may render there',
+      );
+      // The OLD wording must be gone from the entire screen.
+      expect(
+        find.text('Категорії послуг'),
+        findsNothing,
+        reason:
+            'the pre-rename «Категорії послуг» header must no longer appear '
+            'anywhere on the profile screen',
+      );
+    });
   });
 
   // ── 13b. Menu button — push-not-go regression guard ─────────────────────────
@@ -1427,7 +1455,7 @@ void main() {
             name: 'Манікюр',
             durationMinutes: 30,
             priceMin: 500,
-            priceDisplay: '500 грн',
+            priceDisplay: '500 ₴',
             category: 'MANICURE',
           ),
           MasterService(
@@ -1436,7 +1464,7 @@ void main() {
             name: 'Брови',
             durationMinutes: 30,
             priceMin: 300,
-            priceDisplay: '300 грн',
+            priceDisplay: '300 ₴',
             category: 'BROWS',
           ),
         ],
@@ -1482,7 +1510,7 @@ void main() {
               name: 'Манікюр',
               durationMinutes: 30,
               priceMin: 500,
-              priceDisplay: '500 грн',
+              priceDisplay: '500 ₴',
               category: 'MANICURE',
             ),
           ],
@@ -1527,7 +1555,7 @@ void main() {
               name: 'Без категорії',
               durationMinutes: 20,
               priceMin: 100,
-              priceDisplay: '100 грн',
+              priceDisplay: '100 ₴',
               // no category → empty string → _none bucket
             ),
           ],
@@ -1568,7 +1596,7 @@ void main() {
               name: 'Манікюр',
               durationMinutes: 30,
               priceMin: 500,
-              priceDisplay: '500 грн',
+              priceDisplay: '500 ₴',
               category: 'MANICURE',
             ),
           ],

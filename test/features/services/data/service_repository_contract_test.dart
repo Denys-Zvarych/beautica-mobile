@@ -74,9 +74,7 @@ Map<String, dynamic> _masterServiceEnvelope({
     'priceType': priceType,
     'priceMin': priceMin,
     'priceMax': priceMax,
-    'priceDisplay': priceMax == null
-        ? '$priceMin грн'
-        : '$priceMin–$priceMax грн',
+    'priceDisplay': priceMax == null ? '$priceMin ₴' : '$priceMin–$priceMax ₴',
     'serviceDefinition': <String, dynamic>{
       'id': defId,
       'name': name,
@@ -86,8 +84,8 @@ Map<String, dynamic> _masterServiceEnvelope({
       'priceMin': priceMin,
       'priceMax': priceMax,
       'priceDisplay': priceMax == null
-          ? '$priceMin грн'
-          : '$priceMin–$priceMax грн',
+          ? '$priceMin ₴'
+          : '$priceMin–$priceMax ₴',
       'isActive': true,
     },
   },
@@ -114,7 +112,7 @@ Map<String, dynamic> _serviceDefEnvelope({String name = 'Манікюр PRO'}) =
         'baseDurationMinutes': 90,
         'priceType': 'FIXED',
         'priceMin': 650,
-        'priceDisplay': '650 грн',
+        'priceDisplay': '650 ₴',
         'isActive': true,
       },
     };

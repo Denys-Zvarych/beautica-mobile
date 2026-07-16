@@ -25,7 +25,7 @@ abstract final class ResultCardText {
   /// Bold numeric rating value (13sp).
   static final TextStyle ratingValue = VelvetText.discRatingValue;
 
-  /// «від N грн» / price-range accent line (14sp accentDeep).
+  /// «від N ₴» / price-range accent line (14sp accentDeep).
   static final TextStyle price = VelvetText.discPriceAccent;
 
   /// Procedure / service-names preview line on the master card (e.g.

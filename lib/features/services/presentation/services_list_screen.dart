@@ -796,8 +796,8 @@ class _ServiceCardState extends State<_ServiceCard>
     final MasterService s = widget.service;
     final durationLabel = DurationMinutes.format(s.durationMinutes);
     // Price label: FIXED renders the server-formatted priceDisplay
-    // ("750 грн"); RANGE is reformatted client-side to a hyphenated band
-    // ("200 - 600 грн") via [ServicePriceDisplay]. Falls back gracefully when
+    // ("750 ₴"); RANGE is reformatted client-side to a hyphenated band
+    // ("200 - 600 ₴") via [ServicePriceDisplay]. Falls back gracefully when
     // priceDisplay is empty (pre-V67 data / broken contract).
     final priceLabel = ServicePriceDisplay.format(s);
 

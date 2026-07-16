@@ -27,15 +27,19 @@ import 'dart:io';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
@@ -49,9 +53,9 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lottie/lottie.dart';
@@ -80,14 +84,25 @@ const _kService = MasterService(
   name: 'Манікюр з покриттям',
   durationMinutes: 90,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
   category: 'NAILS',
 );
 
+// A STABLE idempotency key generated once when the args were built (in
+// production by `BookingTimeScreen._confirm`) — reused verbatim on every retry
+// so an ambiguously-failed booking de-duplicates rather than duplicates.
+const String _kIdemKey = '11111111-1111-4111-8111-111111111111';
+
 BookingConfirmArgs _confirmArgs() => BookingConfirmArgs(
   masterId: _kMaster.id,
-  serviceId: _kService.id,
-  startAt: DateTime(2026, 7, 20, 14),
+  master: _kMaster,
+  appointments: <BookingAppointment>[
+    BookingAppointment(
+      serviceId: _kService.id,
+      startAt: DateTime(2026, 7, 20, 14),
+      idempotencyKey: _kIdemKey,
+    ),
+  ],
 );
 
 Booking _bookingFixture() => Booking(
@@ -104,6 +119,23 @@ Booking _bookingFixture() => Booking(
   endAt: DateTime(2026, 7, 20, 15, 30),
   status: BookingStatus.pending,
   canReview: false,
+);
+
+/// Same shape as [_confirmArgs] but on the RESCHEDULE path — carries a non-null
+/// `rescheduleBookingId` (matching [_bookingFixture]'s id) so the confirm
+/// screen's `_submit` takes the `PATCH /reschedule` branch and, on success,
+/// fires the widget-layer detail + upcoming-list invalidation.
+BookingConfirmArgs _rescheduleArgs() => BookingConfirmArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  appointments: <BookingAppointment>[
+    BookingAppointment(
+      serviceId: _kService.id,
+      startAt: DateTime(2026, 7, 20, 14),
+      idempotencyKey: _kIdemKey,
+    ),
+  ],
+  rescheduleBookingId: 'booking-1',
 );
 
 /// Records every [createBooking] call (request + resulting idempotency key)
@@ -141,6 +173,58 @@ class _FakeBookingRepository implements BookingRepository {
 
   @override
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
+}
+
+/// Records reschedule + create calls and COUNTS the detail / my-bookings reads
+/// so the widget-layer invalidation's re-fetch is observable: a still-listened
+/// autoDispose provider only re-fetches when it is invalidated, so a second
+/// `getBookingById` / `getMyBookings` call is direct proof
+/// `BookingConfirmScreen._submit` invalidated it on reschedule success. The
+/// notifier-level analogue lives in
+/// `independent_booking_submit_reschedule_test.dart`; this one drives the REAL
+/// screen so the invalidation's NEW home (the widget layer) is what's exercised.
+class _RecordingRescheduleRepository implements BookingRepository {
+  final List<(String, DateTime)> rescheduleCalls = <(String, DateTime)>[];
+  final List<CreateBookingRequest> createCalls = <CreateBookingRequest>[];
+  int getBookingByIdCalls = 0;
+  int getMyBookingsCalls = 0;
+
+  @override
+  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) async {
+    rescheduleCalls.add((id, newStartAt));
+    return _bookingFixture();
+  }
+
+  @override
+  Future<Booking> createBooking(CreateBookingRequest req) async {
+    createCalls.add(req);
+    return _bookingFixture();
+  }
+
+  @override
+  Future<Booking> getBookingById(String id) async {
+    getBookingByIdCalls++;
+    return _bookingFixture();
+  }
+
+  @override
+  Future<PageResponse<Booking>> getMyBookings({
+    required BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+  }) async {
+    getMyBookingsCalls++;
+    return PageResponse<Booking>(
+      items: <Booking>[_bookingFixture()],
+      page: page,
+      totalPages: 1,
+      totalElements: 1,
+    );
+  }
+
+  @override
+  Future<void> cancelBooking(String id, {String? reason}) =>
       throw UnimplementedError();
 }
 
@@ -434,8 +518,8 @@ void main() {
     );
 
     testWidgets(
-      '«Записатись» calls createBooking with a fresh UUID v4 idempotency key '
-      'and navigates to /booking/success on success',
+      '«Записатись» calls createBooking with the appointment\'s stable '
+      'idempotency key and navigates to /booking/success on success',
       (tester) async {
         final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
         final router = await pump(tester, fake);
@@ -447,15 +531,9 @@ void main() {
         final CreateBookingRequest sent = fake.requests.single;
         expect(sent.masterId, _kMaster.id);
         expect(sent.serviceId, _kService.id);
-        // A syntactically valid UUID v4: 8-4-4-4-12 hex groups.
-        expect(
-          sent.idempotencyKey,
-          matches(
-            RegExp(
-              r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
-            ),
-          ),
-        );
+        // The STABLE key carried on the appointment — generated once upstream
+        // (`BookingTimeScreen`), never re-minted by the confirm screen.
+        expect(sent.idempotencyKey, _kIdemKey);
 
         expect(locationOf(router), equals(RouteNames.bookingSuccess));
         expect(find.byType(BookingSuccessScreen), findsOneWidget);
@@ -463,8 +541,9 @@ void main() {
     );
 
     testWidgets(
-      'a 409 conflict shows a SnackBar, does not navigate away, and the '
-      'screen stays interactive for a retry',
+      'a 409 conflict shows a per-appointment error row + a partial-failure '
+      'SnackBar, does not navigate away, and a retry reuses the SAME stable '
+      'idempotency key and succeeds',
       (tester) async {
         final fake = _FakeBookingRepository(
           bookingToReturn: _bookingFixture(),
@@ -478,10 +557,16 @@ void main() {
         // Still on the confirm screen — no crash, no navigation.
         expect(locationOf(router), equals(RouteNames.bookingConfirm));
         expect(find.byType(BookingConfirmScreen), findsOneWidget);
+        // A partial-failure nudge SnackBar (never a success navigation).
         expect(find.byType(SnackBar), findsOneWidget);
 
         final l10n = AppLocalizations.of(
           tester.element(find.byType(BookingConfirmScreen)),
+        );
+        // The failed appointment renders its own error row naming the conflict.
+        expect(
+          find.byKey(Key('booking-confirm-appt-error-${_kService.id}')),
+          findsOneWidget,
         );
         expect(find.text(l10n.errConflict), findsOneWidget);
 
@@ -495,7 +580,8 @@ void main() {
         // i18n-finder-ok: arbitrary test-entered text (round-trip check), not translated UI copy.
         expect(find.text('Будь ласка, без запізнень'), findsOneWidget);
 
-        // Retry with a fresh key — a DIFFERENT key than the failed attempt.
+        // Retry — the still-failed appointment is re-attempted with the SAME
+        // stable idempotency key (de-dupe, never a fresh key).
         fake.errorToThrow = null;
         await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
         await tester.pumpAndSettle();
@@ -503,142 +589,10 @@ void main() {
         expect(fake.requests, hasLength(2));
         expect(
           fake.requests[1].idempotencyKey,
-          isNot(equals(fake.requests[0].idempotencyKey)),
+          equals(fake.requests[0].idempotencyKey),
         );
+        expect(fake.requests[1].idempotencyKey, _kIdemKey);
         expect(locationOf(router), equals(RouteNames.bookingSuccess));
-      },
-    );
-
-    // -------------------------------------------------------------------
-    // mobile-qa gap-fix — Step 2.7 Rule 3b widget-tier companion to the
-    // `client_booking_conflict_flow_test.dart` integration test: a
-    // CLIENT_BOOKING_CONFLICT 409 opens `ClientBookingConflictDialog` naming
-    // the clashing booking (instead of the generic ConflictFailure SnackBar
-    // above), and dismissing it ("Залишитись тут") leaves the screen and the
-    // in-progress comment/selection fully intact.
-    // -------------------------------------------------------------------
-    testWidgets(
-      'a CLIENT_BOOKING_CONFLICT (409) opens the conflict dialog naming the '
-      'clashing booking; dismissing it ("Залишитись тут") keeps the screen '
-      'and the in-progress selection/comment fully intact',
-      (tester) async {
-        final DateTime clashStart = DateTime.utc(2026, 7, 15, 14);
-        final DateTime clashEnd = DateTime.utc(2026, 7, 15, 15, 30);
-        final conflict = ClientBookingConflictFailure(
-          conflictingBookingId: 'other-booking-1',
-          serviceName: 'Педикюр апаратний',
-          masterName: 'Ірина Шевченко',
-          startsAt: clashStart,
-          endsAt: clashEnd,
-        );
-        final fake = _FakeBookingRepository(
-          bookingToReturn: _bookingFixture(),
-          errorToThrow: conflict,
-        );
-        final router = await pump(tester, fake);
-
-        await tester.enterText(
-          find.byKey(const Key('booking-confirm-comment-field')),
-          'Прошу зателефонувати',
-        );
-        await tester.pump();
-
-        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
-        await tester.pumpAndSettle();
-
-        // The dedicated dialog opened — never the generic SnackBar.
-        expect(
-          find.byKey(const Key('client-booking-conflict-dialog')),
-          findsOneWidget,
-        );
-        expect(find.byType(SnackBar), findsNothing);
-        // service/master names are fixture data on the Failure object, not
-        // translated UI copy.
-        // i18n-finder-ok: fixture data on the Failure object, not UI copy.
-        expect(find.text('Педикюр апаратний'), findsOneWidget);
-        // i18n-finder-ok: fixture data on the Failure object, not UI copy.
-        expect(find.text('Ірина Шевченко'), findsOneWidget);
-        expect(
-          find.text(formatBookingWindow(clashStart, clashEnd)),
-          findsOneWidget,
-        );
-        // Still on the confirm screen underneath the dialog.
-        expect(locationOf(router), equals(RouteNames.bookingConfirm));
-
-        // Dismiss via "Залишитись тут" — must NOT navigate anywhere.
-        await tester.tap(find.byKey(const Key('client-booking-conflict-stay')));
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byKey(const Key('client-booking-conflict-dialog')),
-          findsNothing,
-        );
-        expect(locationOf(router), equals(RouteNames.bookingConfirm));
-        expect(find.byType(BookingConfirmScreen), findsOneWidget);
-
-        // The in-progress comment survived the whole round trip — the
-        // client's selection is fully intact, exactly as promised.
-        // i18n-finder-ok: arbitrary test-entered text (round-trip check).
-        expect(find.text('Прошу зателефонувати'), findsOneWidget);
-
-        // The client can still pick another time / retry from here.
-        fake.errorToThrow = null;
-        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
-        await tester.pumpAndSettle();
-
-        expect(locationOf(router), equals(RouteNames.bookingSuccess));
-        expect(fake.requests, hasLength(2));
-      },
-    );
-
-    testWidgets(
-      'tapping «Обрати інший час» in the conflict dialog pops back to slot '
-      'selection, never submitting again on its own',
-      (tester) async {
-        final conflict = ClientBookingConflictFailure(
-          conflictingBookingId: 'other-booking-1',
-          serviceName: 'Педикюр апаратний',
-          masterName: 'Ірина Шевченко',
-          startsAt: DateTime.utc(2026, 7, 15, 14),
-          endsAt: DateTime.utc(2026, 7, 15, 15, 30),
-        );
-        final fake = _FakeBookingRepository(
-          bookingToReturn: _bookingFixture(),
-          errorToThrow: conflict,
-        );
-        final router = await pump(tester, fake);
-
-        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const Key('client-booking-conflict-dialog')),
-          findsOneWidget,
-        );
-
-        await tester.tap(
-          find.byKey(const Key('client-booking-conflict-pick-another-time')),
-        );
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byKey(const Key('client-booking-conflict-dialog')),
-          findsNothing,
-        );
-        expect(
-          find.byType(BookingConfirmScreen),
-          findsNothing,
-          reason:
-              '«Обрати інший час» must pop BookingConfirmScreen back to slot '
-              'selection',
-        );
-        expect(
-          locationOf(router),
-          isNot(equals(RouteNames.bookingConfirm)),
-          reason: 'the router must have actually navigated away',
-        );
-        // Exactly one submit attempt was made — the pop itself never
-        // triggers a second, unrequested submit.
-        expect(fake.requests, hasLength(1));
       },
     );
 
@@ -672,13 +626,106 @@ void main() {
 
       expect(fake.requests, isEmpty);
     });
+
+    // Track 24.x follow-up — the post-reschedule refetch was MOVED out of
+    // `IndependentBookingSubmit` (a Notifier can't `ref.invalidate` a
+    // cross-provider without tripping the `forbid_provider_self_invalidation`
+    // cycle gate) into THIS screen's `_submit`, mirroring the cancel flow's
+    // widget-layer invalidation in `booking_detail_screen._confirmCancel`. This
+    // pins the relocated behavior at its NEW home: a successful reschedule
+    // submit invalidates BOTH `bookingDetailProvider(id)` and
+    // `myBookingsProvider(upcoming)` (each re-fetches) and never POSTs a create.
+    testWidgets(
+      'a successful RESCHEDULE invalidates bookingDetail(id) + upcoming My '
+      'Bookings from the widget layer (both re-fetch) and navigates to success',
+      (tester) async {
+        final fake = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWith((_) => fake),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+        );
+        await tester.pumpAndSettle();
+
+        // Warm + keep alive the two invalidation targets. A still-listened
+        // autoDispose provider only re-fetches when invalidated, so the second
+        // repo call below is the observable proof each one was invalidated.
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        final ProviderSubscription<AsyncValue<Booking>> subDetail = container
+            .listen(
+              bookingDetailProvider('booking-1'),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subDetail.close);
+        final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
+            container.listen(
+              myBookingsProvider(BookingTab.upcoming),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subList.close);
+        await container.read(bookingDetailProvider('booking-1').future);
+        await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        expect(fake.getBookingByIdCalls, 1);
+        expect(fake.getMyBookingsCalls, 1);
+
+        // Tap the reschedule CTA → the screen submits via PATCH /reschedule.
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        // The reschedule endpoint was hit once with the moved booking's id; the
+        // create endpoint was never touched; the flow reached the success screen.
+        expect(fake.rescheduleCalls, hasLength(1));
+        expect(fake.rescheduleCalls.single.$1, 'booking-1');
+        expect(
+          fake.createCalls,
+          isEmpty,
+          reason: 'a reschedule must never POST a new booking',
+        );
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        // BOTH targets re-fetched — the widget-layer invalidation fired.
+        await container.read(bookingDetailProvider('booking-1').future);
+        await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        expect(
+          fake.getBookingByIdCalls,
+          2,
+          reason:
+              'bookingDetailProvider(id) must have been invalidated by '
+              'BookingConfirmScreen._submit on reschedule success',
+        );
+        expect(
+          fake.getMyBookingsCalls,
+          2,
+          reason:
+              'myBookingsProvider(upcoming) must have been invalidated by '
+              'BookingConfirmScreen._submit on reschedule success',
+        );
+      },
+    );
   });
 
   group('BookingSuccessScreen', () {
     BookingSuccessArgs successArgs() => BookingSuccessArgs(
       master: _kMaster,
-      service: _kService,
-      start: DateTime(2026, 7, 20, 14),
+      appointments: <BookingSuccessAppointment>[
+        BookingSuccessAppointment(
+          service: _kService,
+          start: DateTime(2026, 7, 20, 14),
+        ),
+      ],
     );
 
     Future<GoRouter> pump(WidgetTester tester) async {

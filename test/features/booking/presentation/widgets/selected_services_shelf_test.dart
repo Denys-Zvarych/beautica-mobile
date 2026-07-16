@@ -27,9 +27,13 @@
 
 import 'package:beautica_mobile/features/booking/presentation/widgets/selected_services_shelf.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
@@ -40,7 +44,7 @@ const _kManicure = MasterService(
   name: 'Манікюр з покриттям',
   durationMinutes: 90,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
   category: 'MANICURE',
 );
 
@@ -52,7 +56,7 @@ const _kPedicure = MasterService(
   priceType: ServicePriceType.range,
   priceMin: 200,
   priceMax: 600,
-  priceDisplay: 'від 200 до 600 грн',
+  priceDisplay: 'від 200 до 600 ₴',
   category: 'PEDICURE',
 );
 
@@ -69,7 +73,7 @@ const _kHostileService = MasterService(
   name: _kHostileName,
   durationMinutes: 45,
   priceMin: 1200,
-  priceDisplay: '1200 грн',
+  priceDisplay: '1200 ₴',
   category: 'FACE',
 );
 
@@ -82,11 +86,16 @@ Key _removeKeyFor(MasterService service) =>
 Widget _shelf({
   List<MasterService> services = const <MasterService>[_kManicure],
   void Function(MasterService service)? onRemove,
+  String? Function(MasterService service)? chosenLabelFor,
 }) {
   return Scaffold(
     body: Align(
       alignment: Alignment.topLeft,
-      child: SelectedServicesShelf(services: services, onRemove: onRemove),
+      child: SelectedServicesShelf(
+        services: services,
+        onRemove: onRemove,
+        chosenLabelFor: chosenLabelFor,
+      ),
     ),
   );
 }
@@ -287,6 +296,164 @@ void main() {
         // itemCount: 0.
         expect(find.byKey(_expandedListKey), findsOneWidget);
         expect(find.byIcon(Icons.schedule_outlined), findsNothing);
+      },
+    );
+  });
+
+  // mobile-qa gap-fix — the `chosenLabelFor` callback added for the
+  // independent-master `IndependentScheduleConfirmBar` (a SEPARATE date/time
+  // per service, shown as a third accent line per row). The salon callers
+  // (`BookingSummaryBar` / `ScheduleConfirmBar` / `_AssignConfirmBar`) pass
+  // NOTHING, and MUST stay pixel-identical to their pre-callback 2-line row —
+  // so this group pins BOTH sides of the branch: non-null renders + folds the
+  // chosen window into the entry's own semantics; null omits it entirely.
+  group('chosenLabelFor — independent chosen-window third line', () {
+    // A chosen window built by the SAME formatter the independent bar feeds in
+    // (`formatBookingWindow`), so NO Cyrillic date literal appears in a finder —
+    // the shelf treats it as an opaque display string it never re-parses. The
+    // UTC start's Europe/Kyiv wall-clock is a stable 14:00 (11:00Z + summer).
+    final DateTime windowStart = DateTime.utc(2026, 7, 14, 11);
+    final String chosenWindowMani = formatBookingWindow(
+      windowStart,
+      windowStart.add(Duration(minutes: _kManicure.durationMinutes)),
+    );
+
+    testWidgets(
+      'a non-null chosenLabelFor renders the third accent line (event icon + '
+      'the label) inside the service row',
+      (tester) async {
+        await tester.pumpApp(
+          _shelf(
+            chosenLabelFor: (MasterService s) =>
+                s.id == _kManicure.id ? chosenWindowMani : null,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        // The camel-accent event icon marks the chosen-window line (distinct
+        // from the muted `schedule_outlined` duration icon on line two).
+        expect(
+          _inShelf(find.byIcon(Icons.event_available_rounded)),
+          findsOneWidget,
+        );
+        // Formatter-derived window string (not a hand-typed literal).
+        expect(_inShelf(find.text(chosenWindowMani)), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the chosen window FOLDS into the entry\'s own semantics node (reusing '
+      'the booking-chosen-window key) — a screen reader hears it as part of '
+      'the service, not as a separate unlabelled node',
+      (tester) async {
+        await tester.pumpApp(
+          _shelf(chosenLabelFor: (MasterService s) => chosenWindowMani),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SelectedServicesShelf)),
+        );
+        // The exact combined label the source builds:
+        //   "<name>, <duration>, <price>, <chosen-window-label> <chosen>".
+        final String entryLabel = l10n.bookingServiceTileSemantics(
+          _kManicure.name,
+          DurationMinutes.format(_kManicure.durationMinutes),
+          ServicePriceDisplay.format(_kManicure),
+        );
+        final String foldedLabel =
+            '$entryLabel, ${l10n.bookingChosenWindowLabel} $chosenWindowMani';
+
+        final SemanticsNode entryNode = tester.getSemantics(
+          find.bySemanticsLabel(RegExp(RegExp.escape(foldedLabel))),
+        );
+        expect(
+          entryNode.label,
+          contains(l10n.bookingChosenWindowLabel),
+          reason:
+              'the chosen window must be folded into the entry node, not '
+              'exposed as a separate unlabelled semantics stop',
+        );
+        expect(entryNode.label, contains(chosenWindowMani));
+      },
+    );
+
+    testWidgets(
+      'chosenLabelFor null (the salon callers\' contract) keeps the old 2-line '
+      'row — NO third line, NO event icon — so the salon bars stay '
+      'pixel-identical',
+      (tester) async {
+        await tester.pumpApp(_shelf());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        // Duration line (line two) still present…
+        expect(find.byIcon(Icons.schedule_outlined), findsOneWidget);
+        // …but the chosen-window third line is entirely absent.
+        expect(find.byIcon(Icons.event_available_rounded), findsNothing);
+
+        // The entry's semantics carry ONLY the name/duration/price triple —
+        // no folded-in chosen window (there is none).
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SelectedServicesShelf)),
+        );
+        final String entryLabel = l10n.bookingServiceTileSemantics(
+          _kManicure.name,
+          DurationMinutes.format(_kManicure.durationMinutes),
+          ServicePriceDisplay.format(_kManicure),
+        );
+        final SemanticsNode entryNode = tester.getSemantics(
+          find.bySemanticsLabel(RegExp(RegExp.escape(entryLabel))),
+        );
+        expect(entryNode.label, isNot(contains(l10n.bookingChosenWindowLabel)));
+      },
+    );
+
+    testWidgets(
+      'a per-service chosenLabelFor renders a line for the SCHEDULED service '
+      'only, leaving an unscheduled sibling on its 2-line row',
+      (tester) async {
+        await tester.pumpApp(
+          _shelf(
+            services: const <MasterService>[_kManicure, _kPedicure],
+            // Only the manicure has a pick; the pedicure returns null.
+            chosenLabelFor: (MasterService s) =>
+                s.id == _kManicure.id ? chosenWindowMani : null,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        // Exactly one chosen-window line across both rows.
+        expect(
+          _inShelf(find.byIcon(Icons.event_available_rounded)),
+          findsOneWidget,
+        );
+        // And it sits inside the manicure's row specifically.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('svc-mani')),
+            matching: find.byIcon(Icons.event_available_rounded),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('svc-pedi')),
+            matching: find.byIcon(Icons.event_available_rounded),
+          ),
+          findsNothing,
+        );
       },
     );
   });

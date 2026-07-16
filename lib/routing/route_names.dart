@@ -79,6 +79,12 @@ abstract final class RouteNames {
   static const String clientBookings = '/bookings';
   static const String clientPassport = '/passport';
 
+  /// Phase 14.3 — «Деталі запису», nested under [clientBookings] so it
+  /// pushes onto that branch's own navigator (swipe-back returns to the
+  /// still-scrolled list). Reached by tapping any `BookingCard`.
+  static String bookingDetail(String bookingId) =>
+      '$clientBookings/${Uri.encodeComponent(bookingId)}';
+
   /// Phase 13.3 — discovery results. Reached from the Пошук filters screen's
   /// «Показати майстрів» CTA via `context.push(..., extra: SearchFilters)`. A
   /// `push` (not a branch hop) so the swipe-back gesture returns to the filters

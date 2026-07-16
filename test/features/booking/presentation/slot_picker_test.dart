@@ -57,7 +57,7 @@ const _kService = MasterService(
   name: 'Манікюр з покриттям',
   durationMinutes: 60,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
   category: 'MANICURE',
 );
 
@@ -205,10 +205,11 @@ GoRouter _router({required Widget dateScreen}) => GoRouter(
       path: RouteNames.bookingConfirm,
       builder: (context, state) {
         final BookingConfirmArgs args = state.extra! as BookingConfirmArgs;
+        final appt = args.appointments.first;
         return Scaffold(
           body: Text(
-            'confirm-stub:${args.masterId}:${args.serviceId}:'
-            '${args.startAt.toIso8601String()}:${args.rescheduleBookingId}',
+            'confirm-stub:${args.masterId}:${appt.serviceId}:'
+            '${appt.startAt.toIso8601String()}:${args.rescheduleBookingId}',
           ),
         );
       },

@@ -74,7 +74,7 @@ abstract class MasterSearchItem with _$MasterSearchItem {
     /// null when the master has no priced services / no range ceiling. Together
     /// with [minEffectivePrice] this drives the «від» prefix decision on the
     /// card: show a single fixed price when `priceMax == minEffectivePrice`
-    /// (or null), otherwise a «від N грн» / range label.
+    /// (or null), otherwise a «від N ₴» / range label.
     required double? priceMax,
 
     /// Street name of the master's worksite, or null. AUTH-GATED server-side:

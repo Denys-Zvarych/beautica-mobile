@@ -46,7 +46,7 @@ BookingDetailResponse _buildDetailDto({
   String masterLastName = 'Коваль',
   String serviceName = 'Манікюр',
   BookingDetailResponseStatusEnum status =
-      BookingDetailResponseStatusEnum.PENDING,
+      BookingDetailResponseStatusEnum.CONFIRMED,
   DateTime? startsAt,
   DateTime? endsAt,
   num priceAtBooking = 500,
@@ -171,6 +171,16 @@ Map<String, dynamic> _clientBookingConflictBody({
   'message': 'Client already has an overlapping booking',
 };
 
+/// The `data` envelope backend commit 952e441 sends on a 409
+/// `BOOKING_ALREADY_ELAPSED` (both the cancel and reschedule write paths). The
+/// repository hand-decodes `data.code` (not in the generated client — see the
+/// `_isBookingAlreadyElapsed` doc), so a plain map is the faithful fixture.
+Map<String, dynamic> _bookingAlreadyElapsedBody() => <String, dynamic>{
+  'success': false,
+  'data': <String, dynamic>{'code': 'BOOKING_ALREADY_ELAPSED'},
+  'message': 'Booking window already elapsed',
+};
+
 DioException _dioConnectionError(String path) => DioException(
   requestOptions: RequestOptions(path: path),
   type: DioExceptionType.connectionError,
@@ -252,7 +262,7 @@ void main() {
         expect(booking.id, 'booking-1');
         expect(booking.masterFirstName, 'Оля');
         expect(booking.masterLastName, 'Коваль');
-        expect(booking.status, BookingStatus.pending);
+        expect(booking.status, BookingStatus.confirmed);
         expect(booking.canReview, isFalse);
 
         final captured = verify(
@@ -674,6 +684,68 @@ void main() {
         throwsA(isA<NetworkFailure>()),
       );
     });
+
+    // mobile-qa (elapsed read-only track) — the cancel path's ONE special 409
+    // is BOOKING_ALREADY_ELAPSED (backend 952e441): the visit window passed
+    // server-side, so the booking can no longer be cancelled. Mapped by
+    // `_mapBookingCancelException` BEFORE the generic 409 fallback.
+    void stubCancel409(dynamic body) {
+      when(
+        () => bookingApi.cancelBooking(
+          bookingId: any(named: 'bookingId'),
+          cancelBookingRequest: any(named: 'cancelBookingRequest'),
+        ),
+      ).thenThrow(_dioBadResponseWithBody(409, _cancelPath, body));
+    }
+
+    test(
+      '409 BOOKING_ALREADY_ELAPSED → BookingAlreadyElapsedFailure',
+      () async {
+        stubCancel409(_bookingAlreadyElapsedBody());
+
+        await expectLater(
+          repository.cancelBooking('booking-1'),
+          throwsA(isA<BookingAlreadyElapsedFailure>()),
+        );
+      },
+    );
+
+    test(
+      'a plain 409 with no body stays the previous generic ServerFailure(409) '
+      '— the elapsed check must not over-catch',
+      () async {
+        when(
+          () => bookingApi.cancelBooking(
+            bookingId: any(named: 'bookingId'),
+            cancelBookingRequest: any(named: 'cancelBookingRequest'),
+          ),
+        ).thenThrow(_dioBadResponse(409, _cancelPath));
+
+        await expectLater(
+          repository.cancelBooking('booking-1'),
+          throwsA(
+            isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 409),
+          ),
+        );
+      },
+    );
+
+    test(
+      'a 409 with an unrelated data.code stays generic ServerFailure(409)',
+      () async {
+        stubCancel409(<String, dynamic>{
+          'success': false,
+          'data': <String, dynamic>{'code': 'SOME_OTHER_CODE'},
+        });
+
+        await expectLater(
+          repository.cancelBooking('booking-1'),
+          throwsA(
+            isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 409),
+          ),
+        );
+      },
+    );
   });
 
   group('rescheduleBooking', () {
@@ -681,7 +753,9 @@ void main() {
 
     test('success: maps the returned enriched detail', () async {
       final dto = _buildDetailDto(
-        status: BookingDetailResponseStatusEnum.PENDING,
+        // `PENDING` was retired backend-side by track 24.x booking
+        // auto-confirm — a rescheduled booking now simply stays CONFIRMED.
+        status: BookingDetailResponseStatusEnum.CONFIRMED,
         startsAt: newStart,
         endsAt: newStart.add(const Duration(hours: 1)),
       );
@@ -695,7 +769,7 @@ void main() {
       final booking = await repository.rescheduleBooking('booking-1', newStart);
 
       expect(booking.startAt, newStart);
-      expect(booking.status, BookingStatus.pending);
+      expect(booking.status, BookingStatus.confirmed);
 
       final captured =
           verify(
@@ -783,6 +857,55 @@ void main() {
         throwsA(isA<BookingRateLimitedFailure>()),
       );
     });
+
+    // mobile-qa (elapsed read-only track) — reschedule is the WRITE-path call
+    // site of the BOOKING_ALREADY_ELAPSED 409 (backend 952e441).
+    // `_mapBookingWriteException` checks the elapsed code FIRST, ahead of both
+    // the CLIENT_BOOKING_CONFLICT decode and the generic ConflictFailure
+    // fallback — these two tests pin that ordering.
+    test('409 BOOKING_ALREADY_ELAPSED → BookingAlreadyElapsedFailure (checked '
+        'before the slot-conflict fallbacks)', () async {
+      when(
+        () => bookingApi.rescheduleBooking(
+          bookingId: 'booking-1',
+          rescheduleBookingRequest: any(named: 'rescheduleBookingRequest'),
+        ),
+      ).thenThrow(
+        _dioBadResponseWithBody(
+          409,
+          _reschedulePath,
+          _bookingAlreadyElapsedBody(),
+        ),
+      );
+
+      await expectLater(
+        repository.rescheduleBooking('booking-1', newStart),
+        throwsA(isA<BookingAlreadyElapsedFailure>()),
+      );
+    });
+
+    test(
+      'a 409 with an unrelated data.code stays the generic ConflictFailure — '
+      'the elapsed branch must not over-catch the write path',
+      () async {
+        when(
+          () => bookingApi.rescheduleBooking(
+            bookingId: 'booking-1',
+            rescheduleBookingRequest: any(named: 'rescheduleBookingRequest'),
+          ),
+        ).thenThrow(
+          _dioBadResponseWithBody(409, _reschedulePath, <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{'code': 'SOME_OTHER_CODE'},
+          }),
+        );
+
+        await expectLater(
+          repository.rescheduleBooking('booking-1', newStart),
+          throwsA(isA<ConflictFailure>()),
+        );
+      },
+    );
   });
 
   group('getMyBookings', () {

@@ -53,7 +53,7 @@ const _catalog = <SalonServiceCategoryEntry>[
         id: 'svc-1',
         name: 'Манікюр з покриттям',
         durationLabel: '1 год 30 хв',
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
       ),
     ],
   ),

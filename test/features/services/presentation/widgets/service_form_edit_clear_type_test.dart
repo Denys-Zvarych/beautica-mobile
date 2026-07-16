@@ -59,7 +59,7 @@ const _editService = MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
 );
 
 // Service types keyed by category. The picker is driven by
@@ -286,7 +286,7 @@ void main() {
         durationMinutes: 60,
         priceType: ServicePriceType.fixed,
         priceMin: 500,
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
       );
       await pumpForm(tester, onSubmit: neverSubmit, initial: blankNameService);
 
@@ -325,7 +325,7 @@ void main() {
         durationMinutes: 45,
         priceType: ServicePriceType.fixed,
         priceMin: 300,
-        priceDisplay: '300 грн',
+        priceDisplay: '300 ₴',
       );
 
       MasterServiceCreate? captured;

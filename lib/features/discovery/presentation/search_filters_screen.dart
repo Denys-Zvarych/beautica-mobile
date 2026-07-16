@@ -18,7 +18,7 @@
 //      `approvedCategoriesProvider`; single-select. Tapping a category reveals
 //      its bookable SERVICES as chips in a recessed [ServiceChipDrawer] below
 //      (multi-select, second level — Variant A «Рейка + послуги»).
-//   5. «Вартість послуги» — single-thumb price slider with a live «до N грн»
+//   5. «Вартість послуги» — single-thumb price slider with a live «до N ₴»
 //      readout (collapses to «будь-яка» at the ceiling).
 //   6. Sticky «Показати майстрів» CTA → pushes /search/results with the
 //      assembled [SearchFilters] in `extra`.
@@ -1326,7 +1326,7 @@ class _PriceSectionState extends ConsumerState<_PriceSection> {
             rangeThumbShape: const RoundRangeSliderThumbShape(
               enabledThumbRadius: 11,
             ),
-            // Hide the per-division tick dots while keeping 500-грн snapping.
+            // Hide the per-division tick dots while keeping 500-₴ snapping.
             rangeTickMarkShape: const RoundRangeSliderTickMarkShape(
               tickMarkRadius: 0,
             ),
@@ -1387,9 +1387,9 @@ class _PriceSectionState extends ConsumerState<_PriceSection> {
   }
 
   /// Builds the live price readout from the current bounds:
-  ///   both set   → «від X до Y грн»
-  ///   max only   → «до Y грн»
-  ///   min only   → «від X грн»
+  ///   both set   → «від X до Y ₴»
+  ///   max only   → «до Y ₴»
+  ///   min only   → «від X ₴»
   ///   neither    → «будь-яка»
   String _readoutText(
     AppLocalizations l10n,
@@ -1410,7 +1410,7 @@ class _PriceSectionState extends ConsumerState<_PriceSection> {
 }
 
 /// One compact numeric price well (the MIN or MAX field). A labelled recessed
-/// inset that reuses the screen's existing field chrome, with an inline «грн»
+/// inset that reuses the screen's existing field chrome, with an inline «₴»
 /// suffix so it reads as a unit rather than a bare number.
 class _PriceField extends StatelessWidget {
   const _PriceField({

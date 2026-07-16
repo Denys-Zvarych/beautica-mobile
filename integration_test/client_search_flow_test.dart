@@ -407,8 +407,11 @@ void main() {
     // The seeded page-0 master + salon both rendered (key = backend id).
     expect(find.byKey(const Key('favorite_master_master-aaa')), findsOneWidget);
     expect(find.byKey(const Key('favorite_salon_salon-xyz')), findsOneWidget);
-    // Master price «від N грн» + salon price RANGE are the documented gaps.
-    expect(find.text('від 450 грн'), findsOneWidget);
+    // Master price «від N ₴» + salon price RANGE are the documented gaps.
+    // This string is CLIENT-rendered from l10n (`searchPriceFrom`), NOT a raw
+    // backend `priceDisplay` — it always carries the mobile client's own
+    // current currency glyph («₴»), independent of the backend's formatting.
+    expect(find.text('від 450 ₴'), findsOneWidget);
 
     // ── Tap the master heart → optimistic flip → POST /favorites ────────────
     expect(fb.addFavoriteCalls, 0);
@@ -667,10 +670,13 @@ void main() {
       expect(find.byKey(const Key('favorite_salon_salon-xyz')), findsOneWidget);
 
       // Item 5 — the salon price RANGE renders (priceMin 300, priceMax 1200).
+      // CLIENT-rendered from l10n (`searchResultPriceRange`), NOT a raw backend
+      // `priceDisplay` — it always carries the mobile client's own current
+      // currency glyph («₴»), independent of the backend's formatting.
       expect(
-        find.text('300–1200 грн'),
+        find.text('300–1200 ₴'),
         findsOneWidget,
-        reason: 'salon-xyz has priceMin<priceMax → a «N–M грн» range renders',
+        reason: 'salon-xyz has priceMin<priceMax → a «N–M ₴» range renders',
       );
 
       // Item 7 — the salon services preview line renders.

@@ -62,6 +62,7 @@ import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/labelled_row.dart';
 import 'widgets/salon_avatar_gradients.dart';
+import 'widgets/section_rule.dart';
 
 /// Salon booking flow step 4b — the confirmed N-appointment recap.
 ///
@@ -138,23 +139,55 @@ class _SalonBookingSuccessScreenState
         (salon?.locationNote?.trim().isNotEmpty ?? false)
         ? salon!.locationNote!.trim()
         : null;
+    // Confirms WHERE the booking was made — same secondary
+    // `publicSalonProfileProvider` salon the address block reads (no extra
+    // fetch). Null while loading/failed → the card renders address alone.
+    final String? salonName = (salon?.name.trim().isNotEmpty ?? false)
+        ? salon!.name.trim()
+        : null;
 
     return BookingSuccessScaffold(
       title: l10n.salonBookingSuccessTitle,
       subline: l10n.salonBookingSuccessSubline,
-      homeButtonKey: const Key('salon-success-home-cta'),
-      onHome: () => context.go(RouteNames.clientHome),
+      actions: <Widget>[
+        SuccessSecondaryButton(
+          buttonKey: const Key('salon-success-home-cta'),
+          label: l10n.bookingSuccessHomeCta,
+          icon: Icons.home_outlined,
+          onPressed: () => context.go(RouteNames.clientHome),
+        ),
+      ],
       homeGap: VelvetSpacing.sm,
       recapCards: <Widget>[
         NeumorphicCard(
           key: const Key('salon-success-address-card'),
           showBorder: true,
           padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-          child: LabelledRow(
-            label: l10n.bookingAddressLabel,
-            value: addressLine ?? l10n.bookingAddressUnknown,
-            detail: addressDetail,
-            compactText: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              // «Салон» identity line above the address — confirms which salon
+              // this booking was made with. Dense/compact rhythm matches the
+              // rest of the success recap; same composition as the confirm
+              // screen and «Деталі запису».
+              if (salonName != null) ...<Widget>[
+                LabelledRow(
+                  key: const Key('salon-success-salon-name'),
+                  label: l10n.bookingSalonLabel,
+                  value: salonName,
+                  compactText: true,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SectionRule(dense: true),
+              ],
+              LabelledRow(
+                label: l10n.bookingAddressLabel,
+                value: addressLine ?? l10n.bookingAddressUnknown,
+                detail: addressDetail,
+                compactText: true,
+              ),
+            ],
           ),
         ),
         for (int i = 0; i < appointments.length; i++)

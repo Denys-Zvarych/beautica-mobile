@@ -389,7 +389,7 @@ void main() {
         durationMinutes: 60,
         priceType: ServicePriceType.fixed,
         priceMin: 500,
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
       );
 
       await pumpForm(

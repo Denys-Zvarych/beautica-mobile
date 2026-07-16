@@ -3,10 +3,10 @@
 // Pins the result-card contract the golden cannot assert behaviourally:
 //   • Item 2 — price label «від» decision. A master whose priceMax equals the
 //     minEffectivePrice (or whose priceMax is null) renders an EXACT fixed price
-//     «N грн» with NO «від» prefix; a master with priceMax > min renders a
-//     «N–M грн» range. This is the regression-prone branch: the old code always
-//     prefixed «від», so a single-price master read «від 500 грн» instead of
-//     «500 грн».
+//     «N ₴» with NO «від» prefix; a master with priceMax > min renders a
+//     «N–M ₴» range. This is the regression-prone branch: the old code always
+//     prefixed «від», so a single-price master read «від 500 ₴» instead of
+//     «500 ₴».
 //   • Item 3 — the services preview line opts into maxLines: 2 (was 1).
 //   • Item 6 — the (auth-gated) precomputed `addressLine` renders as the
 //     locality line when present; when it is null the card falls back to the
@@ -126,14 +126,14 @@ void main() {
   // -------------------------------------------------------------------------
   group('MasterResultCard price label (item 2)', () {
     testWidgets(
-      'priceMax == minEffectivePrice → EXACT price «N грн», NO «від» prefix',
+      'priceMax == minEffectivePrice → EXACT price «N ₴», NO «від» prefix',
       (tester) async {
         await _pump(tester, _master(minEffectivePrice: 500, priceMax: 500));
 
         final l10n = _l10n(tester);
         // Exact-price label is rendered verbatim …
         expect(find.text(l10n.searchResultPriceExact(500)), findsOneWidget);
-        // … and the «від N грн» open-ended label is NOT.
+        // … and the «від N ₴» open-ended label is NOT.
         expect(
           find.text(l10n.searchPriceFrom(500)),
           findsNothing,
@@ -144,7 +144,7 @@ void main() {
       },
     );
 
-    testWidgets('priceMax == null → EXACT price «N грн», NO «від» prefix', (
+    testWidgets('priceMax == null → EXACT price «N ₴», NO «від» prefix', (
       tester,
     ) async {
       await _pump(tester, _master(minEffectivePrice: 350, priceMax: null));
@@ -154,7 +154,7 @@ void main() {
       expect(find.text(l10n.searchPriceFrom(350)), findsNothing);
     });
 
-    testWidgets('priceMax > minEffectivePrice → «N–M грн» range label', (
+    testWidgets('priceMax > minEffectivePrice → «N–M ₴» range label', (
       tester,
     ) async {
       await _pump(tester, _master(minEffectivePrice: 350, priceMax: 900));
@@ -172,8 +172,12 @@ void main() {
 
       final l10n = _l10n(tester);
       expect(find.text(l10n.searchResultPriceExact(0)), findsNothing);
-      // No «грн» fragment renders for a priceless master (line omitted).
-      expect(find.textContaining('грн'), findsNothing);
+      // No currency-bearing fragment renders for a priceless master (line
+      // omitted). Resolved from l10n (`searchPriceCurrencySuffix`) — a
+      // hardcoded literal here silently rots into a vacuous findsNothing the
+      // moment the symbol changes (as happened during the currency sweep
+      // that moved both sides from the old suffix to «₴»).
+      expect(find.textContaining(l10n.searchPriceCurrencySuffix), findsNothing);
     });
   });
 

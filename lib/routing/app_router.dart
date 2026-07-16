@@ -47,7 +47,10 @@ import '../features/booking/domain/booking_success_args.dart';
 import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
+import '../features/booking/presentation/booking_detail_screen.dart';
+import '../features/booking/presentation/booking_time_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
+import '../features/booking/presentation/my_bookings_screen.dart';
 import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
 import '../features/booking/presentation/salon_booking_success_screen.dart';
@@ -445,12 +448,25 @@ GoRouter appRouter(Ref ref) {
           StatefulShellBranch(
             navigatorKey: clientBranchNavigatorKeys[kClientBookingsBranch],
             routes: [
+              // Phase 14.3 — real MyBookingsScreen replaces the placeholder.
               GoRoute(
                 path: RouteNames.clientBookings,
-                pageBuilder: (context, state) => _instantPage(
-                  state,
-                  const ClientBookingsPlaceholderScreen(),
-                ),
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const MyBookingsScreen()),
+                routes: [
+                  // /bookings/:bookingId — «Деталі запису» (14.3/14.4),
+                  // pushed onto this branch's own navigator (swipe-back
+                  // returns to the still-scrolled list) from a BookingCard
+                  // tap. `builder:` (not `pageBuilder: _instantPage`) so the
+                  // default Material transition + swipe-back gesture apply,
+                  // matching every other pushed-detail route in this file.
+                  GoRoute(
+                    path: ':bookingId',
+                    builder: (context, state) => BookingDetailScreen(
+                      bookingId: state.pathParameters['bookingId']!,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -566,15 +582,20 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             ServiceSelectorSheet(masterId: state.extra! as String),
       ),
-      // Phase 14.1 — booking flow Step 2 (calendar + time grid), TWO
-      // sequential screens sharing the same `slotPickerProvider` state:
-      //   • bookingSlots      → SlotDateScreen ("Оберіть дату")
-      //   • bookingSlots/time → SlotTimeScreen ("Оберіть час"), nested so the
-      //     date screen stays mounted underneath (keeps the shared autoDispose
-      //     provider alive across the push — see slot_picker_notifier.dart).
+      // Booking flow Step 2 — the per-service TIME picker
+      // (`BookingTimeScreen`): a horizontal PageView, one slide per service
+      // selected in Step 1, each picking its OWN date + time (the confirmed
+      // salon-parity multi-service UX). Reached from `ServiceSelectorSheet`'s
+      // «Далі» CTA with a `BookingSlotPickerArgs` in `extra`.
+      //
+      //   • bookingSlots      → BookingTimeScreen (primary multi-service flow)
+      //   • bookingSlots/time → SlotTimeScreen — the RETAINED single-service /
+      //     Phase 14.8 reschedule picker (a two-phase date→time screen sharing
+      //     `slotPickerProvider`). Not reached from the sheet today; kept
+      //     registered for the reschedule surface and its direct-pump tests.
       // Both require a `BookingSlotPickerArgs` in `extra`; a missing/invalid
-      // extra (e.g. a stray direct navigation) redirects back to
-      // [RouteNames.bookingNew] rather than crashing on a bad cast.
+      // extra redirects back to [RouteNames.bookingNew] rather than crashing on
+      // a bad cast.
       GoRoute(
         path: RouteNames.bookingSlots,
         redirect: (context, state) {
@@ -586,7 +607,7 @@ GoRouter appRouter(Ref ref) {
           return null;
         },
         builder: (context, state) =>
-            SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
+            BookingTimeScreen(args: state.extra! as BookingSlotPickerArgs),
         routes: [
           GoRoute(
             path: 'time',

@@ -110,6 +110,9 @@ abstract final class BookingMapper {
       canReview: dto.canReview ?? false,
       clientComment: dto.clientComment,
       providerComment: dto.providerComment,
+      clientCancellationNote: dto.clientCancellationNote,
+      masterProfessionalTitle: dto.masterProfessionalTitle,
+      locationNote: dto.locationNote,
     );
   }
 

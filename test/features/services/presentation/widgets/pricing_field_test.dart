@@ -11,8 +11,9 @@
 //   B1-DISABLED        enabled:false → Opacity(0.55) wraps the toggle.
 //
 // Regression — tap-target fix (2026-06-13):
-//   TAP-GRN-FOCUSES    Tap on "грн" suffix text in the fixed-price well focuses
-//                      the field (_PricingInputField now wraps the well in a
+//   TAP-SUFFIX-FOCUSES Tap on the price field's currency-suffix text (l10n
+//                      `pricingCurrencySuffix`, "₴") focuses the field
+//                      (_PricingInputField now wraps the well in a
 //                      GestureDetector(HitTestBehavior.opaque)).
 //   TAP-HV-FOCUSES     Tap on "хв" suffix text in the duration well focuses the
 //                      duration field.
@@ -126,6 +127,14 @@ Future<void> _pumpWithDuration(
 // ---------------------------------------------------------------------------
 
 void main() {
+  // Resolve the price-field currency suffix from l10n rather than hardcoding
+  // the literal — the TAP-SUFFIX/TAP-PADDING/TAP-DISABLED regression group
+  // below asserts against this single source of truth so a future currency
+  // change (l10n `pricingCurrencySuffix`) doesn't re-break this file.
+  final String priceSuffix = lookupAppLocalizations(
+    const Locale('uk'),
+  ).pricingCurrencySuffix;
+
   // ── B1-FIXED-VISIBLE ──────────────────────────────────────────────────────
 
   testWidgets(
@@ -409,18 +418,19 @@ void main() {
   // ── Regression: tap-target fix — GestureDetector(HitTestBehavior.opaque) ──
   //
   // Before the fix, the _PricingInputField well was NOT wrapped in a
-  // GestureDetector. A tap on the "грн"/"хв" suffix Text or on empty padding
-  // inside the NeumorphicInset box did nothing — the TextField's own hit-test
-  // area did not extend over the suffix or surrounding whitespace.  The fix
-  // wraps the entire well in GestureDetector(behavior: HitTestBehavior.opaque,
+  // GestureDetector. A tap on the currency-suffix ("₴")/"хв" suffix Text or on
+  // empty padding inside the NeumorphicInset box did nothing — the TextField's
+  // own hit-test area did not extend over the suffix or surrounding
+  // whitespace.  The fix wraps the entire well in
+  // GestureDetector(behavior: HitTestBehavior.opaque,
   // onTap: () => _focus.requestFocus()) so that ANY tap inside the well bounds
   // focuses the underlying TextField.
   //
   // Observable proxy for focus:
-  //   - Price field ("грн", hideSuffixWhenActive=true): focus causes _focused to
-  //     become true → showSuffix becomes false → "грн" Text disappears.  The
-  //     suffix disappearance is a deterministic, layout-visible proof that the
-  //     FocusNode received requestFocus().
+  //   - Price field (currency suffix, hideSuffixWhenActive=true): focus causes
+  //     _focused to become true → showSuffix becomes false → the suffix Text
+  //     disappears.  The suffix disappearance is a deterministic,
+  //     layout-visible proof that the FocusNode received requestFocus().
   //   - Duration field ("хв", hideSuffixWhenActive=false): suffix stays visible
   //     regardless of focus, so we assert via
   //     WidgetsBinding.instance.focusManager.primaryFocus != null and
@@ -484,49 +494,49 @@ void main() {
       );
     }
 
-    // ── TAP-GRN-FOCUSES ─────────────────────────────────────────────────────
+    // ── TAP-SUFFIX-FOCUSES ───────────────────────────────────────────────────
     //
-    // Precondition: fixed-price well is empty and unfocused → "грн" is
-    // visible.  Tap the "грн" Text.  Post-condition: _focused=true on the
-    // _PricingInputFieldState → showSuffix=false → "грн" disappears.
+    // Precondition: fixed-price well is empty and unfocused → the currency
+    // suffix ("₴") is visible.  Tap it.  Post-condition: _focused=true on the
+    // _PricingInputFieldState → showSuffix=false → the suffix disappears.
     // If the GestureDetector wrapper is absent (the old bug), the tap hits
     // the Text and falls through — the FocusNode never fires, _focused stays
     // false, and the assertion fails.
 
     testWidgets(
-      'TAP-GRN-FOCUSES: tap on the "грн" suffix text focuses the fixed-price '
-      'well (suffix disappears, proving requestFocus() was called)',
+      'TAP-SUFFIX-FOCUSES: tap on the currency-suffix text focuses the '
+      'fixed-price well (suffix disappears, proving requestFocus() was called)',
       (tester) async {
         await pumpWithDuration(tester);
 
         const Key priceKey = Key('pricing-fixed-amount');
 
-        // Precondition: "грн" is visible (field is empty and unfocused).
-        final grnUnderPrice = find.descendant(
+        // Precondition: the suffix is visible (field is empty and unfocused).
+        final suffixUnderPrice = find.descendant(
           of: find.byKey(priceKey),
-          matching: find.text('грн'),
+          matching: find.text(priceSuffix),
         );
         expect(
-          grnUnderPrice,
+          suffixUnderPrice,
           findsOneWidget,
           reason:
-              'precondition: "грн" must be visible when the price well is '
-              'empty and unfocused',
+              'precondition: the currency suffix must be visible when the '
+              'price well is empty and unfocused',
         );
 
-        // Act: tap the "грн" suffix Text.
-        await tester.tap(grnUnderPrice);
+        // Act: tap the currency-suffix Text.
+        await tester.tap(suffixUnderPrice);
         await tester.pump();
 
-        // Assert: "грн" is now ABSENT — the GestureDetector fired
+        // Assert: the suffix is now ABSENT — the GestureDetector fired
         // _focus.requestFocus(), which set _focused=true, which hid the
         // suffix (hideSuffixWhenActive=true on the fixed-price field).
         expect(
-          grnUnderPrice,
+          suffixUnderPrice,
           findsNothing,
           reason:
-              'TAP-GRN-FOCUSES: "грн" must disappear after tapping it — '
-              'the whole-well GestureDetector must have called '
+              'TAP-SUFFIX-FOCUSES: the currency suffix must disappear after '
+              'tapping it — the whole-well GestureDetector must have called '
               '_focus.requestFocus(), making showSuffix false',
         );
       },
@@ -604,20 +614,21 @@ void main() {
 
         const Key priceKey = Key('pricing-fixed-amount');
 
-        // Precondition: "грн" is visible (field empty + unfocused).
-        final grnUnderPrice = find.descendant(
+        // Precondition: the currency suffix is visible (field empty + unfocused).
+        final suffixUnderPrice = find.descendant(
           of: find.byKey(priceKey),
-          matching: find.text('грн'),
+          matching: find.text(priceSuffix),
         );
         expect(
-          grnUnderPrice,
+          suffixUnderPrice,
           findsOneWidget,
-          reason: 'precondition: "грн" must be visible before the tap',
+          reason:
+              'precondition: the currency suffix must be visible before the tap',
         );
 
         // Find the well bounding box and derive an interior padding point:
         // 4 dp inset from the right edge, centred vertically.  This point is
-        // inside the NeumorphicInset but beyond the "грн" Text and any digit
+        // inside the NeumorphicInset but beyond the suffix Text and any digit
         // content (the field is empty).
         final Rect wellRect = tester.getRect(find.byKey(priceKey));
         final Offset paddingPoint = Offset(
@@ -629,9 +640,9 @@ void main() {
         await tester.tapAt(paddingPoint);
         await tester.pump();
 
-        // Assert: focus was granted — "грн" disappeared.
+        // Assert: focus was granted — the currency suffix disappeared.
         expect(
-          grnUnderPrice,
+          suffixUnderPrice,
           findsNothing,
           reason:
               'TAP-PADDING-FOCUSES: tapping the right-interior padding of '
@@ -645,29 +656,31 @@ void main() {
     // ── TAP-DISABLED-NOP ────────────────────────────────────────────────────
     //
     // When enabled=false the GestureDetector's onTap is null.  Tapping the
-    // well must NOT grant focus.  The "грн" suffix must remain visible (the
-    // field is empty + unfocused) and the platform text-input channel must
-    // stay closed (no keyboard opened).
+    // well must NOT grant focus.  The currency suffix must remain visible
+    // (the field is empty + unfocused) and the platform text-input channel
+    // must stay closed (no keyboard opened).
 
     testWidgets(
       'TAP-DISABLED-NOP: tap on a disabled well does NOT focus the field '
-      '(onTap:null; "грн" stays visible; no keyboard)',
+      '(onTap:null; currency suffix stays visible; no keyboard)',
       (tester) async {
         await pumpWithDuration(tester, enabled: false);
 
         const Key priceKey = Key('pricing-fixed-amount');
 
-        // Precondition: "грн" is visible (field empty + unfocused) and no
-        // text input is active.  (The price field's GestureDetector has
-        // onTap:null because enabled=false.)
-        final grnUnderPrice = find.descendant(
+        // Precondition: the currency suffix is visible (field empty +
+        // unfocused) and no text input is active.  (The price field's
+        // GestureDetector has onTap:null because enabled=false.)
+        final suffixUnderPrice = find.descendant(
           of: find.byKey(priceKey),
-          matching: find.text('грн'),
+          matching: find.text(priceSuffix),
         );
         expect(
-          grnUnderPrice,
+          suffixUnderPrice,
           findsOneWidget,
-          reason: 'precondition: "грн" must be visible on a disabled well',
+          reason:
+              'precondition: the currency suffix must be visible on a '
+              'disabled well',
         );
         expect(
           tester.testTextInput.isVisible,
@@ -679,14 +692,14 @@ void main() {
         await tester.tap(find.byKey(priceKey));
         await tester.pump();
 
-        // Assert: "грн" still visible (focus was NOT granted).
+        // Assert: the currency suffix is still visible (focus was NOT granted).
         expect(
-          grnUnderPrice,
+          suffixUnderPrice,
           findsOneWidget,
           reason:
-              'TAP-DISABLED-NOP: "грн" must remain visible — a tap on a '
-              'disabled well must NOT focus the field (onTap is null when '
-              'enabled=false)',
+              'TAP-DISABLED-NOP: the currency suffix must remain visible — a '
+              'tap on a disabled well must NOT focus the field (onTap is '
+              'null when enabled=false)',
         );
         // Assert: no keyboard opened.
         expect(
@@ -711,12 +724,12 @@ void main() {
   //
   //   FIXED mode (durationController supplied, compact=false):
   //     Key('field-service-duration')  — duration "хв" well
-  //     Key('pricing-fixed-amount')    — FIXED price "грн" well
+  //     Key('pricing-fixed-amount')    — FIXED price (currency suffix) well
   //
   //   RANGE mode (durationController supplied, compact=false):
   //     Key('field-service-duration')  — duration "хв" well
-  //     Key('pricing-range-min')       — RANGE min "грн" well
-  //     Key('pricing-range-max')       — RANGE max "грн" well
+  //     Key('pricing-range-min')       — RANGE min (currency suffix) well
+  //     Key('pricing-range-max')       — RANGE max (currency suffix) well
   //
   //   Compact FIXED mode (compact=true):
   //     Key('service-setup-duration')  — duration well in the service-setup row
@@ -782,7 +795,7 @@ void main() {
           reason:
               'CENTER-PRICE-FIXED: the fixed-price well must have '
               'textAlign: TextAlign.center so the "500" placeholder and typed '
-              'amounts render centred inside the грн well',
+              'amounts render centred inside the currency-suffix well',
         );
       },
     );

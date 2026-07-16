@@ -63,7 +63,7 @@ const _editSeed = MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 350,
-  priceDisplay: '350 грн',
+  priceDisplay: '350 ₴',
 );
 
 // ---------------------------------------------------------------------------

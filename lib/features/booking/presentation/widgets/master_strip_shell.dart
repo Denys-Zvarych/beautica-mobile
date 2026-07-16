@@ -3,7 +3,10 @@
 // renders.
 //
 // Owns the `Semantics` + `Material(type: transparency)` Hero-flight guard +
-// `NeumorphicCard(#EDE4D5)` + `Row[ MasterAvatarBadge, Expanded(Column[ top
+// the `#EDE4D5` camel-wash card (a single `NeumorphicCard`-style bordered
+// decoration carrying the fill colour, hairline border AND a non-offset
+// `borderedCard` shadow together — Impeller-GLES-safe, see the build comment) +
+// `Row[ MasterAvatarBadge, Expanded(Column[ top
 // label, name, one subtitle line ]), trailing ]` structure, and exposes the
 // variable parts as slots ([middleLine], [trailing], [avatarGradient]/
 // [avatarBordered], [topLabel], [semanticsLabel]) so the card's surface,
@@ -18,9 +21,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 
 import 'master_avatar_badge.dart';
 
@@ -73,6 +76,12 @@ class MasterStripShell extends StatelessWidget {
   /// summary shelf, so the strip reads as sitting on its own elevated card.
   static const Color _stripSurface = Color(0xFFEDE4D5);
 
+  // The card radius on the single decoration that carries the fill colour and
+  // the shadow together. Compile-time const so the whole BorderRadius is const.
+  static const BorderRadius _radius = BorderRadius.all(
+    Radius.circular(VelvetRadii.card),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -85,45 +94,63 @@ class MasterStripShell extends StatelessWidget {
         // producing a brief flash of underlined/tight-line-height text on
         // the master's name. `transparency` paints nothing itself — it only
         // installs the ambient Theme/DefaultTextStyle — so it doesn't
-        // interfere with NeumorphicCard's own shadow/decoration painting.
+        // interfere with the card's own shadow/decoration painting.
         type: MaterialType.transparency,
-        child: NeumorphicCard(
-          color: _stripSurface,
-          padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-          child: Row(
-            children: <Widget>[
-              MasterAvatarBadge(
-                gradient: avatarGradient,
-                bordered: avatarBordered,
-              ),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    if (topLabel != null) ...<Widget>[
-                      Text(topLabel!, style: VelvetText.masterStripLabel),
-                      const SizedBox(height: 2),
-                    ],
-                    Text(
-                      name,
-                      style: VelvetText.masterStripName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (middleLine != null) ...<Widget>[
-                      SizedBox(height: middleGap),
-                      middleLine!,
-                    ],
-                  ],
+        // IMPELLER-GLES CORNER FIX: `extrudedCard` pairs a dark shadow with a
+        // near-white light shadow (`shadowLightStrong`, alpha FF) at a diagonal
+        // `Offset(-8,-8)`. Impeller's OpenGLES backend rasterizes that offset
+        // opaque rrect's untranslated corner as a crisp white SQUARE poking past
+        // the card's rounded corner onto the taupe `base`. The remedy is the
+        // codebase's own `borderedCard` recipe: a single NON-offset,
+        // semi-transparent dark shadow whose rrect footprint exactly matches the
+        // card (uniform soft halo, no protruding corner), paired with the
+        // hairline `BrandColors.faint` border that carries the "distinct shape"
+        // job — mirroring `NeumorphicCard`'s `showBorder` path. The border makes
+        // this decoration non-const (`borderedCard` is a `static final`).
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: _stripSurface,
+            borderRadius: _radius,
+            border: Border.all(color: BrandColors.faint, width: 1),
+            boxShadow: VelvetShadows.borderedCard,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+            child: Row(
+              children: <Widget>[
+                MasterAvatarBadge(
+                  gradient: avatarGradient,
+                  bordered: avatarBordered,
                 ),
-              ),
-              if (trailing != null) ...<Widget>[
-                const SizedBox(width: VelvetSpacing.sm),
-                trailing!,
+                const SizedBox(width: VelvetSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (topLabel != null) ...<Widget>[
+                        Text(topLabel!, style: VelvetText.masterStripLabel),
+                        const SizedBox(height: 2),
+                      ],
+                      Text(
+                        name,
+                        style: VelvetText.masterStripName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (middleLine != null) ...<Widget>[
+                        SizedBox(height: middleGap),
+                        middleLine!,
+                      ],
+                    ],
+                  ),
+                ),
+                if (trailing != null) ...<Widget>[
+                  const SizedBox(width: VelvetSpacing.sm),
+                  trailing!,
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

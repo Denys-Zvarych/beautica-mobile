@@ -153,8 +153,9 @@ void main() {
         await tester.pumpAndSettle();
 
         // Baseline sibling offset (a small constant is fine — the "хв" suffix
-        // always shows on the duration well while "грн" hides): the invariant we
-        // guard is that this offset does NOT CHANGE when the error appears.
+        // always shows on the duration well while the currency suffix hides):
+        // the invariant we guard is that this offset does NOT CHANGE when the
+        // error appears.
         final double beforeDelta =
             tester.getTopLeft(find.byKey(_kDurationWell)).dy -
             tester.getTopLeft(find.byKey(_kFixedWell)).dy;

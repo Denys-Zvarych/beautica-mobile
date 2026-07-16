@@ -55,7 +55,7 @@ SalonMasterSchedule _schedule() => const SalonMasterSchedule(
       id: 'svc-$_kMasterId',
       name: 'Манікюр',
       durationLabel: '1 год',
-      priceDisplay: '500 грн',
+      priceDisplay: '500 ₴',
       durationMinutes: 60,
       priceType: ServicePriceType.fixed,
       priceMin: 500,

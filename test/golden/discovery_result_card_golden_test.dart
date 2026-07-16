@@ -2,7 +2,7 @@
 //
 // Pins the pixel appearance of [MasterResultCard] and [SalonResultCard] with
 // realistic data — 72dp thumbnail, name, locality (city · district), ★ rating +
-// review count (master only — the salon DTO carries no rating), «від N грн» /
+// review count (master only — the salon DTO carries no rating), «від N ₴» /
 // price range, and the favourite heart. A regression that shifts the thumbnail,
 // drops the rating row, or restyles the price reads as a pixel diff here.
 //

@@ -2,7 +2,7 @@
 //
 // Layered on top of the dev's compile-and-mount smoke stub. Covers the four
 // AsyncValue states (skeleton / cards / empty / error), the documented contract
-// field-gaps (master ★rating + «від N грн» / «Без відгуків»; salon range /
+// field-gaps (master ★rating + «від N ₴» / «Без відгуків»; salon range /
 // collapse / hide + NO rating), chip-clear re-query, infinite-scroll loadMore
 // (bottom spinner, no double-fetch, last-page no-op), the optimistic favorite
 // heart (flip / idempotent toggle / revert + snackbar on repo error / per-heart
@@ -348,7 +348,7 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('card content', () {
-    testWidgets('master card shows ★rating, «(N відгуків)» and «від N грн»', (
+    testWidgets('master card shows ★rating, «(N відгуків)» and «від N ₴»', (
       tester,
     ) async {
       final repo = _MockSearchRepository();
@@ -377,7 +377,7 @@ void main() {
       expect(find.text('4.8'), findsOneWidget);
       expect(find.text(l10n.searchResultReviewCount(12)), findsOneWidget);
       // priceMax is null (== floor) → a single fixed price WITHOUT the «від»
-      // prefix (item 2 render rule), not «від 600 грн».
+      // prefix (item 2 render rule), not «від 600 ₴».
       expect(find.text(l10n.searchResultPriceExact(600)), findsOneWidget);
       expect(find.text(l10n.searchPriceFrom(600)), findsNothing);
       // Star icon present (the rating row renders it only when reviews exist).
@@ -456,7 +456,7 @@ void main() {
 
       final l10n = _l10n(tester);
       // Equal bounds ⇒ one fixed price with NO «від» prefix (item 2 render
-      // rule); never «від 500 грн» and never a degenerate 500–500 range.
+      // rule); never «від 500 ₴» and never a degenerate 500–500 range.
       expect(find.text(l10n.searchResultPriceExact(500)), findsOneWidget);
       expect(find.text(l10n.searchPriceFrom(500)), findsNothing);
       expect(find.text(l10n.searchResultPriceRange(500, 500)), findsNothing);
@@ -482,7 +482,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The price text style is shared; assert no «грн» bearing price text by
+      // The price text style is shared; assert no «₴» bearing price text by
       // confirming neither price variant rendered.
       final l10n = _l10n(tester);
       expect(find.text(l10n.searchPriceFrom(0)), findsNothing);

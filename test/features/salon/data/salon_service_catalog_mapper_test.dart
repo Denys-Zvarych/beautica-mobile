@@ -56,7 +56,7 @@ SalonServiceCatalogResponse _distinctDisplayNameDto() =>
                     ..name = 'Чистка обличчя'
                     ..category = 'HARDWARE_COSMETOLOGY'
                     ..baseDurationMinutes = 60
-                    ..priceDisplay = '800 грн',
+                    ..priceDisplay = '800 ₴',
                 ),
               ),
           ),
@@ -85,7 +85,7 @@ SalonServiceCatalogResponse _serviceTypeDto() => SalonServiceCatalogResponse(
                 ..serviceTypeSlug = 'nc-2d'
                 ..serviceTypeNameUk = '2д'
                 ..baseDurationMinutes = 120
-                ..priceDisplay = '850 грн',
+                ..priceDisplay = '850 ₴',
             ),
           ),
       ),
@@ -110,7 +110,7 @@ SalonServiceCatalogResponse _serviceTypeNullDto() =>
                     ..name = 'Нарощення 2д класика'
                     ..category = 'LASHES'
                     ..baseDurationMinutes = 120
-                    ..priceDisplay = '850 грн',
+                    ..priceDisplay = '850 ₴',
                 ),
               ),
           ),

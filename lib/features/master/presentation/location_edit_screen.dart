@@ -43,6 +43,8 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/validators/building_validator.dart';
+import 'package:beautica_mobile/shared/validators/street_validator.dart';
 
 import 'master_profile_notifier.dart';
 import 'widgets/section_scaffold.dart';
@@ -288,9 +290,14 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     }
   }
 
-  /// Returns true when the location section is valid. The required-address rule
-  /// only kicks in when the user is actively editing the address (the section is
-  /// dirty, or street/buildingNo non-empty).
+  /// Returns true when the location section is valid.
+  ///
+  /// Street and building number are UNCONDITIONALLY required (mirrors the
+  /// backend's `@NotBlank` contract on the provider location endpoints — the
+  /// Phase 10.6 reversal), as is the locality (city, plus district when the
+  /// city subdivides). Only [locationNote] is optional. The required-address
+  /// rule no longer hides behind an "editing the address" gate — a master can
+  /// never persist a locality with an empty street/building.
   bool _validateLocation() {
     final l10n = AppLocalizations.of(context);
 
@@ -312,38 +319,18 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     }
 
     final citySelected = _selectedCity != null;
-    final streetFilled = _street.text.trim().isNotEmpty;
-    final buildingFilled = _buildingNo.text.trim().isNotEmpty;
-
-    final locationDirty =
-        _selectedOblast?.id != _origOblastId ||
-        _selectedCity?.id != _origCityId ||
-        _selectedDistrict?.id != _origDistrictId ||
-        _street.text.trim() != _origStreet ||
-        _buildingNo.text.trim() != _origBuildingNo ||
-        _locationNote.text.trim() != _origLocationNote;
-
-    final editingAddress = streetFilled || buildingFilled || locationDirty;
-    if (!editingAddress) {
-      setState(() {
-        _errCity = null;
-        _errDistrict = null;
-        _errStreet = null;
-        _errBuildingNo = null;
-        _errLocationNote = null;
-      });
-      return true;
-    }
+    final cityHasDistricts = _selectedCity?.hasDistricts ?? false;
 
     final String? errCity = !citySelected ? l10n.errRequired : null;
-    final String? errStreet = !streetFilled ? l10n.errRequired : null;
-    final String? errBuildingNo = !buildingFilled ? l10n.errRequired : null;
-
-    final cityHasDistricts = _selectedCity?.hasDistricts ?? false;
     final String? errDistrict =
         (citySelected && cityHasDistricts && _selectedDistrict == null)
         ? l10n.errRequired
         : null;
+    // Reuse the shared provider validators — the same ones RegisterStep3Screen
+    // uses (registration is the canonical always-required behaviour). They emit
+    // errStreetRequired / errBuildingRequired (and the too-long variants).
+    final String? errStreet = validateStreet(_street.text, l10n);
+    final String? errBuildingNo = validateBuilding(_buildingNo.text, l10n);
 
     setState(() {
       _errCity = errCity;
@@ -352,12 +339,8 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       _errBuildingNo = errBuildingNo;
     });
 
-    final streetLen = _street.text.trim().length;
-    final buildingLen = _buildingNo.text.trim().length;
     final noteLen = _locationNote.text.trim().length;
-    if (streetLen > _streetMax ||
-        buildingLen > _buildingNoMax ||
-        noteLen > _locationNoteMax) {
+    if (noteLen > _locationNoteMax) {
       return false;
     }
 
@@ -392,11 +375,11 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
 
     final selectedCity = _selectedCity;
     if (selectedCity == null) {
-      // Nothing to persist (no city chosen, no address entered). Treat as a
-      // no-op save and land on the profile page (the edit nav stack is
-      // Profile → Settings hub → edit, so an explicit go avoids popping back
-      // to the hub instead of the profile).
-      context.go(RouteNames.masterProfile);
+      // Defensive: unreachable once _validateLocation() returns true, since the
+      // city is now unconditionally required (it sets _errCity and returns
+      // false when no city is chosen). We must NOT fall through to a "no-op
+      // save + navigate" here — that was the escape hatch that let an
+      // empty-street/building locality slip past. Stay on the form.
       return;
     }
 

@@ -49,6 +49,7 @@
 // keys off route constants + widget TYPES / Keys — never raw Ukrainian text — so
 // an l10n key move cannot mask a regression (mobile-qa M2).
 
+import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
@@ -109,7 +110,7 @@ class ClientBranchChrome {
 /// │ 0 │ Головна      │ /home     │ HomeHubScreen                  │  YES    │
 /// │ 1 │ Улюблені     │ /favorites│ ClientFavoritesPlaceholder…    │  YES*   │
 /// │ 2 │ Пошук        │ /search   │ ClientSearchScreen             │  YES    │
-/// │ 3 │ Записи       │ /bookings │ ClientBookingsPlaceholder…     │  YES*   │
+/// │ 3 │ Записи       │ /bookings │ MyBookingsScreen                │  YES*   │
 /// │ 4 │ BEAUTY PASS… │ /passport │ PassportScreen                 │  YES    │
 /// └───┴──────────────┴───────────┴────────────────────────────────┴─────────┘
 /// * The [ClientTopBar] is shell-owned (2026-06-24 hoist), so ALL five branches
@@ -149,9 +150,13 @@ final List<ClientBranchChrome> clientBranchChromeMatrix = <ClientBranchChrome>[
     branchIndex: kClientBookingsBranch, // 3
     branchName: 'Записи (bookings)',
     expectedRoute: RouteNames.clientBookings, // '/bookings'
-    expectedRootType: ClientBookingsPlaceholderScreen,
-    // Shell-owned ClientTopBar (see favorites note) — bookings now joins the
-    // wordmark-dy invariant too.
+    // Phase 14.3 — real MyBookingsScreen replaces the placeholder. It mounts
+    // NO screen-owned top bar (same convention as HomeHubScreen /
+    // PassportScreen — the shell owns the single ClientTopBar), so the
+    // wordmark-dy invariant is unaffected; the per-tab list settles to its
+    // own error state under the suite-wide no-network override, same as
+    // Home/Passport's data providers.
+    expectedRootType: MyBookingsScreen,
     hasTopBar: true,
   ),
   const ClientBranchChrome(

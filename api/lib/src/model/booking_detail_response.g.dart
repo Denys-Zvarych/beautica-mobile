@@ -7,9 +7,6 @@ part of 'booking_detail_response.dart';
 // **************************************************************************
 
 const BookingDetailResponseStatusEnum
-    _$bookingDetailResponseStatusEnum_PENDING =
-    const BookingDetailResponseStatusEnum._('PENDING');
-const BookingDetailResponseStatusEnum
     _$bookingDetailResponseStatusEnum_CONFIRMED =
     const BookingDetailResponseStatusEnum._('CONFIRMED');
 const BookingDetailResponseStatusEnum
@@ -28,8 +25,6 @@ const BookingDetailResponseStatusEnum
 BookingDetailResponseStatusEnum _$bookingDetailResponseStatusEnumValueOf(
     String name) {
   switch (name) {
-    case 'PENDING':
-      return _$bookingDetailResponseStatusEnum_PENDING;
     case 'CONFIRMED':
       return _$bookingDetailResponseStatusEnum_CONFIRMED;
     case 'DECLINED':
@@ -48,7 +43,6 @@ BookingDetailResponseStatusEnum _$bookingDetailResponseStatusEnumValueOf(
 final BuiltSet<BookingDetailResponseStatusEnum>
     _$bookingDetailResponseStatusEnumValues = BuiltSet<
         BookingDetailResponseStatusEnum>(const <BookingDetailResponseStatusEnum>[
-  _$bookingDetailResponseStatusEnum_PENDING,
   _$bookingDetailResponseStatusEnum_CONFIRMED,
   _$bookingDetailResponseStatusEnum_DECLINED,
   _$bookingDetailResponseStatusEnum_COMPLETED,
@@ -110,7 +104,6 @@ Serializer<BookingDetailResponseMasterTypeEnum>
 class _$BookingDetailResponseStatusEnumSerializer
     implements PrimitiveSerializer<BookingDetailResponseStatusEnum> {
   static const Map<String, Object> _toWire = const <String, Object>{
-    'PENDING': 'PENDING',
     'CONFIRMED': 'CONFIRMED',
     'DECLINED': 'DECLINED',
     'COMPLETED': 'COMPLETED',
@@ -118,7 +111,6 @@ class _$BookingDetailResponseStatusEnumSerializer
     'CANCELLED': 'CANCELLED',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
-    'PENDING': 'PENDING',
     'CONFIRMED': 'CONFIRMED',
     'DECLINED': 'DECLINED',
     'COMPLETED': 'COMPLETED',
@@ -215,9 +207,13 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   @override
   final String? masterLastName;
   @override
+  final String? masterProfessionalTitle;
+  @override
   final String? clientComment;
   @override
   final String? providerComment;
+  @override
+  final String? clientCancellationNote;
   @override
   final String? masterAvatarUrl;
   @override
@@ -232,6 +228,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? street;
   @override
   final String? buildingNo;
+  @override
+  final String? locationNote;
   @override
   final String? categoryName;
   @override
@@ -257,8 +255,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.clientLastName,
       this.masterFirstName,
       this.masterLastName,
+      this.masterProfessionalTitle,
       this.clientComment,
       this.providerComment,
+      this.clientCancellationNote,
       this.masterAvatarUrl,
       this.masterType,
       this.salonName,
@@ -266,6 +266,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.districtLabel,
       this.street,
       this.buildingNo,
+      this.locationNote,
       this.categoryName,
       this.canReview})
       : super._();
@@ -297,8 +298,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         clientLastName == other.clientLastName &&
         masterFirstName == other.masterFirstName &&
         masterLastName == other.masterLastName &&
+        masterProfessionalTitle == other.masterProfessionalTitle &&
         clientComment == other.clientComment &&
         providerComment == other.providerComment &&
+        clientCancellationNote == other.clientCancellationNote &&
         masterAvatarUrl == other.masterAvatarUrl &&
         masterType == other.masterType &&
         salonName == other.salonName &&
@@ -306,6 +309,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         districtLabel == other.districtLabel &&
         street == other.street &&
         buildingNo == other.buildingNo &&
+        locationNote == other.locationNote &&
         categoryName == other.categoryName &&
         canReview == other.canReview;
   }
@@ -328,8 +332,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, clientLastName.hashCode);
     _$hash = $jc(_$hash, masterFirstName.hashCode);
     _$hash = $jc(_$hash, masterLastName.hashCode);
+    _$hash = $jc(_$hash, masterProfessionalTitle.hashCode);
     _$hash = $jc(_$hash, clientComment.hashCode);
     _$hash = $jc(_$hash, providerComment.hashCode);
+    _$hash = $jc(_$hash, clientCancellationNote.hashCode);
     _$hash = $jc(_$hash, masterAvatarUrl.hashCode);
     _$hash = $jc(_$hash, masterType.hashCode);
     _$hash = $jc(_$hash, salonName.hashCode);
@@ -337,6 +343,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, districtLabel.hashCode);
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, canReview.hashCode);
     _$hash = $jf(_$hash);
@@ -361,8 +368,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('clientLastName', clientLastName)
           ..add('masterFirstName', masterFirstName)
           ..add('masterLastName', masterLastName)
+          ..add('masterProfessionalTitle', masterProfessionalTitle)
           ..add('clientComment', clientComment)
           ..add('providerComment', providerComment)
+          ..add('clientCancellationNote', clientCancellationNote)
           ..add('masterAvatarUrl', masterAvatarUrl)
           ..add('masterType', masterType)
           ..add('salonName', salonName)
@@ -370,6 +379,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('districtLabel', districtLabel)
           ..add('street', street)
           ..add('buildingNo', buildingNo)
+          ..add('locationNote', locationNote)
           ..add('categoryName', categoryName)
           ..add('canReview', canReview))
         .toString();
@@ -448,6 +458,11 @@ class BookingDetailResponseBuilder
   set masterLastName(String? masterLastName) =>
       _$this._masterLastName = masterLastName;
 
+  String? _masterProfessionalTitle;
+  String? get masterProfessionalTitle => _$this._masterProfessionalTitle;
+  set masterProfessionalTitle(String? masterProfessionalTitle) =>
+      _$this._masterProfessionalTitle = masterProfessionalTitle;
+
   String? _clientComment;
   String? get clientComment => _$this._clientComment;
   set clientComment(String? clientComment) =>
@@ -457,6 +472,11 @@ class BookingDetailResponseBuilder
   String? get providerComment => _$this._providerComment;
   set providerComment(String? providerComment) =>
       _$this._providerComment = providerComment;
+
+  String? _clientCancellationNote;
+  String? get clientCancellationNote => _$this._clientCancellationNote;
+  set clientCancellationNote(String? clientCancellationNote) =>
+      _$this._clientCancellationNote = clientCancellationNote;
 
   String? _masterAvatarUrl;
   String? get masterAvatarUrl => _$this._masterAvatarUrl;
@@ -489,6 +509,10 @@ class BookingDetailResponseBuilder
   String? get buildingNo => _$this._buildingNo;
   set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
 
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
+
   String? _categoryName;
   String? get categoryName => _$this._categoryName;
   set categoryName(String? categoryName) => _$this._categoryName = categoryName;
@@ -519,8 +543,10 @@ class BookingDetailResponseBuilder
       _clientLastName = $v.clientLastName;
       _masterFirstName = $v.masterFirstName;
       _masterLastName = $v.masterLastName;
+      _masterProfessionalTitle = $v.masterProfessionalTitle;
       _clientComment = $v.clientComment;
       _providerComment = $v.providerComment;
+      _clientCancellationNote = $v.clientCancellationNote;
       _masterAvatarUrl = $v.masterAvatarUrl;
       _masterType = $v.masterType;
       _salonName = $v.salonName;
@@ -528,6 +554,7 @@ class BookingDetailResponseBuilder
       _districtLabel = $v.districtLabel;
       _street = $v.street;
       _buildingNo = $v.buildingNo;
+      _locationNote = $v.locationNote;
       _categoryName = $v.categoryName;
       _canReview = $v.canReview;
       _$v = null;
@@ -566,8 +593,10 @@ class BookingDetailResponseBuilder
           clientLastName: clientLastName,
           masterFirstName: masterFirstName,
           masterLastName: masterLastName,
+          masterProfessionalTitle: masterProfessionalTitle,
           clientComment: clientComment,
           providerComment: providerComment,
+          clientCancellationNote: clientCancellationNote,
           masterAvatarUrl: masterAvatarUrl,
           masterType: masterType,
           salonName: salonName,
@@ -575,6 +604,7 @@ class BookingDetailResponseBuilder
           districtLabel: districtLabel,
           street: street,
           buildingNo: buildingNo,
+          locationNote: locationNote,
           categoryName: categoryName,
           canReview: canReview,
         );

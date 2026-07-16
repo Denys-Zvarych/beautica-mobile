@@ -50,8 +50,8 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
 
 /// One selected service carried into the booking recap. [price] is a
-/// *display* string and may be a single value ("500 грн") OR a hyphenated
-/// range ("200 - 600 грн"); [duration] is a display string ("1 год 30 хв",
+/// *display* string and may be a single value ("500 ₴") OR a hyphenated
+/// range ("200 - 600 ₴"); [duration] is a display string ("1 год 30 хв",
 /// "3 год") — both built by the call site via the shared formatters.
 @immutable
 class BookingSelection {
@@ -85,7 +85,7 @@ class BookingSelection {
   /// Service name, e.g. "Манікюр з покриттям".
   final String name;
 
-  /// Price display string — single ("500 грн") or ranged ("200 - 600 грн").
+  /// Price display string — single ("500 ₴") or ranged ("200 - 600 ₴").
   final String price;
 
   /// Duration display string, e.g. "1 год 30 хв" or "3 год".
@@ -120,11 +120,42 @@ class BookingRecap extends StatelessWidget {
     this.dense = false,
     this.compactText = false,
     this.totalOnly = false,
-  });
+    this.showPrice = true,
+  }) : _single = null;
+
+  /// Phase 14.3 — «Деталі запису» single-booking mode. **A booking has
+  /// exactly ONE service** (`Booking` carries a single `masterServiceId` /
+  /// `serviceName` / `priceAtBooking`) — the multi-row «Послуги» table + «N
+  /// послуг» count + dividers + «Разом» total below are the SELECTION
+  /// screen's shape (the salon flow lets a client pick several services in
+  /// one sitting, which becomes several *bookings*, not one booking with
+  /// several services). Mirroring that table here would be the app counting
+  /// to one.
+  ///
+  /// So this constructor renders ONLY: a singular [l10n.bookingServiceLabel]
+  /// heading (no count) above one [_ServiceRow] — no dividers, no total row.
+  /// [showPrice] lets the detail page suppress money on the statuses where it
+  /// is not a true statement (cancelled / declined / a no-show — see
+  /// `Booking.showsPrice`); the booking-FLOW screens always have a price and
+  /// leave it at the default `true`.
+  const BookingRecap.single({
+    super.key,
+    required BookingSelection selection,
+    this.dense = false,
+    this.compactText = false,
+    this.showPrice = true,
+  }) : _single = selection,
+       selections = const <BookingSelection>[],
+       totalOnly = false;
 
   /// The services carried from the selection step (1..n — see file header
-  /// MULTI-SERVICE SCOPE UPDATE for which flow/call site feeds >1).
+  /// MULTI-SERVICE SCOPE UPDATE for which flow/call site feeds >1). Ignored
+  /// when this was built via [BookingRecap.single].
   final List<BookingSelection> selections;
+
+  /// Set only by [BookingRecap.single] — the booking's one service. `null`
+  /// for the ordinary multi/list mode.
+  final BookingSelection? _single;
 
   /// Compact spacing — tighter service rows — so the success screen fits one
   /// viewport without scrolling. The confirmation screen leaves it `false`.
@@ -148,9 +179,40 @@ class BookingRecap extends StatelessWidget {
   /// full "Послуги" + "Разом" rendering, unaffected).
   final bool totalOnly;
 
+  /// Whether money is a true statement here at all — forwarded to
+  /// [_ServiceRow] (single mode) / the "Разом" total (list mode). The
+  /// booking-FLOW screens always have a price (you're mid-agreement to it)
+  /// and leave this at the default `true`; «Деталі запису» sets it `false`
+  /// on a cancelled / declined / missed booking (see `Booking.showsPrice`) —
+  /// printing a sum there would assert a debt that does not exist.
+  final bool showPrice;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+
+    final BookingSelection? single = _single;
+    if (single != null) {
+      // Phase 14.3 single-booking mode — see the constructor's doc.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            l10n.bookingServiceLabel,
+            style: compactText ? VelvetText.label11 : VelvetText.label(),
+          ),
+          const SizedBox(height: VelvetSpacing.xs),
+          _ServiceRow(
+            selection: single,
+            dense: dense,
+            compactText: compactText,
+            showPrice: showPrice,
+          ),
+        ],
+      );
+    }
+
     final _BookingTotals totals = _BookingTotals.from(selections);
     final Widget totalRow = _TotalRow(
       label: l10n.bookingTotalLabel,
@@ -216,6 +278,7 @@ class _ServiceRow extends StatelessWidget {
     required this.selection,
     this.dense = false,
     this.compactText = false,
+    this.showPrice = true,
   });
 
   final BookingSelection selection;
@@ -224,6 +287,11 @@ class _ServiceRow extends StatelessWidget {
   /// See [BookingRecap.compactText] — shrinks the name/duration/price text a
   /// further notch (success screen only).
   final bool compactText;
+
+  /// See [BookingRecap.showPrice]. `false` on «Деталі запису» for a
+  /// cancelled / declined / missed booking — the price is simply not built,
+  /// and the name column takes the full width (no reserved gap, no "—").
+  final bool showPrice;
 
   @override
   Widget build(BuildContext context) {
@@ -262,13 +330,15 @@ class _ServiceRow extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: VelvetSpacing.md),
-            Text(
-              selection.price,
-              style: compactText
-                  ? VelvetText.bookAccentBold135
-                  : VelvetText.bookAccentBold15,
-            ),
+            if (showPrice) ...<Widget>[
+              const SizedBox(width: VelvetSpacing.md),
+              Text(
+                selection.price,
+                style: compactText
+                    ? VelvetText.bookAccentBold135
+                    : VelvetText.bookAccentBold15,
+              ),
+            ],
           ],
         ),
       ),
@@ -361,8 +431,8 @@ class _BookingTotals {
       minutes += s.durationMinutes ?? parseDurationMinutes(s.duration);
     }
     final String priceLabel = minSum == maxSum
-        ? '$minSum грн'
-        : '$minSum–$maxSum грн';
+        ? '$minSum ₴'
+        : '$minSum–$maxSum ₴';
     return _BookingTotals(
       priceLabel: priceLabel,
       durationLabel: minutes > 0 ? _formatDuration(minutes) : null,
@@ -370,8 +440,8 @@ class _BookingTotals {
   }
 }
 
-/// Parses a price display string into a (low, high) pair. "500 грн" → (500,
-/// 500); a ranged "200 - 600 грн" / "200–600 грн" → (200, 600).
+/// Parses a price display string into a (low, high) pair. "500 ₴" → (500,
+/// 500); a ranged "200 - 600 ₴" / "200–600 ₴" → (200, 600).
 (int, int) _parsePrice(String price) {
   final List<int> nums = RegExp(
     r'\d+',

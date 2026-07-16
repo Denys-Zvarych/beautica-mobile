@@ -17,6 +17,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
@@ -360,6 +361,127 @@ void main() {
     expect(find.byKey(const Key('stub-profile')), findsOneWidget);
     expect(states.length, greaterThan(before));
   });
+
+  // ── REGRESSION GUARD: street + building UNCONDITIONALLY required ────────────
+  // Phase 10.6 reversal — _validateLocation() dropped the old `editingAddress`
+  // early-return that let an untouched empty address pass. Street + building
+  // now go through the shared validateStreet/validateBuilding validators on
+  // EVERY submit, mirroring the backend @NotBlank contract. These three tests
+  // pin that contract so a refactor cannot silently reintroduce the escape
+  // hatch. Error text is asserted via the resolved l10n key (no Cyrillic
+  // literal in any finder); repo invocation count proves the submit guard.
+
+  AppLocalizations l10nOf(WidgetTester tester) =>
+      AppLocalizations.of(tester.element(find.byType(LocationEditScreen)));
+
+  String? fieldError(WidgetTester tester, String key) =>
+      tester.widget<VelvetField>(find.byKey(Key(key))).errorText;
+
+  testWidgets(
+    'empty street + building blocks save even with a valid city selected '
+    '(updateLocality never called, both required errors surfaced)',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      // Dirty the form via the city callback (as the other tests do) so Save is
+      // enabled — but leave street + building EMPTY.
+      tester
+          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
+          .onCity(_stubCity);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-location')));
+      await tester.pumpAndSettle();
+
+      final l10n = l10nOf(tester);
+
+      // Still on the edit form; nothing persisted.
+      expect(find.byKey(const Key('field-street')), findsOneWidget);
+      expect(fieldError(tester, 'field-street'), l10n.errStreetRequired);
+      expect(fieldError(tester, 'field-buildingNo'), l10n.errBuildingRequired);
+
+      verifyNever(
+        () => repo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+      verifyNever(() => repo.updateMyProfile(any()));
+    },
+  );
+
+  testWidgets(
+    'city + valid street + building proceeds — updateLocality called once and '
+    'navigates to the profile',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      tester
+          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
+          .onCity(_stubCity);
+      await tester.pump();
+      await tester.enterText(_field('field-street'), 'вул. Шевченка');
+      await tester.pump();
+      await tester.enterText(_field('field-buildingNo'), '12А');
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-location')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.updateLocality(
+          cityId: 'city-99',
+          districtId: null,
+          street: 'вул. Шевченка',
+          buildingNo: '12А',
+          locationNote: any(named: 'locationNote'),
+        ),
+      ).called(1);
+      expect(find.byKey(const Key('stub-profile')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'empty locationNote is still optional — save succeeds with note == null '
+    'when city + street + building are valid',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      tester
+          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
+          .onCity(_stubCity);
+      await tester.pump();
+      await tester.enterText(_field('field-street'), 'вул. Шевченка');
+      await tester.pump();
+      await tester.enterText(_field('field-buildingNo'), '1');
+      await tester.pump();
+      // locationNote intentionally left EMPTY.
+
+      await tester.tap(find.byKey(const Key('btn-save-location')));
+      await tester.pumpAndSettle();
+
+      // An empty note must not block save, and must be passed as null.
+      verify(
+        () => repo.updateLocality(
+          cityId: 'city-99',
+          districtId: null,
+          street: 'вул. Шевченка',
+          buildingNo: '1',
+          locationNote: null,
+        ),
+      ).called(1);
+      expect(find.byKey(const Key('stub-profile')), findsOneWidget);
+    },
+  );
 }
 
 class _InvalidationWatcher extends ConsumerWidget {

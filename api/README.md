@@ -80,7 +80,6 @@ Class | Method | HTTP request | Description
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyPasswordResetOtp**](doc/AuthControllerApi.md#verifypasswordresetotp) | **POST** /api/v1/auth/verify-password-reset-otp | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**cancelBooking**](doc/BookingControllerApi.md#cancelbooking) | **PATCH** /api/v1/bookings/{bookingId}/cancel | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**completeBooking**](doc/BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**confirmBooking**](doc/BookingControllerApi.md#confirmbooking) | **PATCH** /api/v1/bookings/{bookingId}/confirm | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**declineBooking**](doc/BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getBooking**](doc/BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 

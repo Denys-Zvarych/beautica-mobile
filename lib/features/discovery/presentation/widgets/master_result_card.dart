@@ -1,7 +1,7 @@
 // Phase 13.4 — Master result card.
 //
 // A neumorphic raised card for one [MasterSearchItem]: 72dp photo thumbnail,
-// name, locality (city · district), ★ rating + «(N відгуків)», «від N грн», and
+// name, locality (city · district), ★ rating + «(N відгуків)», «від N ₴», and
 // a favourite heart. Tapping the card opens the public master profile (13.5)
 // via go_router (never Navigator).
 //
@@ -172,8 +172,8 @@ class MasterResultCard extends ConsumerWidget {
   /// master's [MasterSearchItem.minEffectivePrice] as the floor and
   /// [MasterSearchItem.priceMax] as the ceiling:
   ///   floor null            → null (no priced services → hide the line)
-  ///   max null / == floor    → exact fixed price «N грн» (NO «від»)
-  ///   floor < max           → «N–M грн» range
+  ///   max null / == floor    → exact fixed price «N ₴» (NO «від»)
+  ///   floor < max           → «N–M ₴» range
   static String? _priceLabel(
     AppLocalizations l10n,
     double? floor,

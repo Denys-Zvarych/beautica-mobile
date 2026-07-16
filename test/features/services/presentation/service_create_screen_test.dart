@@ -83,7 +83,7 @@ const _stubService = MasterService(
   name: 'Тест',
   durationMinutes: 30,
   priceMin: 100,
-  priceDisplay: '100 грн',
+  priceDisplay: '100 ₴',
 );
 
 /// Resolves the [AppLocalizations] from the pumped widget tree.

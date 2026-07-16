@@ -868,25 +868,16 @@ class _ProfileCategoriesSectionState
     final servicesAsync = ref.watch(servicesListProvider);
     final categoriesAsync = ref.watch(approvedCategoriesProvider);
 
-    // Section header (label + "all services" link). Built on demand so it can
-    // be omitted entirely in the zero-services empty state, where the single
+    // Section header — a single right-aligned "all services" link. The
+    // "Послуги" section title was removed per product decision; the link now
+    // sits flush to the right margin. Built on demand so it can be omitted
+    // entirely in the zero-services empty state, where the single
     // "Додати послуги" CTA is the only call to action.
     Widget buildHeader() => Padding(
       padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
         children: <Widget>[
-          // Flexible so the section label ellipsizes instead of overflowing
-          // the header Row at 320 dp / textScale 1.3 (was a 12 px right
-          // overflow when both labels rendered at their natural width).
-          Flexible(
-            child: Text(
-              l10n.masterProfileCategoriesLabel,
-              style: VelvetText.sectionLabel(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const Spacer(),
           GestureDetector(
             onTap: () => context.push(RouteNames.services),
             child: Row(

@@ -31,7 +31,7 @@ Widget _wrap(Widget child) => MaterialApp(
 const PassportCard _populatedCard = PassportCard(
   procedures: <String>['Манікюр', 'Брови', 'Педикюр'],
   districts: <String>['Центр', 'Сихів', 'Франківський'],
-  budgetValue: 'до 800 грн',
+  budgetValue: 'до 800 ₴',
   reviewsLeft: 5,
   memberSince: '2024',
 );
@@ -108,7 +108,7 @@ void main() {
       await tester.pumpWidget(_wrap(_populatedCard));
       await tester.pumpAndSettle();
 
-      expect(find.text('до 800 грн'), findsOneWidget);
+      expect(find.text('до 800 ₴'), findsOneWidget);
     });
   });
 

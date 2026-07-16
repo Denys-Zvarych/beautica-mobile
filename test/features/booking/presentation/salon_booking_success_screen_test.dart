@@ -63,7 +63,7 @@ SalonBookingAppointment _appt(String masterId, String firstName) =>
             id: 'svc-$masterId',
             name: 'Манікюр',
             durationLabel: '1 год',
-            priceDisplay: '500 грн',
+            priceDisplay: '500 ₴',
             durationMinutes: 60,
             priceType: ServicePriceType.fixed,
             priceMin: 500,
@@ -114,7 +114,7 @@ SalonBookingAppointment _ratedAppt(
         id: 'svc-$masterId',
         name: 'Манікюр',
         durationLabel: '1 год',
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
         durationMinutes: 60,
         priceType: ServicePriceType.fixed,
         priceMin: 500,
@@ -361,6 +361,158 @@ void main() {
     });
   });
 
+  // ===========================================================================
+  // FEATURE A — the «Салон» identity row (l10n key `bookingSalonLabel`) renders
+  // the resolved salon.name ABOVE the address, INSIDE the shared address card
+  // on the confirmed recap; suppressed (address-only, no crash) while the
+  // secondary salon read is loading / absent.
+  // ===========================================================================
+  group('salon name row (Feature A)', () {
+    testWidgets(
+      'renders the «Салон» label + resolved salon.name INSIDE the address '
+      'card, positioned ABOVE the address, once the profile resolves',
+      (tester) async {
+        await _pumpTall(tester);
+        await _pump(tester);
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonBookingSuccessScreen)),
+        );
+        final Finder addressCard = find.byKey(
+          const Key('salon-success-address-card'),
+        );
+        final Finder salonNameRow = find.byKey(
+          const Key('salon-success-salon-name'),
+        );
+
+        expect(
+          find.descendant(of: addressCard, matching: salonNameRow),
+          findsOneWidget,
+          reason: 'the «Салон» row must render inside the address card',
+        );
+        expect(
+          find.descendant(
+            of: salonNameRow,
+            matching: find.text(l10n.bookingSalonLabel),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: salonNameRow,
+            // i18n-finder-ok: salon name is fixture data (_kSalon), not translated UI copy.
+            matching: find.text('Салон «Вельвет»'),
+          ),
+          findsOneWidget,
+          reason: 'the row must bind salon.name, not a placeholder',
+        );
+
+        final double salonNameTop = tester.getTopLeft(salonNameRow).dy;
+        final double addressLabelTop = tester
+            .getTopLeft(
+              find.descendant(
+                of: addressCard,
+                matching: find.text(l10n.bookingAddressLabel),
+              ),
+            )
+            .dy;
+        expect(
+          salonNameTop,
+          lessThan(addressLabelTop),
+          reason: 'the «Салон» row must sit ABOVE the address inside the card',
+        );
+      },
+    );
+
+    testWidgets(
+      'is SUPPRESSED while the salon profile is still loading, and the recap '
+      'renders address-only (fallback) with the confirmed appointment cards — '
+      'no crash',
+      (tester) async {
+        await _pumpTall(tester);
+        final GoRouter router = _router();
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            // Never resolves -> the family instance stays in AsyncLoading.
+            publicSalonProfileProvider(
+              _kSalonId,
+            ).overrideWith((ref) => Completer<PublicSalonProfileData>().future),
+          ],
+        );
+        router.go(RouteNames.salonBookingSuccess, extra: _args());
+        await tester.pump();
+        await tester.pump();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonBookingSuccessScreen)),
+        );
+
+        expect(
+          find.byKey(const Key('salon-success-salon-name')),
+          findsNothing,
+          reason:
+              'while the secondary salon read is loading the «Салон» row must '
+              'be suppressed rather than showing an empty/placeholder value',
+        );
+        final Finder addressCard = find.byKey(
+          const Key('salon-success-address-card'),
+        );
+        expect(addressCard, findsOneWidget);
+        expect(
+          find.descendant(
+            of: addressCard,
+            matching: find.text(l10n.bookingAddressUnknown),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('salon-success-appt-m1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('salon-success-appt-m2')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'is SUPPRESSED when the salon profile ERRORS — recap still renders '
+      'address-only with the confirmed appointment cards (no crash)',
+      (tester) async {
+        await _pumpTall(tester);
+        final GoRouter router = _router();
+
+        await tester.pumpRoutedApp(
+          router,
+          retry: (_, _) => null,
+          overrides: <Object>[
+            publicSalonProfileProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => throw Exception('boom')),
+          ],
+        );
+        router.go(RouteNames.salonBookingSuccess, extra: _args());
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-success-salon-name')),
+          findsNothing,
+          reason:
+              'a failed salon read must suppress the «Салон» row, not crash',
+        );
+        expect(
+          find.byKey(const ValueKey<String>('salon-success-appt-m1')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
   group('grand-total card', () {
     testWidgets(
       'renders with the correct summed price/duration across BOTH masters '
@@ -374,11 +526,11 @@ void main() {
         );
         expect(grandTotal, findsOneWidget);
 
-        // Both m1 + m2 (`_appt`) carry ONE 500 грн / 60 min service each ->
-        // summed total is 1000 грн / 2 год.
+        // Both m1 + m2 (`_appt`) carry ONE 500 ₴ / 60 min service each ->
+        // summed total is 1000 ₴ / 2 год.
         expect(
           // i18n-finder-ok: summed price is fixture-derived data, not translated UI copy.
-          find.descendant(of: grandTotal, matching: find.text('1000 грн')),
+          find.descendant(of: grandTotal, matching: find.text('1000 ₴')),
           findsOneWidget,
         );
         expect(
@@ -465,7 +617,7 @@ void main() {
     );
 
     // Per-master service name + price, each with a matching subtotal — one
-    // service each, so its own price ("500 грн") renders TWICE inside the
+    // service each, so its own price ("500 ₴") renders TWICE inside the
     // card: once on the service row, once on the "Разом" subtotal.
     expect(
       // i18n-finder-ok: service name is fixture data (_ratedAppt), not translated UI copy.
@@ -474,7 +626,7 @@ void main() {
     );
     expect(
       // i18n-finder-ok: price is fixture-derived data, not translated UI copy.
-      find.descendant(of: m1Card, matching: find.text('500 грн')),
+      find.descendant(of: m1Card, matching: find.text('500 ₴')),
       findsNWidgets(2),
     );
     expect(
@@ -484,7 +636,7 @@ void main() {
     );
     expect(
       // i18n-finder-ok: price is fixture-derived data, not translated UI copy.
-      find.descendant(of: m2Card, matching: find.text('500 грн')),
+      find.descendant(of: m2Card, matching: find.text('500 ₴')),
       findsNWidgets(2),
     );
   });

@@ -71,6 +71,20 @@ void main() {
     'lib/features/booking/presentation/widgets/master_avatar_badge.dart',
   ];
 
+  // The SECOND Impeller-GLES artifact, same backend, different trigger: a
+  // shadow-only rounded `BoxDecoration` (a non-null `boxShadow` but NO top-level
+  // `color:` fill) rasterizes its pale blurred shadow (VelvetShadows'
+  // near-white light pair) as an OPAQUE SQUARE in the corners. A `ClipRRect`
+  // around the child can't clip the PARENT's shadow, so the earlier
+  // "shadow box -> ClipRRect -> fill" split never worked. The fix collapses
+  // each surface back to ONE `BoxDecoration` that carries `color` AND
+  // `boxShadow` together (the NeumorphicCard idiom). These two surfaces were
+  // the offenders; guard them so a future edit can't re-split them.
+  const List<String> shadowFillFiles = <String>[
+    'lib/features/booking/presentation/widgets/calendar_button.dart',
+    'lib/features/booking/presentation/widgets/master_strip_shell.dart',
+  ];
+
   group('Impeller-GLES circle+shadow guard', () {
     test('salon-booking avatars never combine BoxShape.circle with a boxShadow', () {
       final List<String> offenders = <String>[];
@@ -101,6 +115,72 @@ void main() {
             '`borderRadius: BorderRadius.circular(<half the side length>)`. '
             'Offending file(s): ${offenders.toSet().join(', ')}.',
       );
+    });
+
+    test(
+      'shadowed booking surfaces carry a fill color on the SAME BoxDecoration',
+      () {
+        final List<String> offenders = <String>[];
+        for (final String path in shadowFillFiles) {
+          final File file = File(path);
+          expect(
+            file.existsSync(),
+            isTrue,
+            reason:
+                'Guarded source "$path" not found (relative to beautica-mobile/). '
+                'If the file moved, update this guard\'s `shadowFillFiles` list.',
+          );
+          final String code = _stripCommentsAndStrings(file.readAsStringSync());
+          for (final String args in _boxDecorationArgs(code)) {
+            if (_hasNonNullBoxShadow(args) && !_hasTopLevelColor(args)) {
+              offenders.add(path);
+            }
+          }
+        }
+        expect(
+          offenders,
+          isEmpty,
+          reason:
+              'A BoxDecoration in these booking surfaces declares a non-null '
+              '`boxShadow` but no top-level `color:` fill — the shadow-only '
+              'pattern Impeller-GLES rasterizes as opaque near-white corner '
+              'squares. Put the `color:` on the SAME BoxDecoration as the '
+              '`boxShadow` (do NOT split the shadow onto an outer box behind a '
+              'ClipRRect — a ClipRRect cannot clip the parent shadow). '
+              'Offending file(s): ${offenders.toSet().join(', ')}.',
+        );
+      },
+    );
+
+    test('each shadow-fill surface actually declares a shadowed BoxDecoration '
+        '(the fill-color guard is never vacuous)', () {
+      // The "carries a fill color" test above only proves an ABSENCE (no
+      // shadow-only decoration). If a future refactor moved the shadowed card
+      // out of these files entirely, that test would pass with nothing left to
+      // guard — silent rot. This positive assertion forces the shadowFillFiles
+      // list to stay pointed at a real shadowed surface.
+      for (final String path in shadowFillFiles) {
+        final File file = File(path);
+        expect(
+          file.existsSync(),
+          isTrue,
+          reason: 'Guarded source "$path" not found.',
+        );
+        final String code = _stripCommentsAndStrings(file.readAsStringSync());
+        final bool hasShadowed = _boxDecorationArgs(
+          code,
+        ).any(_hasNonNullBoxShadow);
+        expect(
+          hasShadowed,
+          isTrue,
+          reason:
+              '"$path" no longer declares any shadow-bearing BoxDecoration, so '
+              'the "carries a fill color on the SAME BoxDecoration" guard now '
+              'passes vacuously. If the shadowed surface moved, repoint '
+              '`shadowFillFiles` at its new home; if the shadow was removed on '
+              'purpose, drop this file from the list.',
+        );
+      }
     });
 
     // --- Meta-tests: prove the detector actually detects. ------------------
@@ -162,6 +242,69 @@ void main() {
       expect(_hasNonNullBoxShadow(args), isFalse);
     });
 
+    test('color detector flags a shadow-only decoration (no fill)', () {
+      const String bad = '''
+        BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: VelvetShadows.extrudedCard,
+        )
+      ''';
+      final String args = _boxDecorationArgs(
+        _stripCommentsAndStrings(bad),
+      ).single;
+      expect(_hasNonNullBoxShadow(args), isTrue);
+      expect(_hasTopLevelColor(args), isFalse);
+    });
+
+    test('color detector accepts a decoration with fill + shadow together', () {
+      const String ok = '''
+        BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: cond ? null : VelvetShadows.extrudedButton,
+        )
+      ''';
+      final String args = _boxDecorationArgs(
+        _stripCommentsAndStrings(ok),
+      ).single;
+      expect(_hasNonNullBoxShadow(args), isTrue);
+      expect(_hasTopLevelColor(args), isTrue);
+    });
+
+    test('color detector treats an explicit `color: null` as no fill', () {
+      // Symmetric with the `boxShadow: null` case: a decoration that sets
+      // `color: null` while carrying a real boxShadow renders the shadow-only
+      // square at runtime, so it MUST still be flagged as an offender.
+      const String bad = '''
+        BoxDecoration(
+          color: null,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: VelvetShadows.extrudedCard,
+        )
+      ''';
+      final String args = _boxDecorationArgs(
+        _stripCommentsAndStrings(bad),
+      ).single;
+      expect(_hasNonNullBoxShadow(args), isTrue);
+      expect(_hasTopLevelColor(args), isFalse);
+    });
+
+    test('color detector ignores a nested Border.all(color:) as a fill', () {
+      // A `border: Border.all(color: X)` must NOT count as the surface fill —
+      // the fill `color:` lives at the top level of the BoxDecoration args.
+      const String borderOnly = '''
+        BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: BrandColors.accent),
+          boxShadow: VelvetShadows.extrudedButton,
+        )
+      ''';
+      final String args = _boxDecorationArgs(
+        _stripCommentsAndStrings(borderOnly),
+      ).single;
+      expect(_hasTopLevelColor(args), isFalse);
+    });
+
     test('comment/string stripping keeps parentheses balanced', () {
       // The fixed files contain comments that mention "BoxShape.circle" and
       // parentheses, e.g. "(a blurred BoxShadow on BoxShape.circle ...)". The
@@ -179,6 +322,169 @@ void main() {
       expect(args, hasLength(1));
       // The only real `shape: BoxShape.circle` lived in comments → not matched.
       expect(_hasCircleShape(args.single), isFalse);
+    });
+  });
+
+  // ===========================================================================
+  // Chain B regression — the OFFSET opaque-near-white shadow RECIPE class.
+  //
+  // WHY THE PRE-EXISTING "carries a fill color" GUARD IS NECESSARY-BUT-NOT-
+  // SUFFICIENT FOR THIS BUG
+  // ------------------------------------------------------------------------
+  // The white-corner-square bug SHIPPED while the "shadowed booking surfaces
+  // carry a fill color on the SAME BoxDecoration" test above was GREEN. Both
+  // `master_strip_shell.dart` and `calendar_button.dart` already declared a
+  // top-level `color:` fill on their shadowed BoxDecoration — so the
+  // color-presence check passed — yet each still rendered an opaque near-white
+  // square in its corners. The offender was NOT a missing fill: it was the
+  // SHADOW RECIPE the surfaces consumed. `VelvetShadows.extrudedCard` /
+  // `extrudedButton` pair a `shadowLightStrong` BoxShadow (0xFFFFFBF4 — alpha
+  // 0xFF, near-white) with a DIAGONAL `Offset(-8,-8)` / `Offset(-6,-6)`. Under
+  // Impeller's OpenGLES backend that offset opaque rrect's untranslated corner
+  // rasterizes as a crisp white square poking past the rounded corner onto the
+  // taupe `base`. The fix swapped both surfaces onto the NON-offset
+  // `borderedCard` / `borderedButton` recipes.
+  //
+  // The NECESSARY-AND-SUFFICIENT invariant for THIS artifact class: these two
+  // widgets must not consume ANY shadow recipe that pairs an opaque near-white
+  // color with a non-zero `Offset`. The check below classifies every
+  // `VelvetShadows` recipe from source and forbids the two widgets from
+  // referencing an unsafe one (while proving each still consumes a real, safe
+  // one so the guard is never vacuous).
+  //
+  // WHY SOURCE-STRUCTURAL, NOT A GOLDEN: exactly as with the circle+shadow
+  // guard above, the artifact is Impeller-GLES-only. A Skia/golden render draws
+  // the offset opaque shadow CORRECTLY, so a render/golden test cannot
+  // reproduce or catch it. Reading raw source is the only reliable guard.
+  // ===========================================================================
+  group('Impeller-GLES offset-opaque-light-shadow recipe guard', () {
+    const String tokensFile = 'lib/core/theme/velvet_geometry.dart';
+    // The two rounded booking surfaces the fix moved off the offset recipes.
+    const List<String> surfaceFiles = <String>[
+      'lib/features/booking/presentation/widgets/master_strip_shell.dart',
+      'lib/features/booking/presentation/widgets/calendar_button.dart',
+    ];
+
+    Map<String, String> recipes() => _shadowRecipes(_readStripped(tokensFile));
+    Set<String> unsafeRecipes() => <String>{
+      for (final MapEntry<String, String> e in recipes().entries)
+        if (_recipeIsUnsafe(e.value)) e.key,
+    };
+
+    test('the offset near-white recipes are classified UNSAFE and the '
+        'non-offset bordered recipes SAFE (classifier sanity)', () {
+      final Map<String, String> all = recipes();
+      final Set<String> unsafe = unsafeRecipes();
+
+      // The known offenders — an offset `shadowLightStrong` pair — must be
+      // flagged; the two non-offset repair recipes must NOT be.
+      expect(all.keys, containsAll(<String>['extrudedCard', 'extrudedButton']));
+      expect(all.keys, containsAll(<String>['borderedCard', 'borderedButton']));
+      expect(
+        unsafe,
+        containsAll(<String>['extrudedCard', 'extrudedButton']),
+        reason:
+            'the extruded* recipes pair a near-white opaque shadow with a '
+            'diagonal Offset — the exact white-corner-square trigger',
+      );
+      expect(unsafe.contains('borderedCard'), isFalse);
+      expect(unsafe.contains('borderedButton'), isFalse);
+    });
+
+    test('the two rounded booking surfaces consume ONLY non-offset (safe) '
+        'shadow recipes — never an extruded offset-opaque-light recipe', () {
+      final Set<String> unsafe = unsafeRecipes();
+      final Set<String> safe = recipes().keys.toSet().difference(unsafe);
+      final List<String> offenders = <String>[];
+
+      for (final String path in surfaceFiles) {
+        final Set<String> refs = _referencedRecipes(_readStripped(path));
+        final Set<String> refdUnsafe = refs.intersection(unsafe);
+        if (refdUnsafe.isNotEmpty) {
+          offenders.add('$path → ${refdUnsafe.join(', ')}');
+        }
+        // Not vacuous: the surface must still consume a real, safe recipe. If a
+        // refactor dropped the shadow entirely, repoint/trim this list on
+        // purpose rather than let the guard pass with nothing to protect.
+        expect(
+          refs.intersection(safe),
+          isNotEmpty,
+          reason:
+              '"$path" no longer references any known-safe VelvetShadows '
+              'recipe — the offset-opaque-light-shadow guard would pass '
+              'vacuously. If the shadowed surface moved, repoint '
+              '`surfaceFiles`; if the shadow was removed on purpose, drop the '
+              'file from the list.',
+        );
+      }
+
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'A rounded booking surface consumes a VelvetShadows recipe that '
+            'pairs an opaque near-white color (`shadowLightStrong`) with a '
+            'non-zero Offset — the pattern Impeller-GLES rasterizes as an '
+            'opaque white corner square. Use the NON-offset `borderedCard` / '
+            '`borderedButton` recipe instead (a single, non-translated soft '
+            'shadow whose rrect footprint matches the surface, paired with a '
+            'hairline border). NOTE: a top-level `color:` fill is NOT enough — '
+            'the shipped bug HAD a fill; the offset opaque shadow is the '
+            'offender. Offending surface(s): ${offenders.join(' | ')}.',
+      );
+    });
+
+    // --- Meta-tests: prove the recipe classifier actually classifies. ------
+    test('classifier flags an offset shadowLightStrong recipe', () {
+      const String bad = '''
+        <BoxShadow>[
+          BoxShadow(color: BrandColors.shadowDarkCard, offset: Offset(8, 8), blurRadius: 18),
+          BoxShadow(color: BrandColors.shadowLightStrong, offset: Offset(-8, -8), blurRadius: 18),
+        ]
+      ''';
+      expect(_recipeIsUnsafe(_stripCommentsAndStrings(bad)), isTrue);
+    });
+
+    test(
+      'classifier flags a raw alpha-FF near-white hex at a non-zero offset',
+      () {
+        const String bad = '''
+        <BoxShadow>[
+          BoxShadow(color: Color(0xFFFFFBF4), offset: Offset(-6, -6), blurRadius: 14),
+        ]
+      ''';
+        expect(_recipeIsUnsafe(_stripCommentsAndStrings(bad)), isTrue);
+      },
+    );
+
+    test('classifier treats a non-offset single dark shadow as SAFE', () {
+      const String ok = '''
+        <BoxShadow>[
+          BoxShadow(color: BrandColors.shadowDarkButton.withValues(alpha: 0.45), blurRadius: 8),
+        ]
+      ''';
+      expect(_recipeIsUnsafe(_stripCommentsAndStrings(ok)), isFalse);
+    });
+
+    test('classifier treats a near-white shadow at Offset.zero / no offset as '
+        'SAFE (only the OFFSET pairing is the artifact)', () {
+      const String ok = '''
+        <BoxShadow>[
+          BoxShadow(color: BrandColors.shadowLightStrong, offset: Offset(0, 0), blurRadius: 12),
+          BoxShadow(color: BrandColors.shadowLightStrong, blurRadius: 12),
+        ]
+      ''';
+      expect(_recipeIsUnsafe(_stripCommentsAndStrings(ok)), isFalse);
+    });
+
+    test('classifier does NOT flag the opaque taupe dark shadow at an offset '
+        '(shadowDarkCard is not near-white)', () {
+      const String ok = '''
+        <BoxShadow>[
+          BoxShadow(color: BrandColors.shadowDarkCard, offset: Offset(8, 8), blurRadius: 18),
+        ]
+      ''';
+      expect(_recipeIsUnsafe(_stripCommentsAndStrings(ok)), isFalse);
     });
   });
 }
@@ -283,4 +589,160 @@ bool _hasNonNullBoxShadow(String args) {
   final String rest = args.substring(m.end).trimLeft();
   if (rest.startsWith('null')) return false;
   return true;
+}
+
+/// Removes the contents of every nested parenthesised group, leaving only the
+/// BoxDecoration's TOP-LEVEL argument tokens. Needed so a nested
+/// `Border.all(color: …)` / `LinearGradient(colors: …)` is not mistaken for the
+/// surface's own `color:` fill.
+String _stripNestedParens(String s) {
+  final StringBuffer buf = StringBuffer();
+  int depth = 0;
+  for (int i = 0; i < s.length; i++) {
+    final String c = s[i];
+    if (c == '(') {
+      depth++;
+      continue;
+    }
+    if (c == ')') {
+      if (depth > 0) depth--;
+      continue;
+    }
+    if (depth == 0) buf.write(c);
+  }
+  return buf.toString();
+}
+
+/// True when the BoxDecoration declares a NON-NULL top-level `color:` fill
+/// (ignoring any `color:` that lives inside a nested `Border.all(...)` /
+/// gradient call). An explicit `color: null` is treated as NO fill — symmetric
+/// with [_hasNonNullBoxShadow] — so `color: null` + a real `boxShadow` is still
+/// flagged as the shadow-only pattern it renders as at runtime.
+bool _hasTopLevelColor(String args) {
+  final String top = _stripNestedParens(args);
+  final RegExpMatch? m = RegExp(r'\bcolor\s*:\s*').firstMatch(top);
+  if (m == null) return false;
+  final String rest = top.substring(m.end).trimLeft();
+  if (rest.startsWith('null')) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Chain-B detection helpers — offset-opaque-near-white SHADOW RECIPES.
+// ---------------------------------------------------------------------------
+
+/// Reads a source file (relative to beautica-mobile/) and strips comments +
+/// string literals, matching the convention of the guards above.
+String _readStripped(String path) {
+  final File file = File(path);
+  expect(
+    file.existsSync(),
+    isTrue,
+    reason:
+        'Guarded source "$path" not found (relative to beautica-mobile/). '
+        'If the file moved, update the Chain-B guard\'s file list.',
+  );
+  return _stripCommentsAndStrings(file.readAsStringSync());
+}
+
+/// Balanced-paren argument substring of every `<ctorName>(...)` call in [code]
+/// (comments/strings already stripped) — the generic form of
+/// [_boxDecorationArgs], used here for `BoxShadow(...)`.
+List<String> _ctorArgs(String code, String ctorName) {
+  final List<String> out = <String>[];
+  final RegExp ctor = RegExp(
+    '$ctorName'
+    r'\s*\(',
+  );
+  for (final RegExpMatch m in ctor.allMatches(code)) {
+    int depth = 1;
+    int j = m.end;
+    final int start = j;
+    while (j < code.length && depth > 0) {
+      final String ch = code[j];
+      if (ch == '(') {
+        depth++;
+      } else if (ch == ')') {
+        depth--;
+      }
+      j++;
+    }
+    out.add(code.substring(start, j - 1));
+  }
+  return out;
+}
+
+/// Maps every `List<BoxShadow> <name> = <BoxShadow>[ ... ]` recipe declared in
+/// [code] to its balanced `[ ... ]` list-literal body.
+Map<String, String> _shadowRecipes(String code) {
+  final Map<String, String> out = <String, String>{};
+  final RegExp decl = RegExp(r'List<BoxShadow>\s+(\w+)\s*=');
+  for (final RegExpMatch m in decl.allMatches(code)) {
+    final int lb = code.indexOf('[', m.end);
+    if (lb < 0) continue;
+    int depth = 1;
+    int j = lb + 1;
+    while (j < code.length && depth > 0) {
+      final String ch = code[j];
+      if (ch == '[') {
+        depth++;
+      } else if (ch == ']') {
+        depth--;
+      }
+      j++;
+    }
+    out[m.group(1)!] = code.substring(lb + 1, j - 1);
+  }
+  return out;
+}
+
+/// The set of `VelvetShadows.<name>` recipe names referenced in [code].
+Set<String> _referencedRecipes(String code) => RegExp(
+  r'VelvetShadows\.(\w+)',
+).allMatches(code).map((RegExpMatch m) => m.group(1)!).toSet();
+
+/// True when [shadow] (one BoxShadow's args) declares an opaque near-white
+/// color — either the named `shadowLightStrong` token or a raw alpha-`0xFF`
+/// hex whose R, G and B are all ≥ 0xF0.
+bool _opaqueNearWhite(String shadow) {
+  if (RegExp(r'shadowLightStrong').hasMatch(shadow)) return true;
+  for (final RegExpMatch m in RegExp(
+    r'0x(FF)([0-9A-Fa-f]{6})',
+  ).allMatches(shadow)) {
+    final String rgb = m.group(2)!;
+    final int r = int.parse(rgb.substring(0, 2), radix: 16);
+    final int g = int.parse(rgb.substring(2, 4), radix: 16);
+    final int b = int.parse(rgb.substring(4, 6), radix: 16);
+    if (r >= 0xF0 && g >= 0xF0 && b >= 0xF0) return true;
+  }
+  return false;
+}
+
+/// True when [shadow] declares an `Offset(x, y)` with a non-zero component. A
+/// missing offset or `Offset(0, 0)` / `Offset.zero` counts as zero.
+bool _hasNonZeroOffset(String shadow) {
+  for (final RegExpMatch m in RegExp(
+    r'Offset\s*\(([^)]*)\)',
+  ).allMatches(shadow)) {
+    final List<String> parts = m.group(1)!.split(',');
+    final bool anyNonZero = parts.any((String p) {
+      final double? v = double.tryParse(p.trim());
+      // A non-numeric component (a named const / expression) is treated as
+      // possibly non-zero — err on the side of flagging.
+      return v == null || v != 0;
+    });
+    if (anyNonZero) return true;
+  }
+  return false;
+}
+
+/// A recipe body is UNSAFE when ANY BoxShadow in it pairs an opaque near-white
+/// color with a non-zero `Offset` — the exact Impeller-GLES white-corner-square
+/// trigger. The dark, offset shadows (taupe `shadowDarkCard`/`shadowDarkButton`)
+/// are NOT near-white, so an offset dark shadow alone is safe.
+bool _recipeIsUnsafe(String body) {
+  for (final String shadow in _ctorArgs(body, 'BoxShadow')) {
+    if (_opaqueNearWhite(shadow) && _hasNonZeroOffset(shadow)) return true;
+  }
+  return false;
 }

@@ -483,7 +483,7 @@ abstract final class VelvetText {
   );
 
   /// Accent price figure — bodyStrong 14 sp, accentDeep. Used by the result
-  /// card «від N грн» line and the filter price readout.
+  /// card «від N ₴» line and the filter price readout.
   static final TextStyle discPriceAccent = _bodyStrongStyle.copyWith(
     fontSize: 11,
     color: BrandColors.accentDeep,
@@ -990,6 +990,78 @@ abstract final class VelvetText {
   /// `SalonAppointmentCard` status line — failed (error red).
   static final TextStyle salonApptStatusError = _feedbackBase.copyWith(
     color: BrandColors.error,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Phase 14.3 — My Bookings card date stub. A tight-leading numeral is a
+  // recurring need (mirrors `schedWheelDigit` / `salonReviewAverage` /
+  // `ratingBigNumber`, all of which set `height: 1.0` on a display numeral),
+  // not a special case for this one screen.
+  // ---------------------------------------------------------------------------
+
+  /// Booking-card date-stub day number — heading 18 sp, `height: 1.0`. The
+  /// biggest type on the card; against a body set at 10–11 sp that is a
+  /// ~1.7x ratio, so dominance is the CONTRAST, not the absolute size. Stepped
+  /// down one notch (was 21 sp) in the 2026-07-15 compact-card pass. Only the
+  /// size + leading are overridden — a display numeral always needs a tight
+  /// line-height.
+  static final TextStyle bookingDayNumber = _headingStyle.copyWith(
+    fontSize: 18,
+    height: 1.0,
+  );
+
+  /// Booking-card top-right time — statValue 14 sp, `height: 1.1` (was 17 sp;
+  /// stepped down in the 2026-07-15 compact-card pass). Colour (mocha / muted,
+  /// plus an optional no-show strikethrough) applied at the call site via a
+  /// single `copyWith`.
+  static final TextStyle bookingTime = _statValueStyle.copyWith(
+    fontSize: 14,
+    height: 1.1,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Phase 24.x compact-card pass (2026-07-15) — the «МОЇ ЗАПИСИ» list card
+  // renders one notch smaller across the board. These step the card's shared
+  // tokens (cardTitle / bodyStrong / statCaption / feedbackMutedSm / the recap's
+  // bookAccentBold15) down by one size WITHOUT touching those shared tokens'
+  // other call sites (services list, recap, salon reviews …). Colour stays
+  // Warm Mocha; only size (and, where noted, leading) is reduced.
+  // ---------------------------------------------------------------------------
+
+  /// Booking-card master name — [cardTitle] stepped to Comfortaa 12/700,
+  /// height 1.2. Colour applied at the call site.
+  static final TextStyle bookingCardName = _cardTitleStyle.copyWith(
+    fontSize: 12,
+    height: 1.2,
+  );
+
+  /// Booking-card service-line name — [bodyStrong] stepped to Nunito 11/700,
+  /// height 1.25. Colour applied at the call site.
+  static final TextStyle bookingCardService = _bodyStrongStyle.copyWith(
+    fontSize: 11,
+    height: 1.25,
+  );
+
+  /// Booking-card locked-in price — Nunito 10/800, accentDeep. One step under
+  /// the recap's [bookAccentBold15], so the card figure no longer shouts.
+  static final TextStyle bookingCardPrice = _bodyStrongStyle.copyWith(
+    fontSize: 10,
+    fontWeight: FontWeight.w800,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Booking-card muted caption — the stub month line and the salon name.
+  /// [statCaption] stepped to Nunito 10/700. The runtime colour (muted / faint /
+  /// secondary) is applied at the call site via a single copyWith.
+  static final TextStyle bookingCardCaption = _statCaptionStyle.copyWith(
+    fontSize: 10,
+  );
+
+  /// Booking-card professional-title sub-line — Nunito 10/700, muted. One step
+  /// under [feedbackMutedSm].
+  static final TextStyle bookingCardSubtle = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 10,
   );
 
   // ---------------------------------------------------------------------------

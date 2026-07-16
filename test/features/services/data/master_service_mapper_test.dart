@@ -116,7 +116,7 @@ ServiceDefinitionResponse buildDef({
           ..priceType = priceType
           ..priceMin = priceMin
           ..priceMax = priceMax
-          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} грн'
+          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} ₴'
           ..serviceTypeId = serviceTypeId
           ..serviceTypeNameUk = serviceTypeNameUk
           ..isActive = true)
@@ -586,7 +586,7 @@ void main() {
                 ..serviceDefinition.replace(buildDef(id: 'def-777'))
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..isActive = true)
               .build();
 
@@ -605,13 +605,13 @@ void main() {
                     id: 'def-001',
                     priceType: ServiceDefinitionResponsePriceTypeEnum.FIXED,
                     priceMin: 750,
-                    priceDisplay: '750 грн',
+                    priceDisplay: '750 ₴',
                   ),
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 750
                 ..priceMax = null
-                ..priceDisplay = '750 грн'
+                ..priceDisplay = '750 ₴'
                 ..isActive = true)
               .build();
 
@@ -620,7 +620,7 @@ void main() {
       expect(service.priceType, ServicePriceType.fixed);
       expect(service.priceMin, equals(750.0));
       expect(service.priceMax, isNull);
-      expect(service.priceDisplay, equals('750 грн'));
+      expect(service.priceDisplay, equals('750 ₴'));
     });
 
     test('I-PRICE-RANGE. fromDto maps RANGE pricing correctly', () {
@@ -633,13 +633,13 @@ void main() {
                     priceType: ServiceDefinitionResponsePriceTypeEnum.RANGE,
                     priceMin: 500,
                     priceMax: 800,
-                    priceDisplay: 'від 500 до 800 грн',
+                    priceDisplay: 'від 500 до 800 ₴',
                   ),
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.RANGE
                 ..priceMin = 500
                 ..priceMax = 800
-                ..priceDisplay = 'від 500 до 800 грн'
+                ..priceDisplay = 'від 500 до 800 ₴'
                 ..isActive = true)
               .build();
 
@@ -648,7 +648,7 @@ void main() {
       expect(service.priceType, ServicePriceType.range);
       expect(service.priceMin, equals(500.0));
       expect(service.priceMax, equals(800.0));
-      expect(service.priceDisplay, equals('від 500 до 800 грн'));
+      expect(service.priceDisplay, equals('від 500 до 800 ₴'));
     });
 
     test(
@@ -659,7 +659,7 @@ void main() {
           name: 'Манікюр Оновлений',
           baseDurationMinutes: 75,
           priceMin: 600,
-          priceDisplay: '600 грн',
+          priceDisplay: '600 ₴',
         );
 
         final service = MasterServiceMapper.fromServiceDefinitionDto(
@@ -681,7 +681,7 @@ void main() {
         priceType: ServiceDefinitionResponsePriceTypeEnum.RANGE,
         priceMin: 400,
         priceMax: 700,
-        priceDisplay: 'від 400 до 700 грн',
+        priceDisplay: 'від 400 до 700 ₴',
       );
 
       final service = MasterServiceMapper.fromServiceDefinitionDto(
@@ -692,7 +692,7 @@ void main() {
       expect(service.priceType, ServicePriceType.range);
       expect(service.priceMin, equals(400.0));
       expect(service.priceMax, equals(700.0));
-      expect(service.priceDisplay, equals('від 400 до 700 грн'));
+      expect(service.priceDisplay, equals('від 400 до 700 ₴'));
     });
 
     // B5 (MEDIUM) — fromDto fail-safes for null priceType + null priceDisplay ─
@@ -716,7 +716,7 @@ void main() {
                   )
                   // priceType is intentionally left unset (null on the builder)
                   ..priceMin = 300
-                  ..priceDisplay = '300 грн'
+                  ..priceDisplay = '300 ₴'
                   ..isActive = true)
                 .build();
 
@@ -736,7 +736,7 @@ void main() {
         'resolves to empty string', () {
       // Build a DTO where priceDisplay is left unset at both levels.
       // We override buildDef's default by constructing manually so priceDisplay
-      // is genuinely null (not the generated default '300 грн').
+      // is genuinely null (not the generated default '300 ₴').
       final def =
           (ServiceDefinitionResponseBuilder()
                 ..id = 'def-null-pd'
@@ -786,7 +786,7 @@ void main() {
                 ..serviceDefinition.replace(buildDef(id: 'def-x'))
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..isActive = true)
               .build();
 
@@ -805,7 +805,7 @@ void main() {
                 ..serviceDefinition.replace(buildDef(id: 'def-x'))
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..isActive = true)
               .build();
 
@@ -837,7 +837,7 @@ void main() {
                 ..baseDurationMinutes = 60
                 ..priceType = ServiceDefinitionResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..isActive = true)
               .build();
 
@@ -934,7 +934,7 @@ void main() {
                   ..serviceDefinition.replace(buildDef(id: 'def-st-msr'))
                   ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                   ..priceMin = 500
-                  ..priceDisplay = '500 грн'
+                  ..priceDisplay = '500 ₴'
                   ..serviceTypeId = 'type-msr'
                   ..serviceTypeNameUk = 'Класичний манікюр'
                   ..isActive = true)
@@ -963,7 +963,7 @@ void main() {
                   )
                   ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                   ..priceMin = 500
-                  ..priceDisplay = '500 грн'
+                  ..priceDisplay = '500 ₴'
                   // serviceTypeId / serviceTypeNameUk intentionally unset on MSR
                   ..isActive = true)
                 .build();
@@ -989,7 +989,7 @@ void main() {
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..serviceTypeId = 'type-envelope'
                 ..serviceTypeNameUk = 'Envelope name'
                 ..isActive = true)
@@ -1014,7 +1014,7 @@ void main() {
                   ..serviceDefinition.replace(buildDef(id: 'def-st-null'))
                   ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                   ..priceMin = 500
-                  ..priceDisplay = '500 грн'
+                  ..priceDisplay = '500 ₴'
                   ..isActive = true)
                 .build();
 
@@ -1082,12 +1082,12 @@ void main() {
                     baseDurationMinutes: 45,
                     priceType: ServiceDefinitionResponsePriceTypeEnum.FIXED,
                     priceMin: 750,
-                    priceDisplay: '750 грн',
+                    priceDisplay: '750 ₴',
                   ),
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 750
-                ..priceDisplay = '750 грн'
+                ..priceDisplay = '750 ₴'
                 ..isActive = true)
               .build();
 
@@ -1096,7 +1096,7 @@ void main() {
       // The service is bookable (active), fully priced, and time-bounded — the
       // exact opposite of a "draft awaiting a price".
       expect(service.isActive, isTrue);
-      expect(service.priceDisplay, equals('750 грн'));
+      expect(service.priceDisplay, equals('750 ₴'));
       expect(service.priceMin, equals(750.0));
       expect(service.durationMinutes, equals(45));
 
@@ -1129,13 +1129,13 @@ void main() {
                     priceType: ServiceDefinitionResponsePriceTypeEnum.RANGE,
                     priceMin: 0,
                     priceMax: 500,
-                    priceDisplay: 'до 500 грн',
+                    priceDisplay: 'до 500 ₴',
                   ),
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.RANGE
                 ..priceMin = 0
                 ..priceMax = 500
-                ..priceDisplay = 'до 500 грн'
+                ..priceDisplay = 'до 500 ₴'
                 ..isActive = true)
               .build();
 
@@ -1145,7 +1145,7 @@ void main() {
       expect(service.priceType, ServicePriceType.range);
       expect(service.priceMin, equals(0.0));
       expect(service.priceMax, equals(500.0));
-      expect(service.priceDisplay, equals('до 500 грн'));
+      expect(service.priceDisplay, equals('до 500 ₴'));
     });
   });
 }

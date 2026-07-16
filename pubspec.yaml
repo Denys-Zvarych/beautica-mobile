@@ -109,6 +109,25 @@ dependencies:
   http_parser: ^4.1.2
   flutter_svg: ^2.3.0
 
+  # Add-to-calendar — opens the OS/native calendar's "new event" sheet
+  # pre-filled from a CONFIRMED booking (My Bookings detail, booking success,
+  # home-hub next-appointment card). Single cross-platform code path via the
+  # platform default-calendar INSERT intent (Android) / EventKit (iOS). Requires
+  # the <queries> INSERT-event entry in AndroidManifest.xml for Android 11+
+  # package visibility and NSCalendarsUsageDescription in ios/Runner/Info.plist.
+  # Pinned to the 3.0.x line: add_2_calendar 3.1.0/3.1.1 rewrote its
+  # android/build.gradle.kts for AGP 9 / Gradle 9 / Kotlin 2.3.20 (uses the
+  # `kotlin { compilerOptions { jvmTarget = … } }` KGP-2.3 DSL and directories-
+  # based sourceSets). This project is on AGP 8.11.1 / Gradle 8.14 / Kotlin
+  # 2.2.20, so those scripts fail to compile ("Unresolved reference:
+  # compilerOptions" / srcDirs deprecation), breaking `assembleDebug`. 3.0.1
+  # uses the conventional Groovy plugin build compatible with AGP 8, and its
+  # Dart API (Event{title,location,startDate,endDate,timeZone} +
+  # Add2Calendar.addEvent2Cal → Future<bool>) is identical to what the
+  # addBookingToCalendar helper uses. Revisit ^3.1.x only after the project's
+  # Android toolchain moves to AGP 9 / Gradle 9.
+  add_2_calendar: ">=3.0.1 <3.1.0"
+
   # UUID v4 idempotency-key generation for booking submits (Phase 14.2).
   # Already present transitively (pulled in by built_value/openapi_generator
   # deps — see pubspec.lock) but not previously a direct dependency; Phase
@@ -117,6 +136,17 @@ dependencies:
   # already resolved in pubspec.lock so this addition cannot itself trigger a
   # version bump of any other resolved package.
   uuid: ^4.5.3
+
+  # IANA timezone database (Dart-team `timezone` package) — pins all
+  # booking/slot wall-clock rendering to the salon market zone Europe/Kyiv,
+  # DST-aware (UTC+2 winter / UTC+3 summer). Booking instants stay canonical
+  # UTC on the wire and in the model; conversion is DISPLAY-ONLY via
+  # `shared/time/time_zones.dart` (`toBeauticaTime`). Replaces the earlier
+  # device `.toLocal()` convention, which rendered wrong on non-Kyiv devices
+  # and failed on CI's UTC runner. `tz.initializeTimeZones()` must run once at
+  # startup (main + test harnesses) before any formatter reads the zone.
+  timezone: ^0.11.1
+  material_symbols_icons: ^4.2951.0
 
 dev_dependencies:
   flutter_test:

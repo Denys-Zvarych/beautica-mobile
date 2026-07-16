@@ -21,6 +21,7 @@
 //   • "BEAUTY TIMELINE" in BeautyTimelineSection
 // Those are intentionally untranslated per the locked product decision.
 
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -34,6 +35,9 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/calendar/add_to_calendar.dart';
+import '../../booking/application/booking_reschedule_in_flight_notifier.dart';
+import '../../booking/presentation/reschedule_navigation.dart';
 import '../application/home_hub_notifier.dart';
 import '../domain/home_hub_models.dart';
 import 'widgets/beauty_timeline_section.dart';
@@ -128,6 +132,10 @@ class _HomeHubBody extends ConsumerWidget {
     final nextApptAsync = ref.watch(nextAppointmentProvider);
     final favoritesAsync = ref.watch(favoriteMastersProvider);
     final timelineAsync = ref.watch(beautyTimelineProvider);
+    // Drives the «Перенести» spinner while the shared reschedule navigation
+    // loads its seeding GETs — `_HomeHubBody` is stateless, so a provider flag
+    // (not local State) is the right mechanism.
+    final bool rescheduleLoading = ref.watch(bookingRescheduleInFlightProvider);
 
     return RepaintBoundary(
       child: _StaggeredReveal(
@@ -180,13 +188,19 @@ class _HomeHubBody extends ConsumerWidget {
                 child: nextApptAsync.when(
                   data: (NextAppointment? appt) => NextAppointmentCard(
                     appointment: appt,
+                    rescheduleLoading: rescheduleLoading,
                     onReschedule: () {
-                      // TODO(14.8): route to reschedule screen
-                      if (kDebugMode) {
-                        log(
-                          'reschedule tapped — placeholder',
-                          name: 'feature.home',
-                          level: 700,
+                      // Route into the SAME reschedule flow the «Деталі запису»
+                      // screen uses — the card only has the booking id, so the
+                      // shared helper loads the rest (master + booked service)
+                      // before seeding the slot picker.
+                      if (appt != null) {
+                        unawaited(
+                          startBookingReschedule(
+                            context: context,
+                            ref: ref,
+                            bookingId: appt.id,
+                          ),
                         );
                       }
                     },
@@ -200,22 +214,20 @@ class _HomeHubBody extends ConsumerWidget {
                         );
                       }
                     },
+                    // Both variants share ONE code path: add_2_calendar opens
+                    // the OS default-calendar sheet, so the OS — not the app —
+                    // picks Google vs Apple vs any other calendar app.
                     onAddToGoogleCalendar: () {
-                      // TODO(14.4): add-to-calendar helper
-                      if (kDebugMode) {
-                        log(
-                          'add to google cal — placeholder',
-                          name: 'feature.home',
-                          level: 700,
+                      if (appt != null) {
+                        unawaited(
+                          _addNextAppointmentToCalendar(context, l10n, appt),
                         );
                       }
                     },
                     onAddToAppleCalendar: () {
-                      if (kDebugMode) {
-                        log(
-                          'add to apple cal — placeholder',
-                          name: 'feature.home',
-                          level: 700,
+                      if (appt != null) {
+                        unawaited(
+                          _addNextAppointmentToCalendar(context, l10n, appt),
                         );
                       }
                     },
@@ -280,6 +292,42 @@ class _HomeHubBody extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Adds the home-hub next appointment to the OS calendar via the shared
+/// [addBookingToCalendar] path (opens the platform default-calendar sheet).
+///
+/// NOTE: the `NextAppointment` payload (backend 19.3) exposes only `startsAt` —
+/// no duration/end — so the event is seeded with a 1-hour default block. When
+/// that DTO surfaces `durationMinutes`/`endAt`, pass the real end here.
+Future<void> _addNextAppointmentToCalendar(
+  BuildContext context,
+  AppLocalizations l10n,
+  NextAppointment appt,
+) {
+  // Structured facts only — NO free-text notes reach the calendar (the
+  // `NextAppointment` DTO carries none anyway). The limited DTO exposes just
+  // service, master, the pre-formatted date/time strings the card renders, and
+  // a location — no duration/end (hence the 1-hour default block above), no
+  // price, no definite status. Omit the fields it lacks rather than emit empty
+  // labels; the builder skips any null/blank value.
+  final String? location = appt.location.isEmpty ? null : appt.location;
+  final String? description = buildCalendarDescription(
+    l10n: l10n,
+    service: appt.service,
+    provider: appt.masterName,
+    providerRole: CalendarProviderRole.master,
+    dateTime: '${appt.dateLabel}, ${appt.timeLabel}',
+    address: location,
+  );
+  return addBookingToCalendar(
+    context: context,
+    title: l10n.bookingCalendarEventTitle(appt.service, appt.masterName),
+    location: location,
+    start: appt.startsAt,
+    end: appt.startsAt.add(const Duration(hours: 1)),
+    description: description,
+  );
 }
 
 // ---------------------------------------------------------------------------

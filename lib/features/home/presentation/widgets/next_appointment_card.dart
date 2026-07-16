@@ -34,6 +34,7 @@ class NextAppointmentCard extends StatelessWidget {
     required this.onCancel,
     required this.onAddToGoogleCalendar,
     required this.onAddToAppleCalendar,
+    this.rescheduleLoading = false,
   });
 
   final NextAppointment? appointment;
@@ -41,6 +42,10 @@ class NextAppointmentCard extends StatelessWidget {
   final VoidCallback onCancel;
   final VoidCallback onAddToGoogleCalendar;
   final VoidCallback onAddToAppleCalendar;
+
+  /// When true the «Перенести» button shows a spinner and ignores taps while
+  /// the shared reschedule navigation loads its seeding GETs.
+  final bool rescheduleLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -131,6 +136,7 @@ class NextAppointmentCard extends StatelessWidget {
                           key: const Key('next_appt_reschedule_button'),
                           label: l10n.homeHubRescheduleAppointment,
                           onTap: onReschedule,
+                          loading: rescheduleLoading,
                         ),
                         const SizedBox(height: VelvetSpacing.sm),
                         HubOutlineButton(

@@ -61,7 +61,7 @@ const _populatedService = MasterService(
   name: 'Стрижка',
   durationMinutes: 45,
   priceMin: 750,
-  priceDisplay: '750 грн',
+  priceDisplay: '750 ₴',
   category: 'HAIRCUT',
 );
 

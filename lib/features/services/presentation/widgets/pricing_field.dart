@@ -8,7 +8,7 @@
 // VelvetTouch craft preserved:
 //   - Two-segment recessed inset track (NeumorphicInset) with a sliding
 //     camel-gradient "thumb" (AnimatedAlign + extrudedSmall shadows).
-//   - FIXED: one "Сума" field with "грн" suffix.
+//   - FIXED: one "Сума" field with "₴" suffix.
 //   - RANGE (with durationController): flat Row — duration / min / '–' / max —
 //     all three wells are equal Expanded(flex:1) siblings so they are rendered
 //     at EXACTLY the same width. The '–' dash is a real in-flow element with
@@ -237,7 +237,7 @@ class PricingField extends StatelessWidget {
               controller: minController,
               enabled: enabled,
               hint: '500',
-              suffixText: 'грн',
+              suffixText: l10n.pricingCurrencySuffix,
               formatters: _priceFormatters,
               errorText: minError,
               // Compact rows hoist the message beneath the Row (ring stays).
@@ -254,7 +254,7 @@ class PricingField extends StatelessWidget {
               controller: maxController,
               enabled: enabled,
               hint: '800',
-              suffixText: 'грн',
+              suffixText: l10n.pricingCurrencySuffix,
               formatters: _priceFormatters,
               // Flag the error ring without a duplicate message below: the
               // cross-field "max > min" message is rendered once beneath the
@@ -353,7 +353,7 @@ class PricingField extends StatelessWidget {
   /// In compact mode (service-setup row) the label is suppressed (a11y via
   /// Semantics). In non-compact mode (create/edit form) [durationLabel] is
   /// shown above the well. The "хв" affix always stays visible — it is never
-  /// hidden on focus/typing (only the "грн" affix on price fields hides).
+  /// hidden on focus/typing (only the "₴" affix on price fields hides).
   Widget _buildDurationWell(AppLocalizations l10n, {required bool compact}) {
     return _PricingInputField(
       fieldKey: compact
@@ -443,12 +443,12 @@ class PricingField extends StatelessWidget {
       controller: fixedController,
       enabled: enabled,
       hint: '500',
-      suffixText: 'грн',
+      suffixText: l10n.pricingCurrencySuffix,
       formatters: _priceFormatters,
       errorText: fixedError,
       // Compact rows hoist the message beneath the wells Row (ring stays here).
       hoistError: compact,
-      // Hide "грн" while the price field is active/non-empty to prevent the
+      // Hide "₴" while the price field is active/non-empty to prevent the
       // suffix from overlapping digits on narrow screens. "хв" on the duration
       // well always stays visible (hideSuffixWhenActive defaults to false).
       hideSuffixWhenActive: true,
@@ -552,7 +552,7 @@ class PricingField extends StatelessWidget {
                   controller: minController,
                   enabled: enabled,
                   hint: '500',
-                  suffixText: 'грн',
+                  suffixText: l10n.pricingCurrencySuffix,
                   formatters: _priceFormatters,
                   errorText: minError,
                   hideSuffixWhenActive: true,
@@ -567,7 +567,7 @@ class PricingField extends StatelessWidget {
                   controller: maxController,
                   enabled: enabled,
                   hint: '800',
-                  suffixText: 'грн',
+                  suffixText: l10n.pricingCurrencySuffix,
                   formatters: _priceFormatters,
                   // The cross-field error surfaces once below the pair; flag the
                   // field ring here without a duplicate message.
@@ -836,7 +836,7 @@ class _PricingInputField extends StatefulWidget {
 
   /// When true the suffix is hidden while the field is focused OR has
   /// non-empty text, preventing digits from overlapping the affix on narrow
-  /// screens. Should be true for price fields ("грн") and false for the
+  /// screens. Should be true for price fields ("₴") and false for the
   /// duration well ("хв" must stay visible at all times).
   final bool hideSuffixWhenActive;
 
@@ -911,7 +911,7 @@ class _PricingInputFieldState extends State<_PricingInputField> {
     final bool hasError =
         widget.errorText != null && widget.errorText!.isNotEmpty;
 
-    // Suffix visibility: for price fields hide the "грн" affix whenever the
+    // Suffix visibility: for price fields hide the "₴" affix whenever the
     // field is focused OR has non-empty text, so digits never overlap the
     // suffix on narrow screens. The "хв" suffix on the duration well is always
     // visible (hideSuffixWhenActive == false).
@@ -925,11 +925,11 @@ class _PricingInputFieldState extends State<_PricingInputField> {
     //
     // Non-compact (create/edit form) in RANGE mode: after the three-way split
     // each well is ~99 dp at 360 dp (or ~85 dp at 320 dp). With the old
-    // md/md values (16 + 16 + 16 + ~28 грн = 76 dp consumed) only ~23 dp
+    // md/md values (16 + 16 + 16 + ~28 ₴ = 76 dp consumed) only ~23 dp
     // remained for digits — "500" clipped to "5...". Using the same tight
     // tokens as compact (sm=8 hpad, xs=4 affix-gap) leaves:
-    //   360 dp: 99 − 8 − 8 − 4 − 28 грн ≈ 51 dp for digits  ✓
-    //   320 dp: 85 − 8 − 8 − 4 − 28 грн ≈ 37 dp for digits  ✓
+    //   360 dp: 99 − 8 − 8 − 4 − 28 ₴ ≈ 51 dp for digits  ✓
+    //   320 dp: 85 − 8 − 8 − 4 − 28 ₴ ≈ 37 dp for digits  ✓
     // "500" (~27 dp) and "8000" (~36 dp) both fit; the TextField is Expanded
     // so it scrolls horizontally for any longer value without overflow.
     //
@@ -996,7 +996,7 @@ class _PricingInputFieldState extends State<_PricingInputField> {
     );
 
     // Wrap the entire well in a GestureDetector so that taps on the suffix
-    // text ("грн" / "хв") and the surrounding padding still focus the field.
+    // text ("₴" / "хв") and the surrounding padding still focus the field.
     // HitTestBehavior.opaque ensures empty space inside the well is hittable.
     // The TextField itself consumes taps on the digit area first (cursor
     // placement), so GestureDetector only fires for taps the TextField

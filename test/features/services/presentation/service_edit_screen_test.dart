@@ -77,7 +77,7 @@ const _stubService = MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 750.0,
-  priceDisplay: '750 грн',
+  priceDisplay: '750 ₴',
   // Category is required by the backend; the edit form pre-selects it so a
   // pristine save passes validation.
   category: 'HAIRCUT',
@@ -732,7 +732,7 @@ void main() {
         name: 'Стрижка',
         durationMinutes: 45,
         priceMin: 400.0,
-        priceDisplay: '400 грн',
+        priceDisplay: '400 ₴',
         category: 'HAIRCUT',
       );
 
@@ -771,7 +771,7 @@ void main() {
       name: 'Вії',
       durationMinutes: 90,
       priceMin: 600.0,
-      priceDisplay: '600 грн',
+      priceDisplay: '600 ₴',
       category: 'EYELASH',
     );
 
@@ -822,7 +822,7 @@ void main() {
         name: 'Манікюр класичний',
         durationMinutes: 60,
         priceMin: 500.0,
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
         category: 'MANICURE',
       );
 
@@ -904,7 +904,7 @@ void main() {
         durationMinutes: 60,
         priceType: ServicePriceType.fixed,
         priceMin: 500.0,
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
         category: 'MANICURE',
         // Loaded with one type; the test switches to another.
         serviceTypeId: 'type-old',
@@ -1017,7 +1017,7 @@ void main() {
         priceType: ServicePriceType.range,
         priceMin: 500.0,
         priceMax: 800.0,
-        priceDisplay: 'від 500 до 800 грн',
+        priceDisplay: 'від 500 до 800 ₴',
       );
 
       when(

@@ -161,7 +161,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final AppLocalizations l10n = await _uk();
-      // budget.max == 800 ⇒ passportBudgetCeiling(800) e.g. «до 800 грн».
+      // budget.max == 800 ⇒ passportBudgetCeiling(800) e.g. «до 800 ₴».
       expect(find.text(l10n.passportBudgetCeiling(800)), findsOneWidget);
     });
 

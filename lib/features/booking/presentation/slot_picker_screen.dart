@@ -38,6 +38,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -50,6 +51,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/slot_picker_notifier.dart';
 import '../application/working_days_notifier.dart';
+import '../domain/booking_appointment.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_slot.dart';
 import '../domain/booking_slot_picker_args.dart';
@@ -386,13 +388,26 @@ class SlotTimeScreen extends ConsumerWidget {
 
   final BookingSlotPickerArgs args;
 
+  static const Uuid _uuid = Uuid();
+
   void _confirm(BuildContext context, BookingSlot slot) {
+    // The RETAINED single-service / reschedule picker: builds a 1-element
+    // `appointments` list feeding the SAME `BookingConfirmScreen` the
+    // multi-service `BookingTimeScreen` flow uses. The stable idempotency key
+    // is generated once here (per tap), never regenerated on a retry from the
+    // confirm screen.
     context.push(
       RouteNames.bookingConfirm,
       extra: BookingConfirmArgs(
         masterId: args.masterId,
-        serviceId: args.services.first.id,
-        startAt: slot.startAt,
+        master: args.master,
+        appointments: <BookingAppointment>[
+          BookingAppointment(
+            serviceId: args.services.first.id,
+            startAt: slot.startAt,
+            idempotencyKey: _uuid.v4(),
+          ),
+        ],
         rescheduleBookingId: args.rescheduleBookingId,
       ),
     );
