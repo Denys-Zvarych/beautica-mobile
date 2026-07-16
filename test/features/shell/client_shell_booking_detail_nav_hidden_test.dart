@@ -7,17 +7,32 @@
 // WHY A DEDICATED ROUTER (harness note)
 // -------------------------------------
 // [ClientShell] detects the detail page by exact-matching the deepest active
-// ROUTE PATTERN (`GoRouter…currentConfiguration.fullPath`) against
-// `'${RouteNames.clientBookings}/:bookingId'`. So the test router must define a
-// real `:bookingId` child under the Записи branch root — the standalone shell
-// routers in the sibling shell tests do NOT, so they can never exercise this
-// suppression. This router mirrors app_router.dart's five branches and attaches
-// the SAME global `clientBranchNavigatorKeys`, so a pushed detail page is a live
-// poppable route on the Записи branch and the pop-restores-the-bar mechanism is
-// genuinely driven (not inertly false).
+// ROUTE PATTERN against `'${RouteNames.clientBookings}/:bookingId'`. So the test
+// router must define a real `:bookingId` child under the Записи branch root —
+// the standalone shell routers in the sibling shell tests do NOT, so they can
+// never exercise this suppression. This router mirrors app_router.dart's five
+// branches and attaches the SAME global `clientBranchNavigatorKeys`, so a pushed
+// detail page is a live poppable route on the Записи branch and the
+// pop-restores-the-bar mechanism is genuinely driven (not inertly false).
+//
+// WHY WE `context.push` (NOT `router.go`) INTO THE DETAIL — the ab34c0a guard
+// --------------------------------------------------------------------------
+// The real app reaches the detail via `context.push(RouteNames.bookingDetail…)`
+// (my_bookings_screen.dart — a `BookingCard` tap). go_router wraps a PUSHED leaf
+// in an `ImperativeRouteMatch`, which it EXCLUDES from
+// `currentConfiguration.fullPath` (and the root keeps its base `/bookings` uri) —
+// so a naive `fullPath == '/bookings/:bookingId'` check collapses to `/bookings`
+// on device and the bar never hides. The ORIGINAL version of this test drove the
+// detail with `router.go`, which produces a plain (non-imperative) match whose
+// fullPath IS the pattern — it passed while the device was broken (a
+// mock-green/real-breakage). These tests therefore navigate into the detail with
+// a real `context.push` from the Записи list context, exactly as the app does, so
+// they FAIL against the old predicate and only pass with the imperative-aware fix.
 //
 // KEY-FIRST: taps + presence are asserted by widget TYPE / Key, never by
 // localised strings.
+
+import 'dart:async';
 
 import 'package:beautica_mobile/features/shell/presentation/branch_placeholders.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
@@ -130,6 +145,26 @@ Future<void> _pumpShell(WidgetTester tester, GoRouter router) async {
   await tester.pumpAndSettle();
 }
 
+/// Navigates INTO the booking-detail page exactly as the app does — a real
+/// `context.push` from the Записи list root (NOT `router.go`). Lands on the
+/// `/bookings` list first (where a `BookingCard` tap starts), then pushes
+/// `/bookings/<id>` onto that branch's own navigator, producing the
+/// `ImperativeRouteMatch` that the runtime detector must see through.
+Future<void> _pushDetail(
+  WidgetTester tester,
+  GoRouter router,
+  String id,
+) async {
+  router.go(RouteNames.clientBookings);
+  await tester.pumpAndSettle();
+  unawaited(
+    tester
+        .element(find.byType(ClientBookingsPlaceholderScreen))
+        .push(RouteNames.bookingDetail(id)),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   group('CLIENT shell — bottom nav hidden on booking detail', () {
     testWidgets(
@@ -140,9 +175,9 @@ void main() {
         addTearDown(router.dispose);
         await _pumpShell(tester, router);
 
-        // Go straight to the detail route on the Записи branch.
-        router.go(RouteNames.bookingDetail('booking-1'));
-        await tester.pumpAndSettle();
+        // PUSH into the detail route on the Записи branch, exactly as a
+        // `BookingCard` tap does (an imperative push, NOT a `go`).
+        await _pushDetail(tester, router, 'booking-1');
 
         // The detail page is on top of the Записи branch stack …
         expect(
@@ -243,10 +278,15 @@ void main() {
           reason: 'baseline: the bar is present on the Записи list root',
         );
 
-        // 2) Same-branch push into the detail — currentIndex stays 3, so the
+        // 2) Same-branch PUSH into the detail — currentIndex stays 3, so the
         //    StatefulShellRoute builder alone would NOT re-run this shell's
-        //    build. The bar going away here proves the location listener fired.
-        router.go(RouteNames.bookingDetail('booking-1'));
+        //    build. The bar going away here proves the location listener fired
+        //    AND that the imperative-aware detector sees the pushed pattern.
+        unawaited(
+          tester
+              .element(find.byType(ClientBookingsPlaceholderScreen))
+              .push(RouteNames.bookingDetail('booking-1')),
+        );
         await tester.pumpAndSettle();
         expect(find.byKey(const Key('booking-detail-page')), findsOneWidget);
         expect(
@@ -297,8 +337,7 @@ void main() {
         addTearDown(router.dispose);
         await _pumpShell(tester, router);
 
-        router.go(RouteNames.bookingDetail('booking-1'));
-        await tester.pumpAndSettle();
+        await _pushDetail(tester, router, 'booking-1');
         // Top bar stays even on the detail (bottom bar gone).
         expect(find.byType(ClientTopBar), findsOneWidget);
         expect(find.byType(ClientBottomNav), findsNothing);

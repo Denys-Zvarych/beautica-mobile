@@ -124,14 +124,33 @@ class _ClientShellState extends State<ClientShell> {
     final l10n = AppLocalizations.of(context);
     final _TopBarConfig config = _configFor(navigationShell.currentIndex, l10n);
 
-    // Booking-DETAIL detection. `currentConfiguration.fullPath` is the matched
-    // ROUTE PATTERN of the deepest active match (`/bookings/:bookingId` on the
-    // detail page), so this exact-matches the detail route only — NOT the
-    // `/bookings` list root and NOT any other tab. The `didChangeDependencies`
-    // listener above guarantees this re-evaluates on the same-branch push/pop.
-    final String currentPath = GoRouter.of(
+    // Booking-DETAIL detection — the deepest active ROUTE PATTERN compared to
+    // `/bookings/:bookingId`, exact-matching the detail page only (NOT the
+    // `/bookings` list root, NOT any other tab). The `didChangeDependencies`
+    // listener above re-evaluates this on the same-branch push/pop.
+    //
+    // WHY NOT `currentConfiguration.fullPath` DIRECTLY (the ab34c0a bug)
+    // -----------------------------------------------------------------
+    // The detail page is reached by an imperative `context.push`
+    // (my_bookings_screen.dart) — a `BookingCard` tap PUSHES `/bookings/:id`
+    // onto the Записи branch, it does NOT `go`. go_router wraps a pushed leaf in
+    // an `ImperativeRouteMatch`, which `RouteMatchList._generateFullPath`
+    // EXPLICITLY SKIPS ("they don't contribute to the path"), and the root
+    // match list keeps its BASE uri via `copyWith`. So on the pushed detail the
+    // ROOT `currentConfiguration.fullPath` (and `.uri`) collapse to `/bookings`
+    // — the `== '/bookings/:bookingId'` check is NEVER true and the bar never
+    // hides on a real device. (It only worked in the old widget test because a
+    // `router.go` produces a plain, non-imperative match whose fullPath IS the
+    // pattern — the classic mock-green/real-breakage.) The pushed leaf's OWN
+    // inner match list DOES carry the real deepest pattern, so read it there;
+    // for a non-imperative (go) match the root fullPath is already correct.
+    final RouteMatchList routeConfig = GoRouter.of(
       context,
-    ).routerDelegate.currentConfiguration.fullPath;
+    ).routerDelegate.currentConfiguration;
+    final RouteMatch? leaf = routeConfig.lastOrNull;
+    final String currentPath = leaf is ImperativeRouteMatch
+        ? leaf.matches.fullPath
+        : routeConfig.fullPath;
     final bool onBookingDetail = currentPath == _bookingDetailPattern;
 
     // ONE back-navigation policy for BOTH the platform back button (the
