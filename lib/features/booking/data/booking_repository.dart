@@ -120,6 +120,22 @@ abstract interface class BookingRepository {
   /// new time (see that failure's doc). Throws [BookingRateLimitedFailure] on
   /// HTTP 429 (per-user booking-write rate limit).
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt);
+
+  /// Leaves a review for a COMPLETED booking on behalf of the authenticated
+  /// client (Phase 14.6).
+  ///
+  /// Wraps `POST /reviews`. [rating] is 1–5; [comment] is optional free text
+  /// (an empty/blank string is sent as null so the backend sees no comment).
+  /// The backend enforces COMPLETED + booking ownership + not-already-reviewed
+  /// — the client must not re-derive those beyond the `Booking.canReview`
+  /// gate. Throws [ReviewAlreadyExistsFailure] on HTTP 409 (already reviewed)
+  /// and [ReviewNotAllowedFailure] on 403 (not the owner) / other 4xx (e.g. the
+  /// booking is not COMPLETED).
+  Future<void> createReview({
+    required String bookingId,
+    required int rating,
+    String? comment,
+  });
 }
 
 /// HTTP implementation of [BookingRepository].
@@ -127,10 +143,11 @@ abstract interface class BookingRepository {
 /// Inject via [bookingRepositoryProvider] — never construct directly outside
 /// tests.
 final class HttpBookingRepository implements BookingRepository {
-  HttpBookingRepository(this._dio, this._bookingApi);
+  HttpBookingRepository(this._dio, this._bookingApi, this._reviewApi);
 
   final Dio _dio;
   final BookingControllerApi _bookingApi;
+  final ReviewControllerApi _reviewApi;
 
   @override
   Future<Booking> createBooking(CreateBookingRequest req) async {
@@ -300,6 +317,66 @@ final class HttpBookingRepository implements BookingRepository {
       }
       throw _mapBookingWriteException(e);
     }
+  }
+
+  @override
+  Future<void> createReview({
+    required String bookingId,
+    required int rating,
+    String? comment,
+  }) async {
+    // Blank/whitespace-only comment → send no comment at all (the field is
+    // optional on the wire; a null keeps the payload clean).
+    final String? trimmed = comment?.trim();
+    final String? effectiveComment = (trimmed == null || trimmed.isEmpty)
+        ? null
+        : trimmed;
+    try {
+      await _reviewApi.createReview(
+        createReviewRequest: CreateReviewRequest(
+          (b) => b
+            ..bookingId = bookingId
+            ..rating = rating
+            ..comment = effectiveComment,
+        ),
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'createReview failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapReviewException(e);
+    }
+  }
+
+  /// Maps a [DioException] from `POST /reviews` to a typed [Failure]
+  /// (Phase 14.6).
+  ///
+  ///   - **409** → [ReviewAlreadyExistsFailure] (the client already reviewed
+  ///     this booking).
+  ///   - **403** (not the booking owner) or any other **4xx** (e.g. the booking
+  ///     is not COMPLETED) → [ReviewNotAllowedFailure] — a single friendly
+  ///     "can't be reviewed" message; the client never distinguishes the two.
+  ///
+  /// The status-code checks run BEFORE deferring to any [Failure] the
+  /// [ErrorMapperInterceptor] may have attached (it maps a generic 409/403 to
+  /// [ServerFailure] with no review-specific copy), mirroring the
+  /// `MasterAlreadyHasServicesFailure` precedent. All other statuses defer to
+  /// the shared [_mapDioException] (which honours any attached [Failure] and
+  /// otherwise maps by transport type).
+  Failure _mapReviewException(DioException e) {
+    final int? statusCode = e.response?.statusCode;
+    if (statusCode == 409) return ReviewAlreadyExistsFailure(cause: e);
+    if (statusCode == 403 || statusCode == 400 || statusCode == 422) {
+      return ReviewNotAllowedFailure(cause: e);
+    }
+    return _mapDioException(e);
   }
 
   /// Builds the generated wire `CreateBookingRequest` DTO from the domain

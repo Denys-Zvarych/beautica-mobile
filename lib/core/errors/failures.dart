@@ -595,3 +595,38 @@ final class BookingRateLimitedFailure extends Failure {
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).bookingErrRateLimited;
 }
+
+/// Emitted when `POST /reviews` returns HTTP **409 Conflict** because the
+/// authenticated client has ALREADY left a review for this booking (Phase
+/// 14.6). The booking's server-computed `canReview` flag normally hides the
+/// entry point, so this is the backstop for a stale screen or a stale
+/// `/bookings/{id}/review` deep link opened after a review was already left.
+///
+/// Decoded by `HttpBookingRepository._mapReviewException` — the 409 status
+/// check runs before deferring to any [Failure] the interceptor may have
+/// attached (mirrors the `MasterAlreadyHasServicesFailure` precedent).
+final class ReviewAlreadyExistsFailure extends Failure {
+  const ReviewAlreadyExistsFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).reviewErrAlreadyReviewed;
+}
+
+/// Emitted when `POST /reviews` is rejected because the booking is not
+/// reviewable by this client (Phase 14.6): HTTP **403** (the booking is not
+/// owned by the authenticated client) or a **4xx** (e.g. the booking is not in
+/// the `COMPLETED` state the backend requires). Both collapse to one friendly
+/// "this booking can't be reviewed" message — the client never needs to
+/// distinguish the two, and the `canReview` gate already prevents the happy
+/// path from reaching either.
+///
+/// Decoded by `HttpBookingRepository._mapReviewException` before deferring to
+/// the shared `_mapDioException`.
+final class ReviewNotAllowedFailure extends Failure {
+  const ReviewNotAllowedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).reviewErrNotAllowed;
+}

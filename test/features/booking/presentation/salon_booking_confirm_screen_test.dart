@@ -88,6 +88,13 @@ class _FakeBookingRepository implements BookingRepository {
   Future<Booking> getBookingById(String id) => throw UnimplementedError();
 
   @override
+  Future<void> createReview({
+    required String bookingId,
+    required int rating,
+    String? comment,
+  }) => throw UnimplementedError();
+
+  @override
   Future<void> cancelBooking(String id, {String? reason}) =>
       throw UnimplementedError();
 
@@ -157,6 +164,13 @@ class _GatedBookingRepository implements BookingRepository {
 
   @override
   Future<Booking> getBookingById(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> createReview({
+    required String bookingId,
+    required int rating,
+    String? comment,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> cancelBooking(String id, {String? reason}) =>

@@ -214,6 +214,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     context.push(RouteNames.masterPublicProfile(booking.masterId));
   }
 
+  /// «Залишити відгук про майстра» — pushes the Phase 14.6 leave-review screen
+  /// onto the Записи branch (swipe-back returns here). Gated on
+  /// `booking.canReview` at the call site (the CTA is only built then).
+  void _onLeaveReview(Booking booking) {
+    context.push(RouteNames.bookingReview(booking.id));
+  }
+
   @override
   Widget build(BuildContext context) {
     final AsyncValue<Booking> async = ref.watch(
@@ -235,6 +242,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         onReschedule: () => _onReschedule(context, booking),
         onCancel: () => _confirmCancel(context, booking),
         onRebook: () => _onRebook(booking),
+        onLeaveReview: () => _onLeaveReview(booking),
         onAddToCalendar: () => _onAddToCalendar(context, booking),
       ),
     );
@@ -250,6 +258,7 @@ class _DetailBody extends StatelessWidget {
     required this.onReschedule,
     required this.onCancel,
     required this.onRebook,
+    required this.onLeaveReview,
     required this.onAddToCalendar,
   });
 
@@ -258,6 +267,7 @@ class _DetailBody extends StatelessWidget {
   final VoidCallback onReschedule;
   final VoidCallback onCancel;
   final VoidCallback onRebook;
+  final VoidCallback onLeaveReview;
   final VoidCallback onAddToCalendar;
 
   @override
@@ -407,10 +417,33 @@ class _DetailBody extends StatelessWidget {
           ),
         ];
 
+      // A just-completed booking's most relevant next action is leaving a
+      // review — the primary CTA while the server still says it's reviewable
+      // (COMPLETED + owner + not already reviewed, via `canReview`). Rebooking
+      // stays available below it. Once reviewed (`canReview` false) only the
+      // rebook CTA remains — matching the CANCELLED / DECLINED states.
+      case BookingStatus.completed:
+        if (booking.canReview) {
+          return <Widget>[
+            NeumorphicButton(
+              key: const Key('booking-detail-leave-review'),
+              label: l10n.bookingDetailReviewCta,
+              icon: Icons.rate_review_rounded,
+              onPressed: onLeaveReview,
+            ),
+            const SizedBox(height: VelvetSpacing.xs),
+            NeumorphicButton(
+              label: l10n.bookingDetailRebookCta,
+              icon: Icons.refresh_rounded,
+              onPressed: onRebook,
+            ),
+          ];
+        }
+        return _rebookActions(l10n);
+
       // A kept appointment is the strongest rebook signal there is; a
       // cancelled one leaves an unmet need whoever ended it — same label in
-      // all three, because an action keeps its name.
-      case BookingStatus.completed:
+      // both, because an action keeps its name.
       case BookingStatus.cancelled:
       case BookingStatus.declined:
         return _rebookActions(l10n);

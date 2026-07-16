@@ -30,6 +30,8 @@ class _MockDio extends Mock implements Dio {}
 
 class _MockBookingControllerApi extends Mock implements BookingControllerApi {}
 
+class _MockReviewControllerApi extends Mock implements ReviewControllerApi {}
+
 const _createPath = '/api/v1/bookings';
 const _getPath = '/api/v1/bookings/booking-1';
 const _cancelPath = '/api/v1/bookings/booking-1/cancel';
@@ -189,6 +191,7 @@ DioException _dioConnectionError(String path) => DioException(
 void main() {
   late _MockDio dio;
   late _MockBookingControllerApi bookingApi;
+  late _MockReviewControllerApi reviewApi;
   late HttpBookingRepository repository;
 
   setUpAll(() {
@@ -221,7 +224,8 @@ void main() {
   setUp(() {
     dio = _MockDio();
     bookingApi = _MockBookingControllerApi();
-    repository = HttpBookingRepository(dio, bookingApi);
+    reviewApi = _MockReviewControllerApi();
+    repository = HttpBookingRepository(dio, bookingApi, reviewApi);
   });
 
   group('createBooking', () {

@@ -85,6 +85,14 @@ abstract final class RouteNames {
   static String bookingDetail(String bookingId) =>
       '$clientBookings/${Uri.encodeComponent(bookingId)}';
 
+  /// Phase 14.6 — «ВІДГУК ПРО МАЙСТРА» (leave-review), nested under
+  /// [bookingDetail] so it pushes onto the Записи branch's own navigator. It is
+  /// BOTH the detail screen's `canReview` entry target AND the backend 18.5
+  /// `reviewUrl` push deep-link target. CLIENT-only via the `/bookings` prefix
+  /// gate in [authRedirect].
+  static String bookingReview(String bookingId) =>
+      '$clientBookings/${Uri.encodeComponent(bookingId)}/review';
+
   /// Phase 13.3 — discovery results. Reached from the Пошук filters screen's
   /// «Показати майстрів» CTA via `context.push(..., extra: SearchFilters)`. A
   /// `push` (not a branch hop) so the swipe-back gesture returns to the filters
