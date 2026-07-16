@@ -61,6 +61,8 @@ import 'package:integration_test/integration_test.dart';
 import 'auth_login_flow_test.dart' as auth_login;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
+import 'client_elapsed_booking_readonly_flow_test.dart'
+    as client_elapsed_booking_readonly;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
@@ -117,6 +119,14 @@ void main() {
   // My Bookings → Booking Detail → Cancel journey (Step 2.7 Rule 3b) — the
   // auto-confirm state machine end-to-end against a mutating fake backend.
   group('client_my_bookings_cancel_flow', client_my_bookings_cancel.main);
+  // Elapsed CONFIRMED booking → read-only detail (Step 2.7 Rule 3b) — same
+  // harness/detail as the cancel flow, but the seed window is pushed into the
+  // past so reschedule + cancel + add-to-calendar drop away and only
+  // «Записатись знову» is offered.
+  group(
+    'client_elapsed_booking_readonly_flow',
+    client_elapsed_booking_readonly.main,
+  );
   // CLIENT reschedule journey (Step 2.7 Rule 3b) — detail «Перенести» → slot
   // picker → new date+time → confirm (RESCHEDULE mode) → PATCH /reschedule →
   // success, plus both provider invalidations + the Home-Hub entry point.

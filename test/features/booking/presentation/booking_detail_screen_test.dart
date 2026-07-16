@@ -23,6 +23,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -62,8 +63,9 @@ Booking _booking({
   String? clientComment,
   String? providerComment,
   String? clientCancellationNote,
+  DateTime? start,
 }) {
-  final DateTime start = DateTime.utc(2026, 7, 20, 15);
+  final DateTime startInstant = start ?? DateTime.utc(2026, 7, 20, 15);
   return Booking(
     id: id,
     masterId: 'm1',
@@ -81,8 +83,8 @@ Booking _booking({
     buildingNo: '12',
     durationMinutes: 90,
     price: 650,
-    startAt: start,
-    endAt: start.add(const Duration(minutes: 90)),
+    startAt: startInstant,
+    endAt: startInstant.add(const Duration(minutes: 90)),
     status: status,
     canReview: false,
     clientComment: clientComment,
@@ -209,6 +211,172 @@ void main() {
         // The client's own booking brief comes back as OUTbound (their words).
         expect(find.byType(OutboundNote), findsOneWidget);
         expect(find.byType(InboundNote), findsNothing);
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Elapsed CONFIRMED — the read-only gate (BookingDisplayX.isPast).
+  //
+  // A CONFIRMED booking whose `endAt` is already past the device clock flips
+  // read-only: Reschedule + Cancel + the header calendar icon drop away and the
+  // terminal-state «Записатись знову» affordance (shared `_rebookActions`) takes
+  // their place. The client gate is COSMETIC — the server still owns the real
+  // rule (409 BOOKING_ALREADY_ELAPSED) — but the UI must not offer actions that
+  // can only fail. `isPast` reads real `DateTime.now()`, so the fixture uses a
+  // firmly past/future fixed instant (not now-relative) for determinism.
+  // -------------------------------------------------------------------------
+
+  group('CONFIRMED but ELAPSED — read-only', () {
+    testWidgets('hides reschedule + cancel + header calendar icon and offers '
+        '«Записатись знову»', (tester) async {
+      await _pumpDetail(
+        tester,
+        _booking(
+          status: BookingStatus.confirmed,
+          start: DateTime.utc(2000, 1, 1),
+        ),
+      );
+      final l10n = _l10n(tester);
+
+      // The three CONFIRMED affordances are gone…
+      expect(find.byKey(const Key('booking-detail-reschedule')), findsNothing);
+      expect(find.byKey(const Key('booking-detail-cancel')), findsNothing);
+      expect(
+        find.byKey(const Key('booking-detail-add-calendar')),
+        findsNothing,
+      );
+      // …replaced by the single rebook CTA.
+      expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
+      // It is still a CONFIRMED booking (the confirmed subline persists) —
+      // only its action set changed, not the whole screen.
+      expect(find.text(l10n.bookingDetailSublineConfirmed), findsOneWidget);
+    });
+  });
+
+  group('CONFIRMED and NOT elapsed — unchanged', () {
+    testWidgets(
+      'keeps reschedule + cancel + header calendar icon and shows NO rebook',
+      (tester) async {
+        await _pumpDetail(
+          tester,
+          _booking(
+            status: BookingStatus.confirmed,
+            start: DateTime.utc(2999, 1, 1),
+          ),
+        );
+        final l10n = _l10n(tester);
+
+        // All three CONFIRMED affordances present — the gate is elapsed-only.
+        expect(
+          find.byKey(const Key('booking-detail-reschedule')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('booking-detail-cancel')), findsOneWidget);
+        expect(
+          find.byKey(const Key('booking-detail-add-calendar')),
+          findsOneWidget,
+        );
+        // The rebook CTA is the terminal/elapsed affordance — absent here.
+        expect(find.text(l10n.bookingDetailRebookCta), findsNothing);
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Terminal states rebook via the SHARED `_rebookActions` helper — a
+  // regression guard for the refactor that extracted the elapsed-CONFIRMED and
+  // terminal footers onto one code path. All three terminal rebook states must
+  // still render exactly the «Записатись знову» button and no CONFIRMED action.
+  // -------------------------------------------------------------------------
+
+  group(
+    'terminal states rebook via shared _rebookActions (refactor guard)',
+    () {
+      for (final BookingStatus status in <BookingStatus>[
+        BookingStatus.completed,
+        BookingStatus.cancelled,
+        BookingStatus.declined,
+      ]) {
+        testWidgets('$status still shows «Записатись знову» and no CONFIRMED '
+            'actions', (tester) async {
+          await _pumpDetail(tester, _booking(status: status));
+          final l10n = _l10n(tester);
+
+          expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
+          expect(
+            find.byKey(const Key('booking-detail-reschedule')),
+            findsNothing,
+          );
+          expect(find.byKey(const Key('booking-detail-cancel')), findsNothing);
+        });
+      }
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Cancel elapsed-race handling — stale screen / device-clock rollback.
+  //
+  // A NON-elapsed CONFIRMED booking shows «Скасувати запис», but the SERVER
+  // clock is authoritative: it can 409 BOOKING_ALREADY_ELAPSED between the
+  // screen opening and the confirm tap. The screen must catch it, surface the
+  // localized `bookingErrorAlreadyElapsed` SnackBar (never a raw 409), and
+  // refetch the booking (invalidate `bookingDetailProvider`) so it re-renders
+  // read-only.
+  // -------------------------------------------------------------------------
+
+  group('cancel elapsed-race handling', () {
+    testWidgets(
+      'a BookingAlreadyElapsedFailure on confirm shows the localized message '
+      'and refetches the booking',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.cancelBooking(any(), reason: any(named: 'reason')),
+        ).thenThrow(const BookingAlreadyElapsedFailure());
+
+        // Non-elapsed so the cancel button is visible; the server 409s anyway.
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          start: DateTime.utc(2999, 1, 1),
+        );
+        int fetches = 0;
+        await tester.pumpApp(
+          BookingDetailScreen(bookingId: booking.id),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            bookingRepositoryProvider.overrideWithValue(repo),
+            bookingDetailProvider(booking.id).overrideWith((ref) async {
+              fetches++;
+              return booking;
+            }),
+          ],
+        );
+        await tester.pumpAndSettle();
+        expect(fetches, 1, reason: 'the initial detail load');
+
+        // Open the cancel dialog and confirm with an empty note.
+        await tester.tap(find.byKey(const Key('booking-detail-cancel')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
+        await tester.pumpAndSettle();
+
+        final l10n = _l10n(tester);
+        // The clean localized message surfaced (not a raw 409 / errUnknown).
+        expect(find.text(l10n.bookingErrorAlreadyElapsed), findsOneWidget);
+        expect(find.text(l10n.errUnknown), findsNothing);
+        // The write was attempted exactly once…
+        verify(() => repo.cancelBooking('b1', reason: null)).called(1);
+        // …and the catch refetched the booking so it can re-render read-only.
+        expect(
+          fetches,
+          2,
+          reason: 'ref.invalidate(bookingDetailProvider) forced a refetch',
+        );
+
+        // Drain the SnackBar's auto-dismiss timer so none is pending at
+        // teardown (fixed-Duration waits are banned — pump until it is gone).
+        await tester.pumpUntilGone(find.text(l10n.bookingErrorAlreadyElapsed));
       },
     );
   });

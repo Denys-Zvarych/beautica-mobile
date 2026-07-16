@@ -53,6 +53,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -122,6 +123,19 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       await ref
           .read(bookingRepositoryProvider)
           .cancelBooking(booking.id, reason: note.isEmpty ? null : note);
+    } on BookingAlreadyElapsedFailure catch (failure) {
+      // The slot elapsed against the SERVER clock between this (possibly stale)
+      // screen opening and the confirm tap — or the device clock was rolled
+      // back and the server refused to honour it. Surface the clean localized
+      // message AND refetch the booking so it re-renders read-only (Reschedule
+      // + Cancel drop away, «Записатись знову» takes their place) — never a
+      // raw 409.
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      ref.invalidate(bookingDetailProvider(booking.id));
+      return;
     } catch (_) {
       if (!context.mounted) return;
       final l10n = AppLocalizations.of(context);
@@ -267,11 +281,13 @@ class _DetailBody extends StatelessWidget {
       canPop: true,
       leading: _BackButton(semanticLabel: l10n.bookingDetailBackSemantics),
       // «Додати в календар» now lives as a header icon opposite the back
-      // button (CONFIRMED-only, same `canAddToCalendar` gate as before),
-      // freeing the pinned footer to a clean two-button stack. It copies the
-      // appointment elsewhere — it does not act ON the booking — so it belongs
-      // at the top, not in the primary/destructive action hierarchy below.
-      headerTrailing: booking.canAddToCalendar
+      // button (CONFIRMED-only via `canAddToCalendar`), freeing the pinned
+      // footer to a clean two-button stack. It copies the appointment
+      // elsewhere — it does not act ON the booking — so it belongs at the top,
+      // not in the primary/destructive action hierarchy below. Also dropped
+      // once the slot has ELAPSED (`isPast`): adding a past event to a calendar
+      // is pointless, and an elapsed CONFIRMED booking is read-only anyway.
+      headerTrailing: booking.canAddToCalendar && !booking.isPast
           ? _CalendarIconButton(onTap: onAddToCalendar)
           : null,
       showHero: showStatusHero,
@@ -347,6 +363,14 @@ class _DetailBody extends StatelessWidget {
     switch (booking.status) {
       case BookingStatus.pending:
       case BookingStatus.confirmed:
+        // An ELAPSED CONFIRMED booking is READ-ONLY: its slot is already in the
+        // past, so Reschedule + Cancel no longer apply (the backend 409s both
+        // with BOOKING_ALREADY_ELAPSED — the server clock is authoritative).
+        // Route it into the SAME «Записатись знову» affordance the terminal
+        // states use, rather than showing actions that can only fail.
+        if (booking.status == BookingStatus.confirmed && booking.isPast) {
+          return _rebookActions(l10n);
+        }
         return <Widget>[
           // Reschedule is CONFIRMED-only (backend `PATCH …/reschedule`); a
           // PENDING booking would 409, so the «Перенести» CTA is shown only
@@ -374,19 +398,25 @@ class _DetailBody extends StatelessWidget {
       case BookingStatus.completed:
       case BookingStatus.cancelled:
       case BookingStatus.declined:
-        return <Widget>[
-          NeumorphicButton(
-            label: l10n.bookingDetailRebookCta,
-            icon: Icons.refresh_rounded,
-            onPressed: onRebook,
-          ),
-        ];
+        return _rebookActions(l10n);
 
       // Deliberately nothing — see the file header.
       case BookingStatus.notCompleted:
         return const <Widget>[];
     }
   }
+
+  /// The single «Записатись знову» footer — shared by the terminal states
+  /// (COMPLETED / CANCELLED / DECLINED) and by an elapsed CONFIRMED booking,
+  /// which is likewise read-only and offers rebooking as its only forward
+  /// action.
+  List<Widget> _rebookActions(AppLocalizations l10n) => <Widget>[
+    NeumorphicButton(
+      label: l10n.bookingDetailRebookCta,
+      icon: Icons.refresh_rounded,
+      onPressed: onRebook,
+    ),
+  ];
 }
 
 /// Adapts [MasterStrip] to the enriched [Booking] fields — mirrors

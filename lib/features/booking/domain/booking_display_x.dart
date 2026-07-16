@@ -60,6 +60,26 @@ extension BookingDisplayX on Booking {
   /// show up to.
   bool get canAddToCalendar => status == BookingStatus.confirmed;
 
+  /// Whether this booking's end instant is already in the PAST relative to the
+  /// device clock — a PRESENTATION-ONLY signal.
+  ///
+  /// Used to flip a CONFIRMED booking's «Деталі запису» to read-only once its
+  /// slot has elapsed: hide Reschedule / Cancel / add-to-calendar and offer
+  /// «Записатись знову» instead (the terminal states' affordance). It is NOT an
+  /// authorization gate — the SERVER owns the real rule: a CONFIRMED booking
+  /// whose `endsAt` is before the SERVER clock returns HTTP 409
+  /// `BOOKING_ALREADY_ELAPSED` on reschedule/cancel (mapped to
+  /// `BookingAlreadyElapsedFailure`). A device-clock rollback can therefore
+  /// only soften this UI; it can never actually reschedule or cancel an elapsed
+  /// booking.
+  ///
+  /// Compares absolute instants — [endAt] is canonical UTC and `DateTime.now()`
+  /// is the device instant, and `isBefore` orders by microsecondsSinceEpoch
+  /// regardless of each operand's zone. No Kyiv-pinned `toBeauticaTime`
+  /// conversion is needed here: that pin governs wall-clock DISPLAY
+  /// (`.hour`/`.minute`), not instant ORDERING, which is timezone-agnostic.
+  bool get isPast => endAt.isBefore(DateTime.now());
+
   /// The four location fields composed into one line, or `null` when the
   /// provider has no usable location on file. See [composeAddressLine].
   String? get addressLine => composeAddressLine(

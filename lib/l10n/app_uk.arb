@@ -128,6 +128,10 @@
   "@bookingErrRateLimited": {
     "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
   },
+  "bookingErrorAlreadyElapsed": "Час цього запису вже минув.",
+  "@bookingErrorAlreadyElapsed": {
+    "description": "Error message shown when PATCH /bookings/{id}/reschedule or /cancel returns HTTP 409 with data.code == BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's slot is already past the server clock, so it can no longer be rescheduled or cancelled. Surfaced via BookingAlreadyElapsedFailure.userMessage on a stale-screen / clock-rollback tap."
+  },
   "errEmailAlreadyRegistered": "Ця електронна адреса вже зареєстрована. Увійдіть до облікового запису.",
   "@errEmailAlreadyRegistered": {
     "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."

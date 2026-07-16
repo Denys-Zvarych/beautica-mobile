@@ -553,6 +553,32 @@ final class ClientBookingConflictFailure extends Failure {
   }
 }
 
+/// Emitted when `PATCH /bookings/{id}/reschedule` or `PATCH /bookings/{id}/cancel`
+/// returns HTTP **409** with the typed `data.code == "BOOKING_ALREADY_ELAPSED"`
+/// envelope (backend commit 952e441): the booking's `endsAt` is already before
+/// the SERVER clock, so it can no longer be rescheduled or cancelled — the visit
+/// window has passed.
+///
+/// The guard is SERVER-authoritative: a client device-clock rollback cannot
+/// bypass it. The mobile UI already flips an elapsed CONFIRMED booking to
+/// read-only (see `BookingDisplayX.isPast`), so this failure is the defensive
+/// backstop for a stale screen or a rolled-back clock that let the tap through
+/// anyway — the screen catches it, shows [userMessage], and refetches the
+/// booking so it re-renders read-only.
+///
+/// Decoded by `HttpBookingRepository` (both the write mapper
+/// `_mapBookingWriteException` for reschedule and the cancel mapper) — the
+/// `data.code` check runs BEFORE the generic 409 → [ConflictFailure] /
+/// [ClientBookingConflictFailure] fallbacks, mirroring the
+/// `CLIENT_BOOKING_CONFLICT` precedent.
+final class BookingAlreadyElapsedFailure extends Failure {
+  const BookingAlreadyElapsedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrorAlreadyElapsed;
+}
+
 /// Emitted when `POST /bookings` or `PATCH /bookings/{id}/reschedule` returns
 /// HTTP **429** — the per-user booking-write rate limit (5 requests / 10 s,
 /// backend commit f95d8fd) is exhausted.

@@ -21,8 +21,9 @@ Booking _booking({
   String? street,
   String? buildingNo,
   int durationMinutes = 90,
+  DateTime? start,
 }) {
-  final DateTime start = DateTime.utc(2026, 7, 20, 15);
+  final DateTime startInstant = start ?? DateTime.utc(2026, 7, 20, 15);
   return Booking(
     id: 'b1',
     masterId: 'm1',
@@ -40,8 +41,8 @@ Booking _booking({
     buildingNo: buildingNo,
     durationMinutes: durationMinutes,
     price: 650,
-    startAt: start,
-    endAt: start.add(Duration(minutes: durationMinutes)),
+    startAt: startInstant,
+    endAt: startInstant.add(Duration(minutes: durationMinutes)),
     status: status,
     canReview: false,
     clientComment: null,
@@ -171,6 +172,88 @@ void main() {
         expect(_booking(status: s).canAddToCalendar, isFalse);
       });
     }
+  });
+
+  group('isPast — elapsed detection for the read-only CONFIRMED gate', () {
+    // `isPast => endAt.isBefore(DateTime.now())` — a PRESENTATION-ONLY signal
+    // the detail screen combines with `status == confirmed` to flip the footer
+    // read-only. It orders by absolute instant (microsecondsSinceEpoch), never
+    // wall-clock, so a UTC `endAt` and a local `DateTime.now()` compare
+    // correctly regardless of zone. `isBefore` is EXCLUSIVE — an `endAt` equal
+    // to the current instant is NOT past.
+
+    test('is true when endAt is just before now', () {
+      // endAt ≈ now − 5 s → strictly before the device clock → elapsed.
+      final Booking b = _booking(
+        status: BookingStatus.confirmed,
+        start: DateTime.now().toUtc().subtract(
+          const Duration(minutes: 90, seconds: 5),
+        ),
+      );
+      expect(b.isPast, isTrue);
+    });
+
+    test('is false when endAt is just after now', () {
+      // endAt ≈ now + 95 min → strictly after the device clock → not elapsed.
+      final Booking b = _booking(
+        status: BookingStatus.confirmed,
+        start: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+      );
+      expect(b.isPast, isFalse);
+    });
+
+    test('is true for a firmly past booking regardless of clock skew', () {
+      expect(
+        _booking(
+          status: BookingStatus.confirmed,
+          start: DateTime.utc(2000, 1, 1),
+        ).isPast,
+        isTrue,
+      );
+    });
+
+    test('is false for a far-future booking regardless of clock skew', () {
+      expect(
+        _booking(
+          status: BookingStatus.confirmed,
+          start: DateTime.utc(2999, 1, 1),
+        ).isPast,
+        isFalse,
+      );
+    });
+
+    test('orders by absolute instant — a UTC-past endAt is elapsed even from a '
+        'local-zone now', () {
+      // endAt is canonical UTC; DateTime.now() is the local device instant.
+      // The comparison is by microsecondsSinceEpoch, so no Kyiv-pin is needed
+      // for ORDERING (only for wall-clock DISPLAY).
+      final Booking b = _booking(
+        status: BookingStatus.confirmed,
+        start: DateTime.utc(2000, 1, 1),
+      );
+      expect(b.endAt.isUtc, isTrue);
+      expect(b.isPast, isTrue);
+    });
+
+    test('is purely endAt-vs-now — orthogonal to booking status', () {
+      // The SCREEN gates on `confirmed && isPast`; the getter itself never
+      // consults status, so a past COMPLETED and a future CANCELLED report
+      // isPast on their instants alone.
+      expect(
+        _booking(
+          status: BookingStatus.completed,
+          start: DateTime.utc(2000, 1, 1),
+        ).isPast,
+        isTrue,
+      );
+      expect(
+        _booking(
+          status: BookingStatus.cancelled,
+          start: DateTime.utc(2999, 1, 1),
+        ).isPast,
+        isFalse,
+      );
+    });
   });
 
   group('addressLine / hasDestination', () {
