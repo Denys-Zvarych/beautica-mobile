@@ -239,6 +239,12 @@ abstract final class RouteNames {
   static const String masterEditContacts = '/master/edit/contacts';
   static const String masterEditLocation = '/master/edit/location';
 
+  // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
+  // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
+  // masterId from the session (authProvider), so the reviews are always the
+  // authenticated master's own.
+  static const String masterReceivedReviews = '/master/received-reviews';
+
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';
   static const String serviceCreate = '/services/create';

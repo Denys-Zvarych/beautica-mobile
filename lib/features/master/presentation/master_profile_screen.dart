@@ -487,13 +487,21 @@ class _ProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.reviews_outlined,
-                    value: master.reviewCount == 0
-                        ? '—'
-                        : master.reviewCount.toString(),
-                    caption: l10n.masterStatsReviewsLabel,
-                    valueKey: const Key('master-profile-reviews-value'),
+                  // Phase 4.6 — only the reviews tile is tappable: it pushes the
+                  // master's own «Мої відгуки» screen. The other three tiles
+                  // stay non-interactive; StatTile itself is left untouched.
+                  child: GestureDetector(
+                    key: const Key('master-profile-reviews-tile'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => context.push(RouteNames.masterReceivedReviews),
+                    child: StatTile(
+                      icon: Icons.reviews_outlined,
+                      value: master.reviewCount == 0
+                          ? '—'
+                          : master.reviewCount.toString(),
+                      caption: l10n.masterStatsReviewsLabel,
+                      valueKey: const Key('master-profile-reviews-value'),
+                    ),
                   ),
                 ),
               ],

@@ -22,8 +22,9 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/shared/formatters/relative_date.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -72,8 +73,13 @@ class _SalonReviewsSectionState extends ConsumerState<SalonReviewsSection> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           summaryAsync.when(
-            data: (SalonReviewSummary summary) =>
-                _RatingSummary(summary: summary),
+            data: (SalonReviewSummary summary) => RatingSummaryCard(
+              avgRating: summary.avgRating,
+              reviewCount: summary.reviewCount,
+              distribution: summary.distribution,
+              countLabel: l10n.salonReviewCountLabel(summary.reviewCount),
+              averageKey: const Key('salon-review-summary-average'),
+            ),
             loading: () => const _RatingSummarySkeleton(),
             error: (Object e, _) => ErrorState(
               failure: e is Failure ? e : UnknownFailure(cause: e),
@@ -116,7 +122,7 @@ class _SalonReviewsSectionState extends ConsumerState<SalonReviewsSection> {
                 : Column(
                     children: <Widget>[
                       for (int i = 0; i < reviews.length; i++) ...<Widget>[
-                        _ReviewCard(review: reviews[i]),
+                        _salonReviewCard(l10n, reviews[i]),
                         if (i < reviews.length - 1)
                           const SizedBox(height: VelvetSpacing.md),
                       ],
@@ -315,105 +321,6 @@ class _SortRow extends StatelessWidget {
   }
 }
 
-/// A camel ★ row for a 1–5 [rating]. Filled stars use [BrandColors.accentDeep];
-/// the remaining stars are muted to [BrandColors.faint].
-class _StarRow extends StatelessWidget {
-  const _StarRow({required this.rating, this.size = 16, this.gap = 2});
-
-  final int rating;
-  final double size;
-  final double gap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        for (int i = 0; i < 5; i++) ...<Widget>[
-          Icon(
-            Icons.star_rounded,
-            size: size,
-            color: i < rating ? BrandColors.accentDeep : BrandColors.faint,
-          ),
-          if (i < 4) SizedBox(width: gap),
-        ],
-      ],
-    );
-  }
-}
-
-/// The raised rating-summary header: a big average + ★ row + count on the
-/// left, a quiet five-row star distribution on the right.
-class _RatingSummary extends StatelessWidget {
-  const _RatingSummary({required this.summary});
-
-  final SalonReviewSummary summary;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final List<int> distribution = summary.distribution;
-    int sum = 0;
-    for (final int c in distribution) {
-      sum += c;
-    }
-    final int denom = sum == 0 ? 1 : sum;
-    final double? avg = summary.avgRating;
-
-    return NeumorphicCard(
-      padding: const EdgeInsets.all(VelvetSpacing.lg),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Text(
-                  avg == null ? '—' : avg.toStringAsFixed(1),
-                  key: const Key('salon-review-summary-average'),
-                  style: VelvetText.salonReviewAverage,
-                ),
-                const SizedBox(height: VelvetSpacing.xs + 2),
-                const _StarRow(rating: 5, size: 17, gap: 3),
-                const SizedBox(height: VelvetSpacing.xs + 2),
-                Text(
-                  l10n.salonReviewCountLabel(summary.reviewCount),
-                  style: VelvetText.feedbackMutedSm,
-                ),
-              ],
-            ),
-            const SizedBox(width: VelvetSpacing.lg),
-            const VerticalDivider(
-              width: 1,
-              thickness: 1,
-              color: BrandColors.faint,
-            ),
-            const SizedBox(width: VelvetSpacing.lg),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  for (int star = 5; star >= 1; star--) ...<Widget>[
-                    _DistributionRow(
-                      star: star,
-                      count: distribution[5 - star],
-                      fraction: distribution[5 - star] / denom,
-                    ),
-                    if (star > 1) const SizedBox(height: VelvetSpacing.sm),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _RatingSummarySkeleton extends StatelessWidget {
   const _RatingSummarySkeleton();
 
@@ -454,174 +361,23 @@ class _ReviewListSkeleton extends StatelessWidget {
   }
 }
 
-/// One row of the distribution: the star number, a thin recessed track with a
-/// camel-filled proportion bar, and the bucket count.
-class _DistributionRow extends StatelessWidget {
-  const _DistributionRow({
-    required this.star,
-    required this.count,
-    required this.fraction,
-  });
-
-  final int star;
-  final int count;
-  final double fraction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Text('$star', style: VelvetText.bodyStrong12),
-        const SizedBox(width: 3),
-        const Icon(Icons.star_rounded, size: 12, color: BrandColors.accent),
-        const SizedBox(width: VelvetSpacing.sm),
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: Container(
-              height: 6,
-              color: BrandColors.faint.withValues(alpha: 0.45),
-              child: FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: fraction.clamp(0.0, 1.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: <Color>[
-                        BrandColors.accent,
-                        BrandColors.accentLatte,
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: VelvetSpacing.sm),
-        SizedBox(
-          width: 26,
-          child: Text(
-            '$count',
-            textAlign: TextAlign.right,
-            style: VelvetText.feedbackMutedXs,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A single review: a raised card with an avatar + name + relative-date
-/// header, this review's ★ row, the comment body and an optional muted
-/// «послуга: …» sub-line.
-class _ReviewCard extends StatelessWidget {
-  const _ReviewCard({required this.review});
-
-  final SalonReviewItem review;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final String relativeDate = formatRelativeDate(l10n, review.createdAt);
-    final String? service = review.serviceName;
-    return NeumorphicCard(
-      key: Key('salon-review-${review.id}'),
-      padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              _ReviewAvatar(seed: review.id),
-              const SizedBox(width: VelvetSpacing.sm + 2),
-              Expanded(
-                child: Text(
-                  review.clientDisplayName,
-                  style: VelvetText.subheading15,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: VelvetSpacing.sm),
-              Text(relativeDate, style: VelvetText.feedbackMutedSm),
-            ],
-          ),
-          const SizedBox(height: VelvetSpacing.sm + 2),
-          _StarRow(rating: review.rating, size: 16, gap: 2),
-          const SizedBox(height: VelvetSpacing.sm + 2),
-          Text(review.comment, style: VelvetText.bodyStrong()),
-          if (service != null && service.isNotEmpty) ...<Widget>[
-            const SizedBox(height: VelvetSpacing.sm + 2),
-            Row(
-              children: <Widget>[
-                const Icon(
-                  Icons.spa_outlined,
-                  size: 13,
-                  color: BrandColors.muted,
-                ),
-                const SizedBox(width: VelvetSpacing.xs + 1),
-                Flexible(
-                  child: Text(
-                    l10n.salonReviewServicePrefix(service),
-                    style: VelvetText.feedbackMuted12w600,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// A small circular gradient avatar with an embossed person glyph — the same
-/// camel→mocha treatment as [SalonMasterCard]'s avatar, sized for a review
-/// row. [seed] deterministically picks the gradient (never a fabricated
-/// photo).
-class _ReviewAvatar extends StatelessWidget {
-  const _ReviewAvatar({required this.seed});
-
-  final String seed;
-
-  static const List<List<Color>> _gradients = <List<Color>>[
-    <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
-    <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
-    <Color>[Color(0xFFDFC6A8), Color(0xFFB89A7A)],
-    <Color>[Color(0xFFC8A878), Color(0xFF6A4A28)],
-    <Color>[Color(0xFFCFB090), Color(0xFF8A6840)],
-    <Color>[Color(0xFFE0CAAC), Color(0xFFB89A7A)],
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final List<Color> gradient =
-        _gradients[seed.hashCode.abs() % _gradients.length];
-    return Container(
-      height: 40,
-      width: 40,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: gradient,
-        ),
-        boxShadow: VelvetShadows.extrudedSmall,
-      ),
-      child: Center(
-        child: Icon(
-          Icons.person_rounded,
-          color: BrandColors.white.withValues(alpha: 0.82),
-          size: 20,
-        ),
-      ),
-    );
-  }
+/// Maps a salon [SalonReviewItem] to the shared [ReviewCard], populating the
+/// «послуга: …» sub-line from the item's [SalonReviewItem.serviceName] (master
+/// reviews have no service, so their cards pass no [ReviewCard.servicePrefix]).
+ReviewCard _salonReviewCard(AppLocalizations l10n, SalonReviewItem item) {
+  final String? service = item.serviceName;
+  return ReviewCard(
+    data: ReviewCardData(
+      id: item.id,
+      clientDisplayName: item.clientDisplayName,
+      rating: item.rating,
+      comment: item.comment,
+      createdAt: item.createdAt,
+      serviceName: item.serviceName,
+    ),
+    keyPrefix: 'salon-review',
+    servicePrefix: (service != null && service.isNotEmpty)
+        ? l10n.salonReviewServicePrefix(service)
+        : null,
+  );
 }

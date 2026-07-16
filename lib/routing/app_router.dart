@@ -66,6 +66,7 @@ import '../features/discovery/presentation/search_results_screen.dart';
 import '../features/master/presentation/contacts_edit_screen.dart';
 import '../features/master/presentation/location_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
+import '../features/master/presentation/master_received_reviews_screen.dart';
 import '../features/master/presentation/personal_info_edit_screen.dart';
 import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
@@ -848,6 +849,14 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.masterEditLocation,
         builder: (context, state) => const LocationEditScreen(),
+      ),
+      // Phase 4.6 — Master received-reviews («Мої відгуки»). Pushed from the
+      // profile "Відгуки" stat tile. MaterialPage (builder:) so the theme's
+      // CupertinoPageTransitionsBuilder installs the left-edge swipe-back
+      // gesture, matching the sibling /master/* sub-routes above.
+      GoRoute(
+        path: RouteNames.masterReceivedReviews,
+        builder: (context, state) => const MasterReceivedReviewsScreen(),
       ),
       // CLIENT settings hub + per-section edit pages. Mirror the master
       // /master/menu + /master/edit/* block above but for the CLIENT role.

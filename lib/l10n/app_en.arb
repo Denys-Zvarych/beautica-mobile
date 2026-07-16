@@ -4089,6 +4089,48 @@
       }
     }
   },
+  "masterReviewsTitle": "My reviews",
+  "@masterReviewsTitle": {
+    "description": "App-bar title of the independent-master received-reviews screen."
+  },
+  "masterReviewsEmpty": "No reviews yet",
+  "@masterReviewsEmpty": {
+    "description": "Empty state on the master received-reviews screen when the master has no reviews yet."
+  },
+  "masterReviewCountLabel": "{count, plural, =0{0 reviews} =1{1 review} other{{count} reviews}}",
+  "@masterReviewCountLabel": {
+    "description": "Standalone review-count line under the master's average rating.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "masterReviewSortNewest": "Newest first",
+  "@masterReviewSortNewest": {
+    "description": "Master reviews sort option — newest first."
+  },
+  "masterReviewSortOldest": "Oldest first",
+  "@masterReviewSortOldest": {
+    "description": "Master reviews sort option — oldest first."
+  },
+  "masterReviewSortHighest": "Highest rating",
+  "@masterReviewSortHighest": {
+    "description": "Master reviews sort option — highest rating first."
+  },
+  "masterReviewSortLowest": "Lowest rating",
+  "@masterReviewSortLowest": {
+    "description": "Master reviews sort option — lowest rating first."
+  },
+  "masterReviewSortButtonLabel": "Sort",
+  "@masterReviewSortButtonLabel": {
+    "description": "Accessibility label for the master reviews sort icon button."
+  },
+  "masterReviewSortSheetTitle": "Sort",
+  "@masterReviewSortSheetTitle": {
+    "description": "Title of the master reviews sort-options bottom sheet."
+  },
   "salonServiceCategoryExpanded": "expanded",
   "@salonServiceCategoryExpanded": {
     "description": "Accessibility state word appended to a salon service category header when expanded."

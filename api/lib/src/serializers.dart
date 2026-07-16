@@ -43,6 +43,7 @@ import 'package:beautica_api/src/model/api_response_list_weekly_schedule_respons
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_master_public_profile_response.dart';
+import 'package:beautica_api/src/model/api_response_master_review_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_media_file_response.dart';
@@ -119,6 +120,7 @@ import 'package:beautica_api/src/model/login_request.dart';
 import 'package:beautica_api/src/model/master_detail_response.dart';
 import 'package:beautica_api/src/model/master_profile_update_request.dart';
 import 'package:beautica_api/src/model/master_public_profile_response.dart';
+import 'package:beautica_api/src/model/master_review_summary_response.dart';
 import 'package:beautica_api/src/model/master_search_request.dart';
 import 'package:beautica_api/src/model/master_search_result.dart';
 import 'package:beautica_api/src/model/master_service_response.dart';
@@ -230,6 +232,7 @@ part 'serializers.g.dart';
   ApiResponseListWorkingHoursResponse,
   ApiResponseMasterDetailResponse,
   ApiResponseMasterPublicProfileResponse,
+  ApiResponseMasterReviewSummaryResponse,
   ApiResponseMasterServiceResponse,
   ApiResponseMasterSummaryResponse,
   ApiResponseMediaFileResponse,
@@ -306,6 +309,7 @@ part 'serializers.g.dart';
   MasterDetailResponse,
   MasterProfileUpdateRequest,
   MasterPublicProfileResponse,
+  MasterReviewSummaryResponse,
   MasterSearchRequest,
   MasterSearchResult,
   MasterServiceResponse,

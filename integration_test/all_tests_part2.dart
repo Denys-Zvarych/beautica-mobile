@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
+import 'master_received_reviews_flow_test.dart' as master_received_reviews;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
@@ -34,6 +35,7 @@ void main() {
   // Master-home zero-services «Додати послуги» CTA → /services/setup
   // (Step 2.7 Rule 3b — master home → service-setup journey).
   group('master_home_add_services_flow', master_home_add_services.main);
+  group('master_received_reviews_flow', master_received_reviews.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);
