@@ -26,9 +26,9 @@ class _$CreateSalonRequest extends CreateSalonRequest {
   @override
   final String? districtId;
   @override
-  final String? street;
+  final String street;
   @override
-  final String? buildingNo;
+  final String buildingNo;
   @override
   final String? locationNote;
 
@@ -46,8 +46,8 @@ class _$CreateSalonRequest extends CreateSalonRequest {
       this.instagramUrl,
       this.cityId,
       this.districtId,
-      this.street,
-      this.buildingNo,
+      required this.street,
+      required this.buildingNo,
       this.locationNote})
       : super._();
   @override
@@ -217,8 +217,10 @@ class CreateSalonRequestBuilder
           instagramUrl: instagramUrl,
           cityId: cityId,
           districtId: districtId,
-          street: street,
-          buildingNo: buildingNo,
+          street: BuiltValueNullFieldError.checkNotNull(
+              street, r'CreateSalonRequest', 'street'),
+          buildingNo: BuiltValueNullFieldError.checkNotNull(
+              buildingNo, r'CreateSalonRequest', 'buildingNo'),
           locationNote: locationNote,
         );
     replace(_$result);

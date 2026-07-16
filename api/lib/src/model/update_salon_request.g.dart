@@ -22,9 +22,9 @@ class _$UpdateSalonRequest extends UpdateSalonRequest {
   @override
   final String? districtId;
   @override
-  final String? street;
+  final String street;
   @override
-  final String? buildingNo;
+  final String buildingNo;
   @override
   final String? locationNote;
   @override
@@ -44,8 +44,8 @@ class _$UpdateSalonRequest extends UpdateSalonRequest {
       this.address,
       this.cityId,
       this.districtId,
-      this.street,
-      this.buildingNo,
+      required this.street,
+      required this.buildingNo,
       this.locationNote,
       this.phone,
       this.instagramUrl})
@@ -214,8 +214,10 @@ class UpdateSalonRequestBuilder
           address: address,
           cityId: cityId,
           districtId: districtId,
-          street: street,
-          buildingNo: buildingNo,
+          street: BuiltValueNullFieldError.checkNotNull(
+              street, r'UpdateSalonRequest', 'street'),
+          buildingNo: BuiltValueNullFieldError.checkNotNull(
+              buildingNo, r'UpdateSalonRequest', 'buildingNo'),
           locationNote: locationNote,
           phone: phone,
           instagramUrl: instagramUrl,

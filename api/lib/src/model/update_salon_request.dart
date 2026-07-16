@@ -48,10 +48,10 @@ abstract class UpdateSalonRequest
   String? get districtId;
 
   @BuiltValueField(wireName: r'street')
-  String? get street;
+  String get street;
 
   @BuiltValueField(wireName: r'buildingNo')
-  String? get buildingNo;
+  String get buildingNo;
 
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
@@ -137,20 +137,16 @@ class _$UpdateSalonRequestSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.street != null) {
-      yield r'street';
-      yield serializers.serialize(
-        object.street,
-        specifiedType: const FullType(String),
-      );
-    }
-    if (object.buildingNo != null) {
-      yield r'buildingNo';
-      yield serializers.serialize(
-        object.buildingNo,
-        specifiedType: const FullType(String),
-      );
-    }
+    yield r'street';
+    yield serializers.serialize(
+      object.street,
+      specifiedType: const FullType(String),
+    );
+    yield r'buildingNo';
+    yield serializers.serialize(
+      object.buildingNo,
+      specifiedType: const FullType(String),
+    );
     if (object.locationNote != null) {
       yield r'locationNote';
       yield serializers.serialize(

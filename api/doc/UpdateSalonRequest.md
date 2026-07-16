@@ -15,8 +15,8 @@ Name | Type | Description | Notes
 **address** | **String** |  | [optional] 
 **cityId** | **String** |  | [optional] 
 **districtId** | **String** |  | [optional] 
-**street** | **String** |  | [optional] 
-**buildingNo** | **String** |  | [optional] 
+**street** | **String** |  | 
+**buildingNo** | **String** |  | 
 **locationNote** | **String** |  | [optional] 
 **phone** | **String** |  | [optional] 
 **instagramUrl** | **String** |  | [optional] 
