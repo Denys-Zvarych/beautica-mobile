@@ -289,12 +289,10 @@ class _CommentCard extends StatelessWidget {
   final TextEditingController controller;
   final int maxChars;
 
-  static final TextStyle _fieldStyle = VelvetText.bodyStrong().copyWith(
+  static final TextStyle _fieldStyle = VelvetText.bodyStrong14.copyWith(
     height: 1.45,
   );
-  static final TextStyle _hintStyle = VelvetText.body().copyWith(
-    color: BrandColors.placeholder,
-  );
+  static final TextStyle _hintStyle = VelvetText.bookCommentHint;
 
   @override
   Widget build(BuildContext context) {
@@ -449,9 +447,7 @@ class _TopBar extends StatelessWidget {
 class _NotReviewable extends StatelessWidget {
   const _NotReviewable();
 
-  static final TextStyle _titleStyle = VelvetText.heading().copyWith(
-    fontSize: 19,
-  );
+  static final TextStyle _titleStyle = VelvetText.headingSm;
 
   @override
   Widget build(BuildContext context) {

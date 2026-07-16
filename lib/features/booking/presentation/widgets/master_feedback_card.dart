@@ -44,9 +44,7 @@ class MasterFeedbackCard extends StatelessWidget {
   static final TextStyle _nameStyle = VelvetText.displayName().copyWith(
     fontSize: 16,
   );
-  static final TextStyle _contextStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 11,
-  );
+  static final TextStyle _contextStyle = VelvetText.bodyStrong13;
 
   @override
   Widget build(BuildContext context) {
