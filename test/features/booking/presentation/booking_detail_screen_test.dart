@@ -4,10 +4,12 @@
 // screen never CLIPS at any status/width; this suite proves it renders the
 // RIGHT THING at each status — the state machine the whole feature exists for:
 //   • loading spinner (behind a live back button) / error + retry;
-//   • the per-status hero + subline — only COMPLETED and NOT_COMPLETED still
-//     carry the status medallion + title; CONFIRMED, CANCELLED and DECLINED
-//     drop the hero entirely and speak through the subline alone (the
-//     who-cancelled label collapsed to a neutral «Скасовано» on 2026-07-15);
+//   • the per-status hero + subline — the top status MEDALLION now survives on
+//     NOT_COMPLETED alone (COMPLETED dropped its hero icon on 2026-07-16 while
+//     keeping its title/subline); COMPLETED and NOT_COMPLETED still carry the
+//     status TITLE; CONFIRMED, CANCELLED and DECLINED drop both hero and title
+//     and speak through the subline alone (the who-cancelled label collapsed to
+//     a neutral «Скасовано» on 2026-07-15);
 //   • the action footer by status — CONFIRMED = reschedule + cancel;
 //     COMPLETED/CANCELLED/DECLINED = rebook; NOT_COMPLETED = nothing;
 //   • price shown only where money is a true statement (Booking.showsPrice);
@@ -394,6 +396,21 @@ void main() {
       expect(find.byKey(const Key('booking-detail-cancel')), findsNothing);
       expect(find.textContaining('₴'), findsWidgets);
     });
+
+    testWidgets(
+      'drops the top status medallion but KEEPS its status title (2026-07-16)',
+      (tester) async {
+        await _pumpDetail(tester, _booking(status: BookingStatus.completed));
+        final l10n = _l10n(tester);
+
+        // The ceremonial hero icon is gone on a finished booking…
+        expect(find.byType(BookingStatusMedallion), findsNothing);
+        // …but the header LABEL survives — the title/subline path is preserved,
+        // only the top icon was narrowed away.
+        expect(find.text(l10n.bookingStatusCompleted), findsWidgets);
+        expect(find.text(l10n.bookingDetailSublineCompleted), findsOneWidget);
+      },
+    );
   });
 
   group('CANCELLED (client backed out)', () {
@@ -496,6 +513,10 @@ void main() {
         final l10n = _l10n(tester);
 
         expect(find.text(l10n.bookingStatusNotCompleted), findsWidgets);
+        // NOT_COMPLETED is the SOLE status that still carries the top status
+        // medallion — guards that the COMPLETED-drop narrowing to
+        // `notCompleted`-only did not over-hide the no-show hero too.
+        expect(find.byType(BookingStatusMedallion), findsOneWidget);
         // Deliberately NO action — no rebook shortcut under a no-show account.
         expect(find.text(l10n.bookingDetailRebookCta), findsNothing);
         expect(find.text(l10n.bookingDetailRescheduleCta), findsNothing);

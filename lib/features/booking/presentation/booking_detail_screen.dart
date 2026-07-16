@@ -266,17 +266,24 @@ class _DetailBody extends StatelessWidget {
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
 
-    // Only COMPLETED and NOT_COMPLETED still carry the big status hero (the
-    // medallion + status title). CONFIRMED drops it (a confirmed booking needs
-    // no ceremony — the subline suffices); CANCELLED and DECLINED drop it too
-    // (product decision 2026-07-15: no medallion, no big «Скасовано» title —
-    // the neutral state reads through the subline alone).
-    final bool showStatusHero =
+    // The big status TITLE still shows for COMPLETED and NOT_COMPLETED — the
+    // finished outcome deserves a header label. CONFIRMED drops it (a confirmed
+    // booking needs no ceremony — the subline suffices); CANCELLED and DECLINED
+    // drop it too (product decision 2026-07-15: no big «Скасовано» title — the
+    // neutral state reads through the subline alone).
+    final bool showStatusTitle =
         booking.status == BookingStatus.completed ||
         booking.status == BookingStatus.notCompleted;
 
+    // The top status MEDALLION (hero icon) is now dropped for COMPLETED too
+    // (product decision 2026-07-16) — a finished booking needs no ceremonial
+    // icon, mirroring how CONFIRMED and CANCELLED/DECLINED already omit it. Only
+    // NOT_COMPLETED still carries the medallion. The COMPLETED header keeps its
+    // title/subline unchanged; only the top icon goes away.
+    final bool showStatusHero = booking.status == BookingStatus.notCompleted;
+
     return BookingSuccessScaffold(
-      title: showStatusHero ? v.label : null,
+      title: showStatusTitle ? v.label : null,
       subline: _subline(booking, l10n),
       canPop: true,
       leading: _BackButton(semanticLabel: l10n.bookingDetailBackSemantics),
