@@ -57,6 +57,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_detail_notifier.dart';
@@ -145,10 +146,24 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     );
   }
 
-  void _onAddToCalendar() {
-    // TODO(phase-14.x): wire a real OS calendar event once `add_2_calendar`
-    // (or an ICS export) is reviewed and added to pubspec.yaml — see
-    // `calendar_button.dart`'s file header. Intentionally a no-op for now.
+  /// Opens the OS calendar's "new event" sheet for this CONFIRMED booking.
+  /// [Booking.startAt]/[Booking.endAt] are non-nullable, so the CONFIRMED-only
+  /// [Booking.canAddToCalendar] gate is the sole precondition — no null guard
+  /// is reachable here.
+  Future<void> _onAddToCalendar(BuildContext context, Booking booking) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    // A salon booking names the SALON; an independent-master booking names the
+    // MASTER (mirrors the recap card + notes heading's atSalon split).
+    final String provider = booking.salonName ?? booking.masterName;
+    return addBookingToCalendar(
+      context: context,
+      title: l10n.bookingCalendarEventTitle(booking.serviceName, provider),
+      // The composed street/district/city line — reuses the same
+      // `composeAddressLine` derivation the recap card shows.
+      location: booking.addressLine,
+      start: booking.startAt,
+      end: booking.endAt,
+    );
   }
 
   void _onRebook(Booking booking) {
@@ -180,7 +195,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         onReschedule: () => _onReschedule(context, booking),
         onCancel: () => _confirmCancel(context, booking),
         onRebook: () => _onRebook(booking),
-        onAddToCalendar: _onAddToCalendar,
+        onAddToCalendar: () => _onAddToCalendar(context, booking),
       ),
     );
   }

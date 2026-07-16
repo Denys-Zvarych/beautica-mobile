@@ -3605,6 +3605,18 @@
   "@bookingAddCalendarSemantics": {
     "description": "Accessibility label for the booking success screen's add-to-calendar link."
   },
+  "bookingCalendarEventTitle": "{service} · {provider}",
+  "@bookingCalendarEventTitle": {
+    "description": "Title of the OS calendar event created by the add-to-calendar action — the booked service and the provider (salon or master) name.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "provider": { "type": "String" }
+    }
+  },
+  "bookingAddToCalendarError": "Couldn't open the calendar",
+  "@bookingAddToCalendarError": {
+    "description": "SnackBar shown when add-to-calendar cannot open a calendar app (no calendar installed or a platform error)."
+  },
   "bookingSuccessHomeCta": "Home",
   "@bookingSuccessHomeCta": {
     "description": "Sole onward action on the booking success screen; navigates to the client home."

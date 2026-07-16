@@ -35,6 +35,7 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/calendar/add_to_calendar.dart';
 import '../../booking/application/booking_reschedule_in_flight_notifier.dart';
 import '../../booking/presentation/reschedule_navigation.dart';
 import '../application/home_hub_notifier.dart';
@@ -213,22 +214,20 @@ class _HomeHubBody extends ConsumerWidget {
                         );
                       }
                     },
+                    // Both variants share ONE code path: add_2_calendar opens
+                    // the OS default-calendar sheet, so the OS — not the app —
+                    // picks Google vs Apple vs any other calendar app.
                     onAddToGoogleCalendar: () {
-                      // TODO(14.4): add-to-calendar helper
-                      if (kDebugMode) {
-                        log(
-                          'add to google cal — placeholder',
-                          name: 'feature.home',
-                          level: 700,
+                      if (appt != null) {
+                        unawaited(
+                          _addNextAppointmentToCalendar(context, l10n, appt),
                         );
                       }
                     },
                     onAddToAppleCalendar: () {
-                      if (kDebugMode) {
-                        log(
-                          'add to apple cal — placeholder',
-                          name: 'feature.home',
-                          level: 700,
+                      if (appt != null) {
+                        unawaited(
+                          _addNextAppointmentToCalendar(context, l10n, appt),
                         );
                       }
                     },
@@ -293,6 +292,26 @@ class _HomeHubBody extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Adds the home-hub next appointment to the OS calendar via the shared
+/// [addBookingToCalendar] path (opens the platform default-calendar sheet).
+///
+/// NOTE: the `NextAppointment` payload (backend 19.3) exposes only `startsAt` —
+/// no duration/end — so the event is seeded with a 1-hour default block. When
+/// that DTO surfaces `durationMinutes`/`endAt`, pass the real end here.
+Future<void> _addNextAppointmentToCalendar(
+  BuildContext context,
+  AppLocalizations l10n,
+  NextAppointment appt,
+) {
+  return addBookingToCalendar(
+    context: context,
+    title: l10n.bookingCalendarEventTitle(appt.service, appt.masterName),
+    location: appt.location.isEmpty ? null : appt.location,
+    start: appt.startsAt,
+    end: appt.startsAt.add(const Duration(hours: 1)),
+  );
 }
 
 // ---------------------------------------------------------------------------

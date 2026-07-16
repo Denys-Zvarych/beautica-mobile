@@ -9,10 +9,11 @@
 //   • the back affordance → context.pop();
 //   • «Перенести» → pushes the slot picker seeded to reschedule this booking;
 //   • «Записатись знову» → context.push('/masters/:id');
-//   • «Додати в календар» → a DELIBERATE, documented no-op (present on
-//     CONFIRMED, absent otherwise, and — this is the point — tapping it changes
-//     NOTHING: no nav, no SnackBar, no throw. Pins it as intentionally inert,
-//     not a silently-dead button);
+//   • «Додати в календар» → fires the `add_2_calendar` platform INSERT (channel
+//     mocked) with this booking's service·provider title, venue location and
+//     instants; present on CONFIRMED only; carries no client note / PII. (This
+//     replaces the earlier "deliberate no-op" assertion — track 14.x shipped
+//     the add_2_calendar dependency, so the button is now live.);
 //   • the note show-more / show-less toggle → expands and collapses.
 //
 // Finders are key-first; all copy is asserted through l10n, never a raw
@@ -25,6 +26,7 @@ import 'package:beautica_mobile/features/booking/application/booking_detail_noti
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
@@ -34,11 +36,16 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+
+// The add_2_calendar plugin's platform boundary — intercepted so tapping
+// «Додати в календар» never opens a real OS calendar sheet.
+const MethodChannel _kCalendarChannel = MethodChannel('add_2_calendar');
 
 // A provider note long enough to overflow InboundNote's 6-line clamp at the
 // default 800px test width, so the show-more/show-less toggle is actually
@@ -60,6 +67,7 @@ Booking _booking({
   required BookingStatus status,
   String? salonName,
   String? providerComment,
+  String? clientComment,
 }) {
   final DateTime start = DateTime.utc(2026, 7, 20, 15);
   return Booking(
@@ -83,7 +91,7 @@ Booking _booking({
     endAt: start.add(const Duration(minutes: 90)),
     status: status,
     canReview: false,
-    clientComment: null,
+    clientComment: clientComment,
     providerComment: providerComment,
     clientCancellationNote: null,
     masterProfessionalTitle: 'Майстриня манікюру',
@@ -317,28 +325,138 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // «Додати в календар» → a DELIBERATE, documented no-op
+  // «Додати в календар» → wires the CONFIRMED booking to the OS calendar
+  //
+  // Track 14.x shipped `add_2_calendar`, so this button is NO LONGER a no-op
+  // (the earlier "deliberate no-op" assertion is retired). Tapping it must fire
+  // the plugin's `add2Cal` platform method with THIS booking's title / venue /
+  // instants — mocked at the channel boundary so no real OS sheet opens.
   // -------------------------------------------------------------------------
 
-  group('add-to-calendar (deliberate no-op)', () {
-    testWidgets('is present on CONFIRMED and tapping it changes NOTHING', (
+  group('add-to-calendar (wires to add_2_calendar)', () {
+    late List<MethodCall> calls;
+
+    setUp(() {
+      calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_kCalendarChannel, (MethodCall call) async {
+            calls.add(call);
+            return true; // pretend a calendar app opened
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_kCalendarChannel, null);
+    });
+
+    testWidgets(
+      'tapping «Додати в календар» on a CONFIRMED booking invokes add2Cal with '
+      'the service·provider title, venue location and booking instants',
+      (tester) async {
+        final Booking booking = _booking(status: BookingStatus.confirmed);
+        await _pumpDetail(tester, booking);
+        final AppLocalizations l10n = _l10n(tester);
+
+        final Finder calendar = find.byKey(const Key('booking-add-calendar'));
+        expect(calendar, findsOneWidget);
+
+        await tester.ensureVisible(calendar);
+        await tester.pumpAndSettle();
+        await tester.tap(calendar);
+        await tester.pumpAndSettle();
+
+        expect(calls, hasLength(1), reason: 'add2Cal must have fired once');
+        final Map<Object?, Object?> args =
+            calls.single.arguments as Map<Object?, Object?>;
+        expect(calls.single.method, 'add2Cal');
+        // Independent-master booking → provider is the master's name.
+        expect(
+          args['title'],
+          l10n.bookingCalendarEventTitle(
+            booking.serviceName,
+            booking.masterName,
+          ),
+        );
+        expect(args['location'], booking.addressLine);
+        expect(args['startDate'], booking.startAt.millisecondsSinceEpoch);
+        expect(args['endDate'], booking.endAt.millisecondsSinceEpoch);
+
+        // Success path: no error SnackBar.
+        expect(find.text(l10n.bookingAddToCalendarError), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a SALON booking titles the Event with the SALON name, not the master '
+      '(provider = salonName ?? masterName)',
+      (tester) async {
+        // The detail call site's provider is `booking.salonName ?? masterName`.
+        // Every other add-to-calendar test drives the independent-master path
+        // (salonName == null → masterName); this pins the salon branch of the
+        // ternary so a refactor can't silently drop the salon name from the
+        // Event title.
+        const String salonName = 'Салон «Вельвет»';
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          salonName: salonName,
+        );
+        await _pumpDetail(tester, booking);
+        final AppLocalizations l10n = _l10n(tester);
+
+        final Finder calendar = find.byKey(const Key('booking-add-calendar'));
+        await tester.ensureVisible(calendar);
+        await tester.pumpAndSettle();
+        await tester.tap(calendar);
+        await tester.pumpAndSettle();
+
+        final Map<Object?, Object?> args =
+            calls.single.arguments as Map<Object?, Object?>;
+        expect(
+          args['title'],
+          l10n.bookingCalendarEventTitle(booking.serviceName, salonName),
+        );
+        // The master's name must NOT be the provider on a salon booking.
+        expect(
+          args['title'],
+          isNot(
+            l10n.bookingCalendarEventTitle(
+              booking.serviceName,
+              booking.masterName,
+            ),
+          ),
+          reason: 'salonName wins the provider slot when present',
+        );
+      },
+    );
+
+    testWidgets('no booking note or client PII rides into the calendar event', (
       tester,
     ) async {
-      await _pumpDetail(tester, _booking(status: BookingStatus.confirmed));
+      // A CONFIRMED booking that DOES carry a client note — it must never
+      // surface in the calendar payload (security confirmation).
+      const String secretNote = 'СЕКРЕТНА КЛІЄНТСЬКА НОТАТКА 555-77';
+      final Booking booking = _booking(
+        status: BookingStatus.confirmed,
+        clientComment: secretNote,
+      );
+      await _pumpDetail(tester, booking);
 
       final Finder calendar = find.byKey(const Key('booking-add-calendar'));
-      expect(calendar, findsOneWidget);
-
       await tester.ensureVisible(calendar);
       await tester.pumpAndSettle();
       await tester.tap(calendar);
       await tester.pumpAndSettle();
 
-      // The no-op is honest: no navigation off the detail screen, no SnackBar,
-      // and (the test would have thrown otherwise) no exception. It is inert by
-      // design until an ICS/add_2_calendar dependency lands — NOT a dead button.
-      expect(find.byType(BookingDetailScreen), findsOneWidget);
-      expect(find.byType(SnackBar), findsNothing);
+      final Map<Object?, Object?> args =
+          calls.single.arguments as Map<Object?, Object?>;
+      expect(args['desc'], isNull, reason: 'no description field is populated');
+      final String payload = args.values.map((Object? v) => '$v').join('|');
+      expect(
+        payload.contains(secretNote),
+        isFalse,
+        reason: 'the client note must not leak into any Event field',
+      );
     });
 
     testWidgets('is ABSENT on a COMPLETED booking (CONFIRMED-only)', (
@@ -347,6 +465,7 @@ void main() {
       await _pumpDetail(tester, _booking(status: BookingStatus.completed));
 
       expect(find.byKey(const Key('booking-add-calendar')), findsNothing);
+      expect(calls, isEmpty);
     });
   });
 

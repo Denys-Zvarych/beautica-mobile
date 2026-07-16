@@ -29,6 +29,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
@@ -116,7 +117,7 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
           onPressed: () => context.go(RouteNames.clientHome),
         ),
       ],
-      belowRecap: CalendarButton(onTap: _onAddToCalendar),
+      belowRecap: CalendarButton(onTap: () => _onAddToCalendar(context)),
       recapCards: <Widget>[
         NeumorphicCard(
           key: const Key('booking-success-address-card'),
@@ -161,10 +162,35 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
     );
   }
 
-  /// See `calendar_button.dart`'s file header: real OS-calendar wiring is
-  /// deferred (no `add_2_calendar` dependency in `pubspec.yaml` yet).
-  void _onAddToCalendar() {
-    // TODO(phase-14.x): wire a real OS calendar event via `add_2_calendar` or
-    // an ICS export once that dependency is reviewed. Intentionally a no-op.
+  /// Opens the OS calendar's "new event" sheet for the just-confirmed booking.
+  ///
+  /// A booking is always ≥1 appointment; the single `belowRecap` button adds
+  /// the FIRST one. The native INSERT sheet is one-event-per-invocation, so a
+  /// multi-service booking (N>1) intentionally seeds only the first appointment
+  /// rather than firing N stacked OS sheets — the client can add the rest from
+  /// «Мої записи» per booking.
+  Future<void> _onAddToCalendar(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final master = widget.args.master;
+    final BookingSuccessAppointment first = widget.args.appointments.first;
+
+    // Same street/buildingNo/city join the recap's address card renders.
+    final String? location = formatStreetCityLine(
+      street: master.street,
+      buildingNo: master.buildingNo,
+      city: master.city,
+    );
+    final String provider = '${master.firstName} ${master.lastName}'.trim();
+    final DateTime end = first.start.add(
+      Duration(minutes: first.service.durationMinutes),
+    );
+
+    return addBookingToCalendar(
+      context: context,
+      title: l10n.bookingCalendarEventTitle(first.service.name, provider),
+      location: location,
+      start: first.start,
+      end: end,
+    );
   }
 }

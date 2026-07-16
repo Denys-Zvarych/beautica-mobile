@@ -3,9 +3,9 @@
 // renders.
 //
 // Owns the `Semantics` + `Material(type: transparency)` Hero-flight guard +
-// the extruded `#EDE4D5` camel-wash card (a single `NeumorphicCard`-style
-// decoration carrying the fill colour AND shadow together — Impeller-GLES-safe,
-// see the build comment) +
+// the `#EDE4D5` camel-wash card (a single `NeumorphicCard`-style bordered
+// decoration carrying the fill colour, hairline border AND a non-offset
+// `borderedCard` shadow together — Impeller-GLES-safe, see the build comment) +
 // `Row[ MasterAvatarBadge, Expanded(Column[ top
 // label, name, one subtitle line ]), trailing ]` structure, and exposes the
 // variable parts as slots ([middleLine], [trailing], [avatarGradient]/
@@ -21,6 +21,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 
@@ -95,18 +96,23 @@ class MasterStripShell extends StatelessWidget {
         // installs the ambient Theme/DefaultTextStyle — so it doesn't
         // interfere with the card's own shadow/decoration painting.
         type: MaterialType.transparency,
-        // IMPELLER-GLES CORNER FIX: the taupe fill colour and the extruded card
-        // shadow MUST share ONE BoxDecoration. A shadow-only BoxDecoration (no
-        // `color:`) makes Impeller's OpenGLES backend rasterize the pale blurred
-        // shadow as opaque near-white SQUARES in the corners; a ClipRRect around
-        // the child cannot clip the PARENT's shadow, so the earlier split
-        // "shadow box -> ClipRRect -> fill" never cleared it. This is the
-        // canonical single-decoration idiom `NeumorphicCard` uses.
+        // IMPELLER-GLES CORNER FIX: `extrudedCard` pairs a dark shadow with a
+        // near-white light shadow (`shadowLightStrong`, alpha FF) at a diagonal
+        // `Offset(-8,-8)`. Impeller's OpenGLES backend rasterizes that offset
+        // opaque rrect's untranslated corner as a crisp white SQUARE poking past
+        // the card's rounded corner onto the taupe `base`. The remedy is the
+        // codebase's own `borderedCard` recipe: a single NON-offset,
+        // semi-transparent dark shadow whose rrect footprint exactly matches the
+        // card (uniform soft halo, no protruding corner), paired with the
+        // hairline `BrandColors.faint` border that carries the "distinct shape"
+        // job — mirroring `NeumorphicCard`'s `showBorder` path. The border makes
+        // this decoration non-const (`borderedCard` is a `static final`).
         child: DecoratedBox(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: _stripSurface,
             borderRadius: _radius,
-            boxShadow: VelvetShadows.extrudedCard,
+            border: Border.all(color: BrandColors.faint, width: 1),
+            boxShadow: VelvetShadows.borderedCard,
           ),
           child: Padding(
             padding: const EdgeInsets.all(VelvetSpacing.sm + 4),

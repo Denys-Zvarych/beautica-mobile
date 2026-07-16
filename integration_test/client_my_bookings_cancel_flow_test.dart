@@ -34,12 +34,20 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_t
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+
+// The add_2_calendar plugin's platform boundary. On a real device this would
+// open the OS calendar sheet — a native OS-sheet interaction is NOT patrol-
+// testable headlessly, so this flow mocks it at the CHANNEL boundary and
+// asserts the handler fired with the booking's data. (An actual on-device
+// calendar-sheet render is intentionally out of scope, NOT a skipped case.)
+const MethodChannel _kCalendarChannel = MethodChannel('add_2_calendar');
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -107,6 +115,62 @@ void main() {
         findsOneWidget,
         reason: 'a CONFIRMED booking must offer «Скасувати запис»',
       );
+
+      // ── 3b. Add-to-calendar wires the CONFIRMED booking to the OS sheet. ──
+      // Intercept the plugin so no real OS calendar opens, then tap «Додати в
+      // календар» and assert the platform INSERT fired with THIS booking's
+      // service·master title, venue location and instants — and that no client
+      // note / PII leaked into the event.
+      final List<MethodCall> calendarCalls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_kCalendarChannel, (MethodCall call) async {
+            calendarCalls.add(call);
+            return true; // pretend a calendar app opened
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(_kCalendarChannel, null),
+      );
+
+      final Finder calendarButton = find.byKey(
+        const Key('booking-add-calendar'),
+      );
+      expect(
+        calendarButton,
+        findsOneWidget,
+        reason: 'a CONFIRMED booking must offer «Додати в календар»',
+      );
+      await tester.ensureVisible(calendarButton);
+      await AppHarness.settle(tester);
+      await tester.tap(calendarButton);
+      await AppHarness.settle(tester);
+
+      final AppLocalizations calL10n = l10nOf(tester, BookingDetailScreen);
+      expect(calendarCalls, hasLength(1), reason: 'add2Cal must have fired');
+      expect(calendarCalls.single.method, 'add2Cal');
+      final Map<Object?, Object?> calArgs =
+          calendarCalls.single.arguments as Map<Object?, Object?>;
+      expect(
+        calArgs['title'],
+        calL10n.bookingCalendarEventTitle(
+          'Манікюр з покриттям',
+          'Софія Бондар',
+        ),
+      );
+      expect((calArgs['location'] as String?) ?? '', contains('Хрещатик'));
+      expect(calArgs['timeZone'], 'Europe/Kyiv');
+      expect(
+        calArgs['desc'],
+        isNull,
+        reason: 'no note/PII in the calendar event',
+      );
+
+      // Firing the calendar sheet must NOT mutate the booking.
+      expect(fb.bookingStatus, 'CONFIRMED');
+
+      // Stop intercepting so the rest of the flow is unaffected.
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_kCalendarChannel, null);
 
       // ── 4. Cancel WITH a note. ────────────────────────────────────────────
       await tester.tap(find.byKey(const Key('booking-detail-cancel')));

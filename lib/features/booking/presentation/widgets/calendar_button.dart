@@ -23,8 +23,9 @@
 // analogue since a salon booking has no single "the" appointment, and
 // `booking_detail_screen.dart`).
 //
-// Its action is a documented no-op `TODO` on every call site — there is no
-// `add_2_calendar` (or ICS-export) dependency in `pubspec.yaml` yet.
+// Its action is wired to the `add_2_calendar` (^3.1.1) package: tapping opens
+// the OS "new event" editor pre-filled from the booking. The `onTap` callback
+// is supplied by each call site.
 
 import 'package:flutter/material.dart';
 
@@ -65,15 +66,16 @@ class _CalendarButtonState extends State<CalendarButton> {
           setState(() => _pressed = false);
           widget.onTap();
         },
-        // IMPELLER-GLES CORNER FIX: the fill colour and the extruded shadow
-        // MUST live on the SAME BoxDecoration. A shadow-only BoxDecoration (no
-        // `color:`) makes Impeller's OpenGLES backend rasterize the pale
-        // blurred shadow as an opaque near-white SQUARE in the corners — and a
-        // ClipRRect around the child cannot clip the PARENT's own shadow paint,
-        // so the earlier split "shadow box -> ClipRRect -> fill" never worked.
-        // The single-decoration idiom (colour + borderRadius + border +
-        // boxShadow together) is what every working surface uses —
-        // MasterAvatarBadge, NeumorphicIconButton, NeumorphicCard.
+        // IMPELLER-GLES CORNER FIX: `extrudedButton` pairs a dark shadow with a
+        // near-white light shadow (`shadowLightStrong`, alpha FF) at a diagonal
+        // `Offset(-6,-6)`. Impeller's OpenGLES backend rasterizes that offset
+        // opaque rrect's untranslated corner as a crisp white SQUARE poking past
+        // the button's rounded corner onto the taupe `base`. The remedy is the
+        // button-scaled `borderedButton` recipe: a single NON-offset,
+        // semi-transparent dark shadow whose rrect footprint exactly matches the
+        // button (uniform soft halo, no protruding corner), paired with the
+        // camel hairline border this button already carries. No shadow while
+        // pressed, so the control reads as depressed.
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(
@@ -82,7 +84,7 @@ class _CalendarButtonState extends State<CalendarButton> {
             border: Border.all(
               color: BrandColors.accent.withValues(alpha: 0.35),
             ),
-            boxShadow: _pressed ? null : VelvetShadows.extrudedButton,
+            boxShadow: _pressed ? null : VelvetShadows.borderedButton,
           ),
           child: SizedBox(
             height: VelvetSizes.cta,

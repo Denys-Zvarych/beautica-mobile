@@ -135,5 +135,19 @@
             <data
                 android:scheme="https"/>
         </intent>
+        <!--
+            Android 11+ (API 30) package visibility for add_2_calendar. Without
+            this declaration, the ACTION_INSERT intent that opens the calendar's
+            "new event" sheet (the «Додати в календар» action on the booking
+            detail / success screens and the home-hub next-appointment card)
+            cannot "see" any calendar app and throws ActivityNotFoundException.
+            See the add_2_calendar README's Android setup.
+        -->
+        <intent>
+            <action
+                android:name="android.intent.action.INSERT"/>
+            <data
+                android:mimeType="vnd.android.cursor.item/event"/>
+        </intent>
     </queries>
 </manifest>

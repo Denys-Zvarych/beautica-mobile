@@ -109,6 +109,16 @@ dependencies:
   http_parser: ^4.1.2
   flutter_svg: ^2.3.0
 
+  # Add-to-calendar — opens the OS/native calendar's "new event" sheet
+  # pre-filled from a CONFIRMED booking (My Bookings detail, booking success,
+  # home-hub next-appointment card). Single cross-platform code path via the
+  # platform default-calendar INSERT intent (Android) / EventKit (iOS). Requires
+  # the <queries> INSERT-event entry in AndroidManifest.xml for Android 11+
+  # package visibility and NSCalendarsUsageDescription in ios/Runner/Info.plist.
+  # add_2_calendar 3.1.1 needs sdk ^3.11.0 / Flutter >=3.41.0 — satisfied by this
+  # project's Dart 3.11.5 / Flutter 3.41.9.
+  add_2_calendar: ^3.1.1
+
   # UUID v4 idempotency-key generation for booking submits (Phase 14.2).
   # Already present transitively (pulled in by built_value/openapi_generator
   # deps — see pubspec.lock) but not previously a direct dependency; Phase

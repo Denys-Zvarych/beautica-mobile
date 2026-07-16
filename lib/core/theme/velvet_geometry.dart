@@ -122,4 +122,21 @@ abstract final class VelvetShadows {
       blurRadius: 10,
     ),
   ];
+
+  /// Subtle ambient shadow for a bordered *button* — the button-scaled sibling
+  /// of [borderedCard], following the same **non-offset** single-shadow recipe.
+  ///
+  /// Same rationale as [borderedCard]: because the shadow isn't translated, its
+  /// rrect footprint exactly matches the button, so no untranslated corner
+  /// sliver pokes out as a pale square on Impeller-GLES (the artifact that
+  /// [extrudedButton]'s ±6dp-offset `shadowLightStrong` pair produces). Uses the
+  /// button's own [BrandColors.shadowDarkButton] tone (matching [extrudedButton]
+  /// rather than the card shadow) at a tighter blur than [borderedCard]. Pairs
+  /// with a hairline border, as `CalendarButton`'s camel edge already provides.
+  static final List<BoxShadow> borderedButton = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkButton.withValues(alpha: 0.45),
+      blurRadius: 8,
+    ),
+  ];
 }
