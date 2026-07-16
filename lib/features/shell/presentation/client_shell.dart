@@ -40,11 +40,61 @@ import 'package:beautica_mobile/shared/widgets/edge_swipe_back.dart';
 import 'widgets/client_bottom_nav.dart';
 import 'widgets/client_top_bar.dart';
 
-class ClientShell extends StatelessWidget {
+class ClientShell extends StatefulWidget {
   const ClientShell({super.key, required this.navigationShell});
 
   /// The shell supplied by [StatefulShellRoute.indexedStack].
   final StatefulNavigationShell navigationShell;
+
+  @override
+  State<ClientShell> createState() => _ClientShellState();
+}
+
+class _ClientShellState extends State<ClientShell> {
+  /// The booking-DETAIL route pattern (`/bookings/:bookingId`) — the ONE route
+  /// on which the bottom nav is suppressed. Composed from the Записи branch
+  /// list path + the child param segment so it stays in lockstep with the
+  /// go_router branch definition in app_router.dart (which is NOT edited here);
+  /// it matches the detail page only, never the `/bookings` list root or any
+  /// other tab.
+  static const String _bookingDetailPattern =
+      '${RouteNames.clientBookings}/:bookingId';
+
+  /// The router whose location changes we listen for. `navigationShell.currentIndex`
+  /// does NOT change on a same-branch nested push (tapping a `BookingCard` pushes
+  /// `/bookings/:id` onto the Записи branch while the index stays 3), so the
+  /// StatefulShellRoute builder alone never re-runs this shell's `build` on that
+  /// push/pop. Listening to the router's location provider gives us the rebuild
+  /// that toggles the bar as the detail page is pushed on / popped off.
+  GoRouter? _router;
+
+  /// Convenience accessor so the (verbatim) build body + handlers below keep
+  /// reading `navigationShell` unqualified.
+  StatefulNavigationShell get navigationShell => widget.navigationShell;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final GoRouter router = GoRouter.of(context);
+    if (!identical(router, _router)) {
+      _router?.routeInformationProvider.removeListener(_onLocationChanged);
+      _router = router;
+      router.routeInformationProvider.addListener(_onLocationChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    _router?.routeInformationProvider.removeListener(_onLocationChanged);
+    super.dispose();
+  }
+
+  /// Rebuilds the shell whenever the active location changes — the trigger that
+  /// flips the bottom bar off/on as the booking-detail page enters/leaves the
+  /// Записи branch stack (a same-branch push that leaves `currentIndex` at 3).
+  void _onLocationChanged() {
+    if (mounted) setState(() {});
+  }
 
   void _onTap(int index) {
     // `initialLocation: true` re-pops a branch to its root when its current tab
@@ -73,6 +123,16 @@ class ClientShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final _TopBarConfig config = _configFor(navigationShell.currentIndex, l10n);
+
+    // Booking-DETAIL detection. `currentConfiguration.fullPath` is the matched
+    // ROUTE PATTERN of the deepest active match (`/bookings/:bookingId` on the
+    // detail page), so this exact-matches the detail route only — NOT the
+    // `/bookings` list root and NOT any other tab. The `didChangeDependencies`
+    // listener above guarantees this re-evaluates on the same-branch push/pop.
+    final String currentPath = GoRouter.of(
+      context,
+    ).routerDelegate.currentConfiguration.fullPath;
+    final bool onBookingDetail = currentPath == _bookingDetailPattern;
 
     // ONE back-navigation policy for BOTH the platform back button (the
     // [PopScope] below) and the left-edge swipe (the [EdgeSwipeBack] further
@@ -165,14 +225,22 @@ class ClientShell extends StatelessWidget {
             ],
           ),
         ),
-        bottomNavigationBar: ClientBottomNav(
-          activeIndex: navigationShell.currentIndex,
-          onTap: _onTap,
-          homeLabel: l10n.clientNavHome,
-          favoritesLabel: l10n.clientNavFavorites,
-          searchLabel: l10n.clientNavSearch,
-          bookingsLabel: l10n.clientNavBookings,
-        ),
+        // Suppressed on the booking-detail page (`/bookings/:bookingId`) so the
+        // detail reads as a focused, full-height surface. `null` (not a shrunk
+        // placeholder) removes the slot entirely, letting the body's Expanded
+        // extend to the screen bottom; the detail screen's own Scaffold+SafeArea
+        // (BookingSuccessScaffold) handles the bottom system inset, so the outer
+        // `SafeArea(bottom:false)` stays as-is — no gap, no double-inset.
+        bottomNavigationBar: onBookingDetail
+            ? null
+            : ClientBottomNav(
+                activeIndex: navigationShell.currentIndex,
+                onTap: _onTap,
+                homeLabel: l10n.clientNavHome,
+                favoritesLabel: l10n.clientNavFavorites,
+                searchLabel: l10n.clientNavSearch,
+                bookingsLabel: l10n.clientNavBookings,
+              ),
       ),
     );
   }

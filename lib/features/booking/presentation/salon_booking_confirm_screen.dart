@@ -66,6 +66,7 @@ import 'widgets/booking_top_bar.dart';
 import 'widgets/labelled_row.dart';
 import 'widgets/salon_appointment_card.dart';
 import 'widgets/salon_avatar_gradients.dart';
+import 'widgets/section_rule.dart';
 
 /// Salon booking flow step 4 — review the N appointments and submit them.
 class SalonBookingConfirmScreen extends ConsumerStatefulWidget {
@@ -219,6 +220,13 @@ class _SalonBookingConfirmScreenState
         (salon?.locationNote?.trim().isNotEmpty ?? false)
         ? salon!.locationNote!.trim()
         : null;
+    // The salon being booked into — read from the SAME secondary
+    // `publicSalonProfileProvider` salon the address block already uses (no
+    // extra fetch). Null while the profile is loading/failed, exactly like the
+    // address; the card then just renders the address alone, as before.
+    final String? salonName = (salon?.name.trim().isNotEmpty ?? false)
+        ? salon!.name.trim()
+        : null;
 
     final String ctaLabel = inFlight
         ? l10n.bookingSubmitCtaLoading
@@ -268,10 +276,30 @@ class _SalonBookingConfirmScreenState
                       NeumorphicCard(
                         key: const Key('salon-confirm-address-card'),
                         padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-                        child: LabelledRow(
-                          label: l10n.bookingAddressLabel,
-                          value: addressLine ?? l10n.bookingAddressUnknown,
-                          detail: addressDetail,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            // «Салон» identity line above the address — the
+                            // client sees WHICH salon they're booking into
+                            // before submitting. Same salon-name → hairline →
+                            // address composition `BookingSummaryCards` uses on
+                            // «Деталі запису», so the two surfaces read alike.
+                            if (salonName != null) ...<Widget>[
+                              LabelledRow(
+                                key: const Key('salon-confirm-salon-name'),
+                                label: l10n.bookingSalonLabel,
+                                value: salonName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SectionRule(),
+                            ],
+                            LabelledRow(
+                              label: l10n.bookingAddressLabel,
+                              value: addressLine ?? l10n.bookingAddressUnknown,
+                              detail: addressDetail,
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: VelvetSpacing.md),

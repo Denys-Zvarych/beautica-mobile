@@ -3659,7 +3659,7 @@
   },
   "bookingSalonLabel": "Салон",
   "@bookingSalonLabel": {
-    "description": "Label for the optional salon-name row on the booking detail summary card."
+    "description": "Label for the salon-name row shown on the salon booking confirm, success, and detail summary cards."
   },
   "bookingArrivalNoteSemantics": "Як знайти: {text}",
   "@bookingArrivalNoteSemantics": {

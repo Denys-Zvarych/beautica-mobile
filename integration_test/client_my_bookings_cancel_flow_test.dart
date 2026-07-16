@@ -31,6 +31,8 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_tab_bar.dart';
+import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
+import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_bar.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -105,11 +107,36 @@ void main() {
         reason: 'the card must carry the «Підтверджено» status badge',
       );
 
+      // Feature B — on the Записи LIST the CLIENT bottom nav is present (both
+      // chrome bars mounted by the shell).
+      expect(
+        find.byType(ClientBottomNav),
+        findsOneWidget,
+        reason: 'the bottom nav must be present on the /bookings list',
+      );
+      expect(find.byType(ClientTopBar), findsOneWidget);
+
       // ── 3. Open «Деталі запису». ──────────────────────────────────────────
       await tester.tap(find.byType(BookingCard));
       await AppHarness.settle(tester);
       expectLocation(router, RouteNames.bookingDetail('booking-1'));
       expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+      // Feature B — the bottom nav is SUPPRESSED on the booking-detail route
+      // (/bookings/:bookingId) so it reads as a focused, full-height surface;
+      // the top bar is intentionally KEPT.
+      expect(
+        find.byType(ClientBottomNav),
+        findsNothing,
+        reason:
+            'the bottom nav must be hidden on the booking-detail page '
+            '(/bookings/:bookingId)',
+      );
+      expect(
+        find.byType(ClientTopBar),
+        findsOneWidget,
+        reason: 'the top bar stays on the booking-detail page',
+      );
       expect(
         find.byKey(const Key('booking-detail-cancel')),
         findsOneWidget,
@@ -213,6 +240,16 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-detail-back')));
       await AppHarness.settle(tester);
       expect(find.byType(MyBookingsScreen), findsOneWidget);
+
+      // Feature B — back on the list the bottom nav is restored (the off → on
+      // toggle is driven by the shell's location listener as the detail pops).
+      expect(
+        find.byType(ClientBottomNav),
+        findsOneWidget,
+        reason:
+            'the bottom nav must return once the detail is popped and the '
+            '/bookings list is shown again',
+      );
 
       // Майбутні (the tab we return to) is now empty.
       expect(

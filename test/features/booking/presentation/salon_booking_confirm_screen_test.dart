@@ -752,6 +752,176 @@ void main() {
     });
   });
 
+  // ===========================================================================
+  // FEATURE A — the «Салон» identity row (l10n key `bookingSalonLabel`) renders
+  // the resolved salon.name ABOVE the address, INSIDE the shared address card;
+  // and when the secondary salon profile read is still loading / absent the
+  // row is suppressed and the screen still renders address-only (graceful
+  // fallback, no crash). Sourced from
+  // `publicSalonProfileProvider(salonId).select((v) => v.value?.$1)`.
+  // ===========================================================================
+  group('salon name row (Feature A)', () {
+    testWidgets(
+      'renders the «Салон» label + resolved salon.name INSIDE the address '
+      'card, positioned ABOVE the address, once the profile resolves',
+      (tester) async {
+        await _pumpTall(tester);
+        final _FakeBookingRepository repo = _FakeBookingRepository();
+        final GoRouter router = _router();
+
+        await tester.pumpRoutedApp(router, overrides: _baseOverrides(repo));
+        unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonBookingConfirmScreen)),
+        );
+        final Finder addressCard = find.byKey(
+          const Key('salon-confirm-address-card'),
+        );
+        final Finder salonNameRow = find.byKey(
+          const Key('salon-confirm-salon-name'),
+        );
+
+        // The row lives INSIDE the shared address card.
+        expect(
+          find.descendant(of: addressCard, matching: salonNameRow),
+          findsOneWidget,
+          reason: 'the «Салон» row must render inside the address card',
+        );
+        // Its label is the l10n key, its value the resolved fixture name.
+        expect(
+          find.descendant(
+            of: salonNameRow,
+            matching: find.text(l10n.bookingSalonLabel),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: salonNameRow,
+            // i18n-finder-ok: salon name is fixture data (_kSalon), not translated UI copy.
+            matching: find.text('Салон «Вельвет»'),
+          ),
+          findsOneWidget,
+          reason: 'the row must bind salon.name, not a placeholder',
+        );
+
+        // Positioned ABOVE the address: the salon-name row's top is higher
+        // (smaller dy) than the address label's top, within the same card.
+        final double salonNameTop = tester.getTopLeft(salonNameRow).dy;
+        final double addressLabelTop = tester
+            .getTopLeft(
+              find.descendant(
+                of: addressCard,
+                matching: find.text(l10n.bookingAddressLabel),
+              ),
+            )
+            .dy;
+        expect(
+          salonNameTop,
+          lessThan(addressLabelTop),
+          reason: 'the «Салон» row must sit ABOVE the address inside the card',
+        );
+      },
+    );
+
+    testWidgets(
+      'is SUPPRESSED while the salon profile is still loading, and the screen '
+      'renders address-only (fallback) with the appointment cards — no crash',
+      (tester) async {
+        await _pumpTall(tester);
+        final _FakeBookingRepository repo = _FakeBookingRepository();
+        final GoRouter router = _router();
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWithValue(repo),
+            // Never resolves -> the family instance stays in AsyncLoading, so
+            // salon (and thus salonName) is null.
+            publicSalonProfileProvider(
+              _kSalonId,
+            ).overrideWith((ref) => Completer<PublicSalonProfileData>().future),
+          ],
+        );
+        unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
+        await tester.pump();
+        await tester.pump();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonBookingConfirmScreen)),
+        );
+
+        // The salon-name row is absent (no name yet) — graceful, address-only.
+        expect(
+          find.byKey(const Key('salon-confirm-salon-name')),
+          findsNothing,
+          reason:
+              'while the secondary salon read is loading the «Салон» row must '
+              'be suppressed rather than showing an empty/placeholder value',
+        );
+        // The address card still renders (with its own fallback) …
+        final Finder addressCard = find.byKey(
+          const Key('salon-confirm-address-card'),
+        );
+        expect(addressCard, findsOneWidget);
+        expect(
+          find.descendant(
+            of: addressCard,
+            matching: find.text(l10n.bookingAddressUnknown),
+          ),
+          findsOneWidget,
+        );
+        // … and the appointment cards are unaffected by the secondary read.
+        expect(
+          find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('salon-confirm-appt-m2')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'is SUPPRESSED when the salon profile ERRORS — screen still renders '
+      'address-only with the appointment cards (no crash)',
+      (tester) async {
+        await _pumpTall(tester);
+        final _FakeBookingRepository repo = _FakeBookingRepository();
+        final GoRouter router = _router();
+
+        await tester.pumpRoutedApp(
+          router,
+          retry: (_, _) => null,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWithValue(repo),
+            publicSalonProfileProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => throw Exception('boom')),
+          ],
+        );
+        unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-confirm-salon-name')),
+          findsNothing,
+          reason:
+              'a failed salon read must suppress the «Салон» row, not crash',
+        );
+        expect(
+          find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
   group('grand-total card', () {
     testWidgets(
       'renders with the correct summed price/duration across BOTH masters '
