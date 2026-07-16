@@ -305,12 +305,28 @@ Future<void> _addNextAppointmentToCalendar(
   AppLocalizations l10n,
   NextAppointment appt,
 ) {
+  // Structured facts only — NO free-text notes reach the calendar (the
+  // `NextAppointment` DTO carries none anyway). The limited DTO exposes just
+  // service, master, the pre-formatted date/time strings the card renders, and
+  // a location — no duration/end (hence the 1-hour default block above), no
+  // price, no definite status. Omit the fields it lacks rather than emit empty
+  // labels; the builder skips any null/blank value.
+  final String? location = appt.location.isEmpty ? null : appt.location;
+  final String? description = buildCalendarDescription(
+    l10n: l10n,
+    service: appt.service,
+    provider: appt.masterName,
+    providerRole: CalendarProviderRole.master,
+    dateTime: '${appt.dateLabel}, ${appt.timeLabel}',
+    address: location,
+  );
   return addBookingToCalendar(
     context: context,
     title: l10n.bookingCalendarEventTitle(appt.service, appt.masterName),
-    location: appt.location.isEmpty ? null : appt.location,
+    location: location,
     start: appt.startsAt,
     end: appt.startsAt.add(const Duration(hours: 1)),
+    description: description,
   );
 }
 

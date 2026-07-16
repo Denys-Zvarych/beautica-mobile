@@ -187,10 +187,16 @@ void main() {
     );
 
     testWidgets(
-      'the master locationNote (home-address PII) never rides into the Event; '
-      'desc stays null',
+      'the Event description carries the STRUCTURED facts (service / master / '
+      'date-time / address / price / status) yet the master locationNote '
+      '(home-address PII) never rides into it (change #3)',
       (tester) async {
+        // Change #3 reversed the old "desc stays null" premise: the success
+        // screen now builds a structured-facts description. It must carry the
+        // facts (asserted via l10n label keys) AND still exclude the private
+        // location note — the CalendarButton pill is UNCHANGED on this screen.
         await _pumpSuccess(tester);
+        final AppLocalizations l10n = _l10n(tester);
 
         final Finder calendar = find.byKey(const Key('booking-add-calendar'));
         await tester.ensureVisible(calendar);
@@ -200,11 +206,46 @@ void main() {
 
         final Map<Object?, Object?> args =
             calls.single.arguments as Map<Object?, Object?>;
+
+        // Structured description is now POPULATED — every label present via its
+        // l10n key (an independent master → the «Майстер:» label, never salon).
+        final String desc = args['desc'] as String;
+        expect(desc, isNotEmpty);
+        for (final String label in <String>[
+          l10n.bookingCalendarNoteService,
+          l10n.bookingCalendarNoteMaster,
+          l10n.bookingCalendarNoteDateTime,
+          l10n.bookingCalendarNoteAddress,
+          l10n.bookingCalendarNotePrice,
+          l10n.bookingCalendarNoteStatus,
+        ]) {
+          expect(
+            desc.contains(label),
+            isTrue,
+            reason: 'structured description must carry the «$label» line',
+          );
+        }
+        // The real facts behind those labels — the FIRST appointment's service,
+        // the master name, the address line and the auto-confirmed status.
+        expect(desc.contains(_kFirstService.name), isTrue);
         expect(
-          args['desc'],
-          isNull,
-          reason: 'no description field is populated',
+          desc.contains('${_kMaster.firstName} ${_kMaster.lastName}'),
+          isTrue,
         );
+        expect(
+          desc.contains(
+            formatStreetCityLine(
+              street: _kMaster.street,
+              buildingNo: _kMaster.buildingNo,
+              city: _kMaster.city,
+            )!,
+          ),
+          isTrue,
+        );
+        expect(desc.contains(l10n.bookingStatusConfirmed), isTrue);
+
+        // PRIVACY: the private location note must not leak into ANY Event field
+        // (there is no builder parameter that can carry it).
         final String payload = args.values.map((Object? v) => '$v').join('|');
         expect(
           payload.contains(_kMaster.locationNote!),

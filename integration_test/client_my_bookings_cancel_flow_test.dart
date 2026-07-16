@@ -117,10 +117,11 @@ void main() {
       );
 
       // ── 3b. Add-to-calendar wires the CONFIRMED booking to the OS sheet. ──
-      // Intercept the plugin so no real OS calendar opens, then tap «Додати в
-      // календар» and assert the platform INSERT fired with THIS booking's
-      // service·master title, venue location and instants — and that no client
-      // note / PII leaked into the event.
+      // Intercept the plugin so no real OS calendar opens, then tap the HEADER
+      // calendar icon (change #4 relocated it out of the scroll-body pill) and
+      // assert the platform INSERT fired with THIS booking's service·master
+      // title, venue location and instants — that the STRUCTURED description is
+      // populated (change #3) and that no free-text note / PII leaked into it.
       final List<MethodCall> calendarCalls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(_kCalendarChannel, (MethodCall call) async {
@@ -133,12 +134,14 @@ void main() {
       );
 
       final Finder calendarButton = find.byKey(
-        const Key('booking-add-calendar'),
+        const Key('booking-detail-add-calendar'),
       );
       expect(
         calendarButton,
         findsOneWidget,
-        reason: 'a CONFIRMED booking must offer «Додати в календар»',
+        reason:
+            'a CONFIRMED booking must offer «Додати в календар» as the header '
+            'icon',
       );
       await tester.ensureVisible(calendarButton);
       await AppHarness.settle(tester);
@@ -159,11 +162,16 @@ void main() {
       );
       expect((calArgs['location'] as String?) ?? '', contains('Хрещатик'));
       expect(calArgs['timeZone'], 'Europe/Kyiv');
-      expect(
-        calArgs['desc'],
-        isNull,
-        reason: 'no note/PII in the calendar event',
-      );
+      // The structured description is now populated (change #3): the service,
+      // provider and status facts are present via their l10n label keys…
+      final String calDesc = calArgs['desc'] as String;
+      expect(calDesc, contains(calL10n.bookingCalendarNoteService));
+      expect(calDesc, contains(calL10n.bookingCalendarNoteStatus));
+      expect(calDesc, contains('Манікюр з покриттям'));
+      expect(calDesc, contains(calL10n.bookingStatusConfirmed));
+      // …but the pre-cancel booking carries no free-text note, and none of the
+      // note fields can ride into the event regardless (privacy boundary).
+      expect(calDesc, isNot(contains('Захворіла')));
 
       // Firing the calendar sheet must NOT mutate the booking.
       expect(fb.bookingStatus, 'CONFIRMED');

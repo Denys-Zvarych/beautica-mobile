@@ -3617,6 +3617,38 @@
   "@bookingAddToCalendarError": {
     "description": "SnackBar shown when add-to-calendar cannot open a calendar app (no calendar installed or a platform error)."
   },
+  "bookingCalendarNoteService": "Service:",
+  "@bookingCalendarNoteService": {
+    "description": "Label prefixing the service name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteMaster": "Master:",
+  "@bookingCalendarNoteMaster": {
+    "description": "Label prefixing an independent master's name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteSalon": "Salon:",
+  "@bookingCalendarNoteSalon": {
+    "description": "Label prefixing a salon's name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteProvider": "Provider:",
+  "@bookingCalendarNoteProvider": {
+    "description": "Neutral provider label in the OS calendar event's structured-facts note block when salon-vs-master is not distinguishable."
+  },
+  "bookingCalendarNoteDateTime": "Date & time:",
+  "@bookingCalendarNoteDateTime": {
+    "description": "Label prefixing the appointment date and time in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteAddress": "Address:",
+  "@bookingCalendarNoteAddress": {
+    "description": "Label prefixing the address in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNotePrice": "Price:",
+  "@bookingCalendarNotePrice": {
+    "description": "Label prefixing the price in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteStatus": "Status:",
+  "@bookingCalendarNoteStatus": {
+    "description": "Label prefixing the booking status in the OS calendar event's structured-facts note block."
+  },
   "bookingSuccessHomeCta": "Home",
   "@bookingSuccessHomeCta": {
     "description": "Sole onward action on the booking success screen; navigates to the client home."

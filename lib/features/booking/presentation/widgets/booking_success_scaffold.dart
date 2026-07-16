@@ -76,6 +76,7 @@ class BookingSuccessScaffold extends StatefulWidget {
     this.showHero = true,
     this.canPop = false,
     this.leading,
+    this.headerTrailing,
   });
 
   /// Headline — "Записано!" for a celebration, the status label for a
@@ -126,6 +127,14 @@ class BookingSuccessScaffold extends StatefulWidget {
   /// detail page's back button. `null` (both success screens) renders
   /// nothing.
   final Widget? leading;
+
+  /// An un-animated top-RIGHT affordance rendered in the SAME header row as
+  /// [leading], pinned to the far edge opposite the back button — the detail
+  /// page's «Додати в календар» icon (CONFIRMED-only). `null` (both success
+  /// screens, and the detail page's non-CONFIRMED states) renders nothing and
+  /// reserves no space. Requires nothing of [leading]: either, both, or
+  /// neither may be present.
+  final Widget? headerTrailing;
 
   @override
   State<BookingSuccessScaffold> createState() => _BookingSuccessScaffoldState();
@@ -270,8 +279,21 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                if (widget.leading != null) ...<Widget>[
-                  Align(alignment: Alignment.centerLeft, child: widget.leading),
+                if (widget.leading != null ||
+                    widget.headerTrailing != null) ...<Widget>[
+                  // Back button pinned left, trailing affordance pinned right,
+                  // sharing one row. The Spacer holds the trailing icon on the
+                  // far edge whether or not `leading` is present, and keeps the
+                  // back button at the left edge when `headerTrailing` is null
+                  // (byte-identical to the old centre-left Align for the
+                  // leading-only states).
+                  Row(
+                    children: <Widget>[
+                      if (widget.leading != null) widget.leading!,
+                      const Spacer(),
+                      if (widget.headerTrailing != null) widget.headerTrailing!,
+                    ],
+                  ),
                   const SizedBox(height: VelvetSpacing.xs),
                 ],
                 if (widget.showHero) ...<Widget>[

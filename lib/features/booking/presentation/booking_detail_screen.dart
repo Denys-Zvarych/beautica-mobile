@@ -22,18 +22,21 @@
 //
 // ## The action set, by status
 //
-// | status | `belowRecap` | pinned `actions` |
+// | status | `headerTrailing` | pinned `actions` |
 // |---|---|---|
-// | CONFIRMED | «Додати в календар» | «Перенести» + «Скасувати запис» |
+// | CONFIRMED | 📅 icon | «Перенести» + «Скасувати запис» |
 // | COMPLETED / CANCELLED / DECLINED | — | «Записатись знову» |
 // | NOT_COMPLETED | — | (none) |
 //
 // Add-to-calendar is CONFIRMED-only (see `Booking.canAddToCalendar`) and
-// lives in `belowRecap`, NOT the pinned footer — it copies the appointment
-// somewhere else, it does not act ON the booking, so it does not belong in
-// the primary/secondary action hierarchy. NOT_COMPLETED gets no rebook
-// shortcut: offering one under the provider's own account of a no-show would
-// read as the app brokering a reconciliation the client never asked for.
+// lives as a calendar icon in the header row opposite the back button (via the
+// scaffold's `headerTrailing` slot), NOT the pinned footer — it copies the
+// appointment somewhere else, it does not act ON the booking, so it does not
+// belong in the primary/destructive action hierarchy. (Before, it sat in the
+// scroll body as a full-width `CalendarButton` pill in `belowRecap`; that pill
+// still serves both success screens + the home hub.) NOT_COMPLETED gets no
+// rebook shortcut: offering one under the provider's own account of a no-show
+// would read as the app brokering a reconciliation the client never asked for.
 //
 // go_router only: pushed at `/bookings/:bookingId` (nested under the
 // Записи branch so it pops back onto that branch's own navigator stack).
@@ -59,6 +62,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
@@ -74,7 +78,6 @@ import 'widgets/booking_status_badge.dart';
 import 'widgets/booking_status_medallion.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_success_scaffold.dart';
-import 'widgets/calendar_button.dart';
 import 'widgets/cancel_booking_dialog.dart';
 import 'widgets/master_strip.dart';
 import 'reschedule_navigation.dart';
@@ -155,6 +158,27 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // A salon booking names the SALON; an independent-master booking names the
     // MASTER (mirrors the recap card + notes heading's atSalon split).
     final String provider = booking.salonName ?? booking.masterName;
+    // Structured facts only — NO free-text note fields (clientComment /
+    // providerComment / clientCancellationNote) are passed. The date+time and
+    // price reuse the exact strings the recap card renders on-screen. Price is
+    // gated by `showsPrice` (a cancelled/declined/no-show booking owes
+    // nothing) — but this path is CONFIRMED-only, so it is always present.
+    final String? description = buildCalendarDescription(
+      l10n: l10n,
+      service: booking.serviceName,
+      provider: provider,
+      providerRole: booking.atSalon
+          ? CalendarProviderRole.salon
+          : CalendarProviderRole.master,
+      dateTime:
+          '${formatFullDate(booking.startAt)}, '
+          '${formatTimeRange(booking.startAt, booking.durationMinutes)}',
+      address: booking.addressLine,
+      price: booking.showsPrice
+          ? '${booking.price.toStringAsFixed(0)} ${ServicePriceDisplay.suffix}'
+          : null,
+      status: BookingStatusVisual.of(booking, l10n).label,
+    );
     return addBookingToCalendar(
       context: context,
       title: l10n.bookingCalendarEventTitle(booking.serviceName, provider),
@@ -163,6 +187,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       location: booking.addressLine,
       start: booking.startAt,
       end: booking.endAt,
+      description: description,
     );
   }
 
@@ -240,13 +265,18 @@ class _DetailBody extends StatelessWidget {
       subline: _subline(booking, l10n),
       canPop: true,
       leading: _BackButton(semanticLabel: l10n.bookingDetailBackSemantics),
+      // «Додати в календар» now lives as a header icon opposite the back
+      // button (CONFIRMED-only, same `canAddToCalendar` gate as before),
+      // freeing the pinned footer to a clean two-button stack. It copies the
+      // appointment elsewhere — it does not act ON the booking — so it belongs
+      // at the top, not in the primary/destructive action hierarchy below.
+      headerTrailing: booking.canAddToCalendar
+          ? _CalendarIconButton(onTap: onAddToCalendar)
+          : null,
       showHero: showStatusHero,
       heroBuilder: showStatusHero
           ? (AnimationController controller) =>
                 BookingStatusMedallion(visual: v, controller: controller)
-          : null,
-      belowRecap: booking.canAddToCalendar
-          ? CalendarButton(onTap: onAddToCalendar)
           : null,
       actions: _actions(l10n),
       recapCards: <Widget>[
@@ -409,6 +439,43 @@ class _BackButton extends StatelessWidget {
   }
 }
 
+/// The trailing header affordance — «Додати в календар», CONFIRMED-only.
+/// Relocated out of the scroll body's full-width `CalendarButton` pill (which
+/// still serves both success screens + the home hub) into a header icon that
+/// reads as a matched pair with `_BackButton`: the SAME [NeumorphicIconButton]
+/// shell (48 dp raised base-tone square, `extrudedSmall` shadow), so back and
+/// calendar sit symmetric at the two ends of the header row. The one
+/// difference carries meaning — the back arrow keeps the neutral
+/// `textSecondary` tint, this calendar glyph takes the camel `accentDeep`
+/// tint (echoing the old pill's own glyph), quietly marking it as the header's
+/// single actionable control. Reuses the existing `bookingAddCalendarSemantics`
+/// label (a11y unchanged) and the `bookingSuccessAddCalendarCta` string as its
+/// long-press tooltip; its `onTap` is the SAME `_onAddToCalendar` handler, so
+/// the structured event description is preserved verbatim.
+class _CalendarIconButton extends StatelessWidget {
+  const _CalendarIconButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Tooltip(
+      message: l10n.bookingSuccessAddCalendarCta,
+      child: NeumorphicIconButton(
+        key: const Key('booking-detail-add-calendar'),
+        iconWidget: const Icon(
+          Icons.calendar_today_rounded,
+          color: BrandColors.accentDeep,
+          size: 22,
+        ),
+        semanticLabel: l10n.bookingAddCalendarSemantics,
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
 /// The **destructive** secondary — «Скасувати запис». Still the shipped
 /// `_SecondaryButton`'s raised base-tone pill shape (so the two-tier
 /// hierarchy under «Перенести» is intact), recoloured to read as destructive
@@ -501,9 +568,12 @@ class _DetailLoading extends StatelessWidget {
       backgroundColor: BrandColors.base,
       body: SafeArea(
         child: Padding(
+          // Top inset MUST match `BookingSuccessScaffold`'s (`lg`) so the shared
+          // back affordance keeps a fixed Y as this skeleton swaps to the loaded
+          // body — otherwise the arrow jumps down 20dp mid page-open transition.
           padding: const EdgeInsets.fromLTRB(
             VelvetSpacing.lg,
-            VelvetSpacing.xs,
+            VelvetSpacing.lg,
             VelvetSpacing.lg,
             VelvetSpacing.md,
           ),
@@ -539,9 +609,12 @@ class _DetailError extends StatelessWidget {
       backgroundColor: BrandColors.base,
       body: SafeArea(
         child: Padding(
+          // Top inset MUST match `BookingSuccessScaffold`'s (`lg`) so the shared
+          // back affordance keeps a fixed Y as this skeleton swaps to the loaded
+          // body — otherwise the arrow jumps down 20dp mid page-open transition.
           padding: const EdgeInsets.fromLTRB(
             VelvetSpacing.lg,
-            VelvetSpacing.xs,
+            VelvetSpacing.lg,
             VelvetSpacing.lg,
             VelvetSpacing.md,
           ),

@@ -185,12 +185,30 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
       Duration(minutes: first.service.durationMinutes),
     );
 
+    // Structured facts only — NO free-text note fields reach the calendar.
+    // Date+time and price reuse the exact strings the success recap renders.
+    // A just-submitted booking is auto-approved CONFIRMED (see domain rules),
+    // so the status line is the confirmed label.
+    final String? description = buildCalendarDescription(
+      l10n: l10n,
+      service: first.service.name,
+      provider: provider,
+      providerRole: CalendarProviderRole.master,
+      dateTime:
+          '${formatFullDate(first.start)}, '
+          '${formatTimeRange(first.start, first.service.durationMinutes)}',
+      address: location,
+      price: ServicePriceDisplay.format(first.service),
+      status: l10n.bookingStatusConfirmed,
+    );
+
     return addBookingToCalendar(
       context: context,
       title: l10n.bookingCalendarEventTitle(first.service.name, provider),
       location: location,
       start: first.start,
       end: end,
+      description: description,
     );
   }
 }

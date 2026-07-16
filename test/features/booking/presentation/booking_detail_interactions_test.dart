@@ -21,6 +21,8 @@
 // banned — the SnackBar assertion uses the bounded [PumpUntil.pumpUntilFound]
 // helper instead.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -30,6 +32,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -68,6 +71,7 @@ Booking _booking({
   String? salonName,
   String? providerComment,
   String? clientComment,
+  String? clientCancellationNote,
 }) {
   final DateTime start = DateTime.utc(2026, 7, 20, 15);
   return Booking(
@@ -93,7 +97,7 @@ Booking _booking({
     canReview: false,
     clientComment: clientComment,
     providerComment: providerComment,
-    clientCancellationNote: null,
+    clientCancellationNote: clientCancellationNote,
     masterProfessionalTitle: 'Майстриня манікюру',
     locationNote: null,
   );
@@ -331,6 +335,13 @@ void main() {
   // (the earlier "deliberate no-op" assertion is retired). Tapping it must fire
   // the plugin's `add2Cal` platform method with THIS booking's title / venue /
   // instants — mocked at the channel boundary so no real OS sheet opens.
+  //
+  // RELOCATION (change #4): the calendar trigger MOVED from the scroll-body
+  // `CalendarButton` pill (`Key('booking-add-calendar')`, still used by the
+  // success screens + home hub) to a HEADER icon `_CalendarIconButton`
+  // (`Key('booking-detail-add-calendar')`) via the scaffold's `headerTrailing`
+  // slot. Same `_onAddToCalendar` handler — the tests below fire the header
+  // key, and the old body pill is asserted ABSENT in the `relocation` group.
   // -------------------------------------------------------------------------
 
   group('add-to-calendar (wires to add_2_calendar)', () {
@@ -358,7 +369,9 @@ void main() {
         await _pumpDetail(tester, booking);
         final AppLocalizations l10n = _l10n(tester);
 
-        final Finder calendar = find.byKey(const Key('booking-add-calendar'));
+        final Finder calendar = find.byKey(
+          const Key('booking-detail-add-calendar'),
+        );
         expect(calendar, findsOneWidget);
 
         await tester.ensureVisible(calendar);
@@ -404,7 +417,9 @@ void main() {
         await _pumpDetail(tester, booking);
         final AppLocalizations l10n = _l10n(tester);
 
-        final Finder calendar = find.byKey(const Key('booking-add-calendar'));
+        final Finder calendar = find.byKey(
+          const Key('booking-detail-add-calendar'),
+        );
         await tester.ensureVisible(calendar);
         await tester.pumpAndSettle();
         await tester.tap(calendar);
@@ -430,41 +445,88 @@ void main() {
       },
     );
 
-    testWidgets('no booking note or client PII rides into the calendar event', (
-      tester,
-    ) async {
-      // A CONFIRMED booking that DOES carry a client note — it must never
-      // surface in the calendar payload (security confirmation).
-      const String secretNote = 'СЕКРЕТНА КЛІЄНТСЬКА НОТАТКА 555-77';
-      final Booking booking = _booking(
-        status: BookingStatus.confirmed,
-        clientComment: secretNote,
-      );
-      await _pumpDetail(tester, booking);
+    testWidgets(
+      'the calendar Event carries the STRUCTURED facts (service / provider / '
+      'date-time / address / price / status) and NO free-text note or PII '
+      '(change #3)',
+      (tester) async {
+        // A CONFIRMED booking that DOES carry every free-text note the model
+        // holds — none may surface in the calendar payload (privacy boundary),
+        // yet the structured facts MUST (the description is now non-null).
+        const String secretClientNote = 'СЕКРЕТНА КЛІЄНТСЬКА НОТАТКА 555-77';
+        const String secretProviderNote = 'ВНУТРІШНЯ НОТАТКА МАЙСТРА xyz';
+        const String secretCancelNote = 'ПРИЧИНА СКАСУВАННЯ qwerty';
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          clientComment: secretClientNote,
+          providerComment: secretProviderNote,
+          clientCancellationNote: secretCancelNote,
+        );
+        await _pumpDetail(tester, booking);
+        final AppLocalizations l10n = _l10n(tester);
 
-      final Finder calendar = find.byKey(const Key('booking-add-calendar'));
-      await tester.ensureVisible(calendar);
-      await tester.pumpAndSettle();
-      await tester.tap(calendar);
-      await tester.pumpAndSettle();
+        final Finder calendar = find.byKey(
+          const Key('booking-detail-add-calendar'),
+        );
+        await tester.ensureVisible(calendar);
+        await tester.pumpAndSettle();
+        await tester.tap(calendar);
+        await tester.pumpAndSettle();
 
-      final Map<Object?, Object?> args =
-          calls.single.arguments as Map<Object?, Object?>;
-      expect(args['desc'], isNull, reason: 'no description field is populated');
-      final String payload = args.values.map((Object? v) => '$v').join('|');
-      expect(
-        payload.contains(secretNote),
-        isFalse,
-        reason: 'the client note must not leak into any Event field',
-      );
-    });
+        final Map<Object?, Object?> args =
+            calls.single.arguments as Map<Object?, Object?>;
+
+        // The structured description is now POPULATED (change #3 reversed the
+        // old "desc stays null" premise). Assert every label line is present
+        // via its l10n key — never a raw Cyrillic literal.
+        final String desc = args['desc'] as String;
+        expect(desc, isNotEmpty);
+        for (final String label in <String>[
+          l10n.bookingCalendarNoteService,
+          l10n.bookingCalendarNoteMaster, // independent-master booking
+          l10n.bookingCalendarNoteDateTime,
+          l10n.bookingCalendarNoteAddress,
+          l10n.bookingCalendarNotePrice,
+          l10n.bookingCalendarNoteStatus,
+        ]) {
+          expect(
+            desc.contains(label),
+            isTrue,
+            reason: 'structured description must carry the «$label» line',
+          );
+        }
+        // And the real values behind those labels.
+        expect(desc.contains(booking.serviceName), isTrue);
+        expect(desc.contains(booking.masterName), isTrue);
+        expect(desc.contains(booking.addressLine!), isTrue);
+        expect(desc.contains(l10n.bookingStatusConfirmed), isTrue);
+
+        // NONE of the three free-text notes may ride into ANY Event field —
+        // there is no builder parameter that can carry them (privacy guard).
+        final String payload = args.values.map((Object? v) => '$v').join('|');
+        for (final String secret in <String>[
+          secretClientNote,
+          secretProviderNote,
+          secretCancelNote,
+        ]) {
+          expect(
+            payload.contains(secret),
+            isFalse,
+            reason: 'free-text note must not leak into any Event field',
+          );
+        }
+      },
+    );
 
     testWidgets('is ABSENT on a COMPLETED booking (CONFIRMED-only)', (
       tester,
     ) async {
       await _pumpDetail(tester, _booking(status: BookingStatus.completed));
 
-      expect(find.byKey(const Key('booking-add-calendar')), findsNothing);
+      expect(
+        find.byKey(const Key('booking-detail-add-calendar')),
+        findsNothing,
+      );
       expect(calls, isEmpty);
     });
   });
@@ -519,5 +581,201 @@ void main() {
       await tester.pumpAndSettle();
       expect(showMore, findsOneWidget);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Change #1 — the back affordance holds a FIXED Y across loading → data.
+  //
+  // The loading/error skeleton's top inset was changed `xs`→`lg` to match the
+  // loaded scaffold's, so `Key('booking-detail-back')` does not jump down mid
+  // page-open. Pump with a DEFERRED provider (Completer-backed → loading branch
+  // first), capture the back button's top-left `dy` on the loading frame,
+  // complete the future, settle, and assert the SAME `dy` on the loaded frame.
+  // Pure geometry — Impeller-independent, no golden.
+  // -------------------------------------------------------------------------
+
+  group('back-arrow invariant Y (loading → data)', () {
+    testWidgets(
+      'the back affordance keeps the same top Y from the loading skeleton to '
+      'the loaded body',
+      (tester) async {
+        final Booking booking = _booking(status: BookingStatus.confirmed);
+        final Completer<Booking> gate = Completer<Booking>();
+        final _MockBookingRepository repo = _MockBookingRepository();
+
+        await tester.pumpApp(
+          BookingDetailScreen(bookingId: booking.id),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            bookingRepositoryProvider.overrideWithValue(repo),
+            // Deferred: the detail future never resolves until we complete the
+            // gate, so the first pump renders the loading skeleton.
+            bookingDetailProvider(
+              booking.id,
+            ).overrideWith((ref) => gate.future),
+          ],
+        );
+        await tester.pump(); // loading frame
+
+        final Finder back = find.byKey(const Key('booking-detail-back'));
+        expect(back, findsOneWidget, reason: 'skeleton shows the back arrow');
+        final double loadingDy = tester.getTopLeft(back).dy;
+
+        // Resolve → the body swaps in.
+        gate.complete(booking);
+        await tester.pumpAndSettle();
+
+        // The loaded body is now up (its footer cancel button only exists on
+        // the populated screen, never the skeleton).
+        expect(find.byKey(const Key('booking-detail-cancel')), findsOneWidget);
+        final double loadedDy = tester
+            .getTopLeft(find.byKey(const Key('booking-detail-back')))
+            .dy;
+
+        expect(
+          loadedDy,
+          loadingDy,
+          reason:
+              'the back arrow must not jump down when the skeleton swaps to the '
+              'loaded body (loading inset lg == scaffold inset lg)',
+        );
+      },
+    );
+
+    testWidgets(
+      'the back affordance keeps the same top Y from the ERROR skeleton to the '
+      'loaded body (error inset lg == scaffold inset lg)',
+      (tester) async {
+        // The `_DetailError` skeleton got the SAME xs→lg top-inset fix as
+        // `_DetailLoading`. A fake that FAILS the first build and succeeds the
+        // second lets us render the error skeleton, then retry into data —
+        // proving the back arrow's Y holds across error→data too.
+        final Booking booking = _booking(status: BookingStatus.confirmed);
+        int builds = 0;
+        final _MockBookingRepository repo = _MockBookingRepository();
+
+        await tester.pumpApp(
+          BookingDetailScreen(bookingId: booking.id),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            bookingRepositoryProvider.overrideWithValue(repo),
+            bookingDetailProvider(booking.id).overrideWith((ref) async {
+              builds++;
+              if (builds == 1) throw Exception('load failed');
+              return booking;
+            }),
+          ],
+          // Disable Riverpod's default failed-build backoff retry so the error
+          // state stays put (and leaves no pending Timer) until we tap retry.
+          retry: (_, _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        // Error frame — the skeleton shows the back arrow and the retry button.
+        final Finder back = find.byKey(const Key('booking-detail-back'));
+        expect(back, findsOneWidget, reason: 'error skeleton shows back arrow');
+        expect(
+          find.byKey(const Key('booking-detail-error-retry')),
+          findsOneWidget,
+        );
+        final double errorDy = tester.getTopLeft(back).dy;
+
+        // Retry → `ref.invalidate` re-resolves the provider to data.
+        await tester.tap(find.byKey(const Key('booking-detail-error-retry')));
+        await tester.pumpAndSettle();
+
+        // The loaded body is now up (its footer cancel button only exists on
+        // the populated screen, never the error skeleton).
+        expect(find.byKey(const Key('booking-detail-cancel')), findsOneWidget);
+        final double loadedDy = tester
+            .getTopLeft(find.byKey(const Key('booking-detail-back')))
+            .dy;
+
+        expect(
+          loadedDy,
+          errorDy,
+          reason:
+              'the back arrow must not jump down when the error skeleton retries '
+              'into the loaded body (error inset lg == scaffold inset lg)',
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Change #4 — «Додати в календар» relocated from the scroll-body pill to a
+  // header icon, and the footer collapsed to the 2-button stack.
+  // -------------------------------------------------------------------------
+
+  group('calendar trigger relocation (header, not body pill)', () {
+    testWidgets(
+      'on a CONFIRMED booking the calendar icon is in the HEADER, the body pill '
+      'is gone, and the footer is exactly Перенести + Скасувати',
+      (tester) async {
+        await _pumpDetail(tester, _booking(status: BookingStatus.confirmed));
+
+        // The header icon is present…
+        expect(
+          find.byKey(const Key('booking-detail-add-calendar')),
+          findsOneWidget,
+        );
+        // …and it is a matched pair with the back button in the same header row
+        // (shares its top Y — a sanity check that it lives in the header, not
+        // the body).
+        expect(
+          tester
+              .getTopLeft(find.byKey(const Key('booking-detail-add-calendar')))
+              .dy,
+          tester.getTopLeft(find.byKey(const Key('booking-detail-back'))).dy,
+        );
+
+        // The old scroll-body `CalendarButton` pill is ABSENT on this surface.
+        expect(find.byType(CalendarButton), findsNothing);
+
+        // The footer is the clean two-button stack — nothing more, nothing
+        // less.
+        expect(
+          find.byKey(const Key('booking-detail-reschedule')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('booking-detail-cancel')), findsOneWidget);
+      },
+    );
+
+    testWidgets('tapping the header calendar icon fires _onAddToCalendar', (
+      tester,
+    ) async {
+      final List<MethodCall> calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_kCalendarChannel, (MethodCall call) async {
+            calls.add(call);
+            return true;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(_kCalendarChannel, null),
+      );
+
+      await _pumpDetail(tester, _booking(status: BookingStatus.confirmed));
+
+      await tester.tap(find.byKey(const Key('booking-detail-add-calendar')));
+      await tester.pumpAndSettle();
+
+      expect(calls, hasLength(1));
+      expect(calls.single.method, 'add2Cal');
+    });
+
+    testWidgets(
+      'on a non-CONFIRMED booking the header calendar icon is ABSENT',
+      (tester) async {
+        await _pumpDetail(tester, _booking(status: BookingStatus.completed));
+
+        expect(
+          find.byKey(const Key('booking-detail-add-calendar')),
+          findsNothing,
+        );
+        expect(find.byType(CalendarButton), findsNothing);
+      },
+    );
   });
 }

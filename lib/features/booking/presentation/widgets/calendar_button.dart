@@ -76,37 +76,51 @@ class _CalendarButtonState extends State<CalendarButton> {
         // button (uniform soft halo, no protruding corner), paired with the
         // camel hairline border this button already carries. No shadow while
         // pressed, so the control reads as depressed.
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          decoration: BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: _radius,
-            border: Border.all(
-              color: BrandColors.accent.withValues(alpha: 0.35),
-            ),
-            boxShadow: _pressed ? null : VelvetShadows.borderedButton,
-          ),
-          child: SizedBox(
-            height: VelvetSizes.cta,
-            child: Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Icon(
-                    Icons.calendar_today_rounded,
-                    size: 17,
-                    color: BrandColors.accentDeep,
+        //
+        // PRESS FEEL: mirrors the canonical `NeumorphicButton` depress — an
+        // `AnimatedScale` to 0.97 over 120 ms `easeOut`, springing back on
+        // release, combined with the shadow clearing while pressed so the scale
+        // and the softening halo read together. A `RepaintBoundary` isolates the
+        // press-animation repaints from the surrounding footer/scroll, matching
+        // `NeumorphicButton`'s Phase 2.17 P1-2 fix.
+        child: RepaintBoundary(
+          child: AnimatedScale(
+            scale: _pressed ? 0.97 : 1,
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              decoration: BoxDecoration(
+                color: BrandColors.base,
+                borderRadius: _radius,
+                border: Border.all(
+                  color: BrandColors.accent.withValues(alpha: 0.35),
+                ),
+                boxShadow: _pressed ? null : VelvetShadows.borderedButton,
+              ),
+              child: SizedBox(
+                height: VelvetSizes.cta,
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.calendar_today_rounded,
+                        size: 17,
+                        color: BrandColors.accentDeep,
+                      ),
+                      const SizedBox(width: VelvetSpacing.sm),
+                      Flexible(
+                        child: Text(
+                          l10n.bookingSuccessAddCalendarCta,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: VelvetText.bookCalendarCta,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: VelvetSpacing.sm),
-                  Flexible(
-                    child: Text(
-                      l10n.bookingSuccessAddCalendarCta,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: VelvetText.bookCalendarCta,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

@@ -428,8 +428,15 @@ void main() {
           // the anchor text that must render, unclipped.
           final AppLocalizations l10n = _l10n(tester, BookingDetailScreen);
           expect(find.text(l10n.bookingDetailSublineConfirmed), findsOneWidget);
-          // The CONFIRMED-only calendar button laid out (see canAddToCalendar).
-          expect(find.byType(CalendarButton), findsOneWidget);
+          // The CONFIRMED-only calendar trigger laid out — now the HEADER icon
+          // (change #4), not the scroll-body `CalendarButton` pill (which was
+          // removed from the detail surface but still serves the success
+          // screens + home hub).
+          expect(
+            find.byKey(const Key('booking-detail-add-calendar')),
+            findsOneWidget,
+          );
+          expect(find.byType(CalendarButton), findsNothing);
           // Price is a true statement here — it renders.
           expect(find.textContaining('₴'), findsWidgets);
         });

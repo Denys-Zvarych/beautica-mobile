@@ -17,9 +17,13 @@
 //   2. the `false`-return failure path shows the localised SnackBar,
 //   3. the throwing failure path shows the localised SnackBar and NO exception
 //      escapes,
-//   4. SECURITY REGRESSION GUARD — the Event carries ONLY the venue address in
-//      `location` and the service·provider line in `title`; `desc` stays null,
-//      so no booking note / client PII can ride into a calendar entry.
+//   4. STRUCTURED DESCRIPTION (change #3) — `buildCalendarDescription` builds a
+//      `desc` block of STRUCTURED FACTS ONLY (service / provider / date-time /
+//      address / price / status), one labelled line per supplied fact, and the
+//      helper forwards it to the Event `desc` on the wire, AND
+//   5. SECURITY REGRESSION GUARD — the builder has NO free-text-note parameter
+//      by construction, so no booking note / client PII can ride into a
+//      calendar entry even when a full structured description is populated.
 //
 // Copy is asserted through l10n keys, never a raw Cyrillic literal (CI
 // no-raw-string gate). No fixed `pump(Duration)` waits — the SnackBar
@@ -150,6 +154,40 @@ void main() {
 
       expect(onlyArgs()['location'], isNull);
     });
+
+    testWidgets(
+      'forwards a non-null structured description to the Event `desc` on the '
+      'wire (change #3)',
+      (tester) async {
+        // The helper is the transport: a caller that hands it a pre-built
+        // structured-facts block must see it land in `desc`. (The builder is
+        // exercised separately below; this pins the pass-through.)
+        final BuildContext ctx = await pumpHost(tester);
+        final AppLocalizations l10n = AppLocalizations.of(ctx);
+        final String description = buildCalendarDescription(
+          l10n: l10n,
+          service: 'Манікюр',
+          provider: 'Салон Люкс',
+          providerRole: CalendarProviderRole.salon,
+          dateTime: '20 липня 2026, 12:00 – 13:30',
+          address: 'вул. Городоцька 12, Львів',
+          price: '650 ₴',
+          status: 'Підтверджено',
+        )!;
+
+        await addBookingToCalendar(
+          context: ctx,
+          title: 'Подія',
+          location: 'вул. Городоцька 12, Львів',
+          start: _kStart,
+          end: _kEnd,
+          description: description,
+        );
+        await tester.pump();
+
+        expect(onlyArgs()['desc'], description);
+      },
+    );
   });
 
   group('addBookingToCalendar — failure feedback', () {
@@ -218,10 +256,104 @@ void main() {
     );
   });
 
+  group('buildCalendarDescription — structured facts (change #3)', () {
+    testWidgets(
+      'builds one labelled line per supplied fact, joined by newlines, in '
+      'service → provider → date-time → address → price → status order',
+      (tester) async {
+        final BuildContext ctx = await pumpHost(tester);
+        final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+        final String? desc = buildCalendarDescription(
+          l10n: l10n,
+          service: 'Манікюр з покриттям',
+          provider: 'Марія Іванюк',
+          providerRole: CalendarProviderRole.master,
+          dateTime: '20 липня 2026, 15:00 – 16:30',
+          address: 'вул. Городоцька 12, Львів',
+          price: '650 ₴',
+          status: 'Підтверджено',
+        );
+
+        expect(desc, isNotNull);
+        final List<String> lines = desc!.split('\n');
+        // Six facts → six labelled lines, each `<l10n label> <value>`.
+        expect(lines, hasLength(6));
+        expect(
+          lines[0],
+          '${l10n.bookingCalendarNoteService} Манікюр з покриттям',
+        );
+        expect(lines[1], '${l10n.bookingCalendarNoteMaster} Марія Іванюк');
+        expect(
+          lines[2],
+          '${l10n.bookingCalendarNoteDateTime} 20 липня 2026, 15:00 – 16:30',
+        );
+        expect(
+          lines[3],
+          '${l10n.bookingCalendarNoteAddress} вул. Городоцька 12, Львів',
+        );
+        expect(lines[4], '${l10n.bookingCalendarNotePrice} 650 ₴');
+        expect(lines[5], '${l10n.bookingCalendarNoteStatus} Підтверджено');
+      },
+    );
+
+    testWidgets('a salon role picks the «Салон:» provider label', (
+      tester,
+    ) async {
+      final BuildContext ctx = await pumpHost(tester);
+      final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+      final String? desc = buildCalendarDescription(
+        l10n: l10n,
+        service: 'Манікюр',
+        provider: 'Салон Люкс',
+        providerRole: CalendarProviderRole.salon,
+      );
+
+      expect(desc, contains('${l10n.bookingCalendarNoteSalon} Салон Люкс'));
+      expect(desc, isNot(contains(l10n.bookingCalendarNoteMaster)));
+    });
+
+    testWidgets('null / blank facts are skipped — no dangling labels', (
+      tester,
+    ) async {
+      final BuildContext ctx = await pumpHost(tester);
+      final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+      // Only service + status supplied; the rest null/blank.
+      final String? desc = buildCalendarDescription(
+        l10n: l10n,
+        service: 'Манікюр',
+        provider: '   ', // blank → skipped, no provider label
+        dateTime: null,
+        address: '',
+        price: null,
+        status: 'Підтверджено',
+      );
+
+      final List<String> lines = desc!.split('\n');
+      expect(lines, hasLength(2));
+      expect(desc, isNot(contains(l10n.bookingCalendarNoteProvider)));
+      expect(desc, isNot(contains(l10n.bookingCalendarNoteDateTime)));
+      expect(desc, isNot(contains(l10n.bookingCalendarNoteAddress)));
+      expect(desc, isNot(contains(l10n.bookingCalendarNotePrice)));
+    });
+
+    testWidgets(
+      'returns null when nothing was supplied (caller leaves desc unset)',
+      (tester) async {
+        final BuildContext ctx = await pumpHost(tester);
+        final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+        expect(buildCalendarDescription(l10n: l10n), isNull);
+      },
+    );
+  });
+
   group('addBookingToCalendar — no note / PII leak (security guard)', () {
     testWidgets(
-      'the Event carries only title + venue location; desc stays null and no '
-      'note text is transmitted',
+      'a structured-facts Event carries the venue + facts but NO free-text note '
+      'or client PII — the builder has no parameter that can carry one',
       (tester) async {
         final BuildContext ctx = await pumpHost(tester);
         final AppLocalizations l10n = AppLocalizations.of(ctx);
@@ -229,20 +361,36 @@ void main() {
         const String secretNote = 'СЕКРЕТНА КЛІЄНТСЬКА НОТАТКА';
         const String clientPhone = '+380 97 123 45 67';
 
+        // A realistic call: a fully-populated structured description (the shape
+        // the detail + success screens now build) plus title + location.
+        final String description = buildCalendarDescription(
+          l10n: l10n,
+          service: 'Манікюр',
+          provider: 'Салон Люкс',
+          providerRole: CalendarProviderRole.salon,
+          dateTime: '20 липня 2026, 15:00 – 16:30',
+          address: 'вул. Городоцька 12, Львів',
+          price: '650 ₴',
+          status: 'Підтверджено',
+        )!;
+
         await addBookingToCalendar(
           context: ctx,
           title: l10n.bookingCalendarEventTitle('Манікюр', 'Салон Люкс'),
           location: 'вул. Городоцька 12, Львів',
           start: _kStart,
           end: _kEnd,
+          description: description,
         );
         await tester.pump();
 
-        // The helper has NO description parameter — `desc` must be null.
-        expect(onlyArgs()['desc'], isNull);
+        // The structured description IS present now (change #3)…
+        expect(onlyArgs()['desc'], isNotNull);
+        expect(onlyArgs()['desc'], contains(l10n.bookingCalendarNoteStatus));
 
-        // The FULL serialised payload must not carry any note / PII sentinel,
-        // even if a future refactor added a field that echoed booking data.
+        // …but the FULL serialised payload must not carry any note / PII
+        // sentinel. There is no builder parameter that can carry free text, so
+        // neither a client note nor a phone number can reach the event.
         final String payload = jsonEncode(
           onlyArgs().map((k, v) => MapEntry(k.toString(), v)),
         );
