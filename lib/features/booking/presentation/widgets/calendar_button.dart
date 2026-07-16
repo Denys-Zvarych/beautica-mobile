@@ -29,6 +29,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:material_symbols_icons/symbols.dart';
+
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -105,7 +107,10 @@ class _CalendarButtonState extends State<CalendarButton> {
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
                       const Icon(
-                        Icons.calendar_today_rounded,
+                        // Same «calendar_add_on» (rounded cut) glyph as the
+                        // booking-detail header affordance, so the calendar-with-
+                        // «+» reads consistently across success + home-hub pills.
+                        Symbols.calendar_add_on_rounded,
                         size: 17,
                         color: BrandColors.accentDeep,
                       ),

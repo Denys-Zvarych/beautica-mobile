@@ -146,6 +146,7 @@ dependencies:
   # and failed on CI's UTC runner. `tz.initializeTimeZones()` must run once at
   # startup (main + test harnesses) before any formatter reads the zone.
   timezone: ^0.11.1
+  material_symbols_icons: ^4.2951.0
 
 dev_dependencies:
   flutter_test:

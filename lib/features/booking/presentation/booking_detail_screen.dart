@@ -51,6 +51,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -465,7 +466,14 @@ class _CalendarIconButton extends StatelessWidget {
       child: NeumorphicIconButton(
         key: const Key('booking-detail-add-calendar'),
         iconWidget: const Icon(
-          Icons.calendar_today_rounded,
+          // Material Symbols «calendar_add_on» (rounded cut) — a calendar page
+          // with a «+», so the textless header affordance reads as "add to
+          // calendar" on its own. The `_rounded` variant is chosen over the
+          // package's default (outlined) `Symbols.calendar_add_on` to sit with
+          // the app's `*_rounded` glyph family (e.g. `arrow_back_ios_new_rounded`
+          // on the paired back button). Default weight 400 / fill 0 keeps it a
+          // const IconData → release icon tree-shaking subsets the font.
+          Symbols.calendar_add_on_rounded,
           color: BrandColors.accentDeep,
           size: 22,
         ),

@@ -18,6 +18,7 @@
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../../helpers/pump_app.dart';
 
@@ -53,6 +54,25 @@ void main() {
       expect(rest.scale, 1.0, reason: 'un-pressed → full size');
       expect(rest.duration, const Duration(milliseconds: 120));
       expect(rest.curve, Curves.easeOut);
+    },
+  );
+
+  testWidgets(
+    'the pill renders the Symbols.calendar_add_on_rounded glyph (calendar + «+»)',
+    (tester) async {
+      // GLYPH GUARD (track 14.x): the leading icon must be the material_symbols
+      // «calendar_add_on» rounded-cut glyph — NOT the plain
+      // `Icons.calendar_today_rounded` it replaced. Pins the material_symbols
+      // wiring and guards against an accidental revert to the bare calendar.
+      await pumpButton(tester, () {});
+
+      expect(
+        find.descendant(
+          of: find.byType(CalendarButton),
+          matching: find.byIcon(Symbols.calendar_add_on_rounded),
+        ),
+        findsOneWidget,
+      );
     },
   );
 

@@ -42,6 +42,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
@@ -739,6 +740,27 @@ void main() {
           findsOneWidget,
         );
         expect(find.byKey(const Key('booking-detail-cancel')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the header calendar icon renders the Symbols.calendar_add_on_rounded '
+      'glyph on a CONFIRMED booking',
+      (tester) async {
+        // GLYPH GUARD (track 14.x): the textless header affordance must be the
+        // material_symbols «calendar_add_on» rounded-cut glyph — NOT the plain
+        // `Icons.calendar_today_rounded` it replaced — so the icon-only button
+        // still reads as "add to calendar". Finder is scoped to the header key
+        // so it cannot match any other calendar glyph on the surface.
+        await _pumpDetail(tester, _booking(status: BookingStatus.confirmed));
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('booking-detail-add-calendar')),
+            matching: find.byIcon(Symbols.calendar_add_on_rounded),
+          ),
+          findsOneWidget,
+        );
       },
     );
 
