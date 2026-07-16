@@ -49,7 +49,10 @@ class LeaveReview extends _$LeaveReview {
           .createReview(bookingId: bookingId, rating: rating, comment: comment);
       // Flip the detail screen's `canReview` to false (server-computed) so the
       // entry CTA disappears and any stale review deep link lands on the
-      // not-reviewable info state.
+      // not-reviewable info state. bookingDetailProvider fetches GET
+      // /bookings/{id} and never watches leaveReviewProvider (this notifier is
+      // invoked imperatively from the screen), so there is no back-edge.
+      // cycle-safe: bookingDetailProvider never watches leaveReviewProvider — no back-edge.
       ref.invalidate(bookingDetailProvider(bookingId));
     });
   }
