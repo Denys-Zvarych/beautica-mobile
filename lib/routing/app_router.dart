@@ -49,6 +49,7 @@ import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
 import '../features/booking/presentation/booking_time_screen.dart';
+import '../features/booking/presentation/leave_review_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
 import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
@@ -465,6 +466,23 @@ GoRouter appRouter(Ref ref) {
                     builder: (context, state) => BookingDetailScreen(
                       bookingId: state.pathParameters['bookingId']!,
                     ),
+                    routes: [
+                      // Phase 14.6 — «ВІДГУК ПРО МАЙСТРА» (leave-review),
+                      // nested under the detail so it pushes onto the Записи
+                      // branch's own navigator (swipe-back returns to the
+                      // detail). Reached from the detail's `canReview` entry CTA
+                      // AND as the backend 18.5 `reviewUrl` push deep-link
+                      // target. CLIENT-only via the `/bookings` prefix gate in
+                      // [authRedirect]. `builder:` (not `pageBuilder:
+                      // _instantPage`) so the default Material transition +
+                      // left-edge swipe-back apply, matching the detail route.
+                      GoRoute(
+                        path: 'review',
+                        builder: (context, state) => LeaveReviewScreen(
+                          bookingId: state.pathParameters['bookingId']!,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

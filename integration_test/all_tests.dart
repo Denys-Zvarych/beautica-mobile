@@ -63,6 +63,7 @@ import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
 import 'client_elapsed_booking_readonly_flow_test.dart'
     as client_elapsed_booking_readonly;
+import 'client_leave_review_flow_test.dart' as client_leave_review;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
@@ -131,6 +132,10 @@ void main() {
   // picker → new date+time → confirm (RESCHEDULE mode) → PATCH /reschedule →
   // success, plus both provider invalidations + the Home-Hub entry point.
   group('client_reschedule_flow', client_reschedule.main);
+  // CLIENT leave-review journey (Step 2.7 Rule 3b) — COMPLETED booking detail
+  // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
+  // and the invalidated detail hides the entry CTA.
+  group('client_leave_review_flow', client_leave_review.main);
   group('client_home_hub_flow', client_home_hub.main);
   group('client_logout_flow', client_logout.main);
   group('client_profile_settings_flow', client_profile_settings.main);

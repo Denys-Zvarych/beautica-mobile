@@ -168,6 +168,13 @@ class _FakeBookingRepository implements BookingRepository {
   Future<Booking> getBookingById(String id) => throw UnimplementedError();
 
   @override
+  Future<void> createReview({
+    required String bookingId,
+    required int rating,
+    String? comment,
+  }) => throw UnimplementedError();
+
+  @override
   Future<void> cancelBooking(String id, {String? reason}) =>
       throw UnimplementedError();
 
@@ -226,6 +233,13 @@ class _RecordingRescheduleRepository implements BookingRepository {
   @override
   Future<void> cancelBooking(String id, {String? reason}) =>
       throw UnimplementedError();
+
+  @override
+  Future<void> createReview({
+    required String bookingId,
+    required int rating,
+    String? comment,
+  }) => throw UnimplementedError();
 }
 
 /// mobile-qa Part 2 — minimal fake [SlotRepository] for the real

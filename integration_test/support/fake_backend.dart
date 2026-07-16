@@ -1468,6 +1468,20 @@ final class FakeBackend {
   /// successful cancel flips it to CANCELLED.
   String bookingStatus = 'CONFIRMED';
 
+  /// Server-computed `canReview` for the seeded booking (Phase 14.6). A flow
+  /// that exercises the leave-review journey seeds this `true` (with
+  /// [bookingStatus] = `COMPLETED`); a successful `POST /reviews` flips it
+  /// `false` so a detail re-fetch re-resolves the entry CTA away and a stale
+  /// deep link lands on the not-reviewable info state.
+  bool bookingCanReview = false;
+
+  /// `POST /reviews` call count + the last rating/comment/bookingId submitted
+  /// (Phase 14.6). Asserted by the leave-review flow.
+  int createReviewCalls = 0;
+  int? lastReviewRating;
+  String? lastReviewComment;
+  String? lastReviewBookingId;
+
   /// The client's free-text cancellation note, captured on cancel (may be null
   /// — a silent self-cancellation).
   String? bookingClientCancellationNote;
@@ -1526,7 +1540,7 @@ final class FakeBackend {
     'startsAt': bookingStartsAt,
     'endsAt': bookingEndsAt,
     'status': bookingStatus,
-    'canReview': false,
+    'canReview': bookingCanReview,
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': bookingClientCancellationNote,
@@ -2702,6 +2716,27 @@ final class FakeBackend {
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // POST /api/v1/reviews — CLIENT leave-review (Phase 14.6). Records the
+    // submitted bookingId/rating/comment and flips [bookingCanReview] false so a
+    // subsequent detail re-fetch (the notifier invalidates
+    // `bookingDetailProvider`) re-resolves the entry CTA away. The generated
+    // `ReviewControllerApi.createReview` deserializes an
+    // `ApiResponse<ReviewResponse>`; a `data: null` envelope is valid (every
+    // ReviewResponse field is nullable) and the repository returns void anyway.
+    _adapter.onRoute(
+      '/api/v1/reviews',
+      (server) => server.replyCallback(200, (req) {
+        createReviewCalls++;
+        final body = _decodeBody(req.data);
+        lastReviewBookingId = body['bookingId'] as String?;
+        lastReviewRating = body['rating'] as int?;
+        lastReviewComment = body['comment'] as String?;
+        bookingCanReview = false;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }
 

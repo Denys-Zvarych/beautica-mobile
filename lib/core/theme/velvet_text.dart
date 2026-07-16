@@ -1313,4 +1313,42 @@ abstract final class VelvetText {
     fontSize: 11,
     fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
   );
+
+  // ---------------------------------------------------------------------------
+  // Phase 14.6 — leave-review screen (master feedback card, star input,
+  // comment counter). Runtime-varying colours (the counter's error/active/muted
+  // states, the section tag's accent/muted states) are applied at the call site
+  // via one copyWith on these cached bases — only the size/family/weight/height
+  // live here so no inline `fontSize:` survives under lib/features.
+  // ---------------------------------------------------------------------------
+
+  /// Comment live-counter «$n / 500» — feedback base, Nunito 11/700, height 1.4.
+  /// Colour (error at cap / secondary while typing / muted when empty) is
+  /// applied at the call site.
+  static final TextStyle feedbackCounter = _feedbackBase.copyWith(fontSize: 11);
+
+  /// Section eyebrow required/optional tag («обовʼязково» / «за бажанням») —
+  /// feedback base at 10 sp, Nunito 10/700, height 1.4. Colour (accentDeep when
+  /// emphasized / muted otherwise) applied at the call site.
+  static final TextStyle feedbackTag = _feedbackBase.copyWith(fontSize: 10);
+
+  /// Master identity-card display name on the leave-review header — displayName
+  /// stepped to Comfortaa 16/700, height 1.2, espresso.
+  static final TextStyle feedbackName = _displayNameStyle.copyWith(
+    fontSize: 16,
+  );
+
+  /// Star-input live descriptive word (rated) — displayName stepped to
+  /// Comfortaa 18/700, height 1.2, accentDeep.
+  static final TextStyle feedbackRatingWord = _displayNameStyle.copyWith(
+    fontSize: 18,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Star-input unrated prompt — body stepped to Nunito 13/600, height 1.5,
+  /// muted.
+  static final TextStyle feedbackPrompt = _bodyStyle.copyWith(
+    fontSize: 13,
+    color: BrandColors.muted,
+  );
 }

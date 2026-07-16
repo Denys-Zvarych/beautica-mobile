@@ -3836,6 +3836,98 @@
   "@bookingDetailRebookCta": {
     "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
   },
+  "bookingDetailReviewCta": "Залишити відгук про майстра",
+  "@bookingDetailReviewCta": {
+    "description": "Pinned action on a COMPLETED booking's detail screen, shown only when canReview is true; opens the leave-review screen (Phase 14.6)."
+  },
+  "reviewScreenTitle": "ВІДГУК ПРО МАЙСТРА",
+  "@reviewScreenTitle": {
+    "description": "Top-bar title of the leave-review screen (Phase 14.6)."
+  },
+  "reviewBackSemantics": "Назад",
+  "@reviewBackSemantics": {
+    "description": "Accessibility label for the back button on the leave-review screen."
+  },
+  "reviewRatingSection": "ВАША ОЦІНКА",
+  "@reviewRatingSection": {
+    "description": "Section eyebrow above the required star-rating input on the leave-review screen."
+  },
+  "reviewRatingRequiredTag": "обов’язково",
+  "@reviewRatingRequiredTag": {
+    "description": "Small 'required' tag beside the rating section eyebrow on the leave-review screen."
+  },
+  "reviewCommentSection": "ВАШ ВІДГУК",
+  "@reviewCommentSection": {
+    "description": "Section eyebrow above the optional comment field on the leave-review screen."
+  },
+  "reviewCommentOptionalTag": "за бажанням",
+  "@reviewCommentOptionalTag": {
+    "description": "Small 'optional' tag beside the comment section eyebrow on the leave-review screen."
+  },
+  "reviewRatingPrompt": "Торкніться зірки, щоб оцінити",
+  "@reviewRatingPrompt": {
+    "description": "Prompt shown under the stars before any rating is selected on the leave-review screen."
+  },
+  "reviewStarsSemantics": "Оцінка від 1 до 5 зірок",
+  "@reviewStarsSemantics": {
+    "description": "Accessibility label for the 5-star rating input on the leave-review screen."
+  },
+  "reviewRatingLabel1": "Погано",
+  "@reviewRatingLabel1": {
+    "description": "Descriptive label for a 1-star rating on the leave-review screen."
+  },
+  "reviewRatingLabel2": "Так собі",
+  "@reviewRatingLabel2": {
+    "description": "Descriptive label for a 2-star rating on the leave-review screen."
+  },
+  "reviewRatingLabel3": "Нормально",
+  "@reviewRatingLabel3": {
+    "description": "Descriptive label for a 3-star rating on the leave-review screen."
+  },
+  "reviewRatingLabel4": "Добре",
+  "@reviewRatingLabel4": {
+    "description": "Descriptive label for a 4-star rating on the leave-review screen."
+  },
+  "reviewRatingLabel5": "Чудово",
+  "@reviewRatingLabel5": {
+    "description": "Descriptive label for a 5-star rating on the leave-review screen."
+  },
+  "reviewCommentHint": "Розкажіть про свій досвід…",
+  "@reviewCommentHint": {
+    "description": "Placeholder text inside the optional comment field on the leave-review screen."
+  },
+  "reviewSubmitCta": "Залишити відгук",
+  "@reviewSubmitCta": {
+    "description": "Primary submit button on the leave-review screen; disabled until a star is selected."
+  },
+  "reviewSubmitSuccess": "Дякуємо за відгук!",
+  "@reviewSubmitSuccess": {
+    "description": "Snackbar shown after a review is successfully submitted on the leave-review screen."
+  },
+  "reviewUnavailableTitle": "Цей запис недоступний для відгуку",
+  "@reviewUnavailableTitle": {
+    "description": "Title of the info state shown when the booking is not reviewable (e.g. already reviewed) on the leave-review screen."
+  },
+  "reviewUnavailableBody": "Відгук можна залишити лише про завершений запис — і лише один раз. Можливо, ви вже його залишили.",
+  "@reviewUnavailableBody": {
+    "description": "Body copy of the not-reviewable info state on the leave-review screen."
+  },
+  "reviewUnavailableCta": "До моїх записів",
+  "@reviewUnavailableCta": {
+    "description": "Button in the not-reviewable info state that returns to the bookings list."
+  },
+  "reviewErrAlreadyReviewed": "Ви вже залишили відгук про цей запис.",
+  "@reviewErrAlreadyReviewed": {
+    "description": "Error message when POST /reviews returns 409 because a review already exists for the booking."
+  },
+  "reviewErrNotAllowed": "Цей запис недоступний для відгуку.",
+  "@reviewErrNotAllowed": {
+    "description": "Error message when POST /reviews is rejected (403 not owner / 4xx booking not completed) on the leave-review screen."
+  },
+  "reviewMasterRoleIndependent": "Незалежний майстер",
+  "@reviewMasterRoleIndependent": {
+    "description": "Fallback role subtitle on the master feedback card when the master has no professional title and is not salon-employed."
+  },
   "bookingRescheduleSubmitCta": "Перенести запис",
   "@bookingRescheduleSubmitCta": {
     "description": "Primary CTA on the booking confirm screen when the flow is a reschedule (moving an existing booking) rather than a new booking."

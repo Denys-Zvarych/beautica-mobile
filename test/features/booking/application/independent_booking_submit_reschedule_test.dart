@@ -76,6 +76,13 @@ class _RecordingRepo implements BookingRepository {
   Future<Booking> getBookingById(String id) => throw UnimplementedError();
 
   @override
+  Future<void> createReview({
+    required String bookingId,
+    required int rating,
+    String? comment,
+  }) => throw UnimplementedError();
+
+  @override
   Future<PageResponse<Booking>> getMyBookings({
     required BookingStatus? status,
     required int page,

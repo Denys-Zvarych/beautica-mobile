@@ -33,13 +33,26 @@ part 'booking_providers.g.dart';
 BookingControllerApi bookingApi(Ref ref) =>
     BookingControllerApi(ref.watch(dioProvider), standardSerializers);
 
+/// Provides the generated [ReviewControllerApi] singleton for the CLIENT
+/// leave-review write path (`POST /reviews`, Phase 14.6).
+///
+/// A dedicated provider local to this feature (mirrors the `salonReviewApi`
+/// pattern in `salon/data/salon_repository.dart`) rather than importing another
+/// feature's data layer — the architecture forbids a `data/` importing another
+/// feature's `data/`.
+@Riverpod(keepAlive: true)
+ReviewControllerApi bookingReviewApi(Ref ref) =>
+    ReviewControllerApi(ref.watch(dioProvider), standardSerializers);
+
 /// Provides the [BookingRepository] singleton backed by the authenticated
 /// [dioProvider] Dio instance (needed for the raw `getMyBookings` GET — see
-/// the WIRE-FORMAT NOTE in `booking_repository.dart`) and [bookingApiProvider].
+/// the WIRE-FORMAT NOTE in `booking_repository.dart`), [bookingApiProvider],
+/// and [bookingReviewApiProvider] (the `POST /reviews` write path).
 @Riverpod(keepAlive: true)
 BookingRepository bookingRepository(Ref ref) => HttpBookingRepository(
   ref.watch(dioProvider),
   ref.watch(bookingApiProvider),
+  ref.watch(bookingReviewApiProvider),
 );
 
 /// Provides the [SlotRepository] singleton backed by the CORE
