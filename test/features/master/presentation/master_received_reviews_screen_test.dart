@@ -15,11 +15,12 @@
 //                    of reading the review providers (the redirect guard's
 //                    belt-and-braces).
 //   7. Service sub-line (backend `92280c3`) — `_masterReviewCard` gates the
-//      «послуга: …» sub-line on serviceName being BOTH non-null AND
-//      non-empty. Three items pin all three branches: a present name renders
-//      the formatted sub-line, a null name omits it entirely, and — the
-//      branch most likely to silently regress — an EMPTY-STRING name must
-//      ALSO omit it (never a bare «послуга: » with nothing after the colon).
+//      unlabelled service-name sub-line on serviceName being BOTH non-null
+//      AND non-empty. Three items pin all three branches: a present name
+//      renders the raw name (no «послуга:» label), a null name omits it
+//      entirely, and — the branch most likely to silently regress — an
+//      EMPTY-STRING name must ALSO omit it (never a stray icon with nothing
+//      after it).
 //
 // Strategy: override [authProvider] with a stub Authenticated session and
 // override [masterProfileProvider] with a stub whose [Master.id] is DISTINCT
@@ -411,21 +412,17 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('renders the «послуга: …» sub-line when serviceName is present', (
-      tester,
-    ) async {
+    testWidgets('renders the service-name sub-line, unlabelled, when '
+        'serviceName is present', (tester) async {
       await pumpServiceItems(tester);
 
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(MasterReceivedReviewsScreen)),
-      );
       final Finder card = find.byKey(const Key('master-review-mr-svc-present'));
       expect(card, findsOneWidget);
       expect(
         find.descendant(
           of: card,
           // i18n-finder-ok: 'Манікюр' is fixture service-name data, not translated UI copy
-          matching: find.text(l10n.salonReviewServicePrefix('Манікюр')),
+          matching: find.text('Манікюр'),
         ),
         findsOneWidget,
       );
@@ -450,7 +447,7 @@ void main() {
 
     testWidgets(
       'omits the sub-line when serviceName is an empty string (guards '
-      'non-null AND non-empty — never a bare «послуга: »)',
+      'non-null AND non-empty — never a stray icon/row with no name)',
       (tester) async {
         await pumpServiceItems(tester);
 
@@ -460,9 +457,9 @@ void main() {
           find.descendant(of: card, matching: find.byIcon(Icons.spa_outlined)),
           findsNothing,
         );
-        // Belt-and-braces: no partial «послуга:» text rendered anywhere under
-        // this card — guards against a bare "послуга: " with nothing after
-        // the colon.
+        // Belt-and-braces: no leftover «послуга» label text rendered anywhere
+        // under this card — guards against a stale label surviving the
+        // prefix removal.
         expect(
           find.descendant(of: card, matching: find.textContaining('послуга')),
           findsNothing,

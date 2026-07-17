@@ -1375,28 +1375,37 @@ final class FakeBackend {
         },
       ];
 
-  /// PUBLIC review-summary envelope for `salon-xyz` — matches the THREE
-  /// reviews in [_salonReviews] (one 5★, one 4★, one 3★). Shape matches
-  /// `SalonReviewSummaryResponse` → `RatingBucket`.
+  /// PUBLIC review-summary envelope for `salon-xyz` — matches the FOUR
+  /// reviews in [_salonReviews] (one 5★, two 4★, one 3★; avg stays exactly
+  /// 4.0 — (5+4+4+3)/4 — so the existing `salon-review-summary-average`
+  /// assertion in `public_salon_profile_flow_test.dart` is unaffected by the
+  /// 4th review added for the empty-string serviceName branch below). Shape
+  /// matches `SalonReviewSummaryResponse` → `RatingBucket`.
   static Map<String, dynamic> _salonReviewSummaryEnvelope() =>
       _ok(<String, dynamic>{
         'avgRating': 4.0,
-        'reviewCount': 3,
+        'reviewCount': 4,
         'ratingDistribution': <Map<String, dynamic>>[
           <String, dynamic>{'rating': 5, 'count': 1},
-          <String, dynamic>{'rating': 4, 'count': 1},
+          <String, dynamic>{'rating': 4, 'count': 2},
           <String, dynamic>{'rating': 3, 'count': 1},
           <String, dynamic>{'rating': 2, 'count': 0},
           <String, dynamic>{'rating': 1, 'count': 0},
         ],
       });
 
-  /// PUBLIC reviews list for `salon-xyz` — three reviews across three
-  /// distinct ratings (5★/4★/3★), split across both seeded masters. The fake
-  /// ignores the `sort` query value and always returns this same fixed list
-  /// (the sort contract is the SERVER's — the fake only needs to prove the
-  /// wire value reaches the backend, via [lastGetSalonReviewsSort]). Shape
-  /// matches `SalonReviewResponse`.
+  /// PUBLIC reviews list for `salon-xyz` — four reviews split across both
+  /// seeded masters. The fake ignores the `sort` query value and always
+  /// returns this same fixed list (the sort contract is the SERVER's — the
+  /// fake only needs to prove the wire value reaches the backend, via
+  /// [lastGetSalonReviewsSort]). Shape matches `SalonReviewResponse`.
+  ///
+  /// `serviceName` deliberately covers all THREE wire shapes the shared
+  /// `_salonReviewCard` mapper must handle (mirrors [_masterReviews] below):
+  /// salon-review-1 has a resolved name (unlabelled sub-line renders),
+  /// salon-review-3 omits the field entirely (null → sub-line hidden), and
+  /// salon-review-4 sends an explicit empty string (also → sub-line hidden,
+  /// never a stray icon with no name after the «послуга: » label removal).
   static const List<Map<String, dynamic>> _salonReviews =
       <Map<String, dynamic>>[
         <String, dynamic>{
@@ -1432,6 +1441,17 @@ final class FakeBackend {
           'comment': 'Непогано, але є куди рости.',
           'createdAt': '2026-05-20T09:00:00Z',
         },
+        <String, dynamic>{
+          'id': 'salon-review-4',
+          'masterId': 'master-ccc',
+          'masterFirstName': 'Марія',
+          'masterLastName': 'Гриценко',
+          'clientDisplayName': 'Юлія Р.',
+          'serviceName': '',
+          'rating': 4,
+          'comment': 'Приємна атмосфера, дякую!',
+          'createdAt': '2026-05-15T11:00:00Z',
+        },
       ];
 
   /// Master received-reviews summary envelope (Phase 4.5). Matches the THREE
@@ -1453,10 +1473,11 @@ final class FakeBackend {
   /// Master received-reviews fixture — three reviews with DISTINCT ids, ratings
   /// and dates so the per-sort reordering below is observable. `serviceName`
   /// (backend `92280c3`) deliberately covers all three wire shapes the mapper
-  /// + screen must handle: mr-1 has a resolved name (the «послуга:» sub-line
-  /// renders), mr-2 omits the field entirely (null → sub-line hidden), and
-  /// mr-3 sends an explicit empty string (also → sub-line hidden, never a
-  /// bare «послуга: »). Shape matches `ReviewResponse`.
+  /// + screen must handle: mr-1 has a resolved name (the unlabelled
+  /// service-name sub-line renders), mr-2 omits the field entirely (null →
+  /// sub-line hidden), and mr-3 sends an explicit empty string (also →
+  /// sub-line hidden, never a stray icon with no name). Shape matches
+  /// `ReviewResponse`.
   static const List<Map<String, dynamic>> _masterReviews =
       <Map<String, dynamic>>[
         <String, dynamic>{

@@ -122,7 +122,7 @@ class _SalonReviewsSectionState extends ConsumerState<SalonReviewsSection> {
                 : Column(
                     children: <Widget>[
                       for (int i = 0; i < reviews.length; i++) ...<Widget>[
-                        _salonReviewCard(l10n, reviews[i]),
+                        _salonReviewCard(reviews[i]),
                         if (i < reviews.length - 1)
                           const SizedBox(height: VelvetSpacing.md),
                       ],
@@ -362,9 +362,10 @@ class _ReviewListSkeleton extends StatelessWidget {
 }
 
 /// Maps a salon [SalonReviewItem] to the shared [ReviewCard], populating the
-/// «послуга: …» sub-line from the item's [SalonReviewItem.serviceName] (master
-/// reviews have no service, so their cards pass no [ReviewCard.servicePrefix]).
-ReviewCard _salonReviewCard(AppLocalizations l10n, SalonReviewItem item) {
+/// muted service-name sub-line from the item's [SalonReviewItem.serviceName]
+/// (master reviews have no service, so their cards pass no
+/// [ReviewCard.serviceName]). The name is rendered as-is with no label.
+ReviewCard _salonReviewCard(SalonReviewItem item) {
   final String? service = item.serviceName;
   return ReviewCard(
     data: ReviewCardData(
@@ -376,8 +377,6 @@ ReviewCard _salonReviewCard(AppLocalizations l10n, SalonReviewItem item) {
       serviceName: item.serviceName,
     ),
     keyPrefix: 'salon-review',
-    servicePrefix: (service != null && service.isNotEmpty)
-        ? l10n.salonReviewServicePrefix(service)
-        : null,
+    serviceName: (service != null && service.isNotEmpty) ? service : null,
   );
 }

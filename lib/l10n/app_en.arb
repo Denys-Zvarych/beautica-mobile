@@ -4079,16 +4079,6 @@
   "@salonReviewSortSheetTitle": {
     "description": "Title of the salon reviews sort-options bottom sheet."
   },
-  "salonReviewServicePrefix": "service: {service}",
-  "@salonReviewServicePrefix": {
-    "description": "Muted sub-line on a salon review card naming the booked service.",
-    "placeholders": {
-      "service": {
-        "type": "String",
-        "example": "Manicure with polish"
-      }
-    }
-  },
   "masterReviewsTitle": "My reviews",
   "@masterReviewsTitle": {
     "description": "App-bar title of the independent-master received-reviews screen."

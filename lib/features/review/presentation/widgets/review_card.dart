@@ -11,8 +11,8 @@
 //
 // Feature-neutral by construction: this file imports NO feature domain and only
 // the SHARED relative-date keys via [AppLocalizations]. The (optional) service
-// sub-line text is passed in already-formatted ([ReviewCard.servicePrefix]) so
-// the widget never references a feature-specific l10n key.
+// sub-line renders the raw service name ([ReviewCard.serviceName]) with no
+// prefix label — the widget never references a feature-specific l10n key.
 
 import 'package:flutter/material.dart';
 
@@ -27,7 +27,7 @@ import 'package:beautica_mobile/shared/formatters/relative_date.dart';
 /// model. Salon maps `SalonReviewItem` → [ReviewCardData] (with [serviceName]);
 /// master maps `MasterReviewItem` → [ReviewCardData] (also with [serviceName],
 /// backend `92280c3` — `null` only when the backend couldn't resolve a
-/// service, in which case the «послуга:» sub-line doesn't render).
+/// service, in which case the service-name sub-line doesn't render).
 @immutable
 final class ReviewCardData {
   const ReviewCardData({
@@ -61,19 +61,19 @@ final class ReviewCardData {
 }
 
 /// A single review: a raised card with an avatar + name + relative-date header,
-/// this review's ★ row, the comment body and an optional muted «послуга: …»
+/// this review's ★ row, the comment body and an optional muted service-name
 /// sub-line.
 ///
 /// The card's widget key is `Key('$keyPrefix-${data.id}')` (salon uses
 /// `salon-review`, master uses `master-review`) so widget tests can target an
-/// individual card. When [servicePrefix] is null/empty the service sub-line is
+/// individual card. When [serviceName] is null/empty the service sub-line is
 /// omitted entirely.
 class ReviewCard extends StatelessWidget {
   const ReviewCard({
     super.key,
     required this.data,
     required this.keyPrefix,
-    this.servicePrefix,
+    this.serviceName,
   });
 
   final ReviewCardData data;
@@ -81,15 +81,15 @@ class ReviewCard extends StatelessWidget {
   /// Widget-key namespace for this card (`salon-review` / `master-review`).
   final String keyPrefix;
 
-  /// Pre-formatted service sub-line (e.g. "послуга: Манікюр"), or null to hide
-  /// it. Passed in already-localised so this shared widget stays l10n-neutral.
-  final String? servicePrefix;
+  /// The booked service name (e.g. "Манікюр"), rendered as-is with no label,
+  /// or null to hide the sub-line entirely.
+  final String? serviceName;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final String relativeDate = formatRelativeDate(l10n, data.createdAt);
-    final String? service = servicePrefix;
+    final String? service = serviceName;
     return NeumorphicCard(
       key: Key('$keyPrefix-${data.id}'),
       padding: const EdgeInsets.all(VelvetSpacing.md + 2),

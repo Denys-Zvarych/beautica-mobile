@@ -21,13 +21,13 @@
 // the empty/404 routes: the seeded cards never render and this flow fails. Only
 // a screen that keys on the loaded profile's master-row id renders the reviews.
 //
-// This flow also pins the «послуга: …» sub-line end-to-end (backend `92280c3`
-// added `serviceName` to `ReviewResponse`): the fake's mr-1 carries a real
-// service name, mr-2 omits the field (wire null), and mr-3 sends an explicit
-// empty string — the full round trip from JSON → generated DTO → mapper →
-// domain model → `_masterReviewCard`'s null/empty guard → the shared
-// `ReviewCard` widget is only exercised together here, not by any single unit
-// or widget test alone.
+// This flow also pins the unlabelled service-name sub-line end-to-end
+// (backend `92280c3` added `serviceName` to `ReviewResponse`): the fake's
+// mr-1 carries a real service name, mr-2 omits the field (wire null), and
+// mr-3 sends an explicit empty string — the full round trip from JSON →
+// generated DTO → mapper → domain model → `_masterReviewCard`'s null/empty
+// guard → the shared `ReviewCard` widget is only exercised together here,
+// not by any single unit or widget test alone.
 //
 // LOCAL-EMULATOR CAVEAT: like every integration_test flow, this drives the real
 // VM-service websocket and may not run green headlessly from the VirtualBox VM
@@ -37,7 +37,6 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/master/presentation/master_received_reviews_screen.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -124,9 +123,6 @@ void main() {
       );
 
       // ── serviceName end-to-end: present / null / empty-string ────────────
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(MasterReceivedReviewsScreen)),
-      );
       final Finder mr1Card = find.byKey(const Key('master-review-mr-1'));
       final Finder mr2Card = find.byKey(const Key('master-review-mr-2'));
       final Finder mr3Card = find.byKey(const Key('master-review-mr-3'));
@@ -134,11 +130,11 @@ void main() {
         find.descendant(
           of: mr1Card,
           // i18n-finder-ok: 'Манікюр' is fixture service-name data, not translated UI copy
-          matching: find.text(l10n.salonReviewServicePrefix('Манікюр')),
+          matching: find.text('Манікюр'),
         ),
         findsOneWidget,
         reason:
-            'mr-1 has a resolved serviceName — the «послуга: Манікюр» '
+            'mr-1 has a resolved serviceName — the unlabelled «Манікюр» '
             'sub-line must render end-to-end',
       );
       expect(

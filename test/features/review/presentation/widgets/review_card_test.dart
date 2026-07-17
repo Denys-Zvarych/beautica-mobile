@@ -7,8 +7,9 @@
 //   • widget key is `Key('$keyPrefix-${data.id}')` so a list test can target one.
 //   • the ★ row fills exactly `rating` stars (accentDeep) of 5.
 //   • the masked client name + comment render verbatim.
-//   • the «послуга:» sub-line (Icons.spa_outlined) is OMITTED when servicePrefix
-//     is null/empty (the master case) and PRESENT when supplied (the salon case).
+//   • the service-name sub-line (Icons.spa_outlined) is OMITTED when
+//     serviceName is null/empty (the master case) and PRESENT when supplied
+//     (the salon case) — rendered as the raw service name with no label.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
@@ -87,14 +88,14 @@ void main() {
     expect(find.text('Майстер золоті руки!'), findsOneWidget);
   });
 
-  testWidgets('omits the «послуга» sub-line when servicePrefix is null '
+  testWidgets('omits the service sub-line when serviceName is null '
       '(the master case)', (tester) async {
     await tester.pumpApp(
       _host(
         ReviewCard(
           data: _data(serviceName: 'Манікюр'),
           keyPrefix: 'master-review',
-          // servicePrefix omitted → null → sub-line hidden even though the
+          // serviceName omitted → null → sub-line hidden even though the
           // data carries a serviceName. This is the master screen's contract.
         ),
       ),
@@ -103,37 +104,36 @@ void main() {
     expect(find.byIcon(Icons.spa_outlined), findsNothing);
   });
 
-  testWidgets('omits the sub-line when servicePrefix is the empty string', (
+  testWidgets('omits the sub-line when serviceName is the empty string', (
     tester,
   ) async {
     await tester.pumpApp(
       _host(
-        ReviewCard(
-          data: _data(),
-          keyPrefix: 'master-review',
-          servicePrefix: '',
-        ),
+        ReviewCard(data: _data(), keyPrefix: 'master-review', serviceName: ''),
       ),
     );
 
     expect(find.byIcon(Icons.spa_outlined), findsNothing);
   });
 
-  testWidgets('renders the «послуга» sub-line when servicePrefix is supplied '
-      '(the salon case)', (tester) async {
+  testWidgets('renders the service sub-line as the raw service name, with '
+      'no «послуга:» label, when serviceName is supplied (the salon case)', (
+    tester,
+  ) async {
     await tester.pumpApp(
       _host(
         ReviewCard(
           data: _data(),
           keyPrefix: 'salon-review',
-          servicePrefix: 'послуга: Манікюр',
+          serviceName: 'Манікюр',
         ),
       ),
     );
 
     expect(find.byIcon(Icons.spa_outlined), findsOneWidget);
-    // i18n-finder-ok: caller passes an already-formatted string; asserting the exact text the widget was handed, not a localised key resolved internally.
-    expect(find.text('послуга: Манікюр'), findsOneWidget);
+    // i18n-finder-ok: fixture service-name data, not localised UI copy.
+    expect(find.text('Манікюр'), findsOneWidget);
+    expect(find.textContaining('послуга'), findsNothing);
   });
 
   testWidgets('a rating of 0 fills no stars (still renders 5 outlines)', (
