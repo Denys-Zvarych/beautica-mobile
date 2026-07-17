@@ -1733,6 +1733,14 @@ final class FakeBackend {
   int getBookingDetailCalls = 0;
   int getMyBookingsCalls = 0;
 
+  /// The FULL raw query map (page/size/sort/status, as Dio actually sent it —
+  /// ints stay ints, the repeated `status` stays a `List<String>`) of the
+  /// MOST RECENT `GET /bookings/me` call. Mobile-qa pagination/sort flow
+  /// (Step 2.7 Rule 3b) — lets a test pin the exact `sort=startsAt,<asc|desc>`
+  /// wire value per tab at the HTTP boundary, not just the mapped domain
+  /// argument the unit suite already covers.
+  Map<String, dynamic>? lastMyBookingsQuery;
+
   /// The enriched `BookingDetailResponse` body for the seeded booking, built
   /// from the CURRENT mutable status/note so a post-cancel re-fetch reflects
   /// the new state. Wire keys mirror the DTO the [BookingMapper] reads.
@@ -1786,6 +1794,162 @@ final class FakeBackend {
         'size': 20,
         'totalElements': rows.length,
         'totalPages': rows.isEmpty ? 0 : 1,
+      },
+    };
+  }
+
+  // ── Pagination/sort regression dataset (mobile-qa, Step 2.7 Rule 3b) ──────
+  //
+  // The single-seeded-`booking-1` model above (`_bookingsPageEnvelope`) hands
+  // back a HAND-PICKED bucket keyed only by the current status — it cannot
+  // catch a dropped `sort` param or a reverted per-status client-side fan-out,
+  // because it never actually sorts or globally paginates anything. That gap
+  // is exactly how the two bugs this dataset regression-tests shipped green:
+  //   Bug B — `getMyBookings` sent no `sort` param; the REAL backend defaults
+  //     to `startsAt,DESC`, so page 0 of a >20-upcoming-booking client
+  //     returned the 20 FARTHEST-future rows, hiding the very next
+  //     appointment.
+  //   Bug A — Минулі/Скасовані fanned out ONE request PER status, merging two
+  //     independently-paginated streams client-side — only correct as a
+  //     prefix, so a tab spanning >20 items in EACH of two statuses could
+  //     drop/reshuffle rows on load-more.
+  //
+  // [_bookingsDataset] (opt-in via [seedManyBookingsDataset]) replaces the
+  // single-seeded-booking route with a REAL (statuses, sort, page) slice over
+  // a whole in-memory table — [_slicedBookingsPageEnvelope] filters + sorts +
+  // paginates the FULL dataset on every call, the same shape work the real
+  // `GET /bookings/me` does server-side (backend Phase 26.1 status union +
+  // Phase 26.3 sort). A dropped `sort` param or a reverted fan-out surfaces
+  // here exactly as it would against the real backend — this is deliberately
+  // NOT a per-call hand-picked response.
+  List<Map<String, dynamic>>? _bookingsDataset;
+
+  /// Builds one dataset row in the same wire shape [_seededBookingJson] uses,
+  /// parameterized by [id]/[status]/[startsAt] so a test can seed a large,
+  /// scrambled-insertion-order table. [duration] defaults to a realistic
+  /// service length.
+  Map<String, dynamic> datasetBookingRow({
+    required String id,
+    required String status,
+    required DateTime startsAt,
+    Duration duration = const Duration(minutes: 60),
+  }) => <String, dynamic>{
+    'id': id,
+    'masterId': 'master-aaa',
+    'masterFirstName': 'Софія',
+    'masterLastName': 'Бондар',
+    'masterAvatarUrl': null,
+    'masterType': 'INDEPENDENT_MASTER',
+    'salonName': null,
+    'masterServiceId': 'pub-assign-1',
+    'serviceName': 'Манікюр з покриттям',
+    'categoryName': 'Манікюр',
+    'cityLabel': 'Київ',
+    'districtLabel': 'Печерський',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'durationMinutesAtBooking': duration.inMinutes,
+    'priceAtBooking': 650,
+    'startsAt': startsAt.toIso8601String(),
+    'endsAt': startsAt.add(duration).toIso8601String(),
+    'status': status,
+    'canReview': false,
+    'clientComment': null,
+    'providerComment': null,
+    'clientCancellationNote': null,
+    'masterProfessionalTitle': 'Майстриня манікюру',
+    'locationNote': null,
+  };
+
+  /// Replaces the single-seeded-booking `/bookings/me` behaviour with a real
+  /// (statuses, sort, page) slice over [bookings] — see the section doc above
+  /// for why. Takes ownership of a COPY of [bookings]; the caller's own list
+  /// is never mutated by the sort inside [_slicedBookingsPageEnvelope].
+  void seedManyBookingsDataset(List<Map<String, dynamic>> bookings) {
+    _bookingsDataset = List<Map<String, dynamic>>.of(bookings);
+  }
+
+  /// Reads the repeated `status` query param the same way `serviceTypeSlugs`
+  /// is read elsewhere in this file (see [_slugsFrom]) — Dio's
+  /// `ListFormat.multi` renders a `Set<BookingStatus>` as repeated bare
+  /// `status=` params, so the handler sees either a raw `List` (2+ values) or
+  /// a bare scalar (exactly one value). Absent → null (no filter — mirrors
+  /// the real backend's "no status constraint" behaviour).
+  List<String>? _bookingStatusesFrom(Map<String, dynamic> query) {
+    final raw = query['status'];
+    if (raw == null) return null;
+    if (raw is List) {
+      return raw.map((Object? e) => e.toString()).toList(growable: false);
+    }
+    return <String>[raw.toString()];
+  }
+
+  /// Defensive int query-param read — mirrors `_pageFromRequest` elsewhere in
+  /// this file: DioAdapter sometimes hands back the original Dart `int` dio
+  /// was called with, sometimes a stringified value, depending on the
+  /// transport path.
+  int _intQueryParam(Map<String, dynamic> query, String key, int fallback) {
+    final raw = query[key];
+    if (raw is int) return raw;
+    if (raw is String) return int.tryParse(raw) ?? fallback;
+    return fallback;
+  }
+
+  /// The real (statuses, sort, page) slice over [_bookingsDataset] — see the
+  /// section doc above. Filters the WHOLE dataset by the repeated `status`
+  /// params (or no filter when absent), sorts the filtered set by `startsAt`
+  /// in the direction the `sort` param carries — defaulting to `desc` when
+  /// `sort` is ABSENT, mirroring the real endpoint's actual default (the
+  /// precise gap Bug B exploited: no `sort` sent → server default
+  /// `startsAt,DESC` → farthest-future page 0) — then slices out
+  /// `[page*size, page*size+size)`. Also records [lastMyBookingsQuery] for
+  /// tests that want to pin the exact wire query.
+  Map<String, dynamic> _slicedBookingsPageEnvelope(Map<String, dynamic> query) {
+    lastMyBookingsQuery = Map<String, dynamic>.from(query);
+
+    final List<Map<String, dynamic>> dataset = _bookingsDataset!;
+    final List<String>? statuses = _bookingStatusesFrom(query);
+    final String sort = (query['sort'] as String?) ?? 'startsAt,desc';
+    final bool ascending = sort.endsWith(',asc');
+    final int page = _intQueryParam(query, 'page', 0);
+    final int size = _intQueryParam(query, 'size', 20);
+
+    final List<Map<String, dynamic>> filtered =
+        dataset
+            .where(
+              (Map<String, dynamic> b) =>
+                  statuses == null || statuses.contains(b['status']),
+            )
+            .toList(growable: false)
+          ..sort((Map<String, dynamic> a, Map<String, dynamic> b) {
+            final DateTime aStart = DateTime.parse(a['startsAt'] as String);
+            final DateTime bStart = DateTime.parse(b['startsAt'] as String);
+            return ascending
+                ? aStart.compareTo(bStart)
+                : bStart.compareTo(aStart);
+          });
+
+    final int totalElements = filtered.length;
+    final int totalPages = totalElements == 0
+        ? 0
+        : (totalElements / size).ceil();
+    final int start = page * size;
+    final int end = (start + size) > totalElements
+        ? totalElements
+        : start + size;
+    final List<Map<String, dynamic>> rows = start >= totalElements
+        ? const <Map<String, dynamic>>[]
+        : filtered.sublist(start, end);
+
+    return <String, dynamic>{
+      'success': true,
+      'message': 'ok',
+      'data': <String, dynamic>{
+        'data': rows,
+        'page': page,
+        'size': size,
+        'totalElements': totalElements,
+        'totalPages': totalPages,
       },
     };
   }
@@ -2968,14 +3132,23 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.delete),
     );
 
-    // GET /api/v1/bookings/me?status=&page=&size= — the client's «МОЇ ЗАПИСИ»
-    // list. DioAdapter matches path-only, so the single handler reads the
-    // `status` filter off the query and returns the seeded booking only under
-    // the status it currently holds (track 14.3 fan-out: one GET per status).
+    // GET /api/v1/bookings/me?status=&sort=&page=&size= — the client's «МОЇ
+    // ЗАПИСИ» list. DioAdapter matches path-only, so the single handler
+    // dispatches on whether a full [_bookingsDataset] has been seeded: when
+    // it has (mobile-qa pagination/sort regression flow), every call is
+    // served by the REAL (statuses, sort, page) slice in
+    // [_slicedBookingsPageEnvelope]; otherwise (every other flow using this
+    // fake) it falls back to the original single-seeded-`booking-1` behaviour
+    // keyed off the current status.
     _adapter.onRoute(
       '/api/v1/bookings/me',
       (server) => server.replyCallback(200, (req) {
         getMyBookingsCalls++;
+        if (_bookingsDataset != null) {
+          return _slicedBookingsPageEnvelope(
+            Map<String, dynamic>.from(req.queryParameters),
+          );
+        }
         final String? status = req.queryParameters['status'] as String?;
         return _bookingsPageEnvelope(status);
       }),

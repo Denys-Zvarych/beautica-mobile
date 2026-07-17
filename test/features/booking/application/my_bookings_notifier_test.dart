@@ -1,15 +1,29 @@
 // QA (track 14.x booking) — unit suite for [MyBookingsNotifier].
 //
-// The notifier fans one paginated `GET /bookings/me` fetch out per status a
-// tab covers (Минулі = COMPLETED + NOT_COMPLETED; Скасовані = CANCELLED +
-// DECLINED), then merges + re-sorts the accumulated set. The merge/sort/
-// pagination logic is only exercised INDIRECTLY by the screen test, so this
-// suite pins it directly: correct fan-out per tab, correct sort direction per
-// tab, load-more append + cursor advance + guards, and a load-more failure
-// that must NOT blow away the already-rendered list.
+// Rewritten for backend Phase 26.1 (repeatable `status` query param, unioned
+// server-side into ONE globally-paginated stream) + Phase 26.3 (honoured
+// `sort` param) — mobile-debugger findings A + B. Each tab now issues exactly
+// ONE `getMyBookings` call carrying its whole status set + the tab's sort
+// direction; there is no more client-side fan-out/merge/re-sort to pin, so
+// this suite instead pins: the exact `statuses`/`ascending` args per tab
+// (single call, not one-per-status), that the server response is used
+// as-is (no re-sort), pagination cursor advance, and the existing
+// load-more/refresh/error guards.
+//
+// The PREVIOUS version of this suite asserted the fan-out/merge architecture
+// directly (verifying N separate per-status `getMyBookings` calls, a
+// client-side merge of two independently-paginated streams, and independent
+// per-status page cursors advancing on `loadMore`) — that architecture is
+// exactly what mobile-debugger flagged as unsound (finding A) and is now
+// deleted from `my_bookings_notifier.dart`. Those assertions are NOT ported
+// forward as "weakened" versions; they are replaced by single-request
+// equivalents below. See the mobile-dev handoff notes for the exact list of
+// old assertions that no longer apply.
 //
 // Isolation: a fresh [ProviderContainer] per test with a mocktail-backed
 // [BookingRepository] override; disposed via addTearDown.
+
+import 'dart:async';
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
@@ -78,103 +92,162 @@ ProviderContainer _container(_MockBookingRepository repo) {
   return c;
 }
 
-/// Stubs every status with an empty page except those named in [byStatus].
-void _stubAll(
-  _MockBookingRepository repo, {
-  Map<BookingStatus, PageResponse<Booking>> byStatus =
-      const <BookingStatus, PageResponse<Booking>>{},
+/// Stubs the ONE `getMyBookings` call [tab] issues at [page] to answer with
+/// [response]. `ascending` is derived from the tab (Майбутні only).
+void _stubTab(
+  _MockBookingRepository repo,
+  BookingTab tab, {
+  required int page,
+  required PageResponse<Booking> response,
 }) {
-  for (final BookingStatus s in BookingStatus.values) {
-    when(
-      () => repo.getMyBookings(
-        status: s,
-        page: any(named: 'page'),
-        size: any(named: 'size'),
-      ),
-    ).thenAnswer((_) async => byStatus[s] ?? _page(const <Booking>[]));
-  }
+  when(
+    () => repo.getMyBookings(
+      statuses: tab.statuses,
+      ascending: tab == BookingTab.upcoming,
+      page: page,
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => response);
 }
 
 void main() {
-  group('build — fan-out + merge per tab', () {
-    test('Майбутні fetches ONLY CONFIRMED (single-status tab)', () async {
-      final repo = _MockBookingRepository();
-      _stubAll(
-        repo,
-        byStatus: <BookingStatus, PageResponse<Booking>>{
-          BookingStatus.confirmed: _page(<Booking>[
+  group('build — single request per tab (backend Phase 26.1)', () {
+    test(
+      'Майбутні sends statuses={CONFIRMED}, ascending: true, in ONE call',
+      (() async {
+        final repo = _MockBookingRepository();
+        _stubTab(
+          repo,
+          BookingTab.upcoming,
+          page: 0,
+          response: _page(<Booking>[
             _booking(
               id: 'c1',
               status: BookingStatus.confirmed,
               startAt: DateTime.utc(2026, 8, 1, 10),
             ),
           ]),
-        },
-      );
-      final c = _container(repo);
+        );
+        final c = _container(repo);
 
-      final MyBookingsState state = await c.read(
-        myBookingsProvider(BookingTab.upcoming).future,
-      );
+        final MyBookingsState state = await c.read(
+          myBookingsProvider(BookingTab.upcoming).future,
+        );
 
-      expect(state.items.map((Booking b) => b.id), <String>['c1']);
-      verify(
-        () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
-          page: 0,
-          size: any(named: 'size'),
-        ),
-      ).called(1);
-      verifyNever(
-        () => repo.getMyBookings(
-          status: BookingStatus.declined,
-          page: any(named: 'page'),
-          size: any(named: 'size'),
-        ),
-      );
-    });
+        expect(state.items.map((Booking b) => b.id), <String>['c1']);
+        verify(
+          () => repo.getMyBookings(
+            statuses: const <BookingStatus>{BookingStatus.confirmed},
+            ascending: true,
+            page: 0,
+            size: any(named: 'size'),
+          ),
+        ).called(1);
+      }),
+    );
 
-    test('Скасовані merges CANCELLED + DECLINED into one list', () async {
+    test('Минулі sends BOTH statuses={COMPLETED, NOT_COMPLETED} in ONE call — '
+        'no per-status fan-out', () async {
       final repo = _MockBookingRepository();
-      _stubAll(
+      _stubTab(
         repo,
-        byStatus: <BookingStatus, PageResponse<Booking>>{
-          BookingStatus.cancelled: _page(<Booking>[
-            _booking(
-              id: 'x1',
-              status: BookingStatus.cancelled,
-              startAt: DateTime.utc(2026, 7, 10),
-            ),
-          ]),
-          BookingStatus.declined: _page(<Booking>[
-            _booking(
-              id: 'd1',
-              status: BookingStatus.declined,
-              startAt: DateTime.utc(2026, 7, 12),
-            ),
-          ]),
-        },
+        BookingTab.past,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'x1',
+            status: BookingStatus.completed,
+            startAt: DateTime.utc(2026, 7, 10),
+          ),
+          _booking(
+            id: 'd1',
+            status: BookingStatus.notCompleted,
+            startAt: DateTime.utc(2026, 7, 12),
+          ),
+        ]),
       );
       final c = _container(repo);
 
       final MyBookingsState state = await c.read(
-        myBookingsProvider(BookingTab.cancelled).future,
+        myBookingsProvider(BookingTab.past).future,
       );
 
       expect(state.items.map((Booking b) => b.id).toSet(), <String>{
         'x1',
         'd1',
       });
+      // Exactly ONE getMyBookings call total for this tab — the whole point
+      // of the fix (mobile-debugger finding A): no separate fetch per
+      // status to merge client-side.
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          ascending: any(named: 'ascending'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+        ),
+      ).called(1);
     });
-  });
 
-  group('merge sort direction', () {
-    test('Майбутні sorts soonest-first (ascending startAt)', () async {
-      final repo = _MockBookingRepository();
-      _stubAll(
-        repo,
-        byStatus: <BookingStatus, PageResponse<Booking>>{
-          BookingStatus.confirmed: _page(<Booking>[
+    test(
+      'Скасовані sends BOTH statuses={CANCELLED, DECLINED} in ONE call',
+      (() async {
+        final repo = _MockBookingRepository();
+        _stubTab(
+          repo,
+          BookingTab.cancelled,
+          page: 0,
+          response: _page(<Booking>[
+            _booking(
+              id: 'x1',
+              status: BookingStatus.cancelled,
+              startAt: DateTime.utc(2026, 7, 10),
+            ),
+            _booking(
+              id: 'd1',
+              status: BookingStatus.declined,
+              startAt: DateTime.utc(2026, 7, 12),
+            ),
+          ]),
+        );
+        final c = _container(repo);
+
+        final MyBookingsState state = await c.read(
+          myBookingsProvider(BookingTab.cancelled).future,
+        );
+
+        expect(state.items.map((Booking b) => b.id).toSet(), <String>{
+          'x1',
+          'd1',
+        });
+        verify(
+          () => repo.getMyBookings(
+            statuses: const <BookingStatus>{
+              BookingStatus.cancelled,
+              BookingStatus.declined,
+            },
+            ascending: false,
+            page: 0,
+            size: any(named: 'size'),
+          ),
+        ).called(1);
+      }),
+    );
+
+    test(
+      'the server response order is used AS-IS — no client-side re-sort',
+      () async {
+        // Deliberately hand the notifier a server response that is NOT
+        // chronologically sorted — if the notifier still re-sorted
+        // client-side (the old, now-deleted `_merge`), this would pass by
+        // accident. It must not: the union+global-pagination+sort is now the
+        // server's job (backend Phase 26.1/26.3).
+        final repo = _MockBookingRepository();
+        _stubTab(
+          repo,
+          BookingTab.upcoming,
+          page: 0,
+          response: _page(<Booking>[
             _booking(
               id: 'late',
               status: BookingStatus.confirmed,
@@ -186,60 +259,72 @@ void main() {
               startAt: DateTime.utc(2026, 8, 1),
             ),
           ]),
-        },
+        );
+        final c = _container(repo);
+
+        final MyBookingsState state = await c.read(
+          myBookingsProvider(BookingTab.upcoming).future,
+        );
+
+        expect(state.items.map((Booking b) => b.id), <String>['late', 'soon']);
+      },
+    );
+  });
+
+  group('sort direction argument per tab', () {
+    test('Майбутні requests ascending: true (soonest-first)', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(const <Booking>[]),
       );
       final c = _container(repo);
 
-      final MyBookingsState state = await c.read(
-        myBookingsProvider(BookingTab.upcoming).future,
-      );
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
 
-      expect(state.items.map((Booking b) => b.id), <String>['soon', 'late']);
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          ascending: true,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(1);
     });
 
-    test('Минулі sorts most-recent-first (descending startAt)', () async {
+    test('Минулі requests ascending: false (most-recent-first)', () async {
       final repo = _MockBookingRepository();
-      _stubAll(
+      _stubTab(
         repo,
-        byStatus: <BookingStatus, PageResponse<Booking>>{
-          BookingStatus.completed: _page(<Booking>[
-            _booking(
-              id: 'older',
-              status: BookingStatus.completed,
-              startAt: DateTime.utc(2026, 6, 1),
-            ),
-          ]),
-          BookingStatus.notCompleted: _page(<Booking>[
-            _booking(
-              id: 'newer',
-              status: BookingStatus.notCompleted,
-              startAt: DateTime.utc(2026, 6, 20),
-            ),
-          ]),
-        },
+        BookingTab.past,
+        page: 0,
+        response: _page(const <Booking>[]),
       );
       final c = _container(repo);
 
-      final MyBookingsState state = await c.read(
-        myBookingsProvider(BookingTab.past).future,
-      );
+      await c.read(myBookingsProvider(BookingTab.past).future);
 
-      expect(state.items.map((Booking b) => b.id), <String>['newer', 'older']);
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          ascending: false,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(1);
     });
   });
 
   group('loadMore', () {
-    test('appends the next page and advances only the paged status', () async {
+    test('appends the next page and advances the page cursor', () async {
       final repo = _MockBookingRepository();
-      // CANCELLED has a 2nd page; DECLINED is exhausted at page 0.
-      when(
-        () => repo.getMyBookings(
-          status: BookingStatus.cancelled,
-          page: 0,
-          size: any(named: 'size'),
-        ),
-      ).thenAnswer(
-        (_) async => _page(
+      _stubTab(
+        repo,
+        BookingTab.cancelled,
+        page: 0,
+        response: _page(
           <Booking>[
             _booking(
               id: 'x0',
@@ -251,14 +336,11 @@ void main() {
           totalPages: 2,
         ),
       );
-      when(
-        () => repo.getMyBookings(
-          status: BookingStatus.cancelled,
-          page: 1,
-          size: any(named: 'size'),
-        ),
-      ).thenAnswer(
-        (_) async => _page(
+      _stubTab(
+        repo,
+        BookingTab.cancelled,
+        page: 1,
+        response: _page(
           <Booking>[
             _booking(
               id: 'x1',
@@ -270,13 +352,6 @@ void main() {
           totalPages: 2,
         ),
       );
-      when(
-        () => repo.getMyBookings(
-          status: BookingStatus.declined,
-          page: any(named: 'page'),
-          size: any(named: 'size'),
-        ),
-      ).thenAnswer((_) async => _page(const <Booking>[]));
       final c = _container(repo);
 
       await c.read(myBookingsProvider(BookingTab.cancelled).future);
@@ -292,41 +367,32 @@ void main() {
       final MyBookingsState after = c
           .read(myBookingsProvider(BookingTab.cancelled))
           .value!;
-      expect(after.items.map((Booking b) => b.id).toSet(), <String>{
-        'x0',
-        'x1',
-      });
+      expect(after.items.map((Booking b) => b.id), <String>['x0', 'x1']);
+      expect(after.page, 1);
       expect(after.hasMore, isFalse);
-      // DECLINED was already exhausted → only its page-0 fetch, never page 1.
       verify(
         () => repo.getMyBookings(
-          status: BookingStatus.declined,
-          page: 0,
-          size: any(named: 'size'),
-        ),
-      ).called(1);
-      verifyNever(
-        () => repo.getMyBookings(
-          status: BookingStatus.declined,
+          statuses: BookingTab.cancelled.statuses,
+          ascending: false,
           page: 1,
           size: any(named: 'size'),
         ),
-      );
+      ).called(1);
     });
 
-    test('is a no-op when every status is already exhausted', () async {
+    test('is a no-op when the stream is already exhausted', () async {
       final repo = _MockBookingRepository();
-      _stubAll(
+      _stubTab(
         repo,
-        byStatus: <BookingStatus, PageResponse<Booking>>{
-          BookingStatus.confirmed: _page(<Booking>[
-            _booking(
-              id: 'c1',
-              status: BookingStatus.confirmed,
-              startAt: DateTime.utc(2026, 8, 1),
-            ),
-          ]),
-        },
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'c1',
+            status: BookingStatus.confirmed,
+            startAt: DateTime.utc(2026, 8, 1),
+          ),
+        ]),
       );
       final c = _container(repo);
 
@@ -336,25 +402,112 @@ void main() {
       // Exactly ONE page-0 fetch — the no-op loadMore issued no second call.
       verify(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: any(named: 'statuses'),
+          ascending: any(named: 'ascending'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
       ).called(1);
     });
 
+    test('a second loadMore fired before the first settles is a no-op '
+        '(pins the isLoadingMore in-flight guard, not the hasMore guard '
+        'covered above)', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.cancelled,
+        page: 0,
+        response: _page(
+          <Booking>[
+            _booking(
+              id: 'x0',
+              status: BookingStatus.cancelled,
+              startAt: DateTime.utc(2026, 7, 10),
+            ),
+          ],
+          page: 0,
+          totalPages: 2,
+        ),
+      );
+      // A Completer (not an immediately-resolved future) so the first
+      // loadMore() is genuinely still in-flight — not just "not yet
+      // awaited" — when the second loadMore() call reads `state.value`.
+      final Completer<PageResponse<Booking>> pendingPage1 =
+          Completer<PageResponse<Booking>>();
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.cancelled.statuses,
+          ascending: false,
+          page: 1,
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) => pendingPage1.future);
+      final c = _container(repo);
+
+      await c.read(myBookingsProvider(BookingTab.cancelled).future);
+      final MyBookingsNotifier notifier = c.read(
+        myBookingsProvider(BookingTab.cancelled).notifier,
+      );
+
+      // Fire two loadMore() calls back-to-back WITHOUT awaiting the
+      // first. `loadMore()` runs synchronously up to its
+      // `await repo.getMyBookings(...)` — which sets
+      // `state = AsyncData(current.copyWith(isLoadingMore: true))`
+      // BEFORE that await suspends — so by the time this second call
+      // reads `state.value`, it observes `isLoadingMore == true` from
+      // the still-pending first call.
+      final Future<void> first = notifier.loadMore();
+      final Future<void> second = notifier.loadMore();
+
+      // Let the first (genuinely in-flight) fetch resolve.
+      pendingPage1.complete(
+        _page(
+          <Booking>[
+            _booking(
+              id: 'x1',
+              status: BookingStatus.cancelled,
+              startAt: DateTime.utc(2026, 7, 9),
+            ),
+          ],
+          page: 1,
+          totalPages: 2,
+        ),
+      );
+      await first;
+      await second;
+
+      // DISCRIMINATING ASSERTION: exactly ONE page-1 fetch happened, not
+      // two. If the `if (current.isLoadingMore) return;` guard in
+      // `loadMore()` were deleted, the second call would still observe
+      // `hasMore == true` (page 0's value — the first fetch hadn't
+      // landed yet) and issue its OWN page-1 request, turning this
+      // `.called(1)` into `.called(2)` and failing the test.
+      verify(
+        () => repo.getMyBookings(
+          statuses: BookingTab.cancelled.statuses,
+          ascending: false,
+          page: 1,
+          size: any(named: 'size'),
+        ),
+      ).called(1);
+
+      final MyBookingsState after = c
+          .read(myBookingsProvider(BookingTab.cancelled))
+          .value!;
+      expect(after.items.map((Booking b) => b.id), <String>['x0', 'x1']);
+      expect(after.isLoadingMore, isFalse);
+    });
+
     test(
       'a failed load-more keeps the current list and clears the spinner',
       () async {
         final repo = _MockBookingRepository();
-        when(
-          () => repo.getMyBookings(
-            status: BookingStatus.confirmed,
-            page: 0,
-            size: any(named: 'size'),
-          ),
-        ).thenAnswer(
-          (_) async => _page(
+        _stubTab(
+          repo,
+          BookingTab.upcoming,
+          page: 0,
+          response: _page(
             <Booking>[
               _booking(
                 id: 'c1',
@@ -368,7 +521,8 @@ void main() {
         );
         when(
           () => repo.getMyBookings(
-            status: BookingStatus.confirmed,
+            statuses: BookingTab.upcoming.statuses,
+            ascending: true,
             page: 1,
             size: any(named: 'size'),
           ),
@@ -397,17 +551,17 @@ void main() {
   group('refresh', () {
     test('re-fetches page 0 for the tab', () async {
       final repo = _MockBookingRepository();
-      _stubAll(
+      _stubTab(
         repo,
-        byStatus: <BookingStatus, PageResponse<Booking>>{
-          BookingStatus.confirmed: _page(<Booking>[
-            _booking(
-              id: 'c1',
-              status: BookingStatus.confirmed,
-              startAt: DateTime.utc(2026, 8, 1),
-            ),
-          ]),
-        },
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'c1',
+            status: BookingStatus.confirmed,
+            startAt: DateTime.utc(2026, 8, 1),
+          ),
+        ]),
       );
       final c = _container(repo);
 
@@ -416,7 +570,8 @@ void main() {
 
       verify(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -456,11 +611,17 @@ void main() {
           status: BookingStatus.confirmed,
           startAt: elapsedStart,
         );
-        _stubAll(
+        _stubTab(
           repo,
-          byStatus: <BookingStatus, PageResponse<Booking>>{
-            BookingStatus.confirmed: _page(<Booking>[elapsed]),
-          },
+          BookingTab.upcoming,
+          page: 0,
+          response: _page(<Booking>[elapsed]),
+        );
+        _stubTab(
+          repo,
+          BookingTab.past,
+          page: 0,
+          response: _page(const <Booking>[]),
         );
         final c = _container(repo);
 
@@ -498,11 +659,11 @@ void main() {
         status: BookingStatus.completed,
         startAt: elapsedStart,
       );
-      _stubAll(
+      _stubTab(
         repo,
-        byStatus: <BookingStatus, PageResponse<Booking>>{
-          BookingStatus.completed: _page(<Booking>[completed]),
-        },
+        BookingTab.past,
+        page: 0,
+        response: _page(<Booking>[completed]),
       );
       final c = _container(repo);
 
@@ -537,7 +698,8 @@ void main() {
       final repo = _MockBookingRepository();
       when(
         () => repo.getMyBookings(
-          status: any(named: 'status'),
+          statuses: any(named: 'statuses'),
+          ascending: any(named: 'ascending'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -545,7 +707,7 @@ void main() {
       final c = _container(repo);
 
       // Keep the autoDispose provider alive across the async gap, then trigger
-      // the build and let the rejected fan-out settle.
+      // the build and let the rejected fetch settle.
       c.listen(myBookingsProvider(BookingTab.upcoming), (_, _) {});
       c.read(myBookingsProvider(BookingTab.upcoming));
       await Future<void>.delayed(const Duration(milliseconds: 10));

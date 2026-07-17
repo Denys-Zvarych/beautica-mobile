@@ -15,12 +15,19 @@
 // Finders are key-first; any status/label copy is asserted through l10n, never
 // a raw Cyrillic literal — matching my_bookings_screen_test.dart and the CI
 // no-raw-string gate.
+//
+// Wire-format note (backend Phase 26.1/26.3, fixing mobile-debugger findings
+// A + B): `GET /bookings/me` now takes the tab's WHOLE status set + a
+// `sort=startsAt,<asc|desc>` param in ONE request per tab, instead of one
+// fan-out fetch per status — see `booking_repository.dart` and
+// `my_bookings_notifier.dart`.
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -84,21 +91,41 @@ PageResponse<Booking> _page(
   totalElements: items.length,
 );
 
-/// Answers every status with an empty page except those named in [byStatus].
-void _stubAllStatuses(
+/// Stubs the ONE `getMyBookings` request each of the three tabs issues
+/// (backend Phase 26.1 — the tab's whole status set travels in a single
+/// call; Phase 26.3 — `ascending` drives `sort=startsAt,<asc|desc>`).
+/// Defaults every tab to an empty page so a test only has to describe the
+/// tab(s) it cares about.
+void _stubAllTabs(
   _MockBookingRepository repo, {
-  Map<BookingStatus, PageResponse<Booking>> byStatus =
-      const <BookingStatus, PageResponse<Booking>>{},
+  List<Booking> upcoming = const <Booking>[],
+  List<Booking> past = const <Booking>[],
+  List<Booking> cancelled = const <Booking>[],
 }) {
-  for (final BookingStatus status in BookingStatus.values) {
-    when(
-      () => repo.getMyBookings(
-        status: status,
-        page: any(named: 'page'),
-        size: any(named: 'size'),
-      ),
-    ).thenAnswer((_) async => byStatus[status] ?? _page(const <Booking>[]));
-  }
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.upcoming.statuses,
+      ascending: true,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(upcoming));
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.past.statuses,
+      ascending: false,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(past));
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.cancelled.statuses,
+      ascending: false,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(cancelled));
 }
 
 const List<LocalizationsDelegate<Object?>> _delegates =
@@ -145,7 +172,7 @@ void main() {
       tester,
     ) async {
       final repo = _MockBookingRepository();
-      _stubAllStatuses(repo); // every tab empty → empty state on Майбутні.
+      _stubAllTabs(repo); // every tab empty → empty state on Майбутні.
 
       String? wentTo;
       final router = GoRouter(
@@ -206,7 +233,8 @@ void main() {
       final repo = _MockBookingRepository();
       when(
         () => repo.getMyBookings(
-          status: any(named: 'status'),
+          statuses: any(named: 'statuses'),
+          ascending: any(named: 'ascending'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -225,7 +253,8 @@ void main() {
       final repo = _MockBookingRepository();
       when(
         () => repo.getMyBookings(
-          status: any(named: 'status'),
+          statuses: any(named: 'statuses'),
+          ascending: any(named: 'ascending'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -234,10 +263,11 @@ void main() {
       await tester.pumpWidget(_host(repo, retry: (_, _) => null));
       await tester.pumpAndSettle();
 
-      // Майбутні fans out ONLY CONFIRMED → exactly one fetch on the failed build.
+      // Майбутні issues exactly one CONFIRMED page-0 fetch on the failed build.
       verify(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -249,7 +279,8 @@ void main() {
       // Retry invalidated the provider → the CONFIRMED page-0 fetch ran again.
       verify(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -277,14 +308,16 @@ void main() {
       ];
       when(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: 0,
           size: any(named: 'size'),
         ),
       ).thenAnswer((_) async => _page(firstPage, page: 0, totalPages: 2));
       when(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: 1,
           size: any(named: 'size'),
         ),
@@ -301,17 +334,23 @@ void main() {
           totalPages: 2,
         ),
       );
-      // Every other status the tab does NOT cover answers empty.
-      for (final BookingStatus s in BookingStatus.values) {
-        if (s == BookingStatus.confirmed) continue;
-        when(
-          () => repo.getMyBookings(
-            status: s,
-            page: any(named: 'page'),
-            size: any(named: 'size'),
-          ),
-        ).thenAnswer((_) async => _page(const <Booking>[]));
-      }
+      // The Минулі / Скасовані tabs the drag never visits answer empty.
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.past.statuses,
+          ascending: false,
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) async => _page(const <Booking>[]));
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.cancelled.statuses,
+          ascending: false,
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) async => _page(const <Booking>[]));
 
       await tester.pumpWidget(_host(repo));
       await tester.pumpAndSettle();
@@ -326,7 +365,8 @@ void main() {
 
       verify(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: 1,
           size: any(named: 'size'),
         ),

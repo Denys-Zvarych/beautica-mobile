@@ -23,6 +23,15 @@
 // row 236): AsyncValue-state assertions use a plain `MaterialApp home:`; the
 // card-tap navigation test uses a real `GoRouter` with a stub `/bookings/:id`
 // route so the push is observable.
+//
+// Wire-format note (backend Phase 26.1/26.3, fixing mobile-debugger findings
+// A + B): `GET /bookings/me` now takes the tab's WHOLE status set + a
+// `sort=startsAt,<asc|desc>` param in ONE request per tab, instead of one
+// fan-out fetch per status — see `booking_repository.dart` and
+// `my_bookings_notifier.dart`. [_stubAllTabs] stubs all three tabs' single
+// requests directly (mirrors the old `_stubAllStatuses` covering every
+// individual status defensively, since a `TabBarView` may build more than
+// the initially-visible tab).
 
 import 'dart:async';
 
@@ -31,6 +40,7 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_empty_state.dart';
@@ -101,23 +111,41 @@ PageResponse<Booking> _page(List<Booking> items) => PageResponse<Booking>(
   totalElements: items.length,
 );
 
-/// Wires [repo] to answer every status with an empty page EXCEPT the ones
-/// explicitly listed in [byStatus] — so a test only has to describe the
-/// statuses it cares about.
-void _stubAllStatuses(
+/// Stubs the ONE `getMyBookings` request each of the three tabs issues
+/// (backend Phase 26.1 — the tab's whole status set travels in a single
+/// call; Phase 26.3 — `ascending` drives `sort=startsAt,<asc|desc>`).
+/// Defaults every tab to an empty page so a test only has to describe the
+/// tab(s) it cares about.
+void _stubAllTabs(
   _MockBookingRepository repo, {
-  Map<BookingStatus, List<Booking>> byStatus =
-      const <BookingStatus, List<Booking>>{},
+  List<Booking> upcoming = const <Booking>[],
+  List<Booking> past = const <Booking>[],
+  List<Booking> cancelled = const <Booking>[],
 }) {
-  for (final BookingStatus status in BookingStatus.values) {
-    when(
-      () => repo.getMyBookings(
-        status: status,
-        page: any(named: 'page'),
-        size: any(named: 'size'),
-      ),
-    ).thenAnswer((_) async => _page(byStatus[status] ?? const <Booking>[]));
-  }
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.upcoming.statuses,
+      ascending: true,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(upcoming));
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.past.statuses,
+      ascending: false,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(past));
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.cancelled.statuses,
+      ascending: false,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(cancelled));
 }
 
 const List<LocalizationsDelegate<Object?>> _delegates =
@@ -163,11 +191,28 @@ void main() {
       final completer = Completer<PageResponse<Booking>>();
       when(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
       ).thenAnswer((_) => completer.future);
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.past.statuses,
+          ascending: false,
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) async => _page(const <Booking>[]));
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.cancelled.statuses,
+          ascending: false,
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) async => _page(const <Booking>[]));
 
       await tester.pumpWidget(_host(repo));
       await tester.pump();
@@ -186,12 +231,7 @@ void main() {
     testWidgets('Майбутні shows only CONFIRMED bookings', (tester) async {
       final repo = _MockBookingRepository();
       final confirmed = _booking(id: 'b1', status: BookingStatus.confirmed);
-      _stubAllStatuses(
-        repo,
-        byStatus: <BookingStatus, List<Booking>>{
-          BookingStatus.confirmed: <Booking>[confirmed],
-        },
-      );
+      _stubAllTabs(repo, upcoming: <Booking>[confirmed]);
 
       await tester.pumpWidget(_host(repo));
       await tester.pumpAndSettle();
@@ -210,13 +250,7 @@ void main() {
         status: BookingStatus.notCompleted,
         providerComment: 'Клієнтка не прийшла.',
       );
-      _stubAllStatuses(
-        repo,
-        byStatus: <BookingStatus, List<Booking>>{
-          BookingStatus.completed: <Booking>[completed],
-          BookingStatus.notCompleted: <Booking>[noShow],
-        },
-      );
+      _stubAllTabs(repo, past: <Booking>[completed, noShow]);
 
       await tester.pumpWidget(_host(repo));
       await tester.pumpAndSettle();
@@ -244,13 +278,7 @@ void main() {
         salonName: 'Lviv Nails Studio',
         providerComment: 'Майстер захворів.',
       );
-      _stubAllStatuses(
-        repo,
-        byStatus: <BookingStatus, List<Booking>>{
-          BookingStatus.cancelled: <Booking>[cancelled],
-          BookingStatus.declined: <Booking>[declined],
-        },
-      );
+      _stubAllTabs(repo, cancelled: <Booking>[cancelled, declined]);
 
       await tester.pumpWidget(_host(repo));
       await tester.pumpAndSettle();
@@ -292,12 +320,7 @@ void main() {
         status: BookingStatus.confirmed,
         startAt: DateTime.utc(2026, 7, 21, 10),
       );
-      _stubAllStatuses(
-        repo,
-        byStatus: <BookingStatus, List<Booking>>{
-          BookingStatus.confirmed: <Booking>[atSalon, independent],
-        },
-      );
+      _stubAllTabs(repo, upcoming: <Booking>[atSalon, independent]);
 
       await tester.pumpWidget(_host(repo));
       await tester.pumpAndSettle();
@@ -315,7 +338,7 @@ void main() {
       tester,
     ) async {
       final repo = _MockBookingRepository();
-      _stubAllStatuses(repo);
+      _stubAllTabs(repo);
 
       await tester.pumpWidget(_host(repo));
       await tester.pumpAndSettle();
@@ -330,7 +353,7 @@ void main() {
     testWidgets('past + cancelled empty tabs show the empty state WITHOUT the '
         '«Знайти майстра» CTA (gated to Майбутні only)', (tester) async {
       final repo = _MockBookingRepository();
-      _stubAllStatuses(repo); // every tab empty
+      _stubAllTabs(repo); // every tab empty
 
       await tester.pumpWidget(_host(repo));
       await tester.pumpAndSettle();
@@ -370,13 +393,11 @@ void main() {
   group('pull-to-refresh', () {
     testWidgets('re-fetches page 0 for the active tab', (tester) async {
       final repo = _MockBookingRepository();
-      _stubAllStatuses(
+      _stubAllTabs(
         repo,
-        byStatus: <BookingStatus, List<Booking>>{
-          BookingStatus.confirmed: <Booking>[
-            _booking(id: 'b8', status: BookingStatus.confirmed),
-          ],
-        },
+        upcoming: <Booking>[
+          _booking(id: 'b8', status: BookingStatus.confirmed),
+        ],
       );
 
       await tester.pumpWidget(_host(repo));
@@ -384,7 +405,8 @@ void main() {
 
       verify(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -399,7 +421,8 @@ void main() {
 
       verify(
         () => repo.getMyBookings(
-          status: BookingStatus.confirmed,
+          statuses: BookingTab.upcoming.statuses,
+          ascending: true,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -414,13 +437,11 @@ void main() {
   group('card tap navigation', () {
     testWidgets('tapping a card pushes /bookings/:id', (tester) async {
       final repo = _MockBookingRepository();
-      _stubAllStatuses(
+      _stubAllTabs(
         repo,
-        byStatus: <BookingStatus, List<Booking>>{
-          BookingStatus.confirmed: <Booking>[
-            _booking(id: 'b9', status: BookingStatus.confirmed),
-          ],
-        },
+        upcoming: <Booking>[
+          _booking(id: 'b9', status: BookingStatus.confirmed),
+        ],
       );
 
       String? pushedLocation;

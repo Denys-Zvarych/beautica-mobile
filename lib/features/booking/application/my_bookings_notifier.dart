@@ -1,24 +1,29 @@
 // Phase 14.3 — «МОЇ ЗАПИСИ» per-tab notifier (network + pagination).
 //
-// A `@riverpod` AsyncNotifier family keyed by [BookingTab]. Mirrors
-// `discovery/application/search_results_notifier.dart`'s merge-two-paginated-
-// -endpoints idiom, generalised to N statuses: `GET /bookings/me` only
-// accepts a SINGLE `status` filter (see `BookingController.listMyBookings`),
-// but Минулі (COMPLETED + NOT_COMPLETED) and Скасовані (CANCELLED +
-// DECLINED) are each TWO statuses sharing one tab. So each tab fans out one
-// independently-paginated fetch per status in [BookingTabX.statuses], keeps a
-// running per-status page cursor + hasMore flag, and re-merges + re-sorts the
-// accumulated set on every fetch.
+// A `@riverpod` AsyncNotifier family keyed by [BookingTab]. `GET /bookings/me`
+// now accepts a REPEATABLE `status` param (backend Phase 26.1 — unioned via
+// `EnumSet` and paginated server-side) and an honoured `sort` param (backend
+// Phase 26.3), so each tab issues exactly ONE paginated request carrying its
+// whole [BookingTabX.statuses] set — no client-side fan-out, merge, or
+// re-sort. This replaces an earlier per-status fan-out (one paginated fetch
+// PER status, merged + re-sorted client-side) that was unsound: merging two
+// independently-paginated streams is only correct as a prefix, so a tab with
+// >20 items in more than one status could show a booking landing mid-list on
+// a later page and reshuffle already-viewed rows on load-more. The server
+// now returns a single correctly-ordered, correctly-paginated stream, so the
+// client only has to page through it.
 //
-// Sort order: Майбутні reads soonest-first (ascending `startAt` — "what's
-// next"); Минулі/Скасовані read most-recent-first (descending — "what just
-// happened"), matching `BookingSampleData.forTab` in the approved preview.
+// Sort order: Майбутні reads soonest-first (`ascending: true` — "what's
+// next"); Минулі/Скасовані read most-recent-first (`ascending: false` —
+// "what just happened"), matching `BookingSampleData.forTab` in the approved
+// preview. Threaded straight into [BookingRepository.getMyBookings]'s
+// `ascending` param, which renders it as `sort=startsAt,<asc|desc>`.
 //
-// Pagination: [loadMore] advances only the statuses that still have a page,
-// guards against a double-fetch (an in-flight [loadMore] is a no-op), and is
-// a no-op once every status is exhausted. A failed load-more does not blow
-// away the already-rendered list — see `search_results_notifier.dart`'s
-// identical `catch` comment.
+// Pagination: [loadMore] advances the tab's single page cursor, guards
+// against a double-fetch (an in-flight [loadMore] is a no-op), and is a
+// no-op once the stream is exhausted. A failed load-more does not blow away
+// the already-rendered list — see `search_results_notifier.dart`'s identical
+// `catch` comment.
 
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -28,60 +33,50 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import '../data/booking_providers.dart';
 import '../data/booking_repository.dart';
 import '../domain/booking.dart';
-import '../domain/booking_status.dart';
 import '../domain/booking_tab.dart';
 
 part 'my_bookings_notifier.g.dart';
 
-/// Immutable snapshot of the merged bookings list + per-status paging
-/// cursors for one [BookingTab].
+/// Immutable snapshot of one [BookingTab]'s accumulated bookings + paging
+/// cursor.
 @immutable
 class MyBookingsState {
   const MyBookingsState({
     required this.items,
-    required this.byStatus,
-    required this.pages,
-    required this.hasMoreByStatus,
+    required this.page,
+    required this.hasMore,
     this.isLoadingMore = false,
   });
 
-  /// The merged, sorted bookings accumulated so far — what the screen renders.
+  /// The bookings accumulated so far, server-ordered — what the screen
+  /// renders directly, with no client-side re-sort.
   final List<Booking> items;
 
-  /// Accumulated raw pages per status, kept separately so [items] can be
-  /// re-merged/re-sorted without re-fetching every status on each loadMore.
-  final Map<BookingStatus, List<Booking>> byStatus;
+  /// Zero-based index of the last fetched page.
+  final int page;
 
-  /// Zero-based index of the last fetched page, per status.
-  final Map<BookingStatus, int> pages;
-
-  /// Whether a status still has another page beyond [pages]`[status]`.
-  final Map<BookingStatus, bool> hasMoreByStatus;
+  /// Whether a subsequent page exists.
+  final bool hasMore;
 
   /// Whether a [MyBookingsNotifier.loadMore] fetch is currently in flight.
   final bool isLoadingMore;
 
-  /// Whether ANY status backing this tab still has a page to fetch.
-  bool get hasMore => hasMoreByStatus.values.any((bool v) => v);
-
   MyBookingsState copyWith({
     List<Booking>? items,
-    Map<BookingStatus, List<Booking>>? byStatus,
-    Map<BookingStatus, int>? pages,
-    Map<BookingStatus, bool>? hasMoreByStatus,
+    int? page,
+    bool? hasMore,
     bool? isLoadingMore,
   }) {
     return MyBookingsState(
       items: items ?? this.items,
-      byStatus: byStatus ?? this.byStatus,
-      pages: pages ?? this.pages,
-      hasMoreByStatus: hasMoreByStatus ?? this.hasMoreByStatus,
+      page: page ?? this.page,
+      hasMore: hasMore ?? this.hasMore,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
     );
   }
 }
 
-/// Paged, merged bookings for one [BookingTab].
+/// Paged bookings for one [BookingTab].
 ///
 /// autoDispose (the default for a `@riverpod class`) — each tab's cache drops
 /// when nothing watches it (e.g. the My Bookings screen is popped), so
@@ -91,45 +86,33 @@ class MyBookingsNotifier extends _$MyBookingsNotifier {
   @override
   Future<MyBookingsState> build(BookingTab tab) => _fetchFirstPage(tab);
 
-  /// Fetches page 0 of every status in [tab]'s partition, in parallel, and
-  /// merges them.
+  /// Fetches page 0 of [tab]'s whole status set in ONE request — the server
+  /// unions + globally paginates + sorts, so the response is used as-is.
   Future<MyBookingsState> _fetchFirstPage(BookingTab tab) async {
     final BookingRepository repo = ref.read(bookingRepositoryProvider);
-    final List<BookingStatus> statuses = tab.statuses.toList(growable: false);
-    final List<PageResponse<Booking>> results = await Future.wait(
-      statuses.map((BookingStatus s) => repo.getMyBookings(status: s, page: 0)),
+    final PageResponse<Booking> page = await repo.getMyBookings(
+      statuses: tab.statuses,
+      ascending: tab == BookingTab.upcoming,
+      page: 0,
     );
 
-    final Map<BookingStatus, List<Booking>> byStatus =
-        <BookingStatus, List<Booking>>{};
-    final Map<BookingStatus, int> pages = <BookingStatus, int>{};
-    final Map<BookingStatus, bool> hasMore = <BookingStatus, bool>{};
-    for (int i = 0; i < statuses.length; i++) {
-      final BookingStatus status = statuses[i];
-      final PageResponse<Booking> page = results[i];
-      byStatus[status] = page.items;
-      pages[status] = page.page;
-      hasMore[status] = page.hasMore;
-    }
-
     return MyBookingsState(
-      items: _merge(tab, byStatus),
-      byStatus: byStatus,
-      pages: pages,
-      hasMoreByStatus: hasMore,
+      items: page.items,
+      page: page.page,
+      hasMore: page.hasMore,
     );
   }
 
-  /// Re-fetches page 0 of every status — the pull-to-refresh entry point.
+  /// Re-fetches page 0 — the pull-to-refresh entry point.
   Future<void> refresh() async {
     state = const AsyncLoading<MyBookingsState>();
     state = await AsyncValue.guard(() => _fetchFirstPage(tab));
   }
 
-  /// Appends the next page from whichever status(es) still have one.
+  /// Appends the next page.
   ///
   /// No-op when: the notifier has no data yet (still loading / errored), a
-  /// load-more is already in flight, or every status is exhausted.
+  /// load-more is already in flight, or the stream is exhausted.
   Future<void> loadMore() async {
     final MyBookingsState? current = state.value;
     if (current == null) return;
@@ -142,41 +125,19 @@ class MyBookingsNotifier extends _$MyBookingsNotifier {
     state = AsyncData(current.copyWith(isLoadingMore: true));
 
     final BookingRepository repo = ref.read(bookingRepositoryProvider);
-    final List<BookingStatus> toFetch = current.hasMoreByStatus.entries
-        .where((MapEntry<BookingStatus, bool> e) => e.value)
-        .map((MapEntry<BookingStatus, bool> e) => e.key)
-        .toList(growable: false);
 
     try {
-      final List<PageResponse<Booking>> results = await Future.wait(
-        toFetch.map(
-          (BookingStatus s) =>
-              repo.getMyBookings(status: s, page: current.pages[s]! + 1),
-        ),
+      final PageResponse<Booking> page = await repo.getMyBookings(
+        statuses: tab.statuses,
+        ascending: tab == BookingTab.upcoming,
+        page: current.page + 1,
       );
-
-      final Map<BookingStatus, List<Booking>> byStatus =
-          Map<BookingStatus, List<Booking>>.of(current.byStatus);
-      final Map<BookingStatus, int> pages = Map<BookingStatus, int>.of(
-        current.pages,
-      );
-      final Map<BookingStatus, bool> hasMore = Map<BookingStatus, bool>.of(
-        current.hasMoreByStatus,
-      );
-      for (int i = 0; i < toFetch.length; i++) {
-        final BookingStatus status = toFetch[i];
-        final PageResponse<Booking> page = results[i];
-        byStatus[status] = <Booking>[...?byStatus[status], ...page.items];
-        pages[status] = page.page;
-        hasMore[status] = page.hasMore;
-      }
 
       state = AsyncData(
         current.copyWith(
-          items: _merge(tab, byStatus),
-          byStatus: byStatus,
-          pages: pages,
-          hasMoreByStatus: hasMore,
+          items: <Booking>[...current.items, ...page.items],
+          page: page.page,
+          hasMore: page.hasMore,
           isLoadingMore: false,
         ),
       );
@@ -186,22 +147,5 @@ class MyBookingsNotifier extends _$MyBookingsNotifier {
       // current page so the user can scroll to retry.
       state = AsyncData(current.copyWith(isLoadingMore: false));
     }
-  }
-
-  /// Flattens every status's accumulated bookings into one sorted list.
-  /// Майбутні reads soonest-first; Минулі/Скасовані read most-recent-first.
-  List<Booking> _merge(
-    BookingTab tab,
-    Map<BookingStatus, List<Booking>> byStatus,
-  ) {
-    final List<Booking> all = <Booking>[
-      for (final List<Booking> list in byStatus.values) ...list,
-    ];
-    all.sort(
-      (Booking a, Booking b) => tab == BookingTab.upcoming
-          ? a.startAt.compareTo(b.startAt)
-          : b.startAt.compareTo(a.startAt),
-    );
-    return all;
   }
 }
