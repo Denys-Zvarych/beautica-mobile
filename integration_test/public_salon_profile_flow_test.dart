@@ -320,7 +320,7 @@ void main() {
       // i18n-finder-ok: price string is fixture data (priceDisplay), not UI copy.
       expect(find.text('300 ₴'), findsOneWidget);
 
-      // ── Tab 3 «Відгуки» — summary + 3 reviews across 3 distinct ratings ────
+      // ── Tab 3 «Відгуки» — summary + 4 reviews (3 serviceName wire shapes) ──
       await tester.tap(find.byKey(const Key('salon-tab-3')));
       await tester.pumpAndSettle();
 
@@ -337,17 +337,77 @@ void main() {
         find.byKey(const Key('salon-review-summary-average')),
       );
       expect(avgText.data, '4.0');
-      expect(
-        find.byKey(const Key('salon-review-salon-review-1')),
-        findsOneWidget,
+      final Finder review1Card = find.byKey(
+        const Key('salon-review-salon-review-1'),
       );
+      expect(review1Card, findsOneWidget);
       expect(
         find.byKey(const Key('salon-review-salon-review-2')),
         findsOneWidget,
       );
+      final Finder review3Card = find.byKey(
+        const Key('salon-review-salon-review-3'),
+      );
+      expect(review3Card, findsOneWidget);
+      final Finder review4Card = find.byKey(
+        const Key('salon-review-salon-review-4'),
+      );
+      expect(review4Card, findsOneWidget);
+
+      // The «послуга: » label was dropped from the service sub-line — it now
+      // renders ONLY the raw name over the real wire (fake_backend.dart's
+      // `_salonReviews` fixture). salon-review-1 carries a resolved
+      // `serviceName`; salon-review-3 sends `null` and salon-review-4 sends an
+      // explicit empty string — both must NOT show the spa icon/sub-line at
+      // all (never a stray icon nor a leftover «послуга» label).
       expect(
-        find.byKey(const Key('salon-review-salon-review-3')),
+        find.descendant(
+          of: review1Card,
+          // i18n-finder-ok: 'Манікюр класичний' is FakeBackend review fixture data, not UI copy.
+          matching: find.text('Манікюр класичний'),
+        ),
         findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: review1Card,
+          matching: find.byIcon(Icons.spa_outlined),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: review1Card,
+          matching: find.textContaining('послуга'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: review3Card,
+          matching: find.byIcon(Icons.spa_outlined),
+        ),
+        findsNothing,
+        reason:
+            'salon-review-3 sends a null serviceName over the wire — no '
+            'sub-line at all',
+      );
+      expect(
+        find.descendant(
+          of: review4Card,
+          matching: find.byIcon(Icons.spa_outlined),
+        ),
+        findsNothing,
+        reason:
+            'salon-review-4 sends an explicit empty-string serviceName over '
+            'the wire — must ALSO omit the sub-line, never a bare «послуга: »',
+      );
+      expect(
+        find.descendant(
+          of: review4Card,
+          matching: find.textContaining('послуга'),
+        ),
+        findsNothing,
       );
 
       // ── Changing the sort re-fetches a server-sorted page ──────────────────

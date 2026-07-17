@@ -136,6 +136,7 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancelInfo**](doc/PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**info**](doc/PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
+[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReview**](doc/ReviewControllerApi.md#getreview) | **GET** /api/v1/reviews/{reviewId} | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReviewsByMaster**](doc/ReviewControllerApi.md#getreviewsbymaster) | **GET** /api/v1/masters/{masterId}/reviews | 
@@ -206,6 +207,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListWorkingHoursResponse](doc/ApiResponseListWorkingHoursResponse.md)
  - [ApiResponseMasterDetailResponse](doc/ApiResponseMasterDetailResponse.md)
  - [ApiResponseMasterPublicProfileResponse](doc/ApiResponseMasterPublicProfileResponse.md)
+ - [ApiResponseMasterReviewSummaryResponse](doc/ApiResponseMasterReviewSummaryResponse.md)
  - [ApiResponseMasterServiceResponse](doc/ApiResponseMasterServiceResponse.md)
  - [ApiResponseMasterSummaryResponse](doc/ApiResponseMasterSummaryResponse.md)
  - [ApiResponseMediaFileResponse](doc/ApiResponseMediaFileResponse.md)
@@ -282,6 +284,7 @@ Class | Method | HTTP request | Description
  - [MasterDetailResponse](doc/MasterDetailResponse.md)
  - [MasterProfileUpdateRequest](doc/MasterProfileUpdateRequest.md)
  - [MasterPublicProfileResponse](doc/MasterPublicProfileResponse.md)
+ - [MasterReviewSummaryResponse](doc/MasterReviewSummaryResponse.md)
  - [MasterSearchRequest](doc/MasterSearchRequest.md)
  - [MasterSearchResult](doc/MasterSearchResult.md)
  - [MasterServiceResponse](doc/MasterServiceResponse.md)

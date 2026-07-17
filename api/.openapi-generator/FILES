@@ -30,6 +30,7 @@ doc/ApiResponseListWeeklyScheduleResponse.md
 doc/ApiResponseListWorkingHoursResponse.md
 doc/ApiResponseMasterDetailResponse.md
 doc/ApiResponseMasterPublicProfileResponse.md
+doc/ApiResponseMasterReviewSummaryResponse.md
 doc/ApiResponseMasterServiceResponse.md
 doc/ApiResponseMasterSummaryResponse.md
 doc/ApiResponseMediaFileResponse.md
@@ -117,6 +118,7 @@ doc/MasterControllerApi.md
 doc/MasterDetailResponse.md
 doc/MasterProfileUpdateRequest.md
 doc/MasterPublicProfileResponse.md
+doc/MasterReviewSummaryResponse.md
 doc/MasterSearchRequest.md
 doc/MasterSearchResult.md
 doc/MasterServiceResponse.md
@@ -266,6 +268,7 @@ lib/src/model/api_response_list_weekly_schedule_response.dart
 lib/src/model/api_response_list_working_hours_response.dart
 lib/src/model/api_response_master_detail_response.dart
 lib/src/model/api_response_master_public_profile_response.dart
+lib/src/model/api_response_master_review_summary_response.dart
 lib/src/model/api_response_master_service_response.dart
 lib/src/model/api_response_master_summary_response.dart
 lib/src/model/api_response_media_file_response.dart
@@ -343,6 +346,7 @@ lib/src/model/login_request.dart
 lib/src/model/master_detail_response.dart
 lib/src/model/master_profile_update_request.dart
 lib/src/model/master_public_profile_response.dart
+lib/src/model/master_review_summary_response.dart
 lib/src/model/master_search_request.dart
 lib/src/model/master_search_result.dart
 lib/src/model/master_service_response.dart

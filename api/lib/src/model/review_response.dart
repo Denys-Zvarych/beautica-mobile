@@ -14,6 +14,7 @@ part 'review_response.g.dart';
 /// * [id]
 /// * [masterId]
 /// * [clientDisplayName]
+/// * [serviceName]
 /// * [rating]
 /// * [comment]
 /// * [createdAt]
@@ -28,6 +29,9 @@ abstract class ReviewResponse
 
   @BuiltValueField(wireName: r'clientDisplayName')
   String? get clientDisplayName;
+
+  @BuiltValueField(wireName: r'serviceName')
+  String? get serviceName;
 
   @BuiltValueField(wireName: r'rating')
   int? get rating;
@@ -82,6 +86,13 @@ class _$ReviewResponseSerializer
       yield r'clientDisplayName';
       yield serializers.serialize(
         object.clientDisplayName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.serviceName != null) {
+      yield r'serviceName';
+      yield serializers.serialize(
+        object.serviceName,
         specifiedType: const FullType(String),
       );
     }
@@ -151,6 +162,13 @@ class _$ReviewResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.clientDisplayName = valueDes;
+          break;
+        case r'serviceName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.serviceName = valueDes;
           break;
         case r'rating':
           final valueDes = serializers.deserialize(

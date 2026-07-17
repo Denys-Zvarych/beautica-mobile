@@ -14,6 +14,8 @@ class _$ReviewResponse extends ReviewResponse {
   @override
   final String? clientDisplayName;
   @override
+  final String? serviceName;
+  @override
   final int? rating;
   @override
   final String? comment;
@@ -27,6 +29,7 @@ class _$ReviewResponse extends ReviewResponse {
       {this.id,
       this.masterId,
       this.clientDisplayName,
+      this.serviceName,
       this.rating,
       this.comment,
       this.createdAt})
@@ -45,6 +48,7 @@ class _$ReviewResponse extends ReviewResponse {
         id == other.id &&
         masterId == other.masterId &&
         clientDisplayName == other.clientDisplayName &&
+        serviceName == other.serviceName &&
         rating == other.rating &&
         comment == other.comment &&
         createdAt == other.createdAt;
@@ -56,6 +60,7 @@ class _$ReviewResponse extends ReviewResponse {
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, masterId.hashCode);
     _$hash = $jc(_$hash, clientDisplayName.hashCode);
+    _$hash = $jc(_$hash, serviceName.hashCode);
     _$hash = $jc(_$hash, rating.hashCode);
     _$hash = $jc(_$hash, comment.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
@@ -69,6 +74,7 @@ class _$ReviewResponse extends ReviewResponse {
           ..add('id', id)
           ..add('masterId', masterId)
           ..add('clientDisplayName', clientDisplayName)
+          ..add('serviceName', serviceName)
           ..add('rating', rating)
           ..add('comment', comment)
           ..add('createdAt', createdAt))
@@ -93,6 +99,10 @@ class ReviewResponseBuilder
   set clientDisplayName(String? clientDisplayName) =>
       _$this._clientDisplayName = clientDisplayName;
 
+  String? _serviceName;
+  String? get serviceName => _$this._serviceName;
+  set serviceName(String? serviceName) => _$this._serviceName = serviceName;
+
   int? _rating;
   int? get rating => _$this._rating;
   set rating(int? rating) => _$this._rating = rating;
@@ -115,6 +125,7 @@ class ReviewResponseBuilder
       _id = $v.id;
       _masterId = $v.masterId;
       _clientDisplayName = $v.clientDisplayName;
+      _serviceName = $v.serviceName;
       _rating = $v.rating;
       _comment = $v.comment;
       _createdAt = $v.createdAt;
@@ -142,6 +153,7 @@ class ReviewResponseBuilder
           id: id,
           masterId: masterId,
           clientDisplayName: clientDisplayName,
+          serviceName: serviceName,
           rating: rating,
           comment: comment,
           createdAt: createdAt,

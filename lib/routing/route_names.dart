@@ -108,6 +108,14 @@ abstract final class RouteNames {
   static String masterPublicProfile(String masterId) =>
       '/masters/${Uri.encodeComponent(masterId)}';
 
+  /// Phase 4.x — public master reviews, opened from the public master
+  /// profile's «Відгуки» stat tile. CLIENT-guarded like [masterPublicProfile]
+  /// (same `clientOnlyGuard` in `app_router.dart`). Distinct from
+  /// [masterReceivedReviews] below, which is param-less and always resolves
+  /// to the AUTHENTICATED master's own reviews.
+  static String masterPublicReviews(String masterId) =>
+      '/masters/${Uri.encodeComponent(masterId)}/reviews';
+
   /// Phase 13.6 — public salon profile, opened from a salon result card tap.
   /// Same lifecycle note as [masterPublicProfile].
   static String salonPublicProfile(String salonId) =>
@@ -238,6 +246,12 @@ abstract final class RouteNames {
   static const String masterEditPersonal = '/master/edit/personal';
   static const String masterEditContacts = '/master/edit/contacts';
   static const String masterEditLocation = '/master/edit/location';
+
+  // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
+  // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
+  // masterId from the session (authProvider), so the reviews are always the
+  // authenticated master's own.
+  static const String masterReceivedReviews = '/master/received-reviews';
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';

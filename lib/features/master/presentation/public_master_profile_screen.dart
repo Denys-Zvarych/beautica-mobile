@@ -4,7 +4,14 @@
 // favourites result card. Same depth language as the master's own profile
 // (`MasterProfileScreen`) but:
 //   • NO edit button — the top-right action is a favourite (heart) toggle;
-//   • NO read-only body services-list — the services count feeds the stats row;
+//   • a read-only «Послуги» section mirrors the master's own profile: the
+//     active services are grouped by category and rendered as one summary
+//     card per non-empty bucket via the shared [ServiceCategoryCardList]
+//     (`interactive: false`) — label + count only, no forward chevron, no
+//     tap. The owner's version navigates a tapped card to
+//     `/services?expandCategory=<slug>`, but that route is scoped to the
+//     AUTHENTICATED master, not [widget.masterId], so it has no meaning for a
+//     client browsing someone else's profile and is stripped here;
 //   • contacts = Instagram only (no phone/dialer tile);
 //   • a pinned camel-wash booking shelf («Послуги та ціни») rendering the empty
 //     state — the «Записатись до майстра» CTA opens the Phase 14.1 booking
@@ -36,6 +43,7 @@ import 'package:beautica_mobile/features/favorites/application/favorite_toggle_n
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
@@ -45,6 +53,7 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
+import 'widgets/service_category_cards.dart';
 
 /// CLIENT-facing read-only profile of the master identified by [masterId].
 class PublicMasterProfileScreen extends ConsumerStatefulWidget {
@@ -65,18 +74,20 @@ class _PublicMasterProfileScreenState
 
   // Pre-built staggered-entrance animations (one per reveal section) so build()
   // never allocates a CurvedAnimation/Tween per frame (mobile-perf pattern,
-  // mirrors MasterProfileScreen). Five sections: identity / stats / bio /
-  // portfolio / contacts.
+  // mirrors MasterProfileScreen). Six sections: identity / stats / bio /
+  // portfolio / service categories / contacts.
   late final CurvedAnimation _anim0;
   late final CurvedAnimation _anim1;
   late final CurvedAnimation _anim2;
   late final CurvedAnimation _anim3;
   late final CurvedAnimation _anim4;
+  late final CurvedAnimation _anim5;
   late final Animation<Offset> _slide0;
   late final Animation<Offset> _slide1;
   late final Animation<Offset> _slide2;
   late final Animation<Offset> _slide3;
   late final Animation<Offset> _slide4;
+  late final Animation<Offset> _slide5;
 
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x throws
   // when `ref` is used after the widget is unmounted).
@@ -114,7 +125,12 @@ class _PublicMasterProfileScreenState
       parent: _controller,
       curve: const Interval(0.40, 0.90, curve: Curves.easeOutCubic),
     );
+    // Service categories — inserted between portfolio and contacts.
     _anim4 = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.45, 0.95, curve: Curves.easeOutCubic),
+    );
+    _anim5 = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0.50, 1.0, curve: Curves.easeOutCubic),
     );
@@ -139,6 +155,10 @@ class _PublicMasterProfileScreenState
       begin: slideBegin,
       end: Offset.zero,
     ).animate(_anim4);
+    _slide5 = Tween<Offset>(
+      begin: slideBegin,
+      end: Offset.zero,
+    ).animate(_anim5);
   }
 
   @override
@@ -149,6 +169,7 @@ class _PublicMasterProfileScreenState
     _anim2.dispose();
     _anim3.dispose();
     _anim4.dispose();
+    _anim5.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -184,18 +205,21 @@ class _PublicMasterProfileScreenState
         data: (PublicMasterProfileData data) {
           _startReveal();
           return _PublicProfileBody(
+            masterId: widget.masterId,
             master: data.$1,
-            serviceCount: data.$2.length,
+            services: data.$2,
             anim0: _anim0,
             anim1: _anim1,
             anim2: _anim2,
             anim3: _anim3,
             anim4: _anim4,
+            anim5: _anim5,
             slide0: _slide0,
             slide1: _slide1,
             slide2: _slide2,
             slide3: _slide3,
             slide4: _slide4,
+            slide5: _slide5,
           );
         },
       ),
@@ -209,33 +233,47 @@ class _PublicMasterProfileScreenState
 
 class _PublicProfileBody extends StatelessWidget {
   const _PublicProfileBody({
+    required this.masterId,
     required this.master,
-    required this.serviceCount,
+    required this.services,
     required this.anim0,
     required this.anim1,
     required this.anim2,
     required this.anim3,
     required this.anim4,
+    required this.anim5,
     required this.slide0,
     required this.slide1,
     required this.slide2,
     required this.slide3,
     required this.slide4,
+    required this.slide5,
   });
 
+  /// Trusted route param (`widget.masterId`) — used for navigation instead of
+  /// [master].id, which is a value round-tripped through the profile
+  /// response and mapped by `MasterMapper`. See the reviews tile's `onTap`
+  /// below.
+  final String masterId;
   final Master master;
-  final int serviceCount;
+
+  /// The master's active services, loaded in parallel with [master] by
+  /// [publicMasterProfileProvider]. Drives both the services stat tile
+  /// (`.length`) and the read-only service-categories section below.
+  final List<MasterService> services;
 
   final Animation<double> anim0;
   final Animation<double> anim1;
   final Animation<double> anim2;
   final Animation<double> anim3;
   final Animation<double> anim4;
+  final Animation<double> anim5;
   final Animation<Offset> slide0;
   final Animation<Offset> slide1;
   final Animation<Offset> slide2;
   final Animation<Offset> slide3;
   final Animation<Offset> slide4;
+  final Animation<Offset> slide5;
 
   static Widget _reveal(
     Animation<double> fade,
@@ -311,34 +349,6 @@ class _PublicProfileBody extends StatelessWidget {
                             : roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
-                      if (hasReviews) ...<Widget>[
-                        const SizedBox(height: VelvetSpacing.xs + 2),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const Icon(
-                              Icons.star_rounded,
-                              size: 16,
-                              color: BrandColors.accentDeep,
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              master.avgRating.toStringAsFixed(1),
-                              style: _ratingInlineStyle,
-                            ),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(
-                                l10n.searchResultReviewCount(
-                                  master.reviewCount,
-                                ),
-                                style: VelvetText.feedbackMutedSm,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
                       if (locationLine != null) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs),
                         Row(
@@ -383,7 +393,13 @@ class _PublicProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 2 — Stats row: rating / reviews / services / experience.
+        // 2 — Stats row: rating / services / reviews / experience.
+        // Order of the three tiles shared with the personal MasterProfileScreen
+        // (rating / services / reviews) mirrors that screen's stats row exactly
+        // (Bookings / Rating / Services / Reviews there — Bookings has no public
+        // equivalent so it is omitted, not reshuffled in). `experience` has no
+        // personal-profile equivalent either; it is kept in its original
+        // trailing slot rather than invented a position for it.
         // IntrinsicHeight equalises the four StatTiles to the tallest tile —
         // intentional and laid out ONCE per data render (not per frame). It
         // matches the sibling MasterProfileScreen and the approved design;
@@ -396,36 +412,58 @@ class _PublicProfileBody extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.star_rounded,
-                    iconWidget: RatingStar(
-                      rating: hasReviews ? master.avgRating : null,
-                      size: 18,
-                      showLabel: false,
+                  // Tappable — mirrors the reviews tile below: pushes the
+                  // same public reviews list for this master regardless of
+                  // review count. Uses the trusted route param [masterId],
+                  // not `master.id` from the network response.
+                  child: GestureDetector(
+                    key: const Key('public-master-profile-rating-tile'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () =>
+                        context.push(RouteNames.masterPublicReviews(masterId)),
+                    child: StatTile(
+                      icon: Icons.star_rounded,
+                      iconWidget: RatingStar(
+                        rating: hasReviews ? master.avgRating : null,
+                        size: 18,
+                        showLabel: false,
+                      ),
+                      value: hasReviews
+                          ? master.avgRating.toStringAsFixed(1)
+                          : '—',
+                      caption: l10n.masterRatingLabel,
+                      valueKey: const Key('public-master-profile-rating-value'),
                     ),
-                    value: hasReviews
-                        ? master.avgRating.toStringAsFixed(1)
-                        : '—',
-                    caption: l10n.masterRatingLabel,
-                    valueKey: const Key('public-master-profile-rating-value'),
-                  ),
-                ),
-                const SizedBox(width: VelvetSpacing.sm),
-                Expanded(
-                  child: StatTile(
-                    icon: Icons.reviews_outlined,
-                    value: hasReviews ? master.reviewCount.toString() : '—',
-                    caption: l10n.masterStatsReviewsLabel,
-                    valueKey: const Key('public-master-profile-reviews-value'),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: StatTile(
                     icon: Icons.design_services_outlined,
-                    value: serviceCount.toString(),
+                    value: services.length.toString(),
                     caption: l10n.masterServicesLabel,
                     valueKey: const Key('public-master-profile-services-value'),
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.sm),
+                Expanded(
+                  // Tappable — pushes the public reviews list for this master
+                  // ([RouteNames.masterPublicReviews]), mirroring the reviews
+                  // tile on the master's own profile (`master-profile-reviews-tile`
+                  // in `master_profile_screen.dart`).
+                  child: GestureDetector(
+                    key: const Key('public-master-profile-reviews-tile'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () =>
+                        context.push(RouteNames.masterPublicReviews(masterId)),
+                    child: StatTile(
+                      icon: Icons.reviews_outlined,
+                      value: hasReviews ? master.reviewCount.toString() : '—',
+                      caption: l10n.masterStatsReviewsLabel,
+                      valueKey: const Key(
+                        'public-master-profile-reviews-value',
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -516,12 +554,45 @@ class _PublicProfileBody extends StatelessWidget {
             ),
           ),
 
-        // 5 — Contacts (Instagram only; omitted when not set).
-        if (instagram != null) ...<Widget>[
+        // 5 — Service categories: read-only for a client — mirrors the
+        // master's own profile section, minus the owner-only navigation (see
+        // the file header comment). Omitted entirely when the master has zero
+        // active services, matching how Bio/Contacts are omitted when empty.
+        if (services.isNotEmpty) ...<Widget>[
           const SizedBox(height: VelvetSpacing.xl),
           _reveal(
             anim4,
             slide4,
+            Column(
+              key: const Key('public-master-profile-service-categories'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 4,
+                    bottom: VelvetSpacing.xs,
+                  ),
+                  child: Text(
+                    l10n.masterServicesLabel,
+                    style: VelvetText.sectionLabel(),
+                  ),
+                ),
+                ServiceCategoryCardList(
+                  services: services,
+                  keyPrefix: 'public-master-profile-category',
+                  interactive: false,
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // 6 — Contacts (Instagram only; omitted when not set).
+        if (instagram != null) ...<Widget>[
+          const SizedBox(height: VelvetSpacing.xl),
+          _reveal(
+            anim5,
+            slide5,
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -550,9 +621,6 @@ class _PublicProfileBody extends StatelessWidget {
       ],
     );
   }
-
-  // Cached inline rating style for the identity card (avoid per-build copyWith).
-  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
 
   /// Opens the master's Instagram in the Instagram app or a browser, sanitising
   /// [rawValue] through [canonicalInstagramUri] (STRICT https + host/charset

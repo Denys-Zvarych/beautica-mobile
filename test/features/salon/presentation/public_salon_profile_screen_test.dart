@@ -1817,6 +1817,126 @@ void main() {
 
       expect(find.byKey(const Key('salon-reviews-empty')), findsOneWidget);
     });
+
+    group('service sub-line (backend serviceName)', () {
+      // Mirrors the master screen's `_masterReviewCard` coverage
+      // (master_received_reviews_screen_test.dart): one item per branch of
+      // `_salonReviewCard`'s `service != null && service.isNotEmpty` guard —
+      // present, null, empty. The label («послуга:») was dropped from BOTH
+      // surfaces in the same change; this pins the salon side renders the
+      // bare name with no label and that null/empty never leave a stray
+      // `Icons.spa_outlined` row.
+      final List<SalonReviewItem> serviceItems = <SalonReviewItem>[
+        SalonReviewItem(
+          id: 'review-svc-present',
+          masterId: 'master-1',
+          masterName: 'Олена Ковальчук',
+          clientDisplayName: 'Марта Л.',
+          serviceName: 'Манікюр',
+          rating: 5,
+          comment: 'Чудово!',
+          createdAt: _fixedNow.subtract(const Duration(days: 1)),
+        ),
+        SalonReviewItem(
+          id: 'review-svc-null',
+          masterId: 'master-1',
+          masterName: 'Олена Ковальчук',
+          clientDisplayName: 'Дарʼя П.',
+          rating: 4,
+          comment: 'Добре.',
+          createdAt: _fixedNow.subtract(const Duration(days: 2)),
+        ),
+        SalonReviewItem(
+          id: 'review-svc-empty',
+          masterId: 'master-1',
+          masterName: 'Олена Ковальчук',
+          clientDisplayName: 'Софія Н.',
+          serviceName: '',
+          rating: 3,
+          comment: 'Норм.',
+          createdAt: _fixedNow.subtract(const Duration(days: 3)),
+        ),
+      ];
+
+      Future<void> pumpServiceItems(WidgetTester tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(reviews: (_) async => serviceItems),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-3')));
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('renders the service-name sub-line, unlabelled, when '
+          'serviceName is present', (tester) async {
+        await pumpServiceItems(tester);
+
+        final Finder card = find.byKey(
+          const Key('salon-review-review-svc-present'),
+        );
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(
+            of: card,
+            // i18n-finder-ok: 'Манікюр' is fixture service-name data, not translated UI copy
+            matching: find.text('Манікюр'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: card, matching: find.byIcon(Icons.spa_outlined)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: card, matching: find.textContaining('послуга')),
+          findsNothing,
+        );
+      });
+
+      testWidgets('omits the sub-line entirely when serviceName is null', (
+        tester,
+      ) async {
+        await pumpServiceItems(tester);
+
+        final Finder card = find.byKey(
+          const Key('salon-review-review-svc-null'),
+        );
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(of: card, matching: find.byIcon(Icons.spa_outlined)),
+          findsNothing,
+        );
+      });
+
+      testWidgets(
+        'omits the sub-line when serviceName is an empty string (guards '
+        'non-null AND non-empty — never a stray icon/row with no name)',
+        (tester) async {
+          await pumpServiceItems(tester);
+
+          final Finder card = find.byKey(
+            const Key('salon-review-review-svc-empty'),
+          );
+          expect(card, findsOneWidget);
+          expect(
+            find.descendant(
+              of: card,
+              matching: find.byIcon(Icons.spa_outlined),
+            ),
+            findsNothing,
+          );
+          expect(
+            find.descendant(of: card, matching: find.textContaining('послуга')),
+            findsNothing,
+          );
+        },
+      );
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

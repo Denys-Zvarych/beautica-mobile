@@ -62,6 +62,7 @@ export 'package:beautica_api/src/model/api_response_list_weekly_schedule_respons
 export 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 export 'package:beautica_api/src/model/api_response_master_detail_response.dart';
 export 'package:beautica_api/src/model/api_response_master_public_profile_response.dart';
+export 'package:beautica_api/src/model/api_response_master_review_summary_response.dart';
 export 'package:beautica_api/src/model/api_response_master_service_response.dart';
 export 'package:beautica_api/src/model/api_response_master_summary_response.dart';
 export 'package:beautica_api/src/model/api_response_media_file_response.dart';
@@ -138,6 +139,7 @@ export 'package:beautica_api/src/model/login_request.dart';
 export 'package:beautica_api/src/model/master_detail_response.dart';
 export 'package:beautica_api/src/model/master_profile_update_request.dart';
 export 'package:beautica_api/src/model/master_public_profile_response.dart';
+export 'package:beautica_api/src/model/master_review_summary_response.dart';
 export 'package:beautica_api/src/model/master_search_request.dart';
 export 'package:beautica_api/src/model/master_search_result.dart';
 export 'package:beautica_api/src/model/master_service_response.dart';

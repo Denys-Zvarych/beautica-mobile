@@ -71,7 +71,8 @@ abstract interface class ServiceRepository {
   /// are filtered out server-side). Unlike [listMyServices] this takes the
   /// target master as a parameter and does NOT require the caller to be that
   /// master, so it is safe to call from a CLIENT session — it drives the
-  /// services count on the client-facing public master profile (Phase 13.5).
+  /// services stat tile and the read-only service-categories section on the
+  /// client-facing public master profile (Phase 13.5).
   /// Returns an empty list when the master has no active services.
   Future<List<MasterService>> getMasterServices(String masterId);
 
@@ -821,7 +822,8 @@ ServiceRepository serviceRepository(Ref ref) {
 /// Provides a CLIENT-safe [ServiceRepository] for PUBLIC reads only.
 ///
 /// Used by the public master profile (Phase 13.5) to fetch the target master's
-/// services count via [ServiceRepository.getMasterServices]. Unlike
+/// active services (stat tile count + the read-only service-categories
+/// section) via [ServiceRepository.getMasterServices]. Unlike
 /// [serviceRepositoryProvider] it does NOT `ref.watch(masterProfileProvider)`:
 /// a CLIENT has no master profile, and dragging that master-only provider in
 /// would fire `GET /api/v1/masters/me` (403 for a CLIENT) and trigger Riverpod's

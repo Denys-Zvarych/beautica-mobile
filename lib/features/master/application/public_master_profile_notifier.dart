@@ -35,8 +35,9 @@ import '../domain/master.dart';
 part 'public_master_profile_notifier.g.dart';
 
 /// The data the public master profile screen renders: the master's public
-/// detail paired with its active services (used for the services count + the
-/// future Phase 14.1 service selection).
+/// detail paired with its active services (used for the services stat tile,
+/// the read-only service-categories section, and the future Phase 14.1
+/// service selection).
 typedef PublicMasterProfileData = (Master master, List<MasterService> services);
 
 /// Loads the public profile + active services for [masterId] in parallel.

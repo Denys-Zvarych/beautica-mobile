@@ -188,11 +188,25 @@ Map<String, dynamic> _authResponse(Map<String, dynamic> user) =>
 /// Each test creates a fresh instance so state never leaks between tests.
 /// The [dio] field is the instance to inject into [dioProvider].
 final class FakeBackend {
-  FakeBackend() : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
+  FakeBackend({this.masterRowId = 'user-master-1'})
+    : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
     _wire();
   }
+
+  /// The Master-ROW UUID that `GET /masters/me` reports for the authenticated
+  /// master, and the id its review endpoints are keyed on. In PRODUCTION this
+  /// DIFFERS from the User UUID (`user-master-1`): the `masters` table PK is an
+  /// independently `@GeneratedValue` UUID, distinct from the `user_id` FK.
+  ///
+  /// The default keeps it equal to the User id so every existing flow is
+  /// unchanged. The master-received-reviews flow overrides it with a DISTINCT
+  /// value so the flow FAILS if the reviews screen keys its endpoints on
+  /// `session.user.id` instead of the loaded profile's master-row id — turning
+  /// the flow into a genuine guard for that correctness bug rather than a
+  /// fixture-masked false pass.
+  final String masterRowId;
 
   final Dio dio;
   late final DioAdapter _adapter;
@@ -653,6 +667,39 @@ final class FakeBackend {
   int getSalonReviewsCalls = 0;
   String? lastGetSalonReviewsSort;
 
+  /// `GET /api/v1/masters/{masterRowId}/reviews/summary` — master received-
+  /// reviews header (Phase 4.5/4.6). Keyed on [masterRowId], the master-row id.
+  int getMasterReviewSummaryCalls = 0;
+
+  /// `GET /api/v1/masters/{masterRowId}/reviews?sort=` — master received-reviews
+  /// list. Records the last `sort` wire value so a sort-change test asserts the
+  /// re-fetch carried the new value; the fake reorders the fixture per sort so
+  /// the reorder is observable end-to-end.
+  int getMasterReviewsCalls = 0;
+  String? lastGetMasterReviewsSort;
+
+  /// WRONG-ID counters: hits to the review endpoints keyed on the USER id
+  /// (`user-master-1`) — the id the buggy screen would use. In a correctly
+  /// fixed screen these stay 0; a non-zero value is the fingerprint of the
+  /// `session.user.id`-vs-`master.id` bug. Only reachable when [masterRowId]
+  /// is overridden to differ from the User id.
+  int getMasterReviewSummaryWrongIdCalls = 0;
+  int getMasterReviewsWrongIdCalls = 0;
+
+  /// `GET /api/v1/masters/master-aaa/reviews/summary` — PUBLIC master reviews
+  /// header (Phase 4.x `PublicMasterReviewsScreen`), reached by tapping the
+  /// public profile's «Відгуки» stat tile. Kept DISTINCT from
+  /// [getMasterReviewSummaryCalls] (the `masterRowId`-keyed AUTHENTICATED
+  /// master's own-reviews route) so a CLIENT's public-reviews journey can
+  /// assert it never touches the self route (and vice versa).
+  int getPublicMasterReviewSummaryCalls = 0;
+
+  /// `GET /api/v1/masters/master-aaa/reviews?sort=` — PUBLIC master reviews
+  /// list. Records the last sort wire value for parity with the self-route
+  /// counter above.
+  int getPublicMasterReviewsCalls = 0;
+  String? lastGetPublicMasterReviewsSort;
+
   /// `GET /api/v1/salons/{salonId}/portfolio` — real photo rail on the "Про
   /// салон" tab (previously an unwired endpoint — see
   /// `salon_portfolio_notifier.dart`). Goes through the GENERATED
@@ -901,7 +948,7 @@ final class FakeBackend {
       Map<String, dynamic>.from(query);
 
   Map<String, dynamic> _masterDetailEnvelope() => _ok(<String, dynamic>{
-    'masterId': 'user-master-1',
+    'masterId': masterRowId,
     'firstName': masterFirstName,
     'lastName': masterLastName,
     'bio': masterBio,
@@ -1342,28 +1389,37 @@ final class FakeBackend {
         },
       ];
 
-  /// PUBLIC review-summary envelope for `salon-xyz` — matches the THREE
-  /// reviews in [_salonReviews] (one 5★, one 4★, one 3★). Shape matches
-  /// `SalonReviewSummaryResponse` → `RatingBucket`.
+  /// PUBLIC review-summary envelope for `salon-xyz` — matches the FOUR
+  /// reviews in [_salonReviews] (one 5★, two 4★, one 3★; avg stays exactly
+  /// 4.0 — (5+4+4+3)/4 — so the existing `salon-review-summary-average`
+  /// assertion in `public_salon_profile_flow_test.dart` is unaffected by the
+  /// 4th review added for the empty-string serviceName branch below). Shape
+  /// matches `SalonReviewSummaryResponse` → `RatingBucket`.
   static Map<String, dynamic> _salonReviewSummaryEnvelope() =>
       _ok(<String, dynamic>{
         'avgRating': 4.0,
-        'reviewCount': 3,
+        'reviewCount': 4,
         'ratingDistribution': <Map<String, dynamic>>[
           <String, dynamic>{'rating': 5, 'count': 1},
-          <String, dynamic>{'rating': 4, 'count': 1},
+          <String, dynamic>{'rating': 4, 'count': 2},
           <String, dynamic>{'rating': 3, 'count': 1},
           <String, dynamic>{'rating': 2, 'count': 0},
           <String, dynamic>{'rating': 1, 'count': 0},
         ],
       });
 
-  /// PUBLIC reviews list for `salon-xyz` — three reviews across three
-  /// distinct ratings (5★/4★/3★), split across both seeded masters. The fake
-  /// ignores the `sort` query value and always returns this same fixed list
-  /// (the sort contract is the SERVER's — the fake only needs to prove the
-  /// wire value reaches the backend, via [lastGetSalonReviewsSort]). Shape
-  /// matches `SalonReviewResponse`.
+  /// PUBLIC reviews list for `salon-xyz` — four reviews split across both
+  /// seeded masters. The fake ignores the `sort` query value and always
+  /// returns this same fixed list (the sort contract is the SERVER's — the
+  /// fake only needs to prove the wire value reaches the backend, via
+  /// [lastGetSalonReviewsSort]). Shape matches `SalonReviewResponse`.
+  ///
+  /// `serviceName` deliberately covers all THREE wire shapes the shared
+  /// `_salonReviewCard` mapper must handle (mirrors [_masterReviews] below):
+  /// salon-review-1 has a resolved name (unlabelled sub-line renders),
+  /// salon-review-3 omits the field entirely (null → sub-line hidden), and
+  /// salon-review-4 sends an explicit empty string (also → sub-line hidden,
+  /// never a stray icon with no name after the «послуга: » label removal).
   static const List<Map<String, dynamic>> _salonReviews =
       <Map<String, dynamic>>[
         <String, dynamic>{
@@ -1399,7 +1455,172 @@ final class FakeBackend {
           'comment': 'Непогано, але є куди рости.',
           'createdAt': '2026-05-20T09:00:00Z',
         },
+        <String, dynamic>{
+          'id': 'salon-review-4',
+          'masterId': 'master-ccc',
+          'masterFirstName': 'Марія',
+          'masterLastName': 'Гриценко',
+          'clientDisplayName': 'Юлія Р.',
+          'serviceName': '',
+          'rating': 4,
+          'comment': 'Приємна атмосфера, дякую!',
+          'createdAt': '2026-05-15T11:00:00Z',
+        },
       ];
+
+  /// Master received-reviews summary envelope (Phase 4.5). Matches the THREE
+  /// reviews in [_masterReviews] (one 5★, one 4★, one 3★). Shape matches
+  /// `MasterReviewSummaryResponse` → `RatingBucket`.
+  static Map<String, dynamic> _masterReviewSummaryEnvelope() =>
+      _ok(<String, dynamic>{
+        'avgRating': 4.0,
+        'reviewCount': 3,
+        'ratingDistribution': <Map<String, dynamic>>[
+          <String, dynamic>{'rating': 5, 'count': 1},
+          <String, dynamic>{'rating': 4, 'count': 1},
+          <String, dynamic>{'rating': 3, 'count': 1},
+          <String, dynamic>{'rating': 2, 'count': 0},
+          <String, dynamic>{'rating': 1, 'count': 0},
+        ],
+      });
+
+  /// Master received-reviews fixture — three reviews with DISTINCT ids, ratings
+  /// and dates so the per-sort reordering below is observable. `serviceName`
+  /// (backend `92280c3`) deliberately covers all three wire shapes the mapper
+  /// + screen must handle: mr-1 has a resolved name (the unlabelled
+  /// service-name sub-line renders), mr-2 omits the field entirely (null →
+  /// sub-line hidden), and mr-3 sends an explicit empty string (also →
+  /// sub-line hidden, never a stray icon with no name). Shape matches
+  /// `ReviewResponse`.
+  static const List<Map<String, dynamic>> _masterReviews =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'mr-1',
+          'clientDisplayName': 'Іра К.',
+          'rating': 5,
+          'comment': 'Найкращий майстер, дуже задоволена!',
+          'createdAt': '2026-06-10T10:00:00Z',
+          'serviceName': 'Манікюр',
+        },
+        <String, dynamic>{
+          'id': 'mr-2',
+          'clientDisplayName': 'Оля В.',
+          'rating': 3,
+          'comment': 'Непогано, але можна краще.',
+          'createdAt': '2026-05-01T09:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'mr-3',
+          'clientDisplayName': 'Ніна С.',
+          'rating': 4,
+          'comment': 'Все сподобалось, дякую.',
+          'createdAt': '2026-05-20T14:00:00Z',
+          'serviceName': '',
+        },
+      ];
+
+  /// Returns [_masterReviews] server-ordered by the `sort` wire value. Unlike
+  /// the salon fake (which ignores sort), the master fake really reorders so an
+  /// E2E can assert the list visibly reorders after a sort change — proving the
+  /// screen re-keyed its provider AND that the new sort reached the wire. ISO
+  /// timestamps compare lexicographically, so string compare = chronological.
+  static List<Map<String, dynamic>> _masterReviewsFor(String? sort) {
+    final List<Map<String, dynamic>> list = <Map<String, dynamic>>[
+      ..._masterReviews,
+    ];
+    switch (sort) {
+      case 'OLDEST':
+        list.sort(
+          (a, b) =>
+              (a['createdAt'] as String).compareTo(b['createdAt'] as String),
+        );
+      case 'HIGHEST':
+        list.sort((a, b) => (b['rating'] as int).compareTo(a['rating'] as int));
+      case 'LOWEST':
+        list.sort((a, b) => (a['rating'] as int).compareTo(b['rating'] as int));
+      case 'NEWEST':
+      default:
+        list.sort(
+          (a, b) =>
+              (b['createdAt'] as String).compareTo(a['createdAt'] as String),
+        );
+    }
+    return list;
+  }
+
+  /// Error envelope for the wrong-id master summary route (mirrors the backend's
+  /// `masterRepository.findById(userId).orElseThrow(NotFoundException)` → 404).
+  static Map<String, dynamic> _masterNotFoundEnvelope() => <String, dynamic>{
+    'success': false,
+    'message': 'Master not found',
+    'data': null,
+  };
+
+  /// PUBLIC master reviews fixture for `master-aaa` (Phase 4.x
+  /// `PublicMasterReviewsScreen`, reached from the public profile's
+  /// «Відгуки» stat tile) — deliberately DISTINCT ids from [_masterReviews]
+  /// (the AUTHENTICATED-master `mr-*` self fixture) so a test can tell the
+  /// two review surfaces apart at a glance if the wrong route is ever hit.
+  static const List<Map<String, dynamic>> _publicMasterReviews =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'pub-r1',
+          'clientDisplayName': 'Марія Т.',
+          'rating': 5,
+          'comment': 'Чудова робота, рекомендую!',
+          'createdAt': '2026-06-01T12:00:00Z',
+          'serviceName': 'Манікюр з покриттям',
+        },
+        <String, dynamic>{
+          'id': 'pub-r2',
+          'clientDisplayName': 'Дарина Л.',
+          'rating': 4,
+          'comment': 'Все дуже сподобалось.',
+          'createdAt': '2026-05-10T09:00:00Z',
+        },
+      ];
+
+  /// Matches [_publicMasterReviews] (one 5★, one 4★) and the seeded
+  /// `master-aaa` public-detail `avgRating: 4.9`.
+  static Map<String, dynamic> _publicMasterReviewSummaryEnvelope() =>
+      _ok(<String, dynamic>{
+        'avgRating': 4.9,
+        'reviewCount': 2,
+        'ratingDistribution': <Map<String, dynamic>>[
+          <String, dynamic>{'rating': 5, 'count': 1},
+          <String, dynamic>{'rating': 4, 'count': 1},
+          <String, dynamic>{'rating': 3, 'count': 0},
+          <String, dynamic>{'rating': 2, 'count': 0},
+          <String, dynamic>{'rating': 1, 'count': 0},
+        ],
+      });
+
+  /// Returns [_publicMasterReviews] server-ordered by the `sort` wire value —
+  /// mirrors [_masterReviewsFor]'s reordering so a future sort test on the
+  /// public reviews screen has the same real-reorder guarantee.
+  static List<Map<String, dynamic>> _publicMasterReviewsFor(String? sort) {
+    final List<Map<String, dynamic>> list = <Map<String, dynamic>>[
+      ..._publicMasterReviews,
+    ];
+    switch (sort) {
+      case 'OLDEST':
+        list.sort(
+          (a, b) =>
+              (a['createdAt'] as String).compareTo(b['createdAt'] as String),
+        );
+      case 'HIGHEST':
+        list.sort((a, b) => (b['rating'] as int).compareTo(a['rating'] as int));
+      case 'LOWEST':
+        list.sort((a, b) => (a['rating'] as int).compareTo(b['rating'] as int));
+      case 'NEWEST':
+      default:
+        list.sort(
+          (a, b) =>
+              (b['createdAt'] as String).compareTo(a['createdAt'] as String),
+        );
+    }
+    return list;
+  }
 
   /// PUBLIC portfolio gallery for `salon-xyz` — THREE photos backing the
   /// "Про салон" tab's real photo rail (previously an unwired backend
@@ -1786,6 +2007,71 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // GET /api/v1/masters/{masterRowId}/reviews/summary — master received-
+    // reviews header (Phase 4.5/4.6). Keyed on the MASTER-ROW id reported by
+    // GET /masters/me, which the screen must read from the loaded profile —
+    // NOT session.user.id. Registered BEFORE the list route (more specific
+    // path first) so a `.../reviews` match can never shadow `.../reviews/summary`.
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/reviews/summary',
+      (server) => server.replyCallback(200, (_) {
+        getMasterReviewSummaryCalls++;
+        return _masterReviewSummaryEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/{masterRowId}/reviews?sort=&page=&size= — master
+    // received-reviews list. Reorders the fixture per the requested sort and
+    // records the wire value so an E2E can assert both re-fetch AND reorder.
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/reviews',
+      (server) => server.replyCallback(200, (req) {
+        getMasterReviewsCalls++;
+        lastGetMasterReviewsSort = req.queryParameters['sort'] as String?;
+        final List<Map<String, dynamic>> rows = _masterReviewsFor(
+          lastGetMasterReviewsSort,
+        );
+        return _searchEnvelope(
+          rows,
+          page: 0,
+          totalPages: 1,
+          totalElements: rows.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // WRONG-ID GUARD (only when masterRowId differs from the User id): model
+    // what the real backend returns if the screen mistakenly queries by User
+    // id — summary → 404 (findById(userId).orElseThrow), list → empty (no
+    // reviews match a non-master id). Registering these makes a buggy screen
+    // fail CLEANLY (empty list + summary error) rather than throwing an
+    // unmatched-route error, and lets the flow assert the fingerprint counters.
+    if (masterRowId != 'user-master-1') {
+      _adapter.onRoute(
+        '/api/v1/masters/user-master-1/reviews/summary',
+        (server) => server.replyCallback(404, (_) {
+          getMasterReviewSummaryWrongIdCalls++;
+          return _masterNotFoundEnvelope();
+        }),
+        request: const Request(method: RequestMethods.get),
+      );
+      _adapter.onRoute(
+        '/api/v1/masters/user-master-1/reviews',
+        (server) => server.replyCallback(200, (_) {
+          getMasterReviewsWrongIdCalls++;
+          return _searchEnvelope(
+            const <Map<String, dynamic>>[],
+            page: 0,
+            totalPages: 0,
+            totalElements: 0,
+          );
+        }),
+        request: const Request(method: RequestMethods.get),
+      );
+    }
+
     // GET /api/v1/masters/master-aaa — PUBLIC master detail (Phase 13.5). The
     // client-facing public profile resolves the target master by its Master-row
     // UUID through the generated MasterControllerApi.getMasterDetail. Wired as a
@@ -1809,6 +2095,40 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-aaa';
         return _okList(_publicMasterServices);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/reviews/summary — PUBLIC master reviews
+    // header (Phase 4.x), reached from the public profile's «Відгуки» stat
+    // tile. Registered BEFORE the list route below (more specific path
+    // first) so a `.../reviews` match can never shadow `.../reviews/summary`
+    // — same ordering discipline as the `masterRowId`-keyed self routes above.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/reviews/summary',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterReviewSummaryCalls++;
+        return _publicMasterReviewSummaryEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/reviews?sort=&page=&size= — PUBLIC master
+    // reviews list.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/reviews',
+      (server) => server.replyCallback(200, (req) {
+        getPublicMasterReviewsCalls++;
+        lastGetPublicMasterReviewsSort = req.queryParameters['sort'] as String?;
+        final List<Map<String, dynamic>> rows = _publicMasterReviewsFor(
+          lastGetPublicMasterReviewsSort,
+        );
+        return _searchEnvelope(
+          rows,
+          page: 0,
+          totalPages: 1,
+          totalElements: rows.length,
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
