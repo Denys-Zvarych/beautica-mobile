@@ -69,6 +69,7 @@ import '../features/master/presentation/master_profile_screen.dart';
 import '../features/master/presentation/master_received_reviews_screen.dart';
 import '../features/master/presentation/personal_info_edit_screen.dart';
 import '../features/master/presentation/public_master_profile_screen.dart';
+import '../features/master/presentation/public_master_reviews_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
 import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
@@ -534,6 +535,20 @@ GoRouter appRouter(Ref ref) {
         // the sibling instance of the identical defect, deferred at the time
         // of the salon fix; this is that follow-up.
         builder: (context, state) => PublicMasterProfileScreen(
+          masterId: state.pathParameters['masterId'] ?? '',
+        ),
+      ),
+      // Phase 4.x — Public master reviews (CLIENT-facing, read-only). Pushed
+      // from the public master profile's «Відгуки» stat tile. Same
+      // lifecycle/guard as `/masters/:masterId` above — CLIENT-guarded,
+      // in-app-push-only. Deliberately NOT `RouteNames.masterReceivedReviews`
+      // (param-less, always resolves the AUTHENTICATED master's own
+      // reviews) — this route carries the target masterId as a path param so
+      // `PublicMasterReviewsScreen` queries the correct master's reviews.
+      GoRoute(
+        path: '/masters/:masterId/reviews',
+        redirect: clientOnlyGuard,
+        builder: (context, state) => PublicMasterReviewsScreen(
           masterId: state.pathParameters['masterId'] ?? '',
         ),
       ),

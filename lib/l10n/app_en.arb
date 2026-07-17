@@ -3323,6 +3323,10 @@
   "@publicMasterProfileTitle": {
     "description": "App-bar title on the CLIENT-facing public master profile (Phase 13.5)."
   },
+  "publicMasterReviewsTitle": "Master's reviews",
+  "@publicMasterReviewsTitle": {
+    "description": "App-bar title on the CLIENT-facing public master reviews screen, reached from the public profile's reviews stat tile."
+  },
   "publicMasterBioLabel": "About the master",
   "@publicMasterBioLabel": {
     "description": "Section label above the bio on the public master profile (about the master, not self)."

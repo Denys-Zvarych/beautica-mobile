@@ -184,6 +184,7 @@ class _PublicMasterProfileScreenState
         data: (PublicMasterProfileData data) {
           _startReveal();
           return _PublicProfileBody(
+            masterId: widget.masterId,
             master: data.$1,
             serviceCount: data.$2.length,
             anim0: _anim0,
@@ -209,6 +210,7 @@ class _PublicMasterProfileScreenState
 
 class _PublicProfileBody extends StatelessWidget {
   const _PublicProfileBody({
+    required this.masterId,
     required this.master,
     required this.serviceCount,
     required this.anim0,
@@ -223,6 +225,11 @@ class _PublicProfileBody extends StatelessWidget {
     required this.slide4,
   });
 
+  /// Trusted route param (`widget.masterId`) — used for navigation instead of
+  /// [master].id, which is a value round-tripped through the profile
+  /// response and mapped by `MasterMapper`. See the reviews tile's `onTap`
+  /// below.
+  final String masterId;
   final Master master;
   final int serviceCount;
 
@@ -311,34 +318,6 @@ class _PublicProfileBody extends StatelessWidget {
                             : roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
-                      if (hasReviews) ...<Widget>[
-                        const SizedBox(height: VelvetSpacing.xs + 2),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const Icon(
-                              Icons.star_rounded,
-                              size: 16,
-                              color: BrandColors.accentDeep,
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              master.avgRating.toStringAsFixed(1),
-                              style: _ratingInlineStyle,
-                            ),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(
-                                l10n.searchResultReviewCount(
-                                  master.reviewCount,
-                                ),
-                                style: VelvetText.feedbackMutedSm,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
                       if (locationLine != null) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs),
                         Row(
@@ -383,7 +362,13 @@ class _PublicProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 2 — Stats row: rating / reviews / services / experience.
+        // 2 — Stats row: rating / services / reviews / experience.
+        // Order of the three tiles shared with the personal MasterProfileScreen
+        // (rating / services / reviews) mirrors that screen's stats row exactly
+        // (Bookings / Rating / Services / Reviews there — Bookings has no public
+        // equivalent so it is omitted, not reshuffled in). `experience` has no
+        // personal-profile equivalent either; it is kept in its original
+        // trailing slot rather than invented a position for it.
         // IntrinsicHeight equalises the four StatTiles to the tallest tile —
         // intentional and laid out ONCE per data render (not per frame). It
         // matches the sibling MasterProfileScreen and the approved design;
@@ -413,19 +398,31 @@ class _PublicProfileBody extends StatelessWidget {
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: StatTile(
-                    icon: Icons.reviews_outlined,
-                    value: hasReviews ? master.reviewCount.toString() : '—',
-                    caption: l10n.masterStatsReviewsLabel,
-                    valueKey: const Key('public-master-profile-reviews-value'),
-                  ),
-                ),
-                const SizedBox(width: VelvetSpacing.sm),
-                Expanded(
-                  child: StatTile(
                     icon: Icons.design_services_outlined,
                     value: serviceCount.toString(),
                     caption: l10n.masterServicesLabel,
                     valueKey: const Key('public-master-profile-services-value'),
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.sm),
+                Expanded(
+                  // Tappable — pushes the public reviews list for this master
+                  // ([RouteNames.masterPublicReviews]), mirroring the reviews
+                  // tile on the master's own profile (`master-profile-reviews-tile`
+                  // in `master_profile_screen.dart`).
+                  child: GestureDetector(
+                    key: const Key('public-master-profile-reviews-tile'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () =>
+                        context.push(RouteNames.masterPublicReviews(masterId)),
+                    child: StatTile(
+                      icon: Icons.reviews_outlined,
+                      value: hasReviews ? master.reviewCount.toString() : '—',
+                      caption: l10n.masterStatsReviewsLabel,
+                      valueKey: const Key(
+                        'public-master-profile-reviews-value',
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -550,9 +547,6 @@ class _PublicProfileBody extends StatelessWidget {
       ],
     );
   }
-
-  // Cached inline rating style for the identity card (avoid per-build copyWith).
-  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
 
   /// Opens the master's Instagram in the Instagram app or a browser, sanitising
   /// [rawValue] through [canonicalInstagramUri] (STRICT https + host/charset

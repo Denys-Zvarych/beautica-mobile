@@ -16,18 +16,24 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -252,6 +258,205 @@ void main() {
 
       expect(find.text('booking-stub'), findsOneWidget);
     });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // REGRESSION — the reviews stat tile used to render with NO GestureDetector
+  // at all: tapping it was a silent no-op (the user-reported bug). The fix
+  // wraps the tile in a GestureDetector whose onTap calls
+  // `context.push(RouteNames.masterPublicReviews(masterId))`.
+  //
+  // NAV-DETECTION TRAP (do not "simplify"): this MUST drive the real
+  // `context.push` code path by tapping the actual rendered
+  // GestureDetector — a test that instead called `router.go(...)` directly
+  // would pass even if the shipped tile still had no tap handler at all,
+  // because it would never exercise the widget under test's onTap callback.
+  // Tapping the real key is what makes this a genuine regression guard.
+  //
+  // TRUST-BOUNDARY PIN (mobile-security LOW, public_master_profile_screen.dart
+  // ~410) — the fixture deliberately makes `master.id` (a value round-tripped
+  // through the `GET /masters/{masterId}` response and mapped by
+  // [MasterMapper]) DIFFERENT from `_kMasterId` (the trusted route param /
+  // `widget.masterId`), mirroring what a future mapper bug or a backend
+  // response that doesn't echo the requested id would look like. The tile
+  // must push using `widget.masterId`, never `master.id`. Only the
+  // `_kMasterId`-keyed review providers are overridden — if the tile ever
+  // regresses to navigating via the echoed `master.id`, the pushed screen
+  // looks up providers keyed by that (unoverridden) id and the assertions
+  // below go red instead of silently passing either way.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('reviews tile navigation (regression — was a silent no-op)', () {
+    testWidgets(
+      'tapping the «Відгуки» stat tile pushes /masters/:masterId/reviews '
+      'using the ROUTE masterId, not the master.id echoed back by the '
+      'profile response, and PublicMasterReviewsScreen renders this '
+      "masterId's reviews",
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        // Deliberately mismatched: the network-echoed `master.id` must never
+        // be the value navigation keys off of.
+        final Master mismatchedMaster = _stubMaster.copyWith(
+          id: 'server-echoed-mismatched-id',
+        );
+        final PublicMasterProfileData mismatchedData = (
+          mismatchedMaster,
+          _stubServices,
+        );
+
+        final router = GoRouter(
+          initialLocation: '/masters/$_kMasterId',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/masters/:masterId',
+              builder: (context, state) => PublicMasterProfileScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+            GoRoute(
+              path: '/masters/:masterId/reviews',
+              builder: (context, state) => PublicMasterReviewsScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+          ],
+        );
+
+        const MasterReviewSummary summary = MasterReviewSummary(
+          avgRating: 4.8,
+          reviewCount: 1,
+          distribution: <int>[1, 0, 0, 0, 0],
+        );
+        final MasterReviewItem review = MasterReviewItem(
+          id: 'rev-1',
+          clientDisplayName: 'Client A',
+          rating: 5,
+          comment: 'Great!',
+          createdAt: DateTime.utc(2026, 6, 1),
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides((ref) => mismatchedData),
+            // Keyed by the TRUSTED route id (_kMasterId), NOT by
+            // `mismatchedMaster.id`. A push that (wrongly) used `master.id`
+            // would land on an unoverridden provider instance for that id.
+            masterReviewSummaryProvider(
+              _kMasterId,
+            ).overrideWith((ref) => summary),
+            masterReviewsProvider(
+              _kMasterId,
+              MasterReviewSort.newest,
+            ).overrideWith((ref) => <MasterReviewItem>[review]),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder tile = find.byKey(
+          const Key('public-master-profile-reviews-tile'),
+        );
+        expect(tile, findsOneWidget);
+
+        // The real tap drives the widget's own onTap → context.push.
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
+
+        final PublicMasterReviewsScreen pushedScreen = tester.widget(
+          find.byType(PublicMasterReviewsScreen),
+        );
+        expect(
+          pushedScreen.masterId,
+          _kMasterId,
+          reason:
+              'navigation must carry the ROUTE masterId (widget.masterId), '
+              'never the master.id echoed back in the profile response',
+        );
+
+        expect(
+          find.byKey(const Key('master-review-rev-1')),
+          findsOneWidget,
+          reason:
+              'the pushed screen must render THIS masterId\'s review, proving '
+              'the id travelled through the push, not just that SOME screen '
+              'mounted',
+        );
+      },
+    );
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Stats-row order — Rating → Services → Reviews → Experience. Pinned so a
+  // future refactor can't silently reshuffle it back.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('stats row order', () {
+    testWidgets('renders Rating, Services, Reviews, Experience in that order', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      final List<StatTile> tiles = tester
+          .widgetList<StatTile>(find.byType(StatTile))
+          .toList();
+
+      expect(tiles, hasLength(4));
+      expect(tiles[0].caption, l10n.masterRatingLabel);
+      expect(tiles[1].caption, l10n.masterServicesLabel);
+      expect(tiles[2].caption, l10n.masterStatsReviewsLabel);
+      expect(tiles[3].caption, l10n.publicMasterExperienceLabel);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Identity-card inline rating REMOVED — the stats-row rating StatTile
+  // (`public-master-profile-rating-value`) is the ONLY rating affordance on
+  // the screen; the identity card itself must carry no RatingStar/rating row.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('identity-card inline rating removed', () {
+    testWidgets(
+      'the identity card has no RatingStar descendant; the stats-row rating '
+      'value remains the single RatingStar on the screen',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => _stubData),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder identityCard = find.ancestor(
+          of: find.byKey(const Key('public-master-profile-name')),
+          matching: find.byType(NeumorphicCard),
+        );
+        expect(identityCard, findsOneWidget);
+        expect(
+          find.descendant(of: identityCard, matching: find.byType(RatingStar)),
+          findsNothing,
+          reason: 'the identity card must not render its own inline rating',
+        );
+
+        // The stats-row rating value tile is still present — the rating
+        // affordance moved, it was not deleted outright.
+        expect(
+          find.byKey(const Key('public-master-profile-rating-value')),
+          findsOneWidget,
+        );
+        expect(
+          find.byType(RatingStar),
+          findsOneWidget,
+          reason: 'exactly one RatingStar — the stats-row tile\'s',
+        );
+      },
+    );
   });
 
   // ──────────────────────────────────────────────────────────────────────────

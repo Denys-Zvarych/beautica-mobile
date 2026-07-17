@@ -65,6 +65,7 @@ import 'package:beautica_mobile/features/booking/presentation/service_selector_s
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -548,4 +549,100 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Flow E — Phase 4.x REGRESSION (E2E): the public-profile «Відгуки» stat
+  // tile used to render with NO GestureDetector at all — tapping it was a
+  // silent no-op (the user-reported bug). The fix wraps it in a
+  // GestureDetector whose onTap calls `context.push(RouteNames.
+  // masterPublicReviews(masterId))`, using the trusted route param
+  // (`widget.masterId`) — never `master.id`, a value round-tripped through
+  // the profile response. This flow drives the REAL tap on the REAL rendered
+  // tile (never `router.go`/`router.push` standing in for the tap) and
+  // proves it lands on `PublicMasterReviewsScreen`, which renders THAT
+  // master's real reviews via the PUBLIC
+  // `GET /masters/master-aaa/reviews[/summary]` endpoints — never the
+  // `masterRowId`-keyed AUTHENTICATED-master self routes
+  // ([FakeBackend.getMasterReviewSummaryCalls] / [getMasterReviewsCalls]),
+  // which a CLIENT session has no business ever touching.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets('CLIENT taps the «Відгуки» stat tile on a master public profile → '
+      'PublicMasterReviewsScreen opens and renders THAT master\'s real reviews '
+      '(previously a silent no-op — the reported bug)', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+    // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expectLocation(router, '/masters/master-aaa');
+
+    // ── Tap the REAL rendered reviews stat tile (the tap the bug report was
+    // about) — NOT a `router.push`/`router.go` stand-in for it. ────────────
+    final Finder reviewsTile = find.byKey(
+      const Key('public-master-profile-reviews-tile'),
+    );
+    expect(reviewsTile, findsOneWidget);
+    await tester.ensureVisible(reviewsTile);
+    await tester.tap(reviewsTile);
+    // fixed-wait-ok: settles the real async route-push + review-provider loads; not a total-wait guess.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // The bug was a SILENT no-op — the first and most important assertion
+    // is simply that navigation happened at all.
+    expectLocation(router, '/masters/master-aaa/reviews');
+    expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
+
+    // ── The real PUBLIC reviews endpoints fired for master-aaa … ──────────
+    expect(
+      fb.getPublicMasterReviewSummaryCalls,
+      greaterThanOrEqualTo(1),
+      reason:
+          'the summary must load from the PUBLIC '
+          'GET /masters/master-aaa/reviews/summary route',
+    );
+    expect(
+      fb.getPublicMasterReviewsCalls,
+      greaterThanOrEqualTo(1),
+      reason:
+          'the list must load from the PUBLIC '
+          'GET /masters/master-aaa/reviews route',
+    );
+    // … and NEVER the `masterRowId`-keyed AUTHENTICATED-master self routes —
+    // a CLIENT viewing another master's public reviews must never resolve
+    // "its own" reviews (there is no session master row to confuse it with
+    // here, but this pins the two surfaces staying on separate routes).
+    expect(
+      fb.getMasterReviewSummaryCalls,
+      0,
+      reason:
+          'must never hit the AUTHENTICATED master\'s own reviews-summary '
+          'route from the public CLIENT journey',
+    );
+    expect(
+      fb.getMasterReviewsCalls,
+      0,
+      reason:
+          'must never hit the AUTHENTICATED master\'s own reviews-list '
+          'route from the public CLIENT journey',
+    );
+
+    // ── master-aaa's seeded public reviews render (distinct ids from the
+    // `mr-*` self-fixture, so a wrong-route mixup would show as findsNothing
+    // here rather than silently passing). ─────────────────────────────────
+    expect(find.byKey(const Key('master-review-pub-r1')), findsOneWidget);
+    expect(find.byKey(const Key('master-review-pub-r2')), findsOneWidget);
+    final Text avg = tester.widget<Text>(
+      find.byKey(const Key('master-review-summary-average')),
+    );
+    expect(
+      avg.data,
+      '4.9',
+      reason: 'the summary average must bind from the real response data',
+    );
+  }, timeout: const Timeout(Duration(seconds: 90)));
 }

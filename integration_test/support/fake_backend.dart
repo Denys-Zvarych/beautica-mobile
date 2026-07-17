@@ -686,6 +686,20 @@ final class FakeBackend {
   int getMasterReviewSummaryWrongIdCalls = 0;
   int getMasterReviewsWrongIdCalls = 0;
 
+  /// `GET /api/v1/masters/master-aaa/reviews/summary` — PUBLIC master reviews
+  /// header (Phase 4.x `PublicMasterReviewsScreen`), reached by tapping the
+  /// public profile's «Відгуки» stat tile. Kept DISTINCT from
+  /// [getMasterReviewSummaryCalls] (the `masterRowId`-keyed AUTHENTICATED
+  /// master's own-reviews route) so a CLIENT's public-reviews journey can
+  /// assert it never touches the self route (and vice versa).
+  int getPublicMasterReviewSummaryCalls = 0;
+
+  /// `GET /api/v1/masters/master-aaa/reviews?sort=` — PUBLIC master reviews
+  /// list. Records the last sort wire value for parity with the self-route
+  /// counter above.
+  int getPublicMasterReviewsCalls = 0;
+  String? lastGetPublicMasterReviewsSort;
+
   /// `GET /api/v1/salons/{salonId}/portfolio` — real photo rail on the "Про
   /// салон" tab (previously an unwired endpoint — see
   /// `salon_portfolio_notifier.dart`). Goes through the GENERATED
@@ -1542,6 +1556,72 @@ final class FakeBackend {
     'data': null,
   };
 
+  /// PUBLIC master reviews fixture for `master-aaa` (Phase 4.x
+  /// `PublicMasterReviewsScreen`, reached from the public profile's
+  /// «Відгуки» stat tile) — deliberately DISTINCT ids from [_masterReviews]
+  /// (the AUTHENTICATED-master `mr-*` self fixture) so a test can tell the
+  /// two review surfaces apart at a glance if the wrong route is ever hit.
+  static const List<Map<String, dynamic>> _publicMasterReviews =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'pub-r1',
+          'clientDisplayName': 'Марія Т.',
+          'rating': 5,
+          'comment': 'Чудова робота, рекомендую!',
+          'createdAt': '2026-06-01T12:00:00Z',
+          'serviceName': 'Манікюр з покриттям',
+        },
+        <String, dynamic>{
+          'id': 'pub-r2',
+          'clientDisplayName': 'Дарина Л.',
+          'rating': 4,
+          'comment': 'Все дуже сподобалось.',
+          'createdAt': '2026-05-10T09:00:00Z',
+        },
+      ];
+
+  /// Matches [_publicMasterReviews] (one 5★, one 4★) and the seeded
+  /// `master-aaa` public-detail `avgRating: 4.9`.
+  static Map<String, dynamic> _publicMasterReviewSummaryEnvelope() =>
+      _ok(<String, dynamic>{
+        'avgRating': 4.9,
+        'reviewCount': 2,
+        'ratingDistribution': <Map<String, dynamic>>[
+          <String, dynamic>{'rating': 5, 'count': 1},
+          <String, dynamic>{'rating': 4, 'count': 1},
+          <String, dynamic>{'rating': 3, 'count': 0},
+          <String, dynamic>{'rating': 2, 'count': 0},
+          <String, dynamic>{'rating': 1, 'count': 0},
+        ],
+      });
+
+  /// Returns [_publicMasterReviews] server-ordered by the `sort` wire value —
+  /// mirrors [_masterReviewsFor]'s reordering so a future sort test on the
+  /// public reviews screen has the same real-reorder guarantee.
+  static List<Map<String, dynamic>> _publicMasterReviewsFor(String? sort) {
+    final List<Map<String, dynamic>> list = <Map<String, dynamic>>[
+      ..._publicMasterReviews,
+    ];
+    switch (sort) {
+      case 'OLDEST':
+        list.sort(
+          (a, b) =>
+              (a['createdAt'] as String).compareTo(b['createdAt'] as String),
+        );
+      case 'HIGHEST':
+        list.sort((a, b) => (b['rating'] as int).compareTo(a['rating'] as int));
+      case 'LOWEST':
+        list.sort((a, b) => (a['rating'] as int).compareTo(b['rating'] as int));
+      case 'NEWEST':
+      default:
+        list.sort(
+          (a, b) =>
+              (b['createdAt'] as String).compareTo(a['createdAt'] as String),
+        );
+    }
+    return list;
+  }
+
   /// PUBLIC portfolio gallery for `salon-xyz` — THREE photos backing the
   /// "Про салон" tab's real photo rail (previously an unwired backend
   /// endpoint — see `salon_portfolio_notifier.dart`). Shape matches
@@ -2015,6 +2095,40 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-aaa';
         return _okList(_publicMasterServices);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/reviews/summary — PUBLIC master reviews
+    // header (Phase 4.x), reached from the public profile's «Відгуки» stat
+    // tile. Registered BEFORE the list route below (more specific path
+    // first) so a `.../reviews` match can never shadow `.../reviews/summary`
+    // — same ordering discipline as the `masterRowId`-keyed self routes above.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/reviews/summary',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterReviewSummaryCalls++;
+        return _publicMasterReviewSummaryEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/reviews?sort=&page=&size= — PUBLIC master
+    // reviews list.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/reviews',
+      (server) => server.replyCallback(200, (req) {
+        getPublicMasterReviewsCalls++;
+        lastGetPublicMasterReviewsSort = req.queryParameters['sort'] as String?;
+        final List<Map<String, dynamic>> rows = _publicMasterReviewsFor(
+          lastGetPublicMasterReviewsSort,
+        );
+        return _searchEnvelope(
+          rows,
+          page: 0,
+          totalPages: 1,
+          totalElements: rows.length,
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
