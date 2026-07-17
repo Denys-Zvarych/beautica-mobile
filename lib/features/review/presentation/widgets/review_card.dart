@@ -25,8 +25,9 @@ import 'package:beautica_mobile/shared/formatters/relative_date.dart';
 
 /// The primitives a [ReviewCard] renders, decoupled from any feature domain
 /// model. Salon maps `SalonReviewItem` → [ReviewCardData] (with [serviceName]);
-/// master maps `MasterReviewItem` → [ReviewCardData] ([serviceName] always
-/// `null`, so the «послуга:» sub-line never renders).
+/// master maps `MasterReviewItem` → [ReviewCardData] (also with [serviceName],
+/// backend `92280c3` — `null` only when the backend couldn't resolve a
+/// service, in which case the «послуга:» sub-line doesn't render).
 @immutable
 final class ReviewCardData {
   const ReviewCardData({
@@ -54,7 +55,8 @@ final class ReviewCardData {
   /// When the review was authored — rendered as a relative date.
   final DateTime createdAt;
 
-  /// Optional booked-service name (salon only). `null` for master reviews.
+  /// Optional booked-service name (salon and master reviews). `null` when the
+  /// backend couldn't resolve one for this review.
   final String? serviceName;
 }
 

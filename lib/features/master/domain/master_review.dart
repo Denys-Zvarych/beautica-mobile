@@ -48,8 +48,11 @@ abstract class MasterReviewSummary with _$MasterReviewSummary {
 }
 
 /// One client review of the master (masked reviewer name, read-only). The
-/// backend master item carries no `masterName`/`serviceName` — the reviews are
-/// implicitly about the authenticated master.
+/// backend master item carries no `masterName` — the reviews are implicitly
+/// about the authenticated master. `serviceName` (backend `92280c3`) is the
+/// booked service's name, resolved server-side from
+/// `booking.masterService.serviceDefinition.name`; optional because a review
+/// could in principle outlive/lack that resolution.
 @freezed
 abstract class MasterReviewItem with _$MasterReviewItem {
   const factory MasterReviewItem({
@@ -60,5 +63,9 @@ abstract class MasterReviewItem with _$MasterReviewItem {
     required int rating,
     required String comment,
     required DateTime createdAt,
+
+    /// The booked service's name, or `null` if the backend couldn't resolve
+    /// one — the «послуга:» sub-line is hidden in that case.
+    String? serviceName,
   }) = _MasterReviewItem;
 }

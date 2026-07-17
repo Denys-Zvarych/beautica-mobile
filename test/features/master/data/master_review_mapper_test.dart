@@ -1,12 +1,17 @@
 // Phase 4.5 — Unit tests for [MasterReviewMapper] (pure Dart, no widget tree).
 //
-// Two translation contracts are pinned here:
+// Three translation contracts are pinned here:
 //   • summaryFromDto: the `{rating, count}` bucket list is folded into a fixed
 //     highest-first `List<int>` of length 5 (index 0 = 5★ … index 4 = 1★),
 //     regardless of wire order, with any missing / out-of-range bucket → 0.
 //   • reviewsFromDtoList: entries with a null OR empty `id` are DROPPED (a single
 //     broken review must never blank the whole "Мої відгуки" list), field
 //     nulls fall back to safe defaults, and surviving order is preserved.
+//   • reviewsFromDtoList maps `ReviewResponse.serviceName` (backend `92280c3`)
+//     straight through to `MasterReviewItem.serviceName` — present stays
+//     present, and a null DTO value maps to a real `null` (never the string
+//     `"null"` nor an empty-string coercion — the presentation layer's
+//     null-vs-empty branch depends on this staying a true null).
 //
 // Generated built_value DTOs are constructed via their builders so the test
 // exercises the SAME types the real decode path produces.
@@ -42,13 +47,15 @@ ReviewResponse _review({
   int? rating,
   String? comment,
   DateTime? createdAt,
+  String? serviceName,
 }) => ReviewResponse(
   (b) => b
     ..id = id
     ..clientDisplayName = clientDisplayName
     ..rating = rating
     ..comment = comment
-    ..createdAt = createdAt,
+    ..createdAt = createdAt
+    ..serviceName = serviceName,
 );
 
 void main() {
@@ -229,6 +236,37 @@ void main() {
         MasterReviewMapper.reviewsFromDtoList(const <ReviewResponse>[]),
         isEmpty,
       );
+    });
+
+    test('maps a present serviceName through to the domain item (backend '
+        '92280c3)', () {
+      final List<MasterReviewItem> out =
+          MasterReviewMapper.reviewsFromDtoList(<ReviewResponse>[
+            _review(
+              id: 'r-svc',
+              rating: 5,
+              comment: 'Дякую!',
+              createdAt: DateTime.utc(2026),
+              serviceName: 'Манікюр',
+            ),
+          ]);
+
+      expect(out.single.serviceName, 'Манікюр');
+    });
+
+    test('maps a null serviceName to a real null, not the string "null"', () {
+      final List<MasterReviewItem> out =
+          MasterReviewMapper.reviewsFromDtoList(<ReviewResponse>[
+            _review(
+              id: 'r-no-svc',
+              rating: 5,
+              comment: 'Дякую!',
+              createdAt: DateTime.utc(2026),
+            ),
+          ]);
+
+      expect(out.single.serviceName, isNull);
+      expect(out.single.serviceName, isNot('null'));
     });
   });
 }

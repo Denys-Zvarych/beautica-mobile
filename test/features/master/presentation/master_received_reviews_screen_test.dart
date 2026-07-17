@@ -1,6 +1,6 @@
 // Phase 4.6 — Widget tests for [MasterReceivedReviewsScreen] ("Мої відгуки").
 //
-// Covers the four AsyncValue states plus the two flows unique to this screen:
+// Covers the four AsyncValue states plus the flows unique to this screen:
 //   1. Loading   — skeleton shimmer blocks; no data, no empty state.
 //   2. Empty     — `master-reviews-empty` placeholder rendered.
 //   3. Error+retry — the list error surfaces an ErrorState whose retry
@@ -14,6 +14,12 @@
 //   6. Fail-closed — an Unauthenticated session renders an ErrorState instead
 //                    of reading the review providers (the redirect guard's
 //                    belt-and-braces).
+//   7. Service sub-line (backend `92280c3`) — `_masterReviewCard` gates the
+//      «послуга: …» sub-line on serviceName being BOTH non-null AND
+//      non-empty. Three items pin all three branches: a present name renders
+//      the formatted sub-line, a null name omits it entirely, and — the
+//      branch most likely to silently regress — an EMPTY-STRING name must
+//      ALSO omit it (never a bare «послуга: » with nothing after the colon).
 //
 // Strategy: override [authProvider] with a stub Authenticated session and
 // override [masterProfileProvider] with a stub whose [Master.id] is DISTINCT
@@ -96,12 +102,18 @@ const MasterReviewSummary _summary = MasterReviewSummary(
   distribution: <int>[1, 1, 1, 0, 0],
 );
 
-MasterReviewItem _item(String id, String name, int rating) => MasterReviewItem(
+MasterReviewItem _item(
+  String id,
+  String name,
+  int rating, {
+  String? serviceName,
+}) => MasterReviewItem(
   id: id,
   clientDisplayName: name,
   rating: rating,
   comment: 'Коментар $id',
   createdAt: DateTime.utc(2026, 6, 10, 10),
+  serviceName: serviceName,
 );
 
 final List<MasterReviewItem> _newestList = <MasterReviewItem>[
@@ -370,5 +382,92 @@ void main() {
       );
       expect(find.text(l10n.masterReviewsTitle), findsWidgets);
     });
+  });
+
+  group('service sub-line (backend serviceName)', () {
+    // One item per branch of `_masterReviewCard`'s
+    // `service != null && service.isNotEmpty` guard: present, null, empty.
+    final List<MasterReviewItem> serviceItems = <MasterReviewItem>[
+      _item('mr-svc-present', 'Марта Л.', 5, serviceName: 'Манікюр'),
+      _item('mr-svc-null', 'Дарʼя П.', 4),
+      _item('mr-svc-empty', 'Софія Н.', 3, serviceName: ''),
+    ];
+
+    Future<void> pumpServiceItems(WidgetTester tester) async {
+      await tester.pumpRoutedApp(
+        _router(),
+        overrides: <Object>[
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          masterProfileProvider.overrideWith(_StubMasterProfileNotifier.new),
+          masterReviewSummaryProvider(
+            _kMasterId,
+          ).overrideWith((ref) => _summary),
+          masterReviewsProvider(
+            _kMasterId,
+            MasterReviewSort.newest,
+          ).overrideWith((ref) => serviceItems),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('renders the «послуга: …» sub-line when serviceName is present', (
+      tester,
+    ) async {
+      await pumpServiceItems(tester);
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterReceivedReviewsScreen)),
+      );
+      final Finder card = find.byKey(const Key('master-review-mr-svc-present'));
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(
+          of: card,
+          // i18n-finder-ok: 'Манікюр' is fixture service-name data, not translated UI copy
+          matching: find.text(l10n.salonReviewServicePrefix('Манікюр')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.byIcon(Icons.spa_outlined)),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('omits the sub-line entirely when serviceName is null', (
+      tester,
+    ) async {
+      await pumpServiceItems(tester);
+
+      final Finder card = find.byKey(const Key('master-review-mr-svc-null'));
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(of: card, matching: find.byIcon(Icons.spa_outlined)),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      'omits the sub-line when serviceName is an empty string (guards '
+      'non-null AND non-empty — never a bare «послуга: »)',
+      (tester) async {
+        await pumpServiceItems(tester);
+
+        final Finder card = find.byKey(const Key('master-review-mr-svc-empty'));
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(of: card, matching: find.byIcon(Icons.spa_outlined)),
+          findsNothing,
+        );
+        // Belt-and-braces: no partial «послуга:» text rendered anywhere under
+        // this card — guards against a bare "послуга: " with nothing after
+        // the colon.
+        expect(
+          find.descendant(of: card, matching: find.textContaining('послуга')),
+          findsNothing,
+        );
+      },
+    );
   });
 }

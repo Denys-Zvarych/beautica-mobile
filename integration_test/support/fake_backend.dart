@@ -1451,9 +1451,12 @@ final class FakeBackend {
       });
 
   /// Master received-reviews fixture — three reviews with DISTINCT ids, ratings
-  /// and dates so the per-sort reordering below is observable. The master item
-  /// carries no `serviceName` (the master review shape), matching the domain
-  /// model. Shape matches `ReviewResponse`.
+  /// and dates so the per-sort reordering below is observable. `serviceName`
+  /// (backend `92280c3`) deliberately covers all three wire shapes the mapper
+  /// + screen must handle: mr-1 has a resolved name (the «послуга:» sub-line
+  /// renders), mr-2 omits the field entirely (null → sub-line hidden), and
+  /// mr-3 sends an explicit empty string (also → sub-line hidden, never a
+  /// bare «послуга: »). Shape matches `ReviewResponse`.
   static const List<Map<String, dynamic>> _masterReviews =
       <Map<String, dynamic>>[
         <String, dynamic>{
@@ -1462,6 +1465,7 @@ final class FakeBackend {
           'rating': 5,
           'comment': 'Найкращий майстер, дуже задоволена!',
           'createdAt': '2026-06-10T10:00:00Z',
+          'serviceName': 'Манікюр',
         },
         <String, dynamic>{
           'id': 'mr-2',
@@ -1476,6 +1480,7 @@ final class FakeBackend {
           'rating': 4,
           'comment': 'Все сподобалось, дякую.',
           'createdAt': '2026-05-20T14:00:00Z',
+          'serviceName': '',
         },
       ];
 

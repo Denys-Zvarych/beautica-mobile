@@ -2,8 +2,9 @@
 // to domain models.
 //
 // Mirrors `SalonReviewMapper` (features/salon/data/salon_mapper.dart) minus the
-// salon/master/service context fields the master item does not carry. Generated
-// DTO types must not cross this boundary into the domain or presentation layers.
+// salon/master context fields the master item does not carry (`serviceName` IS
+// carried — backend `92280c3` — and is mapped through below). Generated DTO
+// types must not cross this boundary into the domain or presentation layers.
 
 import 'dart:developer';
 
@@ -55,6 +56,7 @@ abstract final class MasterReviewMapper {
           rating: dto.rating ?? 0,
           comment: dto.comment ?? '',
           createdAt: dto.createdAt ?? DateTime.now(),
+          serviceName: dto.serviceName,
         ),
       );
     }

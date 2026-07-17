@@ -7,10 +7,12 @@
 // two surfaces are visually identical.
 //
 // Master deltas vs salon (documented, not bugs):
-//   • No «послуга:» sub-line — the backend master review item carries no
-//     serviceName, so [ReviewCard.servicePrefix] is never passed.
 //   • Standalone screen with a back affordance (pushed route), titled
 //     «Мої відгуки» — not a tab inside another profile.
+//
+// The «послуга:» sub-line (backend `92280c3` added `serviceName` to the master
+// review item) is built by [_masterReviewCard] below, mirroring salon's
+// `_salonReviewCard` — hidden when the backend couldn't resolve a service name.
 //
 // masterId source (CORRECTNESS — HIGH): the review endpoints
 // `GET /masters/{masterId}/reviews[/summary]` MUST be keyed on the Master-row
@@ -246,16 +248,7 @@ class _SortableReviewListState extends ConsumerState<_SortableReviewList> {
                   itemCount: reviews.length,
                   itemBuilder: (BuildContext context, int i) {
                     final MasterReviewItem r = reviews[i];
-                    final Widget card = ReviewCard(
-                      data: ReviewCardData(
-                        id: r.id,
-                        clientDisplayName: r.clientDisplayName,
-                        rating: r.rating,
-                        comment: r.comment,
-                        createdAt: r.createdAt,
-                      ),
-                      keyPrefix: 'master-review',
-                    );
+                    final Widget card = _masterReviewCard(l10n, r);
                     // Gap between cards, not after the last — matches the
                     // previous Column's inter-card SizedBox exactly.
                     if (i == reviews.length - 1) return card;
@@ -337,4 +330,27 @@ class _ReviewListSkeleton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Maps a [MasterReviewItem] to the shared [ReviewCard], populating the
+/// «послуга: …» sub-line from [MasterReviewItem.serviceName] when the backend
+/// resolved one (backend `92280c3`; mirrors salon's `_salonReviewCard` in
+/// `salon_reviews_section.dart`, including the reused `salonReviewServicePrefix`
+/// l10n key — the "послуга: {service}" copy is feature-neutral).
+ReviewCard _masterReviewCard(AppLocalizations l10n, MasterReviewItem item) {
+  final String? service = item.serviceName;
+  return ReviewCard(
+    data: ReviewCardData(
+      id: item.id,
+      clientDisplayName: item.clientDisplayName,
+      rating: item.rating,
+      comment: item.comment,
+      createdAt: item.createdAt,
+      serviceName: item.serviceName,
+    ),
+    keyPrefix: 'master-review',
+    servicePrefix: (service != null && service.isNotEmpty)
+        ? l10n.salonReviewServicePrefix(service)
+        : null,
+  );
 }
