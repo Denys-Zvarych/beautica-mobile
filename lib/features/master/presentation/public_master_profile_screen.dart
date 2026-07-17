@@ -412,18 +412,28 @@ class _PublicProfileBody extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.star_rounded,
-                    iconWidget: RatingStar(
-                      rating: hasReviews ? master.avgRating : null,
-                      size: 18,
-                      showLabel: false,
+                  // Tappable — mirrors the reviews tile below: pushes the
+                  // same public reviews list for this master regardless of
+                  // review count. Uses the trusted route param [masterId],
+                  // not `master.id` from the network response.
+                  child: GestureDetector(
+                    key: const Key('public-master-profile-rating-tile'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () =>
+                        context.push(RouteNames.masterPublicReviews(masterId)),
+                    child: StatTile(
+                      icon: Icons.star_rounded,
+                      iconWidget: RatingStar(
+                        rating: hasReviews ? master.avgRating : null,
+                        size: 18,
+                        showLabel: false,
+                      ),
+                      value: hasReviews
+                          ? master.avgRating.toStringAsFixed(1)
+                          : '—',
+                      caption: l10n.masterRatingLabel,
+                      valueKey: const Key('public-master-profile-rating-value'),
                     ),
-                    value: hasReviews
-                        ? master.avgRating.toStringAsFixed(1)
-                        : '—',
-                    caption: l10n.masterRatingLabel,
-                    valueKey: const Key('public-master-profile-rating-value'),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),

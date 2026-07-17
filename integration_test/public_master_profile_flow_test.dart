@@ -689,4 +689,71 @@ void main() {
       reason: 'the summary average must bind from the real response data',
     );
   }, timeout: const Timeout(Duration(seconds: 90)));
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Flow G — the «Рейтинг» stat tile was made tappable to mirror the
+  // «Відгуки» tile above: it pushes the SAME `RouteNames.masterPublicReviews
+  // (masterId)` destination via the SAME production `context.push(...)` call.
+  //
+  // At the source level both tiles currently share the textually identical
+  // `onTap: () => context.push(RouteNames.masterPublicReviews(masterId))`
+  // closure, so this flow deliberately does NOT re-derive Flow E's full
+  // content assertions (summary average, both seeded review cards, the
+  // public-vs-self endpoint decoupling) — that would be pure duplication of
+  // the same production code path already proven end-to-end above. What THIS
+  // flow adds that Flow E cannot: it drives a REAL tap on the rating tile's
+  // OWN, DISTINCT `GestureDetector` (`public-master-profile-rating-tile`), so
+  // if a future edit ever gives the rating tile its own (buggy) onTap — e.g.
+  // reverting to no handler, or wiring `master.id` instead of the trusted
+  // route param — this flow catches it independently of the reviews tile,
+  // against the real router + real fake-backend endpoints, not a stub.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets('CLIENT taps the «Рейтинг» stat tile on a master public profile → '
+      'PublicMasterReviewsScreen opens via the real context.push and the real '
+      'public reviews endpoints fire for that master', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+    // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expectLocation(router, '/masters/master-aaa');
+
+    // ── Tap the REAL rendered rating stat tile — its OWN GestureDetector,
+    // distinct from the reviews tile Flow E already exercised. ───────────
+    final Finder ratingTile = find.byKey(
+      const Key('public-master-profile-rating-tile'),
+    );
+    expect(ratingTile, findsOneWidget);
+    await tester.ensureVisible(ratingTile);
+    await tester.tap(ratingTile);
+    // fixed-wait-ok: settles the real async route-push + review-provider loads; not a total-wait guess.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    expectLocation(router, '/masters/master-aaa/reviews');
+    expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
+
+    // The real PUBLIC endpoints fired for master-aaa — never the
+    // AUTHENTICATED master's own self-scoped routes.
+    expect(
+      fb.getPublicMasterReviewSummaryCalls,
+      greaterThanOrEqualTo(1),
+      reason:
+          'the summary must load from the PUBLIC '
+          'GET /masters/master-aaa/reviews/summary route',
+    );
+    expect(
+      fb.getPublicMasterReviewsCalls,
+      greaterThanOrEqualTo(1),
+      reason:
+          'the list must load from the PUBLIC '
+          'GET /masters/master-aaa/reviews route',
+    );
+    expect(fb.getMasterReviewSummaryCalls, 0);
+    expect(fb.getMasterReviewsCalls, 0);
+  }, timeout: const Timeout(Duration(seconds: 90)));
 }

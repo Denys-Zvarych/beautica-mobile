@@ -449,6 +449,205 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
+  // RATING tile navigation — the rating stat tile was made tappable to mirror
+  // the reviews tile above: same destination, same trusted-route-param
+  // requirement. Mirrors the reviews-tile regression group 1:1 (including the
+  // mismatched-`master.id` trust-boundary fixture) so a future edit to the
+  // rating tile's onTap can regress independently of the reviews tile.
+  //
+  // TRUST-BOUNDARY PIN (mirrors the reviews-tile fix, mobile-security LOW
+  // pattern) — the fixture deliberately makes `master.id` DIFFERENT from
+  // `_kMasterId` (the trusted route param / `widget.masterId`). The tile must
+  // push using `widget.masterId`, never `master.id`. Only the `_kMasterId`-
+  // keyed review providers are overridden — if the tile ever regresses to
+  // navigating via the echoed `master.id`, the pushed screen looks up
+  // providers keyed by that (unoverridden) id and the assertions below go red
+  // instead of silently passing either way.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('rating tile navigation', () {
+    testWidgets(
+      'tapping the «Рейтинг» stat tile pushes /masters/:masterId/reviews '
+      'using the ROUTE masterId, not the master.id echoed back by the '
+      'profile response, and PublicMasterReviewsScreen renders this '
+      "masterId's reviews",
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        // Deliberately mismatched: the network-echoed `master.id` must never
+        // be the value navigation keys off of.
+        final Master mismatchedMaster = _stubMaster.copyWith(
+          id: 'server-echoed-mismatched-id',
+        );
+        final PublicMasterProfileData mismatchedData = (
+          mismatchedMaster,
+          _stubServices,
+        );
+
+        final router = GoRouter(
+          initialLocation: '/masters/$_kMasterId',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/masters/:masterId',
+              builder: (context, state) => PublicMasterProfileScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+            GoRoute(
+              path: '/masters/:masterId/reviews',
+              builder: (context, state) => PublicMasterReviewsScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+          ],
+        );
+
+        const MasterReviewSummary summary = MasterReviewSummary(
+          avgRating: 4.8,
+          reviewCount: 1,
+          distribution: <int>[1, 0, 0, 0, 0],
+        );
+        final MasterReviewItem review = MasterReviewItem(
+          id: 'rev-1',
+          clientDisplayName: 'Client A',
+          rating: 5,
+          comment: 'Great!',
+          createdAt: DateTime.utc(2026, 6, 1),
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides((ref) => mismatchedData),
+            // Keyed by the TRUSTED route id (_kMasterId), NOT by
+            // `mismatchedMaster.id`. A push that (wrongly) used `master.id`
+            // would land on an unoverridden provider instance for that id.
+            masterReviewSummaryProvider(
+              _kMasterId,
+            ).overrideWith((ref) => summary),
+            masterReviewsProvider(
+              _kMasterId,
+              MasterReviewSort.newest,
+            ).overrideWith((ref) => <MasterReviewItem>[review]),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder tile = find.byKey(
+          const Key('public-master-profile-rating-tile'),
+        );
+        expect(tile, findsOneWidget);
+
+        // The real tap drives the widget's own onTap → context.push — never
+        // a router.go/push stand-in.
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
+
+        final PublicMasterReviewsScreen pushedScreen = tester.widget(
+          find.byType(PublicMasterReviewsScreen),
+        );
+        expect(
+          pushedScreen.masterId,
+          _kMasterId,
+          reason:
+              'navigation must carry the ROUTE masterId (widget.masterId), '
+              'never the master.id echoed back in the profile response',
+        );
+
+        expect(
+          find.byKey(const Key('master-review-rev-1')),
+          findsOneWidget,
+          reason:
+              'the pushed screen must render THIS masterId\'s review, proving '
+              'the id travelled through the push, not just that SOME screen '
+              'mounted',
+        );
+      },
+    );
+
+    testWidgets(
+      'the rating tile still navigates when reviewCount is 0 (tapping is not '
+      'gated on having reviews, matching the reviews tile)',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final Master zeroReviewMaster = _stubMaster.copyWith(reviewCount: 0);
+
+        final router = GoRouter(
+          initialLocation: '/masters/$_kMasterId',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/masters/:masterId',
+              builder: (context, state) => PublicMasterProfileScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+            GoRoute(
+              path: '/masters/:masterId/reviews',
+              builder: (context, state) => PublicMasterReviewsScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides((ref) => (zeroReviewMaster, _stubServices)),
+            masterReviewSummaryProvider(_kMasterId).overrideWith(
+              (ref) => const MasterReviewSummary(
+                avgRating: 0,
+                reviewCount: 0,
+                distribution: <int>[0, 0, 0, 0, 0],
+              ),
+            ),
+            masterReviewsProvider(
+              _kMasterId,
+              MasterReviewSort.newest,
+            ).overrideWith((ref) => <MasterReviewItem>[]),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Displayed value is the dash placeholder for zero reviews …
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('public-master-profile-rating-value')),
+              )
+              .data,
+          '—',
+        );
+
+        // … but the tile is still tappable and still navigates.
+        final Finder tile = find.byKey(
+          const Key('public-master-profile-rating-tile'),
+        );
+        expect(tile, findsOneWidget);
+
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(PublicMasterReviewsScreen),
+          findsOneWidget,
+          reason:
+              'the rating tile must navigate unconditionally regardless of '
+              'reviewCount, matching the reviews tile\'s behaviour',
+        );
+      },
+    );
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Stats-row order — Rating → Services → Reviews → Experience. Pinned so a
   // future refactor can't silently reshuffle it back.
   // ──────────────────────────────────────────────────────────────────────────

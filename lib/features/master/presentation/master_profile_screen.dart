@@ -450,18 +450,27 @@ class _ProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.star_rounded,
-                    iconWidget: RatingStar(
-                      rating: master.reviewCount == 0 ? null : master.avgRating,
-                      size: 18,
-                      showLabel: false,
+                  // Tappable — mirrors the reviews tile below: pushes the
+                  // same «Мої відгуки» screen regardless of review count.
+                  child: GestureDetector(
+                    key: const Key('master-profile-rating-tile'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => context.push(RouteNames.masterReceivedReviews),
+                    child: StatTile(
+                      icon: Icons.star_rounded,
+                      iconWidget: RatingStar(
+                        rating: master.reviewCount == 0
+                            ? null
+                            : master.avgRating,
+                        size: 18,
+                        showLabel: false,
+                      ),
+                      value: master.reviewCount == 0
+                          ? '—'
+                          : master.avgRating.toStringAsFixed(1),
+                      caption: l10n.masterRatingLabel,
+                      valueKey: const Key('master-profile-rating-value'),
                     ),
-                    value: master.reviewCount == 0
-                        ? '—'
-                        : master.avgRating.toStringAsFixed(1),
-                    caption: l10n.masterRatingLabel,
-                    valueKey: const Key('master-profile-rating-value'),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -485,9 +494,10 @@ class _ProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  // Phase 4.6 — only the reviews tile is tappable: it pushes the
-                  // master's own «Мої відгуки» screen. The other three tiles
-                  // stay non-interactive; StatTile itself is left untouched.
+                  // Phase 4.6 — the rating tile (above) and this reviews tile
+                  // are both tappable and push the master's own «Мої відгуки»
+                  // screen. The bookings/services tiles stay non-interactive;
+                  // StatTile itself is left untouched.
                   child: GestureDetector(
                     key: const Key('master-profile-reviews-tile'),
                     behavior: HitTestBehavior.opaque,
