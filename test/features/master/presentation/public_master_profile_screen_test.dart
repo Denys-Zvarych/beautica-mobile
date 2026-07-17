@@ -29,7 +29,10 @@ import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/service_category_cards.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -59,6 +62,51 @@ class _MockUrlLauncher extends Mock
 // ---------------------------------------------------------------------------
 
 const String _kMasterId = 'master-1';
+
+// Multi-category + uncategorized fixture for the service-categories section
+// tests below — distinct from `_stubServices` (used by the pre-existing
+// suite) so those tests' single-service assumptions are untouched.
+const List<MasterService> _multiCategoryServices = <MasterService>[
+  MasterService(
+    id: 'svc-cat-1',
+    serviceDefId: 'def-cat-1',
+    name: 'Манікюр з покриттям',
+    durationMinutes: 90,
+    priceMin: 500,
+    priceDisplay: '500 ₴',
+    category: 'MANICURE',
+  ),
+  MasterService(
+    id: 'svc-cat-2',
+    serviceDefId: 'def-cat-2',
+    name: 'Ще манікюр',
+    durationMinutes: 60,
+    priceMin: 400,
+    priceDisplay: '400 ₴',
+    category: 'MANICURE',
+  ),
+  MasterService(
+    id: 'svc-cat-3',
+    serviceDefId: 'def-cat-3',
+    name: 'Корекція брів',
+    durationMinutes: 30,
+    priceMin: 250,
+    priceDisplay: '250 ₴',
+    category: 'BROWS',
+  ),
+];
+
+const List<MasterService> _uncategorizedOnlyServices = <MasterService>[
+  MasterService(
+    id: 'svc-none-1',
+    serviceDefId: 'def-none-1',
+    name: 'Без категорії',
+    durationMinutes: 20,
+    priceMin: 100,
+    priceDisplay: '100 ₴',
+    // category deliberately absent → "_none" bucket.
+  ),
+];
 
 const _stubUser = User(
   id: 'client-1',
@@ -112,6 +160,16 @@ List<Object> _overrides(
 ) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   publicMasterProfileProvider(_kMasterId).overrideWith(create),
+  // The read-only service-categories section (ServiceCategoryCardList) watches
+  // approvedCategoriesProvider for category-label resolution. Left
+  // unoverridden it falls through to the real HTTP-backed provider and hangs
+  // pumpAndSettle() on a real Dio call — see the approvedCategoriesProvider
+  // override footgun noted for ServiceForm/SearchableSelectField tests. An
+  // empty list is fine here: label resolution falls back to
+  // humanizeCategorySlug, and none of these tests assert on category labels.
+  approvedCategoriesProvider.overrideWith(
+    (ref) async => const <ServiceCategoryOption>[],
+  ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -892,4 +950,207 @@ void main() {
       });
     },
   );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Service-categories section — read-only client view. Mirrors the master's
+  // own profile section (master_profile_screen_test.dart group 14), minus the
+  // owner-only navigation, PLUS the mobile-security LOW fail-open guard: this
+  // screen's call site (public_master_profile_screen.dart) passes
+  // `interactive: false` to `ServiceCategoryCardList`. `interactive` is now a
+  // REQUIRED named param (no more `= true` default) so the compiler blocks a
+  // call site that forgets it entirely — but a future edit could still flip
+  // an explicit `false` to `true` by mistake, so this group keeps testing
+  // against the REAL screen.
+  //
+  // service_category_cards_test.dart pins the SAME contract at the shared-
+  // widget level (in isolation); THIS group pins it at the actual production
+  // call site, which is what would actually go red if someone deleted
+  // `interactive: false` from public_master_profile_screen.dart.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('service categories section (read-only)', () {
+    testWidgets(
+      'renders one card per category grouped from the services list, with '
+      'the correct counts',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (_stubMaster, _multiCategoryServices)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-service-categories')),
+          findsOneWidget,
+        );
+
+        final Finder manicureCard = find.byKey(
+          const Key('public-master-profile-category-MANICURE'),
+        );
+        final Finder browsCard = find.byKey(
+          const Key('public-master-profile-category-BROWS'),
+        );
+        expect(
+          manicureCard,
+          findsOneWidget,
+          reason: 'MANICURE bucket (svc-cat-1 + svc-cat-2) must render a card',
+        );
+        expect(
+          browsCard,
+          findsOneWidget,
+          reason: 'BROWS bucket (svc-cat-3) must render a card',
+        );
+
+        final ServiceCategoryCard manicure = tester.widget(manicureCard);
+        final ServiceCategoryCard brows = tester.widget(browsCard);
+        expect(manicure.count, 2, reason: 'MANICURE has 2 services');
+        expect(brows.count, 1, reason: 'BROWS has 1 service');
+      },
+    );
+
+    testWidgets('services with no category are grouped under the uncategorized '
+        '(_none) bucket', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides(
+          (ref) => (_stubMaster, _uncategorizedOnlyServices),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder noneCard = find.byKey(
+        const Key('public-master-profile-category-_none'),
+      );
+      expect(noneCard, findsOneWidget);
+      final ServiceCategoryCard card = tester.widget(noneCard);
+      expect(card.count, 1);
+    });
+
+    testWidgets(
+      'a master with zero active services renders NO service-categories '
+      'section at all',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides(
+            (ref) => (_stubMaster, const <MasterService>[]),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-service-categories')),
+          findsNothing,
+          reason:
+              'the section must be omitted entirely for zero services — '
+              'matching how Bio/Contacts are omitted when empty',
+        );
+        expect(find.byType(ServiceCategoryCard), findsNothing);
+
+        // The services stat tile still shows 0, not a hidden/blank value.
+        final Text servicesValue = tester.widget<Text>(
+          find.byKey(const Key('public-master-profile-services-value')),
+        );
+        expect(servicesValue.data, '0');
+      },
+    );
+
+    // ────────────────────────────────────────────────────────────────────────
+    // SECURITY REGRESSION GUARD (mobile-security LOW, closed) — `interactive`
+    // used to default to `true` on both ServiceCategoryCardList and
+    // ServiceCategoryCard; it is now a REQUIRED named param with no default,
+    // so the compiler rejects a call site that omits it. This screen's real
+    // call site passes `interactive: false` explicitly; this test exercises
+    // the REAL production widget tree (not a hand-built
+    // ServiceCategoryCardList) so it goes RED if that argument is ever
+    // silently changed to `true`: the chevron + GestureDetector would
+    // reappear, and a tap would start pushing
+    // `/services?expandCategory=<slug>` — the AUTHENTICATED master's own
+    // service-management screen — to an unauthenticated-for-that-resource
+    // CLIENT.
+    // ────────────────────────────────────────────────────────────────────────
+    testWidgets(
+      'card renders NO chevron, NO GestureDetector, and tapping it does NOT '
+      'navigate to /services (SECURITY REGRESSION GUARD)',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final router = GoRouter(
+          initialLocation: '/masters/$_kMasterId',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/masters/:masterId',
+              builder: (context, state) => PublicMasterProfileScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.services,
+              builder: (_, _) => const Scaffold(body: Text('services-page')),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides((ref) => (_stubMaster, _multiCategoryServices)),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(
+          const Key('public-master-profile-category-MANICURE'),
+        );
+        expect(card, findsOneWidget);
+
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.byIcon(Icons.arrow_forward_ios_rounded),
+          ),
+          findsNothing,
+          reason:
+              'a CLIENT-facing category card must never show the owner-only '
+              'disclosure chevron',
+        );
+        expect(
+          find.descendant(of: card, matching: find.byType(GestureDetector)),
+          findsNothing,
+          reason:
+              'a CLIENT-facing category card must have NO tap handler — '
+              '/services is scoped to the AUTHENTICATED master',
+        );
+
+        // Force a tap at the card's location — there is (by design) no
+        // hit-testable gesture target here, hence warnIfMissed: false.
+        await tester.tap(card, warnIfMissed: false);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('services-page'),
+          findsNothing,
+          reason:
+              'tapping a read-only public-profile category card must NEVER '
+              'navigate to /services',
+        );
+        expect(
+          find.byType(PublicMasterProfileScreen),
+          findsOneWidget,
+          reason:
+              'the screen must still be the public profile — no navigation happened',
+        );
+      },
+    );
+  });
 }

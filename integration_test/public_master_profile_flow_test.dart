@@ -219,6 +219,50 @@ void main() {
         reason: 'the services-count stat must reflect the seeded list length',
       );
 
+      // ── Service-categories section — read-only summary card grouped from
+      // the SAME real GET /masters/{id}/services response the stat tile above
+      // asserted (fb.getPublicMasterServicesCalls). FakeBackend seeds both
+      // `_publicMasterServices` entries under category NAILS, so exactly one
+      // card renders with a count matching the seeded list length. This is
+      // the ONLY E2E coverage of the section rendering from a REAL backend
+      // response (not a stubbed provider) — the widget tier
+      // (public_master_profile_screen_test.dart) already covers the grouping
+      // logic + the interactive:false security guard exhaustively with
+      // multi-category / uncategorized fixtures, which would be pure
+      // duplication to re-derive here against the single-category fake-
+      // backend fixture. ──────────────────────────────────────────────────
+      final Finder nailsCard = find.byKey(
+        const Key('public-master-profile-category-NAILS'),
+      );
+      expect(
+        nailsCard,
+        findsOneWidget,
+        reason:
+            'the service-categories section must render from the real '
+            'GET /masters/{id}/services response',
+      );
+      expect(
+        find.descendant(
+          of: nailsCard,
+          matching: find.text('${FakeBackend.publicMasterServicesCount}'),
+        ),
+        findsOneWidget,
+        reason:
+            'the NAILS card count badge must reflect the real seeded '
+            'service-list length',
+      );
+      // Read-only for a CLIENT — no owner-only disclosure chevron.
+      expect(
+        find.descendant(
+          of: nailsCard,
+          matching: find.byIcon(Icons.arrow_forward_ios_rounded),
+        ),
+        findsNothing,
+        reason:
+            'a CLIENT viewing another master\'s profile must never see the '
+            'owner-only category-card chevron',
+      );
+
       // This is the read-only client view — no master edit/menu button.
       expect(find.byKey(const Key('btn-menu-master')), findsNothing);
 

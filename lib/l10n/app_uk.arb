@@ -3335,6 +3335,14 @@
   "@publicMasterExperienceLabel": {
     "description": "Caption of the experience/tenure stat tile on the public master profile."
   },
+  "publicMasterProfileCategorySemantics": "Категорія {category}, {count} послуг",
+  "@publicMasterProfileCategorySemantics": {
+    "description": "Accessibility label for a read-only service-category card on the CLIENT-facing public master profile: announces the category name and how many services it contains. Unlike masterProfileCategorySemantics this card is not tappable, so the label omits any navigation phrase.",
+    "placeholders": {
+      "category": { "type": "String" },
+      "count": { "type": "int" }
+    }
+  },
   "publicMasterBookingSectionLabel": "Послуги та ціни",
   "@publicMasterBookingSectionLabel": {
     "description": "Title of the pinned booking shelf on the public master profile."
