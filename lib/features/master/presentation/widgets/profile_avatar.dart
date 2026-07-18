@@ -428,16 +428,16 @@ class _VelvetNavTile extends StatelessWidget {
   final int index;
   final bool active;
 
-  /// Resolves the go_router path for a nav-bar [index]. Returns `null` when the
-  /// tile has no destination yet (e.g. "Мої записи" has no route) — the tap is
-  /// then a no-op. Tapping the already-active tile also resolves to `null` so
-  /// we never issue a redundant navigation to the current location.
+  /// Resolves the go_router path for a nav-bar [index]. Tapping the
+  /// already-active tile resolves to `null` so we never issue a redundant
+  /// navigation to the current location.
   String? _routeFor(int index) {
     if (active) return null;
     return switch (index) {
       0 => RouteNames.services, // Послуги
+      1 => RouteNames.masterBookings, // Мої записи → Phase 7.6
       2 => RouteNames.masterSchedule, // Графік → Phase 15.2 schedule screen
-      _ => null, // Мої записи (1) — no route yet; Профіль (3) — current shell.
+      _ => null, // Профіль (3) — the current shell.
     };
   }
 

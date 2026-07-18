@@ -1733,6 +1733,9 @@ final class FakeBackend {
   int getBookingDetailCalls = 0;
   int getMyBookingsCalls = 0;
 
+  /// `GET /bookings/me/booked-days` call count (Phase 7.6 day rail).
+  int bookedDaysCalls = 0;
+
   /// The FULL raw query map (page/size/sort/status, as Dio actually sent it —
   /// ints stay ints, the repeated `status` stays a `List<String>`) of the
   /// MOST RECENT `GET /bookings/me` call. Mobile-qa pagination/sort flow
@@ -1752,6 +1755,14 @@ final class FakeBackend {
     'masterAvatarUrl': null,
     'masterType': 'INDEPENDENT_MASTER',
     'salonName': null,
+    // Phase 7.2 — the counterparty as the PROVIDER sees it. Seeded from the
+    // same [clientFirstName]/[clientLastName] the `/users/me` handler serves,
+    // so the master's booking detail shows the client whose session the client
+    // flows drive; a divergence here would let the provider-view flow pass
+    // against a name no other surface uses.
+    'clientId': 'client-1',
+    'clientFirstName': clientFirstName,
+    'clientLastName': clientLastName,
     // The booked service's id MUST match one of `master-aaa`'s PUBLIC
     // catalogue services (`_publicMasterServices`) so the reschedule helper
     // (`startBookingReschedule`) can resolve the booked `MasterService` by id
@@ -3130,6 +3141,29 @@ final class FakeBackend {
         return null;
       }),
       request: const Request(method: RequestMethods.delete),
+    );
+
+    // GET /api/v1/bookings/me/booked-days?from=&to= — the dot set behind the
+    // master's «Мої записи» day rail (backend Phase 26.5). Registered BEFORE
+    // `/api/v1/bookings/me` deliberately: DioAdapter matches on the path, and
+    // the longer path must get first refusal.
+    //
+    // Returns the seeded booking's own day, so the rail auto-centres on real
+    // content rather than on `today − 180`. `bookedDaysCalls` lets a flow prove
+    // the rail is fed by this FILTER-INDEPENDENT endpoint and not by the
+    // (filtered) list — the invariant `master_bookings_screen_test.dart` pins
+    // at the widget tier.
+    _adapter.onRoute(
+      '/api/v1/bookings/me/booked-days',
+      (server) => server.replyCallback(200, (_) {
+        bookedDaysCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String>[bookingStartsAt.substring(0, 10)],
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
     );
 
     // GET /api/v1/bookings/me?status=&sort=&page=&size= — the client's «МОЇ

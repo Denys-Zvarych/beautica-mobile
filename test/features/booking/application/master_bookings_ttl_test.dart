@@ -70,6 +70,10 @@ class _MockBookingRepository extends Mock implements BookingRepository {}
 const Duration _listTtl = Duration(minutes: 5);
 const Duration _railTtl = Duration(minutes: 30);
 
+/// The shorter window a DATE-NARROWED list query gets (perf P6) — see the
+/// group that uses it for why dated members accumulate and undated ones do not.
+const Duration _datedListTtl = Duration(minutes: 2);
+
 PageResponse<Booking> _emptyPage() => const PageResponse<Booking>(
   items: <Booking>[],
   page: 0,
@@ -364,6 +368,140 @@ void main() {
       // elsewhere in the suite.
       expect(railCalls, 1);
     });
+  });
+
+  // ==========================================================================
+  // masterBookingsProvider — 2-minute keepAlive for a DATE-NARROWED query
+  // (perf P6).
+  //
+  // The undated landing query is a singleton: there is only ever one of it, so
+  // its 5 minutes cost one retained page. A dated query is not — every rail
+  // day the master settles on mints its OWN family member holding its own
+  // page, so a browsing session retains one page per day visited. The 220ms
+  // tap debounce bounds the request RATE, not the retained TOTAL.
+  //
+  // Hence the shorter window for queries carrying `from`/`to`. It still has to
+  // cover the dominant journey on this screen — narrow to a day, open one of
+  // that day's bookings, read it, come back — which is why it is two minutes
+  // and not something aggressive.
+  // ==========================================================================
+  group('masterBookingsProvider — dated queries expire sooner', () {
+    final MasterBookingsQuery datedQuery = MasterBookingsQuery.of(
+      from: DateTime(2026, 7, 20),
+      to: DateTime(2026, 7, 20),
+    );
+
+    testWidgets(
+      'a dated member is STILL cached at 1m59s — the navigation-return '
+      'guarantee holds for a day-narrowed list too',
+      (tester) async {
+        final container = buildContainer();
+        final sub = container.listen(
+          masterBookingsProvider(datedQuery),
+          (_, _) {},
+          fireImmediately: true,
+        );
+        await container.read(masterBookingsProvider(datedQuery).future);
+        expect(listCalls, 1);
+
+        sub.close();
+        // fixed-wait-ok: advancing a FAKE clock to just short of a known TTL
+        // boundary — see the file header.
+        await tester.pump(_datedListTtl - const Duration(seconds: 1));
+
+        final sub2 = container.listen(
+          masterBookingsProvider(datedQuery),
+          (_, _) {},
+          fireImmediately: true,
+        );
+        await tester.pump();
+
+        expect(
+          listCalls,
+          1,
+          reason:
+              'Opening a booking from a day-narrowed list and coming back is '
+              'the most likely path on this screen — it must not cost a '
+              'refetch. A TTL trimmed below the read-a-detail duration would '
+              'fail here.',
+        );
+        sub2.close();
+        container.dispose();
+      },
+    );
+
+    testWidgets('the dated member is GONE at 2 minutes — this is what bounds a '
+        'day-browsing session (reverting to the 5-minute TTL fails here)', (
+      tester,
+    ) async {
+      final container = buildContainer();
+      final sub = container.listen(
+        masterBookingsProvider(datedQuery),
+        (_, _) {},
+        fireImmediately: true,
+      );
+      await container.read(masterBookingsProvider(datedQuery).future);
+      sub.close();
+
+      // fixed-wait-ok: past the boundary, to fire the TTL timer.
+      await tester.pump(_datedListTtl + const Duration(seconds: 1));
+
+      final sub2 = container.listen(
+        masterBookingsProvider(datedQuery),
+        (_, _) {},
+        fireImmediately: true,
+      );
+      await container.read(masterBookingsProvider(datedQuery).future);
+
+      expect(
+        listCalls,
+        2,
+        reason:
+            'Past 2 minutes a dated member must be gone. If it is still '
+            'alive here it is being held on the undated 5-minute TTL, and '
+            'browsing N rail days retains N pages for five minutes each.',
+      );
+      sub2.close();
+      container.dispose();
+    });
+
+    testWidgets(
+      'the UNDATED landing query is untouched by this — it is still alive at '
+      '2m01s (the audited 5-minute decision must not regress)',
+      (tester) async {
+        final MasterBookingsQuery undated = MasterBookingsQuery.of();
+        final container = buildContainer();
+        final sub = container.listen(
+          masterBookingsProvider(undated),
+          (_, _) {},
+          fireImmediately: true,
+        );
+        await container.read(masterBookingsProvider(undated).future);
+        sub.close();
+
+        // fixed-wait-ok: past the DATED boundary but well short of the undated
+        // one — the assertion is precisely that the two differ.
+        await tester.pump(_datedListTtl + const Duration(seconds: 1));
+
+        final sub2 = container.listen(
+          masterBookingsProvider(undated),
+          (_, _) {},
+          fireImmediately: true,
+        );
+        await tester.pump();
+
+        expect(
+          listCalls,
+          1,
+          reason:
+              'The shorter dated TTL must be scoped to dated queries only. '
+              'Applying it to the landing query would silently shorten the '
+              'audited 5-minute navigation cache.',
+        );
+        sub2.close();
+        container.dispose();
+      },
+    );
   });
 
   // ==========================================================================

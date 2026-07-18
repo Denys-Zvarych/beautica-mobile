@@ -25,7 +25,7 @@
 //
 // Keys under test (defined in profile_avatar.dart):
 //   master-nav-tile-0 → Послуги  → context.push('/services')
-//   master-nav-tile-1 → Мої записи → no route yet (onTap == null, no-op)
+//   master-nav-tile-1 → Мої записи → context.push('/master/bookings')  [7.6]
 //   master-nav-tile-2 → Календар  → context.push('/schedule')
 //   master-nav-tile-3 → Профіль   → current shell; active tile is always a no-op
 //
@@ -48,6 +48,7 @@ import 'package:go_router/go_router.dart';
 const Key _profileMarker = Key('stub-profile-screen');
 const Key _servicesMarker = Key('stub-services-screen');
 const Key _scheduleMarker = Key('stub-schedule-screen');
+const Key _bookingsMarker = Key('stub-master-bookings-screen');
 
 GoRouter _buildRouter({required int activeIndex}) => GoRouter(
   initialLocation: RouteNames.masterProfile,
@@ -71,6 +72,13 @@ GoRouter _buildRouter({required int activeIndex}) => GoRouter(
       builder: (context, _) =>
           const Scaffold(body: SizedBox.shrink(key: _scheduleMarker)),
     ),
+    // Phase 7.6 — the «Мої записи» destination that tile 1 had no route to
+    // until this phase.
+    GoRoute(
+      path: RouteNames.masterBookings,
+      builder: (context, _) =>
+          const Scaffold(body: SizedBox.shrink(key: _bookingsMarker)),
+    ),
   ],
 );
 
@@ -81,6 +89,46 @@ String _location(GoRouter router) =>
 
 void main() {
   group('VelvetBottomNavBar tap-to-navigate (push drill-in)', () {
+    testWidgets(
+      'tapping Мої записи (master-nav-tile-1) pushes /master/bookings and '
+      'leaves the origin poppable — the tab that went nowhere until Phase 7.6',
+      (tester) async {
+        final router = _buildRouter(activeIndex: 3); // Профіль active
+        await tester.pumpWidget(_app(router));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(_profileMarker), findsOneWidget);
+        expect(router.canPop(), isFalse);
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(_bookingsMarker),
+          findsOneWidget,
+          reason:
+              'tile 1 must now resolve to RouteNames.masterBookings — it was '
+              'a documented no-op ("no route yet") before Phase 7.6.',
+        );
+        expect(
+          router.canPop(),
+          isTrue,
+          reason:
+              'push (not go) — the profile origin must stay on the back stack '
+              'so the back button and edge-swipe work.',
+        );
+
+        // Deliberately NOT the client «Мої записи»: /bookings lives under the
+        // client shell branch and its CLIENT-only guard.
+        expect(_location(router), isNot(contains(RouteNames.clientBookings)));
+
+        router.pop();
+        await tester.pumpAndSettle();
+        expect(find.byKey(_bookingsMarker), findsNothing);
+        expect(find.byKey(_profileMarker), findsOneWidget);
+      },
+    );
+
     testWidgets(
       'tapping Календар (master-nav-tile-2) pushes /schedule and leaves the '
       'origin poppable (canPop true)',

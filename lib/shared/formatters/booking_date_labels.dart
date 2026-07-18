@@ -180,6 +180,19 @@ String formatTimeRange(DateTime start, int totalMinutes) {
 /// The weekday is the short form because on the stub it is a qualifier, not
 /// the subject — the client is scanning for a number, then checking which day
 /// of the week it lands on.
+/// Phase 7.6 — a compact date+time caption for the master's booking card,
+/// e.g. "12 лип, 14:30" (the design's `formatBookingDate`).
+///
+/// Converts to Beautica (Europe/Kyiv) time FIRST: a `Booking.startAt` is
+/// canonical UTC, so reading `.day`/`.hour` off it directly would print the
+/// wrong day for any appointment in the two hours before local midnight.
+String formatShortDateTime(DateTime instant) {
+  final DateTime local = toBeauticaTime(instant);
+  final String mon = kMonthsUkShort[local.month - 1];
+  return '${local.day} $mon, '
+      '${_twoDigits(local.hour)}:${_twoDigits(local.minute)}';
+}
+
 String formatStubDayLine(DateTime day) {
   final DateTime local = toBeauticaTime(day);
   final String mon = kMonthsUkGenitive[local.month - 1];

@@ -4561,5 +4561,72 @@
   "bookingSortPriceAsc": "Cheapest first",
   "@bookingSortPriceAsc": {
     "description": "Sort option in the independent master's bookings sort sheet: lowest price first (sort=priceAtBooking,asc)."
+  },
+  "bookingDetailGuestClient": "Guest",
+  "@bookingDetailGuestClient": {
+    "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
+  },
+  "bookingDetailGuestBookingLabel": "Booked via link",
+  "@bookingDetailGuestBookingLabel": {
+    "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
+  },
+  "masterBookingsTitle": "My bookings",
+  "@masterBookingsTitle": {
+    "description": "Screen title of the independent master's own booking list (Phase 7.6). Distinct from the CLIENT «Мої записи» screen, whose strings live under the myBookings* namespace."
+  },
+  "masterBookingsCount": "{count, plural, one{{count} booking} other{{count} bookings}}",
+  "@masterBookingsCount": {
+    "description": "Count sub-heading above the master's booking list. Reflects the server's totalElements — the whole filtered result set, not just the pages fetched so far.",
+    "placeholders": {
+      "count": { "type": "int", "example": "12" }
+    }
+  },
+  "masterBookingsAllDays": "All",
+  "@masterBookingsAllDays": {
+    "description": "The day rail's «Всі» chip — clears the date narrowing (keeps status/service filters and the sort)."
+  },
+  "masterBookingsAllDaysSemantics": "All days",
+  "@masterBookingsAllDaysSemantics": {
+    "description": "Accessibility label for the day rail's «Всі» chip."
+  },
+  "masterBookingsCalendarSemantics": "Pick a date or period in the calendar",
+  "@masterBookingsCalendarSemantics": {
+    "description": "Accessibility label for the day rail's leading calendar button, which opens the single/range date picker (Phase 7.7)."
+  },
+  "masterBookingsDaySemantics": "{weekday} {day}",
+  "@masterBookingsDaySemantics": {
+    "description": "Accessibility label for one day cell in the master's booking day rail. {weekday} is the short Ukrainian weekday (e.g. 'Пн'); {day} is the day-of-month number.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Mon" },
+      "day": { "type": "int", "example": "14" }
+    }
+  },
+  "masterBookingCardSemantics": "{client}, {service}",
+  "@masterBookingCardSemantics": {
+    "description": "Accessibility label for one booking card in the master's list — the client who booked and the service they booked.",
+    "placeholders": {
+      "client": { "type": "String", "example": "Maria Ivaniuk" },
+      "service": { "type": "String", "example": "Manicure with gel polish" }
+    }
+  },
+  "masterBookingsEmptyTitle": "No bookings yet",
+  "@masterBookingsEmptyTitle": {
+    "description": "True-empty state title on the master's booking list — the master has no bookings at all and no filter is active."
+  },
+  "masterBookingsEmptyBody": "Upcoming and past bookings will appear here.",
+  "@masterBookingsEmptyBody": {
+    "description": "True-empty state body on the master's booking list."
+  },
+  "masterBookingsNoResultsTitle": "No bookings match this filter",
+  "@masterBookingsNoResultsTitle": {
+    "description": "Filter-empty state title on the master's booking list — bookings exist, but none match the active day/period/status/service."
+  },
+  "masterBookingsNoResultsBody": "Try another day, period or filter — or go back to all bookings.",
+  "@masterBookingsNoResultsBody": {
+    "description": "Filter-empty state body on the master's booking list."
+  },
+  "masterBookingsClearFilters": "Clear filters",
+  "@masterBookingsClearFilters": {
+    "description": "The escape hatch on the master's filter-empty state — clears every filter (preserving the chosen sort) so the master is never stranded on a blank list."
   }
 }

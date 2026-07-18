@@ -61,8 +61,14 @@ run_scan() {
     esac
     printf '%s\n' "$h"
   done < <(
+    # `integration_test/` is scanned alongside lib/ and test/ — it matters
+    # precisely when Phase 7.7's date-range picker lands, since an E2E test
+    # driving that picker is exactly the place a `.raw(from: picked.start)`
+    # shortcut gets written. Matches the scan roots of the sibling gates
+    # (`forbid_cyrillic_finder.sh`, `forbid_fixed_wait.sh`), which already
+    # cover all three.
     cd "$scan_root" && grep -rEn 'MasterBookingsQuery\.raw\(' \
-      lib/ test/ 2>/dev/null | sort || true
+      lib/ test/ integration_test/ 2>/dev/null | sort || true
   )
 }
 
@@ -74,7 +80,8 @@ run_scan() {
 if [ "${1:-}" = "--self-test" ]; then
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  mkdir -p "$tmp/lib/features/booking/domain" "$tmp/test/features/booking"
+  mkdir -p "$tmp/lib/features/booking/domain" "$tmp/test/features/booking" \
+    "$tmp/integration_test"
 
   # The declaring file — exempt.
   cat > "$tmp/$declaring_file" <<'EOF'
@@ -92,16 +99,26 @@ EOF
     final q = MasterBookingsQuery.raw(from: DateTime.now(), sort: s);
 EOF
 
+  # A real offender in an E2E test — must be flagged too. This is the case the
+  # gate MISSED before `integration_test/` joined the scan roots.
+  cat > "$tmp/integration_test/leaky_e2e_test.dart" <<'EOF'
+    final q = MasterBookingsQuery.raw(to: picked.end, sort: s);
+EOF
+
   out="$(run_scan "$tmp")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
 
-  if [ "$flagged" -ne 1 ] || ! printf '%s' "$out" | grep -q 'leaky_test.dart:1'; then
-    echo "SELF-TEST FAIL: expected exactly the leaky_test.dart site flagged, got:"
+  if [ "$flagged" -ne 2 ] ||
+    ! printf '%s' "$out" | grep -q 'leaky_test.dart:1' ||
+    ! printf '%s' "$out" | grep -q 'leaky_e2e_test.dart:1'; then
+    echo "SELF-TEST FAIL: expected the leaky_test.dart AND leaky_e2e_test.dart"
+    echo "                sites flagged (and nothing else), got:"
     printf '%s\n' "$out"
     exit 1
   fi
   echo "SELF-TEST PASS: the declaring file and .freezed.dart codegen are exempt;"
-  echo "                the MasterBookingsQuery.raw( call in a test is flagged."
+  echo "                the MasterBookingsQuery.raw( calls under test/ AND"
+  echo "                integration_test/ are both flagged."
   exit 0
 fi
 

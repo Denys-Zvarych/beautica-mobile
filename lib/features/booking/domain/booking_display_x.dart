@@ -19,6 +19,40 @@ extension BookingDisplayX on Booking {
   /// Joined display name — "Марія Іванюк".
   String get masterName => '$masterFirstName $masterLastName'.trim();
 
+  /// Phase 7.2 — the joined CLIENT display name for the provider view, or
+  /// `null` when the booking carries no client name at all.
+  ///
+  /// Returns `null` rather than an empty string or a hardcoded «Гість» because
+  /// this file is pure Dart with no `AppLocalizations` in scope — the caller
+  /// (`BookingCounterpartyHeader`) supplies the localized guest fallback. A
+  /// guest/LINK booking normally DOES land here with a real name: the backend
+  /// resolves `guestName`/`guestSurname` into `clientFirstName`/
+  /// `clientLastName` server-side, so the null case is a genuinely nameless
+  /// row, not the ordinary guest flow.
+  String? get clientName {
+    final String joined = '${clientFirstName ?? ''} ${clientLastName ?? ''}'
+        .trim();
+    return joined.isEmpty ? null : joined;
+  }
+
+  /// Two-letter CLIENT avatar-fallback initials, or `null` when there is no
+  /// name to derive them from (the caller renders a generic person glyph).
+  String? get clientInitials {
+    final String f = (clientFirstName ?? '').isNotEmpty
+        ? clientFirstName![0]
+        : '';
+    final String l = (clientLastName ?? '').isNotEmpty
+        ? clientLastName![0]
+        : '';
+    final String initials = '$f$l'.toUpperCase();
+    return initials.isEmpty ? null : initials;
+  }
+
+  /// Whether this is a guest/LINK booking — the client has no registered
+  /// account (`client_id IS NULL`). Independent of whether a NAME is present:
+  /// a guest booking almost always has one.
+  bool get isGuestBooking => clientId == null;
+
   /// Two-letter avatar-fallback initials — "МІ".
   String get masterInitials {
     final String f = masterFirstName.isNotEmpty ? masterFirstName[0] : '';

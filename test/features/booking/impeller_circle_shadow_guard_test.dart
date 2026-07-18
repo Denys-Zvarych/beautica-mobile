@@ -69,6 +69,13 @@ void main() {
     // decoration (widget-consolidation refactor) — the RRect workaround now
     // lives here for EVERY booking-flow avatar, so it must be guarded here.
     'lib/features/booking/presentation/widgets/master_avatar_badge.dart',
+    // Phase 7.6/7.2 — the master's booking card and the provider-view
+    // counterparty strip both draw a circular client monogram avatar. Both
+    // are deliberately shadow-FREE (a hairline accent border defines them
+    // instead); guarded so a future edit cannot "add a little depth" and
+    // reintroduce the corner artifact.
+    'lib/features/booking/presentation/widgets/master_booking_card.dart',
+    'lib/features/booking/presentation/widgets/booking_counterparty_header.dart',
   ];
 
   // The SECOND Impeller-GLES artifact, same backend, different trigger: a
@@ -359,10 +366,15 @@ void main() {
   // ===========================================================================
   group('Impeller-GLES offset-opaque-light-shadow recipe guard', () {
     const String tokensFile = 'lib/core/theme/velvet_geometry.dart';
-    // The two rounded booking surfaces the fix moved off the offset recipes.
+    // The rounded booking surfaces the fix moved off the offset recipes, plus
+    // the Phase 7.6 surfaces that were built on the bordered recipes from the
+    // start (the master's booking card and the day rail's calendar button) —
+    // listed so they can never silently regress TO an extruded recipe.
     const List<String> surfaceFiles = <String>[
       'lib/features/booking/presentation/widgets/master_strip_shell.dart',
       'lib/features/booking/presentation/widgets/calendar_button.dart',
+      'lib/features/booking/presentation/widgets/master_booking_card.dart',
+      'lib/features/booking/presentation/widgets/bookings_day_rail.dart',
     ];
 
     Map<String, String> recipes() => _shadowRecipes(_readStripped(tokensFile));

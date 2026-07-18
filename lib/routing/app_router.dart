@@ -50,6 +50,7 @@ import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
 import '../features/booking/presentation/booking_time_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
+import '../features/booking/presentation/master_bookings_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
 import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
@@ -843,6 +844,43 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.masterProfile,
         builder: (context, state) => const MasterProfileScreen(),
+      ),
+      // Phase 7.6 — the master's «Мої записи», the bottom-nav tab-1 destination
+      // that had no route until this phase (see `profile_avatar.dart`).
+      //
+      // Registered as a TOP-LEVEL route alongside its `/master/*` siblings
+      // rather than inside a `StatefulShellBranch`: the master surface is not a
+      // StatefulShellRoute at all — unlike the CLIENT shell above, the master's
+      // four "tabs" are four flat routes that each render their own
+      // `VelvetBottomNavBar` and navigate by `context.push`. The Phase 7.6
+      // phase doc's "register in the master shell branch, mirroring
+      // `app_router.dart:455-490`" describes a structure that does not exist
+      // here; mirroring the /bookings + :bookingId NESTING (which is the part
+      // that matters) is what is done instead.
+      //
+      // `builder:` (MaterialPage), not `pageBuilder: _instantPage` — the tab is
+      // reached by `context.push`, so it needs the theme's
+      // CupertinoPageTransitionsBuilder for the left-edge swipe-back gesture.
+      // Same fix as `/master/schedule` and `/masters/:masterId` above.
+      GoRoute(
+        path: RouteNames.masterBookings,
+        builder: (context, state) => const MasterBookingsScreen(),
+        routes: [
+          // /master/bookings/:bookingId — the PROVIDER view of «Деталі
+          // запису» (Phase 7.2). The SAME `BookingDetailScreen` the client
+          // route renders: one screen, role-branched off the session (locked
+          // decision D5), never a second screen and never a constructor flag.
+          //
+          // Nested so it pushes onto the master's own navigator stack and pops
+          // back to the still-scrolled list — mirroring the client's
+          // `/bookings/:bookingId` nesting exactly.
+          GoRoute(
+            path: ':bookingId',
+            builder: (context, state) => BookingDetailScreen(
+              bookingId: state.pathParameters['bookingId']!,
+            ),
+          ),
+        ],
       ),
       // Master profile settings hub + per-section edit pages. These replace the
       // retired monolithic /master/edit form. All auth-guarded (Phase 2.9

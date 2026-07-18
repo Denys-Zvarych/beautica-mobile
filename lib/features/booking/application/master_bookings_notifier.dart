@@ -58,6 +58,35 @@ import '../domain/master_bookings_state.dart';
 
 part 'master_bookings_notifier.g.dart';
 
+/// Keep-alive window for the screen's LANDING query — the undated list.
+///
+/// This is the Phase 7.1 value and the one the TTL audit accepted. It exists
+/// for the navigation-return case: tap a booking, read it, come back, and the
+/// pages you had scrolled through are still there.
+const Duration kMasterBookingsKeepAlive = Duration(minutes: 5);
+
+/// Keep-alive window for a DATE-NARROWED query (`from`/`to` set).
+///
+/// Shorter than [kMasterBookingsKeepAlive] because these members accumulate
+/// differently (perf P6). Every rail day the master settles on mints its own
+/// family member holding its own page of [Booking]s, so browsing 20 days
+/// retains 20 pages — the 220ms tap debounce bounds the request RATE, not the
+/// retained TOTAL. The undated landing query cannot accumulate that way: there
+/// is only one of it.
+///
+/// Two minutes rather than something aggressive: the navigation-return
+/// guarantee has to hold here too — narrowing to a day and opening one of that
+/// day's bookings is the single most likely path on this screen, and reading a
+/// booking detail is a ~30 second act. Two minutes covers that comfortably
+/// while cutting worst-case retention from a browsing session by more than
+/// half. The audited 5-minute decision for the landing query is untouched.
+const Duration kMasterBookingsDatedKeepAlive = Duration(minutes: 2);
+
+Duration _keepAliveFor(MasterBookingsQuery query) =>
+    (query.from != null || query.to != null)
+    ? kMasterBookingsDatedKeepAlive
+    : kMasterBookingsKeepAlive;
+
 /// Paged bookings for one [MasterBookingsQuery].
 ///
 /// Generated provider name: `masterBookingsProvider` (a family — call
@@ -69,12 +98,12 @@ class MasterBookingsNotifier extends _$MasterBookingsNotifier {
 
   @override
   Future<MasterBookingsState> build(MasterBookingsQuery query) async {
-    // Survive navigation for 5 minutes, then let this member go (perf P2 —
-    // see the file header for why neither plain autoDispose nor an
-    // unconditional keepAlive is right). The timer is cancelled on dispose so
-    // a member that IS dropped early does not leave one pending.
+    // Survive navigation, then let this member go (perf P2 — see the file
+    // header for why neither plain autoDispose nor an unconditional keepAlive
+    // is right). The timer is cancelled on dispose so a member that IS dropped
+    // early does not leave one pending.
     final link = ref.keepAlive();
-    final Timer timer = Timer(const Duration(minutes: 5), link.close);
+    final Timer timer = Timer(_keepAliveFor(query), link.close);
     ref.onDispose(timer.cancel);
 
     // `async` + `await` is deliberate, not a redundant wrapper around a
@@ -119,7 +148,28 @@ class MasterBookingsNotifier extends _$MasterBookingsNotifier {
     if (_refreshing) return;
     _refreshing = true;
     try {
-      state = const AsyncLoading<MasterBookingsState>();
+      // NO `state = const AsyncLoading()` here (perf P3), deliberately.
+      //
+      // That value-less loading state made `.when` swap the populated list for
+      // `BookingsSkeleton` mid-gesture: a full teardown and rebuild of every
+      // visible card plus a fresh layout pass, underneath a `RefreshIndicator`
+      // whose entire purpose is keeping the content on screen while it spins.
+      // User-visible, and the opposite of what the gesture promises.
+      //
+      // Leaving `state` on its current `AsyncData` until the new page resolves
+      // keeps the list mounted for free. The spinner is not lost with it: a
+      // `RefreshIndicator` drives its own animation from the Future this
+      // method returns, not from the provider's `isLoading`.
+      //
+      // The alternative — `AsyncLoading().copyWithPrevious(state)` — expresses
+      // "refreshing, previous value retained" more precisely and is what
+      // `skipLoadingOnRefresh` is built for, but `copyWithPrevious` is marked
+      // internal to `riverpod` (`invalid_use_of_internal_member`) and is not
+      // ours to call. Not emitting the intermediate state at all reaches the
+      // same rendered outcome through public API.
+      //
+      // Concurrency is unaffected: re-entry is held off by `_refreshing`
+      // above, not by the provider's loading flag.
       state = await AsyncValue.guard(() => _fetchFirstPage(query));
     } finally {
       _refreshing = false;

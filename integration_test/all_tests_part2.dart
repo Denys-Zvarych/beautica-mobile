@@ -10,6 +10,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'master_bookings_flow_test.dart' as master_bookings;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_received_reviews_flow_test.dart' as master_received_reviews;
 import 'passport_flow_test.dart' as passport;
@@ -34,6 +35,9 @@ void main() {
 
   // Master-home zero-services «Додати послуги» CTA → /services/setup
   // (Step 2.7 Rule 3b — master home → service-setup journey).
+  // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
+  // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
+  group('master_bookings_flow', master_bookings.main);
   group('master_home_add_services_flow', master_home_add_services.main);
   group('master_received_reviews_flow', master_received_reviews.main);
   group('passport_flow', passport.main);

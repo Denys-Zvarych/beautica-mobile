@@ -1351,4 +1351,68 @@ abstract final class VelvetText {
     fontSize: 13,
     color: BrandColors.muted,
   );
+
+  // ---------------------------------------------------------------------------
+  // Phase 7.6 — the master's «Мої записи»: the day rail + the booking card.
+  //
+  // Transcribed from the approved preview at
+  // `docs/signup-designs/SalonManagementDesign/lib/widgets/` (bookings_toolbar
+  // `_DayChip`/`_AllChip`, booking_widgets `BookingCard`/`PriceTag`/
+  // `BookingDateChip`). The preview spells each of these as an inline
+  // `.copyWith(fontSize:)`; they are cached tokens here so the rail — which
+  // rebuilds its visible cells on every scroll frame — never allocates a
+  // TextStyle per frame, and so the sizes stay shared rather than
+  // re-fragmenting the 116-token consolidation.
+  //
+  // Colour is deliberately NOT baked into the rail tokens: a day chip's
+  // weekday/number colour is its SELECTION state, applied at the call site.
+  // ---------------------------------------------------------------------------
+
+  /// Day-rail weekday caption («Пн») — statCaption stepped to 11 sp.
+  static final TextStyle railWeekday = _statCaptionStyle.copyWith(fontSize: 11);
+
+  /// Day-rail day-of-month number — statValue at 18 sp, the rail's anchor.
+  static final TextStyle railDayNumber = _statValueStyle.copyWith(fontSize: 18);
+
+  /// Day-rail «Всі» chip label — statValue stepped to 15 sp.
+  static final TextStyle railAllChip = _statValueStyle.copyWith(fontSize: 15);
+
+  /// Master booking-card screen title («Мої записи») — heading at 22 sp.
+  static final TextStyle masterBookingsTitle = _headingStyle.copyWith(
+    fontSize: 22,
+  );
+
+  // The `masterCard*` prefix is deliberate. The CLIENT booking card already
+  // owns `bookingCard*` tokens (`bookingCardPrice`, `bookingCardService`, …)
+  // at its own sizes; the two cards are different widgets with different grids
+  // (see `master_booking_card.dart`'s header), so their type must not share a
+  // namespace where a future edit could "consolidate" two unrelated sizes.
+  //
+  // There is no `masterCardPrice`: the price pill is `pill()` verbatim — that
+  // token is already Nunito 11/800 accentDeep, so a `.copyWith(fontSize: 11)`
+  // on it would be a no-op wearing a new name.
+
+  /// Client name on a master booking card — subheading stepped to 13.5 sp.
+  static final TextStyle masterCardClientName = _subheadingStyle.copyWith(
+    fontSize: 13.5,
+  );
+
+  /// Service name on a master booking card — bodyStrong stepped to 12.5 sp.
+  static final TextStyle masterCardService = _bodyStrongStyle.copyWith(
+    fontSize: 12.5,
+  );
+
+  /// Date+time caption on a master booking card — feedback base at 11 sp,
+  /// muted.
+  static final TextStyle masterCardDate = _feedbackBase.copyWith(
+    fontSize: 11,
+    color: BrandColors.muted,
+  );
+
+  /// Client monogram initials on a master booking card's avatar — subheading
+  /// stepped to 15 sp, accentDeep.
+  static final TextStyle masterCardInitials = _subheadingStyle.copyWith(
+    fontSize: 15,
+    color: BrandColors.accentDeep,
+  );
 }

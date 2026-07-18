@@ -104,6 +104,14 @@ abstract final class BookingMapper {
       masterAvatarUrl: dto.masterAvatarUrl,
       masterType: dto.masterType?.name ?? '',
       salonName: dto.salonName,
+      // Phase 7.2 — the counterparty as the PROVIDER sees it. `clientId` is
+      // legitimately null on a guest/LINK booking; `clientFirstName`/
+      // `clientLastName` are NOT defaulted to '' here (unlike the master
+      // fields above) because `BookingDisplayX.clientName` distinguishes
+      // "absent" from "empty" to pick its «Гість» fallback.
+      clientId: dto.clientId?.toString(),
+      clientFirstName: dto.clientFirstName,
+      clientLastName: dto.clientLastName,
       serviceId: dto.masterServiceId ?? '',
       serviceName: dto.serviceName ?? '',
       categoryName: dto.categoryName,

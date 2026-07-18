@@ -230,6 +230,26 @@ jobs:
       - name: Test
         run: flutter test --coverage --reporter=expanded --exclude-tags golden
 
+      # The day rail's two RENDERED DST guards can only observe the bug they
+      # exist to catch on a host whose UTC offset actually changes across the
+      # transition. This runner is UTC, so they SKIP in the step above; this
+      # step re-runs that one file under the market zone so they genuinely
+      # execute on CI.
+      #
+      # Deliberately scoped to a single file rather than set as a job-level
+      # `env: TZ`. The booking formatters are pinned to Europe/Kyiv in code and
+      # `slot_time_tz_regression_test.dart` proves it by asserting Kyiv
+      # wall-clocks on a NON-Kyiv runner — under `TZ=Europe/Kyiv` a regression
+      # to `.toLocal()` passes that suite silently (verified by mutation). The
+      # main suite must therefore stay UTC.
+      #
+      # Pinned by test/ci/dst_rail_ci_coverage_test.dart — renaming or dropping
+      # this step fails that test.
+      - name: DST rail guards (market zone)
+        env:
+          TZ: Europe/Kyiv
+        run: flutter test test/features/booking/presentation/bookings_day_rail_test.dart --reporter=expanded
+
       # Phase 17.4 — Golden regression suite.
       # Runs the alchemist CI goldens (obscureText=true, renderShadows=false)
       # against the committed masters in test/golden/goldens/.
