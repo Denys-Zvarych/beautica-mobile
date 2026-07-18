@@ -5,7 +5,7 @@
 // `sort` param) — mobile-debugger findings A + B. Each tab now issues exactly
 // ONE `getMyBookings` call carrying its whole status set + the tab's sort
 // direction; there is no more client-side fan-out/merge/re-sort to pin, so
-// this suite instead pins: the exact `statuses`/`ascending` args per tab
+// this suite instead pins: the exact `statuses`/`sort` args per tab
 // (single call, not one-per-status), that the server response is used
 // as-is (no re-sort), pagination cursor advance, and the existing
 // load-more/refresh/error guards.
@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/booking/application/my_bookings_notifie
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -93,7 +94,7 @@ ProviderContainer _container(_MockBookingRepository repo) {
 }
 
 /// Stubs the ONE `getMyBookings` call [tab] issues at [page] to answer with
-/// [response]. `ascending` is derived from the tab (Майбутні only).
+/// [response]. `sort` is derived from the tab (Майбутні only).
 void _stubTab(
   _MockBookingRepository repo,
   BookingTab tab, {
@@ -103,7 +104,9 @@ void _stubTab(
   when(
     () => repo.getMyBookings(
       statuses: tab.statuses,
-      ascending: tab == BookingTab.upcoming,
+      sort: tab == BookingTab.upcoming
+          ? BookingSort.oldest
+          : BookingSort.newest,
       page: page,
       size: any(named: 'size'),
     ),
@@ -113,7 +116,7 @@ void _stubTab(
 void main() {
   group('build — single request per tab (backend Phase 26.1)', () {
     test(
-      'Майбутні sends statuses={CONFIRMED}, ascending: true, in ONE call',
+      'Майбутні sends statuses={CONFIRMED}, sort: BookingSort.oldest, in ONE call',
       (() async {
         final repo = _MockBookingRepository();
         _stubTab(
@@ -138,7 +141,7 @@ void main() {
         verify(
           () => repo.getMyBookings(
             statuses: const <BookingStatus>{BookingStatus.confirmed},
-            ascending: true,
+            sort: BookingSort.oldest,
             page: 0,
             size: any(named: 'size'),
           ),
@@ -182,7 +185,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          ascending: any(named: 'ascending'),
+          sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -226,7 +229,7 @@ void main() {
               BookingStatus.cancelled,
               BookingStatus.declined,
             },
-            ascending: false,
+            sort: BookingSort.newest,
             page: 0,
             size: any(named: 'size'),
           ),
@@ -272,49 +275,55 @@ void main() {
   });
 
   group('sort direction argument per tab', () {
-    test('Майбутні requests ascending: true (soonest-first)', () async {
-      final repo = _MockBookingRepository();
-      _stubTab(
-        repo,
-        BookingTab.upcoming,
-        page: 0,
-        response: _page(const <Booking>[]),
-      );
-      final c = _container(repo);
-
-      await c.read(myBookingsProvider(BookingTab.upcoming).future);
-
-      verify(
-        () => repo.getMyBookings(
-          statuses: any(named: 'statuses'),
-          ascending: true,
+    test(
+      'Майбутні requests sort: BookingSort.oldest (soonest-first)',
+      () async {
+        final repo = _MockBookingRepository();
+        _stubTab(
+          repo,
+          BookingTab.upcoming,
           page: 0,
-          size: any(named: 'size'),
-        ),
-      ).called(1);
-    });
+          response: _page(const <Booking>[]),
+        );
+        final c = _container(repo);
 
-    test('Минулі requests ascending: false (most-recent-first)', () async {
-      final repo = _MockBookingRepository();
-      _stubTab(
-        repo,
-        BookingTab.past,
-        page: 0,
-        response: _page(const <Booking>[]),
-      );
-      final c = _container(repo);
+        await c.read(myBookingsProvider(BookingTab.upcoming).future);
 
-      await c.read(myBookingsProvider(BookingTab.past).future);
+        verify(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            sort: BookingSort.oldest,
+            page: 0,
+            size: any(named: 'size'),
+          ),
+        ).called(1);
+      },
+    );
 
-      verify(
-        () => repo.getMyBookings(
-          statuses: any(named: 'statuses'),
-          ascending: false,
+    test(
+      'Минулі requests sort: BookingSort.newest (most-recent-first)',
+      () async {
+        final repo = _MockBookingRepository();
+        _stubTab(
+          repo,
+          BookingTab.past,
           page: 0,
-          size: any(named: 'size'),
-        ),
-      ).called(1);
-    });
+          response: _page(const <Booking>[]),
+        );
+        final c = _container(repo);
+
+        await c.read(myBookingsProvider(BookingTab.past).future);
+
+        verify(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            sort: BookingSort.newest,
+            page: 0,
+            size: any(named: 'size'),
+          ),
+        ).called(1);
+      },
+    );
   });
 
   group('loadMore', () {
@@ -373,7 +382,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
-          ascending: false,
+          sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
         ),
@@ -403,7 +412,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          ascending: any(named: 'ascending'),
+          sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -438,7 +447,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
-          ascending: false,
+          sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
         ),
@@ -486,7 +495,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
-          ascending: false,
+          sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
         ),
@@ -522,7 +531,7 @@ void main() {
         when(
           () => repo.getMyBookings(
             statuses: BookingTab.upcoming.statuses,
-            ascending: true,
+            sort: BookingSort.oldest,
             page: 1,
             size: any(named: 'size'),
           ),
@@ -571,7 +580,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -699,7 +708,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          ascending: any(named: 'ascending'),
+          sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -713,6 +722,92 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(c.read(myBookingsProvider(BookingTab.upcoming)).hasError, isTrue);
+    });
+  });
+
+  // ==========================================================================
+  // Perf P1 — refresh() coalescing (the same pre-existing gap fixed on
+  // MasterBookingsNotifier). `loadMore` guards re-entry via `isLoadingMore`;
+  // `refresh` had no guard, so a pull-to-refresh gesture storm fired
+  // concurrent page-0 requests and the last to RESOLVE won — which is not the
+  // last to be SENT, so a stale response could overwrite a fresher one.
+  //
+  // This is the ONLY behavioural change to the shipped client notifier.
+  // ==========================================================================
+  group('refresh — coalesces concurrent calls (perf P1)', () {
+    test('three rapid refreshes issue ONE page-0 request, not three', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(const <Booking>[]),
+      );
+
+      final c = _container(repo);
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
+
+      // Re-stub page 0 behind a gate so the first refresh stays in flight
+      // while the next two are issued.
+      final Completer<PageResponse<Booking>> gate =
+          Completer<PageResponse<Booking>>();
+      int refreshCalls = 0;
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) {
+        refreshCalls++;
+        return gate.future;
+      });
+
+      final notifier = c.read(myBookingsProvider(BookingTab.upcoming).notifier);
+      final List<Future<void>> gestures = <Future<void>>[
+        notifier.refresh(),
+        notifier.refresh(),
+        notifier.refresh(),
+      ];
+
+      gate.complete(_page(const <Booking>[]));
+      await Future.wait(gestures);
+
+      expect(
+        refreshCalls,
+        1,
+        reason: 'the 2nd and 3rd gestures must be dropped, not stacked',
+      );
+    });
+
+    test('the guard RELEASES — two SEQUENTIAL refreshes both fetch (it is a '
+        'coalesce, not a latch)', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(const <Booking>[]),
+      );
+
+      final c = _container(repo);
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
+
+      final notifier = c.read(myBookingsProvider(BookingTab.upcoming).notifier);
+      await notifier.refresh();
+      await notifier.refresh();
+
+      // build() + two refreshes. A guard left set (outside a `finally`, or
+      // after a throw) would stop at 1 and kill pull-to-refresh for good.
+      verify(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(3);
     });
   });
 }

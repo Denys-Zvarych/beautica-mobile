@@ -181,6 +181,16 @@ jobs:
         shell: bash
         run: ./scripts/forbid_inline_fontsize.sh
 
+      # Phase 7.1 perf P4 — MasterBookingsQuery.raw() containment. `.of()` is
+      # the only path that truncates from/to to local midnight; `.raw()` skips
+      # it, so a date picker wired straight to `.raw()` mints a new
+      # masterBookingsProvider family member per SECOND the user taps in. Has
+      # to be a structural gate: nothing about the leak is visible to a test or
+      # a lint (the screen behaves correctly, it just refetches per tap).
+      - name: Forbid MasterBookingsQuery.raw outside its declaring file
+        shell: bash
+        run: ./scripts/forbid_raw_bookings_query.sh
+
       # 2026-06-24 — self-test the four drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
@@ -192,6 +202,7 @@ jobs:
           ./scripts/forbid_fixed_wait.sh --self-test
           ./scripts/forbid_unmocked_approved_categories.sh --self-test
           ./scripts/forbid_inline_fontsize.sh --self-test
+          ./scripts/forbid_raw_bookings_query.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH

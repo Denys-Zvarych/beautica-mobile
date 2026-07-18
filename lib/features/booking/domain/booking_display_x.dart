@@ -58,6 +58,14 @@ extension BookingDisplayX on Booking {
 
   /// Add-to-calendar only makes sense for an appointment you still have to
   /// show up to.
+  ///
+  /// ⚠ Security-load-bearing (finding S1): this is the one capability on
+  /// `Booking` with NO server round-trip to re-validate it — it writes to the
+  /// device calendar, which any app holding `READ_CALENDAR` can read. So it
+  /// must stay an ALLOWLIST (`== confirmed`), never a denylist of terminal
+  /// statuses. Written as a denylist, [BookingStatus.unknown] — and every
+  /// future backend status — would fall through to `true` and leak an
+  /// appointment this build cannot even identify. Do not "simplify" it.
   bool get canAddToCalendar => status == BookingStatus.confirmed;
 
   /// Whether this booking's end instant is already in the PAST relative to the

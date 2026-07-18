@@ -131,9 +131,13 @@ class BookingNoteSpec {
           inbound: false,
         );
 
-      case BookingStatus.pending:
+      // No note. CONFIRMED/COMPLETED because neither carries a provider or
+      // cancellation note at all; `unknown` because attributing a note to a
+      // status this build cannot identify would put words in someone's mouth
+      // — `providerComment` on an unrecognised status could be anything.
       case BookingStatus.confirmed:
       case BookingStatus.completed:
+      case BookingStatus.unknown:
         return null;
     }
   }

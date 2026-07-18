@@ -38,6 +38,7 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -73,6 +74,12 @@ class _RecordingRepo implements BookingRepository {
   }
 
   @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+  }) => throw UnimplementedError();
+
+  @override
   Future<Booking> getBookingById(String id) => throw UnimplementedError();
 
   @override
@@ -84,10 +91,13 @@ class _RecordingRepo implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
+    BookingSort? sort,
     required int page,
     int size = kBookingsPageSize,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
   }) => throw UnimplementedError();
 
   @override

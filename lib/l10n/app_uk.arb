@@ -3700,6 +3700,10 @@
   "@bookingStatusCancelled": {
     "description": "Booking status badge label — CANCELLED and DECLINED share one neutral label (the who-cancelled distinction was dropped by product decision 2026-07-15)."
   },
+  "bookingStatusUnknown": "Статус уточнюється",
+  "@bookingStatusUnknown": {
+    "description": "Booking status badge label — BookingStatus.unknown, a wire status this app build does not recognise. Deliberately says nothing about the appointment's state rather than guessing; the row stays visible and tappable but offers no actions."
+  },
   "bookingStatusSemantics": "Статус: {label}",
   "@bookingStatusSemantics": {
     "description": "Accessibility label for the booking status badge / hero medallion.",
@@ -4541,5 +4545,21 @@
   "professionalTitleMaxLength": "Не більше 100 символів",
   "@professionalTitleMaxLength": {
     "description": "Helper / counter note below the professional title field on the master edit screen."
+  },
+  "bookingSortNewest": "Спочатку нові",
+  "@bookingSortNewest": {
+    "description": "Sort option in the independent master's bookings sort sheet: latest appointments first (sort=startsAt,desc). The list default."
+  },
+  "bookingSortOldest": "Спочатку старі",
+  "@bookingSortOldest": {
+    "description": "Sort option in the independent master's bookings sort sheet: earliest appointments first (sort=startsAt,asc)."
+  },
+  "bookingSortPriceDesc": "Дорожчі спершу",
+  "@bookingSortPriceDesc": {
+    "description": "Sort option in the independent master's bookings sort sheet: highest price first (sort=priceAtBooking,desc)."
+  },
+  "bookingSortPriceAsc": "Дешевші спершу",
+  "@bookingSortPriceAsc": {
+    "description": "Sort option in the independent master's bookings sort sheet: lowest price first (sort=priceAtBooking,asc)."
   }
 }

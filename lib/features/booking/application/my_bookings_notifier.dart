@@ -13,11 +13,14 @@
 // now returns a single correctly-ordered, correctly-paginated stream, so the
 // client only has to page through it.
 //
-// Sort order: Майбутні reads soonest-first (`ascending: true` — "what's
-// next"); Минулі/Скасовані read most-recent-first (`ascending: false` —
+// Sort order: Майбутні reads soonest-first ([BookingSort.oldest] — "what's
+// next"); Минулі/Скасовані read most-recent-first ([BookingSort.newest] —
 // "what just happened"), matching `BookingSampleData.forTab` in the approved
-// preview. Threaded straight into [BookingRepository.getMyBookings]'s
-// `ascending` param, which renders it as `sort=startsAt,<asc|desc>`.
+// preview. Threaded straight into [BookingRepository.getMyBookings]'s `sort`
+// param, which renders it as `sort=startsAt,<asc|desc>`. That param was
+// widened from a `bool ascending` to the [BookingSort] enum in Phase 7.1 so
+// the independent-master list can additionally request the two price orders;
+// this tab model only ever uses the two `startsAt` directions.
 //
 // Pagination: [loadMore] advances the tab's single page cursor, guards
 // against a double-fetch (an in-flight [loadMore] is a no-op), and is a
@@ -33,6 +36,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import '../data/booking_providers.dart';
 import '../data/booking_repository.dart';
 import '../domain/booking.dart';
+import '../domain/booking_sort.dart';
 import '../domain/booking_tab.dart';
 
 part 'my_bookings_notifier.g.dart';
@@ -83,6 +87,10 @@ class MyBookingsState {
 /// re-opening it always starts from a fresh page 0.
 @riverpod
 class MyBookingsNotifier extends _$MyBookingsNotifier {
+  /// In-flight guard for [refresh] (perf P1) — mirrors `ServicesList.refresh`
+  /// and `MasterBookingsNotifier`.
+  bool _refreshing = false;
+
   @override
   Future<MyBookingsState> build(BookingTab tab) => _fetchFirstPage(tab);
 
@@ -92,7 +100,9 @@ class MyBookingsNotifier extends _$MyBookingsNotifier {
     final BookingRepository repo = ref.read(bookingRepositoryProvider);
     final PageResponse<Booking> page = await repo.getMyBookings(
       statuses: tab.statuses,
-      ascending: tab == BookingTab.upcoming,
+      sort: tab == BookingTab.upcoming
+          ? BookingSort.oldest
+          : BookingSort.newest,
       page: 0,
     );
 
@@ -104,9 +114,20 @@ class MyBookingsNotifier extends _$MyBookingsNotifier {
   }
 
   /// Re-fetches page 0 — the pull-to-refresh entry point.
+  ///
+  /// Coalesces concurrent calls (perf P1): three rapid pull-to-refresh
+  /// gestures otherwise fire three concurrent `GET /bookings/me?page=0` and
+  /// the last to RESOLVE wins, which is not the last to be sent — a stale
+  /// response could overwrite a fresher one. Behaviour is otherwise unchanged.
   Future<void> refresh() async {
-    state = const AsyncLoading<MyBookingsState>();
-    state = await AsyncValue.guard(() => _fetchFirstPage(tab));
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      state = const AsyncLoading<MyBookingsState>();
+      state = await AsyncValue.guard(() => _fetchFirstPage(tab));
+    } finally {
+      _refreshing = false;
+    }
   }
 
   /// Appends the next page.
@@ -129,7 +150,9 @@ class MyBookingsNotifier extends _$MyBookingsNotifier {
     try {
       final PageResponse<Booking> page = await repo.getMyBookings(
         statuses: tab.statuses,
-        ascending: tab == BookingTab.upcoming,
+        sort: tab == BookingTab.upcoming
+            ? BookingSort.oldest
+            : BookingSort.newest,
         page: current.page + 1,
       );
 

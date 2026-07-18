@@ -155,10 +155,13 @@ class _BookingCardState extends State<BookingCard> {
   List<BoxShadow>? get _shadows {
     if (_pressed) return null;
     return switch (_b.status) {
-      BookingStatus.pending ||
       BookingStatus.confirmed => VelvetShadows.extrudedCard,
       BookingStatus.completed ||
-      BookingStatus.notCompleted => VelvetShadows.extrudedSmall,
+      BookingStatus.notCompleted ||
+      // An unrecognised status sits in the middle stratum: present and
+      // tappable, but not claiming CONFIRMED's proud lift (which is the
+      // depth cue for "this is happening").
+      BookingStatus.unknown => VelvetShadows.extrudedSmall,
       BookingStatus.cancelled || BookingStatus.declined => _deadShadows,
     };
   }

@@ -26,6 +26,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
@@ -79,10 +80,19 @@ class _FakeBookingRepository implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
+    BookingSort? sort,
     required int page,
     int size = kBookingsPageSize,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
   }) => throw UnimplementedError();
 
   @override
@@ -158,10 +168,19 @@ class _GatedBookingRepository implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
+    BookingSort? sort,
     required int page,
     int size = kBookingsPageSize,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
   }) => throw UnimplementedError();
 
   @override
@@ -218,7 +237,7 @@ Booking _bookingFor(CreateBookingRequest req) => Booking(
   price: 500,
   startAt: req.startAt,
   endAt: req.startAt.add(const Duration(minutes: 60)),
-  status: BookingStatus.pending,
+  status: BookingStatus.confirmed,
   canReview: false,
 );
 

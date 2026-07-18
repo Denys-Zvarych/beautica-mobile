@@ -86,7 +86,6 @@ class BookingStatusVisual {
       // Common case — every upcoming booking is one — so the wash stays
       // ordinary. A column of small green caps reads as "all good"; a column
       // of saturated pills would flatten the exceptional cards.
-      case BookingStatus.pending:
       case BookingStatus.confirmed:
         return BookingStatusVisual(
           label: l10n.bookingStatusConfirmed,
@@ -146,6 +145,20 @@ class BookingStatusVisual {
               : Icons.content_cut_rounded,
           accent: BrandColors.error,
           wash: BrandColors.error.withValues(alpha: _exceptional),
+        );
+
+      // A status this build does not recognise (security S1). The badge's job
+      // here is to be HONEST, not decorative: `muted` at the ordinary alpha is
+      // the quietest cap in the set, and the copy («Статус уточнюється») makes
+      // no claim about the appointment. Explicitly NOT reusing any real
+      // status's colour — a green check or a red cap would assert exactly the
+      // thing this build does not know.
+      case BookingStatus.unknown:
+        return BookingStatusVisual(
+          label: l10n.bookingStatusUnknown,
+          icon: Icons.help_outline_rounded,
+          accent: BrandColors.muted,
+          wash: BrandColors.muted.withValues(alpha: _ordinary),
         );
     }
   }

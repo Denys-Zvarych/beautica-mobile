@@ -26,6 +26,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
@@ -93,7 +94,7 @@ PageResponse<Booking> _page(
 
 /// Stubs the ONE `getMyBookings` request each of the three tabs issues
 /// (backend Phase 26.1 — the tab's whole status set travels in a single
-/// call; Phase 26.3 — `ascending` drives `sort=startsAt,<asc|desc>`).
+/// call; Phase 26.3 — `sort` drives `sort=startsAt,<asc|desc>`).
 /// Defaults every tab to an empty page so a test only has to describe the
 /// tab(s) it cares about.
 void _stubAllTabs(
@@ -105,7 +106,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.upcoming.statuses,
-      ascending: true,
+      sort: BookingSort.oldest,
       page: any(named: 'page'),
       size: any(named: 'size'),
     ),
@@ -113,7 +114,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.past.statuses,
-      ascending: false,
+      sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
     ),
@@ -121,7 +122,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.cancelled.statuses,
-      ascending: false,
+      sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
     ),
@@ -234,7 +235,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          ascending: any(named: 'ascending'),
+          sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -254,7 +255,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          ascending: any(named: 'ascending'),
+          sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -267,7 +268,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -280,7 +281,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -309,7 +310,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
         ),
@@ -317,7 +318,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 1,
           size: any(named: 'size'),
         ),
@@ -338,7 +339,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.past.statuses,
-          ascending: false,
+          sort: BookingSort.newest,
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -346,7 +347,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
-          ascending: false,
+          sort: BookingSort.newest,
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -366,7 +367,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 1,
           size: any(named: 'size'),
         ),

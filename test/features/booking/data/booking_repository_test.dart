@@ -18,6 +18,7 @@ import 'package:beautica_api/beautica_api.dart'
     show CreateBookingRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:built_collection/built_collection.dart';
@@ -935,8 +936,8 @@ void main() {
       );
 
       final page = await repository.getMyBookings(
-        statuses: const <BookingStatus>{BookingStatus.pending},
-        ascending: false,
+        statuses: const <BookingStatus>{BookingStatus.confirmed},
+        sort: BookingSort.newest,
         page: 0,
       );
 
@@ -957,7 +958,7 @@ void main() {
               as Map<String, dynamic>;
       expect(captured['page'], 0);
       expect(captured['size'], kBookingsPageSize);
-      expect(captured['status'], <String>['PENDING']);
+      expect(captured['status'], <String>['CONFIRMED']);
       expect(captured['sort'], 'startsAt,desc');
     });
 
@@ -984,7 +985,7 @@ void main() {
             BookingStatus.completed,
             BookingStatus.notCompleted,
           },
-          ascending: false,
+          sort: BookingSort.newest,
           page: 0,
         );
 
@@ -1004,7 +1005,7 @@ void main() {
     );
 
     test(
-      'ascending true renders sort=startsAt,asc (Майбутні — soonest-first)',
+      'BookingSort.oldest renders sort=startsAt,asc (Майбутні — soonest-first)',
       (() async {
         final envelope = _serializeMyBookingsEnvelope(const []);
         when(
@@ -1022,7 +1023,7 @@ void main() {
 
         await repository.getMyBookings(
           statuses: const <BookingStatus>{BookingStatus.confirmed},
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 0,
         );
 
@@ -1055,7 +1056,7 @@ void main() {
 
       final page = await repository.getMyBookings(
         statuses: const <BookingStatus>{},
-        ascending: false,
+        sort: BookingSort.newest,
         page: 0,
       );
       expect(page.items, isEmpty);
@@ -1084,7 +1085,7 @@ void main() {
       await expectLater(
         repository.getMyBookings(
           statuses: const <BookingStatus>{},
-          ascending: false,
+          sort: BookingSort.newest,
           page: 0,
         ),
         throwsA(isA<NetworkFailure>()),
@@ -1125,7 +1126,7 @@ void main() {
       await expectLater(
         repository.getMyBookings(
           statuses: const <BookingStatus>{},
-          ascending: false,
+          sort: BookingSort.newest,
           page: 0,
         ),
         throwsA(isA<UnknownFailure>()),
@@ -1150,7 +1151,7 @@ void main() {
       await expectLater(
         repository.getMyBookings(
           statuses: const <BookingStatus>{},
-          ascending: false,
+          sort: BookingSort.newest,
           page: 0,
         ),
         throwsA(same(mapped)),

@@ -127,4 +127,116 @@ void main() {
       );
     });
   });
+
+  // ==========================================================================
+  // THE SPLIT AGGREGATORS — the half of this gate that was missing.
+  //
+  // The group above guards `all_tests.dart`. But `all_tests.dart` is NOT what
+  // CI runs: at 19 flows a single long-lived `flutter test` process started
+  // crashing the emulator at teardown, so CI was moved to
+  // `all_tests_part1.dart` + `all_tests_part2.dart` (2026-07-01) and
+  // `all_tests.dart` was demoted to a local convenience entrypoint.
+  //
+  // That left the meta-test guarding the file CI no longer runs. A new flow
+  // wired ONLY into `all_tests.dart` passes every check above, passes CI, and
+  // never executes there — the exact silent-omission regression this file was
+  // written to prevent, reintroduced by the split. `all_tests.dart`'s own
+  // header says "update all THREE files together"; this group is what enforces
+  // it.
+  // ==========================================================================
+  group('E2E split aggregators (all_tests_part1/part2) wiring', () {
+    final File part1 = File('integration_test/all_tests_part1.dart');
+    final File part2 = File('integration_test/all_tests_part2.dart');
+
+    test('both CI entrypoints exist', () {
+      expect(
+        part1.existsSync(),
+        isTrue,
+        reason: 'CI runs all_tests_part1.dart',
+      );
+      expect(
+        part2.existsSync(),
+        isTrue,
+        reason: 'CI runs all_tests_part2.dart',
+      );
+    });
+
+    test('every flow on disk is run by part1 OR part2 — the entrypoints CI '
+        'actually executes', () {
+      final List<String> flowFiles =
+          integrationDir
+              .listSync()
+              .whereType<File>()
+              .map((File f) => f.uri.pathSegments.last)
+              .where((String name) => name.endsWith('_test.dart'))
+              .where(
+                (String name) =>
+                    name != 'all_tests.dart' &&
+                    name != 'all_tests_part1.dart' &&
+                    name != 'all_tests_part2.dart' &&
+                    name != 'test_bundle.dart',
+              )
+              .toList()
+            ..sort();
+
+      expect(flowFiles, isNotEmpty);
+
+      final String src1 = part1.readAsStringSync();
+      final String src2 = part2.readAsStringSync();
+
+      final List<String> missing = <String>[
+        for (final String flow in flowFiles)
+          if (!src1.contains("'$flow'") && !src2.contains("'$flow'")) flow,
+      ];
+
+      expect(
+        missing,
+        isEmpty,
+        reason:
+            'these flow files are in integration_test/ but are wired into '
+            'NEITHER all_tests_part1.dart NOR all_tests_part2.dart, so CI '
+            'will not run them (being present in all_tests.dart is NOT '
+            'enough — CI stopped running that file): $missing',
+      );
+    });
+
+    test('no flow is registered in BOTH halves — a duplicate would run twice '
+        'and double the emulator cost it was split to avoid', () {
+      final RegExp importRe = RegExp(r"import\s+'([a-z0-9_]+_test\.dart)'");
+      Set<String> importsOf(File f) => importRe
+          .allMatches(f.readAsStringSync())
+          .map((RegExpMatch m) => m.group(1)!)
+          .toSet();
+
+      final Set<String> both = importsOf(part1).intersection(importsOf(part2));
+
+      expect(
+        both,
+        isEmpty,
+        reason: 'these flows are wired into both halves of the CI split: $both',
+      );
+    });
+
+    test('every flow imported by a half is registered in a group() there', () {
+      final RegExp importRe = RegExp(
+        r"import\s+'([a-z0-9_]+_test\.dart)'\s+as\s+([a-z0-9_]+)\s*;",
+      );
+
+      for (final File half in <File>[part1, part2]) {
+        final String src = half.readAsStringSync();
+        final List<String> unregistered = <String>[
+          for (final RegExpMatch m in importRe.allMatches(src))
+            if (!src.contains('${m.group(2)}.main')) m.group(1)!,
+        ];
+
+        expect(
+          unregistered,
+          isEmpty,
+          reason:
+              'imported but never registered via group(..., <alias>.main) in '
+              '${half.path}, so they will NOT run: $unregistered',
+        );
+      }
+    });
+  });
 }

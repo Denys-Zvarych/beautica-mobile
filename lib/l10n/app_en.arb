@@ -3700,6 +3700,10 @@
   "@bookingStatusCancelled": {
     "description": "Booking status badge label — CANCELLED and DECLINED share one neutral label (the who-cancelled distinction was dropped by product decision 2026-07-15)."
   },
+  "bookingStatusUnknown": "Status pending",
+  "@bookingStatusUnknown": {
+    "description": "Booking status badge label — BookingStatus.unknown, a wire status this app build does not recognise. Deliberately says nothing about the appointment's state rather than guessing; the row stays visible and tappable but offers no actions."
+  },
   "bookingStatusSemantics": "Status: {label}",
   "@bookingStatusSemantics": {
     "description": "Accessibility label for the booking status badge / hero medallion.",
@@ -4541,5 +4545,21 @@
   "professionalTitleMaxLength": "Max 100 characters",
   "@professionalTitleMaxLength": {
     "description": "Helper / counter note below the professional title field on the master edit screen."
+  },
+  "bookingSortNewest": "Newest first",
+  "@bookingSortNewest": {
+    "description": "Sort option in the independent master's bookings sort sheet: latest appointments first (sort=startsAt,desc). The list default."
+  },
+  "bookingSortOldest": "Oldest first",
+  "@bookingSortOldest": {
+    "description": "Sort option in the independent master's bookings sort sheet: earliest appointments first (sort=startsAt,asc)."
+  },
+  "bookingSortPriceDesc": "Most expensive first",
+  "@bookingSortPriceDesc": {
+    "description": "Sort option in the independent master's bookings sort sheet: highest price first (sort=priceAtBooking,desc)."
+  },
+  "bookingSortPriceAsc": "Cheapest first",
+  "@bookingSortPriceAsc": {
+    "description": "Sort option in the independent master's bookings sort sheet: lowest price first (sort=priceAtBooking,asc)."
   }
 }

@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
@@ -117,7 +118,7 @@ Booking _bookingFixture() => Booking(
   price: _kService.priceMin,
   startAt: DateTime(2026, 7, 20, 14),
   endAt: DateTime(2026, 7, 20, 15, 30),
-  status: BookingStatus.pending,
+  status: BookingStatus.confirmed,
   canReview: false,
 );
 
@@ -159,10 +160,19 @@ class _FakeBookingRepository implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
+    BookingSort? sort,
     required int page,
     int size = kBookingsPageSize,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
   }) => throw UnimplementedError();
 
   @override
@@ -211,6 +221,12 @@ class _RecordingRescheduleRepository implements BookingRepository {
   }
 
   @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+  }) => throw UnimplementedError();
+
+  @override
   Future<Booking> getBookingById(String id) async {
     getBookingByIdCalls++;
     return _bookingFixture();
@@ -218,10 +234,13 @@ class _RecordingRescheduleRepository implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
+    BookingSort? sort,
     required int page,
     int size = kBookingsPageSize,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
   }) async {
     getMyBookingsCalls++;
     return PageResponse<Booking>(

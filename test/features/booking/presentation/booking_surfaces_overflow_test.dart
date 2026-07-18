@@ -60,6 +60,7 @@ import 'package:beautica_mobile/features/booking/application/booking_detail_noti
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
@@ -204,7 +205,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.upcoming.statuses,
-      ascending: true,
+      sort: BookingSort.oldest,
       page: any(named: 'page'),
       size: any(named: 'size'),
     ),
@@ -212,7 +213,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.past.statuses,
-      ascending: false,
+      sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
     ),
@@ -220,7 +221,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.cancelled.statuses,
-      ascending: false,
+      sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
     ),

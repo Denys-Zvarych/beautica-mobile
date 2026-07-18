@@ -359,14 +359,13 @@ class _DetailBody extends StatelessWidget {
   /// tells the client they failed to show up.
   String? _subline(Booking b, AppLocalizations l10n) {
     switch (b.status) {
-      case BookingStatus.pending:
       case BookingStatus.confirmed:
         // The reminder ("Нагадаємо про запис напередодні.") is an
         // upcoming-only affordance. An ELAPSED CONFIRMED booking is already
         // read-only (Reschedule/Cancel/Add-to-calendar all hidden, «Записатись
         // знову» shown), so drop the reminder too — reminding about a visit
         // whose time has passed is meaningless.
-        if (b.status == BookingStatus.confirmed && b.isPast) {
+        if (b.isPast) {
           return null;
         }
         return l10n.bookingDetailSublineConfirmed;
@@ -380,20 +379,24 @@ class _DetailBody extends StatelessWidget {
         return b.atSalon
             ? l10n.bookingDetailSublineDeclinedSalon
             : l10n.bookingDetailSublineDeclinedMaster;
+      // No subline. Every other branch here is the app narrating what the
+      // status MEANS; for a status this build does not recognise there is
+      // nothing truthful to narrate, and the badge already says so.
+      case BookingStatus.unknown:
+        return null;
     }
   }
 
   /// The pinned footer. An empty list renders no footer at all.
   List<Widget> _actions(AppLocalizations l10n) {
     switch (booking.status) {
-      case BookingStatus.pending:
       case BookingStatus.confirmed:
         // An ELAPSED CONFIRMED booking is READ-ONLY: its slot is already in the
         // past, so Reschedule + Cancel no longer apply (the backend 409s both
         // with BOOKING_ALREADY_ELAPSED — the server clock is authoritative).
         // Route it into the SAME «Записатись знову» affordance the terminal
         // states use, rather than showing actions that can only fail.
-        if (booking.status == BookingStatus.confirmed && booking.isPast) {
+        if (booking.isPast) {
           return _rebookActions(l10n);
         }
         return <Widget>[
@@ -451,6 +454,14 @@ class _DetailBody extends StatelessWidget {
       // Deliberately nothing — see the file header.
       case BookingStatus.notCompleted:
         return const <Widget>[];
+
+      // An unrecognised status grants NOTHING that acts on this booking — no
+      // reschedule, no cancel (security S1). «Записатись знову» is the one
+      // safe offer: it starts a brand-new booking flow and touches this record
+      // not at all. Add-to-calendar is already excluded upstream via
+      // `canAddToCalendar`.
+      case BookingStatus.unknown:
+        return _rebookActions(l10n);
     }
   }
 
