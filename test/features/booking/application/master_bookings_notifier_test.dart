@@ -1,9 +1,9 @@
 // Phase 7.1 — masterBookingsProvider + bookedDaysProvider.
 //
-// The headline test here is the SERVER-ORDER guard: a `priceDesc` response is
-// fed back in an order that is deliberately NOT the `startsAt` order, so any
-// client-side re-sort creeping into the notifier shows up as a failure rather
-// than as a plausible-looking wrong list in production.
+// The headline test here is the SERVER-ORDER guard: a response is fed back in
+// an order that is deliberately NOT the `startsAt` order, so any client-side
+// re-sort creeping into the notifier shows up as a failure rather than as a
+// plausible-looking wrong list in production.
 
 import 'dart:async';
 
@@ -92,40 +92,45 @@ void main() {
   }
 
   group('masterBookingsProvider — the query reaches the repository intact', () {
-    test('forwards every filter + sort from the query object', () async {
-      stubBookings(_page(const <Booking>[]));
+    test(
+      'forwards every filter from the query object, plus the FIXED sort',
+      () async {
+        stubBookings(_page(const <Booking>[]));
 
-      final query = MasterBookingsQuery.of(
-        statuses: <BookingStatus>{
-          BookingStatus.confirmed,
-          BookingStatus.completed,
-        },
-        serviceIds: <String>{'svc-a', 'svc-b'},
-        from: DateTime(2026, 7, 1),
-        to: DateTime(2026, 7, 31),
-        sort: BookingSort.priceDesc,
-      );
-
-      await _containerWith(repo).read(masterBookingsProvider(query).future);
-
-      // Perf P5 — the notifier now forwards the query's CANONICAL LISTS
-      // verbatim rather than round-tripping each through a throwaway `.toSet()`
-      // on every fetch, so what the repository receives is `.of()`'s sorted,
-      // unmodifiable List (statuses by enum index, serviceIds lexicographic).
-      verify(
-        () => repo.getMyBookings(
-          statuses: <BookingStatus>[
+        final query = MasterBookingsQuery.of(
+          statuses: <BookingStatus>{
             BookingStatus.confirmed,
             BookingStatus.completed,
-          ],
-          serviceIds: <String>['svc-a', 'svc-b'],
+          },
+          serviceIds: <String>{'svc-a', 'svc-b'},
           from: DateTime(2026, 7, 1),
           to: DateTime(2026, 7, 31),
-          sort: BookingSort.priceDesc,
-          page: 0,
-        ),
-      ).called(1);
-    });
+        );
+
+        await _containerWith(repo).read(masterBookingsProvider(query).future);
+
+        // Perf P5 — the notifier now forwards the query's CANONICAL LISTS
+        // verbatim rather than round-tripping each through a throwaway `.toSet()`
+        // on every fetch, so what the repository receives is `.of()`'s sorted,
+        // unmodifiable List (statuses by enum index, serviceIds lexicographic).
+        verify(
+          () => repo.getMyBookings(
+            statuses: <BookingStatus>[
+              BookingStatus.confirmed,
+              BookingStatus.completed,
+            ],
+            serviceIds: <String>['svc-a', 'svc-b'],
+            from: DateTime(2026, 7, 1),
+            to: DateTime(2026, 7, 31),
+            // Phase 7.8 — the query no longer carries a sort; the notifier sends
+            // this constant. Pinned so a silent switch to the server default
+            // (dropping the param) or to `oldest` cannot pass.
+            sort: BookingSort.newest,
+            page: 0,
+          ),
+        ).called(1);
+      },
+    );
 
     test(
       'exposes the server\'s totalElements, not items.length — the toolbar '
@@ -209,10 +214,10 @@ void main() {
   });
 
   group('masterBookingsProvider — SERVER ORDER IS PRESERVED', () {
-    test('a priceDesc page reaches the consumer in the server\'s order, NOT '
+    test('a page reaches the consumer in the server\'s order, NOT '
         're-sorted by startsAt', () async {
-      // Price-descending, and deliberately scrambled relative to startsAt: if
-      // anything re-sorts by date, the ids come back in a different order.
+      // Deliberately scrambled relative to startsAt: if anything re-sorts by
+      // date, the ids come back in a different order.
       final List<Booking> serverOrder = <Booking>[
         _booking(id: 'expensive', price: 900, startAt: DateTime(2026, 7, 20)),
         _booking(id: 'mid', price: 500, startAt: DateTime(2026, 7, 10)),
@@ -220,11 +225,9 @@ void main() {
       ];
       stubBookings(_page(serverOrder));
 
-      final MasterBookingsState state = await _containerWith(repo).read(
-        masterBookingsProvider(
-          MasterBookingsQuery.of(sort: BookingSort.priceDesc),
-        ).future,
-      );
+      final MasterBookingsState state = await _containerWith(
+        repo,
+      ).read(masterBookingsProvider(MasterBookingsQuery.of()).future);
 
       expect(state.items.map((Booking b) => b.id), <String>[
         'expensive',
@@ -235,7 +238,7 @@ void main() {
 
     test('loadMore APPENDS the next page verbatim — no merge-sort across the '
         'page boundary', () async {
-      final query = MasterBookingsQuery.of(sort: BookingSort.priceDesc);
+      final query = MasterBookingsQuery.of();
 
       when(
         () => repo.getMyBookings(

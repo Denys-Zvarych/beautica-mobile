@@ -15,7 +15,6 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/master_bookings_query.dart';
 
@@ -31,7 +30,6 @@ void main() {
         serviceIds: <String>{'svc-a', 'svc-b'},
         from: DateTime(2026, 7, 1),
         to: DateTime(2026, 7, 31),
-        sort: BookingSort.priceDesc,
       );
       final b = MasterBookingsQuery.of(
         statuses: <BookingStatus>{
@@ -41,7 +39,6 @@ void main() {
         serviceIds: <String>{'svc-a', 'svc-b'},
         from: DateTime(2026, 7, 1),
         to: DateTime(2026, 7, 31),
-        sort: BookingSort.priceDesc,
       );
 
       expect(a, equals(b));
@@ -50,14 +47,6 @@ void main() {
 
     test('the default query (no args) is == to another default query', () {
       expect(MasterBookingsQuery.of(), equals(MasterBookingsQuery.of()));
-    });
-
-    test('a different sort is a DIFFERENT key (sort is server-side, so it '
-        'must refetch)', () {
-      expect(
-        MasterBookingsQuery.of(sort: BookingSort.newest),
-        isNot(equals(MasterBookingsQuery.of(sort: BookingSort.priceAsc))),
-      );
     });
 
     test('a different status set is a different key', () {
@@ -191,13 +180,6 @@ void main() {
   group('MasterBookingsQuery.hasFilters', () {
     test('a default query has no filters', () {
       expect(MasterBookingsQuery.of().hasFilters, isFalse);
-    });
-
-    test('sort alone is NOT a filter — it reorders, it never hides a row', () {
-      expect(
-        MasterBookingsQuery.of(sort: BookingSort.priceAsc).hasFilters,
-        isFalse,
-      );
     });
 
     test('each of statuses / serviceIds / from / to counts as a filter', () {

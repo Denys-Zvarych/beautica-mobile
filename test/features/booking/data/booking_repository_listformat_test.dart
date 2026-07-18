@@ -220,16 +220,16 @@ void main() {
       final String q = await rawQuery(
         () => repository.getMyBookings(
           statuses: const <BookingStatus>{},
-          sort: BookingSort.priceDesc,
+          sort: BookingSort.oldest,
           page: 0,
         ),
       );
 
-      expect(q, contains('sort=priceAtBooking,desc'));
+      expect(q, contains('sort=startsAt,asc'));
       // Guards the mirror-image mistake: sending the sort as a two-element
-      // List would render `sort=priceAtBooking&sort=desc`, which the 26.6
+      // List would render `sort=startsAt&sort=asc`, which the 26.6
       // whitelist rejects with a 400.
-      expect(q, isNot(contains('sort=desc')));
+      expect(q, isNot(contains('sort=asc')));
     });
   });
 

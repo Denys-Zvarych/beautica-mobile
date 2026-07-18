@@ -1,8 +1,15 @@
 // Phase 7.1 — MasterBookingsQuery: the family key for [masterBookingsProvider].
 //
-// One value object carrying every server-side filter + sort the independent
-// master's «Мої записи» screen can express. Changing any filter builds a NEW
-// query → a NEW family member → a fresh page 0.
+// One value object carrying every server-side filter the independent master's
+// «Мої записи» screen can express. Changing any filter builds a NEW query → a
+// NEW family member → a fresh page 0.
+//
+// ## No `sort` field (Phase 7.8)
+//
+// It used to carry one. Sorting was retired as a user-facing feature, so there
+// is nothing left to vary: `MasterBookingsNotifier` sends a fixed
+// `BookingSort.newest`. Keeping the field would have kept the family key wider
+// than the set of states the UI can actually reach.
 //
 // ## Why `List`, not `Set`
 //
@@ -50,13 +57,12 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 
-import 'booking_sort.dart';
 import 'booking_status.dart';
 
 part 'master_bookings_query.freezed.dart';
 
-/// An immutable, canonically-normalised filter+sort for the master's booking
-/// list. Build with [MasterBookingsQuery.of].
+/// An immutable, canonically-normalised filter for the master's booking list.
+/// Build with [MasterBookingsQuery.of].
 @freezed
 abstract class MasterBookingsQuery with _$MasterBookingsQuery {
   /// Pass-through freezed constructor. Assumes [statuses]/[serviceIds] are
@@ -71,7 +77,6 @@ abstract class MasterBookingsQuery with _$MasterBookingsQuery {
     required List<String> serviceIds,
     DateTime? from,
     DateTime? to,
-    required BookingSort sort,
   }) = _MasterBookingsQuery;
 
   const MasterBookingsQuery._();
@@ -90,7 +95,6 @@ abstract class MasterBookingsQuery with _$MasterBookingsQuery {
     Set<String> serviceIds = const <String>{},
     DateTime? from,
     DateTime? to,
-    BookingSort sort = BookingSort.newest,
   }) {
     final List<BookingStatus> sortedStatuses = statuses.toList(growable: false)
       ..sort((BookingStatus a, BookingStatus b) => a.index.compareTo(b.index));
@@ -102,12 +106,11 @@ abstract class MasterBookingsQuery with _$MasterBookingsQuery {
       serviceIds: List<String>.unmodifiable(sortedServiceIds),
       from: from == null ? null : dateOnly(from),
       to: to == null ? null : dateOnly(to),
-      sort: sort,
     );
   }
 
-  /// Whether any filter narrows the list (sort alone is not a filter) — drives
-  /// the toolbar's "filters active" affordance and the empty state's copy.
+  /// Whether any filter narrows the list — drives the toolbar's "filters
+  /// active" affordance and the empty state's copy.
   bool get hasFilters =>
       statuses.isNotEmpty ||
       serviceIds.isNotEmpty ||

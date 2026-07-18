@@ -616,6 +616,19 @@ abstract final class VelvetText {
     fontSize: 11.5,
   );
 
+  /// Phase 7.7 — the digit inside the «Мої записи» active-filter count badge.
+  ///
+  /// Cream (`BrandColors.white`, #F5EDE0) on the MOCHA badge fill — the design's
+  /// `_AccentDot` is camel, but a dot carries no text and camel/cream is ~2:1,
+  /// well under WCAG AA. `accentDeep` keeps the badge on-brand at ~7:1. `height:
+  /// 1` so a single digit centres inside an 18dp pill instead of sitting low on
+  /// the Nunito baseline.
+  static final TextStyle filterBadge = _bodyStrongStyle.copyWith(
+    fontSize: 9,
+    height: 1,
+    color: BrandColors.white,
+  );
+
   // ---------------------------------------------------------------------------
   // Services — list cards, setup accordion, pricing segments, photo slot.
   // ---------------------------------------------------------------------------

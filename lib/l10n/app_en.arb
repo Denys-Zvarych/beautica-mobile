@@ -4546,22 +4546,6 @@
   "@professionalTitleMaxLength": {
     "description": "Helper / counter note below the professional title field on the master edit screen."
   },
-  "bookingSortNewest": "Newest first",
-  "@bookingSortNewest": {
-    "description": "Sort option in the independent master's bookings sort sheet: latest appointments first (sort=startsAt,desc). The list default."
-  },
-  "bookingSortOldest": "Oldest first",
-  "@bookingSortOldest": {
-    "description": "Sort option in the independent master's bookings sort sheet: earliest appointments first (sort=startsAt,asc)."
-  },
-  "bookingSortPriceDesc": "Most expensive first",
-  "@bookingSortPriceDesc": {
-    "description": "Sort option in the independent master's bookings sort sheet: highest price first (sort=priceAtBooking,desc)."
-  },
-  "bookingSortPriceAsc": "Cheapest first",
-  "@bookingSortPriceAsc": {
-    "description": "Sort option in the independent master's bookings sort sheet: lowest price first (sort=priceAtBooking,asc)."
-  },
   "bookingDetailGuestClient": "Guest",
   "@bookingDetailGuestClient": {
     "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
@@ -4627,6 +4611,79 @@
   },
   "masterBookingsClearFilters": "Clear filters",
   "@masterBookingsClearFilters": {
-    "description": "The escape hatch on the master's filter-empty state — clears every filter (preserving the chosen sort) so the master is never stranded on a blank list."
+    "description": "The escape hatch on the master's filter-empty state — clears every filter so the master is never stranded on a blank list."
+  },
+  "bookingFilterSheetTitle": "Filters",
+  "@bookingFilterSheetTitle": {
+    "description": "Title of the filter bottom sheet on the master's «Мої записи» screen."
+  },
+  "bookingFilterButtonLabel": "Booking filters",
+  "@bookingFilterButtonLabel": {
+    "description": "Accessibility label for the filter button in the master's booking-list header."
+  },
+  "bookingFilterSectionDate": "Date",
+  "@bookingFilterSectionDate": {
+    "description": "Filter-sheet section heading for the date/period control."
+  },
+  "bookingFilterSectionStatus": "Status",
+  "@bookingFilterSectionStatus": {
+    "description": "Filter-sheet section heading for the multi-select status rows."
+  },
+  "bookingFilterSectionService": "Service",
+  "@bookingFilterSectionService": {
+    "description": "Filter-sheet section heading for the multi-select service rows."
+  },
+  "bookingFilterDateAny": "Any date",
+  "@bookingFilterDateAny": {
+    "description": "Placeholder on the filter sheet's date row when no day or period is chosen."
+  },
+  "bookingFilterDateSemantics": "Choose a date or period",
+  "@bookingFilterDateSemantics": {
+    "description": "Accessibility label for the filter sheet's date row."
+  },
+  "bookingFilterClearDate": "Clear period",
+  "@bookingFilterClearDate": {
+    "description": "Accessibility label for the ✕ that clears the chosen day or period. Verbatim from the approved design's range banner."
+  },
+  "bookingFilterReset": "Clear filters",
+  "@bookingFilterReset": {
+    "description": "Link that clears every filter in the sheet's draft state, without applying. Verbatim from the approved design."
+  },
+  "bookingFilterResetSemantics": "Clear all filters",
+  "@bookingFilterResetSemantics": {
+    "description": "Accessibility label for the filter sheet's reset link."
+  },
+  "bookingFilterApply": "Apply",
+  "@bookingFilterApply": {
+    "description": "The filter sheet's confirm affordance — the only control that writes the draft onto the query. Verbatim from the approved design."
+  },
+  "bookingFilterApplySemantics": "Apply filters",
+  "@bookingFilterApplySemantics": {
+    "description": "Accessibility label for the filter sheet's apply button."
+  },
+  "bookingFilterDatePickerTitle": "Choose a date or period",
+  "@bookingFilterDatePickerTitle": {
+    "description": "Header of the booking date/period calendar. Verbatim from the approved design."
+  },
+  "bookingFilterDatePickerEmptyHint": "Choose a day",
+  "@bookingFilterDatePickerEmptyHint": {
+    "description": "Summary pill copy in the booking calendar before any day is tapped. Verbatim from the approved design."
+  },
+  "bookingFilterDatePickerSave": "Done",
+  "@bookingFilterDatePickerSave": {
+    "description": "Confirm CTA in the booking date/period calendar. Verbatim from the approved design."
+  },
+  "bookingFilterDatePickerBack": "Back",
+  "@bookingFilterDatePickerBack": {
+    "description": "Accessibility label for the booking calendar's back affordance."
+  },
+  "bookingFilterActiveCount": "{count, plural, one{{count} filter} other{{count} filters}}",
+  "@bookingFilterActiveCount": {
+    "description": "Announced as the filter button's accessibility value when filters are active — the count of ACTIVE FILTER GROUPS (date / status / service), not the number of selected values.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

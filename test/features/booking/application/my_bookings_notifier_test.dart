@@ -274,56 +274,174 @@ void main() {
     );
   });
 
-  group('sort direction argument per tab', () {
-    test(
-      'Майбутні requests sort: BookingSort.oldest (soonest-first)',
-      () async {
+  // ── The Phase 7.8 regression guard ──────────────────────────────────────
+  //
+  // Sorting was retired as a USER-FACING feature (no sheet, no button, no
+  // screen state). `BookingSort` survives precisely because these three tabs
+  // need a specific order to read correctly, and that ordering has NO UI — so
+  // nothing else in the app would notice if it silently flipped.
+  //
+  // That is what makes this the load-bearing test: delete the enum, drop the
+  // repository's `sort` param, or "simplify" the ternary in
+  // `MyBookingsNotifier`, and the shipped client's lists scramble with no
+  // compile error and no other failing test.
+  //
+  // Asserts the WIRE VALUE, not just the enum member. Verifying
+  // `BookingSort.oldest` alone would stay green if someone swapped that
+  // member's `wireValue` to `'startsAt,desc'` — the tab would then be exactly
+  // backwards while the assertion still passed.
+  group('sort direction argument per tab (Phase 7.8 regression guard)', () {
+    // MUTATION: swapped the ternary in `MyBookingsNotifier._fetchFirstPage` to
+    // send `newest` for upcoming → the Майбутні case failed. Restored.
+    //
+    // MUTATION: swapped `BookingSort.oldest`'s wireValue to `'startsAt,desc'`
+    // → the Майбутні case failed on the wireValue assertion while the enum
+    // assertion still passed — which is exactly the hole this group closes.
+    // Restored.
+    for (final (BookingTab tab, BookingSort expected, String wire, String why)
+        in <(BookingTab, BookingSort, String, String)>[
+          (
+            BookingTab.upcoming,
+            BookingSort.oldest,
+            'startsAt,asc',
+            'Майбутні is a "what is next" list — soonest MUST be on top',
+          ),
+          (
+            BookingTab.past,
+            BookingSort.newest,
+            'startsAt,desc',
+            'Минулі is history — most recent on top',
+          ),
+          (
+            BookingTab.cancelled,
+            BookingSort.newest,
+            'startsAt,desc',
+            'Скасовані is history too — most recent on top',
+          ),
+        ]) {
+      test('${tab.name} requests $expected ($wire)', () async {
         final repo = _MockBookingRepository();
-        _stubTab(
-          repo,
-          BookingTab.upcoming,
-          page: 0,
-          response: _page(const <Booking>[]),
-        );
+        _stubTab(repo, tab, page: 0, response: _page(const <Booking>[]));
         final c = _container(repo);
 
-        await c.read(myBookingsProvider(BookingTab.upcoming).future);
+        await c.read(myBookingsProvider(tab).future);
 
-        verify(
-          () => repo.getMyBookings(
-            statuses: any(named: 'statuses'),
-            sort: BookingSort.oldest,
-            page: 0,
-            size: any(named: 'size'),
-          ),
-        ).called(1);
-      },
-    );
+        final BookingSort? sent =
+            verify(
+                  () => repo.getMyBookings(
+                    statuses: any(named: 'statuses'),
+                    sort: captureAny(named: 'sort'),
+                    page: 0,
+                    size: any(named: 'size'),
+                  ),
+                ).captured.single
+                as BookingSort?;
 
-    test(
-      'Минулі requests sort: BookingSort.newest (most-recent-first)',
-      () async {
-        final repo = _MockBookingRepository();
-        _stubTab(
-          repo,
-          BookingTab.past,
-          page: 0,
-          response: _page(const <Booking>[]),
+        expect(sent, expected, reason: why);
+        expect(
+          sent?.wireValue,
+          wire,
+          reason:
+              'the wire value is what actually orders the list — $why. A '
+              'wireValue swap on the enum member would pass the assertion '
+              'above and still ship the tab backwards.',
         );
-        final c = _container(repo);
+      });
+    }
 
-        await c.read(myBookingsProvider(BookingTab.past).future);
+    // The ternary is duplicated: `_fetchFirstPage` (page 0) and `loadMore`
+    // (page N+1) each pick the sort independently. The cases above only drive
+    // page 0, so they pin the FIRST copy and say nothing about the second.
+    //
+    // The `loadMore` group below does exercise a real append — but on the
+    // CANCELLED tab, whose expected sort is `newest`. Changing `loadMore`'s
+    // ternary to send `newest` unconditionally is therefore invisible to it:
+    // verified by mutation, that edit left the entire file green (18/18).
+    // Upcoming is the only tab where the ternary's two branches differ, so it
+    // is the only tab whose append can prove the second copy is still there.
+    //
+    // The bug that hole allows is not academic: page 0 of Майбутні would
+    // arrive soonest-first and page 1 would arrive most-recent-first, appended
+    // verbatim (the notifier never re-sorts, by design). The list reads
+    // correctly until the user scrolls, then silently inverts mid-list.
+    //
+    // MUTATION: replaced `loadMore`'s ternary with a bare
+    // `sort: BookingSort.newest` → this test failed on the captured sort while
+    // all 18 pre-existing tests still passed. Restored.
+    test('loadMore on Майбутні re-sends oldest — the page-N+1 ternary is a '
+        'SECOND copy, not covered by the page-0 cases above', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(
+          <Booking>[
+            _booking(
+              id: 'u0',
+              status: BookingStatus.confirmed,
+              startAt: DateTime.utc(2026, 8, 1),
+            ),
+          ],
+          page: 0,
+          totalPages: 2,
+        ),
+      );
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 1,
+        response: _page(
+          <Booking>[
+            _booking(
+              id: 'u1',
+              status: BookingStatus.confirmed,
+              startAt: DateTime.utc(2026, 8, 2),
+            ),
+          ],
+          page: 1,
+          totalPages: 2,
+        ),
+      );
+      final c = _container(repo);
 
-        verify(
-          () => repo.getMyBookings(
-            statuses: any(named: 'statuses'),
-            sort: BookingSort.newest,
-            page: 0,
-            size: any(named: 'size'),
-          ),
-        ).called(1);
-      },
-    );
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
+      await c.read(myBookingsProvider(BookingTab.upcoming).notifier).loadMore();
+
+      // The append must actually have happened — otherwise a sort mismatch
+      // that made the page-1 stub miss would leave the list at one item and
+      // the capture below would have nothing to disagree with.
+      expect(
+        c
+            .read(myBookingsProvider(BookingTab.upcoming))
+            .value!
+            .items
+            .map((Booking b) => b.id),
+        <String>['u0', 'u1'],
+        reason: 'page 1 did not append — check the page-1 stub matched',
+      );
+
+      final BookingSort? sentForPageOne =
+          verify(
+                () => repo.getMyBookings(
+                  statuses: any(named: 'statuses'),
+                  sort: captureAny(named: 'sort'),
+                  page: 1,
+                  size: any(named: 'size'),
+                ),
+              ).captured.single
+              as BookingSort?;
+
+      expect(sentForPageOne, BookingSort.oldest);
+      expect(
+        sentForPageOne?.wireValue,
+        'startsAt,asc',
+        reason:
+            'page 1 of Майбутні must continue the soonest-first ordering page '
+            '0 established. loadMore appends VERBATIM with no client re-sort, '
+            'so a descending page 1 inverts the list from the fold down.',
+      );
+    });
   });
 
   group('loadMore', () {

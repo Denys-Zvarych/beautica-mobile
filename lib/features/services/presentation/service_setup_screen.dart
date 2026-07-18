@@ -42,12 +42,12 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_setup_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
-import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_setup_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
 /// First-time service setup — the single empty-state screen for a master with
 /// zero services.
@@ -406,7 +406,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
 
     if (created != null) {
       // Success — refresh the list and land on it (now populated).
-      ref.invalidate(servicesListProvider);
+      invalidateMasterServiceCatalogues(ref);
       _showSnack(l10n.serviceSetupSuccess);
       if (context.canPop()) {
         context.pop();
@@ -421,7 +421,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     if (error is MasterAlreadyHasServicesFailure) {
       // The first-time guard tripped: the catalogue is no longer empty, so
       // refresh + route to the (now-populated) list rather than retry.
-      ref.invalidate(servicesListProvider);
+      invalidateMasterServiceCatalogues(ref);
       _showSnack(error.userMessage(context));
       if (context.canPop()) {
         context.pop();

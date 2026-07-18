@@ -1,30 +1,26 @@
 // Phase 7.1 — the independent master's «Мої записи» list: paged, server-
-// filtered, server-sorted.
+// filtered, server-ordered.
 //
 // A `@riverpod` AsyncNotifier family keyed by [MasterBookingsQuery]. Changing
-// any filter or the sort builds a new query → a new family member → a fresh
-// page 0, with the previous member disposed once the screen stops watching it.
+// any filter builds a new query → a new family member → a fresh page 0, with
+// the previous member disposed once the screen stops watching it.
 //
 // ## The server owns the order — the client must never re-sort
 //
 // This is the single most important invariant here, and the reason this
 // notifier exists rather than reusing the client's. `MyBookingsNotifier`'s
 // ancestor once merged + re-sorted pages client-side; that is actively WRONG
-// for this screen, twice over:
+// for this screen:
 //
-//   1. It silently defeats the sort the user picked. A client-side
-//      `items.sort((a,b) => b.startAt.compareTo(a.startAt))` would quietly
-//      undo «Дорожчі спершу» — the list would look plausible and be wrong,
-//      with no error anywhere.
-//   2. It breaks pagination even for the sort it implements. Page N+1 is the
-//      server's next slice of a GLOBAL ordering; re-sorting only the rows
-//      paged in SO FAR reshuffles already-viewed rows on every load-more and
-//      lets a later-arriving booking land mid-list above rows the user has
-//      already scrolled past.
+//   Page N+1 is the server's next slice of a GLOBAL ordering. Re-sorting only
+//   the rows paged in SO FAR reshuffles already-viewed rows on every load-more
+//   and lets a later-arriving booking land mid-list above rows the user has
+//   already scrolled past. The list would look plausible and be wrong, with no
+//   error anywhere.
 //
 // So [loadMore] appends verbatim. There is no comparator in this file, and
 // adding one is a bug — `master_bookings_notifier_test.dart` pins this with a
-// `priceDesc` response whose order is deliberately NOT the `startsAt` order.
+// response deliberately NOT in `startsAt` order.
 //
 // ## autoDispose + a bounded TTL — not `keepAlive: true`
 //
@@ -53,6 +49,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import '../data/booking_providers.dart';
 import '../data/booking_repository.dart';
 import '../domain/booking.dart';
+import '../domain/booking_sort.dart';
 import '../domain/master_bookings_query.dart';
 import '../domain/master_bookings_state.dart';
 
@@ -81,6 +78,23 @@ const Duration kMasterBookingsKeepAlive = Duration(minutes: 5);
 /// while cutting worst-case retention from a browsing session by more than
 /// half. The audited 5-minute decision for the landing query is untouched.
 const Duration kMasterBookingsDatedKeepAlive = Duration(minutes: 2);
+
+/// The ordering this screen requests, fixed in code (Phase 7.8).
+///
+/// Sorting was retired as a user-facing feature, so [MasterBookingsQuery] no
+/// longer carries a `sort` and there is nothing for the master to choose. This
+/// constant is deliberately [BookingSort.newest] — the value the screen already
+/// defaulted to — so the emitted URL stays byte-identical to what shipped
+/// (`sort=startsAt,desc`). Dropping the param entirely would have handed
+/// ordering to the server's default, which is a behaviour change this phase did
+/// not ask for.
+///
+/// Phase 7.9 replaces [MasterBookingsQuery] with `BookingsDayQuery` and moves
+/// this surface to a hard-coded `startsAt,asc`, because a timeline grid reads
+/// top-down through the day. That is a deliberate two-step: this phase removes
+/// the feature, 7.9 changes the ordering along with the container that makes
+/// the new ordering correct.
+const BookingSort _fixedSort = BookingSort.newest;
 
 Duration _keepAliveFor(MasterBookingsQuery query) =>
     (query.from != null || query.to != null)
@@ -125,7 +139,7 @@ class MasterBookingsNotifier extends _$MasterBookingsNotifier {
       serviceIds: query.serviceIds,
       from: query.from,
       to: query.to,
-      sort: query.sort,
+      sort: _fixedSort,
       page: 0,
     );
 
@@ -198,7 +212,7 @@ class MasterBookingsNotifier extends _$MasterBookingsNotifier {
         serviceIds: query.serviceIds,
         from: query.from,
         to: query.to,
-        sort: query.sort,
+        sort: _fixedSort,
         page: current.page + 1,
       );
 

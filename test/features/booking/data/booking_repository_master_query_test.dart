@@ -369,8 +369,9 @@ void main() {
     for (final (BookingSort sort, String wire) in <(BookingSort, String)>[
       (BookingSort.newest, 'startsAt,desc'),
       (BookingSort.oldest, 'startsAt,asc'),
-      (BookingSort.priceDesc, 'priceAtBooking,desc'),
-      (BookingSort.priceAsc, 'priceAtBooking,asc'),
+      // Phase 7.8 retired the `priceAtBooking,*` members with the sort UI.
+      // This list is exhaustive over `BookingSort` on purpose — a new member
+      // added without a wire mapping should show up as a gap here.
     ]) {
       test('$sort maps to the sort value $wire', () async {
         final q = await capturedQuery(
@@ -424,7 +425,7 @@ void main() {
           serviceIds: <String>{'svc-b', 'svc-a'},
           from: DateTime(2026, 7, 1),
           to: DateTime(2026, 7, 31),
-          sort: BookingSort.priceDesc,
+          sort: BookingSort.oldest,
           page: 2,
         ),
       );
@@ -432,7 +433,7 @@ void main() {
       expect(q, <String, dynamic>{
         'page': 2,
         'size': kBookingsPageSize,
-        'sort': 'priceAtBooking,desc',
+        'sort': 'startsAt,asc',
         // Perf P5 — statuses are canonicalised by enum INDEX (confirmed(0)
         // before completed(1)), matching `MasterBookingsQuery.of`. This used
         // to read ['COMPLETED', 'CONFIRMED'] because the repository sorted by

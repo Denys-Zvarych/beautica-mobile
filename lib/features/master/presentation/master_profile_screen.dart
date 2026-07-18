@@ -53,6 +53,7 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import 'package:beautica_mobile/core/theme/beautica_icons.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
 import 'master_profile_notifier.dart';
 import 'widgets/profile_avatar.dart';
@@ -222,7 +223,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       // Riverpod 3.x note: invalidate + await .future — never gate on value==null.
       onRefresh: () async {
         ref.invalidate(masterProfileProvider);
-        ref.invalidate(servicesListProvider);
+        invalidateMasterServiceCatalogues(ref);
         await Future.wait([
           ref.read(masterProfileProvider.future),
           ref.read(servicesListProvider.future),

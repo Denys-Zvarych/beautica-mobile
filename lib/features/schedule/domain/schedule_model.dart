@@ -18,6 +18,13 @@
 
 import 'package:flutter/material.dart';
 
+// Phase 7.7 — the nominative month table moved to `shared/formatters/` when the
+// range calendar was promoted to `shared/widgets/` and gained a second (booking)
+// caller. Re-exported so every existing `monthNominative(...)` call site in the
+// schedule feature keeps resolving through this file unchanged.
+export 'package:beautica_mobile/shared/formatters/month_names.dart'
+    show monthNominative;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Calendar / time formatting helpers (Ukrainian).
 // Shared verbatim with the TimeOffScreen preview's month tables so the two
@@ -54,23 +61,7 @@ const List<String> _monthsGenitive = <String>[
   'грудня',
 ];
 
-const List<String> _monthsNominative = <String>[
-  'Січень',
-  'Лютий',
-  'Березень',
-  'Квітень',
-  'Травень',
-  'Червень',
-  'Липень',
-  'Серпень',
-  'Вересень',
-  'Жовтень',
-  'Листопад',
-  'Грудень',
-];
-
 String monthShort(int month) => _monthsShort[month - 1];
-String monthNominative(int month) => _monthsNominative[month - 1];
 
 /// Long human date — e.g. "29 травня".
 String formatDay(DateTime d) => '${d.day} ${_monthsGenitive[d.month - 1]}';

@@ -12,11 +12,10 @@
 // The preview's `_visible` getter and its `sort()` (`bookings_toolbar.dart:
 // 315-347`) are NOT ported. They exist because the preview has no server.
 // Phase 7.1 moved every one of them onto `MasterBookingsQuery`, and porting
-// them back would be actively wrong twice over: a client-side sort silently
-// defeats the sort the user picked, and re-sorting only the rows paged in SO
-// FAR reshuffles already-viewed rows on every load-more. There is no
-// comparator and no `.where()` over `items` anywhere in this file. The list is
-// rendered in server order, verbatim.
+// them back would be actively wrong: re-sorting only the rows paged in SO FAR
+// reshuffles already-viewed rows on every load-more. There is no comparator
+// and no `.where()` over `items` anywhere in this file. The list is rendered
+// in server order, verbatim.
 //
 // ## ONE date field, not a `_day` + a `_range`
 //
@@ -33,14 +32,26 @@
 // This is the one deliberate divergence from the approved preview, and it is
 // forced by the data layer rather than chosen. See `_BookingsList`'s doc.
 //
-// ## Phase 7.7 insertion points
+// ## Phase 7.7 — filter and the range calendar
 //
-// The sort sheet, the filter sheet and the range calendar are Phase 7.7. This
-// screen deliberately renders NO sort/filter buttons yet: a visible affordance
-// that opens nothing reads as a broken screen. The seams are
-// `_openCalendar`/`_applySort`/`_applyFilters` — each already has the query
-// plumbing it needs, so 7.7 adds sheets and wires them, and changes nothing
-// here structurally.
+// Filled in exactly at the seams Phase 7.6 left: `_openCalendar` and
+// `_applyFilters`, plus the header's trailing slot. Nothing structural changed
+// — both still resolve to ONE new `MasterBookingsQuery` handed to `_setQuery`,
+// and the two `Consumer`s below are untouched.
+//
+// The sheets are pure widgets that RESOLVE with a value; neither touches a
+// provider. That is what keeps `_setQuery` the single mutation path (see its
+// doc for what a bypass costs) and what lets the filter sheet be tested
+// without a provider container.
+//
+// ## Phase 7.8 — sorting retired
+//
+// The sort button, its sheet and `_applySort` are gone, and
+// `MasterBookingsQuery` no longer carries a `sort`. The ordering is now fixed
+// in `MasterBookingsNotifier`. The approved design never shipped a sort sheet
+// — the four sorts came from the phase docs — and Phase 7.9 replaces this
+// body with the design's timeline grid, where a card's POSITION is its time
+// and no ordering could move it.
 //
 // SEC: this screen renders client names and, through the detail it pushes,
 // free-text notes — a heavier PII surface than the client-side «Мої записи».
@@ -64,10 +75,15 @@ import 'package:beautica_mobile/shared/formatters/api_date.dart';
 
 import '../application/booked_days_notifier.dart';
 import '../application/master_bookings_notifier.dart';
+import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
+
 import '../domain/booking.dart';
 import '../domain/master_bookings_query.dart';
 import '../domain/master_bookings_state.dart';
 import 'widgets/bookings_day_rail.dart';
+import 'widgets/bookings_filter_sheet.dart';
+import 'widgets/date_range_calendar.dart';
 import 'widgets/master_booking_card.dart';
 import 'widgets/master_bookings_states.dart';
 import 'widgets/my_bookings_states.dart';
@@ -91,7 +107,7 @@ class MasterBookingsScreen extends ConsumerStatefulWidget {
 }
 
 class _MasterBookingsScreenState extends ConsumerState<MasterBookingsScreen> {
-  /// The single source of truth for every server-side filter + the sort.
+  /// The single source of truth for every server-side filter.
   /// Always built through `MasterBookingsQuery.of` — never `.raw`, which skips
   /// the date normalisation that keeps the provider family bounded (guarded by
   /// `scripts/forbid_raw_bookings_query.sh`).
@@ -232,40 +248,125 @@ class _MasterBookingsScreenState extends ConsumerState<MasterBookingsScreen> {
           serviceIds: _query.serviceIds.toSet(),
           from: day,
           to: day,
-          sort: _query.sort,
         ),
       );
     });
   }
 
-  /// «Всі» — clears the date narrowing only, keeping status/service filters
-  /// and the sort. It is a DATE control, not a reset-everything button.
+  /// «Всі» — clears the date narrowing only, keeping status/service filters.
+  /// It is a DATE control, not a reset-everything button.
   void _selectAllDays() {
     _dayDebounce?.cancel();
     _setQuery(
       MasterBookingsQuery.of(
         statuses: _query.statuses.toSet(),
         serviceIds: _query.serviceIds.toSet(),
-        sort: _query.sort,
       ),
     );
   }
 
   /// The «Скинути фільтри» escape hatch on the filter-empty state — clears
-  /// every filter but preserves the chosen sort (the sort is not a filter, and
-  /// silently reverting it would be a second surprise).
+  /// every filter, returning the query to its landing state.
   void _clearAllFilters() {
     _dayDebounce?.cancel();
-    _setQuery(MasterBookingsQuery.of(sort: _query.sort));
+    _setQuery(MasterBookingsQuery.of());
     _centreRailOn(_today, animated: true);
   }
 
-  /// Phase 7.7 insertion point — the single/range calendar. Registered now so
-  /// the rail's calendar button is wired to something real the moment the
-  /// picker lands; until then it is a no-op rather than a half-built sheet.
-  void _openCalendar() {
-    // Phase 7.7 — `DateRangeCalendar.show(...)` then `_applyDateRange(picked)`.
+  /// Opens the single/range calendar and narrows the DATE bounds to whatever
+  /// comes back.
+  ///
+  /// A range SUPERSEDES the rail's single-day selection for free, because
+  /// there is only one date field to write — see the file header. Dismissing
+  /// the picker resolves `null` and changes nothing; it is not a clear.
+  Future<void> _openCalendar() async {
+    _dayDebounce?.cancel();
+    final DateTime? from = _query.from;
+    final DateTime? to = _query.to;
+    final DateTimeRange? picked = await showBookingsDateRangePicker(
+      context,
+      today: _today,
+      initialRange: (from == null || to == null)
+          ? null
+          : DateTimeRange(start: from, end: to),
+    );
+    if (!mounted || picked == null) return;
+    final ({DateTime from, DateTime to}) bounds = normaliseBookingRange(picked);
+    _setQuery(
+      MasterBookingsQuery.of(
+        statuses: _query.statuses.toSet(),
+        serviceIds: _query.serviceIds.toSet(),
+        from: bounds.from,
+        to: bounds.to,
+      ),
+    );
   }
+
+  /// Opens the filter sheet and applies whatever it resolves with.
+  ///
+  /// The sheet holds DRAFT state and resolves exactly once, on «Застосувати» —
+  /// so this fires one query change for one user decision, not one per
+  /// checkbox. Dismissing resolves `null` and leaves the query untouched.
+  Future<void> _applyFilters() async {
+    _dayDebounce?.cancel();
+    // `asData?.value`, NEVER `.value`.
+    //
+    // SEC: `AsyncValue.value` returns RETAINED previous data in `AsyncLoading`
+    // AND `AsyncError`, not only in `AsyncData`. `logout()` deliberately does
+    // not invalidate feature providers (cycle avoidance —
+    // `auth_notifier.dart`), so this provider is re-run by the repository swap
+    // and lands in `AsyncError(UnauthorizedFailure)` still holding the PREVIOUS
+    // master's catalogue. On a shared device the next master would then see
+    // account A's service names in their own filter sheet — and durably so, for
+    // the whole session, if B's own refetch also fails (offline / 5xx).
+    // `asData` is null in both non-data states regardless of what is retained.
+    //
+    // Degrading to an empty list is correct here: the sheet omits the whole
+    // «Послуга» section rather than rendering an empty one.
+    final List<MasterService> services =
+        ref.read(masterServiceCatalogProvider).asData?.value ??
+        const <MasterService>[];
+    final BookingsFilterSelection? applied = await BookingsFilterSheet.show(
+      context,
+      initial: BookingsFilterSelection(
+        statuses: _query.statuses.toSet(),
+        serviceIds: _query.serviceIds.toSet(),
+        from: _query.from,
+        to: _query.to,
+      ),
+      services: services,
+      onPickDates: (BuildContext sheetContext, DateTimeRange? current) =>
+          showBookingsDateRangePicker(
+            sheetContext,
+            today: _today,
+            initialRange: current,
+          ),
+    );
+    if (!mounted || applied == null) return;
+    _setQuery(
+      MasterBookingsQuery.of(
+        statuses: applied.statuses,
+        serviceIds: applied.serviceIds,
+        from: applied.from,
+        to: applied.to,
+      ),
+    );
+  }
+
+  /// The count the header badge shows — ACTIVE FILTER GROUPS.
+  ///
+  /// Counted off `_query`'s already-canonical lists via the SAME
+  /// [bookingsActiveFilterCount] the sheet's own `activeCount` uses, so the two
+  /// can never disagree about what "active" means. It previously built a
+  /// throwaway [BookingsFilterSelection], which copied both collections into
+  /// fresh `Set`s (`serviceIds` up to 50) on every screen `build()` — an
+  /// allocation per frame to answer a question three `isNotEmpty` reads already
+  /// answer (perf P8).
+  int get _activeFilterCount => bookingsActiveFilterCount(
+    hasStatuses: _query.statuses.isNotEmpty,
+    hasServiceIds: _query.serviceIds.isNotEmpty,
+    hasDates: _query.from != null || _query.to != null,
+  );
 
   // ── Infinite scroll ─────────────────────────────────────────────────────
 
@@ -338,7 +439,12 @@ class _MasterBookingsScreenState extends ConsumerState<MasterBookingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _Header(title: l10n.masterBookingsTitle),
+            _Header(
+              title: l10n.masterBookingsTitle,
+              activeFilterCount: _activeFilterCount,
+              onOpenFilters: _applyFilters,
+            ),
+            const _ServiceCatalogueWarmer(),
             const SizedBox(height: VelvetSpacing.sm),
             Consumer(
               builder: (BuildContext context, WidgetRef ref, Widget? _) {
@@ -445,6 +551,46 @@ class _MasterBookingsScreenState extends ConsumerState<MasterBookingsScreen> {
   }
 }
 
+/// A zero-height subscription that keeps the «Послуга» option universe WARM.
+///
+/// ## Why a widget rather than a `ref.read` in `initState`
+///
+/// `masterServiceCatalogProvider` is `keepAlive` and lazy, and `_applyFilters`
+/// only ever `ref.read`s it — so it needs someone to have STARTED it before the
+/// sheet opens, or the first open of every session finds `AsyncLoading` and
+/// silently renders no «Послуга» section.
+///
+/// A one-shot `ref.read` in `initState` starts it, but only ONCE. It does not
+/// subscribe, and an unsubscribed `keepAlive` provider does not rebuild when it
+/// is invalidated — Riverpod drops the state and defers the refetch to the next
+/// read. So after a service create/edit/delete (Phase 7.7 audit S2, which added
+/// exactly that invalidation) the next sheet open would kick the fetch off and
+/// then read `AsyncLoading` in the same turn, showing NO services at all. That
+/// is strictly worse than the stale list the invalidation was added to fix.
+///
+/// Watching keeps the provider subscribed, so an invalidation refetches
+/// immediately and the result is in place by the time the master reaches the
+/// sheet.
+///
+/// ## …and why it is not a `ref.watch` at screen scope
+///
+/// Perf P1 (Phase 7.6): watching anything in `build` rebuilds the header AND
+/// the rail on every emission, which is exactly what the two `Consumer`s below
+/// exist to prevent. Isolating the subscription in its own leaf means an
+/// emission rebuilds a `SizedBox.shrink()` and nothing else.
+///
+/// Deliberately renders zero height rather than being conditional on the async
+/// state — a widget that came and went would relayout the column.
+class _ServiceCatalogueWarmer extends ConsumerWidget {
+  const _ServiceCatalogueWarmer();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(masterServiceCatalogProvider);
+    return const SizedBox.shrink();
+  }
+}
+
 /// The loaded body — the count line, then the list or one of the two empties.
 class _Loaded extends StatelessWidget {
   const _Loaded({
@@ -541,29 +687,30 @@ class _Loaded extends StatelessWidget {
 /// The approved preview renders the loaded body as `_TimelineGrid`
 /// (`bookings_toolbar.dart:1336`) — a Google-Calendar-style day grid whose
 /// cards are absolutely positioned by start time into greedy non-overlapping
-/// lanes. It is transcribed here as a vertical list instead. This is the only
-/// composition divergence from the preview, and it is forced by the Phase 7.1
-/// data contract rather than chosen for taste:
+/// lanes. It is transcribed here as a vertical list instead, for two reasons
+/// that both still hold as of Phase 7.8:
 ///
-///   1. **It cannot express the sort.** `BookingSort` carries `priceDesc` /
-///      `priceAsc`. A timeline positions by time — there is no arrangement of
-///      a y-axis-is-the-clock grid that renders a price ordering. Two of the
-///      four sorts would silently do nothing.
-///   2. **It cannot be paginated.** Absolute positioning needs `firstHour` and
+///   1. **It cannot be paginated.** Absolute positioning needs `firstHour` and
 ///      `latestEnd` across the WHOLE set; page 2 arriving can change both and
 ///      relayout every card already on screen. The preview gets away with it
 ///      because its list is in memory and complete.
-///   3. **It is single-day by construction.** The preview opens with a day
+///   2. **It is single-day by construction.** The preview opens with a day
 ///      pre-selected, so its grid holds one day. Under «Всі» or a range it
 ///      stacks bookings from different days on the same hour rows — visible in
-///      the preview as a latent bug, and the master's default view here is not
+///      the preview as a latent bug, and this screen's default view is not
 ///      day-scoped.
 ///
+/// A third reason — "a timeline cannot express a price sort" — was retired
+/// with sorting itself in Phase 7.8, and its disappearance is what unblocks
+/// the grid.
+///
+/// **Phase 7.9 resolves both remaining reasons and replaces this widget**: it
+/// swaps `MasterBookingsQuery` for a day-scoped `BookingsDayQuery` with its own
+/// unpaged fetch, which is exactly the "explicit day selection" this divergence
+/// was always waiting on.
+///
 /// The design's `BookingCard` visual language is preserved verbatim (see
-/// `master_booking_card.dart`); it is the CONTAINER that differs. Flagged in
-/// the MR so the preview can be reconciled — a day-scoped timeline is a
-/// coherent future affordance, but it belongs behind an explicit day selection
-/// with its own unpaged fetch, not as the default list body.
+/// `master_booking_card.dart`); it is the CONTAINER that differs.
 class _BookingsList extends StatelessWidget {
   const _BookingsList({
     required this.state,
@@ -628,9 +775,15 @@ class _BookingsList extends StatelessWidget {
 /// preview's back arrow returns to a Салон home tab that does not exist in the
 /// independent-master shell.
 class _Header extends StatelessWidget {
-  const _Header({required this.title});
+  const _Header({
+    required this.title,
+    required this.activeFilterCount,
+    required this.onOpenFilters,
+  });
 
   final String title;
+  final int activeFilterCount;
+  final VoidCallback onOpenFilters;
 
   @override
   Widget build(BuildContext context) {
@@ -660,9 +813,11 @@ class _Header extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            // Phase 7.7 adds the sort + filter affordances here, together with
-            // the sheets they open. Deliberately empty until then — a button
-            // that opens nothing reads as a broken screen.
+            const SizedBox(width: VelvetSpacing.sm),
+            BookingsFilterButton(
+              activeCount: activeFilterCount,
+              onTap: onOpenFilters,
+            ),
           ],
         ),
       ),
