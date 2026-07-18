@@ -38,7 +38,7 @@ Future<Map<String, dynamic>> _fetch(
     queryParameters: <String, dynamic>{
       'page': page,
       'size': 20,
-      if (sort != null) 'sort': sort,
+      'sort': ?sort,
       if (statuses.isNotEmpty) 'status': statuses,
     },
   );
