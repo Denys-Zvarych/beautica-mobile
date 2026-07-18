@@ -935,7 +935,8 @@ void main() {
       );
 
       final page = await repository.getMyBookings(
-        status: BookingStatus.pending,
+        statuses: const <BookingStatus>{BookingStatus.pending},
+        ascending: false,
         page: 0,
       );
 
@@ -956,10 +957,88 @@ void main() {
               as Map<String, dynamic>;
       expect(captured['page'], 0);
       expect(captured['size'], kBookingsPageSize);
-      expect(captured['status'], 'PENDING');
+      expect(captured['status'], <String>['PENDING']);
+      expect(captured['sort'], 'startsAt,desc');
     });
 
-    test('status null omits the status query param', () async {
+    test(
+      'multiple statuses are sent as a repeated status list, not a single '
+      'value (backend Phase 26.1 — one request per tab, server-unioned)',
+      () async {
+        final envelope = _serializeMyBookingsEnvelope(const []);
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        await repository.getMyBookings(
+          statuses: const <BookingStatus>{
+            BookingStatus.completed,
+            BookingStatus.notCompleted,
+          },
+          ascending: false,
+          page: 0,
+        );
+
+        final captured =
+            verify(
+                  () => dio.get<Map<String, dynamic>>(
+                    _myBookingsPath,
+                    queryParameters: captureAny(named: 'queryParameters'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect((captured['status'] as List<Object?>).toSet(), <String>{
+          'COMPLETED',
+          'NOT_COMPLETED',
+        });
+      },
+    );
+
+    test(
+      'ascending true renders sort=startsAt,asc (Майбутні — soonest-first)',
+      (() async {
+        final envelope = _serializeMyBookingsEnvelope(const []);
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        await repository.getMyBookings(
+          statuses: const <BookingStatus>{BookingStatus.confirmed},
+          ascending: true,
+          page: 0,
+        );
+
+        final captured =
+            verify(
+                  () => dio.get<Map<String, dynamic>>(
+                    _myBookingsPath,
+                    queryParameters: captureAny(named: 'queryParameters'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect(captured['sort'], 'startsAt,asc');
+      }),
+    );
+
+    test('empty statuses omits the status query param', () async {
       final envelope = _serializeMyBookingsEnvelope(const []);
       when(
         () => dio.get<Map<String, dynamic>>(
@@ -974,7 +1053,11 @@ void main() {
         ),
       );
 
-      final page = await repository.getMyBookings(status: null, page: 0);
+      final page = await repository.getMyBookings(
+        statuses: const <BookingStatus>{},
+        ascending: false,
+        page: 0,
+      );
       expect(page.items, isEmpty);
 
       final captured =
@@ -986,6 +1069,8 @@ void main() {
               ).captured.single
               as Map<String, dynamic>;
       expect(captured.containsKey('status'), isFalse);
+      // sort is unconditional — always sent regardless of the status filter.
+      expect(captured['sort'], 'startsAt,desc');
     });
 
     test('network error → NetworkFailure', () async {
@@ -997,7 +1082,11 @@ void main() {
       ).thenThrow(_dioConnectionError(_myBookingsPath));
 
       await expectLater(
-        repository.getMyBookings(status: null, page: 0),
+        repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          ascending: false,
+          page: 0,
+        ),
         throwsA(isA<NetworkFailure>()),
       );
     });
@@ -1034,7 +1123,11 @@ void main() {
       );
 
       await expectLater(
-        repository.getMyBookings(status: null, page: 0),
+        repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          ascending: false,
+          page: 0,
+        ),
         throwsA(isA<UnknownFailure>()),
       );
     });
@@ -1055,7 +1148,11 @@ void main() {
       );
 
       await expectLater(
-        repository.getMyBookings(status: null, page: 0),
+        repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          ascending: false,
+          page: 0,
+        ),
         throwsA(same(mapped)),
       );
     });

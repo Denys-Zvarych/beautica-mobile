@@ -61,6 +61,7 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
@@ -190,20 +191,40 @@ PageResponse<Booking> _page(List<Booking> items) => PageResponse<Booking>(
   totalElements: items.length,
 );
 
-void _stubAllStatuses(
+/// Stubs the ONE `getMyBookings` request each of the three tabs issues
+/// (backend Phase 26.1/26.3 — the tab's whole status set + a
+/// `sort=startsAt,<asc|desc>` param travel in a single call; see
+/// `booking_repository.dart` / `my_bookings_notifier.dart`).
+void _stubAllTabs(
   _MockBookingRepository repo, {
-  Map<BookingStatus, List<Booking>> byStatus =
-      const <BookingStatus, List<Booking>>{},
+  List<Booking> upcoming = const <Booking>[],
+  List<Booking> past = const <Booking>[],
+  List<Booking> cancelled = const <Booking>[],
 }) {
-  for (final BookingStatus status in BookingStatus.values) {
-    when(
-      () => repo.getMyBookings(
-        status: status,
-        page: any(named: 'page'),
-        size: any(named: 'size'),
-      ),
-    ).thenAnswer((_) async => _page(byStatus[status] ?? const <Booking>[]));
-  }
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.upcoming.statuses,
+      ascending: true,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(upcoming));
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.past.statuses,
+      ascending: false,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(past));
+  when(
+    () => repo.getMyBookings(
+      statuses: BookingTab.cancelled.statuses,
+      ascending: false,
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+    ),
+  ).thenAnswer((_) async => _page(cancelled));
 }
 
 Widget _framed(Widget child) => Scaffold(body: child);
@@ -246,13 +267,11 @@ void main() {
           tester,
         ) async {
           final repo = _MockBookingRepository();
-          _stubAllStatuses(
+          _stubAllTabs(
             repo,
-            byStatus: <BookingStatus, List<Booking>>{
-              BookingStatus.confirmed: <Booking>[
-                _booking(id: 'confirmed', status: BookingStatus.confirmed),
-              ],
-            },
+            upcoming: <Booking>[
+              _booking(id: 'confirmed', status: BookingStatus.confirmed),
+            ],
           );
 
           await tester.pumpApp(

@@ -84,7 +84,8 @@ class _RecordingRepo implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required BookingStatus? status,
+    required Set<BookingStatus> statuses,
+    required bool ascending,
     required int page,
     int size = kBookingsPageSize,
   }) => throw UnimplementedError();

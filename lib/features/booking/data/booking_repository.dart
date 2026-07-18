@@ -79,14 +79,28 @@ abstract interface class BookingRepository {
   /// booking-write rate limit).
   Future<Booking> createBooking(CreateBookingRequest req);
 
-  /// Fetches one page of the authenticated client's bookings, most-recent
-  /// first (server-sorted).
+  /// Fetches one page of the authenticated client's bookings, server-sorted
+  /// by `startsAt` in the direction [ascending] requests.
   ///
-  /// Wraps `GET /bookings/me`. [status] narrows to a single [BookingStatus],
-  /// or pass `null` for all statuses. [page] is zero-based; [size] caps the
-  /// page (default [kBookingsPageSize]).
+  /// Wraps `GET /bookings/me`. [statuses] narrows to the given [BookingStatus]
+  /// set, sent as REPEATED `status` query params in one request (backend
+  /// Phase 26.1 — `EnumSet`-normalised and unioned server-side, then
+  /// globally paginated — this is what lets a tab spanning two statuses, e.g.
+  /// Минулі's `COMPLETED`+`NOT_COMPLETED`, read as ONE correctly-ordered,
+  /// correctly-paginated stream instead of merging two independently-paged
+  /// fetches client-side). Pass an empty set for no status filter (all
+  /// statuses).
+  ///
+  /// [ascending] drives the `sort=startsAt,<asc|desc>` param (backend Phase
+  /// 26.3): `true` for soonest-first ("what's next" — the Майбутні tab),
+  /// `false` for most-recent-first ("what just happened" — Минулі/Скасовані).
+  /// Only `startsAt` is sent — the client «Мої записи» screen has no sort
+  /// sheet, unlike the independent-master booking list.
+  ///
+  /// [page] is zero-based; [size] caps the page (default [kBookingsPageSize]).
   Future<PageResponse<Booking>> getMyBookings({
-    required BookingStatus? status,
+    required Set<BookingStatus> statuses,
+    required bool ascending,
     required int page,
     int size = kBookingsPageSize,
   });
@@ -184,7 +198,8 @@ final class HttpBookingRepository implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required BookingStatus? status,
+    required Set<BookingStatus> statuses,
+    required bool ascending,
     required int page,
     int size = kBookingsPageSize,
   }) async {
@@ -194,7 +209,18 @@ final class HttpBookingRepository implements BookingRepository {
         queryParameters: <String, dynamic>{
           'page': page,
           'size': size,
-          if (status != null) 'status': status.wireValue,
+          'sort': 'startsAt,${ascending ? 'asc' : 'desc'}',
+          // A List value renders as REPEATED bare `status=` params under
+          // Dio's default `ListFormat.multi` — mirrors the identical
+          // `serviceTypeSlugs` precedent in
+          // `discovery/data/search_repository.dart`. Spring's `Pageable`/
+          // `@RequestParam` resolver binds repeated same-name params into the
+          // backend's `EnumSet<BookingStatus>` (Phase 26.1). Omitted entirely
+          // when empty so the backend applies no status filter.
+          if (statuses.isNotEmpty)
+            'status': statuses
+                .map((BookingStatus s) => s.wireValue)
+                .toList(growable: false),
         },
       );
       final decoded =

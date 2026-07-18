@@ -38,6 +38,8 @@ import 'package:integration_test/integration_test.dart';
 import 'auth_login_flow_test.dart' as auth_login;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
+import 'client_my_bookings_pagination_sort_flow_test.dart'
+    as client_my_bookings_pagination_sort;
 import 'client_elapsed_booking_readonly_flow_test.dart'
     as client_elapsed_booking_readonly;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
@@ -70,6 +72,13 @@ void main() {
   );
   // My Bookings → Booking Detail → Cancel journey (Step 2.7 Rule 3b).
   group('client_my_bookings_cancel_flow', client_my_bookings_cancel.main);
+  // My Bookings pagination/sort regression (Step 2.7 Rule 3b, mobile-qa) —
+  // Bug B (dropped `sort` param) + Bug A (per-status fan-out+merge) against a
+  // REAL (statuses, sort, page) fake-backend slice, not hand-picked buckets.
+  group(
+    'client_my_bookings_pagination_sort_flow',
+    client_my_bookings_pagination_sort.main,
+  );
   // Elapsed CONFIRMED booking → read-only detail (Step 2.7 Rule 3b).
   group(
     'client_elapsed_booking_readonly_flow',
