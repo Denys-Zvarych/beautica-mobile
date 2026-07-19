@@ -250,10 +250,16 @@ class BookingsTimelineGrid extends StatelessWidget {
     if (start == null || end == null) return bookings;
     return <Booking>[
       for (final Booking b in bookings)
-        if (_minutesSinceDayStart(b.startAt, day) >= start &&
-            _minutesSinceDayStart(b.startAt, day) < end)
-          b,
+        if (_minuteInWindow(b, start, end)) b,
     ];
+  }
+
+  /// Single-conversion membership check for [_windowFiltered] — caches
+  /// [_minutesSinceDayStart]'s timezone-transition lookup once per booking
+  /// instead of once per bound.
+  bool _minuteInWindow(Booking b, int start, int end) {
+    final int minute = _minutesSinceDayStart(b.startAt, day);
+    return minute >= start && minute < end;
   }
 }
 

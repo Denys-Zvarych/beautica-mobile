@@ -4689,5 +4689,53 @@
   "bookingsDiscoveryBackSemantics": "Назад",
   "@bookingsDiscoveryBackSemantics": {
     "description": "Accessibility label for the shared BookingsDiscoveryView header's back arrow (Phase 7.11), shown only when a host passes a non-null onBack (never on the master's own bottom-nav-tab-root screen, which passes null)."
+  },
+  "masterBookingsTimeWindowButtonLabel": "Часовий проміжок дня",
+  "@masterBookingsTimeWindowButtonLabel": {
+    "description": "Accessibility label for the header's intra-day time-window button (Phase 7.12) — always present, whether or not a window is currently active."
+  },
+  "masterBookingsTimeWindowSheetTitle": "Часовий проміжок",
+  "@masterBookingsTimeWindowSheetTitle": {
+    "description": "Title of the Phase 7.12 intra-day time-window picker sheet."
+  },
+  "masterBookingsTimeWindowFromLabel": "Від",
+  "@masterBookingsTimeWindowFromLabel": {
+    "description": "Label on the time-window sheet's start-time row."
+  },
+  "masterBookingsTimeWindowToLabel": "До",
+  "@masterBookingsTimeWindowToLabel": {
+    "description": "Label on the time-window sheet's end-time row."
+  },
+  "masterBookingsTimeWindowFromSemantics": "Обрати час початку проміжку",
+  "@masterBookingsTimeWindowFromSemantics": {
+    "description": "Accessibility label for the time-window sheet's start-time row."
+  },
+  "masterBookingsTimeWindowToSemantics": "Обрати час завершення проміжку",
+  "@masterBookingsTimeWindowToSemantics": {
+    "description": "Accessibility label for the time-window sheet's end-time row."
+  },
+  "masterBookingsTimeWindowPickerStartTitle": "Початок проміжку",
+  "@masterBookingsTimeWindowPickerStartTitle": {
+    "description": "Title of the VelvetTouch wheel picker (showVelvetTimePicker) opened from the time-window sheet's start-time row."
+  },
+  "masterBookingsTimeWindowPickerEndTitle": "Кінець проміжку",
+  "@masterBookingsTimeWindowPickerEndTitle": {
+    "description": "Title of the VelvetTouch wheel picker (showVelvetTimePicker) opened from the time-window sheet's end-time row."
+  },
+  "masterBookingsTimeWindowReset": "Прибрати проміжок",
+  "@masterBookingsTimeWindowReset": {
+    "description": "The time-window sheet's affordance that explicitly REMOVES an active window — always offered, unlike the filter sheet's «Скинути», which only appears once something is active (Phase 7.12: the removal sentinel must be distinguishable from a bare dismiss)."
+  },
+  "masterBookingsTimeWindowResetSemantics": "Прибрати часовий проміжок",
+  "@masterBookingsTimeWindowResetSemantics": {
+    "description": "Accessibility label for the time-window sheet's removal affordance."
+  },
+  "masterBookingsTimeWindowApply": "Застосувати",
+  "@masterBookingsTimeWindowApply": {
+    "description": "The time-window sheet's confirm affordance — writes the draft start/end onto the active window. Disabled (never a thrown error) while the draft end does not exceed the draft start."
+  },
+  "masterBookingsTimeWindowApplySemantics": "Застосувати часовий проміжок",
+  "@masterBookingsTimeWindowApplySemantics": {
+    "description": "Accessibility label for the time-window sheet's apply button."
   }
 }
