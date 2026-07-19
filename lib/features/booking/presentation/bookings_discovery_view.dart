@@ -62,29 +62,6 @@
 //     (Phase 7.13) — the sheet now resolves only `statuses`/`serviceIds`, so
 //     there is nothing date-shaped left for `_applyFilters` to discard.
 //
-// ## Phase 7.12 — the intra-day time window is VIEW STATE, not a query field
-//
-// [_window] (a [DayTimeWindow]) is this view's answer to the user's actual
-// ask — "let us see ONE day, or a range in TIME but only for one day". It
-// narrows the timeline to an hour range WITHIN [_day] and is held here,
-// alongside [_day], deliberately outside [_liveQuery]/[BookingsDayQuery]:
-// the backend has no intra-day parameter to carry it on, Phase 7.9 already
-// fetches the whole day in one request, and folding it into the family key
-// would refetch byte-identical data on every window edit — the same leak
-// `scripts/forbid_raw_bookings_query.sh` polices on the query side, in a new
-// costume. See `day_time_window.dart`'s header for the full reasoning.
-//
-// Corollary: [BookingsDayQuery.hasFilters] does NOT know about [_window], so
-// every place that decides "are filters active" — the no-results state, the
-// header affordance — reads `_liveQuery.hasFilters || _window != null`
-// instead. Miss either half and either (a) a window-emptied day renders the
-// unrecoverable true-empty state, or (b) an active window is invisible.
-// [_window] is cleared whenever [_day] changes ([_applySelectedDay], the
-// shared sink for both [_selectDay] and [_openCalendar]) and whenever
-// «Скинути фільтри» fires ([_clearAllFilters]) — a window silently surviving
-// a day change is exactly the kind of sticky hidden state that reads as "the
-// app lost my bookings".
-//
 // ## Read the async value with `.asData?.value`, never `value == null`
 //
 // Riverpod's `ref.invalidate` retains the previous `.value` through the next
@@ -118,12 +95,10 @@ import '../domain/booking.dart';
 import '../domain/booking_status.dart';
 import '../domain/bookings_day_query.dart';
 import '../domain/bookings_day_state.dart';
-import '../domain/day_time_window.dart';
 import 'widgets/bookings_day_picker.dart';
 import 'widgets/bookings_day_rail.dart';
 import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/bookings_timeline_grid.dart';
-import 'widgets/day_time_window_sheet.dart';
 import 'widgets/master_bookings_states.dart';
 import 'widgets/my_bookings_states.dart';
 
@@ -173,12 +148,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
   late Set<BookingStatus> _statuses;
   late Set<String> _serviceIds;
-
-  /// Phase 7.12 — the intra-day time-of-day window, or `null` when none is
-  /// active. VIEW STATE, deliberately NOT folded into [_liveQuery] — see the
-  /// file header. Cleared on every [_applySelectedDay] and every
-  /// [_clearAllFilters].
-  DayTimeWindow? _window;
 
   /// The live query, rebuilt through [BookingsDayQuery.of] on every change —
   /// the single mutation path, mirroring the retired screen's `_setQuery`
@@ -300,59 +269,29 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   }
 
   /// The single mutation the day rail and the calendar picker both converge
-  /// on — sets [_day], clears the Phase 7.12 window, and rebuilds
-  /// [_liveQuery]. Whether it runs immediately ([_openCalendar]) or after
-  /// [_dayDebounce] elapses ([_selectDay]), it produces exactly one
-  /// `setState` and one `bookingsDayProvider` family member.
+  /// on — sets [_day] and rebuilds [_liveQuery]. Whether it runs immediately
+  /// ([_openCalendar]) or after [_dayDebounce] elapses ([_selectDay]), it
+  /// produces exactly one `setState` and one `bookingsDayProvider` family
+  /// member.
   void _applySelectedDay(DateTime day) {
     setState(() {
       _day = dateOnly(day);
-      // Phase 7.12 — a window is scoped to the day it was set on; carrying
-      // e.g. 09:00–14:00 silently across a day change reads as "the app
-      // lost my bookings" on the new day. See the file header.
-      _window = null;
       _rebuildQuery();
     });
   }
 
   /// The «Скинути фільтри» escape hatch on the filter-empty state — clears
-  /// status/service filters AND the Phase 7.12 time window. The day is
-  /// navigation, not a filter (see [BookingsDayQuery.hasFilters]) and is
-  /// deliberately left untouched: a master who narrowed by status on TODAY
-  /// and hit a filter-empty result wants today's unfiltered list, not to be
-  /// bounced back to a different day.
-  ///
-  /// The window MUST be cleared here too, even though it is not part of
-  /// [_liveQuery]: otherwise a master who clears status/service filters
-  /// still sees nothing (the window is still narrowing the list) with no
-  /// visible reason why — see the file header's Phase 7.12 section.
+  /// status/service filters. The day is navigation, not a filter (see
+  /// [BookingsDayQuery.hasFilters]) and is deliberately left untouched: a
+  /// master who narrowed by status on TODAY and hit a filter-empty result
+  /// wants today's unfiltered list, not to be bounced back to a different
+  /// day.
   void _clearAllFilters() {
     _dayDebounce?.cancel();
     setState(() {
       _statuses = <BookingStatus>{};
       _serviceIds = <String>{};
-      _window = null;
       _rebuildQuery();
-    });
-  }
-
-  /// Opens the Phase 7.12 time-window sheet and applies whatever it
-  /// resolves with. Deliberately does NOT call [_rebuildQuery] — the window
-  /// is view state, not part of [_liveQuery], so changing it must never
-  /// trigger a `bookingsDayProvider` fetch. See the file header.
-  Future<void> _openWindowSheet() async {
-    final DayTimeWindowPickResult? result = await DayTimeWindowSheet.show(
-      context,
-      initial: _window,
-    );
-    if (!mounted || result == null) return;
-    setState(() {
-      switch (result) {
-        case DayTimeWindowApplied(:final DayTimeWindow window):
-          _window = window;
-        case DayTimeWindowCleared():
-          _window = null;
-      }
     });
   }
 
@@ -445,8 +384,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onBack: widget.onBack,
               activeFilterCount: _activeFilterCount,
               onOpenFilters: _applyFilters,
-              window: _window,
-              onOpenWindow: _openWindowSheet,
             ),
             const _ServiceCatalogueWarmer(),
             const SizedBox(height: VelvetSpacing.sm),
@@ -524,12 +461,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                     ),
                     data: (BookingsDayState state) => _Loaded(
                       state: state,
-                      // Phase 7.12 — `hasFilters` must ALSO see the window;
-                      // `BookingsDayQuery.hasFilters` has no idea it exists
-                      // (it is not part of the query). See the file header.
-                      hasFilters: _liveQuery.hasFilters || _window != null,
+                      hasFilters: _liveQuery.hasFilters,
                       day: _day,
-                      window: _window,
                       onClearFilters: _clearAllFilters,
                       onBookingTap: widget.onBookingTap,
                     ),
@@ -571,50 +504,27 @@ class _Loaded extends StatelessWidget {
     required this.state,
     required this.hasFilters,
     required this.day,
-    required this.window,
     required this.onClearFilters,
     required this.onBookingTap,
   });
 
   final BookingsDayState state;
 
-  /// `_liveQuery.hasFilters || window != null` — see
-  /// `bookings_discovery_view.dart`'s Phase 7.12 header section for why the
-  /// window must be OR'd in here rather than trusted to
-  /// `BookingsDayQuery.hasFilters` alone.
+  /// `_liveQuery.hasFilters` — whether a status/service filter is active.
   final bool hasFilters;
   final DateTime day;
-
-  /// Phase 7.12 — the active intra-day window, if any. `null` means the
-  /// whole day renders; non-null narrows [state.items] before they ever
-  /// reach the grid AND overrides the grid's ruler extent (D8, locked).
-  final DayTimeWindow? window;
   final VoidCallback onClearFilters;
   final ValueChanged<Booking> onBookingTap;
-
-  /// [state.items] narrowed through [DayTimeWindow.contains], preserving
-  /// server order. Equal to [state.items] when [window] is `null`.
-  List<Booking> get _windowedItems {
-    final DayTimeWindow? w = window;
-    if (w == null) return state.items;
-    return <Booking>[
-      for (final Booking b in state.items)
-        if (w.contains(b, day)) b,
-    ];
-  }
 
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final List<Booking> items = _windowedItems;
+    final List<Booking> items = state.items;
 
-    // Covers BOTH empties with one check: `state.isEmpty` (the day has
-    // nothing at all) necessarily makes `items` empty too, and a window
-    // that filters a non-empty day down to nothing also lands here. Which
-    // COPY renders is entirely `hasFilters`' job — see that field's doc —
-    // and `hasFilters` is guaranteed `true` whenever `window != null`
-    // emptied a non-empty day, so a window-emptied day can never render the
-    // unrecoverable true-empty state (Phase 7.12 Do-NOT list).
+    // `state.isEmpty` (the day has nothing at all) necessarily makes `items`
+    // empty too, and a status/service filter that matches nothing on this
+    // day also lands here. Which COPY renders is entirely `hasFilters`' job
+    // — see that field's doc.
     if (items.isEmpty) {
       // The two empties are genuinely different situations — see
       // `master_bookings_states.dart`'s header. `hasFilters` is the whole
@@ -647,13 +557,9 @@ class _Loaded extends StatelessWidget {
               Expanded(
                 child: Text(
                   // `totalElements` is the SERVER's whole-day count — see
-                  // `bookings_day_state.dart`'s header. That count would read
-                  // as wrong (larger than what is visibly rendered) while a
-                  // window is narrowing the grid to a subset, so this counts
-                  // the WINDOW-FILTERED set instead whenever one is active.
-                  l10n.masterBookingsCount(
-                    window == null ? state.totalElements : items.length,
-                  ),
+                  // `bookings_day_state.dart`'s header; it equals
+                  // `items.length` for a fully-materialised day.
+                  l10n.masterBookingsCount(state.totalElements),
                   key: const Key('master-bookings-count'),
                   style: VelvetText.label(),
                   maxLines: 1,
@@ -664,9 +570,7 @@ class _Loaded extends StatelessWidget {
           ),
         ),
         // A genuinely reachable case, not a defensive one — see
-        // `MasterBookingsTruncatedNotice`'s doc. Independent of the window:
-        // truncation is a SERVER-side "too many for one page" fact about the
-        // whole day, unaffected by a client-side narrowing.
+        // `MasterBookingsTruncatedNotice`'s doc.
         if (state.isTruncated) const MasterBookingsTruncatedNotice(),
         Expanded(
           child: Padding(
@@ -677,15 +581,8 @@ class _Loaded extends StatelessWidget {
               VelvetSpacing.xxl,
             ),
             child: BookingsTimelineGrid(
-              // Already window-filtered above; the grid's OWN internal
-              // filter (keyed off windowStartMinute/windowEndMinute below)
-              // is therefore a no-op over this input, kept passed-through
-              // anyway because the RULER EXTENT override (D8) reads those
-              // two bounds independently of what's in `bookings`.
               bookings: items,
               day: day,
-              windowStartMinute: window?.startMinute,
-              windowEndMinute: window?.endMinute,
               onBookingTap: onBookingTap,
             ),
           ),
@@ -703,22 +600,12 @@ class _Header extends StatelessWidget {
     required this.onBack,
     required this.activeFilterCount,
     required this.onOpenFilters,
-    required this.window,
-    required this.onOpenWindow,
   });
 
   final String title;
   final VoidCallback? onBack;
   final int activeFilterCount;
   final VoidCallback onOpenFilters;
-
-  /// Phase 7.12 — the active intra-day window, if any. Rendered as an
-  /// accented chip so an active window is exactly as visible in the header
-  /// as an active status/service filter (the phase brief's requirement — a
-  /// silently narrowed timeline is the top support question for this kind
-  /// of screen).
-  final DayTimeWindow? window;
-  final VoidCallback onOpenWindow;
 
   @override
   Widget build(BuildContext context) {
@@ -759,99 +646,11 @@ class _Header extends StatelessWidget {
               ),
             ),
             const SizedBox(width: VelvetSpacing.sm),
-            _TimeWindowButton(window: window, onTap: onOpenWindow),
-            const SizedBox(width: VelvetSpacing.sm),
             BookingsFilterButton(
               activeCount: activeFilterCount,
               onTap: onOpenFilters,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The header affordance for the Phase 7.12 intra-day window — always
-/// present (both to SET and to CLEAR the window), an accented camel border
-/// plus a visible `HH:MM–HH:MM` chip when a window is active, a bare
-/// neutral clock icon otherwise. Deliberately mirrors [BookingsFilterButton]
-/// (`bookings_filter_sheet.dart`)'s bordered, non-`extrudedButton` visual
-/// language so the two read as one system — see this feature's Impeller
-/// white-corner note repeated throughout.
-class _TimeWindowButton extends StatelessWidget {
-  const _TimeWindowButton({required this.window, required this.onTap});
-
-  final DayTimeWindow? window;
-  final VoidCallback onTap;
-
-  /// `HH:MM–HH:MM`. Assumes both bounds are within one wall-clock day
-  /// (`< 24 * 60`) — the only shape [DayTimeWindowSheet] can ever produce,
-  /// since its wheels only cover 00:00–23:59. A hypothetical past-midnight
-  /// [DayTimeWindow] (never constructed by this UI today) would render an
-  /// hour past "23:xx", which is at least legible rather than silently
-  /// wrong.
-  static String _format(DayTimeWindow w) {
-    String hhmm(int minutes) =>
-        '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
-        '${(minutes % 60).toString().padLeft(2, '0')}';
-    return '${hhmm(w.startMinute)}–${hhmm(w.endMinute)}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    final DayTimeWindow? w = window;
-    final bool active = w != null;
-    final String? rangeLabel = active ? _format(w) : null;
-    return Semantics(
-      button: true,
-      label: l10n.masterBookingsTimeWindowButtonLabel,
-      value: rangeLabel,
-      child: GestureDetector(
-        key: const Key('master-bookings-time-window-button'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          height: 44,
-          constraints: const BoxConstraints(minWidth: 44),
-          padding: EdgeInsets.symmetric(
-            horizontal: active ? VelvetSpacing.sm + 2 : 0,
-          ),
-          decoration: BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: BorderRadius.circular(VelvetRadii.field),
-            boxShadow: VelvetShadows.borderedButton,
-            border: Border.all(
-              color: active
-                  ? BrandColors.accent
-                  : BrandColors.accent.withValues(alpha: 0.18),
-              width: active ? 1.5 : 1,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(
-                Icons.schedule_rounded,
-                size: 22,
-                color: active
-                    ? BrandColors.accentDeep
-                    : BrandColors.textSecondary,
-              ),
-              if (rangeLabel != null) ...<Widget>[
-                const SizedBox(width: VelvetSpacing.xs),
-                Text(
-                  rangeLabel,
-                  key: const Key('master-bookings-time-window-label'),
-                  style: VelvetText.bodyStrong14.copyWith(
-                    color: BrandColors.accentDeep,
-                  ),
-                ),
-              ],
-            ],
-          ),
         ),
       ),
     );

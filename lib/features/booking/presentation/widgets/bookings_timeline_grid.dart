@@ -80,8 +80,6 @@ class BookingsTimelineGrid extends StatelessWidget {
   const BookingsTimelineGrid({
     required this.bookings,
     required this.day,
-    this.windowStartMinute,
-    this.windowEndMinute,
     required this.onBookingTap,
     super.key,
   });
@@ -93,14 +91,6 @@ class BookingsTimelineGrid extends StatelessWidget {
   /// The selected Kyiv calendar day, date-only — the anchor
   /// [_minutesSinceDayStart] measures every card position against.
   final DateTime day;
-
-  /// Phase 7.12 (D8) — an explicit rendering window, in minutes-since-[day]'s
-  /// Kyiv midnight. When both are non-null they OVERRIDE the data-derived
-  /// extent: the ruler spans the window rather than the data, and any
-  /// booking positioned outside it is not rendered. `null` (the only mode
-  /// this phase exercises) derives the extent from [bookings] instead.
-  final int? windowStartMinute;
-  final int? windowEndMinute;
 
   /// Fires with the tapped booking. No `Navigator`/`context.push` in this
   /// leaf widget — the caller (Phase 7.11) owns navigation.
@@ -118,8 +108,7 @@ class BookingsTimelineGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<Booking> renderable = _windowFiltered();
-    final List<int> lanes = assignLanes(renderable);
+    final List<int> lanes = assignLanes(bookings);
     final int lanesCount = laneCount(lanes);
 
     // ------------------------------------------------------------------
@@ -133,28 +122,20 @@ class BookingsTimelineGrid extends StatelessWidget {
     // that: even a single, zero-duration-adjacent booking still renders at
     // least one hour of ruler. See the file header's R1 section.
     // ------------------------------------------------------------------
-    final int? windowStart = windowStartMinute;
-    final int? windowEnd = windowEndMinute;
-    final int firstMinute =
-        windowStart ??
-        (bookings.isEmpty
-            ? 0
-            : bookings
-                  .map((Booking b) => _minutesSinceDayStart(b.startAt, day))
-                  .reduce(math.min));
-    final int lastMinuteCandidate =
-        windowEnd ??
-        (bookings.isEmpty
-            ? firstMinute + 60
-            : bookings
-                  .map(
-                    (Booking b) =>
-                        _minutesSinceDayStart(b.startAt, day) +
-                        b.durationMinutes,
-                  )
-                  .reduce(math.max));
-    // Floor: the grid is never shorter than one hour, whatever the data (or
-    // an inverted/degenerate window) says.
+    final int firstMinute = bookings.isEmpty
+        ? 0
+        : bookings
+              .map((Booking b) => _minutesSinceDayStart(b.startAt, day))
+              .reduce(math.min);
+    final int lastMinuteCandidate = bookings.isEmpty
+        ? firstMinute + 60
+        : bookings
+              .map(
+                (Booking b) =>
+                    _minutesSinceDayStart(b.startAt, day) + b.durationMinutes,
+              )
+              .reduce(math.max);
+    // Floor: the grid is never shorter than one hour, whatever the data says.
     final int lastMinute = math.max(lastMinuteCandidate, firstMinute + 60);
 
     final double gridHeight = (lastMinute - firstMinute) / 60.0 * _kHourH;
@@ -196,8 +177,8 @@ class BookingsTimelineGrid extends StatelessWidget {
                             height: 1,
                             child: const ColoredBox(color: BrandColors.faint),
                           ),
-                        for (int i = 0; i < renderable.length; i++)
-                          _positionedCard(renderable[i], lanes[i], firstMinute),
+                        for (int i = 0; i < bookings.length; i++)
+                          _positionedCard(bookings[i], lanes[i], firstMinute),
                       ],
                     ),
                   ),
@@ -239,27 +220,6 @@ class BookingsTimelineGrid extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  /// [bookings] narrowed to the window, when one is active — no filtering
-  /// (all bookings render) when [windowStartMinute]/[windowEndMinute] are
-  /// null. Preserves the input's order.
-  List<Booking> _windowFiltered() {
-    final int? start = windowStartMinute;
-    final int? end = windowEndMinute;
-    if (start == null || end == null) return bookings;
-    return <Booking>[
-      for (final Booking b in bookings)
-        if (_minuteInWindow(b, start, end)) b,
-    ];
-  }
-
-  /// Single-conversion membership check for [_windowFiltered] — caches
-  /// [_minutesSinceDayStart]'s timezone-transition lookup once per booking
-  /// instead of once per bound.
-  bool _minuteInWindow(Booking b, int start, int end) {
-    final int minute = _minutesSinceDayStart(b.startAt, day);
-    return minute >= start && minute < end;
   }
 }
 

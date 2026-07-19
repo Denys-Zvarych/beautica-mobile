@@ -1,5 +1,5 @@
-// Phase 7.2 + 7.6 + 7.12 — E2E: the INDEPENDENT MASTER's «Мої записи» → day
-// rail → time-of-day window → «Деталі запису» (PROVIDER view) → back journey.
+// Phase 7.2 + 7.6 — E2E: the INDEPENDENT MASTER's «Мої записи» → day rail →
+// «Деталі запису» (PROVIDER view) → back journey.
 //
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
 // --------------------------------------------------------------
@@ -8,11 +8,8 @@
 // debounce, server order), `master_bookings_notifier_test` (query → wire,
 // paging, no re-sort), `booking_detail_provider_view_test` (role branching of
 // the header + footer), `master_bookings_route_guard_test` (the two-way role
-// fence), `booking_viewer_role_test` (fail-closed derivation),
-// `day_time_window_test` (Phase 7.12's `DayTimeWindow` domain rules, the
-// sheet's picker-field wiring, and the view wiring — all against a MOCKED
-// `BookingRepository`). NONE of them proves the journey wired together
-// against a real HTTP boundary:
+// fence), `booking_viewer_role_test` (fail-closed derivation). NONE of them
+// proves the journey wired together against a real HTTP boundary:
 //
 //   1. A master logs in and lands on the master shell.
 //   2. Tapping «Мої записи» (nav tile 1) PUSHES `/master/bookings` — not the
@@ -21,9 +18,6 @@
 //      SEPARATE, filter-independent `GET /bookings/me/booked-days`. Two
 //      distinct endpoints — a regression that fed the rail from the list would
 //      be invisible to a widget test that stubs the repository.
-//   3c. Phase 7.12's time-of-day window narrows the SAME already-fetched day
-//      — zero-network, no-results-vs-true-empty, and the reset affordance —
-//      all proven against the FakeBackend's real call counter, not a mock.
 //   4. Selecting a rail day re-queries with `from == to` ON THE WIRE.
 //   5. Tapping the card pushes `/master/bookings/:id` and the SAME
 //      `BookingDetailScreen` renders its PROVIDER branch: the CLIENT as
@@ -167,89 +161,6 @@ void main() {
             'ascending order is load-bearing for Phase 7.10\'s lane '
             'assignment — the notifier must not have re-sorted or requested '
             'descending',
-      );
-
-      // ── 3c. Phase 7.12: the intra-day time-of-day window, against a REAL
-      //        HTTP round trip. The widget/unit tier already proves the
-      //        zero-network, no-results-vs-true-empty, and reset-clears-
-      //        window invariants against a MOCKED repository
-      //        (`day_time_window_test.dart`) — this proves the same
-      //        properties hold when the sheet, the view state, and the
-      //        `FakeBackend`'s real call counter are all wired together
-      //        through an actual login + router, which a widget test
-      //        stubbing the repository cannot exercise (Step 2.7 Rule 3b:
-      //        this phase shipped a new sheet, a new view-state field, and a
-      //        filtered body on an existing screen). ─────────────────────
-      final int callsBeforeWindow = fb.getMyBookingsCalls;
-
-      await tester.tap(
-        find.byKey(const Key('master-bookings-time-window-button')),
-      );
-      await AppHarness.settle(tester);
-      expect(find.byKey(const Key('day-time-window-sheet')), findsOneWidget);
-
-      // The sheet's seeded draft is 09:00–18:00 with no wheel interaction
-      // needed here — `velvet_time_picker_test.dart` already pins that
-      // confirming without scrolling returns the seeded value verbatim, and
-      // `day_time_window_test.dart`'s own field-wiring group already proves
-      // the wheel → draft-field wiring in isolation. `fb.bookingStartsAt`
-      // (`2026-07-20T15:00:00Z`) is exactly 18:00 Kyiv in July (UTC+3) — the
-      // window's own EXCLUSIVE upper bound — so applying the untouched
-      // default already excludes the seeded booking.
-      await tester.tap(find.byKey(const Key('day-time-window-apply')));
-      await AppHarness.settle(tester);
-
-      expect(
-        fb.getMyBookingsCalls,
-        callsBeforeWindow,
-        reason:
-            'setting the window is a client-side view filter — it must not '
-            'issue a new GET /bookings/me against the real backend',
-      );
-      expect(
-        find.byKey(const Key('master-bookings-time-window-label')),
-        findsOneWidget,
-        reason:
-            'an active window must render its HH:MM–HH:MM chip in the '
-            'header — a silently narrowed timeline is the top support '
-            'question this affordance exists to prevent',
-      );
-      expect(find.text('09:00–18:00'), findsOneWidget);
-      expect(
-        find.byKey(const Key('master-booking-card-booking-1')),
-        findsNothing,
-        reason:
-            'the seeded 18:00 Kyiv booking sits exactly at the window\'s '
-            'exclusive upper bound — it must be filtered out',
-      );
-      expect(
-        find.byKey(const Key('master-bookings-no-results')),
-        findsOneWidget,
-        reason:
-            'the day genuinely HAS a booking — a window-emptied day must '
-            'render the recoverable no-results state, never the '
-            'true-empty one (the Do-NOT-list regression this proves against '
-            'a REAL fetch, not a mocked one)',
-      );
-
-      // «Скинути фільтри» on the no-results state must clear the window too.
-      await tester.tap(find.byKey(const Key('master-bookings-clear-filters')));
-      await AppHarness.settle(tester);
-
-      expect(
-        find.byKey(const Key('master-bookings-time-window-label')),
-        findsNothing,
-        reason: 'resetting must clear the window along with the chip',
-      );
-      expect(
-        find.byKey(const Key('master-booking-card-booking-1')),
-        findsOneWidget,
-        reason: 'clearing the window must bring the booking back into view',
-      );
-      expect(
-        fb.getMyBookingsCalls,
-        callsBeforeWindow,
-        reason: 'clearing the window must not refetch either',
       );
 
       // ── 4. The rail dots come from the SEPARATE booked-days endpoint. ─────
