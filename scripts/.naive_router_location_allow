@@ -1,0 +1,60 @@
+# Ratchet baseline for scripts/forbid_naive_router_location.sh.
+#
+# Every file below reads `currentConfiguration.uri`/`.fullPath` directly. As
+# audited on introduction (2026-07-19), none of them push a route ON TOP OF
+# the location they then read (they only exercise `.go`/redirects at the read
+# site), so the ImperativeRouteMatch exclusion this gate guards against does
+# not bite them — they are correct as written, just not routed through the
+# shared `AppHarness.location`/`AppHarness.expectLocation` helper.
+#
+# The two files this gate exists BECAUSE OF —
+# integration_test/master_bookings_flow_test.dart and
+# integration_test/logout_flow_test.dart — are deliberately NOT in this list;
+# they were the actual bug and are now fixed.
+#
+# This baseline only ever shrinks: when a listed file is next meaningfully
+# touched and it starts pushing on top of a location it reads, migrate it to
+# the shared helper and drop it from here. New files are gated from line one.
+integration_test/auth_login_flow_test.dart
+integration_test/booking_unknown_status_readonly_flow_test.dart
+integration_test/client_elapsed_booking_readonly_flow_test.dart
+integration_test/client_home_hub_flow_test.dart
+integration_test/client_leave_review_flow_test.dart
+integration_test/client_logout_flow_test.dart
+integration_test/client_my_bookings_cancel_flow_test.dart
+integration_test/client_my_bookings_pagination_sort_flow_test.dart
+integration_test/client_profile_settings_flow_test.dart
+integration_test/client_reschedule_flow_test.dart
+integration_test/client_search_flow_test.dart
+integration_test/client_shell_edge_swipe_back_flow_test.dart
+integration_test/client_shell_flow_test.dart
+integration_test/forgot_password_otp_flow_test.dart
+integration_test/master_home_add_services_flow_test.dart
+integration_test/passport_flow_test.dart
+integration_test/patrol/auth_login_patrol_test.dart
+integration_test/public_salon_profile_flow_test.dart
+integration_test/register_flow_test.dart
+integration_test/register_locality_persistence_flow_test.dart
+integration_test/salon_service_filter_flow_test.dart
+integration_test/schedule_edit_flow_test.dart
+integration_test/schedule_first_create_flow_test.dart
+integration_test/search_prefill_survives_name_edit_flow_test.dart
+integration_test/service_crud_flow_test.dart
+integration_test/service_edit_category_type_test.dart
+integration_test/service_setup_field_error_flow_test.dart
+integration_test/settings_change_password_flow_test.dart
+test/features/auth/presentation/register_flow_shell_test.dart
+test/features/auth/presentation/register_step_1_screen_test.dart
+test/features/auth/presentation/register_step_2_screen_test.dart
+test/features/auth/presentation/register_step_3_screen_test.dart
+test/features/auth/presentation/register_step_3_skip_navigation_test.dart
+test/features/auth/presentation/role_selection_screen_test.dart
+test/features/booking/presentation/leave_review_screen_test.dart
+test/features/master/presentation/widgets/profile_nav_bar_navigation_test.dart
+test/features/shell/client_shell_top_bar_test.dart
+test/routing/app_router_no_leaked_timer_test.dart
+test/routing/app_router_test.dart
+test/routing/booking_route_guard_test.dart
+test/routing/client_branch_chrome_test.dart
+test/routing/navigation_links_test.dart
+test/routing/role_landing_chrome_test.dart

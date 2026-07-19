@@ -64,12 +64,14 @@
 //
 //   final GoRouter router = await AppHarness.boot(tester, fb);
 //
-// Use [router.routerDelegate.currentConfiguration.uri.toString()] to read the
-// current location — this is locale-invariant and does NOT depend on
-// [GoRouter.of(context)], which would require a context that is a DESCENDANT of
-// [InheritedGoRouter] (i.e., inside the router's subtree, not at the MaterialApp
-// level). The helper [expectLocation(tester, router, expected)] in each test
-// file uses this pattern.
+// Use [AppHarness.location(router)] to read the current location — it is
+// locale-invariant, does NOT depend on [GoRouter.of(context)] (which would
+// require a context that is a DESCENDANT of [InheritedGoRouter], i.e. inside
+// the router's subtree, not at the MaterialApp level), and — unlike a raw
+// [router.routerDelegate.currentConfiguration.uri] read — resolves correctly
+// after a `context.push` (see [location]'s own doc comment for why the raw
+// read is a trap). [AppHarness.expectLocation] wraps it for the common
+// `startsWith` assertion.
 //
 // USAGE
 // -----
@@ -81,10 +83,7 @@
 //     final router = await AppHarness.boot(tester, fb);
 //     await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 //     // assert route
-//     expect(
-//       router.routerDelegate.currentConfiguration.uri.toString(),
-//       startsWith('/master/profile'),
-//     );
+//     AppHarness.expectLocation(router, '/master/profile');
 //   });
 
 import 'package:beautica_mobile/core/app_start_time.dart';
@@ -149,8 +148,8 @@ abstract final class AppHarness {
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.
   ///
   /// Returns the live [GoRouter] instance wired into [MaterialApp.router] so
-  /// tests can assert [router.routerDelegate.currentConfiguration.uri] and
-  /// navigate programmatically without relying on [GoRouter.of(context)],
+  /// tests can assert the current location via [location]/[expectLocation]
+  /// and navigate programmatically without relying on [GoRouter.of(context)],
   /// which fails at the [MaterialApp] level (requires a descendant context).
   ///
   /// After this call the app is sitting on /login (the fake [SecureStorage] has
@@ -258,6 +257,62 @@ abstract final class AppHarness {
       tester.element(find.byType(_HarnessApp)),
     );
     return container.read(appRouterProvider);
+  }
+
+  // ── Router location (push-safe) ──────────────────────────────────────────
+
+  /// Resolves the router's current logical location, correctly accounting for
+  /// an [ImperativeRouteMatch] — the match kind [GoRouter.push] (i.e.
+  /// `context.push`) produces. go_router 17.x DELIBERATELY EXCLUDES
+  /// [ImperativeRouteMatch] entries from both [RouteMatchList.uri] and
+  /// [RouteMatchList.fullPath] (see go_router's `match.dart`,
+  /// `RouteMatchList.uri` doc comment + `_generateFullPath`'s
+  /// `match is! ImperativeRouteMatch` filter). So reading either directly
+  /// after a push keeps reporting the PRE-push location FOREVER, even though
+  /// the push succeeded and the new screen is mounted.
+  ///
+  /// This is not hypothetical: it shipped twice — `ab34c0a` (nav-bar-hide)
+  /// and again in `master_bookings_flow_test.dart` /
+  /// `logout_flow_test.dart` (the latter is also the true root cause of the
+  /// long-standing "btn-menu-master not navigating" backlog MEDIUM, which was
+  /// never a real navigation regression). `scripts/forbid_naive_router_location.sh`
+  /// now gates every other direct `.uri` / `.fullPath` read in `test/` and
+  /// `integration_test/` — route through THIS helper instead.
+  ///
+  /// Resolution: if the last top-level match is an [ImperativeRouteMatch],
+  /// read the location from ITS OWN nested `matches.uri` (the match list
+  /// produced by that specific push); otherwise (a plain redirect outcome —
+  /// no push on top) [RouteMatchList.uri] is already correct.
+  ///
+  /// NOTE: flows that push ON TOP OF a `StatefulShellRoute` branch (the
+  /// CLIENT shell) resolve location differently —
+  /// `currentConfiguration.matches.last.matchedLocation` walks the shell's
+  /// own leaf chain and is intentionally NOT this helper (see
+  /// `salon_booking_flow_test.dart` / `service_preselection_flow_test.dart`
+  /// for that variant and why it diverges).
+  static String location(GoRouter router) {
+    final RouteMatchList configuration =
+        router.routerDelegate.currentConfiguration;
+    final RouteMatchBase? lastMatch = configuration.matches.isEmpty
+        ? null
+        : configuration.matches.last;
+    final Uri uri = lastMatch is ImperativeRouteMatch
+        ? lastMatch.matches.uri
+        : configuration.uri;
+    return uri.toString();
+  }
+
+  /// Convenience assertion built on [location]: the current router location
+  /// must START WITH [expected]. Covers the common case; flows that need the
+  /// raw string (equality, `isNot(startsWith(...))`, etc.) should call
+  /// [location] directly instead.
+  static void expectLocation(GoRouter router, String expected) {
+    final String current = location(router);
+    expect(
+      current,
+      startsWith(expected),
+      reason: 'Expected router location to start with $expected, got $current',
+    );
   }
 
   // ── Tear-down ─────────────────────────────────────────────────────────────

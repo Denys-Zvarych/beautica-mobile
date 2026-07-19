@@ -75,7 +75,7 @@ void main() {
 
       // Authenticated → on the real master profile screen.
       expect(
-        router.routerDelegate.currentConfiguration.uri.toString(),
+        AppHarness.location(router),
         startsWith(RouteNames.masterProfile),
         reason:
             'login must land on the real /master/profile screen so the '
@@ -86,7 +86,7 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-menu-master')));
       await tester.pumpAndSettle();
       expect(
-        router.routerDelegate.currentConfiguration.uri.toString(),
+        AppHarness.location(router),
         startsWith(RouteNames.masterMenu),
         reason: 'menu icon must push the settings hub at /master/menu',
       );
@@ -116,7 +116,7 @@ void main() {
       //    logout() would have thrown CircularDependencyError, context.go(login)
       //    would never run, and we'd still be on /master/menu.
       expect(
-        router.routerDelegate.currentConfiguration.uri.toString(),
+        AppHarness.location(router),
         startsWith(RouteNames.login),
         reason: 'a successful logout must navigate to /login',
       );

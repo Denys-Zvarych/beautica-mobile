@@ -81,34 +81,13 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // go_router gotcha: `RouteMatchList.uri` is documented to reflect only the
-  // DECLARATIVE (redirect-driven) match chain — it explicitly excludes any
-  // `ImperativeRouteMatch` (the match kind produced by `router.push(...)`).
-  // So after a push, `currentConfiguration.uri` keeps reporting the PRE-push
-  // location even though the push succeeded and the new screen is mounted.
-  // Do NOT "simplify" this back to `currentConfiguration.uri.toString()` —
-  // that regresses every push-based assertion in this file back to
-  // reporting the base location. Instead: if the last top-level match is an
-  // `ImperativeRouteMatch`, resolve the location from its own nested
-  // `matches.uri` (the match list produced by that specific push); otherwise
-  // (a plain redirect outcome, e.g. Flow B's guard redirect) the top-level
-  // `.uri` is already correct.
-  void expectLocation(GoRouter router, String expected) {
-    final RouteMatchList configuration =
-        router.routerDelegate.currentConfiguration;
-    final RouteMatchBase? lastMatch = configuration.matches.isEmpty
-        ? null
-        : configuration.matches.last;
-    final Uri uri = lastMatch is ImperativeRouteMatch
-        ? lastMatch.matches.uri
-        : configuration.uri;
-    final String current = uri.toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
+  // Push-safe location resolver: see `AppHarness.location`'s doc comment
+  // (integration_test/support/app_harness.dart) for why a raw
+  // `currentConfiguration.uri` read keeps reporting the pre-push location
+  // forever. This file used to carry its own copy of that logic; promoted to
+  // the shared helper (2026-07-19) so every flow imports one implementation.
+  void expectLocation(GoRouter router, String expected) =>
+      AppHarness.expectLocation(router, expected);
 
   // Shared preamble for Flow A / Flow C: log in as CLIENT, push the public
   // profile, open the NAILS category, select the first service, and land on

@@ -131,8 +131,10 @@ void main() {
         unawaited(ctx.push(RouteNames.masterBookingDetail('b1')));
         await tester.pumpAndSettle();
 
-        // THE TRAP: fullPath reports the PARENT, not the pushed leaf.
+        // THE TRAP: fullPath reports the PARENT, not the pushed leaf. This
+        // assertion's whole point is that the naive read stays wrong.
         expect(
+          // router-location-ok: deliberate pin of the raw-read trap itself
           router.routerDelegate.currentConfiguration.fullPath,
           RouteNames.masterBookings,
           reason:

@@ -181,6 +181,21 @@ jobs:
         shell: bash
         run: ./scripts/forbid_inline_fontsize.sh
 
+      # 2026-07-19 push-location safeguard — forbid a direct
+      # currentConfiguration.uri/.fullPath read in tests; go_router excludes
+      # ImperativeRouteMatch (the match kind context.push produces) from both,
+      # so a direct read after a push keeps reporting the pre-push location
+      # forever. Shipped twice for real (nav-bar-hide `ab34c0a`; the
+      # "btn-menu-master not navigating" backlog MEDIUM, which was never a
+      # real nav regression). Route through AppHarness.location/
+      # expectLocation (integration_test/support/app_harness.dart) instead.
+      # Legacy files are grandfathered in
+      # scripts/.naive_router_location_allow (ratchet — baseline only
+      # shrinks); new exceptions use `// router-location-ok: <reason>`.
+      - name: Forbid naive currentConfiguration.uri/.fullPath reads in tests
+        shell: bash
+        run: ./scripts/forbid_naive_router_location.sh
+
       # Phase 7.1 perf P4 — MasterBookingsQuery.raw() containment. `.of()` is
       # the only path that truncates from/to to local midnight; `.raw()` skips
       # it, so a date picker wired straight to `.raw()` mints a new
@@ -203,6 +218,7 @@ jobs:
           ./scripts/forbid_unmocked_approved_categories.sh --self-test
           ./scripts/forbid_inline_fontsize.sh --self-test
           ./scripts/forbid_raw_bookings_query.sh --self-test
+          ./scripts/forbid_naive_router_location.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH

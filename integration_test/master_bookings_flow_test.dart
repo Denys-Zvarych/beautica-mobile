@@ -68,9 +68,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  String locationOf(GoRouter router) =>
-      router.routerDelegate.currentConfiguration.uri.toString();
-
   testWidgets(
     'INDEPENDENT_MASTER opens «Мої записи», narrows by a rail day, and opens '
     'the booking in the PROVIDER view',
@@ -82,21 +79,21 @@ void main() {
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
       // ── 1. The master lands on their own shell, NOT the client one. ───────
-      expect(locationOf(router), startsWith(RouteNames.masterProfile));
+      expect(AppHarness.location(router), startsWith(RouteNames.masterProfile));
 
       // ── 2. «Мої записи» (nav tile 1) pushes the MASTER route. ─────────────
       await tester.tap(find.byKey(const Key('master-nav-tile-1')));
       await AppHarness.settle(tester);
 
       expect(
-        locationOf(router),
+        AppHarness.location(router),
         startsWith(RouteNames.masterBookings),
         reason:
             'tile 1 must reach /master/bookings; /bookings is the CLIENT '
             'branch and the role gate would bounce a master straight off it',
       );
       expect(
-        locationOf(router),
+        AppHarness.location(router),
         isNot(startsWith('${RouteNames.clientBookings}/')),
       );
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
@@ -308,7 +305,7 @@ void main() {
       await AppHarness.settle(tester);
 
       expect(
-        locationOf(router),
+        AppHarness.location(router),
         RouteNames.masterBookingDetail('booking-1'),
         reason:
             'the card must push the MASTER detail route, not the client one',
@@ -352,7 +349,10 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-detail-back')));
       await AppHarness.settle(tester);
 
-      expect(locationOf(router), startsWith(RouteNames.masterBookings));
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
       expect(find.byType(BookingDetailScreen), findsNothing);
       expect(
@@ -391,7 +391,10 @@ void main() {
       await tester.tap(find.byKey(const Key('master-nav-tile-1')));
       await AppHarness.settle(tester);
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
-      expect(locationOf(router), startsWith(RouteNames.masterBookings));
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
 
       // ── A. The filter sheet is Статус + Послуга only — no Дата anywhere. ───
       await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
