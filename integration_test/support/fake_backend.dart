@@ -1742,6 +1742,17 @@ final class FakeBackend {
   /// (Step 2.7 Rule 3b) — lets a test pin the exact `sort=startsAt,<asc|desc>`
   /// wire value per tab at the HTTP boundary, not just the mapped domain
   /// argument the unit suite already covers.
+  ///
+  /// Populated UNCONDITIONALLY by the `/bookings/me` route callback itself —
+  /// on EVERY hit, whether or not [seedManyBookingsDataset] was ever called.
+  /// It used to be assigned only inside [_slicedBookingsPageEnvelope] (the
+  /// opt-in dataset branch), so any flow that never seeds a dataset — e.g.
+  /// `master_bookings_flow_test.dart` — left this `null` forever even though
+  /// the request genuinely reached the fake and the screen rendered real
+  /// data from [_bookingsPageEnvelope]. A `last*Query` telemetry field that
+  /// only populates on one opt-in code path is a silent-null footgun: do NOT
+  /// move this assignment back into a status-specific branch — keep it at
+  /// the top of the shared route callback, before any dispatch.
   Map<String, dynamic>? lastMyBookingsQuery;
 
   /// The enriched `BookingDetailResponse` body for the seeded booking, built
@@ -1913,11 +1924,10 @@ final class FakeBackend {
   /// `sort` is ABSENT, mirroring the real endpoint's actual default (the
   /// precise gap Bug B exploited: no `sort` sent → server default
   /// `startsAt,DESC` → farthest-future page 0) — then slices out
-  /// `[page*size, page*size+size)`. Also records [lastMyBookingsQuery] for
-  /// tests that want to pin the exact wire query.
+  /// `[page*size, page*size+size)`. [lastMyBookingsQuery] is recorded by the
+  /// caller (the shared `/bookings/me` route callback), not here — see that
+  /// field's doc comment for why it must stay unconditional.
   Map<String, dynamic> _slicedBookingsPageEnvelope(Map<String, dynamic> query) {
-    lastMyBookingsQuery = Map<String, dynamic>.from(query);
-
     final List<Map<String, dynamic>> dataset = _bookingsDataset!;
     final List<String>? statuses = _bookingStatusesFrom(query);
     final String sort = (query['sort'] as String?) ?? 'startsAt,desc';
@@ -3173,11 +3183,14 @@ final class FakeBackend {
     // served by the REAL (statuses, sort, page) slice in
     // [_slicedBookingsPageEnvelope]; otherwise (every other flow using this
     // fake) it falls back to the original single-seeded-`booking-1` behaviour
-    // keyed off the current status.
+    // keyed off the current status. [lastMyBookingsQuery] is recorded here,
+    // UNCONDITIONALLY, before the dataset dispatch — see that field's doc
+    // comment for why it must never move back behind the dataset check.
     _adapter.onRoute(
       '/api/v1/bookings/me',
       (server) => server.replyCallback(200, (req) {
         getMyBookingsCalls++;
+        lastMyBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
         if (_bookingsDataset != null) {
           return _slicedBookingsPageEnvelope(
             Map<String, dynamic>.from(req.queryParameters),

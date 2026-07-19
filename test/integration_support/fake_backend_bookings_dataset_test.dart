@@ -253,4 +253,46 @@ void main() {
       },
     );
   });
+
+  group('FakeBackend.lastMyBookingsQuery — recorded unconditionally, not '
+      'only on the seeded-dataset path', () {
+    // Regression test for the bug that failed `master_bookings_flow_test`
+    // (`:139-144`, `:406-407`): the assignment used to live INSIDE
+    // `_slicedBookingsPageEnvelope`, which only runs once
+    // `seedManyBookingsDataset` has been called. Every flow that never seeds
+    // a dataset — the master-bookings flow included — took the
+    // `_bookingsPageEnvelope` fallback branch and `lastMyBookingsQuery`
+    // stayed `null` forever, even though the request genuinely reached the
+    // fake and the screen rendered real data. This test exercises exactly
+    // that fallback path — no `seedManyBookingsDataset` call anywhere.
+    test('a GET /bookings/me hit records lastMyBookingsQuery even when '
+        'seedManyBookingsDataset was NEVER called', () async {
+      final fb = FakeBackend();
+
+      expect(
+        fb.lastMyBookingsQuery,
+        isNull,
+        reason: 'no /bookings/me request has been made yet',
+      );
+
+      await fb.dio.get<Map<String, dynamic>>(
+        '/api/v1/bookings/me',
+        queryParameters: <String, dynamic>{
+          'from': '2026-07-20',
+          'to': '2026-07-20',
+        },
+      );
+
+      expect(
+        fb.lastMyBookingsQuery,
+        isNotNull,
+        reason:
+            'the fallback (non-dataset) branch must record the query too '
+            '— a last*Query telemetry field that only populates on an '
+            'opt-in path is a silent-null footgun',
+      );
+      expect(fb.lastMyBookingsQuery!['from'], '2026-07-20');
+      expect(fb.lastMyBookingsQuery!['to'], '2026-07-20');
+    });
+  });
 }
