@@ -50,15 +50,40 @@ import 'booking_status_badge.dart';
 /// A provider-perspective booking row. The whole card is one tap target that
 /// opens «Деталі запису» — it carries no per-action buttons (those live on the
 /// detail screen, Phase 7.3).
+///
+/// [width]/[height] are OPTIONAL container constraints — added for Phase
+/// 7.10's `BookingsTimelineGrid`, whose lanes are a fixed width and whose
+/// short bookings (a 15-minute service, floored to a 48dp tap target) are far
+/// shorter than this card's natural content height. Left `null` (the default,
+/// every call site before Phase 7.10), the card sizes itself exactly as
+/// before — this is a strictly additive change.
+///
+/// A non-null [height] does NOT change the card's typography, spacing, or
+/// internal layout — it wraps the unchanged card in a fixed-size viewport and
+/// visually CLIPS whatever does not fit, via [OverflowBox] (which lays the
+/// card out at its own natural height, unconstrained) inside a [ClipRect]
+/// (which then crops the paint — and the hit-test region — to [height]).
+/// This is deliberate: constraining the Column itself to a too-small tight
+/// height would overflow internally (RenderFlex's debug overflow indicator
+/// fires regardless of `clipBehavior`, which only affects whether the
+/// overflowing paint is clipped, not whether Flutter reports the overflow at
+/// all) — see the mobile-qa "Golden is not acceptance for visual bugs" /
+/// Phase 17.2 overflow-guard notes. Routing through [OverflowBox] instead
+/// means the Column is NEVER constrained tighter than it needs, so no
+/// overflow ever occurs; only the paint is cropped.
 class MasterBookingCard extends StatefulWidget {
   const MasterBookingCard({
     super.key,
     required this.booking,
     required this.onTap,
+    this.width,
+    this.height,
   });
 
   final Booking booking;
   final VoidCallback onTap;
+  final double? width;
+  final double? height;
 
   @override
   State<MasterBookingCard> createState() => _MasterBookingCardState();
@@ -73,7 +98,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     final Booking b = widget.booking;
     final String clientName = b.clientName ?? l10n.bookingDetailGuestClient;
 
-    return Semantics(
+    final Widget card = Semantics(
       button: true,
       label: l10n.masterBookingCardSemantics(clientName, b.serviceName),
       child: GestureDetector(
@@ -169,6 +194,32 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
           ),
         ),
       ),
+    );
+
+    final double? width = widget.width;
+    final double? height = widget.height;
+    if (width == null && height == null) return card;
+
+    // A non-null height wraps the (unconstrained) card in an OverflowBox so
+    // the Column inside it never sees a tight height it can't satisfy — see
+    // the class doc for why constraining the Column directly would trip the
+    // test suite's overflow guard even with `clipBehavior` set. ClipRect then
+    // crops both the paint AND the hit-test region to [height], so a card
+    // squeezed shorter than its content is visually truncated, not tappable
+    // past its visible bottom edge, and never throws.
+    return SizedBox(
+      width: width,
+      height: height,
+      child: height == null
+          ? card
+          : ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.topCenter,
+                minHeight: 0,
+                maxHeight: double.infinity,
+                child: card,
+              ),
+            ),
     );
   }
 }

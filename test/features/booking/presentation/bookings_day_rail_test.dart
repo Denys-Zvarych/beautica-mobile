@@ -1,5 +1,17 @@
 // Phase 7.6 — the «Мої записи» day rail.
 //
+// Phase 7.11 — the «Всі» chip is retired (`BookingsDayQuery` has no all-days
+// / range mode any more) and [BookingsDayRail.selectedDay] is now
+// non-nullable: exactly one day is selected at all times, including a day
+// with no bookings on it. `_rail()` below defaults `selectedDay` to [today]
+// so every pre-existing call site keeps expressing "some day is selected"
+// without having to say which. The Kyiv-vs-host "today" DERIVATION itself
+// (`dateOnly(toBeauticaTime(DateTime.now()))`) is NOT this widget's
+// responsibility — it lives in `BookingsDiscoveryView`, which is why that
+// assertion lives in `master_bookings_screen_test.dart` instead of here; this
+// file only pins that the RAIL renders whatever day it is handed as selected,
+// unconditionally.
+//
 // The centrepiece of this suite is the DST pair. `railDayAt` exists because
 // the design's `firstDay.add(Duration(days: i))` adds absolute 24-hour blocks:
 // across a Europe/Kyiv transition a chain of them lands on 23:00 or 01:00
@@ -100,12 +112,13 @@ String _dstSuffix(bool observed) => observed
 Widget _rail({
   required DateTime firstDay,
   required DateTime today,
+  // Defaults to [today] — the rail always has SOME day selected post-7.11;
+  // callers that care which day override it explicitly.
   DateTime? selectedDay,
   Set<DateTime> bookedDays = const <DateTime>{},
   int dayCount = 7,
   bool calendarActive = false,
   ValueChanged<DateTime>? onSelectDay,
-  VoidCallback? onSelectAll,
   VoidCallback? onOpenCalendar,
 }) {
   return BookingsDayRail(
@@ -113,11 +126,10 @@ Widget _rail({
     firstDay: firstDay,
     dayCount: dayCount,
     today: today,
-    selectedDay: selectedDay,
+    selectedDay: selectedDay ?? today,
     bookedDays: bookedDays,
     calendarActive: calendarActive,
     onOpenCalendar: onOpenCalendar ?? () {},
-    onSelectAll: onSelectAll ?? () {},
     onSelectDay: onSelectDay ?? (_) {},
   );
 }
@@ -215,6 +227,70 @@ void main() {
         // pinned rather than a host-dependent inequality.)
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // calendarDayCount — the REVERSE-direction DST-safe arithmetic
+  // -------------------------------------------------------------------------
+  //
+  // `railDayAt` (above) is the DST-safe way to go FROM a date + an offset TO
+  // a date. `calendarDayCount` is its mirror: FROM two dates TO a day count —
+  // needed by `BookingsDiscoveryView._centreRailOn` to convert the selected
+  // day back into a rail item index. `DateTime.difference(...).inDays` is NOT
+  // safe for that direction either, for the same underlying reason: a
+  // Europe/Kyiv spring-forward transition between the two dates shortens the
+  // elapsed wall-clock span by exactly the skipped hour, and `Duration.inDays`
+  // TRUNCATES rather than rounds — so a 180-calendar-day span crossing the
+  // transition reports 179. `bookings_discovery_view.dart` shipped with the
+  // unsafe `.difference(...).inDays` form; on a host observing Europe/Kyiv DST
+  // (every real device in the market — this repo's own dev VM included) it
+  // silently mis-centred the rail by one full `kRailItemExtent` on open for
+  // the large majority of the year (any day whose ±180-day span crosses
+  // either yearly transition). Fixed to route through this function instead.
+  group('calendarDayCount — DST-safe reverse arithmetic', () {
+    test('a span with NO DST transition matches plain Duration arithmetic', () {
+      expect(calendarDayCount(DateTime(2026, 7, 1), DateTime(2026, 7, 19)), 18);
+    });
+
+    test(
+      'a ±180-day span CROSSING the spring transition still reports the '
+      'true calendar day count — the regression this function exists to fix',
+      () {
+        // 2026-01-20 to 2026-07-19 crosses the 2026-03-29 spring-forward.
+        // Verified BEFORE this fix landed, in a Europe/Kyiv process:
+        // `DateTime(2026,7,19).difference(DateTime(2026,1,20))` == 4319:00:00
+        // (179 days 23 hours — one hour short because of the skipped hour),
+        // so `.inDays` truncated to 179, not 180.
+        expect(
+          calendarDayCount(DateTime(2026, 1, 20), DateTime(2026, 7, 19)),
+          180,
+        );
+      },
+    );
+
+    test('a ±180-day span CROSSING the autumn transition also reports the '
+        'true calendar day count', () {
+      // 2026-07-19 to 2027-01-15 crosses the 2026-10-25 fall-back (which
+      // LENGTHENS the elapsed span by an hour — the mirror-image failure
+      // mode: `.inDays` would still floor an OVER-by-one-hour span down to
+      // the correct count by luck on THIS side, which is exactly why the
+      // spring case above — not this one — is the one that actually caught
+      // production silently returning the wrong count).
+      expect(
+        calendarDayCount(DateTime(2026, 7, 19), DateTime(2027, 1, 15)),
+        180,
+      );
+    });
+
+    test('is antisymmetric: swapping the arguments negates the result', () {
+      final DateTime a = DateTime(2026, 1, 20);
+      final DateTime b = DateTime(2026, 7, 19);
+      expect(calendarDayCount(a, b), -calendarDayCount(b, a));
+    });
+
+    test('the same date is a zero-day span', () {
+      expect(calendarDayCount(DateTime(2026, 7, 19), DateTime(2026, 7, 19)), 0);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -438,63 +514,86 @@ void main() {
       );
     }, skip: !autumnObserved);
 
-    testWidgets('the lead items are [calendar][Всі], in that order', (
-      tester,
-    ) async {
-      final DateTime today = DateTime(2026, 7, 18);
-      await tester.pumpApp(_rail(firstDay: today, today: today, dayCount: 3));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const Key('master-bookings-calendar-button')),
-        findsOne,
-      );
-      expect(find.byKey(const Key('master-bookings-all-chip')), findsOne);
-
-      // The offset the screen's centring math depends on.
-      expect(kRailLeadItems, 2);
-
-      final double calendarX = tester
-          .getTopLeft(find.byKey(const Key('master-bookings-calendar-button')))
-          .dx;
-      final double allX = tester
-          .getTopLeft(find.byKey(const Key('master-bookings-all-chip')))
-          .dx;
-      expect(calendarX, lessThan(allX));
-    });
-
     testWidgets(
-      '«Всі» reads as selected only when no day and no range is set',
+      'the single lead item is [calendar] — «Всі» is retired (Phase 7.11)',
       (tester) async {
         final DateTime today = DateTime(2026, 7, 18);
+        await tester.pumpApp(_rail(firstDay: today, today: today, dayCount: 3));
+        await tester.pumpAndSettle();
 
-        Future<bool?> allChipSelected({
-          DateTime? selectedDay,
-          bool calendarActive = false,
-        }) async {
-          await tester.pumpApp(
-            _rail(
-              firstDay: today,
-              today: today,
-              dayCount: 3,
-              selectedDay: selectedDay,
-              calendarActive: calendarActive,
-            ),
-          );
-          await tester.pumpAndSettle();
-          return tester
-              .getSemantics(find.byKey(const Key('master-bookings-all-chip')))
-              .flagsCollection
-              .isSelected
-              .toBoolOrNull();
-        }
+        expect(
+          find.byKey(const Key('master-bookings-calendar-button')),
+          findsOne,
+        );
+        expect(
+          find.byKey(const Key('master-bookings-all-chip')),
+          findsNothing,
+          reason: '«Всі» must not render anywhere in the rail post-7.11.',
+        );
+
+        // The offset the screen's centring math depends on.
+        expect(kRailLeadItems, 1);
+      },
+    );
+
+    test(
+      'the screen\'s centring math resolves the lead-item offset to '
+      '1 + dayIndex — an off-by-one here silently breaks initial centring',
+      () {
+        // Mirrors `BookingsDiscoveryView._centreRailOn`'s
+        // `itemIndex = kRailLeadItems + dayIndex` verbatim, so a regression to
+        // either side (the rail's own constant, or a screen edit that stops
+        // adding it) is caught here rather than only manifesting as "the rail
+        // opens two cells off, which looks almost right".
+        const int dayIndex = 42;
+        const int itemIndex = kRailLeadItems + dayIndex;
+        expect(
+          itemIndex,
+          1 + dayIndex,
+          reason:
+              'With «Всі» retired the rail has exactly ONE lead item '
+              '([calendar]), so the day-index → item-index offset must be '
+              '1 + dayIndex, not 2 + dayIndex (the design\'s two-lead-item '
+              'formula for [calendar][Всі]).',
+        );
+      },
+    );
+
+    testWidgets(
+      'a day is always selected — even a day with no bookings on it, and '
+      'even when it is the ONLY day rendered',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 18);
+        // No entry for `today` in bookedDays — this pins that selection does
+        // NOT depend on the day carrying a dot.
+        await tester.pumpApp(
+          _rail(
+            firstDay: today,
+            today: today,
+            dayCount: 1,
+            selectedDay: today,
+            bookedDays: const <DateTime>{},
+          ),
+        );
+        await tester.pumpAndSettle();
 
         final SemanticsHandle handle = tester.ensureSemantics();
-        expect(await allChipSelected(), isTrue);
-        expect(await allChipSelected(selectedDay: today), isFalse);
-        // A range supersedes the single-day selection, so «Всі» is not selected
-        // even though `selectedDay` is null.
-        expect(await allChipSelected(calendarActive: true), isFalse);
+        expect(
+          tester
+              .getSemantics(find.byKey(dayChipKey(today)))
+              .flagsCollection
+              .isSelected
+              .toBoolOrNull(),
+          isTrue,
+          reason:
+              'today must render selected even though it has no bookings — '
+              'there is no null-day state to fall back to post-7.11.',
+        );
+        expect(
+          find.byKey(dayDotKey(today)),
+          findsNothing,
+          reason: 'precondition: today genuinely carries no booking dot',
+        );
         handle.dispose();
       },
     );

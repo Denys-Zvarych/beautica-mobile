@@ -1387,9 +1387,6 @@ abstract final class VelvetText {
   /// Day-rail day-of-month number — statValue at 18 sp, the rail's anchor.
   static final TextStyle railDayNumber = _statValueStyle.copyWith(fontSize: 18);
 
-  /// Day-rail «Всі» chip label — statValue stepped to 15 sp.
-  static final TextStyle railAllChip = _statValueStyle.copyWith(fontSize: 15);
-
   /// Master booking-card screen title («Мої записи») — heading at 22 sp.
   static final TextStyle masterBookingsTitle = _headingStyle.copyWith(
     fontSize: 22,
@@ -1427,5 +1424,32 @@ abstract final class VelvetText {
   static final TextStyle masterCardInitials = _subheadingStyle.copyWith(
     fontSize: 15,
     color: BrandColors.accentDeep,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Phase 7.10 — the master timeline's hour ruler (`TimelineHourRuler`).
+  //
+  // Transcribed from the approved preview's `_TimelineGrid` time-label column
+  // (`docs/signup-designs/SalonManagementDesign/lib/widgets/
+  // bookings_toolbar.dart:1396-1407`), which spells the label as an inline
+  // `VelvetText.statCaption().copyWith(fontSize: 11, color: ..., fontWeight:
+  // ...)`. Cached here as two tokens (ordinary / closing) instead, so the
+  // ruler — which repaints one Text per rendered hour — never allocates a
+  // TextStyle per frame and `forbid_inline_fontsize.sh` stays green.
+  // ---------------------------------------------------------------------------
+
+  /// Ordinary hour-mark label ("09:00") — statCaption at 11 sp, muted.
+  static final TextStyle timelineHourLabel = _statCaptionStyle.copyWith(
+    fontSize: 11,
+    color: BrandColors.muted,
+  );
+
+  /// The CLOSING hour label (the extent's last mark) — statCaption at 11 sp,
+  /// w700, accent — the same "this is where the grid ends" emphasis the
+  /// design gives its last ruler tick.
+  static final TextStyle timelineHourLabelAccent = _statCaptionStyle.copyWith(
+    fontSize: 11,
+    color: BrandColors.accent,
+    fontWeight: FontWeight.w700,
   );
 }

@@ -1,26 +1,25 @@
 // Phase 7.7 — the seam between the filter sheet and the QUERY.
 //
-// `bookings_filter_sheet_test.dart` pins what the sheet RESOLVES WITH. This
-// file pins what the screen does with that value — a genuinely separate
-// failure surface: a sheet can resolve perfectly while the screen overwrites
-// the filters or (the nastiest one) mutates `_query` without going through
-// `_setQuery`.
-//
-// Phase 7.8 retired sorting, so the sort groups are gone. What survives is the
-// landing query's ordering assertion, which now pins the FIXED sort
-// `MasterBookingsNotifier` sends.
+// Phase 7.11 — rewritten for `BookingsDayQuery` (Phase 7.9): there is no
+// paging, no user-chosen sort, and no date RANGE any more — one Kyiv day,
+// always `from == to`. What survives from 7.7/7.8 is the shape of the
+// concern this file exists for: a sheet can resolve perfectly while the
+// screen still fails to carry the value to the wire (or carries the WRONG
+// half of a swapped pair) — a genuinely separate failure surface from
+// `bookings_filter_sheet_test.dart`, which only pins what the sheet resolves
+// WITH.
 //
 // Assertions are made on the arguments the REPOSITORY receives, not on the
-// screen's private state. That is the only observation point that proves the
-// whole chain — sheet → `MasterBookingsQuery.of` → provider family → repo —
-// actually carried the value to the wire.
+// view's private state — the only observation point that proves the whole
+// chain (sheet → `BookingsDayQuery.of` → provider family → repo) actually
+// carried the value to the wire.
 //
 // Every test mutation-verified; mutations recorded per group.
 //
-// Host-zone note: the only dates asserted here are explicit
-// `DateTime(y, m, d)` literals fed through the stubbed picker, and
-// `toApiDate` reads `.year/.month/.day` off the local value with no zone
-// conversion. Identical under TZ=UTC and TZ=Europe/Kyiv.
+// Host-zone note: the only dates asserted here are either the screen's own
+// captured Kyiv "today" or explicit `DateTime(y, m, d)` literals fed through
+// the stubbed picker, and `toApiDate` reads `.year/.month/.day` off the local
+// value with no zone conversion. Identical under TZ=UTC and TZ=Europe/Kyiv.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,6 +37,8 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 
@@ -51,6 +52,9 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
   @override
   void release() {}
 }
+
+/// Kyiv "today" — every landing query is scoped to this day (Phase 7.11).
+DateTime get _kyivToday => dateOnly(toBeauticaTime(DateTime.now()));
 
 /// One recorded `getMyBookings` call — every parameter this phase can change.
 typedef _Call = ({
@@ -99,7 +103,7 @@ Booking _booking(String id) {
 void main() {
   setUpAll(() {
     registerFallbackValue(BookingStatus.confirmed);
-    registerFallbackValue(BookingSort.newest);
+    registerFallbackValue(BookingSort.oldest);
     registerFallbackValue(<BookingStatus>[]);
   });
 
@@ -145,9 +149,7 @@ void main() {
   /// Not `pumpApp`: every one of this phase's sheets closes with the go_router
   /// `context.pop(value)` extension (raw `Navigator.pop` is banned in
   /// `lib/features`), and that throws "No GoRouter found in context" under a
-  /// plain `MaterialApp`. A router-less harness therefore cannot exercise a
-  /// single sheet-resolution path — and would have made every assertion below
-  /// unreachable rather than merely failing.
+  /// plain `MaterialApp`.
   Future<void> pump(WidgetTester tester) async {
     await tester.pumpRoutedApp(
       GoRouter(
@@ -184,10 +186,10 @@ void main() {
   }
 
   group('the landing query', () {
-    // MUTATION: changed `MasterBookingsNotifier`'s `_fixedSort` to
-    // `BookingSort.oldest` → this test failed on both the enum and the
+    // MUTATION: changed `BookingsDayNotifier`'s fixed sort to
+    // `BookingSort.newest` → this test failed on both the enum and the
     // wireValue assertion. Restored.
-    testWidgets('opens unfiltered, newest-first, page 0', (
+    testWidgets('opens on Kyiv "today", oldest-first, page 0', (
       WidgetTester tester,
     ) async {
       await pump(tester);
@@ -196,11 +198,11 @@ void main() {
       expect(calls.single.page, 0);
       expect(calls.single.statuses, isEmpty);
       expect(calls.single.serviceIds, isEmpty);
-      expect(calls.single.from, isNull);
-      expect(calls.single.to, isNull);
-      expect(calls.single.sort, BookingSort.newest);
+      expect(calls.single.from, _kyivToday);
+      expect(calls.single.to, _kyivToday);
+      expect(calls.single.sort, BookingSort.oldest);
       // Wire value as a LITERAL — a typo in the enum must fail here.
-      expect(calls.single.sort!.wireValue, 'startsAt,desc');
+      expect(calls.single.sort!.wireValue, 'startsAt,asc');
     });
   });
 
@@ -235,6 +237,9 @@ void main() {
         <String>{'CONFIRMED', 'CANCELLED', 'DECLINED'},
       );
       expect(calls.single.page, 0);
+      // The day is untouched by a status/service filter.
+      expect(calls.single.from, _kyivToday);
+      expect(calls.single.to, _kyivToday);
     });
 
     // MUTATION: made `_applyFilters` drop `applied.serviceIds` → this test
@@ -267,82 +272,150 @@ void main() {
       },
     );
 
-    // MUTATION: made `_openCalendar` ignore the picked range (return early
+    // MUTATION: made `_applyFilters` fold `applied.from`/`applied.to` onto
+    // the live query (reinstating the retired range concept) → this test
+    // failed because the day silently drifted off Kyiv-today. Restored:
+    // the sheet's «Дата» picks are discarded, by design — see
+    // `bookings_discovery_view.dart`'s `_applyFilters` doc.
+    testWidgets(
+      'a date picked in the FILTER SHEET is discarded — day narrowing is the '
+      'RAIL\'s job only',
+      (WidgetTester tester) async {
+        await pump(tester);
+        calls.clear();
+
+        await openFilters(tester);
+        await tester.tap(find.byKey(const Key('master-bookings-filter-date')));
+        await tester.pumpAndSettle();
+
+        final DateTime pickDay = DateTime(
+          _kyivToday.year,
+          _kyivToday.month,
+          _kyivToday.day + 5,
+        );
+        for (final DateTime d in <DateTime>[pickDay, pickDay]) {
+          final Finder cell = find.byKey(periodDayCellKey(d));
+          await tester.scrollUntilVisible(
+            cell,
+            300,
+            scrollable: find.byType(Scrollable).last,
+          );
+          await tester.ensureVisible(cell);
+          await tester.pumpAndSettle();
+          await tester.tap(cell);
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.byKey(const Key('btn-range-picker-save')));
+        await tester.pumpAndSettle();
+        await applyFilters(tester);
+
+        // Nothing about the live query actually CHANGED (statuses/serviceIds
+        // are still empty, the day is still Kyiv-today) — so this is not
+        // merely "the wire arguments still say today", it is that NO new
+        // fetch fires at all: applying resolves to a query `==` the one
+        // already resolved, which is the strongest possible proof the picked
+        // date never reached `BookingsDayQuery.of`.
+        expect(
+          calls,
+          isEmpty,
+          reason:
+              'the filter sheet\'s date picker must NOT move the live day — '
+              'only the rail (and its calendar button) may. A request here '
+              'would mean the picked date reached the query after all.',
+        );
+      },
+    );
+
+    // MUTATION: made `_openCalendar` ignore the picked value (return early
     // after the null check) → this test failed. Restored.
     //
-    // MUTATION: made `_openCalendar` write `bounds.from` to BOTH ends → the
-    // `to` assertion failed. Restored.
+    // MUTATION: made `_openCalendar` collapse to `bounds.to` instead of
+    // `bounds.from` → the assertion failed. Restored.
     //
     // This drives the REAL calendar through the rail's calendar button — the
     // whole `_openCalendar` → `showBookingsDateRangePicker` →
-    // `normaliseBookingRange` → `MasterBookingsQuery.of` chain — because the
-    // date bounds are the one parameter where an intermediate step
-    // (a zone conversion, a `Duration(days:)` walk) can silently shift the
-    // value by a day.
-    testWidgets('a range picked in the calendar reaches the repository', (
-      WidgetTester tester,
-    ) async {
-      await pump(tester);
-      calls.clear();
+    // `normaliseBookingRange` → `BookingsDayQuery.of` chain. A genuine RANGE
+    // picked in the calendar collapses to its START day — `BookingsDayQuery`
+    // (Phase 7.9) has no range to express any more.
+    testWidgets(
+      'a range picked in the calendar collapses to its START day on the wire',
+      (WidgetTester tester) async {
+        await pump(tester);
+        calls.clear();
 
-      // The rail auto-centres on today at open, which scrolls its leading
-      // calendar cell off the left edge — scroll BACK (negative delta) to
-      // reach it.
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('master-bookings-calendar-button')),
-        -400,
-        scrollable: find
-            .descendant(
-              of: find.byKey(const Key('master-bookings-day-rail')),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const Key('master-bookings-calendar-button')),
-      );
-      await tester.pumpAndSettle();
-
-      // The picker's window is anchored on the screen's captured "today", so
-      // the two days are expressed relative to it rather than as literals.
-      final DateTime today = DateTime.now();
-      final DateTime start = DateTime(today.year, today.month, today.day);
-      final DateTime end = DateTime(today.year, today.month, today.day + 4);
-
-      for (final DateTime d in <DateTime>[start, end]) {
-        final Finder cell = find.byKey(periodDayCellKey(d));
+        // The rail auto-centres on Kyiv-today at open, which scrolls its
+        // leading calendar cell off the left edge — scroll BACK (negative
+        // delta) to reach it.
         await tester.scrollUntilVisible(
-          cell,
-          300,
-          scrollable: find.byType(Scrollable).last,
+          find.byKey(const Key('master-bookings-calendar-button')),
+          -400,
+          scrollable: find
+              .descendant(
+                of: find.byKey(const Key('master-bookings-day-rail')),
+                matching: find.byType(Scrollable),
+              )
+              .first,
         );
-        await tester.ensureVisible(cell);
         await tester.pumpAndSettle();
-        await tester.tap(cell);
+        await tester.tap(
+          find.byKey(const Key('master-bookings-calendar-button')),
+        );
         await tester.pumpAndSettle();
-      }
 
-      await tester.tap(find.byKey(const Key('btn-range-picker-save')));
-      await tester.pumpAndSettle();
+        // Deliberately NOT today — the current `_day` already IS Kyiv-today,
+        // so a picked start equal to it would fire no request at all (an
+        // unchanged query is a cache hit, not a fetch — see the sibling test
+        // above). The start must actually differ for this test to observe
+        // anything.
+        final DateTime start = DateTime(
+          _kyivToday.year,
+          _kyivToday.month,
+          _kyivToday.day + 2,
+        );
+        final DateTime end = DateTime(
+          _kyivToday.year,
+          _kyivToday.month,
+          _kyivToday.day + 6,
+        );
 
-      expect(calls, hasLength(1));
-      expect(calls.single.from, start);
-      expect(calls.single.to, end);
-      // Date-only on both ends — an instant would make every tap a fresh
-      // provider-family member.
-      expect(calls.single.from!.hour, 0);
-      expect(calls.single.from!.minute, 0);
-    });
+        for (final DateTime d in <DateTime>[start, end]) {
+          final Finder cell = find.byKey(periodDayCellKey(d));
+          await tester.scrollUntilVisible(
+            cell,
+            300,
+            scrollable: find.byType(Scrollable).last,
+          );
+          await tester.ensureVisible(cell);
+          await tester.pumpAndSettle();
+          await tester.tap(cell);
+          await tester.pumpAndSettle();
+        }
+
+        await tester.tap(find.byKey(const Key('btn-range-picker-save')));
+        // The screen debounces the resolved day the same way a rail tap
+        // does — `_openCalendar` funnels through `_selectDay`.
+        // fixed-wait-ok: advancing past the 220 ms day-selection debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(calls, hasLength(1));
+        expect(calls.single.from, start);
+        expect(
+          calls.single.to,
+          start,
+          reason:
+              'from == to always — a picked RANGE collapses to its start '
+              'day, it does not reintroduce a range on the wire',
+        );
+        expect(calls.single.from!.hour, 0);
+        expect(calls.single.from!.minute, 0);
+      },
+    );
   });
 
   group('the header badge', () {
     // MUTATION: made `_activeFilterCount` return a constant 0 → this test
     // failed. Restored.
-    //
-    // This is the affordance that makes the filter-empty state legible: with no
-    // badge, a filtered-to-nothing list is indistinguishable from "you have no
-    // bookings", which is the top support question for this screen.
     testWidgets('reflects the REAL number of active filter groups', (
       WidgetTester tester,
     ) async {
@@ -383,9 +456,25 @@ void main() {
 
     // MUTATION: made `_clearAllFilters` preserve the statuses → this test
     // failed. Restored.
-    testWidgets('«Скинути фільтри» inside the sheet clears it back to nothing', (
-      WidgetTester tester,
-    ) async {
+    //
+    // MEDIUM-2 (7.9/7.10/7.11 consolidated audit) note: `bookingsDayProvider`
+    // now holds a BOUNDED keepAlive cache (`_DayKeepAliveLru`, capacity 3 —
+    // see `bookings_day_notifier.dart`'s header), not the plain autoDispose
+    // this test used to assume. This test's own sequence — the unfiltered
+    // landing fetch, then ONE filtered query — touches only 2 distinct
+    // family members, comfortably inside that cap, so the unfiltered landing
+    // member is NEVER evicted. Clearing back to it is therefore a CACHE HIT,
+    // not a fresh fetch: `calls` stays EMPTY. This is precisely the
+    // round-trip MEDIUM-2 exists to make cheap again — the retired screen's
+    // 5-minute keepAlive gave it for free; 7.9's plain autoDispose regressed
+    // it (this test used to assert the regressed behaviour, `hasLength(1)`,
+    // as if it were correct); the bounded cache restores it. See
+    // `bookings_day_notifier_test.dart`'s "bounded keepAlive cache" group
+    // for the eviction-side guarantees (a 4th distinct day) this test does
+    // not cover.
+    testWidgets('«Скинути фільтри» inside the sheet clears it back to the '
+        'unfiltered landing state — served from the bounded cache, no '
+        'redundant fetch', (WidgetTester tester) async {
       await pump(tester);
 
       await openFilters(tester);
@@ -405,83 +494,19 @@ void main() {
       await tester.pumpAndSettle();
       await applyFilters(tester);
 
-      // NO new request — and that absence is the assertion, not a weakness.
-      //
-      // `MasterBookingsQuery` is the provider family KEY. A cleared query is
-      // `==`-equal to the landing one only if EVERY field went back: a stray
-      // status, a leftover serviceId, a surviving date bound or a changed sort
-      // would each mint a different key, a different family member, and a
-      // fresh fetch. So "the landing member was reused" is a stronger
-      // statement about the whole query than inspecting one call's arguments.
       expect(
         calls,
         isEmpty,
         reason:
-            'clearing must land back on the LANDING query — a cache hit on the '
-            'existing family member, not a new one',
+            'clearing back to the unfiltered landing day re-issued a '
+            'request — the bounded keepAlive cache (MEDIUM-2) should have '
+            'served it from the still-alive unfiltered family member '
+            'instead',
       );
       expect(
         find.byKey(const Key('master-bookings-filter-badge')),
         findsNothing,
       );
     });
-  });
-
-  group('no client-side re-sort', () {
-    // MUTATION: added `..sort((a, b) => a.startAt.compareTo(b.startAt))` to
-    // `_BookingsList`'s items → this test failed. Removed again.
-    //
-    // The server owns the order (backend 26.3). A client-side comparator would
-    // silently defeat the sort the master just picked AND reshuffle
-    // already-viewed rows on every load-more. Pinned by handing back a page
-    // whose order DISAGREES with `startsAt` and asserting it renders verbatim.
-    testWidgets(
-      'renders the page in SERVER order even when it fights startsAt',
-      (WidgetTester tester) async {
-        final Booking later = _booking(
-          'later',
-        ).copyWith(startAt: DateTime.utc(2026, 8, 30, 9), price: 2000);
-        final Booking earlier = _booking(
-          'earlier',
-        ).copyWith(startAt: DateTime.utc(2026, 7, 1, 9), price: 100);
-        when(
-          () => repo.getMyBookings(
-            statuses: any(named: 'statuses'),
-            page: any(named: 'page'),
-            size: any(named: 'size'),
-            sort: any(named: 'sort'),
-            serviceIds: any(named: 'serviceIds'),
-            from: any(named: 'from'),
-            to: any(named: 'to'),
-          ),
-          // A priceDesc response: expensive first, which is the OPPOSITE of both
-          // startsAt orderings.
-        ).thenAnswer(
-          (_) async => PageResponse<Booking>(
-            items: <Booking>[later, earlier],
-            page: 0,
-            totalPages: 1,
-            totalElements: 2,
-          ),
-        );
-
-        await pump(tester);
-
-        // Compare the two cards' vertical positions: server order must survive.
-        final double firstY = tester
-            .getTopLeft(find.byKey(const Key('master-booking-card-later')))
-            .dy;
-        final double secondY = tester
-            .getTopLeft(find.byKey(const Key('master-booking-card-earlier')))
-            .dy;
-        expect(
-          firstY,
-          lessThan(secondY),
-          reason:
-              'the expensive/later booking came FIRST from the server and must '
-              'stay first — any client-side comparator would swap these',
-        );
-      },
-    );
   });
 }

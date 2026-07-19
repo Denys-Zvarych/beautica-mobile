@@ -4560,22 +4560,14 @@
   },
   "masterBookingsCount": "{count, plural, one{{count} запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
   "@masterBookingsCount": {
-    "description": "Count sub-heading above the master's booking list. Reflects the server's totalElements — the whole filtered result set, not just the pages fetched so far.",
+    "description": "Count sub-heading above the master's booking timeline. Reflects the server's totalElements for the selected day — the whole filtered result set for that day.",
     "placeholders": {
       "count": { "type": "int", "example": "12" }
     }
   },
-  "masterBookingsAllDays": "Всі",
-  "@masterBookingsAllDays": {
-    "description": "The day rail's «Всі» chip — clears the date narrowing (keeps status/service filters and the sort)."
-  },
-  "masterBookingsAllDaysSemantics": "Усі дні",
-  "@masterBookingsAllDaysSemantics": {
-    "description": "Accessibility label for the day rail's «Всі» chip."
-  },
-  "masterBookingsCalendarSemantics": "Обрати дату або період у календарі",
+  "masterBookingsCalendarSemantics": "Обрати дату у календарі",
   "@masterBookingsCalendarSemantics": {
-    "description": "Accessibility label for the day rail's leading calendar button, which opens the single/range date picker (Phase 7.7)."
+    "description": "Accessibility label for the day rail's leading calendar button, which jumps the rail's selection to a picked day (Phase 7.7; single-day only since Phase 7.11 — BookingsDayQuery has no range)."
   },
   "masterBookingsDaySemantics": "{weekday} {day}",
   "@masterBookingsDaySemantics": {
@@ -4685,5 +4677,17 @@
         "type": "int"
       }
     }
+  },
+  "masterBookingsTimelineHourRulerSemantics": "Часова шкала запису",
+  "@masterBookingsTimelineHourRulerSemantics": {
+    "description": "Accessibility label for the master's «Мої записи» timeline hour ruler (Phase 7.10 TimelineHourRuler) — the column of hour marks beside the day's booking grid."
+  },
+  "masterBookingsTruncatedNotice": "Забагато записів за цей день — показано не всі. Зверніться до підтримки.",
+  "@masterBookingsTruncatedNotice": {
+    "description": "Persistent notice on the master's «Мої записи» timeline when BookingsDayState.isTruncated — the day reports more bookings than fit in one page (locked decision 2026-07-18: no multi-page loop, surface the overflow instead of silently dropping bookings). Genuinely reachable, not defensive: the backend enforces no minimum service duration, so a day CAN exceed the backend's 100-row page."
+  },
+  "bookingsDiscoveryBackSemantics": "Назад",
+  "@bookingsDiscoveryBackSemantics": {
+    "description": "Accessibility label for the shared BookingsDiscoveryView header's back arrow (Phase 7.11), shown only when a host passes a non-null onBack (never on the master's own bottom-nav-tab-root screen, which passes null)."
   }
 }

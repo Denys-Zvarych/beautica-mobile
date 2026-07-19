@@ -1,20 +1,35 @@
 // Phase 7.6 — «Мої записи» for the independent master.
 //
-// Covers the four async states, the two DISTINCT empties, the day rail's
-// filter-independent dots, the single-round-trip debounce, and the fact that
-// the screen never re-sorts or re-filters what the server returned.
-//
-// The load-bearing invariants pinned here, each of which fails silently rather
-// than loudly if broken:
+// Phase 7.11 — rewritten from the vertical-card-list era to the day-scoped
+// timeline. The load-bearing invariants pinned here, each of which fails
+// silently rather than loudly if broken:
+//   • the body is the TIMELINE (`BookingsTimelineGrid`), not a vertical list
+//     — no `Key('master-bookings-list')` survives anywhere;
 //   • the dots do NOT change when a filter is applied (they come from a
 //     filter-independent provider — narrowing must not hide the days the
 //     master would need to un-narrow to reach);
 //   • a day tap issues exactly ONE request (a rail fling would otherwise fire
 //     dozens), and sends `from == to`;
-//   • the list renders in SERVER order — a client-side comparator would look
-//     plausible and be wrong;
+//   • the initial day is KYIV "today", not host "today" — asserted against
+//     the exact same derivation the production code uses
+//     (`dateOnly(toBeauticaTime(DateTime.now()))`);
 //   • filter-empty and true-empty are different screens, and only one offers
-//     an escape hatch.
+//     an escape hatch. `BookingsDayQuery.hasFilters` excludes the DAY (it is
+//     navigation, not a filter) — so narrowing to an empty DAY with no
+//     status/service filter active is the TRUE-empty state, not the
+//     filter-empty one; only an actual status/service filter that matches
+//     nothing produces the filter-empty state.
+//   • `isTruncated` renders a persistent, visible notice.
+//
+// ## LOW #334 — no hardcoded calendar dates
+//
+// Every rail-day assertion below is expressed RELATIVE to the Kyiv "today"
+// the screen itself derives (`railDayAt(_kyivToday, offset)`), never as a
+// literal `DateTime(2026, 7, 20)`. A literal date is inside the rail's
+// ±180-day span only as long as "today" stays within ~6 months of it — this
+// suite would otherwise start silently failing the day that literal aged out
+// of the span, with no visible cause. (Mirrors the S1 calendar pin's
+// `futureConfirmed()` pattern elsewhere in this suite.)
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
@@ -26,21 +41,46 @@ import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
 
 // Fixture identities injected BY these tests — NOT app copy, and
-// locale-invariant by construction (a person's name is not translated). This is
-// the case the `i18n-finder-ok` annotation exists for.
+// locale-invariant by construction (a person's name is not translated). This
+// is the case the `i18n-finder-ok` annotation exists for.
 const String _clientFull = 'Олена Ковальчук';
 const String _otherClientFirst = 'Ігор';
 const String _otherClientLast = 'Мороз';
+
+/// Kyiv "today", derived through the EXACT SAME production function the
+/// screen uses — never a literal. See the file header (LOW #334).
+DateTime get _kyivToday => dateOnly(toBeauticaTime(DateTime.now()));
+
+/// Whether the host's local calendar day currently differs from Kyiv's —
+/// mirrors `bookings_day_rail_test.dart`'s `_hostObservesTransition` skip
+/// pattern for the DST guards. Dart has no clock-injection seam anywhere in
+/// this codebase (`grep -rl package:clock` is empty), and the screen calls
+/// `DateTime.now()` directly in `initState`, so the ONLY way to distinguish
+/// "used Kyiv" from "used host-local" is to run at a moment the two actually
+/// disagree — which does not hold for the whole day even on a non-Kyiv host.
+bool _hostObservesKyivSkew() => dateOnly(DateTime.now()) != _kyivToday;
+
+String _kyivSkewSuffix(bool observed) => observed
+    ? ''
+    : ' [SKIPPED on this host at this instant: local time '
+          '${DateTime.now()} and Kyiv time currently name the same calendar '
+          'day, so a regression to host-local "today" cannot be observed '
+          'right now — covered whenever the host runs during the Kyiv/host '
+          'skew window, e.g. on CI\'s UTC runner]';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -60,7 +100,8 @@ Booking _booking({
   BookingStatus status = BookingStatus.confirmed,
   DateTime? startAt,
 }) {
-  final DateTime start = startAt ?? DateTime.utc(2026, 7, 20, 12);
+  final DateTime start =
+      startAt ?? _kyivToday.toUtc().add(const Duration(hours: 12));
   return Booking(
     id: id,
     masterId: 'm1',
@@ -93,14 +134,30 @@ PageResponse<Booking> _page(
   totalElements: totalElements ?? items.length,
 );
 
-/// Pumps the screen with [repo] backing both the list and the booked-days set.
+/// Pumps the screen with [repo] backing both the timeline and the booked-days
+/// dot set.
+///
+/// A REAL `GoRouter`, not `pumpApp` — the filter sheet closes with
+/// go_router's `context.pop(value)` extension (raw `Navigator.pop` is banned
+/// in `lib/features`), which throws "No GoRouter found in context" under a
+/// plain `MaterialApp`. Mirrors `master_bookings_filter_wiring_test.dart`'s
+/// own `pump` helper.
 Future<void> _pump(
   WidgetTester tester,
   _MockBookingRepository repo, {
   Set<DateTime> bookedDays = const <DateTime>{},
 }) async {
-  await tester.pumpApp(
-    const MasterBookingsScreen(),
+  await tester.pumpRoutedApp(
+    GoRouter(
+      initialLocation: '/',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/',
+          builder: (BuildContext context, GoRouterState state) =>
+              const MasterBookingsScreen(),
+        ),
+      ],
+    ),
     overrides: <Object>[
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(repo),
@@ -112,7 +169,7 @@ Future<void> _pump(
 void main() {
   setUpAll(() {
     registerFallbackValue(BookingStatus.confirmed);
-    registerFallbackValue(BookingSort.newest);
+    registerFallbackValue(BookingSort.oldest);
     registerFallbackValue(<BookingStatus>[]);
   });
 
@@ -144,8 +201,6 @@ void main() {
       await tester.pump();
 
       expect(find.byType(BookingsSkeleton), findsOne);
-      // Drain the delayed response by waiting for the skeleton to GO, rather
-      // than guessing how long the fetch takes.
       await tester.pumpUntilGone(find.byType(BookingsSkeleton));
     });
 
@@ -171,7 +226,56 @@ void main() {
       expect(find.byType(MyBookingsErrorState), findsOne);
     });
 
-    testWidgets('renders a card per booking once loaded', (tester) async {
+    testWidgets(
+      'renders a card per booking INSIDE the timeline grid — no vertical '
+      'list survives',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer(
+          (_) async => _page(<Booking>[
+            _booking(id: 'b1'),
+            _booking(
+              id: 'b2',
+              clientFirstName: _otherClientFirst,
+              clientLastName: _otherClientLast,
+            ),
+          ]),
+        );
+
+        await _pump(tester, repo);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(BookingsTimelineGrid), findsOne);
+        expect(
+          find.byKey(const Key('master-bookings-list')),
+          findsNothing,
+          reason: 'the retired vertical card list must not resurface',
+        );
+        expect(find.byType(MasterBookingCard), findsNWidgets(2));
+        expect(
+          find.text(_clientFull),
+          findsOne,
+        ); // i18n-finder-ok: test fixture name, not app copy
+        expect(
+          find.text('$_otherClientFirst $_otherClientLast'),
+          findsOne,
+        ); // i18n-finder-ok: test fixture name, not app copy
+      },
+    );
+
+    testWidgets('a truncated day renders a persistent visible notice', (
+      tester,
+    ) async {
       final repo = _MockBookingRepository();
       when(
         () => repo.getMyBookings(
@@ -184,28 +288,20 @@ void main() {
           to: any(named: 'to'),
         ),
       ).thenAnswer(
-        (_) async => _page(<Booking>[
-          _booking(id: 'b1'),
-          _booking(
-            id: 'b2',
-            clientFirstName: _otherClientFirst,
-            clientLastName: _otherClientLast,
-          ),
-        ]),
+        (_) async => _page(
+          <Booking>[_booking(id: 'b1')],
+          totalPages: 2,
+          totalElements: 101,
+        ),
       );
 
       await _pump(tester, repo);
       await tester.pumpAndSettle();
 
-      expect(find.byType(MasterBookingCard), findsNWidgets(2));
       expect(
-        find.text(_clientFull),
+        find.byKey(const Key('master-bookings-truncated-notice')),
         findsOne,
-      ); // i18n-finder-ok: test fixture name, not app copy
-      expect(
-        find.text('$_otherClientFirst $_otherClientLast'),
-        findsOne,
-      ); // i18n-finder-ok: test fixture name, not app copy
+      );
     });
   });
 
@@ -214,7 +310,7 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('empty states', () {
-    testWidgets('TRUE empty (no filters) offers no reset — nothing to reset', (
+    testWidgets('TRUE empty (no filters, an empty day) offers no reset', (
       tester,
     ) async {
       final repo = _MockBookingRepository();
@@ -245,31 +341,32 @@ void main() {
     });
 
     testWidgets(
-      'FILTER empty offers «Скинути фільтри» — the master is never stranded',
+      'FILTER empty (a status filter matches nothing) offers «Скинути '
+      'фільтри» — the master is never stranded',
       (tester) async {
         final repo = _MockBookingRepository();
-        // Page 0 with no filter returns a booking; once a day is selected the
-        // (filtered) result is empty.
+        // Unfiltered (the landing day): one booking. Any status filter:
+        // nothing matches it.
         when(
           () => repo.getMyBookings(
-            statuses: any(named: 'statuses'),
+            statuses: any(named: 'statuses', that: isEmpty),
             page: any(named: 'page'),
             size: any(named: 'size'),
             sort: any(named: 'sort'),
             serviceIds: any(named: 'serviceIds'),
-            from: null,
-            to: null,
+            from: any(named: 'from'),
+            to: any(named: 'to'),
           ),
         ).thenAnswer((_) async => _page(<Booking>[_booking(id: 'b1')]));
         when(
           () => repo.getMyBookings(
-            statuses: any(named: 'statuses'),
+            statuses: any(named: 'statuses', that: isNotEmpty),
             page: any(named: 'page'),
             size: any(named: 'size'),
             sort: any(named: 'sort'),
             serviceIds: any(named: 'serviceIds'),
-            from: any(named: 'from', that: isNotNull),
-            to: any(named: 'to', that: isNotNull),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
           ),
         ).thenAnswer((_) async => _page(<Booking>[]));
 
@@ -277,10 +374,15 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(MasterBookingCard), findsOne);
 
-        // Narrow to a day with nothing on it.
-        await tester.tap(find.byKey(dayChipKey(DateTime(2026, 7, 18))));
-        // The 220 ms query debounce plus the refetch — waited out by the
-        // OUTCOME (the filter-empty state appearing), not a guessed duration.
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-status-confirmed')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
         await tester.pumpUntilFound(
           find.byKey(const Key('master-bookings-no-results')),
         );
@@ -307,8 +409,64 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('day rail', () {
+    // MUTATION-COVERAGE NOTE — why this test exists
+    // ------------------------------------------------------------------
+    // `bookings_day_rail_test.dart` has a plain `test()` (not `testWidgets`)
+    // asserting `kRailLeadItems + dayIndex == 1 + dayIndex`. That assertion
+    // is SELF-REFERENTIAL: it inlines `kRailLeadItems` on both sides of its
+    // own comparison and never calls `BookingsDiscoveryView._centreRailOn`,
+    // the ACTUAL production call site (`bookings_discovery_view.dart`'s
+    // `final int itemIndex = kRailLeadItems + dayIndex;`). Proven by
+    // mutation: hardcoding `_centreRailOn` to `2 + dayIndex` (the design's
+    // retired two-lead-item formula, from before «Всі» was dropped) leaves
+    // EVERY test in this file green — including that one — because nothing
+    // anywhere actually observes the rail's post-open SCROLL POSITION.
+    //
+    // This test closes that gap by asserting the real, rendered outcome: the
+    // initially selected day's chip must land centred in the rail's visible
+    // viewport after the first frame. An off-by-one lead item shifts it by
+    // exactly one `kRailItemExtent` (62dp) — comfortably outside the
+    // tolerance below, which only has to absorb sub-pixel layout rounding.
     testWidgets(
-      'the dots do NOT change when a filter is applied — they come from a '
+      'the rail auto-centres the initially selected day in its viewport — '
+      'an off-by-one lead-item offset would land it one full cell off',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        await _pump(tester, repo);
+        await tester.pumpAndSettle();
+
+        final Rect railRect = tester.getRect(
+          find.byKey(const Key('master-bookings-day-rail')),
+        );
+        final Offset chipCenter = tester.getCenter(
+          find.byKey(dayChipKey(_kyivToday)),
+        );
+
+        expect(
+          (chipCenter.dx - railRect.center.dx).abs(),
+          lessThan(kRailItemExtent / 2),
+          reason:
+              'today\'s chip is not centred in the rail — the lead-item '
+              'offset `_centreRailOn` uses to convert a day index into a '
+              'scroll target has drifted from `kRailLeadItems`.',
+        );
+      },
+    );
+
+    testWidgets(
+      'the dots do NOT change when a day is selected — they come from a '
       'filter-independent provider',
       (tester) async {
         final repo = _MockBookingRepository();
@@ -324,35 +482,33 @@ void main() {
           ),
         ).thenAnswer((_) async => _page(<Booking>[_booking(id: 'b1')]));
 
+        final DateTime dayA = railDayAt(_kyivToday, 2);
+        final DateTime dayB = railDayAt(_kyivToday, 3);
+
         // Two booked days, neither of which is the day we will narrow TO.
-        await _pump(
-          tester,
-          repo,
-          bookedDays: <DateTime>{DateTime(2026, 7, 20), DateTime(2026, 7, 21)},
-        );
+        await _pump(tester, repo, bookedDays: <DateTime>{dayA, dayB});
         await tester.pumpAndSettle();
 
-        expect(find.byKey(dayDotKey(DateTime(2026, 7, 20))), findsOne);
-        expect(find.byKey(dayDotKey(DateTime(2026, 7, 21))), findsOne);
+        expect(find.byKey(dayDotKey(dayA)), findsOne);
+        expect(find.byKey(dayDotKey(dayB)), findsOne);
 
-        // Narrow to the 20th.
-        // fixed-wait-ok: this test asserts the dots do NOT change, so there is
-        // no widget transition to await — the 220 ms query debounce has to be
-        // advanced explicitly for the filtered refetch to have happened at all.
-        // fixed-wait-ok: see the note above — advancing the 220 ms query debounce.
+        await tester.tap(find.byKey(dayChipKey(dayA)));
+        // This test asserts the dots do NOT change, so there is no widget
+        // transition to await — the 220 ms query debounce has to be
+        // advanced explicitly for the filtered refetch to have happened at
+        // all.
+        // fixed-wait-ok: advancing the 220 ms query debounce.
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();
 
-        // BOTH dots survive. If the dots were derived from the filtered list,
-        // the 21st's would have vanished — hiding the very day the master
-        // would need to un-filter to reach.
-        expect(find.byKey(dayDotKey(DateTime(2026, 7, 20))), findsOne);
+        // BOTH dots survive.
+        expect(find.byKey(dayDotKey(dayA)), findsOne);
         expect(
-          find.byKey(dayDotKey(DateTime(2026, 7, 21))),
+          find.byKey(dayDotKey(dayB)),
           findsOne,
           reason:
-              'The 21st lost its dot under a filter — the rail is reading the '
-              'filtered list instead of bookedDaysProvider.',
+              'A dot vanished under a day selection — the rail is reading a '
+              'filtered set instead of bookedDaysProvider.',
         );
       },
     );
@@ -382,23 +538,26 @@ void main() {
 
         await _pump(tester, repo);
         await tester.pumpAndSettle();
-        calls.clear(); // drop the initial unfiltered fetch
+        calls.clear(); // drop the initial (landing-day) fetch
+
+        final DateTime day1 = railDayAt(_kyivToday, 1);
+        final DateTime day2 = railDayAt(_kyivToday, 2);
+        final DateTime day3 = railDayAt(_kyivToday, 3);
 
         // A fling across the rail lands several taps in quick succession.
-        // Without the debounce each is a new family member and a new request.
-        // fixed-wait-ok: the debounce window IS the subject under test. These
-        // 40 ms gaps must sit INSIDE the 220 ms window (so the first two taps
-        // are coalesced away), and the final settle must sit OUTSIDE it (so the
-        // surviving tap fires). Waiting on an outcome instead would defeat the
-        // point — the assertion is that two of the three taps produce NOTHING.
-        await tester.tap(find.byKey(dayChipKey(DateTime(2026, 7, 19))));
-        // fixed-wait-ok: see the note above — advancing the 220 ms query debounce.
+        // Without the debounce each is a new family member and a new
+        // request. The debounce window IS the subject under test: these
+        // 40 ms gaps must sit INSIDE the 220 ms window (so the first two
+        // taps are coalesced away), and the final settle must sit OUTSIDE
+        // it (so the surviving tap fires).
+        await tester.tap(find.byKey(dayChipKey(day1)));
+        // fixed-wait-ok: 40 ms gap, inside the 220 ms debounce window.
         await tester.pump(const Duration(milliseconds: 40));
-        await tester.tap(find.byKey(dayChipKey(DateTime(2026, 7, 20))));
-        // fixed-wait-ok: see the note above — advancing the 220 ms query debounce.
+        await tester.tap(find.byKey(dayChipKey(day2)));
+        // fixed-wait-ok: 40 ms gap, inside the 220 ms debounce window.
         await tester.pump(const Duration(milliseconds: 40));
-        await tester.tap(find.byKey(dayChipKey(DateTime(2026, 7, 21))));
-        // fixed-wait-ok: see the note above — advancing the 220 ms query debounce.
+        await tester.tap(find.byKey(dayChipKey(day3)));
+        // fixed-wait-ok: advancing past the 220 ms debounce so the surviving tap fires.
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();
 
@@ -410,15 +569,22 @@ void main() {
               'debounce is not holding.',
         );
         final (DateTime? from, DateTime? to) = calls.single;
-        expect(from, DateTime(2026, 7, 21));
-        expect(to, DateTime(2026, 7, 21));
+        expect(from, day3);
+        expect(to, day3);
         expect(from, to, reason: 'a single-day selection is from == to');
       },
     );
+  });
 
-    testWidgets('«Всі» clears the day selection', (tester) async {
+  // -------------------------------------------------------------------------
+  // The initial day is Kyiv "today"
+  // -------------------------------------------------------------------------
+
+  group('initial day', () {
+    testWidgets('the landing fetch is scoped to Kyiv "today"', (tester) async {
       final repo = _MockBookingRepository();
-      final List<(DateTime?, DateTime?)> calls = <(DateTime?, DateTime?)>[];
+      DateTime? capturedFrom;
+      DateTime? capturedTo;
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
@@ -430,69 +596,21 @@ void main() {
           to: any(named: 'to'),
         ),
       ).thenAnswer((Invocation i) async {
-        calls.add((
-          i.namedArguments[#from] as DateTime?,
-          i.namedArguments[#to] as DateTime?,
-        ));
-        return _page(<Booking>[_booking(id: 'b1')]);
+        capturedFrom = i.namedArguments[#from] as DateTime?;
+        capturedTo = i.namedArguments[#to] as DateTime?;
+        return _page(<Booking>[]);
       });
 
       await _pump(tester, repo);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(dayChipKey(DateTime(2026, 7, 20))));
-      // fixed-wait-ok: advancing past the 220 ms query debounce. The observable
-      // here is a REQUEST, not a widget, so there is nothing to pump-until.
-      // fixed-wait-ok: see the note above — advancing the 220 ms query debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pumpAndSettle();
-      expect(calls.last.$1, isNotNull);
-
-      // «Всі» is rail item 1, and the rail opens CENTRED on today (~item 182),
-      // so the chip starts well off-screen to the left and must be scrolled
-      // to. That is the approved design's own behaviour — the calendar and
-      // «Всі» chips ride the rail rather than being pinned — and it is why
-      // this is a `scrollUntilVisible` rather than a bare `tap`.
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('master-bookings-all-chip')),
-        -300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-
-      final int callsBeforeAll = calls.length;
+      expect(capturedFrom, _kyivToday);
+      expect(capturedTo, _kyivToday);
+      // Today with no bookings on it STAYS the selected day — no auto-jump.
       final SemanticsHandle handle = tester.ensureSemantics();
-      await tester.tap(find.byKey(const Key('master-bookings-all-chip')));
-      // fixed-wait-ok: as above — «Всі» is served from the cached family
-      // member, so the assertion is the ABSENCE of a new request and there is
-      // no widget transition to await.
-      // fixed-wait-ok: see the note above — advancing the 220 ms query debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pumpAndSettle();
-
-      // «Всі» returns the query to its INITIAL, unfiltered value — which is
-      // still a live family member inside the 5-minute keepAlive, so the
-      // correct behaviour is a cache hit and NO new request. Asserting on
-      // `calls.last` here would be asserting that the cache does not work.
-      expect(
-        calls.length,
-        callsBeforeAll,
-        reason:
-            'Returning to the unfiltered query should be served from the '
-            'cached family member, not re-fetched.',
-      );
-      // What IS observable: the date narrowing is gone. The «Всі» chip reads
-      // selected, and it does so ONLY when neither a single day nor a range
-      // narrows the query (`selectedDay == null && !calendarActive`) — so this
-      // one flag is the full "day selection cleared" assertion.
-      //
-      // The previously-selected 20th is deliberately NOT asserted here: the
-      // rail has been scrolled ~180 cells back to reach «Всі», so that chip is
-      // no longer built. `bookings_day_rail_test.dart` pins the chip-level
-      // selection rendering directly.
       expect(
         tester
-            .getSemantics(find.byKey(const Key('master-bookings-all-chip')))
+            .getSemantics(find.byKey(dayChipKey(_kyivToday)))
             .flagsCollection
             .isSelected
             .toBoolOrNull(),
@@ -500,66 +618,44 @@ void main() {
       );
       handle.dispose();
     });
+
+    testWidgets('DISTINGUISHES Kyiv "today" from host "today"'
+        '${_kyivSkewSuffix(_hostObservesKyivSkew())}', (tester) async {
+      final repo = _MockBookingRepository();
+      DateTime? capturedFrom;
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          sort: any(named: 'sort'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).thenAnswer((Invocation i) async {
+        capturedFrom = i.namedArguments[#from] as DateTime?;
+        return _page(<Booking>[]);
+      });
+
+      await _pump(tester, repo);
+      await tester.pumpAndSettle();
+
+      expect(
+        capturedFrom,
+        isNot(dateOnly(DateTime.now())),
+        reason:
+            'The landing query matched host "today" — the screen must use '
+            'Kyiv "today" (toBeauticaTime), not DateTime.now() directly.',
+      );
+    }, skip: !_hostObservesKyivSkew());
   });
 
   // -------------------------------------------------------------------------
-  // The server owns the order
+  // Count
   // -------------------------------------------------------------------------
 
-  group('server order', () {
-    testWidgets(
-      'renders in SERVER order — a response deliberately NOT in startAt order '
-      'is not re-sorted',
-      (tester) async {
-        final repo = _MockBookingRepository();
-        // Server order here is by descending PRICE; the startsAt order is the
-        // reverse. A client-side `startAt` comparator would flip these two and
-        // look entirely plausible doing it.
-        final Booking dearer = _booking(
-          id: 'dear',
-          clientFirstName: 'Дорога',
-          clientLastName: 'Клієнтка',
-          price: 2600,
-          startAt: DateTime.utc(2026, 7, 25, 12),
-        );
-        final Booking cheaper = _booking(
-          id: 'cheap',
-          clientFirstName: 'Дешева',
-          clientLastName: 'Клієнтка',
-          price: 300,
-          startAt: DateTime.utc(2026, 7, 20, 12),
-        );
-        when(
-          () => repo.getMyBookings(
-            statuses: any(named: 'statuses'),
-            page: any(named: 'page'),
-            size: any(named: 'size'),
-            sort: any(named: 'sort'),
-            serviceIds: any(named: 'serviceIds'),
-            from: any(named: 'from'),
-            to: any(named: 'to'),
-          ),
-        ).thenAnswer((_) async => _page(<Booking>[dearer, cheaper]));
-
-        await _pump(tester, repo);
-        await tester.pumpAndSettle();
-
-        final double dearY = tester
-            .getTopLeft(find.byKey(const Key('master-booking-card-dear')))
-            .dy;
-        final double cheapY = tester
-            .getTopLeft(find.byKey(const Key('master-booking-card-cheap')))
-            .dy;
-        expect(
-          dearY,
-          lessThan(cheapY),
-          reason:
-              'The list was re-sorted client-side — the server order was '
-              'dearest-first and has been flipped to earliest-first.',
-        );
-      },
-    );
-
+  group('count', () {
     testWidgets('the count reflects totalElements, not the loaded page', (
       tester,
     ) async {
@@ -593,8 +689,8 @@ void main() {
         find.text(l10n.masterBookingsCount(2)),
         findsNothing,
         reason:
-            'The count showed items.length (the pages fetched so far) rather '
-            'than the whole filtered result set.',
+            'The count showed items.length (this page) rather than the '
+            'server\'s totalElements.',
       );
     });
   });
@@ -624,10 +720,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // The card carries a tap target keyed by booking id — the seam the
-      // route push hangs off. (The route itself is asserted in
-      // `master_bookings_routing_test.dart`, which drives a real GoRouter so
-      // the `context.push` / ImperativeRouteMatch behaviour is exercised
-      // rather than mocked.)
+      // route push hangs off. The route itself is asserted with `context
+      // .push` (never `router.go`) in `master_bookings_routing_test.dart`,
+      // which drives a real GoRouter so the `ImperativeRouteMatch` behaviour
+      // is exercised rather than mocked.
       expect(find.byKey(const Key('master-booking-card-b1')), findsOne);
     });
   });
@@ -665,8 +761,8 @@ void main() {
       expect(protection.acquires, 1);
       expect(protection.releases, 0);
 
-      // Replace the screen — this renders client names, so the protection must
-      // not outlive it.
+      // Replace the screen — this renders client names, so the protection
+      // must not outlive it.
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
 

@@ -1,11 +1,21 @@
 // Phase 7.6 — the «Мої записи» day rail: a horizontally scrolling past↔future
-// strip of day chips, led by a calendar escape hatch and an «Всі» chip.
+// strip of day chips, led by a calendar escape hatch.
+//
+// Phase 7.11 (D3/R6) — the «Всі» chip is RETIRED. `BookingsDayQuery` (Phase
+// 7.9) has no all-days/range mode any more — the screen is always scoped to
+// exactly one Kyiv calendar day — so a chip that cleared the date narrowing
+// entirely no longer has a query it could resolve to. [selectedDay] is now
+// non-nullable for the same reason: there is no "nothing selected" state to
+// represent. The calendar button survives (jump to an arbitrary day, still
+// useful past the ±180-day rail span) but its picked range collapses to a
+// single day at the call site — see `bookings_discovery_view.dart`.
 //
 // Transcribed from `docs/signup-designs/SalonManagementDesign/lib/widgets/
-// bookings_toolbar.dart` (`_DayRail`, `_DayChip`, `_AllChip`,
-// `_CalendarButton`). The visual language is the design's verbatim: no chip
-// background, selection carried by text colour alone, today underlined when
-// unselected, a camel dot under any day that has bookings.
+// bookings_toolbar.dart` (`_DayRail`, `_DayChip`, `_CalendarButton`; the
+// design's `_AllChip` is NOT transcribed post-7.11). The visual language is
+// the design's verbatim: no chip background, selection carried by text
+// colour alone, today underlined when unselected, a camel dot under any day
+// that has bookings.
 //
 // ## ⚠ CALENDAR arithmetic, never `Duration(days: n)` — this WILL bite
 //
@@ -26,7 +36,7 @@
 //
 // ## Lazily built — 361 chips is not a `ListView(children: [...])`
 //
-// The rail spans today ± 180 days = 361 day cells plus 2 lead items. A
+// The rail spans today ± 180 days = 361 day cells plus 1 lead item. A
 // `ListView.builder` with a fixed `itemExtent` builds only the visible window
 // AND gives the screen's centring math an O(1) offset to jump to. Eagerly
 // building 363 chips is exactly the jank `mobile-perf` flags.
@@ -44,13 +54,14 @@ import 'package:beautica_mobile/shared/formatters/api_date.dart';
 /// stay in sync with the `ListView.builder`'s `itemExtent`.
 const double kRailItemExtent = 62;
 
-/// Number of lead items before the first day cell: `[calendar]` then `[Всі]`.
+/// Number of lead items before the first day cell: `[calendar]` alone.
 ///
 /// Load-bearing: the screen's scroll-centring math offsets a day index by this
-/// to reach its item index (the design's `final int itemIndex = 2 + dayIndex`).
-/// Changing it without changing that math silently centres the rail two cells
-/// off.
-const int kRailLeadItems = 2;
+/// to reach its item index (the design's `final int itemIndex = 2 + dayIndex`
+/// for `[calendar][Всі]`; with «Всі» retired (Phase 7.11) this is `1 +
+/// dayIndex`). Changing it without changing that math silently centres the
+/// rail off by however many lead items were added or removed.
+const int kRailLeadItems = 1;
 
 /// Height of the rail strip. See [BookingsDayRail.build] for why this is 78
 /// rather than the design's 70.
@@ -72,6 +83,33 @@ const double _dayChipCaptionGap = 10;
 /// itself uses.
 DateTime railDayAt(DateTime from, int offset) =>
     DateTime(from.year, from.month, from.day + offset);
+
+/// The number of CALENDAR days between date-only [from] and [to] (positive
+/// when [to] is after [from]), independent of any DST transition crossed in
+/// between.
+///
+/// `to.difference(from).inDays` is NOT safe for this and must not be used in
+/// its place: `DateTime.difference` subtracts the two values' absolute
+/// instants, so a spring-forward transition crossed between [from] and [to]
+/// shortens the elapsed wall-clock span by exactly the skipped hour (e.g.
+/// 180 calendar days becomes `4319:00:00`, 179 days 23 hours), and
+/// `Duration.inDays` truncates rather than rounds — silently returning ONE
+/// DAY FEWER than the calendar actually spans. On a device in an
+/// Europe/Kyiv-observing zone this is not a rare edge case: the ±180-day
+/// rail span crosses at least one of the two yearly transitions (last Sunday
+/// of March / October) for the large majority of the year.
+///
+/// This function counts by first re-anchoring both dates in UTC, which never
+/// observes DST — every calendar day is uniformly 24 hours there, so the
+/// subtraction is always exact.
+///
+/// Exposed (not private) so both `_centreRailOn` and its tests derive a day
+/// count through the exact same function, mirroring [railDayAt]'s pattern.
+int calendarDayCount(DateTime from, DateTime to) {
+  final DateTime fromUtc = DateTime.utc(from.year, from.month, from.day);
+  final DateTime toUtc = DateTime.utc(to.year, to.month, to.day);
+  return toUtc.difference(fromUtc).inDays;
+}
 
 /// Memoised weekday abbreviations, keyed by the [AppLocalizations] instance
 /// they came from (perf P4).
@@ -128,7 +166,6 @@ class BookingsDayRail extends StatelessWidget {
     required this.bookedDays,
     required this.calendarActive,
     required this.onOpenCalendar,
-    required this.onSelectAll,
     required this.onSelectDay,
   });
 
@@ -142,10 +179,11 @@ class BookingsDayRail extends StatelessWidget {
 
   final DateTime today;
 
-  /// The single selected day, or `null` for «Всі» / range mode. Per the
-  /// design, a range SUPERSEDES the rail's single-day selection, so the screen
-  /// passes `null` here whenever a range is active.
-  final DateTime? selectedDay;
+  /// The single selected day. Always set — Phase 7.11 retired the «Всі» /
+  /// null-day state; the screen is always scoped to exactly one Kyiv calendar
+  /// day, including on first open (`dateOnly(toBeauticaTime(DateTime.now()))`
+  /// — see `bookings_discovery_view.dart`).
+  final DateTime selectedDay;
 
   /// Date-only days carrying at least one booking — `bookedDaysProvider`.
   ///
@@ -155,11 +193,13 @@ class BookingsDayRail extends StatelessWidget {
   /// must not evaporate as the user narrows. See `booked_days_notifier.dart`.
   final Set<DateTime> bookedDays;
 
-  /// Whether a multi-day range is active — marks the calendar button.
+  /// Marks the calendar button as active. Phase 7.11 retired the range mode
+  /// that used to drive this (`BookingsDayQuery` has no range), so the live
+  /// screen always passes `false` — kept as a widget-level flag (rather than
+  /// deleted) so the button's active visual stays independently testable.
   final bool calendarActive;
 
   final VoidCallback onOpenCalendar;
-  final VoidCallback onSelectAll;
   final ValueChanged<DateTime> onSelectDay;
 
   @override
@@ -191,19 +231,6 @@ class BookingsDayRail extends StatelessWidget {
                 active: calendarActive,
                 onTap: onOpenCalendar,
                 semanticLabel: l10n.masterBookingsCalendarSemantics,
-              ),
-            );
-          }
-          if (index == 1) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: _AllChip(
-                // «Всі» is selected only when nothing narrows the dates at
-                // all — neither a single day nor a range.
-                selected: selectedDay == null && !calendarActive,
-                onTap: onSelectAll,
-                label: l10n.masterBookingsAllDays,
-                semanticLabel: l10n.masterBookingsAllDaysSemantics,
               ),
             );
           }
@@ -309,47 +336,6 @@ class _DayChip extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The «Всі» control — clears the date narrowing entirely.
-class _AllChip extends StatelessWidget {
-  const _AllChip({
-    required this.selected,
-    required this.onTap,
-    required this.label,
-    required this.semanticLabel,
-  });
-
-  final bool selected;
-  final VoidCallback onTap;
-  final String label;
-  final String semanticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: semanticLabel,
-      child: GestureDetector(
-        key: const Key('master-bookings-all-chip'),
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: SizedBox(
-          width: 44,
-          child: Center(
-            child: Text(
-              label,
-              style: VelvetText.railAllChip.copyWith(
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
-                color: selected ? BrandColors.accentDeep : BrandColors.text,
-              ),
-            ),
           ),
         ),
       ),

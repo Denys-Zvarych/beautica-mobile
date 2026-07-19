@@ -39,7 +39,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
-import 'package:beautica_mobile/features/booking/domain/master_bookings_query.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
 
 class _MockDio extends Mock implements Dio {}
 
@@ -219,15 +219,18 @@ void main() {
       expect(q.containsKey('status'), isFalse);
     });
 
-    // Perf P5 — the notifier now passes `MasterBookingsQuery`'s canonical
-    // Lists straight through instead of round-tripping them via `.toSet()`,
-    // and the repository's own canonicalisation sorts by enum INDEX (it used
-    // to sort by wire STRING, so the query's canonical order was reshuffled on
-    // the way into the request). This pins that the two agree — i.e. the
+    // Perf P5 — the notifier now passes the query's canonical Lists straight
+    // through instead of round-tripping them via `.toSet()`, and the
+    // repository's own canonicalisation sorts by enum INDEX (it used to sort
+    // by wire STRING, so the query's canonical order was reshuffled on the
+    // way into the request). This pins that the two agree — i.e. the
     // repository's sort is now idempotent on a query built through `.of()`.
+    // `BookingsDayQuery` (Phase 7.9) carries the identical canonicalisation
+    // forward from the retired `MasterBookingsQuery`.
     test('the query\'s canonical list order reaches the query map unchanged '
         '(both sorts order by enum index)', () async {
-      final MasterBookingsQuery query = MasterBookingsQuery.of(
+      final BookingsDayQuery query = BookingsDayQuery.of(
+        day: DateTime(2026, 7, 20),
         statuses: <BookingStatus>{
           // Deliberately NOT in declaration order.
           BookingStatus.notCompleted,

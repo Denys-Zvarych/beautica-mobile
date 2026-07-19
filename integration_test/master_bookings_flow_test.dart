@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
@@ -115,6 +116,52 @@ void main() {
         reason:
             'the master\'s card must name the CLIENT — clientFirstName/'
             'clientLastName decoded off the wire, not the master\'s own name',
+      );
+
+      // ── 3b. Phases 7.9–7.11: the TIMELINE body, and the day-scoped wire
+      //        shape — this is the part this flow did NOT prove before the
+      //        rework (it predates it and never asserted anything specific to
+      //        it; the widget/unit tier covers this shape against a MOCKED
+      //        repository — `bookings_day_notifier_test.dart`,
+      //        `master_bookings_screen_test.dart` — this is the same
+      //        invariant proven against a REAL HTTP round trip instead). ────
+      expect(
+        find.byType(BookingsTimelineGrid),
+        findsOneWidget,
+        reason: 'the body must be the day-scoped timeline, not a vertical list',
+      );
+      expect(
+        find.byKey(const Key('master-bookings-list')),
+        findsNothing,
+        reason: 'the retired paginated vertical list must not resurface',
+      );
+      final Map<String, dynamic>? landingQuery = fb.lastMyBookingsQuery;
+      expect(
+        landingQuery,
+        isNotNull,
+        reason: 'the landing fetch must have reached the fake backend',
+      );
+      expect(
+        landingQuery!['from'],
+        landingQuery['to'],
+        reason:
+            'the day-scoped landing fetch is from == to — Phase 7.9 fetches '
+            'exactly one Kyiv calendar day, never a range',
+      );
+      expect(
+        landingQuery['size'],
+        100,
+        reason:
+            'Phase 7.9\'s single-fetch contract: size=100 in one request, no '
+            'page-1 loop, so a whole day is provably covered',
+      );
+      expect(
+        landingQuery['sort'],
+        'startsAt,asc',
+        reason:
+            'ascending order is load-bearing for Phase 7.10\'s lane '
+            'assignment — the notifier must not have re-sorted or requested '
+            'descending',
       );
 
       // ── 4. The rail dots come from the SEPARATE booked-days endpoint. ─────
