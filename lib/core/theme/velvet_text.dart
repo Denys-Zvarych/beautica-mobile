@@ -1384,8 +1384,14 @@ abstract final class VelvetText {
   /// Day-rail weekday caption («Пн») — statCaption stepped to 11 sp.
   static final TextStyle railWeekday = _statCaptionStyle.copyWith(fontSize: 11);
 
-  /// Day-rail day-of-month number — statValue at 18 sp, the rail's anchor.
-  static final TextStyle railDayNumber = _statValueStyle.copyWith(fontSize: 18);
+  /// Day-rail day-of-month number — statValue stepped to 12.6 sp (18 sp × 0.7,
+  /// 2026-07-19 pass). Still the rail's largest glyph relative to
+  /// `railWeekday` (11 sp) and clears the project's 11 sp legibility floor,
+  /// but only by 1.6 sp — re-check this pairing if the rail's cell size or
+  /// weekday caption ever moves.
+  static final TextStyle railDayNumber = _statValueStyle.copyWith(
+    fontSize: 12.6,
+  );
 
   /// Master booking-card screen title («Мої записи») — heading at 22 sp.
   static final TextStyle masterBookingsTitle = _headingStyle.copyWith(
