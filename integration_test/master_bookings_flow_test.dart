@@ -44,10 +44,12 @@ import 'package:beautica_mobile/features/booking/presentation/master_bookings_sc
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -432,6 +434,101 @@ void main() {
         picked,
         reason: 'dismissing must leave the rail on its last selection',
       );
+    },
+  );
+
+  // ── Phase 7.14 — the master bottom nav bar ─────────────────────────────────
+  //
+  // Before this phase «Мої записи» was a dead end: reachable via nav tile 1,
+  // but rendering no chrome of its own, so the ONLY way off it was the OS back
+  // gesture. The widget tier (`master_bookings_screen_test.dart`'s "bottom
+  // nav" group) proves this against a mocked repository; this flow proves the
+  // SAME bar survives a REAL login + a REAL router + a REAL second screen
+  // («Послуги», backed by the fake `GET /independent-masters/me/services`)
+  // round trip — the class of thing a widget test stubbing the repository
+  // cannot exercise.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // the dev VM has no attached emulator (host-only-adapter limitation,
+  // backlog #179/#191). Verified analyze-clean and wired into both
+  // aggregators; first real execution is the CI emulator job.
+  testWidgets(
+    '«Мої записи» is no longer a dead end — the bottom nav bar round-trips '
+    'to «Послуги» and back, and the already-active tile is a no-op',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      // ── A. The bar is there at all — the fix this phase exists for. ────────
+      expect(find.byType(VelvetBottomNavBar), findsOneWidget);
+      expect(
+        tester
+            .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
+            .activeIndex,
+        1,
+        reason:
+            '«Мої записи» is tile 1 — a stray copy-paste of the profile '
+            "screen's `activeIndex: 3` would still render *a* bar and pass a "
+            'bare presence check',
+      );
+      expect(
+        router.canPop(),
+        isFalse,
+        reason: 'precondition: nothing pushed yet',
+      );
+
+      // ── B. Tapping a non-active tile (Послуги) pushes and mounts the real
+      //      services screen, backed by the fake services endpoint. ─────────
+      await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+      await AppHarness.settle(tester);
+
+      expect(find.byType(ServicesListScreen), findsOneWidget);
+      expect(AppHarness.location(router), startsWith(RouteNames.services));
+      expect(
+        router.canPop(),
+        isTrue,
+        reason: 'push, not go — «Мої записи» stays on the back stack',
+      );
+
+      // ── C. Popping back lands on the SAME still-mounted bookings screen. ───
+      router.pop();
+      await AppHarness.settle(tester);
+
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(find.byType(ServicesListScreen), findsNothing);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+      expect(
+        router.canPop(),
+        isFalse,
+        reason: 'back on the tab root — nothing left to pop',
+      );
+
+      // ── D. Tapping the now-active tile (Мої записи) again is a no-op — no
+      //      duplicate /master/bookings gets pushed onto itself. ─────────────
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+
+      expect(
+        router.canPop(),
+        isFalse,
+        reason:
+            'the already-active tile must resolve to a null route — a '
+            'regression here would stack a second /master/bookings on top '
+            'of the first',
+      );
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
     },
   );
 }

@@ -45,8 +45,10 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_t
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -164,6 +166,42 @@ Future<void> _pump(
       bookedDaysProvider.overrideWith((ref) async => bookedDays),
     ],
   );
+}
+
+const Key _servicesMarker = Key('stub-services-screen');
+
+/// Same as [_pump], plus a stub `RouteNames.services` destination so nav-tile
+/// taps that push it can be observed landing. Returns the [GoRouter] so tests
+/// can assert `canPop()`/the mounted screen after a tap.
+Future<GoRouter> _pumpWithNavRoutes(
+  WidgetTester tester,
+  _MockBookingRepository repo, {
+  Set<DateTime> bookedDays = const <DateTime>{},
+}) async {
+  final GoRouter router = GoRouter(
+    initialLocation: '/',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/',
+        builder: (BuildContext context, GoRouterState state) =>
+            const MasterBookingsScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.services,
+        builder: (BuildContext context, GoRouterState state) =>
+            const Scaffold(body: SizedBox.shrink(key: _servicesMarker)),
+      ),
+    ],
+  );
+  await tester.pumpRoutedApp(
+    router,
+    overrides: <Object>[
+      screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+      bookingRepositoryProvider.overrideWithValue(repo),
+      bookedDaysProvider.overrideWith((ref) async => bookedDays),
+    ],
+  );
+  return router;
 }
 
 void main() {
@@ -726,6 +764,215 @@ void main() {
       // is exercised rather than mocked.
       expect(find.byKey(const Key('master-booking-card-b1')), findsOne);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 7.14 — the master bottom nav bar
+  // -------------------------------------------------------------------------
+  //
+  // This screen was a dead end: reachable via nav tile 1, but rendering no
+  // chrome of its own to get anywhere else. These tests pin (a) the bar
+  // renders configured for tile 1 — not just present, since a copy-paste of
+  // MasterProfileScreen's `activeIndex: 3` would still render *a* bar and
+  // pass a bare `findsOneWidget`; (b) a non-active tile still pushes; (c) the
+  // already-active tile is a no-op, so a stray tap never stacks a duplicate
+  // `/master/bookings` on top of itself; (d) the bar coexists with the
+  // timeline without an overflow at a small viewport.
+
+  group('bottom nav', () {
+    testWidgets(
+      'renders VelvetBottomNavBar with «Мої записи» (index 1) selected — '
+      'not just present',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        await _pumpWithNavRoutes(tester, repo);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VelvetBottomNavBar), findsOne);
+        // MUTATION GUARD: asserts the actual configured index, not merely
+        // that a bar exists — `activeIndex: 3` (MasterProfileScreen's own
+        // value, an easy copy-paste slip) would still satisfy `findsOne`.
+        expect(
+          tester
+              .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
+              .activeIndex,
+          1,
+        );
+        // Ground-truth from the rendered tile itself: tile 1 reports
+        // `selected: true` via Semantics, tile 0 does not.
+        final SemanticsHandle handle = tester.ensureSemantics();
+        expect(
+          tester
+              .getSemantics(find.byKey(const Key('master-nav-tile-1')))
+              .flagsCollection
+              .isSelected
+              .toBoolOrNull(),
+          isTrue,
+        );
+        expect(
+          tester
+              .getSemantics(find.byKey(const Key('master-nav-tile-0')))
+              .flagsCollection
+              .isSelected
+              .toBoolOrNull(),
+          isFalse,
+        );
+        handle.dispose();
+      },
+    );
+
+    testWidgets(
+      'tapping a NON-active tile (Послуги, tile 0) pushes /services and '
+      'leaves this screen poppable',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        final GoRouter router = await _pumpWithNavRoutes(tester, repo);
+        await tester.pumpAndSettle();
+        expect(router.canPop(), isFalse);
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(_servicesMarker),
+          findsOneWidget,
+          reason: 'the Послуги tile must push RouteNames.services',
+        );
+        expect(
+          router.canPop(),
+          isTrue,
+          reason: 'push (not go) — the origin must stay on the back stack',
+        );
+      },
+    );
+
+    testWidgets(
+      'tapping the ALREADY-ACTIVE tile (Мої записи, tile 1) is a no-op — no '
+      'duplicate /master/bookings is pushed onto itself',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        final GoRouter router = await _pumpWithNavRoutes(tester, repo);
+        await tester.pumpAndSettle();
+        expect(router.canPop(), isFalse);
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+        await tester.pumpAndSettle();
+
+        // MUTATION GUARD: if `activeIndex` were ever wrong (e.g. left at the
+        // default / copied from another screen), tile 1 would no longer
+        // resolve to a null route and WOULD attempt to push
+        // `RouteNames.masterBookings` (`/master/bookings`) — a path this
+        // test's minimal router never registers, so go_router would throw
+        // and `tester.takeException()` would be non-null. A silently passing
+        // `canPop() == false` alone could not distinguish "correctly a
+        // no-op" from "navigation crashed before mutating the stack", so both
+        // are asserted.
+        expect(tester.takeException(), isNull);
+        expect(
+          router.canPop(),
+          isFalse,
+          reason:
+              'the already-active tile must resolve to a null route — no '
+              'push, so the back stack stays empty',
+        );
+        expect(
+          find.byType(MasterBookingsScreen),
+          findsOneWidget,
+          reason: 'still on the same screen — no navigation occurred',
+        );
+      },
+    );
+
+    testWidgets(
+      'the nav bar coexists with a full timeline at a small viewport — no '
+      'overflow, the last card still renders',
+      (tester) async {
+        // iPhone SE-class viewport — the smallest common target, and the one
+        // most likely to expose a clipped last card or a RenderFlex overflow
+        // between the timeline's own xxl bottom padding and the added bar.
+        tester.view.physicalSize = const Size(375, 667);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer(
+          (_) async => _page(<Booking>[
+            for (int i = 0; i < 6; i++)
+              _booking(
+                id: 'b$i',
+                startAt: _kyivToday.toUtc().add(Duration(hours: 8 + i)),
+              ),
+          ]),
+        );
+
+        // installOverflowGuard() (wired into pumpRoutedApp) fails this test
+        // automatically on any RenderFlex overflow — see pump_app.dart.
+        await _pumpWithNavRoutes(tester, repo);
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.byType(VelvetBottomNavBar), findsOne);
+        expect(
+          find.byKey(const Key('master-booking-card-b5')),
+          findsOneWidget,
+          reason: 'the last booking card must still be reachable in the tree',
+        );
+        // The bar itself must sit fully inside the stressed viewport height —
+        // a real clip (as opposed to a caught RenderFlex overflow banner)
+        // would otherwise slip past the guard silently.
+        expect(
+          tester.getRect(find.byType(VelvetBottomNavBar)).bottom,
+          lessThanOrEqualTo(667),
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
