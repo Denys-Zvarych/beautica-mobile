@@ -4613,10 +4613,6 @@
   "@bookingFilterButtonLabel": {
     "description": "Accessibility label for the filter button in the master's booking-list header."
   },
-  "bookingFilterSectionDate": "Date",
-  "@bookingFilterSectionDate": {
-    "description": "Filter-sheet section heading for the date/period control."
-  },
   "bookingFilterSectionStatus": "Status",
   "@bookingFilterSectionStatus": {
     "description": "Filter-sheet section heading for the multi-select status rows."
@@ -4624,18 +4620,6 @@
   "bookingFilterSectionService": "Service",
   "@bookingFilterSectionService": {
     "description": "Filter-sheet section heading for the multi-select service rows."
-  },
-  "bookingFilterDateAny": "Any date",
-  "@bookingFilterDateAny": {
-    "description": "Placeholder on the filter sheet's date row when no day or period is chosen."
-  },
-  "bookingFilterDateSemantics": "Choose a date or period",
-  "@bookingFilterDateSemantics": {
-    "description": "Accessibility label for the filter sheet's date row."
-  },
-  "bookingFilterClearDate": "Clear period",
-  "@bookingFilterClearDate": {
-    "description": "Accessibility label for the ✕ that clears the chosen day or period. Verbatim from the approved design's range banner."
   },
   "bookingFilterReset": "Clear filters",
   "@bookingFilterReset": {
@@ -4653,21 +4637,17 @@
   "@bookingFilterApplySemantics": {
     "description": "Accessibility label for the filter sheet's apply button."
   },
-  "bookingFilterDatePickerTitle": "Choose a date or period",
-  "@bookingFilterDatePickerTitle": {
-    "description": "Header of the booking date/period calendar. Verbatim from the approved design."
+  "bookingDayPickerTitle": "Choose a date",
+  "@bookingDayPickerTitle": {
+    "description": "Header of the master «Мої записи» single-day jump calendar (Phase 7.13) — opened from the day rail's calendar button."
   },
-  "bookingFilterDatePickerEmptyHint": "Choose a day",
-  "@bookingFilterDatePickerEmptyHint": {
-    "description": "Summary pill copy in the booking calendar before any day is tapped. Verbatim from the approved design."
+  "bookingDayPickerEmptyHint": "Choose a day",
+  "@bookingDayPickerEmptyHint": {
+    "description": "Summary pill copy in the single-day jump calendar before any day is tapped."
   },
-  "bookingFilterDatePickerSave": "Done",
-  "@bookingFilterDatePickerSave": {
-    "description": "Confirm CTA in the booking date/period calendar. Verbatim from the approved design."
-  },
-  "bookingFilterDatePickerBack": "Back",
-  "@bookingFilterDatePickerBack": {
-    "description": "Accessibility label for the booking calendar's back affordance."
+  "bookingDayPickerBack": "Back",
+  "@bookingDayPickerBack": {
+    "description": "Accessibility label for the single-day jump calendar's back affordance."
   },
   "bookingFilterActiveCount": "{count, plural, one{{count} filter} other{{count} filters}}",
   "@bookingFilterActiveCount": {

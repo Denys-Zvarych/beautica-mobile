@@ -17,6 +17,20 @@
 //
 // Every test here was mutation-verified; the mutation is recorded per group.
 //
+// ## Phase 7.13 — the "booking window itself" group is RETIRED
+//
+// That group used to pin `kMaxBookingRangeDays` (`date_range_calendar.dart`'s
+// 366-day span cap for the booking filter's Дата/range section). Phase 7.13
+// retired BOTH: the Дата section (there is no range left to cap — the filter
+// sheet resolves only `statuses`/`serviceIds` now) and the constant with it
+// (a single-day jump trivially satisfies any width limit a range it will
+// never send could have needed). `date_range_calendar.dart` itself was
+// renamed to `bookings_day_picker.dart` in the same phase — this file no
+// longer imports it at all, having nothing left to read from it. Every OTHER
+// group below (`maxSpanDays`, `lastSelectableDay`) tests the SHARED
+// `PeriodRangePicker` widget directly, independent of either booking-specific
+// file, and is untouched.
+//
 // ## Why the assertions are on the SEMANTICS tree, not on a tap
 //
 // A disabled cell is wrapped in a `Semantics` WITHOUT `button: true` and with
@@ -39,7 +53,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:beautica_mobile/features/booking/presentation/widgets/date_range_calendar.dart';
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 
 const PeriodRangePickerStrings _strings = PeriodRangePickerStrings(
@@ -274,17 +287,6 @@ void main() {
 
       final Finder outside = await scrollToDay(tester, DateTime(2024, 6, 16));
       expect(isEnabled(tester, outside), isFalse);
-    });
-  });
-
-  group('the booking window itself', () {
-    // MUTATION: changed `kMaxBookingRangeDays` to 400 → this test failed.
-    // Restored.
-    //
-    // A literal, not a re-read of the constant: the point is that 366 is the
-    // backend's number, so a drift in the constant must fail here.
-    test('the booking cap is the backend 26.2 value', () {
-      expect(kMaxBookingRangeDays, 366);
     });
   });
 }

@@ -37,6 +37,22 @@
 // taps; whole months stack in a single vertical scroll (no chevrons, no swipe);
 // the bottom «Зберегти» CTA returns the range. Tapping a new start once a full
 // range exists resets the selection.
+//
+// ## Phase 7.13 — [PeriodRangePickerMode.single], additive
+//
+// The booking filter's Дата (range) section is retired in favour of a
+// single-day rail jump (Phase 7.13), which needs the exact same scrolling
+// month grid — a second 600-line copy is still not a design decision. [mode]
+// is a NEW parameter, defaulting to [PeriodRangePickerMode.range], so every
+// existing caller (`apply_schedule_sheet.dart`, which passes no `mode` at
+// all) keeps hitting the untouched range branch byte-for-byte. In
+// [PeriodRangePickerMode.single], the first tap on a live day both selects
+// AND resolves — there is no second tap, no half-open state, and no
+// «Зберегти» CTA (the footer is omitted entirely rather than rendered
+// inert, since it can never do anything in this mode). The month grid, the
+// disabled-day rules, [maxSpanDays], [lastSelectableDay], [monthCount] and
+// [monthNames] are all reused verbatim — single mode reads them exactly like
+// range mode does; it only short-circuits what a tap DOES.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -68,6 +84,15 @@ Key periodDayCellKey(DateTime day) => Key(
 /// booking filter) pass their own [PeriodRangePicker.monthCount].
 const int kPeriodRangePickerDefaultMonths = 24;
 
+/// Which selection behaviour the picker offers.
+///
+/// Additive — see the file header's Phase 7.13 section. [range] is the
+/// original, untouched behaviour ([PeriodRangePicker]'s default): tap a
+/// start, then an end, then confirm with the «Зберегти» CTA. [single]: the
+/// first tap on a live day both selects and resolves — there is no CTA to
+/// render because there is nothing left for it to confirm.
+enum PeriodRangePickerMode { range, single }
+
 /// Resolved Ukrainian copy for the picker chrome. The caller resolves these via
 /// `AppLocalizations` so this surface imports no localization itself (mirrors
 /// `showVelvetTimePicker`'s string-bundle pattern).
@@ -76,15 +101,21 @@ class PeriodRangePickerStrings {
   const PeriodRangePickerStrings({
     required this.title,
     required this.emptyHint,
-    required this.saveLabel,
     required this.backSemantic,
     required this.weekdayShort,
     required this.monthNames,
+    this.saveLabel,
   });
 
   final String title;
   final String emptyHint;
-  final String saveLabel;
+
+  /// The «Зберегти» CTA label. `null` for a caller whose [PeriodRangePicker
+  /// .mode] never renders the CTA at all ([PeriodRangePickerMode.single]) —
+  /// see that field's doc. Every [PeriodRangePickerMode.range] caller
+  /// (unchanged, incl. `apply_schedule_sheet.dart`) still passes a real
+  /// value; making this optional does not alter what they render.
+  final String? saveLabel;
   final String backSemantic;
 
   /// Seven Monday-leading short weekday labels (Пн … Нд).
@@ -115,6 +146,7 @@ Future<DateTimeRange?> showPeriodRangePicker(
   DateTime? initialScrollMonth,
   int? maxSpanDays,
   int monthCount = kPeriodRangePickerDefaultMonths,
+  PeriodRangePickerMode mode = PeriodRangePickerMode.range,
 }) {
   return showModalBottomSheet<DateTimeRange>(
     context: context,
@@ -139,6 +171,7 @@ Future<DateTimeRange?> showPeriodRangePicker(
           maxSpanDays: maxSpanDays,
           monthCount: monthCount,
           initialRange: initialRange,
+          mode: mode,
           strings: strings,
         ),
       );
@@ -159,6 +192,7 @@ class PeriodRangePicker extends StatefulWidget {
     this.initialScrollMonth,
     this.maxSpanDays,
     this.monthCount = kPeriodRangePickerDefaultMonths,
+    this.mode = PeriodRangePickerMode.range,
   }) : assert(
          maxSpanDays == null || maxSpanDays > 0,
          'maxSpanDays must be positive when set',
@@ -213,6 +247,11 @@ class PeriodRangePicker extends StatefulWidget {
 
   /// Optional pre-selected range (e.g. a preset chip pre-filled it).
   final DateTimeRange? initialRange;
+
+  /// [PeriodRangePickerMode.range] (the default, and every existing
+  /// caller's behaviour, byte-identical) or [PeriodRangePickerMode.single] —
+  /// see that enum's doc.
+  final PeriodRangePickerMode mode;
 
   final PeriodRangePickerStrings strings;
 
@@ -398,6 +437,16 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
 
   void _onTapDay(DateTime d) {
     if (_isDisabled(d)) return;
+    // [PeriodRangePickerMode.single] — the first live tap both selects AND
+    // resolves; there is no half-open state and no confirm step. Resolved
+    // via `context.pop`, exactly like [_save] does for the range CTA, so both
+    // modes close through the same go_router extension (never a raw
+    // `Navigator.pop`). This branch is entered ONLY for `mode == single`, so
+    // it cannot touch the range caller's `_start`/`_end` machinery below.
+    if (widget.mode == PeriodRangePickerMode.single) {
+      context.pop<DateTimeRange>(DateTimeRange(start: d, end: d));
+      return;
+    }
     setState(() {
       if (_start == null || _hasFullRange) {
         _start = d;
@@ -456,26 +505,32 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
                   _monthSection(_monthForIndex(index)),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              VelvetSpacing.md,
-              VelvetSpacing.sm,
-              VelvetSpacing.md,
-              VelvetSpacing.md,
-            ),
-            child: Opacity(
-              opacity: _hasFullRange ? 1 : 0.55,
-              child: IgnorePointer(
-                ignoring: !_hasFullRange,
-                child: NeumorphicButton(
-                  key: const Key('btn-range-picker-save'),
-                  label: widget.strings.saveLabel,
-                  icon: Icons.check_rounded,
-                  onPressed: _save,
+          // [PeriodRangePickerMode.single] resolves on the tap itself (see
+          // [_onTapDay]) — there is nothing left for a confirm CTA to do, so
+          // it is omitted entirely rather than rendered permanently inert.
+          if (widget.mode == PeriodRangePickerMode.range)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.md,
+                VelvetSpacing.sm,
+                VelvetSpacing.md,
+                VelvetSpacing.md,
+              ),
+              child: Opacity(
+                opacity: _hasFullRange ? 1 : 0.55,
+                child: IgnorePointer(
+                  ignoring: !_hasFullRange,
+                  child: NeumorphicButton(
+                    key: const Key('btn-range-picker-save'),
+                    // Non-null by construction for every range-mode caller —
+                    // see [PeriodRangePickerStrings.saveLabel]'s doc.
+                    label: widget.strings.saveLabel!,
+                    icon: Icons.check_rounded,
+                    onPressed: _save,
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -507,8 +562,15 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
   }
 
   Widget _rangeSummary() {
+    // Single mode never lands in the half-open ("… – …") state — a tap
+    // resolves immediately (see [_onTapDay]) — so `_start`/`_end` are only
+    // ever BOTH null or BOTH set (an `initialRange` pre-seed, e.g. the
+    // currently selected day the caller opened on). A single date reads as
+    // one short date, not a degenerate "DD.MM – DD.MM" range.
     final String text = _start == null
         ? widget.strings.emptyHint
+        : widget.mode == PeriodRangePickerMode.single
+        ? _short(_start!)
         : _end == null
         ? '${_short(_start!)} – …'
         : '${_short(_start!)} – ${_short(_end!)}';

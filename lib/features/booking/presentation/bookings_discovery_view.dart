@@ -50,13 +50,17 @@
 //     from a navigation bug. The dots (`bookedDaysProvider`, unchanged, still
 //     filter-independent) show where the work actually is.
 //   * The rail's calendar button survives — jumping past the ±180-day span is
-//     still useful — but a picked range collapses to its START day at this
-//     call site (`_openCalendar`); `date_range_calendar.dart` itself is
-//     unmodified and out of this phase's scope.
-//   * `BookingsFilterSheet`'s «Дата» section (Phase 7.7) is ALSO unmodified
-//     and out of scope. Its `from`/`to` picks are deliberately DISCARDED in
-//     `_applyFilters` below — see that method's doc — rather than reinstating
-//     a range concept `BookingsDayQuery` can no longer express.
+//     still useful — but Phase 7.13 retired the range calendar it used to
+//     open: `bookings_day_picker.dart`'s `showBookingsDayPicker` now resolves
+//     a single date-only day directly, which `_openCalendar` below applies
+//     through [_applySelectedDay] — the SAME mutation [_selectDay] calls
+//     after its debounce elapses, so either path produces exactly one
+//     request and one family member. `_openCalendar` bypasses the debounce
+//     itself (the picker resolves once; there is no rail-flick burst to
+//     coalesce) but still funnels through the shared mutation.
+//   * `BookingsFilterSheet`'s «Дата» section (Phase 7.7) is RETIRED too
+//     (Phase 7.13) — the sheet now resolves only `statuses`/`serviceIds`, so
+//     there is nothing date-shaped left for `_applyFilters` to discard.
 //
 // ## Phase 7.12 — the intra-day time window is VIEW STATE, not a query field
 //
@@ -75,7 +79,8 @@
 // header affordance — reads `_liveQuery.hasFilters || _window != null`
 // instead. Miss either half and either (a) a window-emptied day renders the
 // unrecoverable true-empty state, or (b) an active window is invisible.
-// [_window] is cleared whenever [_day] changes ([_selectDay]) and whenever
+// [_window] is cleared whenever [_day] changes ([_applySelectedDay], the
+// shared sink for both [_selectDay] and [_openCalendar]) and whenever
 // «Скинути фільтри» fires ([_clearAllFilters]) — a window silently surviving
 // a day change is exactly the kind of sticky hidden state that reads as "the
 // app lost my bookings".
@@ -114,10 +119,10 @@ import '../domain/booking_status.dart';
 import '../domain/bookings_day_query.dart';
 import '../domain/bookings_day_state.dart';
 import '../domain/day_time_window.dart';
+import 'widgets/bookings_day_picker.dart';
 import 'widgets/bookings_day_rail.dart';
 import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/bookings_timeline_grid.dart';
-import 'widgets/date_range_calendar.dart';
 import 'widgets/day_time_window_sheet.dart';
 import 'widgets/master_bookings_states.dart';
 import 'widgets/my_bookings_states.dart';
@@ -171,7 +176,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
   /// Phase 7.12 — the intra-day time-of-day window, or `null` when none is
   /// active. VIEW STATE, deliberately NOT folded into [_liveQuery] — see the
-  /// file header. Cleared on every [_selectDay] and every
+  /// file header. Cleared on every [_applySelectedDay] and every
   /// [_clearAllFilters].
   DayTimeWindow? _window;
 
@@ -280,20 +285,33 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     );
   }
 
-  /// Selecting a rail day (or a calendar pick — see [_openCalendar]) narrows
-  /// to exactly that day. Debounced; see [_dayDebounce].
+  /// Selecting a rail day narrows to exactly that day. Debounced; see
+  /// [_dayDebounce] — a rail flick can land a dozen taps in under a second,
+  /// and each one is a new family member and a new request without this.
+  /// A calendar pick (see [_openCalendar]) resolves exactly once and has no
+  /// burst to coalesce, so it applies through [_applySelectedDay] directly,
+  /// bypassing the timer — see that method's header.
   void _selectDay(DateTime day) {
     _dayDebounce?.cancel();
     _dayDebounce = Timer(const Duration(milliseconds: 220), () {
       if (!mounted) return;
-      setState(() {
-        _day = dateOnly(day);
-        // Phase 7.12 — a window is scoped to the day it was set on; carrying
-        // e.g. 09:00–14:00 silently across a day change reads as "the app
-        // lost my bookings" on the new day. See the file header.
-        _window = null;
-        _rebuildQuery();
-      });
+      _applySelectedDay(day);
+    });
+  }
+
+  /// The single mutation the day rail and the calendar picker both converge
+  /// on — sets [_day], clears the Phase 7.12 window, and rebuilds
+  /// [_liveQuery]. Whether it runs immediately ([_openCalendar]) or after
+  /// [_dayDebounce] elapses ([_selectDay]), it produces exactly one
+  /// `setState` and one `bookingsDayProvider` family member.
+  void _applySelectedDay(DateTime day) {
+    setState(() {
+      _day = dateOnly(day);
+      // Phase 7.12 — a window is scoped to the day it was set on; carrying
+      // e.g. 09:00–14:00 silently across a day change reads as "the app
+      // lost my bookings" on the new day. See the file header.
+      _window = null;
+      _rebuildQuery();
     });
   }
 
@@ -338,38 +356,49 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     });
   }
 
-  /// Opens the single/range calendar and narrows [_day] to whatever comes
+  /// Opens the single-day jump calendar and narrows [_day] to whatever comes
   /// back.
   ///
-  /// `BookingsDayQuery` (Phase 7.9) carries one Kyiv day, not a range, so a
-  /// genuine range pick collapses to its START day here — `.of()` is DAY
-  /// canonicalisation, not range support, and `date_range_calendar.dart`
-  /// itself is unmodified and out of this phase's scope (it still resolves a
-  /// `DateTimeRange` because the same picker also backs the filter sheet's
-  /// «Дата» row). Dismissing the picker resolves `null` and changes nothing.
+  /// Phase 7.13 retired the range calendar this used to open —
+  /// `showBookingsDayPicker` now resolves a single date-only day directly, so
+  /// there is no bounds pair to collapse any more. [initialDay] is the
+  /// CURRENT selection, not the window's origin, so the picker opens where
+  /// the rail already is rather than six months behind it.
+  ///
+  /// Applies through [_applySelectedDay] directly rather than [_selectDay] —
+  /// the picker resolves exactly ONCE, on an explicit confirmed selection,
+  /// so [_dayDebounce]'s 220ms coalescing window (which exists for rail-flick
+  /// bursts) has no burst to coalesce here and would only add latency between
+  /// the tap and the timeline updating. Both paths still converge on
+  /// [_applySelectedDay], so either produces exactly one request and one
+  /// family member — see that method's header.
+  ///
+  /// Cancels [_dayDebounce] on the way in (a stale pick shouldn't linger
+  /// while the sheet is open) AND on the way out: a rail tap landed WHILE the
+  /// calendar was open would otherwise fire its own timer after this method
+  /// applies the picked day, clobbering the calendar's selection with the
+  /// stale rail one. Dismissing the picker resolves `null` and changes
+  /// nothing (but still cancels a pending rail timer, per the above).
   Future<void> _openCalendar() async {
     _dayDebounce?.cancel();
-    final DateTimeRange? picked = await showBookingsDateRangePicker(
+    final DateTime? picked = await showBookingsDayPicker(
       context,
       today: _today,
-      initialRange: DateTimeRange(start: _day, end: _day),
+      initialDay: _day,
     );
+    _dayDebounce?.cancel();
     if (!mounted || picked == null) return;
-    final ({DateTime from, DateTime to}) bounds = normaliseBookingRange(picked);
-    _selectDay(bounds.from);
+    _applySelectedDay(picked);
   }
 
   /// Opens the filter sheet and applies whatever it resolves with.
   ///
   /// The sheet holds DRAFT state and resolves exactly once, on «Застосувати».
-  /// Only `applied.statuses`/`applied.serviceIds` reach [_liveQuery] —
-  /// `applied.from`/`applied.to` (the sheet's «Дата» section) are
-  /// deliberately DISCARDED. `BookingsFilterSelection` still carries a date
-  /// range because `bookings_filter_sheet.dart` is unmodified and out of this
-  /// phase's scope; wiring its pick into a query that can no longer express a
-  /// range would either crash or silently narrow to one arbitrary bound. The
-  /// rail (and this method's own [_openCalendar]) remain the only day
-  /// controls.
+  /// `applied.statuses`/`applied.serviceIds` are the whole of what it can
+  /// resolve with (Phase 7.13 retired the sheet's «Дата» section along with
+  /// `BookingsFilterSelection.from`/`.to` — there is nothing date-shaped left
+  /// to discard). The rail (and this method's own [_openCalendar]) remain the
+  /// only day controls.
   Future<void> _applyFilters() async {
     _dayDebounce?.cancel();
     // `asData?.value`, NEVER `.value` — see the file header.
@@ -383,12 +412,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
         serviceIds: _serviceIds,
       ),
       services: services,
-      onPickDates: (BuildContext sheetContext, DateTimeRange? current) =>
-          showBookingsDateRangePicker(
-            sheetContext,
-            today: _today,
-            initialRange: current,
-          ),
     );
     if (!mounted || applied == null) return;
     setState(() {
@@ -403,7 +426,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   int get _activeFilterCount => bookingsActiveFilterCount(
     hasStatuses: _statuses.isNotEmpty,
     hasServiceIds: _serviceIds.isNotEmpty,
-    hasDates: false,
   );
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -446,8 +468,15 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                   today: _today,
                   selectedDay: _day,
                   bookedDays: bookedDays,
-                  // No range mode survives Phase 7.11 — see the file header.
-                  calendarActive: false,
+                  // Phase 7.13 — repointed from "a range is set" (unreachable
+                  // since Phase 7.11 retired ranges) to "the master has
+                  // jumped away from today". `_today` is the screen's
+                  // captured Kyiv today (see the file header), so this is
+                  // `true` the instant a rail chip OR the calendar jump
+                  // selects any other day, and `false` again the moment
+                  // today is reselected — a real, reachable signal rather
+                  // than a flag that could never fire.
+                  calendarActive: _day != _today,
                   onOpenCalendar: _openCalendar,
                   onSelectDay: _selectDay,
                 );

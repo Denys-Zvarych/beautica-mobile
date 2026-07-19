@@ -52,6 +52,8 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_t
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -356,6 +358,165 @@ void main() {
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
         findsOneWidget,
+      );
+    },
+  );
+
+  // ── Phase 7.13 — filter sheet rework + single-day jump ─────────────────────
+  //
+  // Step 2.7 Rule 3b: this phase reworked a user-facing surface (the filter
+  // sheet lost its Дата section; the rail's calendar escape hatch became a
+  // single-day jump that moves the rail through the SAME mutation path as a
+  // rail chip tap). The widget/unit tier already proves each half in
+  // isolation against a MOCKED repository — `bookings_day_picker_test.dart`
+  // (the picker opens on the current selection, resolves one date-only day,
+  // dismissing changes nothing), `bookings_filter_sheet_test.dart` (exactly
+  // two sections, the 4-row/5-wire-value status model, draft semantics), and
+  // `master_bookings_filter_wiring_test.dart` (the seam between both and the
+  // query, `calendarActive` in both directions). None of them proves the
+  // jump reaches a REAL HTTP boundary through a real login — this does.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // the dev VM has no attached emulator (host-only-adapter limitation,
+  // backlog #179/#191). Verified analyze-clean and wired into both
+  // aggregators; first real execution is the CI emulator job.
+  testWidgets(
+    'the filter sheet has no Дата section, and the calendar jump moves the '
+    'rail through a real GET /bookings/me — Phase 7.13',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(locationOf(router), startsWith(RouteNames.masterBookings));
+
+      // ── A. The filter sheet is Статус + Послуга only — no Дата anywhere. ───
+      await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+      await AppHarness.settle(tester);
+      expect(
+        find.byKey(const Key('master-bookings-filter-sheet')),
+        findsOneWidget,
+      );
+
+      expect(
+        find.byKey(const Key('master-bookings-filter-section-status')),
+        findsOneWidget,
+        reason: 'Статус must survive the rework',
+      );
+      expect(
+        find.byKey(const Key('master-bookings-filter-section-service')),
+        findsOneWidget,
+        reason:
+            'Послуга must survive the rework — the master has a seeded '
+            'catalogue',
+      );
+      // No third section key exists any more — `bookings_filter_sheet.dart`
+      // only ever mounts `_SectionLabel` for Статус/Послуга post-7.13 (its
+      // own file header records the removal); `grep -rn "DateRangeCalendar
+      // \|showBookingsDateRangePicker\|_RangeBanner" lib/` (part of the
+      // phase's own acceptance criteria, verified separately) is the
+      // repo-wide structural check for the retired symbols. A Cyrillic
+      // `find.text('Дата')` here would be banned by
+      // `forbid_cyrillic_finder.sh` anyway — see `_SectionLabel.labelKey`'s
+      // doc for why this codebase keys sections instead.
+      expect(
+        find.byKey(const Key('master-bookings-filter-status-pending')),
+        findsNothing,
+        reason: 'PENDING is retired backend-side (track 24.x)',
+      );
+
+      // Close without changing anything — apply with an empty draft is a
+      // no-op resolve, not a real filter change.
+      await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+      await AppHarness.settle(tester);
+
+      // ── B. The calendar jump moves the rail through a REAL fetch. ──────────
+      final DateTime today = dateOnly(toBeauticaTime(DateTime.now()));
+      // Five days out — distinct from today (so the debounced `_selectDay`
+      // path actually fires a NEW request rather than a cache hit on the
+      // unchanged query) and close enough to stay in the picker's initial
+      // scroll position, which opens on the CURRENT selection (today, at this
+      // point in the flow) per Phase 7.13 — see `bookings_day_picker.dart`.
+      final DateTime picked = DateTime(today.year, today.month, today.day + 5);
+
+      final int callsBeforeJump = fb.getMyBookingsCalls;
+
+      // The rail auto-centres on Kyiv-today at open, scrolling the leading
+      // calendar button off the left edge — scroll back to reach it, exactly
+      // like the widget-tier wiring test does.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('master-bookings-calendar-button')),
+        -400,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const Key('master-bookings-day-rail')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(
+        find.byKey(const Key('master-bookings-calendar-button')),
+      );
+      await AppHarness.settle(tester);
+
+      final Finder pickedCell = find.byKey(periodDayCellKey(picked));
+      await tester.scrollUntilVisible(
+        pickedCell,
+        300,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.ensureVisible(pickedCell);
+      await AppHarness.settle(tester);
+      // ONE tap both selects and resolves — single mode, no «Зберегти» CTA.
+      await tester.tap(pickedCell);
+      // The screen debounces the resolved day the same way a rail chip tap
+      // does — `_openCalendar` funnels through `_selectDay`.
+      // fixed-wait-ok: advancing past the 220 ms day-selection debounce.
+      await tester.pump(const Duration(milliseconds: 300));
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.getMyBookingsCalls,
+        callsBeforeJump + 1,
+        reason:
+            'the calendar jump must issue exactly ONE new GET /bookings/me '
+            '— the SAME single mutation path a rail chip tap uses',
+      );
+      final String expectedDay = toApiDate(picked);
+      expect(fb.lastMyBookingsQuery!['from'], expectedDay);
+      expect(fb.lastMyBookingsQuery!['to'], expectedDay);
+      expect(
+        tester
+            .widget<BookingsDayRail>(find.byType(BookingsDayRail))
+            .selectedDay,
+        picked,
+        reason: 'the picked day must have moved the rail\'s selection',
+      );
+
+      // ── C. Dismissing the picker changes nothing. ───────────────────────────
+      final int callsAfterJump = fb.getMyBookingsCalls;
+      await tester.tap(
+        find.byKey(const Key('master-bookings-calendar-button')),
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('btn-range-picker-back')));
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.getMyBookingsCalls,
+        callsAfterJump,
+        reason: 'dismissing the picker must not issue a new request',
+      );
+      expect(
+        tester
+            .widget<BookingsDayRail>(find.byType(BookingsDayRail))
+            .selectedDay,
+        picked,
+        reason: 'dismissing must leave the rail on its last selection',
       );
     },
   );

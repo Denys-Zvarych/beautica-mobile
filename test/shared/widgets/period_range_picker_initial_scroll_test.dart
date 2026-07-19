@@ -11,26 +11,29 @@
 // anything. Same bug class the day rail had at its own `today − 180` origin,
 // fixed for the rail in Phase 7.6.
 //
-// ## Both directions are asserted, and that is the point
+// ## Phase 7.13 — the "booking caller" group moved out
 //
-// The fix is only correct if it is INERT for the schedule caller, whose
-// `firstMonth` already IS the current month and which passes no
-// `initialScrollMonth` at all. So this file pins the new behaviour AND the
-// unchanged one; a fix that scrolled every caller to today would pass the first
-// group and fail the second.
+// This file used to also pin `showBookingsDateRangePicker` (the booking
+// filter's Дата-row calendar) opening on today via `initialScrollMonth`.
+// Phase 7.13 retired that function along with the Дата section it served —
+// the rail's single-day jump (`showBookingsDayPicker`,
+// `bookings_day_picker.dart`) replaces it, opening on the CURRENT SELECTION
+// rather than on today specifically (today and the current selection often
+// differ once the master has navigated). That coverage now lives in
+// `test/features/booking/presentation/bookings_day_picker_test.dart`, which
+// pins the day-picker's own opening behaviour against its own API. What
+// remains here is the ONE group that never depended on either booking file
+// at all — the schedule caller, pinned directly against `PeriodRangePicker`.
 //
 // ## Host-zone independence
 //
-// Both cases are expressed RELATIVE to `DateTime.now()` rather than against
-// date literals, and neither asserts a wall-clock value — only which cell is
-// on screen. Identical under TZ=UTC and TZ=Europe/Kyiv. (A literal here would
-// be actively wrong: the booking window is anchored on the real clock.)
+// The remaining case is expressed RELATIVE to `DateTime.now()` rather than
+// against a date literal, and asserts only which cell is on screen, not a
+// wall-clock value. Identical under TZ=UTC and TZ=Europe/Kyiv.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 
-import 'package:beautica_mobile/features/booking/presentation/widgets/date_range_calendar.dart';
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 
 import '../../helpers/pump_app.dart';
@@ -72,74 +75,6 @@ void main() {
     final Rect r = tester.getRect(cell);
     return r.top >= viewport.top && r.bottom <= viewport.bottom;
   }
-
-  group('the booking caller opens on TODAY', () {
-    // MUTATION: reverted the picker's post-frame target to
-    // `_start ?? _firstDay` (the pre-fix expression) → this test FAILED:
-    // today's cell was outside the viewport and the scroll offset was 0.
-    // Restored.
-    //
-    // MUTATION: dropped `initialScrollMonth:` from
-    // `showBookingsDateRangePicker` → same failure. Restored. (Both halves of
-    // the fix are load-bearing and each is pinned.)
-    testWidgets('with no initial range, today\'s cell is on screen at open', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpRoutedApp(
-        GoRouter(
-          initialLocation: '/',
-          routes: <RouteBase>[
-            GoRoute(
-              path: '/',
-              builder: (BuildContext context, GoRouterState state) => Scaffold(
-                body: Builder(
-                  builder: (BuildContext inner) => TextButton(
-                    key: const Key('open'),
-                    onPressed: () => showBookingsDateRangePicker(
-                      inner,
-                      today: DateTime.now(),
-                    ),
-                    child: const Text('open'),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-      await tester.tap(find.byKey(const Key('open')));
-      await tester.pumpAndSettle();
-
-      final DateTime now = DateTime.now();
-      final DateTime today = DateTime(now.year, now.month, now.day);
-      final Finder todayCell = find.byKey(periodDayCellKey(today));
-
-      expect(
-        todayCell,
-        findsOneWidget,
-        reason: 'today is inside the ±180-day window by construction',
-      );
-      expect(
-        isInViewport(tester, todayCell),
-        isTrue,
-        reason:
-            'the calendar must open ON today, not six months behind it — the '
-            'window starts at today − 180 days and scrolling to that origin is '
-            'a quarter of a year of day cells before the master can pick '
-            'anything',
-      );
-
-      // And the offset really moved: an assertion that only checked the cell
-      // could in principle pass on a picker that rendered no past months at
-      // all, which would be a different (and wrong) fix.
-      final ScrollableState list = tester.state(find.byType(Scrollable).last);
-      expect(
-        list.position.pixels,
-        greaterThan(0),
-        reason: 'the past months are still rendered and still reachable',
-      );
-    });
-  });
 
   group('the schedule caller is unchanged', () {
     // MUTATION: made `_initialScrollMonth` default to the CURRENT month rather

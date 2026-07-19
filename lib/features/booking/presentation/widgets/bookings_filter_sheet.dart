@@ -1,4 +1,11 @@
 // Phase 7.7 — the master «Мої записи» filter sheet: Дата · Статус · Послуга.
+// Phase 7.13 — Дата is RETIRED. The day-scoped timeline rework (Phase 7.9)
+// replaced the paged `from`/`to` window this section used to build with a
+// single Kyiv calendar day owned by the rail — `BookingsDayQuery` (Phase 7.9)
+// has no range left to express, so a section that built one had nothing left
+// to feed. The rail's calendar button still opens a single-day jump
+// (`bookings_day_picker.dart`), but that is navigation, not a filter, and
+// this sheet does not own it. Sections are now Статус and Послуга only.
 //
 // ## Where this was transcribed from
 //
@@ -26,13 +33,11 @@
 //
 // ## The caps are enforced here, not discovered at the server
 //
-// The backend rejects >5 statuses, >50 serviceIds and a >366-day window with a
-// **400** (Phase 26.1/26.4/26.2/26.6). None of those is reachable from this
-// sheet: the status universe is exactly 5 by construction, the service rows
-// stop toggling on at [kMaxServiceFilterIds], and the date range is capped
-// inside the picker itself (`PeriodRangePicker.maxSpanDays`). There is
-// deliberately no error copy for any of the three — an unreachable state needs
-// no message.
+// The backend rejects >5 statuses and >50 serviceIds with a **400** (Phase
+// 26.1/26.4). Neither is reachable from this sheet: the status universe is
+// exactly 5 by construction, and the service rows stop toggling on at
+// [kMaxServiceFilterIds]. There is deliberately no error copy for either — an
+// unreachable state needs no message.
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -40,7 +45,6 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
@@ -99,44 +103,36 @@ String bookingStatusFilterLabel(
   }
 }
 
-/// The filter values the sheet resolves with — the three query parameters it
+/// The filter values the sheet resolves with — the two query parameters it
 /// owns, and nothing else.
 ///
 /// Deliberately NOT a `MasterBookingsQuery`: the sort is not a filter, the
 /// sheet never sees it, and returning a whole query would let this surface
-/// silently reset it. The screen folds these three onto the query it already
-/// holds.
+/// silently reset it. The screen folds these two onto the query it already
+/// holds. There is no date/period field any more (Phase 7.13) — the day is
+/// the rail's job, not this sheet's; see the file header.
 @immutable
 class BookingsFilterSelection {
   const BookingsFilterSelection({
     this.statuses = const <BookingStatus>{},
     this.serviceIds = const <String>{},
-    this.from,
-    this.to,
   });
 
   final Set<BookingStatus> statuses;
   final Set<String> serviceIds;
 
-  /// Inclusive local-date bounds. A single day is `from == to`; there is one
-  /// date concept here, not a day AND a range — see
-  /// `master_bookings_screen.dart`'s header for why.
-  final DateTime? from;
-  final DateTime? to;
-
   /// Number of ACTIVE filter groups, for the header badge.
   int get activeCount => bookingsActiveFilterCount(
     hasStatuses: statuses.isNotEmpty,
     hasServiceIds: serviceIds.isNotEmpty,
-    hasDates: from != null || to != null,
   );
 }
 
 /// The ONE definition of "how many filter groups are active".
 ///
 /// Counts groups, not values: «status» is one active filter whether the master
-/// picked one status or four, and a date range is one filter, not two bounds. A
-/// badge reading "6" for a two-decision filter is noise.
+/// picked one status or four. A badge reading "6" for a two-decision filter is
+/// noise.
 ///
 /// Shared between [BookingsFilterSelection.activeCount] (the sheet's own view)
 /// and the screen's header badge, which counts off the already-canonical
@@ -146,8 +142,7 @@ class BookingsFilterSelection {
 int bookingsActiveFilterCount({
   required bool hasStatuses,
   required bool hasServiceIds,
-  required bool hasDates,
-}) => (hasStatuses ? 1 : 0) + (hasServiceIds ? 1 : 0) + (hasDates ? 1 : 0);
+}) => (hasStatuses ? 1 : 0) + (hasServiceIds ? 1 : 0);
 
 /// The neumorphic funnel button in the «Мої записи» header.
 ///
@@ -251,7 +246,6 @@ class BookingsFilterSheet extends StatefulWidget {
     super.key,
     required this.initial,
     required this.services,
-    required this.onPickDates,
   });
 
   final BookingsFilterSelection initial;
@@ -261,22 +255,10 @@ class BookingsFilterSheet extends StatefulWidget {
   /// section rather than showing an empty one.
   final List<MasterService> services;
 
-  /// Opens the range calendar and resolves with the picked bounds, or `null` if
-  /// dismissed. Injected rather than called directly so the sheet stays a pure
-  /// widget — and so a test can drive the date section without pumping a
-  /// 36-month scrolling calendar.
-  final Future<DateTimeRange?> Function(
-    BuildContext context,
-    DateTimeRange? current,
-  )
-  onPickDates;
-
   static Future<BookingsFilterSelection?> show(
     BuildContext context, {
     required BookingsFilterSelection initial,
     required List<MasterService> services,
-    required Future<DateTimeRange?> Function(BuildContext, DateTimeRange?)
-    onPickDates,
   }) {
     return showModalBottomSheet<BookingsFilterSelection>(
       context: context,
@@ -284,11 +266,8 @@ class BookingsFilterSheet extends StatefulWidget {
       // The service catalogue is unbounded, so the sheet must be able to grow
       // and scroll rather than overflow at ~8 rows.
       isScrollControlled: true,
-      builder: (BuildContext ctx) => BookingsFilterSheet(
-        initial: initial,
-        services: services,
-        onPickDates: onPickDates,
-      ),
+      builder: (BuildContext ctx) =>
+          BookingsFilterSheet(initial: initial, services: services),
     );
   }
 
@@ -299,16 +278,12 @@ class BookingsFilterSheet extends StatefulWidget {
 class _BookingsFilterSheetState extends State<BookingsFilterSheet> {
   late Set<BookingStatus> _statuses;
   late Set<String> _serviceIds;
-  DateTime? _from;
-  DateTime? _to;
 
   @override
   void initState() {
     super.initState();
     _statuses = Set<BookingStatus>.of(widget.initial.statuses);
     _serviceIds = Set<String>.of(widget.initial.serviceIds);
-    _from = widget.initial.from;
-    _to = widget.initial.to;
   }
 
   bool _groupSelected(BookingStatusFilterGroup g) =>
@@ -351,46 +326,16 @@ class _BookingsFilterSheetState extends State<BookingsFilterSheet> {
     });
   }
 
-  Future<void> _pickDates() async {
-    final DateTime? from = _from;
-    final DateTime? to = _to;
-    final DateTimeRange? current = (from == null || to == null)
-        ? null
-        : DateTimeRange(start: from, end: to);
-    final DateTimeRange? picked = await widget.onPickDates(context, current);
-    if (!mounted || picked == null) return;
-    setState(() {
-      _from = picked.start;
-      _to = picked.end;
-    });
-  }
-
-  void _clearDates() => setState(() {
-    _from = null;
-    _to = null;
-  });
-
   void _resetAll() => setState(() {
     _statuses = <BookingStatus>{};
     _serviceIds = <String>{};
-    _from = null;
-    _to = null;
   });
 
   void _apply() => context.pop(
-    BookingsFilterSelection(
-      statuses: _statuses,
-      serviceIds: _serviceIds,
-      from: _from,
-      to: _to,
-    ),
+    BookingsFilterSelection(statuses: _statuses, serviceIds: _serviceIds),
   );
 
-  bool get _anyActive =>
-      _statuses.isNotEmpty ||
-      _serviceIds.isNotEmpty ||
-      _from != null ||
-      _to != null;
+  bool get _anyActive => _statuses.isNotEmpty || _serviceIds.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -433,19 +378,6 @@ class _BookingsFilterSheetState extends State<BookingsFilterSheet> {
                     Text(
                       l10n.bookingFilterSheetTitle,
                       style: VelvetText.subheading(),
-                    ),
-                    const SizedBox(height: VelvetSpacing.md),
-                    _SectionLabel(
-                      l10n.bookingFilterSectionDate,
-                      labelKey: const Key(
-                        'master-bookings-filter-section-date',
-                      ),
-                    ),
-                    _DateRow(
-                      from: _from,
-                      to: _to,
-                      onPick: _pickDates,
-                      onClear: _clearDates,
                     ),
                     const SizedBox(height: VelvetSpacing.md),
                     _SectionLabel(
@@ -551,104 +483,6 @@ class _BookingsFilterSheetState extends State<BookingsFilterSheet> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// The «Дата» row — opens the calendar, and clears the window when one is set.
-class _DateRow extends StatelessWidget {
-  const _DateRow({
-    required this.from,
-    required this.to,
-    required this.onPick,
-    required this.onClear,
-  });
-
-  final DateTime? from;
-  final DateTime? to;
-  final VoidCallback onPick;
-  final VoidCallback onClear;
-
-  static String _short(DateTime d) =>
-      '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}';
-
-  @override
-  Widget build(BuildContext context) {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    final DateTime? f = from;
-    final DateTime? t = to;
-    final bool active = f != null || t != null;
-    final String label = (f == null || t == null)
-        ? l10n.bookingFilterDateAny
-        : f == t
-        ? _short(f)
-        : '${_short(f)} – ${_short(t)}';
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.sm),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Semantics(
-              button: true,
-              label: l10n.bookingFilterDateSemantics,
-              value: label,
-              child: GestureDetector(
-                key: const Key('master-bookings-filter-date'),
-                onTap: onPick,
-                behavior: HitTestBehavior.opaque,
-                child: NeumorphicInset(
-                  radius: VelvetRadii.field,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: VelvetSpacing.md,
-                      vertical: VelvetSpacing.sm + 2,
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        const Icon(
-                          Icons.date_range_rounded,
-                          size: 18,
-                          color: BrandColors.accentDeep,
-                        ),
-                        const SizedBox(width: VelvetSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            label,
-                            style: VelvetText.bodyStrong14,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          if (active) ...<Widget>[
-            const SizedBox(width: VelvetSpacing.sm),
-            Semantics(
-              button: true,
-              label: l10n.bookingFilterClearDate,
-              child: GestureDetector(
-                key: const Key('master-bookings-filter-date-clear'),
-                onTap: onClear,
-                behavior: HitTestBehavior.opaque,
-                child: const Padding(
-                  padding: EdgeInsets.all(VelvetSpacing.sm),
-                  child: Icon(
-                    Icons.close_rounded,
-                    size: 18,
-                    color: BrandColors.accentDeep,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
       ),
     );
   }

@@ -20,6 +20,17 @@
 // captured Kyiv "today" or explicit `DateTime(y, m, d)` literals fed through
 // the stubbed picker, and `toApiDate` reads `.year/.month/.day` off the local
 // value with no zone conversion. Identical under TZ=UTC and TZ=Europe/Kyiv.
+//
+// ## Phase 7.13 — Дата retired, the calendar is a single-day jump
+//
+// The filter sheet's «Дата» section is gone (there is nothing left in
+// `BookingsFilterSelection` for a picked date to be "discarded" FROM), so the
+// old "a date picked in the FILTER SHEET is discarded" test is gone with it.
+// The rail's calendar button now opens `showBookingsDayPicker`
+// (`bookings_day_picker.dart`), which resolves a single date-only day
+// directly rather than a `DateTimeRange` to collapse — the "collapses to its
+// START day" test is rewritten below to match: ONE tap, not a start/end pair
+// plus «Зберегти».
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +46,7 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
@@ -272,73 +284,21 @@ void main() {
       },
     );
 
-    // MUTATION: made `_applyFilters` fold `applied.from`/`applied.to` onto
-    // the live query (reinstating the retired range concept) → this test
-    // failed because the day silently drifted off Kyiv-today. Restored:
-    // the sheet's «Дата» picks are discarded, by design — see
-    // `bookings_discovery_view.dart`'s `_applyFilters` doc.
-    testWidgets(
-      'a date picked in the FILTER SHEET is discarded — day narrowing is the '
-      'RAIL\'s job only',
-      (WidgetTester tester) async {
-        await pump(tester);
-        calls.clear();
-
-        await openFilters(tester);
-        await tester.tap(find.byKey(const Key('master-bookings-filter-date')));
-        await tester.pumpAndSettle();
-
-        final DateTime pickDay = DateTime(
-          _kyivToday.year,
-          _kyivToday.month,
-          _kyivToday.day + 5,
-        );
-        for (final DateTime d in <DateTime>[pickDay, pickDay]) {
-          final Finder cell = find.byKey(periodDayCellKey(d));
-          await tester.scrollUntilVisible(
-            cell,
-            300,
-            scrollable: find.byType(Scrollable).last,
-          );
-          await tester.ensureVisible(cell);
-          await tester.pumpAndSettle();
-          await tester.tap(cell);
-          await tester.pumpAndSettle();
-        }
-        await tester.tap(find.byKey(const Key('btn-range-picker-save')));
-        await tester.pumpAndSettle();
-        await applyFilters(tester);
-
-        // Nothing about the live query actually CHANGED (statuses/serviceIds
-        // are still empty, the day is still Kyiv-today) — so this is not
-        // merely "the wire arguments still say today", it is that NO new
-        // fetch fires at all: applying resolves to a query `==` the one
-        // already resolved, which is the strongest possible proof the picked
-        // date never reached `BookingsDayQuery.of`.
-        expect(
-          calls,
-          isEmpty,
-          reason:
-              'the filter sheet\'s date picker must NOT move the live day — '
-              'only the rail (and its calendar button) may. A request here '
-              'would mean the picked date reached the query after all.',
-        );
-      },
-    );
-
     // MUTATION: made `_openCalendar` ignore the picked value (return early
     // after the null check) → this test failed. Restored.
     //
-    // MUTATION: made `_openCalendar` collapse to `bounds.to` instead of
-    // `bounds.from` → the assertion failed. Restored.
-    //
     // This drives the REAL calendar through the rail's calendar button — the
-    // whole `_openCalendar` → `showBookingsDateRangePicker` →
-    // `normaliseBookingRange` → `BookingsDayQuery.of` chain. A genuine RANGE
-    // picked in the calendar collapses to its START day — `BookingsDayQuery`
-    // (Phase 7.9) has no range to express any more.
+    // whole `_openCalendar` → `showBookingsDayPicker` → `_applySelectedDay`
+    // → `BookingsDayQuery.of` chain. Phase 7.13 retired the range picker this
+    // used to drive (`showBookingsDateRangePicker` + `normaliseBookingRange`)
+    // — the calendar now resolves ONE tapped day directly, no start/end pair
+    // and no «Зберегти» confirm. The LOW perf fix (post-7.13 audit) makes
+    // `_openCalendar` apply through `_applySelectedDay` directly, bypassing
+    // the rail's 220ms debounce — see `bookings_discovery_view.dart`'s
+    // `_openCalendar` header.
     testWidgets(
-      'a range picked in the calendar collapses to its START day on the wire',
+      'a day picked in the calendar jump reaches the repository, through the '
+      'SAME single mutation path as a rail chip tap',
       (WidgetTester tester) async {
         await pump(tester);
         calls.clear();
@@ -363,52 +323,118 @@ void main() {
         await tester.pumpAndSettle();
 
         // Deliberately NOT today — the current `_day` already IS Kyiv-today,
-        // so a picked start equal to it would fire no request at all (an
+        // so a picked day equal to it would fire no request at all (an
         // unchanged query is a cache hit, not a fetch — see the sibling test
-        // above). The start must actually differ for this test to observe
+        // above). The pick must actually differ for this test to observe
         // anything.
-        final DateTime start = DateTime(
+        final DateTime picked = DateTime(
           _kyivToday.year,
           _kyivToday.month,
           _kyivToday.day + 2,
         );
-        final DateTime end = DateTime(
+
+        final Finder cell = find.byKey(periodDayCellKey(picked));
+        await tester.scrollUntilVisible(
+          cell,
+          300,
+          scrollable: find.byType(Scrollable).last,
+        );
+        await tester.ensureVisible(cell);
+        await tester.pumpAndSettle();
+        // ONE tap both selects and resolves — single mode, no «Зберегти».
+        // A calendar pick applies immediately — `_openCalendar` bypasses the
+        // rail's 220ms debounce (see its doc header: a picker resolves once,
+        // so there is no flick-burst for the debounce to coalesce) — so no
+        // fixed wait is needed here, only enough pumps to let the sheet's
+        // pop and the resulting setState settle.
+        await tester.tap(cell);
+        await tester.pumpAndSettle();
+
+        expect(
+          calls,
+          hasLength(1),
+          reason:
+              'the calendar jump and a rail chip tap must produce exactly '
+              'ONE request through the SAME mutation path',
+        );
+        expect(calls.single.from, picked);
+        expect(calls.single.to, picked);
+        expect(calls.single.from!.hour, 0);
+        expect(calls.single.from!.minute, 0);
+      },
+    );
+
+    // LOW perf fix (post-7.13 audit) — the interleaving `_openCalendar`'s
+    // debounce bypass must survive: a rail tap started its 220ms coalescing
+    // timer, then the calendar was opened (and a day picked) BEFORE that
+    // timer could fire. Reached through `BookingsDayRail`'s own callbacks
+    // (`onSelectDay`/`onOpenCalendar` — the exact references a real chip tap
+    // / calendar-button tap wire to), not scrolling + tapping, so nothing
+    // in the harness itself burns wall-clock time between starting the
+    // debounce and opening the calendar — the only way to pin the race
+    // deterministically rather than hoping a scroll finishes under 220ms.
+    //
+    // MUTATION: removed both `_dayDebounce?.cancel()` calls from
+    // `_openCalendar` → this test failed (`calls` grew to 2 — the stale
+    // rail day fired its own request on top of the calendar's). Restored.
+    testWidgets(
+      'a rail debounce pending when the calendar opens is cancelled — the '
+      'picked day wins, exactly ONE request',
+      (WidgetTester tester) async {
+        await pump(tester);
+        calls.clear();
+
+        final DateTime railDay = DateTime(
           _kyivToday.year,
           _kyivToday.month,
-          _kyivToday.day + 6,
+          _kyivToday.day + 3,
+        );
+        final DateTime pickedDay = DateTime(
+          _kyivToday.year,
+          _kyivToday.month,
+          _kyivToday.day + 2,
         );
 
-        for (final DateTime d in <DateTime>[start, end]) {
-          final Finder cell = find.byKey(periodDayCellKey(d));
-          await tester.scrollUntilVisible(
-            cell,
-            300,
-            scrollable: find.byType(Scrollable).last,
-          );
-          await tester.ensureVisible(cell);
-          await tester.pumpAndSettle();
-          await tester.tap(cell);
-          await tester.pumpAndSettle();
-        }
+        final BookingsDayRail rail = tester.widget<BookingsDayRail>(
+          find.byType(BookingsDayRail),
+        );
 
-        await tester.tap(find.byKey(const Key('btn-range-picker-save')));
-        // The screen debounces the resolved day the same way a rail tap
-        // does — `_openCalendar` funnels through `_selectDay`.
-        // fixed-wait-ok: advancing past the 220 ms day-selection debounce.
+        // Start the rail's 220ms debounce for `railDay` — NOT yet fired.
+        rail.onSelectDay(railDay);
+        // Open the calendar immediately, while that debounce is still
+        // pending — same callback `master-bookings-calendar-button` wires
+        // to. No `pump()` in between: the cancellation this proves has to
+        // happen synchronously on entry, not "eventually".
+        rail.onOpenCalendar();
+        await tester.pumpAndSettle();
+
+        final Finder cell = find.byKey(periodDayCellKey(pickedDay));
+        await tester.scrollUntilVisible(
+          cell,
+          300,
+          scrollable: find.byType(Scrollable).last,
+        );
+        await tester.ensureVisible(cell);
+        await tester.pumpAndSettle();
+        await tester.tap(cell);
+        await tester.pumpAndSettle();
+
+        // Advance well past 220ms from the ORIGINAL rail tap — if the stale
+        // timer had survived `_openCalendar`, it fires here and either
+        // drags the selection back to `railDay` or adds a second request.
+        // fixed-wait-ok: proving a cancelled timer stays dead, not a still-pending mutation.
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();
 
-        expect(calls, hasLength(1));
-        expect(calls.single.from, start);
         expect(
-          calls.single.to,
-          start,
+          calls,
+          hasLength(1),
           reason:
-              'from == to always — a picked RANGE collapses to its start '
-              'day, it does not reintroduce a range on the wire',
+              'a rail debounce pending when the calendar opens must be '
+              'cancelled, not survive to fire a second, stale request',
         );
-        expect(calls.single.from!.hour, 0);
-        expect(calls.single.from!.minute, 0);
+        expect(calls.single.from, pickedDay);
+        expect(calls.single.to, pickedDay);
       },
     );
   });
@@ -508,5 +534,61 @@ void main() {
         findsNothing,
       );
     });
+  });
+
+  group('calendarActive — repointed at "away from today" (Phase 7.13)', () {
+    bool railCalendarActive(WidgetTester tester) => tester
+        .widget<BookingsDayRail>(find.byType(BookingsDayRail))
+        .calendarActive;
+
+    // MUTATION: hard-coded `calendarActive: false` (the pre-7.13 value,
+    // reverting Phase 7.9-11's now-dead "a range is set" meaning) → the
+    // second expectation below failed (stayed false after navigating off
+    // today). Restored.
+    //
+    // MUTATION: hard-coded `calendarActive: true` → the FIRST expectation
+    // (false on the unfiltered Kyiv-today landing) failed. Restored. Both
+    // mutations are needed to prove this is neither a dead `false` nor a
+    // dead `true` — it is a real, two-way signal.
+    testWidgets(
+      'false on landing (today), true after the rail moves off today, false '
+      'again back on today',
+      (WidgetTester tester) async {
+        await pump(tester);
+
+        expect(
+          railCalendarActive(tester),
+          isFalse,
+          reason: 'the landing day IS Kyiv-today',
+        );
+
+        final DateTime other = DateTime(
+          _kyivToday.year,
+          _kyivToday.month,
+          _kyivToday.day + 3,
+        );
+        await tester.tap(find.byKey(dayChipKey(other)));
+        // fixed-wait-ok: advancing past the 220 ms day-selection debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          railCalendarActive(tester),
+          isTrue,
+          reason: 'the master has jumped away from today',
+        );
+
+        await tester.tap(find.byKey(dayChipKey(_kyivToday)));
+        // fixed-wait-ok: advancing past the 220 ms day-selection debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          railCalendarActive(tester),
+          isFalse,
+          reason: 'reselecting today must turn the accent off again',
+        );
+      },
+    );
   });
 }

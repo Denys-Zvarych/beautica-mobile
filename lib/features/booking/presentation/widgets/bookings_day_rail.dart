@@ -194,9 +194,13 @@ class BookingsDayRail extends StatelessWidget {
   final Set<DateTime> bookedDays;
 
   /// Marks the calendar button as active. Phase 7.11 retired the range mode
-  /// that used to drive this (`BookingsDayQuery` has no range), so the live
-  /// screen always passes `false` — kept as a widget-level flag (rather than
-  /// deleted) so the button's active visual stays independently testable.
+  /// that used to drive this (`BookingsDayQuery` has no range); Phase 7.13
+  /// repointed it at a real, reachable signal instead — the live screen
+  /// passes `selectedDay != today`, so the button lights up whenever the
+  /// master has jumped away from today (via a rail chip or the calendar jump)
+  /// and goes quiet again the moment today is reselected. Kept as a
+  /// widget-level flag (rather than hard-coded here) so the button's active
+  /// visual stays independently testable.
   final bool calendarActive;
 
   final VoidCallback onOpenCalendar;

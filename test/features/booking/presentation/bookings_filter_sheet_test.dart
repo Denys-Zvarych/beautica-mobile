@@ -42,18 +42,11 @@ final List<MasterService> _catalogue = <MasterService>[
 void main() {
   /// Pumps a routed host that opens the sheet. `context.pop(selection)` needs a
   /// real GoRouter above it.
-  ///
-  /// [onPickDates] defaults to a stub that resolves `null` (as a DISMISSED
-  /// calendar does) — no test in this file pumps the real 14-month scrolling
-  /// picker, which is covered on its own in
-  /// `test/shared/widgets/period_range_picker_span_cap_test.dart`.
   Future<void> pumpSheet(
     WidgetTester tester, {
     BookingsFilterSelection initial = const BookingsFilterSelection(),
     List<MasterService> services = const <MasterService>[],
-    Future<DateTimeRange?> Function(BuildContext, DateTimeRange?)? onPickDates,
     void Function(BookingsFilterSelection?)? onPopped,
-    List<DateTimeRange?>? pickerCalls,
   }) async {
     final GoRouter router = GoRouter(
       initialLocation: '/',
@@ -71,12 +64,6 @@ void main() {
                           inner,
                           initial: initial,
                           services: services,
-                          onPickDates:
-                              (BuildContext c, DateTimeRange? current) {
-                                pickerCalls?.add(current);
-                                return onPickDates?.call(c, current) ??
-                                    Future<DateTimeRange?>.value();
-                              },
                         );
                     onPopped?.call(r);
                   },
@@ -126,13 +113,20 @@ void main() {
     testWidgets('renders NO «Майстер» section', (WidgetTester tester) async {
       await pumpSheet(tester, services: _catalogue);
 
-      // Exactly three sections, and «Майстер» is not among them.
-      for (final String section in <String>['date', 'status', 'service']) {
+      // Exactly two sections (Дата was retired Phase 7.13 — see
+      // `bookings_filter_sheet.dart`'s header), and «Майстер» is not among
+      // them.
+      for (final String section in <String>['status', 'service']) {
         expect(
           find.byKey(Key('master-bookings-filter-section-$section')),
           findsOneWidget,
         );
       }
+      expect(
+        find.byKey(const Key('master-bookings-filter-section-date')),
+        findsNothing,
+        reason: 'Дата was retired Phase 7.13 — the rail owns the day now',
+      );
       expect(
         find.byWidgetPredicate(
           (Widget w) =>
@@ -141,8 +135,8 @@ void main() {
                 'master-bookings-filter-section-',
               ),
         ),
-        findsNWidgets(3),
-        reason: 'a fourth section can only be the teammate filter',
+        findsNWidgets(2),
+        reason: 'a third section can only be the teammate filter',
       );
       // …and no picker row belongs to a master.
       expect(
@@ -442,119 +436,6 @@ void main() {
     });
   });
 
-  group('date section', () {
-    // MUTATION: made `_pickDates` pass `null` as `current` unconditionally →
-    // this test failed. Restored. The calendar must open ON the active range,
-    // not blank.
-    testWidgets('opens the calendar seeded with the ACTIVE range', (
-      WidgetTester tester,
-    ) async {
-      final List<DateTimeRange?> seen = <DateTimeRange?>[];
-      await pumpSheet(
-        tester,
-        initial: BookingsFilterSelection(
-          from: DateTime(2026, 7, 1),
-          to: DateTime(2026, 7, 9),
-        ),
-        pickerCalls: seen,
-      );
-
-      await tester.tap(find.byKey(const Key('master-bookings-filter-date')));
-      await tester.pumpAndSettle();
-
-      expect(seen, hasLength(1));
-      expect(seen.single?.start, DateTime(2026, 7, 1));
-      expect(seen.single?.end, DateTime(2026, 7, 9));
-    });
-
-    // MUTATION: made `_pickDates` write the bounds even when `picked == null`
-    // (dropping the null guard, writing `picked?.start`) → this test failed.
-    // Restored. Dismissing a picker is not a clear.
-    testWidgets('a DISMISSED calendar leaves the dates untouched', (
-      WidgetTester tester,
-    ) async {
-      BookingsFilterSelection? out;
-      await pumpSheet(
-        tester,
-        initial: BookingsFilterSelection(
-          from: DateTime(2026, 7, 1),
-          to: DateTime(2026, 7, 9),
-        ),
-        onPopped: (BookingsFilterSelection? s) => out = s,
-      );
-
-      await tester.tap(find.byKey(const Key('master-bookings-filter-date')));
-      await tester.pumpAndSettle();
-      await apply(tester);
-
-      expect(out!.from, DateTime(2026, 7, 1));
-      expect(out!.to, DateTime(2026, 7, 9));
-    });
-
-    // MUTATION: made the picked range write only `_from` → this test failed.
-    // Restored.
-    testWidgets('a picked range writes BOTH bounds', (
-      WidgetTester tester,
-    ) async {
-      BookingsFilterSelection? out;
-      await pumpSheet(
-        tester,
-        onPickDates: (BuildContext _, DateTimeRange? _) async => DateTimeRange(
-          start: DateTime(2026, 3, 2),
-          end: DateTime(2026, 4, 6),
-        ),
-        onPopped: (BookingsFilterSelection? s) => out = s,
-      );
-
-      await tester.tap(find.byKey(const Key('master-bookings-filter-date')));
-      await tester.pumpAndSettle();
-      await apply(tester);
-
-      expect(out!.from, DateTime(2026, 3, 2));
-      expect(out!.to, DateTime(2026, 4, 6));
-    });
-
-    // MUTATION: made `_clearDates` a no-op → this test failed. Restored.
-    testWidgets('the ✕ clears the window, and only the window', (
-      WidgetTester tester,
-    ) async {
-      BookingsFilterSelection? out;
-      await pumpSheet(
-        tester,
-        initial: BookingsFilterSelection(
-          statuses: const <BookingStatus>{BookingStatus.confirmed},
-          from: DateTime(2026, 7, 1),
-          to: DateTime(2026, 7, 9),
-        ),
-        onPopped: (BookingsFilterSelection? s) => out = s,
-      );
-
-      await tester.tap(
-        find.byKey(const Key('master-bookings-filter-date-clear')),
-      );
-      await tester.pumpAndSettle();
-      await apply(tester);
-
-      expect(out!.from, isNull);
-      expect(out!.to, isNull);
-      // The date control is a DATE control — it must not touch the statuses.
-      expect(out!.statuses, <BookingStatus>{BookingStatus.confirmed});
-    });
-
-    // MUTATION: rendered the ✕ unconditionally (dropped `if (active)`) → this
-    // test failed. Restored — a clear affordance with nothing to clear reads as
-    // a broken control.
-    testWidgets('the ✕ is absent when no window is set', (
-      WidgetTester tester,
-    ) async {
-      await pumpSheet(tester);
-      expect(
-        find.byKey(const Key('master-bookings-filter-date-clear')),
-        findsNothing,
-      );
-    });
-  });
-
   group('draft semantics — nothing escapes before «Застосувати»', () {
     // MUTATION: made every `_PickerRow.onToggle` also call `_apply()` (the
     // live-apply-per-tap design this sheet deliberately rejects) → this test
@@ -608,11 +489,9 @@ void main() {
       await pumpSheet(
         tester,
         services: _catalogue,
-        initial: BookingsFilterSelection(
-          statuses: const <BookingStatus>{BookingStatus.confirmed},
-          serviceIds: const <String>{'s-1'},
-          from: DateTime(2026, 7, 1),
-          to: DateTime(2026, 7, 9),
+        initial: const BookingsFilterSelection(
+          statuses: <BookingStatus>{BookingStatus.confirmed},
+          serviceIds: <String>{'s-1'},
         ),
         onPopped: (BookingsFilterSelection? s) => out = s,
       );
@@ -623,8 +502,6 @@ void main() {
 
       expect(out!.statuses, isEmpty);
       expect(out!.serviceIds, isEmpty);
-      expect(out!.from, isNull);
-      expect(out!.to, isNull);
       expect(out!.activeCount, 0);
     });
 
@@ -643,11 +520,11 @@ void main() {
 
   group('BookingsFilterSelection.activeCount', () {
     // MUTATION: changed `activeCount` to count VALUES
-    // (`statuses.length + serviceIds.length + …`) → the multi-value case
-    // failed (4 instead of 1). Restored.
+    // (`statuses.length + serviceIds.length`) → the multi-value case failed (4
+    // instead of 1). Restored.
     //
     // The badge counts DECISIONS, not values: picking three statuses is one
-    // active filter, and a range is one filter rather than two bounds.
+    // active filter, however many wire values it maps to.
     test('counts filter GROUPS, not selected values', () {
       expect(const BookingsFilterSelection().activeCount, 0);
 
@@ -664,27 +541,12 @@ void main() {
       );
 
       expect(
-        BookingsFilterSelection(
-          statuses: const <BookingStatus>{BookingStatus.confirmed},
-          serviceIds: const <String>{'a', 'b', 'c'},
-          from: DateTime(2026, 7, 1),
-          to: DateTime(2026, 7, 9),
+        const BookingsFilterSelection(
+          statuses: <BookingStatus>{BookingStatus.confirmed},
+          serviceIds: <String>{'a', 'b', 'c'},
         ).activeCount,
-        3,
+        2,
       );
-    });
-
-    // MUTATION: changed the date term to `(from == null || to == null) ? 0 : 1`
-    // → this test failed. Restored. A half-open window (only `from`, an
-    // open-ended future filter) is a REAL filter the backend honours, and a
-    // badge reading 0 while the list is narrowed is exactly the
-    // silently-filtered list this affordance exists to prevent.
-    test('a half-open window still counts as one active filter', () {
-      expect(
-        BookingsFilterSelection(from: DateTime(2026, 7, 1)).activeCount,
-        1,
-      );
-      expect(BookingsFilterSelection(to: DateTime(2026, 7, 9)).activeCount, 1);
     });
   });
 
