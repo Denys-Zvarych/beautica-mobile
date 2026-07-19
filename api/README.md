@@ -83,6 +83,7 @@ Class | Method | HTTP request | Description
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**declineBooking**](doc/BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getBooking**](doc/BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookedDays**](doc/BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**rescheduleBooking**](doc/BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
@@ -196,6 +197,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListCityDistrictResponse](doc/ApiResponseListCityDistrictResponse.md)
  - [ApiResponseListCityResponse](doc/ApiResponseListCityResponse.md)
  - [ApiResponseListEffectiveDayResponse](doc/ApiResponseListEffectiveDayResponse.md)
+ - [ApiResponseListLocalDate](doc/ApiResponseListLocalDate.md)
  - [ApiResponseListMasterServiceResponse](doc/ApiResponseListMasterServiceResponse.md)
  - [ApiResponseListMasterWorkingDayResponse](doc/ApiResponseListMasterWorkingDayResponse.md)
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)

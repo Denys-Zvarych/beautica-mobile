@@ -11,12 +11,15 @@ import 'package:dio/dio.dart';
 import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_response.dart';
+import 'package:beautica_api/src/model/api_response_list_local_date.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
+import 'package:beautica_api/src/model/date.dart';
 import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/reschedule_booking_request.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
+import 'package:built_collection/built_collection.dart';
 
 class BookingControllerApi {
   final Dio _dio;
@@ -397,12 +400,99 @@ class BookingControllerApi {
     );
   }
 
+  /// listMyBookedDays
+  ///
+  ///
+  /// Parameters:
+  /// * [from] - Range start (inclusive), local Europe/Kyiv day. Required.
+  /// * [to] - Range end (inclusive), local Europe/Kyiv day. Required.
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseListLocalDate] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseListLocalDate>> listMyBookedDays({
+    required Date from,
+    required Date to,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/bookings/me/booked-days';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      r'from': encodeQueryParameter(_serializers, from, const FullType(Date)),
+      r'to': encodeQueryParameter(_serializers, to, const FullType(Date)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseListLocalDate? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(ApiResponseListLocalDate),
+            ) as ApiResponseListLocalDate;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseListLocalDate>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// listMyBookings
   ///
   ///
   /// Parameters:
   /// * [pageable]
-  /// * [status]
+  /// * [status] - Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate.
+  /// * [from] - Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window.
+  /// * [to] - Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
+  /// * [serviceId] - Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -415,7 +505,10 @@ class BookingControllerApi {
   Future<Response<ApiResponsePageResponseBookingDetailResponse>>
       listMyBookings({
     required Pageable pageable,
-    String? status,
+    BuiltList<String>? status,
+    Date? from,
+    Date? to,
+    BuiltList<String>? serviceId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -438,8 +531,23 @@ class BookingControllerApi {
 
     final _queryParameters = <String, dynamic>{
       if (status != null)
-        r'status':
-            encodeQueryParameter(_serializers, status, const FullType(String)),
+        r'status': encodeCollectionQueryParameter<String>(
+          _serializers,
+          status,
+          const FullType(BuiltList, [FullType(String)]),
+          format: ListFormat.multi,
+        ),
+      if (from != null)
+        r'from': encodeQueryParameter(_serializers, from, const FullType(Date)),
+      if (to != null)
+        r'to': encodeQueryParameter(_serializers, to, const FullType(Date)),
+      if (serviceId != null)
+        r'serviceId': encodeCollectionQueryParameter<String>(
+          _serializers,
+          serviceId,
+          const FullType(BuiltList, [FullType(String)]),
+          format: ListFormat.multi,
+        ),
       r'pageable': encodeQueryParameter(
           _serializers, pageable, const FullType(Pageable)),
     };

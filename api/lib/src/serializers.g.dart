@@ -26,6 +26,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListCityDistrictResponse.serializer)
       ..add(ApiResponseListCityResponse.serializer)
       ..add(ApiResponseListEffectiveDayResponse.serializer)
+      ..add(ApiResponseListLocalDate.serializer)
       ..add(ApiResponseListMasterServiceResponse.serializer)
       ..add(ApiResponseListMasterWorkingDayResponse.serializer)
       ..add(ApiResponseListOblastResponse.serializer)
@@ -271,6 +272,13 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CityResponse)]),
           () => ListBuilder<CityResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(Date)]),
+          () => ListBuilder<Date>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
