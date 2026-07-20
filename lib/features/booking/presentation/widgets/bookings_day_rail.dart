@@ -1,21 +1,28 @@
 // Phase 7.6 — the «Мої записи» day rail: a horizontally scrolling past↔future
-// strip of day chips, led by a calendar escape hatch.
+// strip of day chips.
 //
 // Phase 7.11 (D3/R6) — the «Всі» chip is RETIRED. `BookingsDayQuery` (Phase
 // 7.9) has no all-days/range mode any more — the screen is always scoped to
 // exactly one Kyiv calendar day — so a chip that cleared the date narrowing
 // entirely no longer has a query it could resolve to. [selectedDay] is now
 // non-nullable for the same reason: there is no "nothing selected" state to
-// represent. The calendar button survives (jump to an arbitrary day, still
-// useful past the ±180-day rail span) but its picked range collapses to a
-// single day at the call site — see `bookings_discovery_view.dart`.
+// represent.
+//
+// Phase 7.16 — the calendar escape hatch (`_CalendarButton`, opening
+// `showBookingsDayPicker`) is RETIRED. Day selection is by scrolling the rail
+// alone; the month switcher's prev/next and «Сьогодні»
+// (`bookings_discovery_view.dart`'s `_MonthSwitcher`, added `bc08986`) already
+// cover the long-distance jumps the button used to exist for, which made a
+// second jump affordance redundant. `BookingsDayRail` no longer takes a
+// `calendarActive`/`onOpenCalendar` pair, and the rail is a bare
+// `ListView.builder` again — no pinned sibling.
 //
 // Transcribed from `docs/signup-designs/SalonManagementDesign/lib/widgets/
-// bookings_toolbar.dart` (`_DayRail`, `_DayChip`, `_CalendarButton`; the
-// design's `_AllChip` is NOT transcribed post-7.11). The visual language is
-// the design's verbatim: no chip background, selection carried by text
-// colour alone, today underlined when unselected, a camel dot under any day
-// that has bookings.
+// bookings_toolbar.dart` (`_DayRail`, `_DayChip`; the design's `_AllChip` is
+// NOT transcribed post-7.11, and `_CalendarButton` is not transcribed
+// post-7.16). The visual language is the design's verbatim: no chip
+// background, selection carried by text colour alone, today underlined when
+// unselected, a camel dot under any day that has bookings.
 //
 // ## ⚠ CALENDAR arithmetic, never `Duration(days: n)` — this WILL bite
 //
@@ -41,18 +48,11 @@
 // centring math an O(1) offset to jump to. Eagerly building 361 chips is
 // exactly the jank `mobile-perf` flags.
 //
-// ## The calendar button is PINNED, not a lead item of the list
-//
-// It used to be item 0 INSIDE this `ListView` (`kRailLeadItems`, now
-// retired). Phase 7.13's today-first initial scroll (`_alignRailTodayFirst`
-// in `bookings_discovery_view.dart`) moved the rail's resting offset ~180
-// chips to the right of index 0, which scrolled that lead item off-screen —
-// leaving the date-range picker's only entry point invisible at rest. So the
-// button now lives OUTSIDE the scrollable, as a fixed sibling in a `Row`:
-// `[calendar button][Expanded(day-chip ListView)]`. It stays on screen at
-// every scroll offset. Because the list itself no longer carries a lead
-// item, a day's offset from [firstDay] IS its `ListView.builder` item index
-// — no `+ 1` needed anywhere any more.
+// A day's offset from [firstDay] IS its `ListView.builder` item index — the
+// list has never carried a lead item since Phase 7.11 retired the «Всі»
+// chip, and Phase 7.16 removing the pinned calendar button (which lived
+// OUTSIDE the list, as a `Row` sibling — see this file's history) changes
+// nothing about that indexing.
 
 import 'package:flutter/material.dart';
 
@@ -170,8 +170,6 @@ class BookingsDayRail extends StatelessWidget {
     required this.today,
     required this.selectedDay,
     required this.bookedDays,
-    required this.calendarActive,
-    required this.onOpenCalendar,
     required this.onSelectDay,
   });
 
@@ -199,17 +197,6 @@ class BookingsDayRail extends StatelessWidget {
   /// must not evaporate as the user narrows. See `booked_days_notifier.dart`.
   final Set<DateTime> bookedDays;
 
-  /// Marks the calendar button as active. Phase 7.11 retired the range mode
-  /// that used to drive this (`BookingsDayQuery` has no range); Phase 7.13
-  /// repointed it at a real, reachable signal instead — the live screen
-  /// passes `selectedDay != today`, so the button lights up whenever the
-  /// master has jumped away from today (via a rail chip or the calendar jump)
-  /// and goes quiet again the moment today is reselected. Kept as a
-  /// widget-level flag (rather than hard-coded here) so the button's active
-  /// visual stays independently testable.
-  final bool calendarActive;
-
-  final VoidCallback onOpenCalendar;
   final ValueChanged<DateTime> onSelectDay;
 
   @override
@@ -225,73 +212,50 @@ class BookingsDayRail extends StatelessWidget {
       // overflow guard. The chip's INTERNAL rhythm is unchanged; only the
       // container grew to fit the real type.
       height: _railHeight,
-      // The calendar button is a PINNED sibling, not a lead item of the
-      // scrollable list — see the file header's "pinned, not a lead item"
-      // section. `stretch` reproduces the tight-height constraint the button
-      // used to receive as a `ListView` item (the sliver viewport's
-      // cross-axis extent), so its rendered geometry is unchanged by the move.
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Padding(
-            // `left: VelvetSpacing.lg` reproduces the rail's own leading
-            // inset (previously the `ListView`'s symmetric horizontal
-            // padding); `right: 10` reproduces the 10dp gap every rail item
-            // carries after itself, so the calendar-to-first-chip gap stays
-            // identical to the chip-to-chip gap.
-            padding: const EdgeInsets.only(left: VelvetSpacing.lg, right: 10),
-            child: _CalendarButton(
-              active: calendarActive,
-              onTap: onOpenCalendar,
-              semanticLabel: l10n.masterBookingsCalendarSemantics,
+      child: ListView.builder(
+        key: const Key('master-bookings-day-rail'),
+        controller: controller,
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        // Symmetric horizontal inset — restored now that the calendar button
+        // (which used to own the leading `VelvetSpacing.lg` on its own
+        // `Padding`, post-Phase-7.16-retirement) is gone. Without this the
+        // first chip sits flush against the screen edge.
+        padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+        itemExtent: kRailItemExtent,
+        itemCount: dayCount,
+        itemBuilder: (BuildContext context, int index) {
+          // CALENDAR arithmetic — see the file header. No lead-item offset:
+          // the list's own index IS the day offset now.
+          final DateTime d = railDayAt(firstDay, index);
+          return Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: _DayChip(
+              // The FULL date, not the day-of-month. The rail spans 361
+              // days, so a day number repeats up to 12 times — a
+              // `…-chip-20` key would match January's 20th as readily as
+              // July's, and `find.byKey` silently takes the first. That is
+              // not merely a test-ergonomics problem: it made a
+              // day-selection test assert against 2026-01-20 while believing
+              // it had tapped 2026-07-20.
+              date: d,
+              weekday: weekdayShort[d.weekday - 1],
+              selected: selectedDay == d,
+              isToday: d == today,
+              // `d.isBefore(today)` is false for `d == today` by
+              // construction — today is never "past" — but [_DayChip]
+              // restates that precedence explicitly rather than leaning on
+              // this call site alone. See its doc.
+              isPast: d.isBefore(today),
+              hasBookings: bookedDays.contains(d),
+              onTap: () => onSelectDay(d),
+              semanticLabel: l10n.masterBookingsDaySemantics(
+                weekdayShort[d.weekday - 1],
+                d.day,
+              ),
             ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              key: const Key('master-bookings-day-rail'),
-              controller: controller,
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              // Trailing inset only — the leading inset now lives on the
-              // pinned calendar button's own `Padding` above.
-              padding: const EdgeInsets.only(right: VelvetSpacing.lg),
-              itemExtent: kRailItemExtent,
-              itemCount: dayCount,
-              itemBuilder: (BuildContext context, int index) {
-                // CALENDAR arithmetic — see the file header. No lead-item
-                // offset: the list's own index IS the day offset now.
-                final DateTime d = railDayAt(firstDay, index);
-                return Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: _DayChip(
-                    // The FULL date, not the day-of-month. The rail spans
-                    // 361 days, so a day number repeats up to 12 times — a
-                    // `…-chip-20` key would match January's 20th as readily
-                    // as July's, and `find.byKey` silently takes the first.
-                    // That is not merely a test-ergonomics problem: it made a
-                    // day-selection test assert against 2026-01-20 while
-                    // believing it had tapped 2026-07-20.
-                    date: d,
-                    weekday: weekdayShort[d.weekday - 1],
-                    selected: selectedDay == d,
-                    isToday: d == today,
-                    // `d.isBefore(today)` is false for `d == today` by
-                    // construction — today is never "past" — but [_DayChip]
-                    // restates that precedence explicitly rather than leaning
-                    // on this call site alone. See its doc.
-                    isPast: d.isBefore(today),
-                    hasBookings: bookedDays.contains(d),
-                    onTap: () => onSelectDay(d),
-                    semanticLabel: l10n.masterBookingsDaySemantics(
-                      weekdayShort[d.weekday - 1],
-                      d.day,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -407,87 +371,6 @@ class _DayChip extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// The calendar escape hatch. Phase 7.7 owns the picker it opens; this phase
-/// owns the button and the `active` state it reflects.
-class _CalendarButton extends StatelessWidget {
-  const _CalendarButton({
-    required this.active,
-    required this.onTap,
-    required this.semanticLabel,
-  });
-
-  final bool active;
-  final VoidCallback onTap;
-  final String semanticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: GestureDetector(
-        key: const Key('master-bookings-calendar-button'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          width: 52,
-          child: Stack(
-            children: <Widget>[
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: BrandColors.base,
-                    borderRadius: BorderRadius.circular(VelvetRadii.field + 2),
-                    // `borderedButton`, NOT `extrudedButton`: the extruded
-                    // pair's offset near-white light shadow pokes past the
-                    // rounded corner under Impeller and renders as a white
-                    // wedge (resolved 34db74f). The hairline border below is
-                    // what defines the shape instead.
-                    boxShadow: VelvetShadows.borderedButton,
-                    border: Border.all(
-                      color: active
-                          ? BrandColors.accent
-                          : BrandColors.accent.withValues(alpha: 0.18),
-                      width: active ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.calendar_month_rounded,
-                    color: active
-                        ? BrandColors.accentDeep
-                        : BrandColors.textSecondary,
-                    size: 22,
-                  ),
-                ),
-              ),
-              if (active)
-                const Positioned(top: 8, right: 8, child: _AccentDot()),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The recurring 8dp camel indicator dot.
-class _AccentDot extends StatelessWidget {
-  const _AccentDot();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 8,
-      width: 8,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: BrandColors.accent,
-        border: Border.all(color: BrandColors.base, width: 1.5),
       ),
     );
   }

@@ -4565,10 +4565,6 @@
       "count": { "type": "int", "example": "12" }
     }
   },
-  "masterBookingsCalendarSemantics": "Обрати дату у календарі",
-  "@masterBookingsCalendarSemantics": {
-    "description": "Accessibility label for the day rail's leading calendar button, which jumps the rail's selection to a picked day (Phase 7.7; single-day only since Phase 7.11 — BookingsDayQuery has no range)."
-  },
   "masterBookingsDaySemantics": "{weekday} {day}",
   "@masterBookingsDaySemantics": {
     "description": "Accessibility label for one day cell in the master's booking day rail. {weekday} is the short Ukrainian weekday (e.g. 'Пн'); {day} is the day-of-month number.",
@@ -4636,18 +4632,6 @@
   "bookingFilterApplySemantics": "Застосувати фільтри",
   "@bookingFilterApplySemantics": {
     "description": "Accessibility label for the filter sheet's apply button."
-  },
-  "bookingDayPickerTitle": "Обрати дату",
-  "@bookingDayPickerTitle": {
-    "description": "Header of the master «Мої записи» single-day jump calendar (Phase 7.13) — opened from the day rail's calendar button."
-  },
-  "bookingDayPickerEmptyHint": "Оберіть день",
-  "@bookingDayPickerEmptyHint": {
-    "description": "Summary pill copy in the single-day jump calendar before any day is tapped."
-  },
-  "bookingDayPickerBack": "Назад",
-  "@bookingDayPickerBack": {
-    "description": "Accessibility label for the single-day jump calendar's back affordance."
   },
   "bookingFilterActiveCount": "{count, plural, one{{count} фільтр} few{{count} фільтри} many{{count} фільтрів} other{{count} фільтрів}}",
   "@bookingFilterActiveCount": {

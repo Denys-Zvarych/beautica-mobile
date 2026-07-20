@@ -49,18 +49,21 @@
 //     "what's on today"; a silent jump makes an empty day indistinguishable
 //     from a navigation bug. The dots (`bookedDaysProvider`, unchanged, still
 //     filter-independent) show where the work actually is.
-//   * The rail's calendar button survives — jumping past the ±180-day span is
-//     still useful — but Phase 7.13 retired the range calendar it used to
-//     open: `bookings_day_picker.dart`'s `showBookingsDayPicker` now resolves
-//     a single date-only day directly, which `_openCalendar` below applies
-//     through [_applySelectedDay] — the SAME mutation [_selectDay] calls
-//     after its debounce elapses, so either path produces exactly one
-//     request and one family member. `_openCalendar` bypasses the debounce
-//     itself (the picker resolves once; there is no rail-flick burst to
-//     coalesce) but still funnels through the shared mutation.
 //   * `BookingsFilterSheet`'s «Дата» section (Phase 7.7) is RETIRED too
 //     (Phase 7.13) — the sheet now resolves only `statuses`/`serviceIds`, so
 //     there is nothing date-shaped left for `_applyFilters` to discard.
+//
+// ## Phase 7.16 — the calendar jump is retired; day selection is by scroll
+//
+// The rail's calendar button (`_openCalendar`, opening `bookings_day_picker
+// .dart`'s `showBookingsDayPicker`) is gone — judged redundant once the month
+// switcher's prev/next and «Сьогодні» (`_prevMonth`/`_nextMonth`/`_goToToday`
+// below, added `bc08986`) already covered the long-distance jumps a single-day
+// picker used to exist for. `showBookingsDayPicker` and its widget were
+// deleted outright rather than left as dead UI code — this button was their
+// only production call site. [_selectDay]/[_applySelectedDay] are unaffected:
+// a rail-chip tap is now the ONLY way [_day] changes (besides «Сьогодні»),
+// but it still funnels through the same single mutation path.
 //
 // ## Read the async value with `.asData?.value`, never `value == null`
 //
@@ -96,7 +99,6 @@ import '../domain/booking.dart';
 import '../domain/booking_status.dart';
 import '../domain/bookings_day_query.dart';
 import '../domain/bookings_day_state.dart';
-import 'widgets/bookings_day_picker.dart';
 import 'widgets/bookings_day_rail.dart';
 import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/bookings_timeline_grid.dart';
@@ -381,9 +383,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// Selecting a rail day narrows to exactly that day. Debounced; see
   /// [_dayDebounce] — a rail flick can land a dozen taps in under a second,
   /// and each one is a new family member and a new request without this.
-  /// A calendar pick (see [_openCalendar]) resolves exactly once and has no
-  /// burst to coalesce, so it applies through [_applySelectedDay] directly,
-  /// bypassing the timer — see that method's header.
   void _selectDay(DateTime day) {
     _dayDebounce?.cancel();
     _dayDebounce = Timer(const Duration(milliseconds: 220), () {
@@ -392,11 +391,10 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     });
   }
 
-  /// The single mutation the day rail and the calendar picker both converge
-  /// on — sets [_day] and rebuilds [_liveQuery]. Whether it runs immediately
-  /// ([_openCalendar]) or after [_dayDebounce] elapses ([_selectDay]), it
-  /// produces exactly one `setState` and one `bookingsDayProvider` family
-  /// member.
+  /// The single mutation a rail-day selection resolves to — sets [_day] and
+  /// rebuilds [_liveQuery]. Called after [_dayDebounce] elapses
+  /// ([_selectDay]). [_goToToday] mirrors this shape directly rather than
+  /// calling it, since it also has to move the rail's scroll position.
   void _applySelectedDay(DateTime day) {
     setState(() {
       _day = dateOnly(day);
@@ -420,49 +418,14 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     });
   }
 
-  /// Opens the single-day jump calendar and narrows [_day] to whatever comes
-  /// back.
-  ///
-  /// Phase 7.13 retired the range calendar this used to open —
-  /// `showBookingsDayPicker` now resolves a single date-only day directly, so
-  /// there is no bounds pair to collapse any more. [initialDay] is the
-  /// CURRENT selection, not the window's origin, so the picker opens where
-  /// the rail already is rather than six months behind it.
-  ///
-  /// Applies through [_applySelectedDay] directly rather than [_selectDay] —
-  /// the picker resolves exactly ONCE, on an explicit confirmed selection,
-  /// so [_dayDebounce]'s 220ms coalescing window (which exists for rail-flick
-  /// bursts) has no burst to coalesce here and would only add latency between
-  /// the tap and the timeline updating. Both paths still converge on
-  /// [_applySelectedDay], so either produces exactly one request and one
-  /// family member — see that method's header.
-  ///
-  /// Cancels [_dayDebounce] on the way in (a stale pick shouldn't linger
-  /// while the sheet is open) AND on the way out: a rail tap landed WHILE the
-  /// calendar was open would otherwise fire its own timer after this method
-  /// applies the picked day, clobbering the calendar's selection with the
-  /// stale rail one. Dismissing the picker resolves `null` and changes
-  /// nothing (but still cancels a pending rail timer, per the above).
-  Future<void> _openCalendar() async {
-    _dayDebounce?.cancel();
-    final DateTime? picked = await showBookingsDayPicker(
-      context,
-      today: _today,
-      initialDay: _day,
-    );
-    _dayDebounce?.cancel();
-    if (!mounted || picked == null) return;
-    _applySelectedDay(picked);
-  }
-
   /// Opens the filter sheet and applies whatever it resolves with.
   ///
   /// The sheet holds DRAFT state and resolves exactly once, on «Застосувати».
   /// `applied.statuses`/`applied.serviceIds` are the whole of what it can
   /// resolve with (Phase 7.13 retired the sheet's «Дата» section along with
   /// `BookingsFilterSelection.from`/`.to` — there is nothing date-shaped left
-  /// to discard). The rail (and this method's own [_openCalendar]) remain the
-  /// only day controls.
+  /// to discard). The rail, the month switcher, and «Сьогодні» remain the
+  /// only day controls (Phase 7.16 retired the calendar jump).
   Future<void> _applyFilters() async {
     _dayDebounce?.cancel();
     // `asData?.value`, NEVER `.value` — see the file header.
@@ -555,16 +518,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                   today: _today,
                   selectedDay: _day,
                   bookedDays: bookedDays,
-                  // Phase 7.13 — repointed from "a range is set" (unreachable
-                  // since Phase 7.11 retired ranges) to "the master has
-                  // jumped away from today". `_today` is the screen's
-                  // captured Kyiv today (see the file header), so this is
-                  // `true` the instant a rail chip OR the calendar jump
-                  // selects any other day, and `false` again the moment
-                  // today is reselected — a real, reachable signal rather
-                  // than a flag that could never fire.
-                  calendarActive: _day != _today,
-                  onOpenCalendar: _openCalendar,
                   onSelectDay: _selectDay,
                 );
               },
@@ -918,10 +871,10 @@ class _MonthSwitcher extends StatelessWidget {
 /// The «Сьогодні» pill — jumps the rail (and the actual selection) back to
 /// today. `borderedButton`, NOT `extrudedSmall`/`extrudedButton`: this is a
 /// NEW rounded-rect surface in the booking feature, and every other such
-/// surface added since the white-corner-wedge fix (`CalendarButton`,
-/// `MasterBookingCard`) deliberately uses the non-offset bordered recipe
-/// instead of an offset near-white extruded pair — see `bookings_day_rail
-/// .dart`'s `_CalendarButton` for the same reasoning.
+/// surface added since the white-corner-wedge fix (`MasterBookingCard`; the
+/// rail's own now-retired `_CalendarButton` was another) deliberately uses
+/// the non-offset bordered recipe instead of an offset near-white extruded
+/// pair.
 class _TodayButton extends StatelessWidget {
   const _TodayButton({required this.onTap, required this.label});
 

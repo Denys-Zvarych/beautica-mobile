@@ -33,6 +33,7 @@
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -482,17 +483,17 @@ void main() {
     // today-centred). A regression here shifts it by a full `kRailItemExtent`
     // (62dp) — comfortably outside the tolerance below.
     //
-    // Geometry note (post-pinned-calendar-button fix): `master-bookings-day
-    // -rail`'s key sits on the day-chip `ListView` itself, which is now a
-    // sibling of the PINNED calendar button (`bookings_day_rail.dart`'s
-    // `BookingsDayRail.build`) rather than its container — the button and its
-    // gap live outside this rect entirely, in the `Row` slot before it. The
-    // `ListView`'s own leading inset was removed when the button moved out
-    // (only a TRAILING `VelvetSpacing.lg` remains, at the far end of the
-    // scroll), so today's chip — the list's own item 0 at scroll offset zero
-    // — now lands flush with `railRect.left`, not `railRect.left +
-    // VelvetSpacing.lg` as it did when the rail's leading padding lived on
-    // the `ListView` itself.
+    // Geometry note (post-calendar-button-retirement, Phase 7.16):
+    // `master-bookings-day-rail`'s key sits on the day-chip `ListView`
+    // itself, which is once again the ENTIRE rail — the calendar button that
+    // used to live beside it as a `Row` sibling (`bookings_day_rail.dart`'s
+    // `BookingsDayRail.build`) is gone outright, not merely un-pinned. With
+    // the button gone, the `ListView` regained its own SYMMETRIC horizontal
+    // `VelvetSpacing.lg` inset (both leading and trailing), so today's chip —
+    // the list's own item 0 at scroll offset zero — lands at `railRect.left +
+    // VelvetSpacing.lg`, not flush with `railRect.left` as it did for the
+    // brief period (`eddbcb2`..`6658c8c`) when the leading inset lived on the
+    // pinned button's own `Padding` instead.
     testWidgets(
       'the rail opens with today as the LEFTMOST day chip, not centred and '
       'not at list index 0 — an off-by-one lead-item offset would land it a '
@@ -525,15 +526,19 @@ void main() {
         // Real rendered geometry, not the controller's `offset` — a formula
         // bug could move the controller while leaving the ON-SCREEN result
         // wrong (or vice versa), so this asserts what the master actually
-        // sees: today's chip sits flush at the `ListView`'s own leading
-        // edge, the exact position item 0 occupies at scroll offset zero
-        // (the list carries no leading inset of its own any more — see the
-        // group's geometry note above).
+        // sees: today's chip sits at the `ListView`'s own restored leading
+        // inset, the exact position item 0 occupies at scroll offset zero
+        // now that the list carries a symmetric `VelvetSpacing.lg` inset
+        // again — see the group's geometry note above. This assertion was
+        // DELIBERATELY changed from `closeTo(railRect.left, 1.5)` (the
+        // flush-left value that held only while the calendar button owned
+        // the leading inset on its own Padding) back to this inset value now
+        // that the button — and its Padding — are gone.
         expect(
           todayRect.left,
-          closeTo(railRect.left, 1.5),
+          closeTo(railRect.left + VelvetSpacing.lg, 1.5),
           reason:
-              'today\'s chip is not flush against the rail\'s leading edge — '
+              'today\'s chip is not at the rail\'s restored leading inset — '
               'the rail opened centred (or otherwise off) instead of '
               'today-first.',
         );

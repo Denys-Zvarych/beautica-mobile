@@ -31,6 +31,7 @@
 //     here.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -118,9 +119,7 @@ Widget _rail({
   DateTime? selectedDay,
   Set<DateTime> bookedDays = const <DateTime>{},
   int dayCount = 7,
-  bool calendarActive = false,
   ValueChanged<DateTime>? onSelectDay,
-  VoidCallback? onOpenCalendar,
 }) {
   return BookingsDayRail(
     controller: ScrollController(),
@@ -129,8 +128,6 @@ Widget _rail({
     today: today,
     selectedDay: selectedDay ?? today,
     bookedDays: bookedDays,
-    calendarActive: calendarActive,
-    onOpenCalendar: onOpenCalendar ?? () {},
     onSelectDay: onSelectDay ?? (_) {},
   );
 }
@@ -516,133 +513,83 @@ void main() {
     }, skip: !autumnObserved);
 
     testWidgets(
-      'the calendar button is a PINNED sibling, not a lead item of the '
-      'scrollable list — the list\'s own item 0 is a day chip',
+      'the list\'s own item 0 is a day chip — no lead item of any kind',
       (tester) async {
         final DateTime today = DateTime(2026, 7, 18);
         await tester.pumpApp(_rail(firstDay: today, today: today, dayCount: 3));
         await tester.pumpAndSettle();
 
         expect(
-          find.byKey(const Key('master-bookings-calendar-button')),
-          findsOne,
-        );
-        expect(
           find.byKey(const Key('master-bookings-all-chip')),
           findsNothing,
           reason: '«Всі» must not render anywhere in the rail post-7.11.',
         );
         // At scroll offset zero the list's OWN leftmost item is `firstDay`'s
-        // chip, not the calendar button — there is no lead-item offset any
-        // more (the retired `kRailLeadItems`): a day's offset from
-        // `firstDay` IS its `ListView.builder` item index.
+        // chip — there is no lead-item offset any more (the retired
+        // `kRailLeadItems`): a day's offset from `firstDay` IS its
+        // `ListView.builder` item index.
         expect(find.byKey(dayChipKey(today)), findsOne);
       },
     );
 
-    group(
-      'the calendar button stays visible regardless of scroll position',
-      () {
-        // Phase 7.6 shipped the calendar button as list item 0. Phase "open on
-        // today" (`ee2e214`) then moved the rail's INITIAL resting offset ~180
-        // chips to the right of index 0 — which scrolled that lead item off
-        // screen, leaving the date-range picker's only entry point invisible
-        // at rest. The fix pins the button OUTSIDE the `ListView` as a fixed
-        // `Row` sibling (see the file header's "pinned, not a lead item"
-        // section) so it is unconditionally in the tree and on screen, at any
-        // controller offset.
-        //
-        // MUTATION-VERIFIED: reverting `BookingsDayRail.build` to the old
-        // shape (calendar button as list item 0, `itemCount: 1 + dayCount`) and
-        // re-running this group turns the first test below RED —
-        // `find.byKey('master-bookings-calendar-button')` returns
-        // `findsNothing`, because a `ListView.builder`'s lazy sliver never
-        // builds an item this far outside its viewport + cache extent. Restored
-        // and confirmed GREEN again. See the handoff report for the actual
-        // command output.
-        testWidgets(
-          'visible at a scroll offset far from zero, with NO scrolling '
-          'performed by the test — the exact shape of the shipped regression',
-          (tester) async {
-            final DateTime today = DateTime(2026, 7, 18);
-            // Mirrors the screen's real post-`_alignRailTodayFirst` resting
-            // offset: today sits 180 days into a 361-day rail, i.e. ~180
-            // `kRailItemExtent` cells from the list's start.
-            final ScrollController controller = ScrollController(
-              initialScrollOffset: 180 * kRailItemExtent,
-            );
-            addTearDown(controller.dispose);
+    // Phase 7.16 — the calendar escape hatch is RETIRED outright (not merely
+    // un-pinned): day selection is by scrolling the rail alone, with the
+    // month switcher's prev/next and «Сьогодні» covering the long-distance
+    // jumps the button used to exist for. `_CalendarButton` no longer exists
+    // as a class in `bookings_day_rail.dart` — this pins that its key cannot
+    // be found anywhere in the rendered rail, at any dayCount.
+    //
+    // MUTATION-VERIFIED (2026-07-20): re-added a `_CalendarButton`-shaped
+    // `GestureDetector(key: Key('master-bookings-calendar-button'))` as a
+    // sibling ahead of the `ListView` in `BookingsDayRail.build` → this test
+    // failed (`findsOne`, not `findsNothing`). Reverted and confirmed GREEN
+    // again. See the handoff report for the actual command output.
+    testWidgets(
+      'the calendar button is gone from the rail — no escape hatch survives',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 18);
+        await tester.pumpApp(
+          _rail(firstDay: railDayAt(today, -180), today: today, dayCount: 361),
+        );
+        await tester.pumpAndSettle();
 
-            await tester.pumpApp(
-              BookingsDayRail(
-                controller: controller,
-                firstDay: railDayAt(today, -180),
-                dayCount: 361,
-                today: today,
-                selectedDay: today,
-                bookedDays: const <DateTime>{},
-                calendarActive: false,
-                onOpenCalendar: () {},
-                onSelectDay: (_) {},
-              ),
-            );
-            // Deliberately NOT `pumpAndSettle`-ing through any scroll gesture —
-            // the whole point is that nothing needs to move for the button to
-            // be there.
-            await tester.pump();
+        expect(
+          find.byKey(const Key('master-bookings-calendar-button')),
+          findsNothing,
+        );
+      },
+    );
 
-            expect(
-              find.byKey(const Key('master-bookings-calendar-button')),
-              findsOne,
-              reason:
-                  'the calendar button must be reachable with ZERO scrolling — '
-                  'it regressed off-screen once already when it lived inside '
-                  'the scrollable list at this same offset.',
-            );
-          },
+    // Phase 7.16 — with the calendar button (and the leading inset it used to
+    // carry on its own `Padding`) gone, the `ListView` must regain a
+    // SYMMETRIC horizontal inset so the first chip does not sit flush against
+    // the screen edge. Measures the real rendered geometry, not the private
+    // padding constant — see the 78->70dp group's header for why that
+    // discipline matters here.
+    testWidgets(
+      'the first day chip sits VelvetSpacing.lg inset from the rail\'s '
+      'leading edge — the restored leading inset',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 18);
+        await tester.pumpApp(_rail(firstDay: today, today: today, dayCount: 3));
+        await tester.pumpAndSettle();
+
+        final Rect railRect = tester.getRect(
+          find.byKey(const Key('master-bookings-day-rail')),
+        );
+        final Rect firstChipRect = tester.getRect(
+          find.byKey(dayChipKey(today)),
         );
 
-        testWidgets('stays visible after scrolling the rail forward and back', (
-          tester,
-        ) async {
-          final DateTime today = DateTime(2026, 7, 18);
-          final ScrollController controller = ScrollController(
-            initialScrollOffset: 180 * kRailItemExtent,
-          );
-          addTearDown(controller.dispose);
-
-          await tester.pumpApp(
-            BookingsDayRail(
-              controller: controller,
-              firstDay: railDayAt(today, -180),
-              dayCount: 361,
-              today: today,
-              selectedDay: today,
-              bookedDays: const <DateTime>{},
-              calendarActive: false,
-              onOpenCalendar: () {},
-              onSelectDay: (_) {},
-            ),
-          );
-          await tester.pumpAndSettle();
-
-          controller.jumpTo(controller.offset + 400);
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const Key('master-bookings-calendar-button')),
-            findsOne,
-            reason: 'the pinned button must survive a forward scroll.',
-          );
-
-          controller.jumpTo(0);
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const Key('master-bookings-calendar-button')),
-            findsOne,
-            reason:
-                'the pinned button must survive scrolling all the way back.',
-          );
-        });
+        expect(
+          firstChipRect.left,
+          closeTo(railRect.left + VelvetSpacing.lg, 1.0),
+          reason:
+              'the first chip must sit VelvetSpacing.lg from the rail\'s own '
+              'leading edge now that the calendar button (which used to own '
+              'that inset on its own Padding) is gone — a flush-left first '
+              'chip means the leading inset never came back.',
+        );
       },
     );
 
@@ -703,28 +650,6 @@ void main() {
 
       expect(tapped, DateTime(2026, 7, 20));
       expect(tapped!.hour, 0, reason: 'the reported day must be date-only');
-    });
-
-    testWidgets('the calendar button marks itself when a range is active', (
-      tester,
-    ) async {
-      final DateTime today = DateTime(2026, 7, 18);
-      bool opened = false;
-      await tester.pumpApp(
-        _rail(
-          firstDay: today,
-          today: today,
-          dayCount: 3,
-          calendarActive: true,
-          onOpenCalendar: () => opened = true,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.byKey(const Key('master-bookings-calendar-button')),
-      );
-      expect(opened, isTrue);
     });
 
     testWidgets('renders localized weekday abbreviations, never raw literals', (

@@ -378,14 +378,20 @@ void main() {
     const String tokensFile = 'lib/core/theme/velvet_geometry.dart';
     // The rounded booking surfaces the fix moved off the offset recipes, plus
     // the Phase 7.6 surfaces that were built on the bordered recipes from the
-    // start (the master's booking card and the day rail's calendar button) —
-    // listed so they can never silently regress TO an extruded (or otherwise
-    // offset-opaque) recipe.
+    // start (the master's booking card) — listed so they can never silently
+    // regress TO an extruded (or otherwise offset-opaque) recipe.
+    //
+    // Phase 7.16 dropped `bookings_day_rail.dart` from this list: its
+    // `_CalendarButton` (the surface that used to earn it a place here, via
+    // `VelvetShadows.borderedButton`) was retired outright — day selection is
+    // by scrolling the rail alone — and the file references no
+    // `VelvetShadows` recipe at all any more. Keeping it listed would have
+    // made this guard pass VACUOUSLY (see the "not vacuous" check below,
+    // which is exactly what caught this when the button was removed).
     const List<String> surfaceFiles = <String>[
       'lib/features/booking/presentation/widgets/master_strip_shell.dart',
       'lib/features/booking/presentation/widgets/calendar_button.dart',
       'lib/features/booking/presentation/widgets/master_booking_card.dart',
-      'lib/features/booking/presentation/widgets/bookings_day_rail.dart',
     ];
 
     Map<String, String> recipes() => _shadowRecipes(_readStripped(tokensFile));
