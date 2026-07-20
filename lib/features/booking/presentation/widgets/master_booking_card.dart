@@ -71,6 +71,100 @@
 //
 // SEC: renders a client name (PII). The hosting screen holds the
 // `ScreenProtectionManager`; this widget logs nothing.
+//
+// ## Adaptive full/compact layout (2026-07-20, later the same day as the
+// compact-timeline pass above) — design-parity pass on top of proportional
+// height
+//
+// The compact-timeline pass above fixed CORRECTNESS (nothing under a
+// 45-60 minute slot could ever fit the old 3-row card). The very next
+// commit (`0da31fe`, this file's `minHeight` doc) made the card's floor
+// PROPORTIONAL to `booking.durationMinutes` instead of a flat one-slot
+// estimate — so a 60-minute booking now gets a genuine ~112dp box, and a
+// 90-minute one ~168dp. That reopened room the compact pass never had: a
+// 60-minute-and-up card can now afford the approved design's fuller shape
+// (client name → hairline divider → service+date → price+status) without
+// reintroducing the "cards drift off their hour line" bug — the divider
+// layout only ever renders on a box already tall enough for it.
+//
+// THE SWITCH — read from the resolved constraint, never re-derived from
+// `durationMinutes`
+// -----------------------------------------------------------------------
+// [build] compares [minHeight] itself (`widget.minHeight ?? 0`) against
+// [_kFullLayoutMinHeight], NOT `widget.booking.durationMinutes`. That
+// constructor field IS the card's real constraint, not a guess: it flows
+// straight into the `BoxConstraints(minHeight: widget.minHeight!)` a few
+// lines below, so comparing against it is comparing against the exact
+// value the box's `ConstrainedBox` will enforce — a few lines apart from
+// where it is actually applied, not re-derived independently. Reading
+// `widget.booking.durationMinutes` directly instead would be a SECOND,
+// independently-driftable source of truth for the same decision the
+// timeline already made when it computed [minHeight]
+// (`bookings_timeline_grid.dart`'s `_cardMinHeightFor`) — two places
+// deciding "is this booking long enough" that could silently disagree
+// after a future edit to either one's threshold.
+//
+// WHY NOT A `LayoutBuilder` READING `constraints.minHeight` INSTEAD — a
+// real trap, not a style preference
+// -----------------------------------------------------------------------
+// A first pass tried exactly that: a `LayoutBuilder` as the
+// `AnimatedContainer`'s child, comparing `constraints.minHeight` (the
+// value the `ConstrainedBox` actually resolved) against the threshold.
+// `constraints.maxHeight` was never viable — see the "no clipping" note
+// below, `maxHeight` is `double.infinity` at every real call site — but
+// `minHeight` looked like the more precise read, since it is the box's
+// FINAL enforced constraint rather than the pre-enforcement field. It
+// measured 3dp SHORT of the true 112dp floor in the widget test harness,
+// intermittently flipping a genuinely->=112dp card back to the compact
+// layout. Root cause: `Container`/`AnimatedContainer` treats a
+// `BoxDecoration`'s border as IMPLICIT padding (`BoxDecoration.padding =>
+// border?.dimensions`) reserved so content never paints under the stroke,
+// and that padding is applied INSIDE the `ConstrainedBox` — so a
+// `LayoutBuilder` sitting below it sees the constraint AFTER the border's
+// own width has already been deflated out (`Border.all(width: 1.5)` here
+// deflates height by 2 x 1.5 = 3dp, both edges). That silently coupled the
+// full/compact SWITCH to this same pass's unrelated border-width bump (see
+// [_decorationUnpressed]'s doc) — a future border-width tweak would have
+// silently shifted the layout threshold along with it. Comparing
+// [minHeight] directly has no such coupling: it is read before any
+// decoration is ever built.
+//
+// NO CLIPPING, either branch — the invariant carries over unchanged from
+// the R2 fix above: [minHeight] is a floor, never a ceiling, so whichever
+// layout [build] picks, the box grows to fit that layout's real content
+// (`AnimatedContainer.constraints` sets `minHeight` only, never
+// `maxHeight`) — there is still no mechanism anywhere in this widget that
+// could crop a layout's paint to a box smaller than its natural size.
+//
+// WHAT DID NOT COME BACK — the design's avatar + master-name rows
+// -----------------------------------------------------------------------
+// The design's `BookingCard` (this file's source of truth,
+// `docs/signup-designs/SalonManagementDesign/lib/widgets/
+// booking_widgets.dart`) opens with a client avatar + a master-name row
+// under it. Neither returns here, full layout or not: this card renders
+// the INDEPENDENT master's own bookings, so naming which teammate served
+// the client (the master-name row's whole purpose) is meaningless, and the
+// original compact pass's rationale for dropping the avatar (pure height
+// saving) is orthogonal to whether that height then goes to a fuller
+// layout or stays blank — a locked product decision, not a pass that ran
+// out of room.
+//
+// PRICE STAYS A SINGLE VALUE
+// -----------------------------------------------------------------------
+// `Booking.price` (`../../domain/booking.dart`) is a single `required
+// double` — a booked, settled appointment has one price, never a min-max
+// range (unlike an unbooked service's `RANGE` pricing, a different model
+// entirely). Both layouts render it via the same [_PriceTag], unchanged.
+//
+// THE BORDER, NOT THE SHADOW, CARRIES "MORE VISIBLE"
+// -----------------------------------------------------------------------
+// The design's own card reads sharper mostly because of an OFFSET dual
+// shadow (`booking_widgets.dart`'s `_kCardShadow`) — BANNED here, see
+// `_decorationUnpressed`'s doc below for why (the Impeller corner-artifact
+// history, shipped twice). The border alpha/width bump documented on
+// [_decorationUnpressed] is the safe substitute: more contrast from the
+// stroke itself, the safe non-offset [VelvetShadows.borderedCard] shadow
+// unchanged.
 
 import 'package:flutter/material.dart';
 
@@ -199,12 +293,27 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// card beats a second unverified corner-artifact risk. See
   /// `impeller_circle_shadow_guard_test.dart`'s (corrected, hue-independent)
   /// "offset-opaque-shadow recipe guard".
+  ///
+  /// ## "Much more visible" border (2026-07-20 design-parity pass)
+  ///
+  /// The design's card reads sharper mostly from its offset dual shadow —
+  /// banned here (see above). Bumped the stroke itself instead: alpha
+  /// 0.18 -> 0.38 (a bit over double) and width 1 -> 1.5dp. Chosen by eye
+  /// against the `#E6DDD0` base: 0.38 is the point where the camel edge
+  /// reads as a clear, deliberate outline at rest without turning heavy or
+  /// competing with the accent-colour content inside the card (the price
+  /// pill's `accentDeep` text, the service icon). [_kBorderAlpha]/
+  /// [_kBorderWidth] are named so a future revert back toward 0.18 trips
+  /// the border-visibility test in `master_booking_card_test.dart`.
+  static const double _kBorderAlpha = 0.38;
+  static const double _kBorderWidth = 1.5;
+
   static final BoxDecoration _decorationUnpressed = BoxDecoration(
     color: BrandColors.base,
     borderRadius: BorderRadius.circular(VelvetRadii.card),
     border: Border.all(
-      color: BrandColors.accent.withValues(alpha: 0.18),
-      width: 1,
+      color: BrandColors.accent.withValues(alpha: _kBorderAlpha),
+      width: _kBorderWidth,
     ),
     boxShadow: VelvetShadows.borderedCard,
   );
@@ -212,9 +321,34 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     color: BrandColors.base,
     borderRadius: BorderRadius.circular(VelvetRadii.card),
     border: Border.all(
-      color: BrandColors.accent.withValues(alpha: 0.18),
-      width: 1,
+      color: BrandColors.accent.withValues(alpha: _kBorderAlpha),
+      width: _kBorderWidth,
     ),
+  );
+
+  /// The height, in dp, at or above which [build] switches from the
+  /// compact two-row grid to the fuller divided layout — see this file's
+  /// "Adaptive full/compact layout" header section for the full mechanism.
+  /// Equal to `bookings_timeline_grid.dart`'s `_kHourH` (one hour of ruled
+  /// space): a booking whose duration-derived floor reaches 60 minutes
+  /// (112dp) or more gets the fuller layout; the 30-/45-minute floors
+  /// (56dp/84dp) stay on the compact grid, the only shape proven to fit a
+  /// 56dp box without clipping.
+  static const double _kFullLayoutMinHeight = 112;
+
+  /// Full layout padding — 16dp, matching the approved design's own
+  /// `BookingCard` padding (`EdgeInsets.all(VelvetSpacing.md)` in the
+  /// design's token file, where `md` is also 16). Distinct from
+  /// `ARCHITECTURE-mobile.md` §9's generic "neumorphic card" padding token
+  /// (`VelvetSpacing.lg`, 24dp) — that table entry is for a general raised
+  /// card, not this specific design's own booking-card spec, which this
+  /// file transcribes literally per the design-source-of-truth rule.
+  static const EdgeInsets _fullPadding = EdgeInsets.all(VelvetSpacing.md);
+
+  /// Compact layout padding — unchanged from the pre-adaptive-pass card.
+  static const EdgeInsets _compactPadding = EdgeInsets.symmetric(
+    horizontal: VelvetSpacing.sm + 2,
+    vertical: VelvetSpacing.xs + 2,
   );
 
   @override
@@ -241,75 +375,182 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             duration: const Duration(milliseconds: 150),
             decoration: _pressed ? _decorationPressed : _decorationUnpressed,
             // A FLOOR, not an exact size — see the class doc's [minHeight]
-            // section. `constraints` sits OUTSIDE the padding/decoration in
+            // section. `constraints` sits OUTSIDE the padding below, in
             // `Container`'s own build order, so the decorated box (not just
-            // the content inside it) really spans at least [minHeight]; the
-            // Column below stays top-aligned (`mainAxisAlignment.start`, its
-            // default) so any leftover room renders as blank space under the
-            // two content rows rather than stretching them.
+            // the content inside it) really spans at least [minHeight];
+            // each branch's `Column` stays top-aligned
+            // (`mainAxisAlignment.start`, its default) so any leftover room
+            // renders as blank space under the content rather than
+            // stretching it.
             constraints: widget.minHeight == null
                 ? null
                 : BoxConstraints(minHeight: widget.minHeight!),
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.sm + 2,
-              vertical: VelvetSpacing.xs + 2,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                // Row 1 — start time · service name (flexes) · price.
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: <Widget>[
-                    Text(
-                      formatSlotTime(b.startAt),
-                      style: VelvetText.masterCardTime,
-                    ),
-                    const SizedBox(width: VelvetSpacing.xs + 2),
-                    Expanded(
-                      child: Text(
-                        b.serviceName,
-                        style: VelvetText.masterCardService,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    // See `BookingDisplayX.showsPrice`: a cancelled, declined
-                    // or missed appointment owes nothing, so printing a sum
-                    // on it would assert a debt that does not exist.
-                    if (b.showsPrice) ...<Widget>[
-                      const SizedBox(width: VelvetSpacing.xs),
-                      _PriceTag(
-                        price:
-                            '${b.price.toStringAsFixed(0)} '
-                            '${l10n.pricingCurrencySuffix}',
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: VelvetSpacing.xs),
-                // Row 2 — client name (flexes) · status badge.
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        clientName,
-                        style: VelvetText.masterCardClientName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: VelvetSpacing.xs),
-                    TimelineStatusBadge(booking: b),
-                  ],
-                ),
-              ],
-            ),
+            // The full/compact switch — see this file's "Adaptive
+            // full/compact layout" header section, in particular "WHY NOT A
+            // `LayoutBuilder`", for why this reads [minHeight] itself
+            // rather than the box's resolved `BoxConstraints` at build
+            // time.
+            padding: _useFullLayout ? _fullPadding : _compactPadding,
+            child: _useFullLayout
+                ? _buildFullBody(l10n, b, clientName)
+                : _buildCompactBody(l10n, b, clientName),
           ),
         ),
       ),
+    );
+  }
+
+  /// Whether [build] renders the design's fuller divided layout instead of
+  /// the compact two-row grid — see this file's "Adaptive full/compact
+  /// layout" header section for the full rationale.
+  bool get _useFullLayout => (widget.minHeight ?? 0) >= _kFullLayoutMinHeight;
+
+  /// The dense two-row grid (time/service/price, then client/status) — the
+  /// only shape proven to fit a 30-minute (56dp) slot without clipping. See
+  /// this file's "Adaptive full/compact layout" header section.
+  Widget _buildCompactBody(
+    AppLocalizations l10n,
+    Booking b,
+    String clientName,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        // Row 1 — start time · service name (flexes) · price.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Text(formatSlotTime(b.startAt), style: VelvetText.masterCardTime),
+            const SizedBox(width: VelvetSpacing.xs + 2),
+            Expanded(
+              child: Text(
+                b.serviceName,
+                style: VelvetText.masterCardService,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            // See `BookingDisplayX.showsPrice`: a cancelled, declined or
+            // missed appointment owes nothing, so printing a sum on it
+            // would assert a debt that does not exist.
+            if (b.showsPrice) ...<Widget>[
+              const SizedBox(width: VelvetSpacing.xs),
+              _PriceTag(
+                price:
+                    '${b.price.toStringAsFixed(0)} '
+                    '${l10n.pricingCurrencySuffix}',
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: VelvetSpacing.xs),
+        // Row 2 — client name (flexes) · status badge.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                clientName,
+                style: VelvetText.masterCardClientName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: VelvetSpacing.xs),
+            TimelineStatusBadge(booking: b),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// The design's fuller layout — client name, a hairline divider, the
+  /// service name (below the divider, with the design's accent
+  /// `spa_outlined` glyph) paired with the full date+time, then price +
+  /// status. Only ever built once [LayoutBuilder] has already confirmed the
+  /// box is >= [_kFullLayoutMinHeight] — see this file's "Adaptive
+  /// full/compact layout" header section. Deliberately has NO avatar and NO
+  /// master-name row — see that same section's "WHAT DID NOT COME BACK".
+  Widget _buildFullBody(AppLocalizations l10n, Booking b, String clientName) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        // Row 1 — client identity only.
+        Text(
+          clientName,
+          style: VelvetText.masterCardClientNameFull,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: VelvetSpacing.sm + 2),
+        // The hairline divider — its canonical role in the design is
+        // separating the client-identity row above from the service/booking
+        // detail below.
+        Container(
+          key: Key('master-booking-card-divider-${b.id}'),
+          height: 1,
+          color: BrandColors.faint,
+        ),
+        const SizedBox(height: VelvetSpacing.sm + 2),
+        // Row 2 — service name (below the divider, per design) + full
+        // date+time (via the shared `formatShortDateTime` formatter — never
+        // hand-rolled, see `shared/formatters/booking_date_labels.dart`).
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            const Icon(Icons.spa_outlined, size: 16, color: BrandColors.accent),
+            const SizedBox(width: VelvetSpacing.sm),
+            Expanded(
+              child: Text(
+                b.serviceName,
+                style: VelvetText.masterCardServiceFull,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: VelvetSpacing.sm),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(
+                  Icons.schedule_outlined,
+                  size: 12,
+                  color: BrandColors.muted,
+                ),
+                const SizedBox(width: 3),
+                Text(
+                  formatShortDateTime(b.startAt),
+                  style: VelvetText.masterCardDateFull,
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: VelvetSpacing.xs + 2),
+        // Row 3 — price (left) + status badge (right). See
+        // `BookingDisplayX.showsPrice`: a cancelled, declined or missed
+        // appointment owes nothing, so printing a sum on it would assert a
+        // debt that does not exist — the badge alone still renders, pushed
+        // right by the `Spacer`.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            if (b.showsPrice)
+              _PriceTag(
+                price:
+                    '${b.price.toStringAsFixed(0)} '
+                    '${l10n.pricingCurrencySuffix}',
+              ),
+            const Spacer(),
+            // v-pad 3dp per the design's own `BookingStatusBadge` — the
+            // compact timeline row keeps the tighter 2dp default (its own
+            // budget is far smaller); see [TimelineStatusBadge.verticalPadding].
+            TimelineStatusBadge(booking: b, verticalPadding: 3),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -376,9 +617,21 @@ class _PriceTag extends StatelessWidget {
 /// the dot-shaped glyph (no icon cap, matching the approved design) and the
 /// sizing are specific to this widget.
 class TimelineStatusBadge extends StatelessWidget {
-  const TimelineStatusBadge({super.key, required this.booking});
+  const TimelineStatusBadge({
+    super.key,
+    required this.booking,
+    this.verticalPadding = 2,
+  });
 
   final Booking booking;
+
+  /// Vertical padding inside the pill. Defaults to 2dp — the compact
+  /// timeline row's original budget (see `master_booking_card.dart`'s
+  /// class doc; a 30-minute card has no room to spare). [MasterBookingCard]
+  /// passes 3dp when this badge sits inside its FULL layout (>=112dp
+  /// cards), matching the approved design's own `BookingStatusBadge`
+  /// (`booking_widgets.dart`'s `vertical: 3`).
+  final double verticalPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -390,9 +643,9 @@ class TimelineStatusBadge extends StatelessWidget {
       child: NeumorphicInset(
         radius: VelvetRadii.pill,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
+          padding: EdgeInsets.symmetric(
             horizontal: VelvetSpacing.xs + 2,
-            vertical: 2,
+            vertical: verticalPadding,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

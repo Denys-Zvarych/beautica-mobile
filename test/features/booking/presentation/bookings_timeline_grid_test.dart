@@ -24,6 +24,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,6 +63,22 @@ Booking _booking({
 /// widget's declared `top`/`left`/`height` properties.
 Rect _cardRect(WidgetTester tester, String bookingId) =>
     tester.getRect(find.byKey(ValueKey<String>('timeline-card-$bookingId')));
+
+/// Whether [element] has a [MasterBookingCard] ancestor — used by the R4
+/// group's gridline finder to exclude the card's own same-coloured
+/// (`BrandColors.faint`) divider hairline (adaptive full/compact layout
+/// pass, 2026-07-20) from a ruler-only `ColoredBox` search.
+bool _hasCardAncestor(Element element) {
+  bool found = false;
+  element.visitAncestorElements((Element ancestor) {
+    if (ancestor.widget is MasterBookingCard) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
 
 void main() {
   setUpAll(initBeauticaTimeZones);
@@ -180,22 +197,31 @@ void main() {
 
       /// The gridlines are the `ColoredBox(color: BrandColors.faint)` leaves
       /// inside the `timeline-lane-stack` `Stack` — no `Key` of their own
-      /// (there's no need for one outside this test), but that `ColoredBox`
-      /// color combination is unique to this widget within the pumped tree
-      /// (grepped: no other Beautica widget colors a bare `ColoredBox` with
-      /// `BrandColors.faint`), so a plain `byWidgetPredicate` is unambiguous
-      /// here. Sorted ascending by rendered top so index 0 is always the
-      /// FIRST (topmost) gridline regardless of `Stack` child order.
+      /// (there's no need for one outside this test). That `ColoredBox`
+      /// color combination is no longer unique to the ruler within the
+      /// pumped tree, though: the adaptive full/compact layout pass
+      /// (2026-07-20, `master_booking_card.dart`) added a same-coloured
+      /// hairline divider inside the card's FULL layout (a
+      /// `Container(color: BrandColors.faint)`, which — like any
+      /// `Container` with a plain `color` — builds its own `ColoredBox`
+      /// internally), and this test's single 60-minute booking now renders
+      /// that layout. `_hasCardAncestor` filters those out so this stays a
+      /// ruler-only gridline count. Sorted ascending by rendered top so
+      /// index 0 is always the FIRST (topmost) gridline regardless of
+      /// `Stack` child order.
       List<Rect> gridlineRectsAscending(WidgetTester tester) {
         final Iterable<Element> elements = find
             .byWidgetPredicate(
               (Widget w) => w is ColoredBox && w.color == BrandColors.faint,
             )
             .evaluate();
-        final List<Rect> rects = elements.map((Element e) {
-          final RenderBox box = e.renderObject! as RenderBox;
-          return box.localToGlobal(Offset.zero) & box.size;
-        }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
+        final List<Rect> rects =
+            elements.where((Element e) => !_hasCardAncestor(e)).map((
+              Element e,
+            ) {
+              final RenderBox box = e.renderObject! as RenderBox;
+              return box.localToGlobal(Offset.zero) & box.size;
+            }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
         return rects;
       }
 
@@ -326,15 +352,9 @@ void main() {
         );
         await tester.pump();
 
-        // Scoped to the ruler, not a bare `find.text('01:00')`: since the
-        // compact-timeline pass (2026-07-20), `MasterBookingCard` itself
-        // prints the booking's bare Kyiv start time (`formatSlotTime`) on
-        // row 1 — and this booking legitimately starts AT 01:00, so its own
-        // card now ALSO renders "01:00". That is a second, independent
-        // Kyiv-correctness witness (the card's `_minutesSinceDayStart`-driven
-        // position derives the same value the ruler does), not a collision
-        // to work around — but it means the ruler's label can no longer be
-        // found via a bare unscoped text lookup.
+        // Scoped to the ruler, not a bare `find.text('01:00')`: the card
+        // itself also reads through the Kyiv wall-clock (see below), so an
+        // unscoped lookup would be ambiguous about which witness matched.
         final Finder rulerLabels = find.descendant(
           of: find.byType(TimelineHourRuler),
           matching: find.text('01:00'),
@@ -344,13 +364,20 @@ void main() {
         expect(find.text('22:00'), findsNothing);
         expect(find.text('23:00'), findsNothing);
 
-        // The card's OWN start-time label is the second Kyiv-correctness
-        // witness noted above — proves `MasterBookingCard` also reads
-        // through `toBeauticaTime`, not just the ruler.
+        // The card's OWN start-time label is the second, independent
+        // Kyiv-correctness witness (the card's `_minutesSinceDayStart`-
+        // driven position derives the same value the ruler does) — proves
+        // `MasterBookingCard` also reads through `toBeauticaTime`, not just
+        // the ruler. This booking is 60 minutes (a 112dp floor), so the
+        // card renders the ADAPTIVE FULL layout (2026-07-20 design-parity
+        // pass) and prints the full date+time (`formatShortDateTime`), not
+        // the compact grid's bare `formatSlotTime` — see
+        // `master_booking_card.dart`'s "Adaptive full/compact layout"
+        // header section.
         expect(
           find.descendant(
             of: find.byKey(const ValueKey<String>('timeline-card-crossing')),
-            matching: find.text('01:00'),
+            matching: find.text(formatShortDateTime(crossing)),
           ),
           findsOneWidget,
         );
@@ -662,8 +689,10 @@ void main() {
     });
 
     testWidgets(
-      'a 60-minute booking renders at exactly two slots (112dp) — twice '
-      'the 30-minute card\'s height',
+      'a 60-minute booking renders at AT LEAST two slots (112dp) — the '
+      'floor still tracks duration proportionally, though the adaptive '
+      'FULL layout\'s own natural content is slightly taller than the '
+      'bare floor at this exact threshold',
       (WidgetTester tester) async {
         final Booking b = _booking(
           id: 'dur-60',
@@ -680,8 +709,28 @@ void main() {
         await tester.pump();
 
         final double height = _cardRect(tester, 'dur-60').height;
-        expect(height, closeTo(kHourH, 0.5));
-        expect(height, closeTo(kSlotH * 2, 0.5));
+
+        // NOT `closeTo(kHourH, 0.5)` any more (pre-adaptive-layout-pass
+        // behaviour): a 60-minute booking's floor (112dp) is exactly this
+        // group's `_kFullLayoutMinHeight` threshold
+        // (`master_booking_card.dart`), so the card now renders the
+        // ADAPTIVE FULL layout (client name / divider / service+date /
+        // price+status) instead of the old compact two-row grid — and that
+        // fuller layout's own natural content (~117dp measured, padding +
+        // four stacked rows) is a few dp TALLER than the pure
+        // duration-derived floor. [minHeight] is a floor, never a ceiling
+        // (see `master_booking_card.dart`'s class doc), so the box grows to
+        // fit it — exactly the documented, no-clipping behaviour, not a
+        // regression. The 90-minute sibling test below still lands on an
+        // EXACT floor match, because ITS floor (168dp) is already taller
+        // than the full layout's natural content, so the floor — not the
+        // content — wins there.
+        expect(height, greaterThanOrEqualTo(kHourH));
+        // A generous ceiling so a genuine future regression (e.g. the full
+        // layout ballooning past its intended ~117dp) still trips this
+        // test rather than being silently absorbed by a `greaterThan`-only
+        // check.
+        expect(height, lessThan(140));
       },
     );
 

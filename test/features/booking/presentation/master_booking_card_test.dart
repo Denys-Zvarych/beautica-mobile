@@ -35,6 +35,7 @@
 // slot's worth of ruler space instead of proving it clears the old ~150dp
 // avatar-row floor.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
@@ -153,7 +154,18 @@ void main() {
           durationMinutes: 15,
         );
 
-        await tester.pumpApp(MasterBookingCard(booking: booking, onTap: () {}));
+        // `Center` matters here for the same reason as the sibling test
+        // above (see its comment): without it, `pumpApp`'s
+        // `MaterialApp.home` hands the card TIGHT constraints equal to the
+        // full test surface, and — since the adaptive-layout pass — a
+        // `minHeight` that large would trip the >=112dp full-layout switch
+        // and print the full date+time instead of the bare
+        // `formatSlotTime` string this test asserts against.
+        await tester.pumpApp(
+          Center(
+            child: MasterBookingCard(booking: booking, onTap: () {}),
+          ),
+        );
         await tester.pump();
 
         expect(find.text(formatSlotTime(booking.startAt)), findsOneWidget);
@@ -415,5 +427,218 @@ void main() {
       expect(height, greaterThan(40));
       expect(height, lessThan(64));
     });
+  });
+
+  group(
+    'adaptive full/compact layout (2026-07-20 design-parity pass) — the '
+    'switch reads the resolved minHeight constraint, not durationMinutes',
+    () {
+      testWidgets(
+        'a >=112dp card (a 60-minute booking\'s floor) renders the FULL '
+        'layout: client name, a divider, the service name BELOW the '
+        'divider, full date+time, price and status — all present, none '
+        'clipped',
+        (WidgetTester tester) async {
+          final Booking booking = _shortBooking(
+            id: 'full-card',
+            durationMinutes: 60,
+          );
+
+          await tester.pumpApp(
+            Center(
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                minHeight: 112,
+              ),
+            ),
+          );
+          await tester.pump();
+
+          expect(tester.takeException(), isNull);
+
+          expect(find.text(booking.clientName!), findsOneWidget);
+          expect(
+            find.byKey(const Key('master-booking-card-divider-full-card')),
+            findsOneWidget,
+          );
+          expect(find.text(booking.serviceName), findsOneWidget);
+          expect(
+            find.text(formatShortDateTime(booking.startAt)),
+            findsOneWidget,
+          );
+          // The compact row's bare time must NOT also be printed — the
+          // full layout replaces it with the date+time caption above,
+          // rather than showing both.
+          expect(find.text(formatSlotTime(booking.startAt)), findsNothing);
+          expect(find.text('450 ₴'), findsOneWidget);
+          expect(find.byType(TimelineStatusBadge), findsOneWidget);
+
+          // Structural proof the service row sits BELOW the divider (the
+          // design's canonical shape), not on the client-identity row: the
+          // divider's top must sit strictly between the client name's top
+          // and the service row's top.
+          final double clientNameY = tester
+              .getTopLeft(find.text(booking.clientName!))
+              .dy;
+          final double dividerY = tester
+              .getTopLeft(
+                find.byKey(const Key('master-booking-card-divider-full-card')),
+              )
+              .dy;
+          final double serviceY = tester
+              .getTopLeft(find.text(booking.serviceName))
+              .dy;
+          expect(
+            clientNameY,
+            lessThan(dividerY),
+            reason: 'the client name must render above the divider',
+          );
+          expect(
+            dividerY,
+            lessThan(serviceY),
+            reason: 'the service name must render below the divider',
+          );
+        },
+      );
+
+      testWidgets(
+        'a 56dp card (the 30-minute floor) stays on the compact grid — no '
+        'divider, no full date+time — and still renders every field '
+        'un-clipped',
+        (WidgetTester tester) async {
+          final Booking booking = _shortBooking(
+            id: 'compact-floor-card',
+            durationMinutes: 30,
+          );
+
+          await tester.pumpApp(
+            Center(
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                minHeight: 56,
+              ),
+            ),
+          );
+          await tester.pump();
+
+          expect(tester.takeException(), isNull);
+
+          // The compact-only shape: no divider, no full date+time caption.
+          expect(
+            find.byKey(
+              const Key('master-booking-card-divider-compact-floor-card'),
+            ),
+            findsNothing,
+          );
+          expect(find.text(formatShortDateTime(booking.startAt)), findsNothing);
+
+          // Every field the compact grid DOES show is still there.
+          expect(find.text(formatSlotTime(booking.startAt)), findsOneWidget);
+          expect(find.text(booking.serviceName), findsOneWidget);
+          expect(find.text(booking.clientName!), findsOneWidget);
+          expect(find.text('450 ₴'), findsOneWidget);
+          expect(find.byType(TimelineStatusBadge), findsOneWidget);
+
+          final double height = tester
+              .getSize(
+                find.byKey(const Key('master-booking-card-compact-floor-card')),
+              )
+              .height;
+          expect(height, closeTo(56, 0.5));
+        },
+      );
+
+      testWidgets(
+        'MUTATION CHECK — forcing the compact layout at every height makes '
+        'the full-layout divider assertion fail; the real code must NOT '
+        'exhibit this failure',
+        (WidgetTester tester) async {
+          // This test intentionally re-runs the FIRST test's own divider
+          // assertion against a card whose `minHeight` is comfortably past
+          // the >=112dp threshold, as a standing structural guard: it is
+          // the automated half of the manual mutation check documented in
+          // the phase report (temporarily hardcoding `_useFullLayout` to
+          // always return `false` in `master_booking_card.dart` and
+          // re-running this file turns
+          // THIS test red — the divider key never renders — while every
+          // other test in this file stays green, isolating the switch as
+          // the thing under test).
+          final Booking booking = _shortBooking(
+            id: 'mutation-guard-card',
+            durationMinutes: 90,
+          );
+
+          await tester.pumpApp(
+            Center(
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                minHeight: 168,
+              ),
+            ),
+          );
+          await tester.pump();
+
+          expect(
+            find.byKey(
+              const Key('master-booking-card-divider-mutation-guard-card'),
+            ),
+            findsOneWidget,
+            reason:
+                'a 168dp (90-minute) card must select the FULL layout — if '
+                'this fails, the height-vs-threshold switch in '
+                'MasterBookingCard.build has regressed to always picking '
+                'the compact body.',
+          );
+        },
+      );
+    },
+  );
+
+  group('border visibility (2026-07-20 design-parity pass)', () {
+    testWidgets(
+      'the card border uses the bumped 0.38-alpha / 1.5dp stroke, not the '
+      'old 0.18-alpha / 1dp one — catches a silent revert',
+      (WidgetTester tester) async {
+        const Key cardKey = Key('master-booking-card-border-card');
+        final Booking booking = _shortBooking(id: 'border-card');
+
+        await tester.pumpApp(
+          Center(
+            child: MasterBookingCard(booking: booking, onTap: () {}),
+          ),
+        );
+        await tester.pump();
+
+        final AnimatedContainer cardContainer = tester
+            .widget<AnimatedContainer>(
+              find
+                  .descendant(
+                    of: find.byKey(cardKey),
+                    matching: find.byType(AnimatedContainer),
+                  )
+                  .first,
+            );
+        final BoxDecoration decoration =
+            cardContainer.decoration! as BoxDecoration;
+        final Border border = decoration.border! as Border;
+
+        expect(
+          border.top.width,
+          1.5,
+          reason: 'border width must be the bumped 1.5dp, not the old 1dp',
+        );
+        expect(
+          border.top.color,
+          BrandColors.accent.withValues(alpha: 0.38),
+          reason:
+              'border alpha must be the bumped 0.38, not the old 0.18 — a '
+              'silent revert here would make the "much more visible" '
+              'border ask regress unnoticed.',
+        );
+      },
+    );
   });
 }

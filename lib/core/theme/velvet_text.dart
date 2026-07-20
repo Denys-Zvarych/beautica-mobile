@@ -1461,6 +1461,39 @@ abstract final class VelvetText {
     color: BrandColors.accentDeep,
   );
 
+  // Adaptive-layout pass (2026-07-20, later the same day as the compact
+  // pass above): `MasterBookingCard` now renders a FULLER layout (client
+  // name → divider → service+date → price+status) whenever its box is tall
+  // enough (>=112dp — a 60-minute-and-up booking's proportional floor; see
+  // that widget's `_kFullLayoutMinHeight`). These three tokens are that
+  // layout's exclusive sizes, transcribed verbatim from the approved
+  // design's own inline styles (`booking_widgets.dart`'s `BookingCard`) —
+  // still under the `masterCard*` namespace per this section's header (a
+  // dedicated type, not to be consolidated with the compact tokens above or
+  // the client-side `bookingCard*` family).
+
+  /// Client name on the FULL layout's row 1 — subheading at 13.5 sp.
+  /// Transcribed from the design's `VelvetText.subheading().copyWith(
+  /// fontSize: 13.5)`.
+  static final TextStyle masterCardClientNameFull = _subheadingStyle.copyWith(
+    fontSize: 13.5,
+  );
+
+  /// Service name on the FULL layout's row (below the divider) — bodyStrong
+  /// at 12.5 sp. Transcribed from the design's
+  /// `VelvetText.bodyStrong().copyWith(fontSize: 12.5)`.
+  static final TextStyle masterCardServiceFull = _bodyStrongStyle.copyWith(
+    fontSize: 12.5,
+  );
+
+  /// The FULL layout's date+time caption (e.g. "12 лип, 14:30") — feedback
+  /// base at 11 sp, muted. Transcribed from the design's
+  /// `VelvetText.feedback(VelvetColors.muted).copyWith(fontSize: 11)`.
+  static final TextStyle masterCardDateFull = _feedbackBase.copyWith(
+    fontSize: 11,
+    color: BrandColors.muted,
+  );
+
   // ---------------------------------------------------------------------------
   // Phase 7.10 — the master timeline's hour ruler (`TimelineHourRuler`).
   //
