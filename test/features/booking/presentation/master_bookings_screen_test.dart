@@ -905,10 +905,11 @@ void main() {
   // chrome of its own to get anywhere else. These tests pin (a) the bar
   // renders configured for tile 1 — not just present, since a copy-paste of
   // MasterProfileScreen's `activeIndex: 3` would still render *a* bar and
-  // pass a bare `findsOneWidget`; (b) a non-active tile still pushes; (c) the
-  // already-active tile is a no-op, so a stray tap never stacks a duplicate
-  // `/master/bookings` on top of itself; (d) the bar coexists with the
-  // timeline without an overflow at a small viewport.
+  // pass a bare `findsOneWidget`; (b) a non-active tile REPLACES the stack via
+  // `context.go` (not `push` — see the group below for why go is safe here);
+  // (c) the already-active tile is a no-op, so a stray tap never navigates at
+  // all; (d) the bar coexists with the timeline without an overflow at a
+  // small viewport.
 
   group('bottom nav', () {
     testWidgets(
@@ -965,9 +966,17 @@ void main() {
       },
     );
 
+    // mobile-debugger fix — the nav bar's tile onTap moved from
+    // `context.push` back to `context.go` (see `velvet_bottom_nav_bar.dart`'s
+    // onTap comment and `profile_nav_bar_navigation_test.dart`'s file header
+    // for the full history): `push` stacked a new tab route on every tap, so
+    // hopping between tabs grew the back stack unboundedly. `go` replaces the
+    // whole stack instead, so these tiles now REPLACE this screen rather than
+    // stacking on top of it — `canPop()` is `false`, not `true`, after a tap.
+
     testWidgets(
-      'tapping a NON-active tile (Послуги, tile 0) pushes /services and '
-      'leaves this screen poppable',
+      'tapping a NON-active tile (Послуги, tile 0) REPLACES the stack with '
+      '/services — this screen unmounts, canPop is false',
       (tester) async {
         final repo = _MockBookingRepository();
         when(
@@ -993,19 +1002,29 @@ void main() {
         expect(
           find.byKey(_servicesMarker),
           findsOneWidget,
-          reason: 'the Послуги tile must push RouteNames.services',
+          reason: 'the Послуги tile must go(RouteNames.services)',
+        );
+        expect(
+          find.byType(MasterBookingsScreen),
+          findsNothing,
+          reason:
+              'go replaces the stack — this screen must be gone, not '
+              'merely covered',
         );
         expect(
           router.canPop(),
-          isTrue,
-          reason: 'push (not go) — the origin must stay on the back stack',
+          isFalse,
+          reason:
+              'go (not push) — the stack was replaced, nothing left to pop. '
+              'A `true` here means the call reverted to context.push(), '
+              'reintroducing the stack-growth bug this fixes.',
         );
       },
     );
 
     testWidgets(
-      'tapping a NON-active tile (Графік, tile 2) pushes /schedule and '
-      'leaves this screen poppable',
+      'tapping a NON-active tile (Графік, tile 2) REPLACES the stack with '
+      '/schedule',
       (tester) async {
         final repo = _MockBookingRepository();
         when(
@@ -1031,20 +1050,20 @@ void main() {
         expect(
           find.byKey(_scheduleMarker),
           findsOneWidget,
-          reason: 'the Графік tile must push RouteNames.masterSchedule',
+          reason: 'the Графік tile must go(RouteNames.masterSchedule)',
         );
         expect(
           router.canPop(),
-          isTrue,
-          reason: 'push (not go) — the origin must stay on the back stack',
+          isFalse,
+          reason: 'go (not push) — the stack was replaced, nothing left to pop',
         );
       },
     );
 
     testWidgets(
-      'tapping a NON-active tile (Профіль, tile 3) pushes /master/profile and '
-      'leaves this screen poppable — regression: this tile used to be '
-      'hard-coded to a null route and silently did nothing',
+      'tapping a NON-active tile (Профіль, tile 3) REPLACES the stack with '
+      '/master/profile — regression: this tile used to be hard-coded to a '
+      'null route and silently did nothing',
       (tester) async {
         final repo = _MockBookingRepository();
         when(
@@ -1070,12 +1089,12 @@ void main() {
         expect(
           find.byKey(_profileMarker),
           findsOneWidget,
-          reason: 'the Профіль tile must push RouteNames.masterProfile',
+          reason: 'the Профіль tile must go(RouteNames.masterProfile)',
         );
         expect(
           router.canPop(),
-          isTrue,
-          reason: 'push (not go) — the origin must stay on the back stack',
+          isFalse,
+          reason: 'go (not push) — the stack was replaced, nothing left to pop',
         );
       },
     );
