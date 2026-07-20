@@ -45,6 +45,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 // The add_2_calendar plugin's platform boundary — intercepted so tapping
@@ -74,7 +75,7 @@ Booking _booking({
   String? clientComment,
   String? clientCancellationNote,
 }) {
-  final DateTime start = DateTime.utc(2026, 7, 20, 15);
+  final DateTime start = futureBookingStart();
   return Booking(
     id: id,
     masterId: 'm1',

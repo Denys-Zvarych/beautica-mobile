@@ -27,6 +27,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 // Fixture identities injected BY these tests — NOT app copy. They are
@@ -66,7 +67,7 @@ Booking _booking({
   String? salonName,
   DateTime? startAt,
 }) {
-  final DateTime start = startAt ?? DateTime.utc(2026, 7, 20, 15);
+  final DateTime start = startAt ?? futureBookingStart();
   return Booking(
     id: id,
     masterId: 'm1',
@@ -565,8 +566,7 @@ void main() {
     /// both tests vacuous the day it elapsed — the icon would be absent for the
     /// client for the WRONG reason and the provider assertion would pass
     /// without exercising the gate.
-    Booking futureConfirmed() =>
-        _booking(startAt: DateTime.now().toUtc().add(const Duration(days: 30)));
+    Booking futureConfirmed() => _booking(startAt: futureBookingStart());
 
     testWidgets('the PROVIDER never gets the calendar action', (tester) async {
       await _pump(tester, futureConfirmed(), role: UserRole.independentMaster);

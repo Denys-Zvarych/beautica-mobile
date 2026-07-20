@@ -49,6 +49,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _bookingId = 'booking-1';
@@ -84,7 +85,7 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 }
 
 Booking _booking({required BookingStatus status}) {
-  final DateTime start = DateTime.utc(2026, 7, 20, 15);
+  final DateTime start = futureBookingStart();
   return Booking(
     id: _bookingId,
     masterId: _masterId,
@@ -203,7 +204,7 @@ void main() {
       dateLabel: '20 липня',
       timeLabel: '15:00',
       location: 'Центр, Львів',
-      startsAt: DateTime.utc(2026, 7, 20, 15),
+      startsAt: futureBookingStart(),
       masterInitials: 'СБ',
     );
 

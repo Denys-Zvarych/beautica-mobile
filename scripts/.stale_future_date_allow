@@ -1,0 +1,50 @@
+# Grandfathered legacy files for scripts/forbid_stale_future_date_fixture.sh
+#
+# These test files carry absolute future-dated `DateTime.utc(...)` fixtures
+# written BEFORE the stale-future-date gate existed. Most anchor logic that
+# never reads `BookingDisplayX.isPast` (lane layout, slot repositories,
+# mapper round-trips, timezone math) so they are not live time bombs today,
+# but auditing and converting ~30 files in one pass was out of scope for the
+# 2026-07-20 incident fix. They are frozen here so the gate is GREEN today
+# while still blocking NEW absolute future literals in every other (and every
+# freshly-authored) test file under test/features/booking/. This is a
+# RATCHET: when one of these files is next meaningfully edited, convert its
+# `DateTime.utc(YYYY, ...)` literal(s) to `futureBookingStart()`
+# (test/helpers/booking_fixture_dates.dart) — or annotate a genuinely
+# deliberate fixed instant with `// future-date-ok: <reason>` — and DELETE
+# its line here. The baseline only ever shrinks. One repo-relative path per
+# line.
+#
+# Generated 2026-07-20 from the then-current corpus, immediately after fixing
+# the four booking-detail specs whose expired anchor caused 16 real failures
+# (booking_detail_screen_test.dart, booking_detail_interactions_test.dart,
+# reschedule_in_flight_test.dart, booking_detail_provider_view_test.dart —
+# NOT grandfathered; they're clean under the gate as of this commit).
+test/features/booking/application/independent_booking_submit_reschedule_test.dart
+test/features/booking/application/my_bookings_notifier_test.dart
+test/features/booking/data/booking_mapper_test.dart
+test/features/booking/data/booking_repository_test.dart
+test/features/booking/data/slot_repository_test.dart
+test/features/booking/domain/booking_display_x_test.dart
+test/features/booking/domain/booking_lane_layout_test.dart
+test/features/booking/presentation/booking_detail_screen_protection_test.dart
+test/features/booking/presentation/bookings_discovery_view_reuse_test.dart
+test/features/booking/presentation/bookings_timeline_grid_test.dart
+test/features/booking/presentation/booking_success_calendar_test.dart
+test/features/booking/presentation/booking_surfaces_overflow_test.dart
+test/features/booking/presentation/leave_review_screen_test.dart
+test/features/booking/presentation/master_booking_card_test.dart
+test/features/booking/presentation/master_bookings_catalogue_staleness_test.dart
+test/features/booking/presentation/master_bookings_filter_wiring_test.dart
+test/features/booking/presentation/my_bookings_interactions_test.dart
+test/features/booking/presentation/my_bookings_screen_test.dart
+test/features/booking/presentation/reschedule_navigation_test.dart
+test/features/booking/presentation/slot_time_tz_regression_test.dart
+test/features/booking/presentation/widgets/booking_card_font_size_test.dart
+test/features/booking/presentation/widgets/booking_card_master_name_wrap_test.dart
+test/features/booking/presentation/widgets/booking_status_badge_test.dart
+test/features/booking/presentation/widgets/cancel_booking_dialog_test.dart
+test/features/booking/presentation/widgets/client_booking_conflict_dialog_test.dart
+test/features/booking/presentation/widgets/independent_schedule_confirm_bar_test.dart
+test/features/booking/presentation/widgets/salon_appointment_card_test.dart
+test/features/booking/presentation/widgets/selected_services_shelf_test.dart

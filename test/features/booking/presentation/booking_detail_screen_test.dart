@@ -40,6 +40,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 // Fixture note values injected BY these tests (not app copy) — declared once so
@@ -67,7 +68,7 @@ Booking _booking({
   String? clientCancellationNote,
   DateTime? start,
 }) {
-  final DateTime startInstant = start ?? DateTime.utc(2026, 7, 20, 15);
+  final DateTime startInstant = start ?? futureBookingStart();
   return Booking(
     id: id,
     masterId: 'm1',
@@ -236,6 +237,8 @@ void main() {
         tester,
         _booking(
           status: BookingStatus.confirmed,
+          // A fixed PAST instant is safe forever — it can never become
+          // "upcoming" again, so it needs no now-relative offset.
           start: DateTime.utc(2000, 1, 1),
         ),
       );
@@ -266,6 +269,11 @@ void main() {
           tester,
           _booking(
             status: BookingStatus.confirmed,
+            // Deliberately a fixed FAR-future instant rather than a
+            // now-relative one: this is the "NOT elapsed" twin of the fixed
+            // firmly-past instant above, so both sides of `isPast`'s boundary
+            // stay deterministic relative to EACH OTHER.
+            // future-date-ok: fixed twin of the firmly-past instant above
             start: DateTime.utc(2999, 1, 1),
           ),
         );
@@ -340,8 +348,12 @@ void main() {
         ).thenThrow(const BookingAlreadyElapsedFailure());
 
         // Non-elapsed so the cancel button is visible; the server 409s anyway.
+        // Deliberate fixed far-future instant — see the "Elapsed CONFIRMED"
+        // group header above for why this suite anchors on fixed instants
+        // rather than a now-relative offset.
         final Booking booking = _booking(
           status: BookingStatus.confirmed,
+          // future-date-ok: fixed far-future instant, deliberate (see above)
           start: DateTime.utc(2999, 1, 1),
         );
         int fetches = 0;

@@ -206,7 +206,18 @@ jobs:
         shell: bash
         run: ./scripts/forbid_raw_bookings_query.sh
 
-      # 2026-06-24 — self-test the four drift gates above. Each gate's
+      # 2026-07-20 incident — an absolute DateTime.utc(2026, 7, 20, 15) anchor
+      # hand-rolled into four booking-detail specs quietly expired against the
+      # real wall clock (BookingDisplayX.isPast), turning 16 "upcoming booking"
+      # assertions into false negatives on a date, not a code change. Legacy
+      # files predating this gate are grandfathered in
+      # scripts/.stale_future_date_allow (ratchet — baseline only shrinks);
+      # new exceptions use `// future-date-ok: <reason>`.
+      - name: Forbid stale absolute future-date fixtures in booking tests
+        shell: bash
+        run: ./scripts/forbid_stale_future_date_fixture.sh
+
+      # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
       - name: Self-test drift-prevention gates
@@ -219,6 +230,7 @@ jobs:
           ./scripts/forbid_inline_fontsize.sh --self-test
           ./scripts/forbid_raw_bookings_query.sh --self-test
           ./scripts/forbid_naive_router_location.sh --self-test
+          ./scripts/forbid_stale_future_date_fixture.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
