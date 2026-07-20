@@ -153,14 +153,29 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// those was pure waste — the decoration is a pure function of [_pressed],
   /// which only ever takes two values.
   ///
-  /// `VelvetShadows.cardDropShadow`, NOT `extrudedCard` — the extruded
-  /// pair's offset near-white light shadow pokes past the rounded corner
-  /// under Impeller and paints a white wedge there (resolved 34db74f).
-  /// `cardDropShadow` reproduces the approved design's offset drop shadow
-  /// using only its non-near-white dark half (provably safe at any offset —
-  /// see that constant's doc) for a closer-to-design sense of lift than the
-  /// non-offset `borderedCard` halo, while the hairline border still defines
-  /// the card's shape.
+  /// `VelvetShadows.borderedCard`, NOT `extrudedCard` and NOT an offset
+  /// single-dark-shadow recipe.
+  ///
+  /// `extrudedCard` is out because its offset near-white light shadow pokes
+  /// past the rounded corner under Impeller and paints a white wedge there
+  /// (resolved 34db74f). This card previously used a since-deleted
+  /// `cardDropShadow` recipe (an offset, fully-opaque `shadowDarkCard`
+  /// shadow) on the theory that only NEAR-WHITE offset shadows were unsafe —
+  /// that theory was wrong. The Impeller-GLES corner-square artifact is
+  /// triggered by an OPAQUE shadow at a non-zero `Offset` on a rounded
+  /// `BoxDecoration`, full stop; hue is irrelevant, and `shadowDarkCard` is
+  /// opaque (`alpha 0xFF`). It shipped a black rectangle in this card's
+  /// corners for the same structural reason the earlier fix shipped a white
+  /// one. `borderedCard` is proven safe (already shipped on
+  /// `master_strip_shell.dart` / `calendar_button.dart` / `bookings_day_rail.dart`
+  /// for this exact bug class) because it is BOTH alpha-attenuated
+  /// (`.withValues(alpha: 0.45)`, not opaque) AND non-offset. Do NOT assume
+  /// either property alone is sufficient — an attenuated-but-OFFSET shadow
+  /// has not been empirically verified safe on this hardware and must not be
+  /// introduced as a "closer to the design" compromise; a flatter, fully-safe
+  /// card beats a second unverified corner-artifact risk. See
+  /// `impeller_circle_shadow_guard_test.dart`'s (corrected, hue-independent)
+  /// "offset-opaque-shadow recipe guard".
   static final BoxDecoration _decorationUnpressed = BoxDecoration(
     color: BrandColors.base,
     borderRadius: BorderRadius.circular(VelvetRadii.card),
@@ -168,7 +183,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
       color: BrandColors.accent.withValues(alpha: 0.18),
       width: 1,
     ),
-    boxShadow: VelvetShadows.cardDropShadow,
+    boxShadow: VelvetShadows.borderedCard,
   );
   static final BoxDecoration _decorationPressed = BoxDecoration(
     color: BrandColors.base,
