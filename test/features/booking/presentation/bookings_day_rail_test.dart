@@ -516,7 +516,8 @@ void main() {
     }, skip: !autumnObserved);
 
     testWidgets(
-      'the single lead item is [calendar] — «Всі» is retired (Phase 7.11)',
+      'the calendar button is a PINNED sibling, not a lead item of the '
+      'scrollable list — the list\'s own item 0 is a day chip',
       (tester) async {
         final DateTime today = DateTime(2026, 7, 18);
         await tester.pumpApp(_rail(firstDay: today, today: today, dayCount: 3));
@@ -531,32 +532,117 @@ void main() {
           findsNothing,
           reason: '«Всі» must not render anywhere in the rail post-7.11.',
         );
-
-        // The offset the screen's centring math depends on.
-        expect(kRailLeadItems, 1);
+        // At scroll offset zero the list's OWN leftmost item is `firstDay`'s
+        // chip, not the calendar button — there is no lead-item offset any
+        // more (the retired `kRailLeadItems`): a day's offset from
+        // `firstDay` IS its `ListView.builder` item index.
+        expect(find.byKey(dayChipKey(today)), findsOne);
       },
     );
 
-    test(
-      'the screen\'s centring math resolves the lead-item offset to '
-      '1 + dayIndex — an off-by-one here silently breaks initial centring',
+    group(
+      'the calendar button stays visible regardless of scroll position',
       () {
-        // Mirrors `BookingsDiscoveryView._centreRailOn`'s
-        // `itemIndex = kRailLeadItems + dayIndex` verbatim, so a regression to
-        // either side (the rail's own constant, or a screen edit that stops
-        // adding it) is caught here rather than only manifesting as "the rail
-        // opens two cells off, which looks almost right".
-        const int dayIndex = 42;
-        const int itemIndex = kRailLeadItems + dayIndex;
-        expect(
-          itemIndex,
-          1 + dayIndex,
-          reason:
-              'With «Всі» retired the rail has exactly ONE lead item '
-              '([calendar]), so the day-index → item-index offset must be '
-              '1 + dayIndex, not 2 + dayIndex (the design\'s two-lead-item '
-              'formula for [calendar][Всі]).',
+        // Phase 7.6 shipped the calendar button as list item 0. Phase "open on
+        // today" (`ee2e214`) then moved the rail's INITIAL resting offset ~180
+        // chips to the right of index 0 — which scrolled that lead item off
+        // screen, leaving the date-range picker's only entry point invisible
+        // at rest. The fix pins the button OUTSIDE the `ListView` as a fixed
+        // `Row` sibling (see the file header's "pinned, not a lead item"
+        // section) so it is unconditionally in the tree and on screen, at any
+        // controller offset.
+        //
+        // MUTATION-VERIFIED: reverting `BookingsDayRail.build` to the old
+        // shape (calendar button as list item 0, `itemCount: 1 + dayCount`) and
+        // re-running this group turns the first test below RED —
+        // `find.byKey('master-bookings-calendar-button')` returns
+        // `findsNothing`, because a `ListView.builder`'s lazy sliver never
+        // builds an item this far outside its viewport + cache extent. Restored
+        // and confirmed GREEN again. See the handoff report for the actual
+        // command output.
+        testWidgets(
+          'visible at a scroll offset far from zero, with NO scrolling '
+          'performed by the test — the exact shape of the shipped regression',
+          (tester) async {
+            final DateTime today = DateTime(2026, 7, 18);
+            // Mirrors the screen's real post-`_alignRailTodayFirst` resting
+            // offset: today sits 180 days into a 361-day rail, i.e. ~180
+            // `kRailItemExtent` cells from the list's start.
+            final ScrollController controller = ScrollController(
+              initialScrollOffset: 180 * kRailItemExtent,
+            );
+            addTearDown(controller.dispose);
+
+            await tester.pumpApp(
+              BookingsDayRail(
+                controller: controller,
+                firstDay: railDayAt(today, -180),
+                dayCount: 361,
+                today: today,
+                selectedDay: today,
+                bookedDays: const <DateTime>{},
+                calendarActive: false,
+                onOpenCalendar: () {},
+                onSelectDay: (_) {},
+              ),
+            );
+            // Deliberately NOT `pumpAndSettle`-ing through any scroll gesture —
+            // the whole point is that nothing needs to move for the button to
+            // be there.
+            await tester.pump();
+
+            expect(
+              find.byKey(const Key('master-bookings-calendar-button')),
+              findsOne,
+              reason:
+                  'the calendar button must be reachable with ZERO scrolling — '
+                  'it regressed off-screen once already when it lived inside '
+                  'the scrollable list at this same offset.',
+            );
+          },
         );
+
+        testWidgets('stays visible after scrolling the rail forward and back', (
+          tester,
+        ) async {
+          final DateTime today = DateTime(2026, 7, 18);
+          final ScrollController controller = ScrollController(
+            initialScrollOffset: 180 * kRailItemExtent,
+          );
+          addTearDown(controller.dispose);
+
+          await tester.pumpApp(
+            BookingsDayRail(
+              controller: controller,
+              firstDay: railDayAt(today, -180),
+              dayCount: 361,
+              today: today,
+              selectedDay: today,
+              bookedDays: const <DateTime>{},
+              calendarActive: false,
+              onOpenCalendar: () {},
+              onSelectDay: (_) {},
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          controller.jumpTo(controller.offset + 400);
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const Key('master-bookings-calendar-button')),
+            findsOne,
+            reason: 'the pinned button must survive a forward scroll.',
+          );
+
+          controller.jumpTo(0);
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const Key('master-bookings-calendar-button')),
+            findsOne,
+            reason:
+                'the pinned button must survive scrolling all the way back.',
+          );
+        });
       },
     );
 

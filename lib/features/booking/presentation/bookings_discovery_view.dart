@@ -238,10 +238,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     // straddle a Europe/Kyiv DST transition, which is most of the year, and
     // mis-centres the rail by exactly one `kRailItemExtent` on open.
     final int dayIndex = calendarDayCount(_railFirstDay, dateOnly(day));
-    // `[calendar]` alone leads the rail post-7.11 — see `kRailLeadItems`.
-    final int itemIndex = kRailLeadItems + dayIndex;
+    // The calendar button is a PINNED sibling of the day-chip `ListView`, not
+    // a lead item inside it (`bookings_day_rail.dart`'s `BookingsDayRail
+    // .build`) — so `dayIndex` IS the day's `ListView.builder` item index.
+    // No lead-item offset (the retired `kRailLeadItems`) is added here.
     final double target =
-        itemIndex * kRailItemExtent -
+        dayIndex * kRailItemExtent -
         position.viewportDimension / 2 +
         kRailItemExtent / 2;
     final double clamped = target.clamp(0.0, position.maxScrollExtent);
@@ -272,25 +274,28 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   ///
   /// Unlike [_centreRailOn] this needs no `viewportDimension` term — "flush
   /// left" does not depend on how much viewport there is, only on [day]'s
-  /// item index and [kRailItemExtent]: scrolling exactly `itemIndex *
-  /// kRailItemExtent` puts that item's leading edge at the same on-screen
-  /// position item 0 occupies at scroll offset zero (the `ListView`'s
-  /// leading `padding` is unaffected by the offset chosen here, so [day]
-  /// lands with the identical left inset item 0 normally has).
+  /// day index and [kRailItemExtent]: scrolling exactly `dayIndex *
+  /// kRailItemExtent` puts that day's leading edge at the same on-screen
+  /// position the `ListView`'s own item 0 occupies at scroll offset zero
+  /// (the list's own `padding` is trailing-only now, so [day] lands flush
+  /// against whatever precedes the list — the pinned calendar button).
+  ///
+  /// The calendar button is a PINNED sibling of the day-chip `ListView`, not
+  /// a lead item inside it (`bookings_day_rail.dart`'s `BookingsDayRail
+  /// .build`) — it stays on screen at every scroll offset, including this
+  /// one, so there is no lead-item offset to add here (see the retired
+  /// `kRailLeadItems`): a day's index into [_railFirstDay] IS its
+  /// `ListView.builder` item index.
   ///
   /// This deliberately does NOT touch [_railFirstDay]/`dayCount` — the rail
   /// keeps spanning the full today ± `kBookedDaysSpanDays` range; only the
-  /// resting SCROLL POSITION moves. At this offset the calendar button
-  /// (lead item 0, `kRailLeadItems + 180` slots to the left of today) and
-  /// every past day scroll out of the initial viewport — showing a
-  /// leftmost-today AND an on-screen calendar button 180 chips away is not
-  /// achievable in one flat scrolling list, and nothing here shrinks that
-  /// list to fake it (that would be the `_clampToRailSpan`/forward-only-range
-  /// mistake this change must NOT make). The calendar button and every past
-  /// day remain fully reachable by scrolling left — `maxScrollExtent` is
-  /// untouched — mirroring the already-established
-  /// `master_bookings_filter_wiring_test.dart` pattern of scrolling back to
-  /// reach the calendar button after the rail auto-positions on open.
+  /// resting SCROLL POSITION moves. At this offset every day strictly before
+  /// [day] scrolls out of the initial viewport — the calendar button does
+  /// not, and remains reachable with zero scrolling — and nothing here
+  /// shrinks the list to fake reachability (that would be the
+  /// `_clampToRailSpan`/forward-only-range mistake this change must NOT
+  /// make): every past day remains fully reachable by scrolling left —
+  /// `maxScrollExtent` is untouched.
   void _alignRailTodayFirst(DateTime day) {
     if (!_railController.hasClients) return;
     final ScrollPosition position = _railController.position;
@@ -299,8 +304,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     // Same DST-safe day-index derivation `_centreRailOn` uses — see that
     // method's doc for why `.difference(...).inDays` is unsafe here.
     final int dayIndex = calendarDayCount(_railFirstDay, dateOnly(day));
-    final int itemIndex = kRailLeadItems + dayIndex;
-    final double target = itemIndex * kRailItemExtent;
+    final double target = dayIndex * kRailItemExtent;
     final double clamped = target.clamp(0.0, position.maxScrollExtent);
     _railController.jumpTo(clamped);
   }

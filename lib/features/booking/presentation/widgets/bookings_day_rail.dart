@@ -36,10 +36,23 @@
 //
 // ## Lazily built — 361 chips is not a `ListView(children: [...])`
 //
-// The rail spans today ± 180 days = 361 day cells plus 1 lead item. A
-// `ListView.builder` with a fixed `itemExtent` builds only the visible window
-// AND gives the screen's centring math an O(1) offset to jump to. Eagerly
-// building 363 chips is exactly the jank `mobile-perf` flags.
+// The rail spans today ± 180 days = 361 day cells. A `ListView.builder` with
+// a fixed `itemExtent` builds only the visible window AND gives the screen's
+// centring math an O(1) offset to jump to. Eagerly building 361 chips is
+// exactly the jank `mobile-perf` flags.
+//
+// ## The calendar button is PINNED, not a lead item of the list
+//
+// It used to be item 0 INSIDE this `ListView` (`kRailLeadItems`, now
+// retired). Phase 7.13's today-first initial scroll (`_alignRailTodayFirst`
+// in `bookings_discovery_view.dart`) moved the rail's resting offset ~180
+// chips to the right of index 0, which scrolled that lead item off-screen —
+// leaving the date-range picker's only entry point invisible at rest. So the
+// button now lives OUTSIDE the scrollable, as a fixed sibling in a `Row`:
+// `[calendar button][Expanded(day-chip ListView)]`. It stays on screen at
+// every scroll offset. Because the list itself no longer carries a lead
+// item, a day's offset from [firstDay] IS its `ListView.builder` item index
+// — no `+ 1` needed anywhere any more.
 
 import 'package:flutter/material.dart';
 
@@ -53,15 +66,6 @@ import 'package:beautica_mobile/shared/formatters/api_date.dart';
 /// `_railExtent`. The screen's centring math multiplies by this, so it must
 /// stay in sync with the `ListView.builder`'s `itemExtent`.
 const double kRailItemExtent = 62;
-
-/// Number of lead items before the first day cell: `[calendar]` alone.
-///
-/// Load-bearing: the screen's scroll-centring math offsets a day index by this
-/// to reach its item index (the design's `final int itemIndex = 2 + dayIndex`
-/// for `[calendar][Всі]`; with «Всі» retired (Phase 7.11) this is `1 +
-/// dayIndex`). Changing it without changing that math silently centres the
-/// rail off by however many lead items were added or removed.
-const int kRailLeadItems = 1;
 
 /// Height of the rail strip — the design's own 70dp.
 ///
@@ -221,54 +225,73 @@ class BookingsDayRail extends StatelessWidget {
       // overflow guard. The chip's INTERNAL rhythm is unchanged; only the
       // container grew to fit the real type.
       height: _railHeight,
-      child: ListView.builder(
-        key: const Key('master-bookings-day-rail'),
-        controller: controller,
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-        itemExtent: kRailItemExtent,
-        itemCount: kRailLeadItems + dayCount,
-        itemBuilder: (BuildContext context, int index) {
-          if (index == 0) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: _CalendarButton(
-                active: calendarActive,
-                onTap: onOpenCalendar,
-                semanticLabel: l10n.masterBookingsCalendarSemantics,
-              ),
-            );
-          }
-          // CALENDAR arithmetic — see the file header.
-          final DateTime d = railDayAt(firstDay, index - kRailLeadItems);
-          return Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: _DayChip(
-              // The FULL date, not the day-of-month. The rail spans 361 days,
-              // so a day number repeats up to 12 times — a `…-chip-20` key
-              // would match January's 20th as readily as July's, and
-              // `find.byKey` silently takes the first. That is not merely a
-              // test-ergonomics problem: it made a day-selection test assert
-              // against 2026-01-20 while believing it had tapped 2026-07-20.
-              date: d,
-              weekday: weekdayShort[d.weekday - 1],
-              selected: selectedDay == d,
-              isToday: d == today,
-              // `d.isBefore(today)` is false for `d == today` by
-              // construction — today is never "past" — but [_DayChip]
-              // restates that precedence explicitly rather than leaning on
-              // this call site alone. See its doc.
-              isPast: d.isBefore(today),
-              hasBookings: bookedDays.contains(d),
-              onTap: () => onSelectDay(d),
-              semanticLabel: l10n.masterBookingsDaySemantics(
-                weekdayShort[d.weekday - 1],
-                d.day,
-              ),
+      // The calendar button is a PINNED sibling, not a lead item of the
+      // scrollable list — see the file header's "pinned, not a lead item"
+      // section. `stretch` reproduces the tight-height constraint the button
+      // used to receive as a `ListView` item (the sliver viewport's
+      // cross-axis extent), so its rendered geometry is unchanged by the move.
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Padding(
+            // `left: VelvetSpacing.lg` reproduces the rail's own leading
+            // inset (previously the `ListView`'s symmetric horizontal
+            // padding); `right: 10` reproduces the 10dp gap every rail item
+            // carries after itself, so the calendar-to-first-chip gap stays
+            // identical to the chip-to-chip gap.
+            padding: const EdgeInsets.only(left: VelvetSpacing.lg, right: 10),
+            child: _CalendarButton(
+              active: calendarActive,
+              onTap: onOpenCalendar,
+              semanticLabel: l10n.masterBookingsCalendarSemantics,
             ),
-          );
-        },
+          ),
+          Expanded(
+            child: ListView.builder(
+              key: const Key('master-bookings-day-rail'),
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              // Trailing inset only — the leading inset now lives on the
+              // pinned calendar button's own `Padding` above.
+              padding: const EdgeInsets.only(right: VelvetSpacing.lg),
+              itemExtent: kRailItemExtent,
+              itemCount: dayCount,
+              itemBuilder: (BuildContext context, int index) {
+                // CALENDAR arithmetic — see the file header. No lead-item
+                // offset: the list's own index IS the day offset now.
+                final DateTime d = railDayAt(firstDay, index);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: _DayChip(
+                    // The FULL date, not the day-of-month. The rail spans
+                    // 361 days, so a day number repeats up to 12 times — a
+                    // `…-chip-20` key would match January's 20th as readily
+                    // as July's, and `find.byKey` silently takes the first.
+                    // That is not merely a test-ergonomics problem: it made a
+                    // day-selection test assert against 2026-01-20 while
+                    // believing it had tapped 2026-07-20.
+                    date: d,
+                    weekday: weekdayShort[d.weekday - 1],
+                    selected: selectedDay == d,
+                    isToday: d == today,
+                    // `d.isBefore(today)` is false for `d == today` by
+                    // construction — today is never "past" — but [_DayChip]
+                    // restates that precedence explicitly rather than leaning
+                    // on this call site alone. See its doc.
+                    isPast: d.isBefore(today),
+                    hasBookings: bookedDays.contains(d),
+                    onTap: () => onSelectDay(d),
+                    semanticLabel: l10n.masterBookingsDaySemantics(
+                      weekdayShort[d.weekday - 1],
+                      d.day,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

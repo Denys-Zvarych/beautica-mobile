@@ -304,20 +304,17 @@ void main() {
         await pump(tester);
         calls.clear();
 
-        // The rail auto-centres on Kyiv-today at open, which scrolls its
-        // leading calendar cell off the left edge — scroll BACK (negative
-        // delta) to reach it.
-        await tester.scrollUntilVisible(
+        // The calendar button is a PINNED sibling of the day-chip `ListView`
+        // (`bookings_day_rail.dart`'s `BookingsDayRail.build`), not a lead
+        // item inside it — it is reachable with ZERO scrolling regardless of
+        // where the rail auto-centres on open. Scrolling here would be
+        // testing nothing: this is exactly the case that regressed once
+        // already (`ee2e214`'s today-first open scrolled a calendar button
+        // that used to live inside the list off screen).
+        expect(
           find.byKey(const Key('master-bookings-calendar-button')),
-          -400,
-          scrollable: find
-              .descendant(
-                of: find.byKey(const Key('master-bookings-day-rail')),
-                matching: find.byType(Scrollable),
-              )
-              .first,
+          findsOne,
         );
-        await tester.pumpAndSettle();
         await tester.tap(
           find.byKey(const Key('master-bookings-calendar-button')),
         );
