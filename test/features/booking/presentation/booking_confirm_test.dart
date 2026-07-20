@@ -167,6 +167,7 @@ class _FakeBookingRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    CancelToken? cancelToken,
   }) => throw UnimplementedError();
 
   @override
@@ -241,6 +242,7 @@ class _RecordingRescheduleRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    CancelToken? cancelToken,
   }) async {
     getMyBookingsCalls++;
     return PageResponse<Booking>(

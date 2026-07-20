@@ -63,17 +63,19 @@ const double kRailItemExtent = 62;
 /// rail off by however many lead items were added or removed.
 const int kRailLeadItems = 1;
 
-/// Height of the rail strip. See [BookingsDayRail.build] for why this is 78
-/// rather than the design's 70.
-const double _railHeight = 78;
-
-/// Vertical gap between a day chip's weekday caption and its day number.
+/// Height of the rail strip — the design's own 70dp.
 ///
-/// The design uses 16; 10 here for the same reason the strip is 78 tall — the
-/// app's real type is taller than the preview's, and the chip must not
-/// overflow. Kept generous enough that the weekday still reads as a caption
-/// ABOVE the number rather than crowding it.
-const double _dayChipCaptionGap = 10;
+/// A previous pass bumped this to 78 (and shrank [_dayChipCaptionGap] to 10)
+/// because the app's `VelvetText` styles carried line-height multipliers the
+/// preview's raw `TextStyle`s did not, overflowing the design's 70dp by 17dp.
+/// The 2026-07-19 pass that shrank `VelvetText.railDayNumber` to 12.6sp (from
+/// 18sp) freed exactly the vertical room that 8dp bump existed to cover, so
+/// both are restored to the design's own values here.
+const double _railHeight = 70;
+
+/// Vertical gap between a day chip's weekday caption and its day number —
+/// the design's own 16dp, restored alongside [_railHeight]; see its doc.
+const double _dayChipCaptionGap = 16;
 
 /// Returns the day [offset] days after [from], by CALENDAR arithmetic.
 ///

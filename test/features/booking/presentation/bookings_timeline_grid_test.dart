@@ -52,16 +52,14 @@ Booking _booking({
   canReview: false,
 );
 
-/// Finds the [Positioned] ancestor of the [MasterBookingCard] keyed
-/// `timeline-card-<id>` — the geometry a test actually needs to assert on.
-Positioned _positionedOf(WidgetTester tester, String bookingId) {
-  return tester.widget<Positioned>(
-    find.ancestor(
-      of: find.byKey(ValueKey<String>('timeline-card-$bookingId')),
-      matching: find.byType(Positioned),
-    ),
-  );
-}
+/// The REAL rendered geometry of the [MasterBookingCard] keyed
+/// `timeline-card-<id>` — since the R3 fix (HIGH-1 same-lane-overlap
+/// regression), cards are laid out inside a per-lane `Column`, not
+/// `Positioned` siblings of a shared `Stack`, so tests read actual screen
+/// geometry (`tester.getRect`/`getTopLeft`) rather than a `Positioned`
+/// widget's declared `top`/`left`/`height` properties.
+Rect _cardRect(WidgetTester tester, String bookingId) =>
+    tester.getRect(find.byKey(ValueKey<String>('timeline-card-$bookingId')));
 
 void main() {
   setUpAll(initBeauticaTimeZones);
@@ -104,14 +102,13 @@ void main() {
       // record for the captured before/after transcript.
       expect(tester.takeException(), isNull);
 
+      // R3 (HIGH-1 fix) note: the grid no longer has an explicit `height:`
+      // (see `bookings_timeline_grid.dart`'s "R3" header section) — its
+      // REAL rendered size is what must be positive, read via the actual
+      // `timeline-lane-stack` `RenderBox`, not a declared `SizedBox.height`.
       final double gridHeight = tester
-          .widget<SizedBox>(
-            find.ancestor(
-              of: find.byKey(const ValueKey<String>('timeline-lane-stack')),
-              matching: find.byType(SizedBox),
-            ),
-          )
-          .height!;
+          .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
+          .height;
       expect(gridHeight, greaterThan(0));
 
       // Both cards must actually be present (not silently dropped).
@@ -188,37 +185,68 @@ void main() {
         expect(find.text('23:00'), findsNothing);
 
         // Sanity: with no other booking narrowing the extent, the single
-        // card anchors its own extent, so `top` is 0 regardless of zone —
-        // asserted here for completeness, NOT as the zone-correctness proof.
-        expect(_positionedOf(tester, 'crossing').top, 0);
+        // card anchors its own extent, so it renders flush with the grid's
+        // own top edge regardless of zone — asserted here for completeness,
+        // NOT as the zone-correctness proof (see the comment above).
+        final double gridTop = tester
+            .getTopLeft(
+              find.byKey(const ValueKey<String>('timeline-lane-stack')),
+            )
+            .dy;
+        expect(_cardRect(tester, 'crossing').top, gridTop);
       },
     );
   });
 
-  group('minimum tap target', () {
-    testWidgets('a 15-minute booking still meets the 48dp floor', (
-      WidgetTester tester,
-    ) async {
-      final DateTime day = DateTime(2026, 7, 20);
-      final Booking short = _booking(
-        id: 'short',
-        startAtUtc: DateTime.utc(2026, 7, 20, 6), // 09:00 Kyiv
-        durationMinutes: 15,
-      );
+  group('short bookings render their full card, not a clipped sliver', () {
+    // R2 regression — the report this test exists to pin: a duration-scaled
+    // Positioned `height:` (floored at 48dp) used to make `MasterBookingCard`
+    // clip its own natural ~150dp content down to that box via an
+    // OverflowBox + ClipRect pair, i.e. "I can see only half of the card"
+    // for anything shorter than ~50 minutes. The fix positions the card by
+    // `top`/`left`/`width` ONLY — no `height:` — so it always renders at its
+    // full natural size regardless of duration.
+    testWidgets(
+      'a 15-minute booking is positioned with no forced height, and its '
+      'rendered card is far taller than the old 48dp floor',
+      (WidgetTester tester) async {
+        final DateTime day = DateTime(2026, 7, 20);
+        final Booking short = _booking(
+          id: 'short',
+          startAtUtc: DateTime.utc(2026, 7, 20, 6), // 09:00 Kyiv
+          durationMinutes: 15,
+        );
 
-      await tester.pumpApp(
-        BookingsTimelineGrid(
-          bookings: <Booking>[short],
-          day: day,
-          onBookingTap: (_) {},
-        ),
-      );
-      await tester.pump();
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[short],
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
 
-      final Positioned positioned = _positionedOf(tester, 'short');
-      expect(positioned.height, isNotNull);
-      expect(positioned.height!, greaterThanOrEqualTo(48));
-    });
+        // No `Positioned` ancestor at all any more (R3 fix) — cards flow
+        // inside a per-lane `Column`, so there is no forced-height mechanism
+        // left to reintroduce. A find here would mean the old absolute-
+        // positioning approach (and its clipping risk) came back.
+        expect(
+          find.ancestor(
+            of: find.byKey(const ValueKey<String>('timeline-card-short')),
+            matching: find.byType(Positioned),
+          ),
+          findsNothing,
+        );
+
+        // The card's ACTUAL rendered height comfortably clears the old 48dp
+        // floor — proof the full card (avatar row, divider, service row,
+        // price/status row) is on screen, not a truncated sliver of it.
+        final double renderedHeight = tester
+            .getSize(find.byKey(const ValueKey<String>('timeline-card-short')))
+            .height;
+        expect(renderedHeight, greaterThan(120));
+      },
+    );
   });
 
   group('overlapping bookings render in distinct lanes', () {
@@ -246,9 +274,9 @@ void main() {
       );
       await tester.pump();
 
-      final Positioned posA = _positionedOf(tester, 'lane-a');
-      final Positioned posB = _positionedOf(tester, 'lane-b');
-      expect(posA.left, isNot(posB.left));
+      final Rect rectA = _cardRect(tester, 'lane-a');
+      final Rect rectB = _cardRect(tester, 'lane-b');
+      expect(rectA.left, isNot(rectB.left));
     });
   });
 
@@ -312,5 +340,114 @@ void main() {
         findsOneWidget,
       );
     });
+  });
+
+  group('R3 regression — same-lane back-to-back cards never overlap', () {
+    // HIGH-1 (mobile-dev/mobile-qa audit of the R2 un-clipping fix): once a
+    // card renders its full ~150-190dp regardless of duration, two
+    // back-to-back same-lane bookings — 09:00-09:30 then 09:30-10:00, the
+    // ordinary case for a working master — used to paint on top of each
+    // other, with the LATER one winning every tap in the overlapping region.
+    // The fix (this file's "R3" section) lays same-lane cards out as a flex
+    // `Column`, which cannot let card N+1 start above card N's real bottom
+    // edge. 2026-07-20 is Kyiv summer time (UTC+3): 09:00 Kyiv == 06:00 UTC,
+    // 09:30 Kyiv == 06:30 UTC.
+    final DateTime day = DateTime(2026, 7, 20);
+    final Booking early = _booking(
+      id: 'r3-early',
+      startAtUtc: DateTime.utc(2026, 7, 20, 6), // 09:00 Kyiv
+      durationMinutes: 30,
+    );
+    final Booking late = _booking(
+      id: 'r3-late',
+      startAtUtc: DateTime.utc(2026, 7, 20, 6, 30), // 09:30 Kyiv
+      durationMinutes: 30,
+    );
+
+    testWidgets('the two cards\' rendered Rects do not intersect', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpApp(
+        BookingsTimelineGrid(
+          bookings: <Booking>[early, late],
+          day: day,
+          onBookingTap: (_) {},
+        ),
+      );
+      await tester.pump();
+
+      final Rect earlyRect = _cardRect(tester, 'r3-early');
+      final Rect lateRect = _cardRect(tester, 'r3-late');
+      expect(
+        earlyRect.overlaps(lateRect),
+        isFalse,
+        reason:
+            'r3-early $earlyRect and r3-late $lateRect must not intersect — '
+            'a master tapping the earlier card must never land on the '
+            'later booking (or vice-versa).',
+      );
+      // The later card must render entirely below the earlier one — proves
+      // the non-intersection isn't a horizontal-lane coincidence.
+      expect(lateRect.top, greaterThanOrEqualTo(earlyRect.bottom));
+    });
+
+    testWidgets(
+      'a tap inside the EARLIER card\'s rendered region opens the earlier '
+      'booking, not the later one',
+      (WidgetTester tester) async {
+        Booking? tapped;
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[early, late],
+            day: day,
+            onBookingTap: (Booking booking) => tapped = booking,
+          ),
+        );
+        await tester.pump();
+
+        // Before the R3 fix this exact point could have been inside BOTH
+        // cards' hit-test regions (the later one painted on top and won).
+        final Offset earlyCenter = _cardRect(tester, 'r3-early').center;
+        await tester.tapAt(earlyCenter);
+        await tester.pump();
+
+        expect(tapped, isNotNull);
+        expect(tapped!.id, 'r3-early');
+      },
+    );
+
+    testWidgets(
+      'the last card of the day is fully within the rendered grid extent',
+      (WidgetTester tester) async {
+        // A third, LATE booking in the same lane with a big idle gap before
+        // it, so the grid's real extent is driven by wall-clock time for
+        // most of the day and only compressed near the two back-to-back
+        // cards — the mixed case a pure hour-math buffer could still get
+        // wrong. 18:00 Kyiv == 15:00 UTC.
+        final Booking lastOfDay = _booking(
+          id: 'r3-last',
+          startAtUtc: DateTime.utc(2026, 7, 20, 15),
+          durationMinutes: 15,
+        );
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[early, late, lastOfDay],
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        final Rect gridRect = tester.getRect(
+          find.byKey(const ValueKey<String>('timeline-lane-stack')),
+        );
+        final Rect lastRect = _cardRect(tester, 'r3-last');
+
+        // A tiny epsilon absorbs float rounding — the last card's bottom
+        // must never render PAST the grid's own resolved bottom edge.
+        expect(lastRect.bottom, lessThanOrEqualTo(gridRect.bottom + 0.5));
+      },
+    );
   });
 }

@@ -14,6 +14,9 @@
 //      network layer (one fetch, not two) rather than merely at the freezed
 //      `==` layer.
 
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -163,6 +166,7 @@ void main() {
         sort: any(named: 'sort'),
         page: any(named: 'page'),
         size: any(named: 'size'),
+        cancelToken: any(named: 'cancelToken'),
       ),
     ).thenAnswer((_) async => response);
   }
@@ -195,6 +199,7 @@ void main() {
           sort: BookingSort.oldest,
           page: 0,
           size: 100,
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(1);
     });
@@ -223,6 +228,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).captured;
 
@@ -263,6 +269,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer((_) async => throw const NetworkFailure());
 
@@ -353,6 +360,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(1);
     });
@@ -402,6 +410,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(1);
     });
@@ -427,6 +436,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(1);
     });
@@ -465,6 +475,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(1);
     });
@@ -490,6 +501,7 @@ void main() {
             sort: any(named: 'sort'),
             page: any(named: 'page'),
             size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
           ),
         ).called(2);
       },
@@ -534,6 +546,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(1);
     });
@@ -580,8 +593,75 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(5);
+    });
+  });
+
+  group('bookingsDayProvider — cancel-on-dispose (mobile-perf MEDIUM-3, '
+      '2026-07-20)', () {
+    test('the family member cancels its OWN in-flight request when evicted '
+        'from the bounded keepAlive cache — an abandoned rail-scrub request '
+        'must not keep running to completion in the background once nobody '
+        'can observe its result', () async {
+      final Completer<PageResponse<Booking>> completer =
+          Completer<PageResponse<Booking>>();
+      CancelToken? capturedToken;
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((Invocation invocation) {
+        capturedToken =
+            invocation.namedArguments[const Symbol('cancelToken')]
+                as CancelToken?;
+        return completer.future;
+      });
+
+      final container = _containerWith(repo);
+      final query = BookingsDayQuery.of(day: DateTime(2026, 7, 20));
+
+      // Start the build without awaiting the (never-resolving, so far)
+      // result — mirrors a rail scrub landing on this day and then moving
+      // straight past it.
+      container.read(bookingsDayProvider(query));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        capturedToken,
+        isNotNull,
+        reason:
+            'build() must reach the repository call synchronously '
+            'enough for the token to already be captured here',
+      );
+      expect(capturedToken!.isCancelled, isFalse);
+
+      // Evict the family member exactly the way `AuthNotifier.logout` (or a
+      // 4th distinct day, per the bounded-keepAlive group above) does.
+      container.read(dayKeepAliveLruProvider).clear();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        capturedToken!.isCancelled,
+        isTrue,
+        reason:
+            "disposing the element must cancel its own in-flight Dio "
+            "request via ref.onDispose — merely stopping the RESULT from "
+            "landing (Riverpod's own default) leaves the request running to "
+            'completion in the background',
+      );
+
+      // Let the stubbed Future settle so the test doesn't leave a dangling
+      // unresolved Future behind it.
+      completer.complete(_page(const <Booking>[]));
     });
   });
 
@@ -638,6 +718,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(2);
     });
@@ -676,6 +757,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(1);
     });
@@ -714,6 +796,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(2);
     });
@@ -745,6 +828,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer((_) async => _page(<Booking>[staleBooking]));
 
@@ -786,6 +870,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer((_) async => _page(<Booking>[freshBooking]));
 
@@ -831,6 +916,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(2);
     });

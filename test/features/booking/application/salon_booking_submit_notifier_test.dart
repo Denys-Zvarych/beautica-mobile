@@ -19,6 +19,8 @@
 // `_FakeBookingRepository` precedent in `booking_confirm_test.dart`) — no
 // mocktail, no real Dio. Every container is disposed via `addTearDown` (M1).
 
+import 'package:dio/dio.dart';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/application/salon_booking_submit_notifier.dart';
@@ -75,6 +77,7 @@ class _RecordingBookingRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    CancelToken? cancelToken,
   }) => throw UnimplementedError();
 
   @override

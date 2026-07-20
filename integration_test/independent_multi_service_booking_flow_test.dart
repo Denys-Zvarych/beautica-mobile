@@ -55,6 +55,8 @@
 
 import 'dart:async';
 
+import 'package:dio/dio.dart';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -136,6 +138,7 @@ class _FakeBookingRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    CancelToken? cancelToken,
   }) => throw UnimplementedError();
 
   @override

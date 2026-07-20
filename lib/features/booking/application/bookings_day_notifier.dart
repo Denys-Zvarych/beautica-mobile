@@ -173,6 +173,7 @@
 import 'dart:collection';
 import 'dart:developer';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 // `KeepAliveLink` is not part of `riverpod_annotation`'s show-list — it lives
 // on the dedicated advanced-API surface, `misc.dart` (mirrors
@@ -333,6 +334,17 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
     // one.
     ref.read(dayKeepAliveLruProvider).touch(query, ref.keepAlive());
 
+    // mobile-perf MEDIUM-3 (2026-07-20) — cancel this member's OWN in-flight
+    // request when the member itself is torn down (evicted from the bounded
+    // LRU, or superseded by a rebuild), mirroring `WorkingDaysNotifier.build`.
+    // Disposing a Riverpod element stops the RESULT from landing but does not
+    // by itself abort the underlying Dio request — without this, scrubbing
+    // the day rail past the 220ms debounce on a slow connection left
+    // abandoned `GET /bookings/me` requests running to completion for every
+    // day flicked past.
+    final CancelToken cancelToken = CancelToken();
+    ref.onDispose(() => cancelToken.cancel());
+
     // `async` + `await` is deliberate, not a redundant wrapper around a
     // passthrough return. It guarantees that a SYNCHRONOUS throw from the
     // repository call is captured as a rejected Future instead of escaping
@@ -341,13 +353,16 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
     // as the repository's own typed Failure. Same reasoning as
     // `WorkingDaysNotifier.build` / the retired `MasterBookingsNotifier
     // .build`.
-    return await _fetchDay(query);
+    return await _fetchDay(query, cancelToken);
   }
 
   /// Fetches [query]'s WHOLE day in ONE request — see the file header for
   /// why this can never need a second one in practice, and why no loop is
   /// written to handle it if it somehow does.
-  Future<BookingsDayState> _fetchDay(BookingsDayQuery query) async {
+  Future<BookingsDayState> _fetchDay(
+    BookingsDayQuery query,
+    CancelToken cancelToken,
+  ) async {
     final BookingRepository repo = ref.read(bookingRepositoryProvider);
     final PageResponse<Booking> page = await repo.getMyBookings(
       statuses: query.statuses,
@@ -359,6 +374,7 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
       sort: BookingSort.oldest,
       page: 0,
       size: 100,
+      cancelToken: cancelToken,
     );
 
     // The server reported more matches than this single page returned — the

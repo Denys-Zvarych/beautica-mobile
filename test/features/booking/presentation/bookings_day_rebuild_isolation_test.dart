@@ -181,6 +181,7 @@ void main() {
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => const PageResponse<Booking>(
@@ -275,6 +276,7 @@ void main() {
         sort: any(named: 'sort'),
         page: any(named: 'page'),
         size: any(named: 'size'),
+        cancelToken: any(named: 'cancelToken'),
       ),
     ).thenAnswer(
       (_) async => const PageResponse<Booking>(
@@ -329,6 +331,7 @@ void main() {
         sort: any(named: 'sort'),
         page: any(named: 'page'),
         size: any(named: 'size'),
+        cancelToken: any(named: 'cancelToken'),
       ),
     ).called(2);
 

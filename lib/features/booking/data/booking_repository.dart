@@ -121,6 +121,14 @@ abstract interface class BookingRepository {
   /// `MasterBookingsQuery.of` produces can pass them straight through instead
   /// of round-tripping each through a throwaway `Set` on every fetch. Both
   /// shapes are accepted; neither is retained.
+  ///
+  /// [cancelToken] (mobile-perf MEDIUM-3, 2026-07-20) lets callers — notably
+  /// `BookingsDayNotifier`, whose family member is evicted the instant the
+  /// rail is scrubbed past the day-rail's 220ms debounce — cancel an
+  /// in-flight request when it is superseded before it resolves, mirroring
+  /// `SlotRepository.getMasterSlots`/`getWorkingDays`. Disposing a Riverpod
+  /// element stops the RESULT from landing but does not, by itself, abort the
+  /// underlying Dio request; this makes that possible.
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,
     required int page,
@@ -129,6 +137,7 @@ abstract interface class BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    CancelToken? cancelToken,
   });
 
   /// The set of local days on which the authenticated caller has at least one
@@ -249,6 +258,7 @@ final class HttpBookingRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    CancelToken? cancelToken,
   }) async {
     // Canonicalised ONCE, here at the serialisation boundary. See the comment
     // on the `status` param below for why this stays despite perf P5, and why
@@ -322,6 +332,7 @@ final class HttpBookingRepository implements BookingRepository {
           if (from != null) 'from': toApiDate(from),
           if (to != null) 'to': toApiDate(to),
         },
+        cancelToken: cancelToken,
       );
       final decoded =
           _deserialize<ApiResponsePageResponseBookingDetailResponse>(

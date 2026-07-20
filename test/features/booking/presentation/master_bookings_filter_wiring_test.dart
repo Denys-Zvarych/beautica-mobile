@@ -130,6 +130,7 @@ void main() {
         statuses: any(named: 'statuses'),
         page: any(named: 'page'),
         size: any(named: 'size'),
+        cancelToken: any(named: 'cancelToken'),
         sort: any(named: 'sort'),
         serviceIds: any(named: 'serviceIds'),
         from: any(named: 'from'),

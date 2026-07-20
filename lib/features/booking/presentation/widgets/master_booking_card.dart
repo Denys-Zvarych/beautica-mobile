@@ -51,39 +51,58 @@ import 'booking_status_badge.dart';
 /// opens «Деталі запису» — it carries no per-action buttons (those live on the
 /// detail screen, Phase 7.3).
 ///
-/// [width]/[height] are OPTIONAL container constraints — added for Phase
-/// 7.10's `BookingsTimelineGrid`, whose lanes are a fixed width and whose
-/// short bookings (a 15-minute service, floored to a 48dp tap target) are far
-/// shorter than this card's natural content height. Left `null` (the default,
-/// every call site before Phase 7.10), the card sizes itself exactly as
-/// before — this is a strictly additive change.
+/// The card always sizes itself to its own natural content height — there is
+/// no duration-derived or otherwise externally forced height.
+/// `BookingsTimelineGrid` (Phase 7.10) constrains only this card's `width`
+/// (via a `SizedBox` in its per-lane `_LaneColumn`), never a `height:`,
+/// exactly mirroring the design's own `_TimelineGrid`
+/// (`bookings_toolbar.dart:1438-1448`). See that file's "R3" header section
+/// for why same-lane cards are laid out as a flex `Column` rather than
+/// absolutely `Positioned` siblings of a shared `Stack`.
 ///
-/// A non-null [height] does NOT change the card's typography, spacing, or
-/// internal layout — it wraps the unchanged card in a fixed-size viewport and
-/// visually CLIPS whatever does not fit, via [OverflowBox] (which lays the
-/// card out at its own natural height, unconstrained) inside a [ClipRect]
-/// (which then crops the paint — and the hit-test region — to [height]).
-/// This is deliberate: constraining the Column itself to a too-small tight
-/// height would overflow internally (RenderFlex's debug overflow indicator
-/// fires regardless of `clipBehavior`, which only affects whether the
-/// overflowing paint is clipped, not whether Flutter reports the overflow at
-/// all) — see the mobile-qa "Golden is not acceptance for visual bugs" /
-/// Phase 17.2 overflow-guard notes. Routing through [OverflowBox] instead
-/// means the Column is NEVER constrained tighter than it needs, so no
-/// overflow ever occurs; only the paint is cropped.
+/// An earlier version of this widget accepted optional `width`/`height`
+/// constructor params and, whenever `height` came in smaller than the card's
+/// natural size (as it always did for anything shorter than ~50 minutes —
+/// see `bookings_timeline_grid.dart`'s "R2" section), wrapped itself in an
+/// [OverflowBox] + [ClipRect] pair that laid the card out at its natural
+/// height and then visually CROPPED the paint — and the hit-test region — to
+/// the forced box. That was the exact mechanism behind the "I can see only
+/// half of the card" report against the real device. Do not reintroduce a
+/// forced height here: a future caller that genuinely needs a fixed-size card
+/// must crop the CONTENT (fewer rows), never the render of the full card.
 class MasterBookingCard extends StatefulWidget {
   const MasterBookingCard({
     super.key,
     required this.booking,
     required this.onTap,
-    this.width,
-    this.height,
   });
 
   final Booking booking;
   final VoidCallback onTap;
-  final double? width;
-  final double? height;
+
+  /// A documented ESTIMATE of this card's natural rendered height, used ONLY
+  /// by `BookingsTimelineGrid`'s collision-avoiding lane layout to decide how
+  /// much breathing room to leave between two same-lane cards when their
+  /// scheduled times are close together — see that file's "R3" header
+  /// section. Deliberately NOT a safety floor: the timeline's per-lane
+  /// `Column` layout can never let two cards overlap regardless of how far
+  /// this estimate drifts from a card's true height (a `Column` always
+  /// starts a child exactly after its predecessor's REAL rendered size, not
+  /// this planning number) — so getting this value slightly wrong only ever
+  /// costs a little visual density, never correctness.
+  ///
+  /// Derivation (mirrors the card's own fixed row stack, top to bottom):
+  /// `VelvetSpacing.md` padding ×2 (32) + the avatar row (46, the tallest
+  /// child) + a `VelvetSpacing.sm + 2` gap (10) + the divider (1) + another
+  /// `VelvetSpacing.sm + 2` gap (10) + the service/date row (~20, approximate
+  /// — text-metric driven) + a `VelvetSpacing.xs + 2` gap (6) + the
+  /// price/status row (24, `BookingStatusBadge`'s fixed height) ≈ 149dp. This
+  /// constant rounds up from that to absorb font-metric overhead (a
+  /// Nunito/Comfortaa glyph's real ascent+descent commonly exceeds its
+  /// nominal `fontSize * height`) and larger system font scales, so the
+  /// spacing this buys still looks reasonable at the common accessibility
+  /// text-scale steps.
+  static const double estimatedNaturalHeight = 190;
 
   @override
   State<MasterBookingCard> createState() => _MasterBookingCardState();
@@ -91,6 +110,71 @@ class MasterBookingCard extends StatefulWidget {
 
 class _MasterBookingCardState extends State<MasterBookingCard> {
   bool _pressed = false;
+
+  /// The card's two decoration states, hoisted out of [build] (mobile-perf
+  /// MEDIUM-4): `build()` reruns on every press
+  /// (`onTapDown`/`onTapCancel`/`onTapUp` each call `setState`) and on every
+  /// ancestor rebuild across up to ~100 cards on the busiest day, so
+  /// reallocating a fresh `BoxDecoration` + `Border.all` on every one of
+  /// those was pure waste — the decoration is a pure function of [_pressed],
+  /// which only ever takes two values. Exactly the same fix already applied
+  /// to `_ClientAvatar._border` below.
+  ///
+  /// `borderedCard`, NOT `extrudedCard` — the extruded pair's offset
+  /// near-white light shadow pokes past the rounded corner under Impeller and
+  /// paints a white wedge there (resolved 34db74f). The hairline border
+  /// defines the card instead.
+  static final BoxDecoration _decorationUnpressed = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.card),
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: 0.18),
+      width: 1,
+    ),
+    boxShadow: VelvetShadows.borderedCard,
+  );
+  static final BoxDecoration _decorationPressed = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.card),
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: 0.18),
+      width: 1,
+    ),
+  );
+
+  /// The client's avatar gradient, resolved ONCE per card lifetime rather
+  /// than on every `build()` — mobile-perf MEDIUM-2 (Phase 7.10 timeline
+  /// audit). `build()` reruns on every press (`onTapDown`/`onTapCancel`/
+  /// `onTapUp` each call `setState`) and on every ancestor rebuild across up
+  /// to ~100 cards on the busiest day, so re-walking
+  /// `ClientAvatarGradients.forKey`'s rolling hash and re-allocating the
+  /// gradient object on every one of those was pure waste: the identity this
+  /// is keyed on (`clientId ?? clientName ?? id`) does not change across a
+  /// press gesture. [didUpdateWidget] recomputes it only on the rare event
+  /// that identity actually changes under the SAME element (a booking's
+  /// client fields updated in place without the list also handing this
+  /// widget a new `Key`) — the common case (a different booking) already
+  /// gets a fresh `State` via `BookingsTimelineGrid`'s per-id `ValueKey`, so
+  /// [initState] alone covers it.
+  late List<Color> _avatarGradientColors;
+
+  @override
+  void initState() {
+    super.initState();
+    _avatarGradientColors = ClientAvatarGradients.forKey(
+      _avatarKey(widget.booking),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant MasterBookingCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_avatarKey(widget.booking) != _avatarKey(oldWidget.booking)) {
+      _avatarGradientColors = ClientAvatarGradients.forKey(
+        _avatarKey(widget.booking),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -114,19 +198,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
           duration: const Duration(milliseconds: 110),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              color: BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.card),
-              border: Border.all(
-                color: BrandColors.accent.withValues(alpha: 0.18),
-                width: 1,
-              ),
-              // `borderedCard`, NOT `extrudedCard` — the extruded pair's
-              // offset near-white light shadow pokes past the rounded corner
-              // under Impeller and paints a white wedge there (resolved
-              // 34db74f). The hairline border above defines the card instead.
-              boxShadow: _pressed ? null : VelvetShadows.borderedCard,
-            ),
+            decoration: _pressed ? _decorationPressed : _decorationUnpressed,
             padding: const EdgeInsets.all(VelvetSpacing.md),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,7 +207,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
                 // name gets the full remaining width (design's note).
                 Row(
                   children: <Widget>[
-                    _ClientAvatar(initials: b.clientInitials),
+                    _ClientAvatar(colors: _avatarGradientColors),
                     const SizedBox(width: VelvetSpacing.sm + 2),
                     Expanded(
                       child: Text(
@@ -196,33 +268,15 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
       ),
     );
 
-    final double? width = widget.width;
-    final double? height = widget.height;
-    if (width == null && height == null) return card;
-
-    // A non-null height wraps the (unconstrained) card in an OverflowBox so
-    // the Column inside it never sees a tight height it can't satisfy — see
-    // the class doc for why constraining the Column directly would trip the
-    // test suite's overflow guard even with `clipBehavior` set. ClipRect then
-    // crops both the paint AND the hit-test region to [height], so a card
-    // squeezed shorter than its content is visually truncated, not tappable
-    // past its visible bottom edge, and never throws.
-    return SizedBox(
-      width: width,
-      height: height,
-      child: height == null
-          ? card
-          : ClipRect(
-              child: OverflowBox(
-                alignment: Alignment.topCenter,
-                minHeight: 0,
-                maxHeight: double.infinity,
-                child: card,
-              ),
-            ),
-    );
+    return card;
   }
 }
+
+/// The stable identity a booking's client-avatar gradient is keyed on —
+/// shared between [_MasterBookingCardState.initState]/[_MasterBookingCardState.didUpdateWidget]
+/// so both compute the exact same key [ClientAvatarGradients.forKey] expects.
+String _avatarKey(Booking booking) =>
+    booking.clientId ?? booking.clientName ?? booking.id;
 
 /// A price pill — «450 ₴».
 ///
@@ -236,17 +290,27 @@ class _PriceTag extends StatelessWidget {
 
   final String price;
 
+  /// Hoisted out of [build] (mobile-perf LOW-5 — same root cause as
+  /// MEDIUM-4): the owning `MasterBookingCard` rebuilds on every press
+  /// (`onTapDown`/`onTapCancel`/`onTapUp` each call `setState`), which reruns
+  /// this `StatelessWidget`'s `build()` too across up to ~100 cards on the
+  /// busiest day. `Color.withValues` is not a const constructor, so this
+  /// can't be `static const`, but resolving it once at class-load time —
+  /// instead of once per press — is the same fix `_ClientAvatar._border` and
+  /// `_MasterBookingCardState`'s own card decoration apply.
+  static final BoxDecoration _decoration = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.pill),
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: 0.22),
+      width: 1,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: BorderRadius.circular(VelvetRadii.pill),
-        border: Border.all(
-          color: BrandColors.accent.withValues(alpha: 0.22),
-          width: 1,
-        ),
-      ),
+      decoration: _decoration,
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: VelvetSpacing.sm,
@@ -282,36 +346,65 @@ class _BookingDateChip extends StatelessWidget {
   }
 }
 
-/// A raised monogram avatar for the client, falling back to a person glyph
-/// when the booking carries no name.
+/// A raised circular gradient avatar with a person glyph — the client's
+/// placeholder photo. Transcribed from the design's `_ClientAvatar`
+/// (`booking_widgets.dart:295-331`): a two-colour top-left→bottom-right
+/// gradient picked deterministically per client via
+/// [ClientAvatarGradients.forKey], so the same client always renders the same
+/// gradient across rebuilds, screens, and app restarts.
+///
+/// mobile-perf MEDIUM-2 (Phase 7.10 timeline audit): takes the already
+/// resolved [colors] rather than a `gradientKey` string, so this `build()` —
+/// which reruns on every press of the owning `MasterBookingCard` — never
+/// re-walks [ClientAvatarGradients.forKey]'s hash loop. The caller
+/// (`_MasterBookingCardState`) resolves that once per card lifetime.
 class _ClientAvatar extends StatelessWidget {
-  const _ClientAvatar({required this.initials});
+  const _ClientAvatar({required this.colors});
 
-  final String? initials;
+  /// The client's avatar gradient stops, already resolved via
+  /// [ClientAvatarGradients.forKey].
+  final List<Color> colors;
 
   static const double _diameter = 46;
+
+  /// Hoisted out of [build] (mobile-perf MEDIUM-2): `Color.withValues` is not
+  /// a const constructor, so this can't be a `static const`, but computing it
+  /// once at class-load time — instead of once per `build()` call, i.e. on
+  /// every press of the owning card and every ancestor rebuild — is exactly
+  /// the same fix `VelvetText`'s cached statics apply to `TextStyle`s.
+  static final Border _border = Border.all(
+    color: BrandColors.white.withValues(alpha: 0.35),
+    width: 2,
+  );
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: _diameter,
       width: _diameter,
+      // Deliberately shadow-FREE — `impeller_circle_shadow_guard_test.dart`
+      // pins this widget (alongside `booking_counterparty_header.dart`'s
+      // `_ClientAvatar`) as one of the two circular client-monogram avatars
+      // that must never pair `shape: BoxShape.circle` with a `boxShadow`: on
+      // Impeller-GLES that combination rasterizes as a hard white square
+      // instead of a soft circle. [_border]'s hairline accent stands in for
+      // the depth a shadow would otherwise buy.
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: BrandColors.accent.withValues(alpha: 0.18),
-        border: Border.all(
-          color: BrandColors.accent.withValues(alpha: 0.35),
-          width: 1,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+        border: _border,
+      ),
+      child: Center(
+        child: Icon(
+          Icons.person_rounded,
+          color: BrandColors.white.withValues(alpha: 0.82),
+          size: 22,
         ),
       ),
-      alignment: Alignment.center,
-      child: initials == null
-          ? const Icon(
-              Icons.person_rounded,
-              size: 22,
-              color: BrandColors.accentDeep,
-            )
-          : Text(initials!, style: VelvetText.masterCardInitials),
     );
   }
 }

@@ -655,4 +655,131 @@ void main() {
       expect(find.text(l10n.weekdayShortTue), findsOne);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Chip geometry — the 78->70dp height / 10->16dp caption-gap parity fix
+  // -------------------------------------------------------------------------
+  //
+  // mobile-qa (2026-07-20): neither value had a direct pixel pin before this
+  // group. Every `pumpApp` call in this file already arms
+  // `installOverflowGuard` (see `pump_app.dart`), so a regression that made
+  // the chip's real content TALLER than its box already failed here via a
+  // RenderFlex overflow — but that only protects against the box being too
+  // SMALL. A silent drift back toward the old, less-correct 78dp/10dp pair
+  // does not overflow anything, so nothing failed. These tests close that
+  // gap by measuring the REAL rendered tree (`tester.getSize`/`getRect`),
+  // never the private `_railHeight`/`_dayChipCaptionGap` constants — reading
+  // the constants back would pass vacuously if the widget ever stopped
+  // consuming them consistently.
+  //
+  // The two numbers are not independent. `_railHeight`'s 70dp -- and the
+  // 78dp it replaced -- exist to absorb `VelvetText`'s line-height
+  // multipliers on top of `railDayNumber`'s deliberately small 12.6sp
+  // (commit 4f2b811). Pinning the height alone, without also proving the
+  // chip's actual content still fits inside it at that font size, would
+  // leave exactly the regression 78dp was raised to cover unguarded: shrink
+  // the height (or grow the gap) without checking the sum against the real
+  // font metrics, and the column overflows again. Both halves are proven
+  // together below -- the second test completing (its geometry assertions
+  // running, then a clean `tearDown`) IS the "still fits, no overflow" proof
+  // for the 70dp/16dp pairing.
+  group('chip geometry -- 78->70dp / 10->16dp design-parity pin', () {
+    testWidgets(
+      'the rail renders at the design\'s 70dp height, not the earlier 78dp',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 18);
+        // Wrapped in a bare `Column`, matching how `BookingsDiscoveryView`
+        // actually places the rail — a plain (non-`Expanded`) child among
+        // its other sections. A `Column` hands a non-flex child LOOSE
+        // constraints, so the rail's own `SizedBox(height: _railHeight)`
+        // resolves to its real 70dp. Pumping the rail bare as `pumpApp`'s
+        // `home:` would instead hand it the TIGHT full-test-window height
+        // (600dp) straight from the root — that measures the test surface,
+        // not the widget, and was this test's own first failed draft.
+        await tester.pumpApp(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _rail(firstDay: today, today: today, dayCount: 3),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final double height = tester
+            .getSize(find.byKey(const Key('master-bookings-day-rail')))
+            .height;
+        expect(
+          height,
+          70.0,
+          reason:
+              'the rail strip must render at the design\'s own 70dp -- the '
+              'earlier 78dp bump existed only to cover a since-fixed '
+              'VelvetText line-height overflow and must not silently come '
+              'back',
+        );
+      },
+    );
+
+    testWidgets(
+      'the weekday caption sits 16dp above the day number, and the chip '
+      'fits inside the 70dp box with no overflow',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 18);
+        // Same `Column`-wrapped ambient constraints as the height test above
+        // — see its comment for why the bare `pumpApp` home would otherwise
+        // stretch the rail to the full test-window height instead of its
+        // real 70dp, which would make the overflow-fit proof this test also
+        // performs meaningless (a 600dp box can absorb any gap).
+        await tester.pumpApp(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _rail(firstDay: today, today: today, dayCount: 3),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Two `Text` widgets inside one chip's Column, in top-to-bottom
+        // render order -- weekday caption first, day number second. Located
+        // structurally (never by locale text), so this stays valid under any
+        // locale.
+        final Finder chipTexts = find.descendant(
+          of: find.byKey(dayChipKey(today)),
+          matching: find.byType(Text),
+        );
+        expect(
+          chipTexts,
+          findsNWidgets(2),
+          reason:
+              'precondition: exactly the weekday caption + the day number -- '
+              'a third Text here would mean the chip changed shape and the '
+              'geometry below would no longer measure what it claims to',
+        );
+
+        final Rect weekdayRect = tester.getRect(chipTexts.at(0));
+        final Rect dayNumberRect = tester.getRect(chipTexts.at(1));
+        final double gap = dayNumberRect.top - weekdayRect.bottom;
+
+        expect(
+          gap,
+          closeTo(16, 0.5),
+          reason:
+              'the weekday-to-day-number gap must render at the design\'s '
+              '16dp -- the earlier 10dp bump existed only alongside the old '
+              '78dp height and must not silently come back on its own',
+        );
+
+        // No explicit overflow assertion needed here: `pumpApp` above already
+        // armed `installOverflowGuard`, which fails this test at `tearDown`
+        // if the chip Column's REAL content (weekday text + this 16dp gap +
+        // the day-number text at its real 12.6sp metrics + the 4dp dot gap +
+        // the dot) exceeded the rail's real 70dp height. This test running to
+        // completion -- including the geometry assertions above, which
+        // execute before tearDown -- is the "still fits, no overflow" half
+        // of the pairing this group's header calls out as the actual risk.
+      },
+    );
+  });
 }

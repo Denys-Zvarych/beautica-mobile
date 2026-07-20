@@ -287,6 +287,83 @@ void main() {
         );
       },
     );
+
+    // mobile-qa (2026-07-20) — `_ClientStrip`'s `isDead` dimming
+    // (`booking_counterparty_header.dart`) had no test anywhere in the suite:
+    // the only other reference to this widget is a shadow-decoration guard,
+    // not a behavioural one. A CANCELLED/DECLINED counterparty must render at
+    // `Opacity(0.7)` — the same treatment `MasterStripFromBooking` gives the
+    // master strip on the client side — so the two branches read as one
+    // screen; a regression here (e.g. the status check inverted or dropped)
+    // would silently un-dim a dead booking's client row with nothing to catch
+    // it.
+    testWidgets('a CANCELLED booking dims the client strip to Opacity(0.7); a '
+        'CONFIRMED one renders at full opacity', (tester) async {
+      await _pump(
+        tester,
+        _booking(status: BookingStatus.cancelled),
+        role: UserRole.independentMaster,
+      );
+
+      final Opacity dimmed = tester.widget<Opacity>(
+        find
+            .ancestor(
+              of: find.byKey(const Key('booking-detail-client-strip')),
+              matching: find.byType(Opacity),
+            )
+            .first,
+      );
+      expect(
+        dimmed.opacity,
+        0.7,
+        reason:
+            'a CANCELLED booking\'s counterparty must be visibly dimmed, '
+            'mirroring MasterStripFromBooking\'s own dead-booking treatment',
+      );
+    });
+
+    testWidgets(
+      'a DECLINED booking also dims the client strip to Opacity(0.7)',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(status: BookingStatus.declined),
+          role: UserRole.independentMaster,
+        );
+
+        final Opacity dimmed = tester.widget<Opacity>(
+          find
+              .ancestor(
+                of: find.byKey(const Key('booking-detail-client-strip')),
+                matching: find.byType(Opacity),
+              )
+              .first,
+        );
+        expect(dimmed.opacity, 0.7);
+      },
+    );
+
+    testWidgets(
+      'a CONFIRMED (live) booking renders the client strip at full opacity — '
+      'the dimming is status-scoped, not unconditional',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(status: BookingStatus.confirmed),
+          role: UserRole.independentMaster,
+        );
+
+        final Opacity live = tester.widget<Opacity>(
+          find
+              .ancestor(
+                of: find.byKey(const Key('booking-detail-client-strip')),
+                matching: find.byType(Opacity),
+              )
+              .first,
+        );
+        expect(live.opacity, 1);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

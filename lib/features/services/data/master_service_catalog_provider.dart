@@ -63,10 +63,36 @@
 // from the catalogue, so its historical bookings cannot be filtered BY service.
 // They remain fully visible unfiltered. This is expected behaviour, not a gap
 // to work around.
+//
+// ## Session identity is watched EXPLICITLY (mobile-security MEDIUM-2,
+// 2026-07-20) — do not rely on the `serviceRepositoryProvider` cascade alone
+//
+// This `keepAlive` provider's only protection against serving a previous
+// account's service names across a logout was, until this fix, INCIDENTAL:
+// `ref.watch(serviceRepositoryProvider)` transitively watches
+// `masterProfileProvider`, which itself watches `authProvider` — so an
+// identity change happened to cascade through two hops. That chain is
+// convention, not a guarantee: it silently stops protecting this provider the
+// moment `serviceRepositoryProvider` is ever refactored to source its
+// `masterId` some other way, and it was already only half the story — the
+// "Consumers must read `asData?.value`, never `.value`" rule above is the
+// OTHER half, and depends on every future call site remembering it.
+//
+// [masterServiceCatalog] now `ref.watch`es the authenticated user's id
+// directly, mirroring `BookingsDayNotifier.build` /
+// `bookedDays`'s identical fix — narrowed to `.select((s) => ...id)`, never
+// the whole `AsyncValue<AuthSession>`, so a silent token refresh
+// (`AuthNotifier.setAccessToken`, same id/new accessToken) stays a no-op for
+// this cache instead of forcing a refetch on every silent refresh.
 
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import '../../auth/domain/auth_session.dart';
+import '../../auth/domain/user.dart';
+import '../../auth/presentation/auth_notifier.dart';
 
 part 'master_service_catalog_provider.g.dart';
 
@@ -80,5 +106,16 @@ part 'master_service_catalog_provider.g.dart';
 /// header for why this does not reuse `servicesListProvider`.
 @Riverpod(keepAlive: true)
 Future<List<MasterService>> masterServiceCatalog(Ref ref) {
+  // Security (mobile-security MEDIUM-2, 2026-07-20) — see the file header.
+  // Explicit identity watch, independent of whatever `serviceRepositoryProvider`
+  // happens to depend on today.
+  ref.watch(
+    authProvider.select(
+      (AsyncValue<AuthSession> session) => switch (session.value) {
+        Authenticated(:final User user) => user.id,
+        Unauthenticated() || null => null,
+      },
+    ),
+  );
   return ref.watch(serviceRepositoryProvider).listMyServices();
 }

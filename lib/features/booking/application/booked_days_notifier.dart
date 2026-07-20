@@ -18,13 +18,58 @@
 //
 // Invalidate this after any action that changes a booking's EXISTENCE
 // (Phase 7.3 cancel / no-show); a mere status change does not move a dot.
+//
+// ## Session-boundary PII (mobile-security HIGH, 2026-07-20) — mirrors
+// `bookings_day_notifier.dart`'s fix line-for-line
+//
+// This is a `keepAlive()` singleton with a 30-minute TTL and, before this
+// fix, ZERO `ref.watch` calls — exactly the shape `BookingsDayNotifier.build`
+// had before its own mobile-security HIGH fix (2026-07-19). On a shared
+// device: Master A opens «Мої записи», logs out within the 30-minute TTL;
+// Master B logs in and the rail renders A's booked-day dots on first paint —
+// no loading state, no refetch, because a `keepAlive()`d provider is immune
+// to the `ref.watch(authProvider)` cascade every other per-user cache in this
+// codebase relies on to self-clear on logout.
+//
+// Fixed with [build] now `ref.watch`ing the authenticated user's id (below) —
+// see `bookings_day_notifier.dart`'s file header ("Session-boundary PII",
+// verified against Riverpod 3.2.1's own disposal internals) for the full
+// reasoning behind why this ALONE is sufficient for BOTH the actively
+// watched and the unwatched case: `invalidateSelf()` unconditionally severs
+// every `KeepAliveLink` an element holds — including the one this provider's
+// own `ref.keepAlive()` call below returns — then queues either disposal (no
+// active listener) or a rebuild (an active one) for the very next event-loop
+// turn.
+//
+// Deliberately narrowed to `.select((s) => ...id)`, never the whole
+// `AsyncValue<AuthSession>`: a silent token refresh
+// (`AuthNotifier.setAccessToken`) emits a new session with the SAME id, and
+// watching the full session would treat that as an identity change and
+// refetch the whole ±180-day sweep on every silent refresh — quietly
+// defeating the 30-minute TTL this file exists to add.
+//
+// Unlike `bookingsDayProvider`, this provider is NOT a family with an
+// external LRU bookkeeping map, so there is no second, `AuthNotifier.logout`-
+// side sweep to add: the `keepAlive()` link lives entirely inside THIS
+// provider's own Riverpod element, and the watch above is what reclaims it.
+// A deliberate `ref.invalidate(bookedDaysProvider)` call from inside
+// `AuthNotifier.logout` was considered and rejected — `logout` itself already
+// documents why calling `ref.invalidate` on a provider that transitively
+// `ref.watch`es `authProvider`, from INSIDE that same auth notifier's own
+// state transition, records a back-edge Riverpod's `CircularDependencyError`
+// assert (debug/test only) rejects; the watch below reaches the exact same
+// outcome through the ordinary cascade instead.
 
 import 'dart:async';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 
+import '../../auth/domain/auth_session.dart';
+import '../../auth/domain/user.dart';
+import '../../auth/presentation/auth_notifier.dart';
 import '../data/booking_providers.dart';
 
 part 'booked_days_notifier.g.dart';
@@ -47,6 +92,19 @@ const int kBookedDaysSpanDays = 180;
 /// Generated provider name: `bookedDaysProvider`.
 @riverpod
 Future<Set<DateTime>> bookedDays(Ref ref) async {
+  // Security (mobile-security HIGH, 2026-07-20) — see the file header's
+  // "Session-boundary PII" section. Ties this singleton's lifetime to the
+  // AUTHENTICATED IDENTITY, not just to its listeners, exactly like
+  // `BookingsDayNotifier.build`'s identical watch.
+  ref.watch(
+    authProvider.select(
+      (AsyncValue<AuthSession> session) => switch (session.value) {
+        Authenticated(:final User user) => user.id,
+        Unauthenticated() || null => null,
+      },
+    ),
+  );
+
   // Survive navigation for 30 minutes (perf P3). This is the single heaviest
   // request in the feature — a full ±180-day sweep — and plain autoDispose
   // re-issued it on every entry to «Мої записи» AND every return from a

@@ -926,6 +926,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<Map<String, dynamic>>(
@@ -953,6 +954,7 @@ void main() {
                 () => dio.get<Map<String, dynamic>>(
                   _myBookingsPath,
                   queryParameters: captureAny(named: 'queryParameters'),
+                  cancelToken: any(named: 'cancelToken'),
                 ),
               ).captured.single
               as Map<String, dynamic>;
@@ -963,6 +965,47 @@ void main() {
     });
 
     test(
+      'mobile-perf MEDIUM-3 (2026-07-20): a supplied cancelToken reaches the '
+      'underlying dio.get call UNCHANGED — an abandoned rail-scrub request '
+      'must actually be abortable, not silently dropped on the floor',
+      () async {
+        final envelope = _serializeMyBookingsEnvelope(const []);
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        final CancelToken token = CancelToken();
+        await repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          sort: BookingSort.newest,
+          page: 0,
+          cancelToken: token,
+        );
+
+        final captured =
+            verify(
+                  () => dio.get<Map<String, dynamic>>(
+                    _myBookingsPath,
+                    queryParameters: any(named: 'queryParameters'),
+                    cancelToken: captureAny(named: 'cancelToken'),
+                  ),
+                ).captured.single
+                as CancelToken?;
+        expect(captured, same(token));
+      },
+    );
+
+    test(
       'multiple statuses are sent as a repeated status list, not a single '
       'value (backend Phase 26.1 — one request per tab, server-unioned)',
       () async {
@@ -971,6 +1014,7 @@ void main() {
           () => dio.get<Map<String, dynamic>>(
             _myBookingsPath,
             queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
           ),
         ).thenAnswer(
           (_) async => Response<Map<String, dynamic>>(
@@ -994,6 +1038,7 @@ void main() {
                   () => dio.get<Map<String, dynamic>>(
                     _myBookingsPath,
                     queryParameters: captureAny(named: 'queryParameters'),
+                    cancelToken: any(named: 'cancelToken'),
                   ),
                 ).captured.single
                 as Map<String, dynamic>;
@@ -1012,6 +1057,7 @@ void main() {
           () => dio.get<Map<String, dynamic>>(
             _myBookingsPath,
             queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
           ),
         ).thenAnswer(
           (_) async => Response<Map<String, dynamic>>(
@@ -1032,6 +1078,7 @@ void main() {
                   () => dio.get<Map<String, dynamic>>(
                     _myBookingsPath,
                     queryParameters: captureAny(named: 'queryParameters'),
+                    cancelToken: any(named: 'cancelToken'),
                   ),
                 ).captured.single
                 as Map<String, dynamic>;
@@ -1045,6 +1092,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<Map<String, dynamic>>(
@@ -1066,6 +1114,7 @@ void main() {
                 () => dio.get<Map<String, dynamic>>(
                   _myBookingsPath,
                   queryParameters: captureAny(named: 'queryParameters'),
+                  cancelToken: any(named: 'cancelToken'),
                 ),
               ).captured.single
               as Map<String, dynamic>;
@@ -1079,6 +1128,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenThrow(_dioConnectionError(_myBookingsPath));
 
@@ -1114,6 +1164,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<Map<String, dynamic>>(
@@ -1139,6 +1190,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenThrow(
         DioException(
