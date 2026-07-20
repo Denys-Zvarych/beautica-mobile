@@ -237,7 +237,7 @@ void main() {
       );
       expect(todayCell, findsOneWidget);
 
-      await tester.tap(todayCell);
+      await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
 
       expect(fake.callCount, 1);
@@ -418,7 +418,7 @@ void main() {
               'not over-disable available days',
         );
 
-        await tester.tap(todayCell);
+        await tester.tapCalendarDay(today.day);
         await tester.pumpAndSettle();
 
         expect(fake.callCount, 1);
@@ -576,6 +576,66 @@ void main() {
         );
       },
     );
+
+    // Regression guard (chrome-height clipping fix) — `MonthCalendar` sits
+    // inside a `SingleChildScrollView`; on the default flutter_test surface
+    // the surrounding chrome (top bar + master strip) can leave less
+    // viewport than the 5-row grid needs, scrolling the last row or two out
+    // of view. `tapCalendarDay` (test/helpers/pump_app.dart) fixes this with
+    // `ensureVisible`, mirroring what a real user does by scrolling. This
+    // test deliberately targets a day GUARANTEED to land in the grid's LAST
+    // (5th) row — unlike "today" (whose row drifts with the calendar date
+    // and would make a regression guard silently stop testing anything once
+    // "today" happened to land in an earlier row) — so it keeps exercising
+    // the scrolled-offscreen path no matter what date the suite runs on.
+    testWidgets('a day in the calendar\'s guaranteed LAST row is reachable via '
+        'ensureVisible and drives the same navigation as any other tappable '
+        'day', (tester) async {
+      // Day 29 always falls in the grid's 5th row (0-indexed row 4) for
+      // any month with >=29 days: the grid is Monday-first, so the
+      // leading-blank count before day 1 ranges 0..6, putting day 29's
+      // flat cell index (leadingBlanks + 28) somewhere in 28..34 — and
+      // every value in that range floor-divides by 7 to exactly 4. The
+      // sole month without a day 29 is February in a non-leap year (28
+      // days), so this walks forward from "today" to the first
+      // >=29-day month, guaranteeing both a real day-29 cell AND that
+      // it's strictly in the future (so the default "not in the past"
+      // availability check never disqualifies it).
+      final DateTime now = DateTime.now();
+      DateTime target = DateTime(now.year, now.month + 1, 1);
+      int monthsAhead = 1;
+      while (DateTime(target.year, target.month + 1, 0).day < 29) {
+        target = DateTime(target.year, target.month + 1, 1);
+        monthsAhead++;
+      }
+
+      final fake = _FakeSlotRepository(const <BookingSlot>[]);
+      final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+      );
+      await tester.pumpAndSettle();
+
+      for (int i = 0; i < monthsAhead; i++) {
+        await tester.tap(find.byKey(const Key('booking-calendar-next-month')));
+        await tester.pumpAndSettle();
+      }
+
+      final Finder day29Cell = find.byKey(const Key('booking-calendar-day-29'));
+      expect(day29Cell, findsOneWidget);
+
+      await tester.tapCalendarDay(29);
+      await tester.pumpAndSettle();
+
+      expect(fake.callCount, 1);
+      expect(fake.lastDate, DateTime(target.year, target.month, 29));
+
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+    });
 
     // Phase 14.14 QA gap-fix — the acceptance criterion "a day absent from
     // the resolved set defaults to non-working, never tappable" was
@@ -826,7 +886,7 @@ void main() {
 
       // Select today, then advance.
       final DateTime today = DateTime.now();
-      await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+      await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
       await tester.tap(cta);
       await tester.pumpAndSettle();
@@ -869,7 +929,7 @@ void main() {
       // requested, so the exact tapped day-of-month is irrelevant to the
       // fixture that ends up in `slotPickerProvider.slots`.
       final DateTime today = DateTime.now();
-      await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+      await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await tester.pumpAndSettle();
@@ -1106,7 +1166,7 @@ void main() {
         await tester.pumpAndSettle();
 
         final DateTime today = DateTime.now();
-        await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+        await tester.tapCalendarDay(today.day);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('booking-summary-cta')));
         await tester.pumpAndSettle();
@@ -1146,7 +1206,7 @@ void main() {
         await tester.pumpAndSettle();
 
         final DateTime today = DateTime.now();
-        await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+        await tester.tapCalendarDay(today.day);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('booking-summary-cta')));
         await tester.pumpAndSettle();

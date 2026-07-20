@@ -1108,7 +1108,7 @@ void main() {
         // Leg 1: Date → Time (real push, mirrors `pumpTimeScreen` in
         // `slot_picker_test.dart`).
         final DateTime today = DateTime.now();
-        await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+        await tester.tapCalendarDay(today.day);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('booking-summary-cta')));
         await tester.pumpAndSettle();
