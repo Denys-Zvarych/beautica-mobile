@@ -255,6 +255,11 @@ class BookingsDayRail extends StatelessWidget {
               weekday: weekdayShort[d.weekday - 1],
               selected: selectedDay == d,
               isToday: d == today,
+              // `d.isBefore(today)` is false for `d == today` by
+              // construction — today is never "past" — but [_DayChip]
+              // restates that precedence explicitly rather than leaning on
+              // this call site alone. See its doc.
+              isPast: d.isBefore(today),
               hasBookings: bookedDays.contains(d),
               onTap: () => onSelectDay(d),
               semanticLabel: l10n.masterBookingsDaySemantics(
@@ -271,12 +276,33 @@ class BookingsDayRail extends StatelessWidget {
 
 /// One day cell. No background decoration — selection is text colour only;
 /// today (unselected) gets an accent underline; a camel dot marks bookings.
+///
+/// A day strictly before [isPast]'s referent (today) reads muted — the
+/// weekday caption and day number desaturate to [BrandColors.muted], the
+/// established "receded" token in this palette (never a cold grey — see the
+/// design system doc). Precedence, made explicit rather than left to fall
+/// out of evaluation order:
+///   * SELECTED beats past. A selected past day (the master browsing
+///     history) must still read as selected — otherwise there is no visual
+///     confirmation of what is currently open.
+///   * TODAY is never past. [isPast] is `false` for `date == today` by the
+///     caller's construction (`d.isBefore(today)`), so this falls out
+///     naturally, but it is the reason [isToday]'s bold/underline treatment
+///     never has to defend against [isPast] — the two are mutually
+///     exclusive by definition, not by a runtime check here.
+///
+/// The has-bookings dot deliberately does NOT mute for past days — it stays
+/// full [BrandColors.accent] regardless. The dot's whole job is to make the
+/// rail scannable for "where is the work", and that is exactly as true
+/// scrolling back through history as it is scrolling forward; muting it
+/// would fight the ability to spot a past booked day at a glance.
 class _DayChip extends StatelessWidget {
   const _DayChip({
     required this.date,
     required this.weekday,
     required this.selected,
     required this.isToday,
+    required this.isPast,
     required this.hasBookings,
     required this.onTap,
     required this.semanticLabel,
@@ -286,16 +312,28 @@ class _DayChip extends StatelessWidget {
   final String weekday;
   final bool selected;
   final bool isToday;
+
+  /// Whether [date] is strictly before today. Never `true` for today itself
+  /// — see the class doc's precedence note.
+  final bool isPast;
   final bool hasBookings;
   final VoidCallback onTap;
   final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
+    // Selection outranks pastness — see the class doc.
+    final bool muted = isPast && !selected;
     final Color weekdayColor = selected
         ? BrandColors.accentDeep
+        : muted
+        ? BrandColors.muted
         : BrandColors.textSecondary;
-    final Color numberColor = selected ? BrandColors.accent : BrandColors.text;
+    final Color numberColor = selected
+        ? BrandColors.accent
+        : muted
+        ? BrandColors.muted
+        : BrandColors.text;
 
     return Semantics(
       button: true,
@@ -331,7 +369,9 @@ class _DayChip extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               // Always laid out — transparent when there is no booking — so a
-              // dot appearing never reflows the column.
+              // dot appearing never reflows the column. Deliberately NOT
+              // gated on `muted`/`isPast` — see the class doc: the dot stays
+              // full accent on a past day so history remains scannable.
               Container(
                 key: hasBookings ? dayDotKey(date) : null,
                 height: 5,

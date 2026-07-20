@@ -199,14 +199,20 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     );
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
 
-    // Centre the rail on today once first layout has happened
+    // Align the rail to today-first once first layout has happened
     // (`position.viewportDimension` is 0 before it). Unlike the retired
     // screen's `_centreRailOnOpen`, this needs no async gate on
-    // `bookedDaysProvider` resolving — the day to centre on is already known
+    // `bookedDaysProvider` resolving — the day to align on is already known
     // synchronously (there is no "nearest booked day" search any more).
+    //
+    // `_alignRailTodayFirst`, NOT `_centreRailOn` — the INITIAL resting
+    // position is today-leftmost, not today-centred. See
+    // `_alignRailTodayFirst`'s doc for why, and for why every OTHER
+    // rail-scroll call site (`_prevMonth`/`_nextMonth`/`_goToToday`) keeps
+    // centring unchanged.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _centreRailOn(_day);
+      _alignRailTodayFirst(_day);
     });
   }
 
@@ -249,6 +255,54 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     } else {
       _railController.jumpTo(clamped);
     }
+  }
+
+  /// Scrolls the rail so [day] renders as the FIRST (leftmost) visible day
+  /// chip — the design decision this screen opens on: a master should land
+  /// on "today, then what's ahead" rather than a centred view that spends
+  /// half the viewport on days already past.
+  ///
+  /// Used ONLY for the rail's INITIAL resting position (`initState`'s
+  /// post-frame callback). Every other rail-scroll call site —
+  /// [_centreRailOn], via [_prevMonth]/[_nextMonth]/[_goToToday] — keeps
+  /// centring: those are user-INITIATED jumps to a day that is not already
+  /// on screen, where centring the target in the viewport (rather than
+  /// pinning it to an edge) is the more legible landing spot. Only the
+  /// screen's FIRST paint changes.
+  ///
+  /// Unlike [_centreRailOn] this needs no `viewportDimension` term — "flush
+  /// left" does not depend on how much viewport there is, only on [day]'s
+  /// item index and [kRailItemExtent]: scrolling exactly `itemIndex *
+  /// kRailItemExtent` puts that item's leading edge at the same on-screen
+  /// position item 0 occupies at scroll offset zero (the `ListView`'s
+  /// leading `padding` is unaffected by the offset chosen here, so [day]
+  /// lands with the identical left inset item 0 normally has).
+  ///
+  /// This deliberately does NOT touch [_railFirstDay]/`dayCount` — the rail
+  /// keeps spanning the full today ± `kBookedDaysSpanDays` range; only the
+  /// resting SCROLL POSITION moves. At this offset the calendar button
+  /// (lead item 0, `kRailLeadItems + 180` slots to the left of today) and
+  /// every past day scroll out of the initial viewport — showing a
+  /// leftmost-today AND an on-screen calendar button 180 chips away is not
+  /// achievable in one flat scrolling list, and nothing here shrinks that
+  /// list to fake it (that would be the `_clampToRailSpan`/forward-only-range
+  /// mistake this change must NOT make). The calendar button and every past
+  /// day remain fully reachable by scrolling left — `maxScrollExtent` is
+  /// untouched — mirroring the already-established
+  /// `master_bookings_filter_wiring_test.dart` pattern of scrolling back to
+  /// reach the calendar button after the rail auto-positions on open.
+  void _alignRailTodayFirst(DateTime day) {
+    if (!_railController.hasClients) return;
+    final ScrollPosition position = _railController.position;
+    if (position.viewportDimension <= 0) return;
+
+    // Same DST-safe day-index derivation `_centreRailOn` uses — see that
+    // method's doc for why `.difference(...).inDays` is unsafe here.
+    final int dayIndex = calendarDayCount(_railFirstDay, dateOnly(day));
+    final int itemIndex = kRailLeadItems + dayIndex;
+    final double target = itemIndex * kRailItemExtent;
+    final double clamped = target.clamp(0.0, position.maxScrollExtent);
+    _railController.jumpTo(clamped);
   }
 
   // ── Month switcher (findings #4/#5) ─────────────────────────────────────

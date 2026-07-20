@@ -30,6 +30,7 @@
 //     rather than a job-wide zone, and why zone-independence is unreachable
 //     here.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -654,6 +655,164 @@ void main() {
       expect(find.text(l10n.weekdayShortMon), findsOne);
       expect(find.text(l10n.weekdayShortTue), findsOne);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Past-day muting — days strictly before today recede visually
+  // -------------------------------------------------------------------------
+  //
+  // Precedence pinned here, matching `_DayChip`'s doc:
+  //   * a PAST, UNSELECTED day mutes to `BrandColors.muted` — the palette's
+  //     established "receded" token, never a cold grey.
+  //   * TODAY never mutes, selected or not — it is never "past" by
+  //     construction.
+  //   * a SELECTED past day (the master browsing history) still reads as
+  //     selected (full accent), NOT muted — selection outranks pastness.
+  //   * the has-bookings dot stays full accent on a past day regardless of
+  //     selection — muting it would fight the rail's "where is the work"
+  //     scannability. Pinned as a DELIBERATE choice, not an oversight.
+  group('past-day muting', () {
+    /// The day-number `Text`'s resolved colour for the cell keyed to [day] —
+    /// the second `Text` in the chip's column (weekday caption, then day
+    /// number; see the geometry group below for the same structural
+    /// addressing).
+    Color dayNumberColor(WidgetTester tester, DateTime day) {
+      final Text text = tester.widget<Text>(
+        find
+            .descendant(
+              of: find.byKey(dayChipKey(day)),
+              matching: find.byType(Text),
+            )
+            .at(1),
+      );
+      return text.style!.color!;
+    }
+
+    testWidgets(
+      'a past, unselected day mutes its day number to BrandColors.muted',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 20);
+        final DateTime past = railDayAt(today, -3);
+        await tester.pumpApp(
+          _rail(
+            firstDay: railDayAt(today, -5),
+            today: today,
+            dayCount: 10,
+            selectedDay: today,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The day-number Text is the second of the chip's two Texts.
+        final Finder chipTexts = find.descendant(
+          of: find.byKey(dayChipKey(past)),
+          matching: find.byType(Text),
+        );
+        final Text dayNumberText = tester.widget<Text>(chipTexts.at(1));
+        expect(
+          dayNumberText.style!.color,
+          BrandColors.muted,
+          reason:
+              'a past unselected day must render its number in '
+              'BrandColors.muted, the palette\'s established receded token.',
+        );
+
+        final Text weekdayText = tester.widget<Text>(chipTexts.at(0));
+        expect(
+          weekdayText.style!.color,
+          BrandColors.muted,
+          reason: 'the weekday caption mutes alongside the day number.',
+        );
+      },
+    );
+
+    testWidgets(
+      'today is NEVER muted, even though it renders unselected here',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 20);
+        await tester.pumpApp(
+          _rail(
+            firstDay: railDayAt(today, -5),
+            today: today,
+            dayCount: 10,
+            // A day other than today is selected, so today itself renders
+            // UNSELECTED — the only state in which muting could plausibly
+            // (and wrongly) apply to it.
+            selectedDay: railDayAt(today, 1),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          dayNumberColor(tester, today),
+          isNot(BrandColors.muted),
+          reason:
+              'today must never render muted — being in the past never '
+              'applies to today.',
+        );
+        expect(dayNumberColor(tester, today), BrandColors.text);
+      },
+    );
+
+    testWidgets(
+      'a SELECTED past day reads as selected (full accent), not muted — '
+      'selection outranks pastness',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 20);
+        final DateTime past = railDayAt(today, -3);
+        await tester.pumpApp(
+          _rail(
+            firstDay: railDayAt(today, -5),
+            today: today,
+            dayCount: 10,
+            selectedDay: past,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          dayNumberColor(tester, past),
+          BrandColors.accent,
+          reason:
+              'a selected past day must still read as selected — otherwise '
+              'the master browsing history cannot see what is currently '
+              'open.',
+        );
+        expect(dayNumberColor(tester, past), isNot(BrandColors.muted));
+      },
+    );
+
+    testWidgets(
+      'the has-bookings dot stays full accent on a past day — history '
+      'remains scannable by design',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 20);
+        final DateTime past = railDayAt(today, -3);
+        await tester.pumpApp(
+          _rail(
+            firstDay: railDayAt(today, -5),
+            today: today,
+            dayCount: 10,
+            selectedDay: today,
+            bookedDays: <DateTime>{past},
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Container dot = tester.widget<Container>(
+          find.byKey(dayDotKey(past)),
+        );
+        final BoxDecoration decoration = dot.decoration! as BoxDecoration;
+        expect(
+          decoration.color,
+          BrandColors.accent,
+          reason:
+              'the booking dot must stay full accent on a past day — muting '
+              'it would defeat the rail\'s scannability for where the work '
+              'is, including in history.',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
