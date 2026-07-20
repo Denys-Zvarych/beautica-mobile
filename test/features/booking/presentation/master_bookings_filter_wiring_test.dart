@@ -327,7 +327,17 @@ void main() {
         find.byKey(const Key('master-bookings-filter-badge')),
         findsOneWidget,
       );
-      expect(find.text('2'), findsOneWidget);
+      // Scoped to the badge container itself — a bare `find.text('2')` also
+      // matches any day-rail date number that happens to read "2" (a
+      // date-dependent collision hit on 2026-07-21; see
+      // `TimelineHourRuler`-scoping precedent for the same class of fix).
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-bookings-filter-badge')),
+          matching: find.text('2'),
+        ),
+        findsOneWidget,
+      );
     });
 
     // MUTATION: made `_clearAllFilters` preserve the statuses → this test
