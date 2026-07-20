@@ -156,6 +156,91 @@
 // for everything roomier.
 //
 // ============================================================================
+// ADDENDUM 2 (2026-07-20) — PROPORTIONAL-DURATION-HEIGHT PASS
+// ============================================================================
+// The compact-timeline pass above (`MasterBookingCard`'s own class doc) fixed
+// the DRIFT report by shrinking the card so it usually fit inside its own
+// slot. It deliberately left every card the SAME height regardless of
+// duration — a 90-minute service and a 30-minute service rendered
+// identically, so the grid never visually communicated "this service takes
+// three times as long". This pass makes the card's real footprint track its
+// `durationMinutes`, floored at one 30-minute slot, WITHOUT reopening the R2
+// clipping bug — the mechanism matters, so read this before touching either
+// number below.
+//
+// THE MEASUREMENT THAT PICKED THE NEW SCALE:
+//   `MasterBookingCard`'s real rendered height (no forced height, `Center`-
+//   loosened constraints, a 20-minute booking) measures **54dp** — see
+//   `master_booking_card_test.dart`'s "compact card height" group for the
+//   harness this number is pinned against. A 30-minute grid slot MUST be
+//   `>=` that, or a card would need to grow past its own slot for every
+//   ordinary (< ~35 minute) booking, right back to the drift `_LaneColumn`'s
+//   nudge exists to absorb only for the RARE sub-30-minute case.
+//
+//   Chosen: slot height **56dp** (54dp measured + 2dp headroom, not a bare
+//   equality — avoids a test asserting `>=` failing on a sub-pixel rounding
+//   difference between runs). `_kHourH` = 2 x 56 = **112dp**, up from 72.
+//   A working day now scrolls noticeably further — an accepted consequence
+//   of the request, not something to claw back by shrinking the card again
+//   (it was already compacted once; see that widget's class doc for why a
+//   THIRD density pass was rejected as a shape change, not a bug fix).
+//
+// THE MECHANISM — A FLOOR (`BoxConstraints.minHeight`), NEVER AN EXACT
+// `height:`:
+//   Each card's box gets `MasterBookingCard(minHeight: ...)`, computed as
+//   `max(durationMinutes / 60 * _kHourH, _kHourH / 2)` — proportional to
+//   duration, floored at one slot for anything under 30 minutes. Critically
+//   this is a MINIMUM constraint on the widget's own `AnimatedContainer`
+//   (`constraints: BoxConstraints(minHeight: ...)`), not a `SizedBox`-style
+//   exact `height:`. A `ConstrainedBox`/`Container` with only a `minHeight`
+//   can grow PAST that floor to fit its child but can never force the child
+//   to render smaller than its natural size — the exact opposite of the R2
+//   bug's `OverflowBox` + `ClipRect` pair, which forced an EXACT box and then
+//   cropped whatever didn't fit. If a future locale, font-scale bump, or
+//   content change ever makes the card's natural content taller than the
+//   computed floor, the box simply grows with it — content always wins, by
+//   construction, not by convention. See `MasterBookingCard`'s own class doc
+//   for the widget-side half of this contract.
+//
+//   Because slot height (56dp) was chosen to already clear the card's real
+//   content height (54dp), the duration-derived floor is ALSO always `>=`
+//   natural content height for every booking `>= 30` minutes — the two
+//   constraints coincide in the common case and only diverge for the
+//   sub-30-minute floor, which is exactly where `_LaneColumn`'s
+//   collision-nudge remains load-bearing (see below).
+//
+// WHY `_LaneColumn` IS STILL NECESSARY, NOT VESTIGIAL:
+//   For a booking `>= 30` minutes, its computed height now equals its real
+//   wall-clock footprint, so back-to-back bookings tile with (at most) the
+//   cosmetic `_kMinInterCardGap` between them — the nudge's `max(...)` branch
+//   degenerates to its floor branch every time. For a booking `< 30`
+//   minutes, though, the slot floor forces a box TALLER than the booking's
+//   own scheduled duration (a 10-minute touch-up still gets a 56dp box in a
+//   28dp-wide wall-clock slot) — exactly the case R3's header describes,
+//   just with different numbers. `_LaneColumn`'s Column-layout guarantee
+//   (child N+1 physically cannot start above child N's real bottom) is what
+//   keeps that case safe, and nothing about proportional height changes that
+//   guarantee's mechanism — see the R3 section above, unmodified.
+//
+//   `plannedBottom`'s bookkeeping now advances by each card's actual computed
+//   `minHeight` (see `_cardMinHeightFor`) rather than the fixed
+//   `MasterBookingCard.estimatedNaturalHeight` constant the R3-era code used
+//   — a strictly better "planned" number now that a real duration-derived
+//   floor exists, though (per the R3 section) the Column's real layout would
+//   still be safe even if this planning number were wrong.
+//
+// THE HALF-HOUR GRIDLINES:
+//   The stated minimum grid unit is 30 minutes, so the gridline `Stack` now
+//   draws one hairline every half hour, not every hour. The HOUR lines keep
+//   the original full-opacity `BrandColors.faint` so the hour rhythm still
+//   reads as primary; the new HALF-HOUR lines use the same hue at a lighter
+//   alpha (`_halfHourLineColor`) so they register as secondary structure,
+//   not visual noise competing with the hour lines. `TimelineHourRuler`'s
+//   LABELS stay hourly on purpose — a label every 30 minutes would clutter
+//   the gutter without adding legibility the gridline itself doesn't already
+//   provide.
+//
+// ============================================================================
 // THE RULER IS THE KYIV WALL-CLOCK
 // ============================================================================
 // Every card's vertical position reads through [toBeauticaTime] — `Booking
@@ -222,7 +307,16 @@ class BookingsTimelineGrid extends StatelessWidget {
 
   /// One hour of vertical space — MUST match
   /// `TimelineHourRuler._kHourH` so the ruler and the lane hairlines line up.
-  static const double _kHourH = 72;
+  ///
+  /// See this file's "ADDENDUM 2" for the derivation: raised from `72` to
+  /// `112` so a 30-minute slot (`_kSlotH`, `56dp`) clears
+  /// `MasterBookingCard`'s real measured height (`54dp`).
+  static const double _kHourH = 112;
+
+  /// One 30-minute slot — the grid's minimum unit (ADDENDUM 2). Half of
+  /// [_kHourH] by construction; both the gridline spacing and every card's
+  /// duration-floor read off this constant, never a re-derived literal.
+  static const double _kSlotH = _kHourH / 2;
 
   /// One lane's card width.
   static const double _kCardW = 272;
@@ -232,6 +326,14 @@ class BookingsTimelineGrid extends StatelessWidget {
   /// cosmetic (a `Column` already guarantees no overlap with zero spacing);
   /// this just keeps stacked cards from visually touching.
   static const double _kMinInterCardGap = VelvetSpacing.sm;
+
+  /// The half-hour gridline's colour — the same hue as the hour gridline
+  /// ([BrandColors.faint]) at a lighter alpha, so the half-hour rhythm reads
+  /// as secondary structure rather than competing with the hour lines (see
+  /// "ADDENDUM 2"). Hoisted per the file's colour-allocation convention.
+  static final Color _halfHourLineColor = BrandColors.faint.withValues(
+    alpha: 0.4,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -349,13 +451,30 @@ class BookingsTimelineGrid extends StatelessWidget {
                           // file header's "R3" section for why the `Row`
                           // must still be the ONE non-`Positioned` child
                           // driving the `Stack`'s size.
-                          for (int i = firstHour; i <= lastHour; i++)
+                          // ADDENDUM 2 — half-hour gridlines: the stated
+                          // minimum grid unit is 30 minutes, so this loops
+                          // over HALF-hour indices, not hour indices. Even
+                          // indices land exactly on the hour (full-opacity
+                          // [BrandColors.faint], matching the pre-existing
+                          // hour rhythm the R4 regression test pins); odd
+                          // indices are the new half-hour hairlines, drawn at
+                          // [_halfHourLineColor] so they read as secondary
+                          // structure.
+                          for (
+                            int half = firstHour * 2;
+                            half <= lastHour * 2;
+                            half++
+                          )
                             Positioned(
-                              top: (i - firstHour) * _kHourH,
+                              top: (half - firstHour * 2) * _kSlotH,
                               left: 0,
                               right: 0,
                               height: 1,
-                              child: const ColoredBox(color: BrandColors.faint),
+                              child: ColoredBox(
+                                color: half.isEven
+                                    ? BrandColors.faint
+                                    : _halfHourLineColor,
+                              ),
                             ),
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -427,17 +546,28 @@ class _LaneColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     final List<Widget> children = <Widget>[];
     // The PLANNED bottom edge of the previous card, in the same "minutes
-    // since firstMinute, scaled to px" space as every `top` in this file —
-    // built from `MasterBookingCard.estimatedNaturalHeight`, an ESTIMATE
-    // that only ever affects how generous the blank space between cards
-    // looks, never whether two cards can overlap (see that constant's doc
-    // and the file header's "R3" section).
+    // since firstMinute, scaled to px" space as every `top` in this file.
+    //
+    // PROPORTIONAL-DURATION-HEIGHT PASS (this file's "ADDENDUM 2"): advances
+    // by each card's actual computed `minHeight` (`_cardMinHeightFor`), not
+    // the fixed `MasterBookingCard.estimatedNaturalHeight` the R3-era code
+    // used — a real, duration-derived commitment now exists, so it is the
+    // better planning number. This remains a PLANNING number only, exactly
+    // as before: it decides how generous the blank space between cards
+    // looks, never whether two cards can overlap — that guarantee comes from
+    // the `Column` below physically laying out child N+1 after child N's
+    // REAL rendered size, regardless of this estimate (see the file header's
+    // "R3" section, unchanged by this pass).
     double plannedBottom = 0;
 
     for (int k = 0; k < indices.length; k++) {
       final Booking booking = bookings[indices[k]];
       final int startMinute = _minutesSinceDayStart(booking.startAt, day);
       final double desiredTop = (startMinute - firstMinute) / 60.0 * hourHeight;
+      final double cardMinHeight = _cardMinHeightFor(
+        booking.durationMinutes,
+        hourHeight,
+      );
 
       final double spacer = k == 0
           ? desiredTop
@@ -461,12 +591,13 @@ class _LaneColumn extends StatelessWidget {
               key: ValueKey<String>('timeline-card-${booking.id}'),
               booking: booking,
               onTap: () => onBookingTap(booking),
+              minHeight: cardMinHeight,
             ),
           ),
         ),
       );
 
-      plannedBottom += spacer + MasterBookingCard.estimatedNaturalHeight;
+      plannedBottom += spacer + cardMinHeight;
     }
 
     return Column(
@@ -475,6 +606,18 @@ class _LaneColumn extends StatelessWidget {
       children: children,
     );
   }
+}
+
+/// A booking's proportional-duration card floor — see this file's
+/// "ADDENDUM 2" for the full derivation. Proportional to [durationMinutes]
+/// against [hourHeight], floored at one 30-minute slot (`hourHeight / 2`) so
+/// nothing under 30 minutes renders shorter than the grid's stated minimum
+/// unit. This is a MINIMUM, not an exact size — [MasterBookingCard] applies
+/// it as a `BoxConstraints.minHeight`, so real content taller than this
+/// value always wins (see that widget's class doc).
+double _cardMinHeightFor(int durationMinutes, double hourHeight) {
+  final double proportional = durationMinutes / 60.0 * hourHeight;
+  return math.max(proportional, hourHeight / 2);
 }
 
 /// Minutes between [day]'s Kyiv midnight and [instant]'s Kyiv wall-clock —

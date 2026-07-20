@@ -131,8 +131,12 @@ void main() {
           // Belt-and-braces: the card's real rendered height stays well
           // clear of the old 48dp clip floor — every row above genuinely
           // contributed to layout rather than being painted then cropped
-          // away — while also staying comfortably under a 45-minute
-          // timeline slot (54dp at `_kHourH == 72`).
+          // away — while also staying comfortably under a 30-minute timeline
+          // slot (56dp — `bookings_timeline_grid.dart`'s `_kSlotH`, chosen
+          // specifically to clear this card's real ~54dp height; see that
+          // file's "ADDENDUM 2"). No `minHeight` is passed here — this pumps
+          // the card's own NATURAL size, unaffected by the timeline's
+          // duration-floor mechanism.
           final double height = tester
               .getSize(find.byKey(const Key('master-booking-card-short-card')))
               .height;
@@ -193,10 +197,13 @@ void main() {
         lessThanOrEqualTo(60),
         reason:
             'MasterBookingCard rendered at ${height}dp — over the ~60dp '
-            'timeline budget. A 45-minute slot is only 54dp at '
-            '_kHourH == 72, so a card this tall can no longer reach its '
-            'true hour line without help from _LaneColumn\'s '
-            'collision-nudge, reintroducing the drift this pass fixed.',
+            'timeline budget. The 30-minute slot (`_kSlotH`, '
+            'bookings_timeline_grid.dart) is 56dp specifically because it '
+            'was measured to clear this card\'s real height with only a '
+            'couple dp of headroom (see that file\'s "ADDENDUM 2") — a card '
+            'this tall would no longer fit even the proportional-height '
+            'floor without help from _LaneColumn\'s collision-nudge, '
+            'reintroducing the drift this pass fixed.',
       );
       expect(height, greaterThan(40));
     });

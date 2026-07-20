@@ -89,14 +89,24 @@ import 'booking_status_badge.dart';
 /// opens «Деталі запису» — it carries no per-action buttons (those live on the
 /// detail screen, Phase 7.3).
 ///
-/// The card always sizes itself to its own natural content height — there is
-/// no duration-derived or otherwise externally forced height.
-/// `BookingsTimelineGrid` (Phase 7.10) constrains only this card's `width`
-/// (via a `SizedBox` in its per-lane `_LaneColumn`), never a `height:`,
-/// exactly mirroring the design's own `_TimelineGrid`
-/// (`bookings_toolbar.dart:1438-1448`). See that file's "R3" header section
-/// for why same-lane cards are laid out as a flex `Column` rather than
-/// absolutely `Positioned` siblings of a shared `Stack`.
+/// `BookingsTimelineGrid` (Phase 7.10) constrains this card's `width` (via a
+/// `SizedBox` in its per-lane `_LaneColumn`) and, since the
+/// PROPORTIONAL-DURATION-HEIGHT pass (2026-07-20, see that file's
+/// "ADDENDUM 2"), a [minHeight] floor derived from the booking's
+/// `durationMinutes` — never an exact `height:`. The distinction is the whole
+/// point:
+///
+///  * [minHeight] is a [BoxConstraints.minHeight] on the card's own
+///    `AnimatedContainer`, so the box can grow PAST it to fit real content
+///    but can never force that content to render smaller than its natural
+///    size. When the booking's duration-derived floor exceeds the card's
+///    natural ~54dp content, the extra space renders as blank room BELOW the
+///    two content rows, inside the same decorated box — the card visually
+///    fills the slot its duration occupies, per-pixel, while the content
+///    itself never resizes.
+///  * When [minHeight] is omitted (`null`, the default — every call site
+///    outside `BookingsTimelineGrid`), the card behaves exactly as before:
+///    sizes itself to its own natural content height with nothing forced.
 ///
 /// An earlier version of this widget accepted optional `width`/`height`
 /// constructor params and, whenever `height` came in smaller than the card's
@@ -104,29 +114,42 @@ import 'booking_status_badge.dart';
 /// laid the card out at its natural height and then visually CROPPED the
 /// paint — and the hit-test region — to the forced box. That was the exact
 /// mechanism behind the "I can see only half of the card" report against the
-/// real device. Do not reintroduce a forced height here: a future caller
-/// that genuinely needs a fixed-size card must crop the CONTENT (fewer
-/// rows), never the render of the full card.
+/// real device. [minHeight] cannot reintroduce that bug because it is a
+/// floor, never a ceiling: do not add a `maxHeight`/exact `height:` knob to
+/// this widget, and do not wrap it in `OverflowBox`/`ClipRect` — a future
+/// caller that genuinely needs a fixed-size card must crop the CONTENT
+/// (fewer rows), never the render of the full card.
 class MasterBookingCard extends StatefulWidget {
   const MasterBookingCard({
     super.key,
     required this.booking,
     required this.onTap,
+    this.minHeight,
   });
 
   final Booking booking;
   final VoidCallback onTap;
 
-  /// A documented ESTIMATE of this card's natural rendered height, used ONLY
-  /// by `BookingsTimelineGrid`'s collision-avoiding lane layout to decide how
-  /// much breathing room to leave between two same-lane cards when their
-  /// scheduled times are close together — see that file's "R3" header
-  /// section. Deliberately NOT a safety floor: the timeline's per-lane
-  /// `Column` layout can never let two cards overlap regardless of how far
-  /// this estimate drifts from a card's true height (a `Column` always
-  /// starts a child exactly after its predecessor's REAL rendered size, not
-  /// this planning number) — so getting this value slightly wrong only ever
-  /// costs a little visual density, never correctness.
+  /// A `BoxConstraints.minHeight` floor on the card's box — see the class
+  /// doc. `null` (the default) applies no constraint at all, so the card
+  /// sizes to its own natural content height exactly as it did before the
+  /// proportional-duration-height pass.
+  final double? minHeight;
+
+  /// A documented ESTIMATE of this card's natural rendered height. Predates
+  /// the proportional-duration-height pass and is no longer read by
+  /// `BookingsTimelineGrid`'s lane layout (which now computes a real,
+  /// duration-derived floor per booking — see that file's `_cardMinHeightFor`
+  /// and "ADDENDUM 2") — kept as a documented, tested reference point for the
+  /// card's true natural size, and because a `null`-`minHeight` call site
+  /// (any caller outside the timeline grid) still renders at roughly this
+  /// height with nothing forced. Deliberately NOT a safety floor in itself:
+  /// the timeline's per-lane `Column` layout can never let two cards overlap
+  /// regardless of how far this estimate drifts from a card's true height (a
+  /// `Column` always starts a child exactly after its predecessor's REAL
+  /// rendered size, not this planning number) — so getting this value
+  /// slightly wrong only ever costs a little visual density, never
+  /// correctness.
   ///
   /// Derivation, post compact-timeline pass (this file's class doc): vertical
   /// padding ×2 (12) + row 1 (the price tag's `NeumorphicInset`, its tallest
@@ -217,6 +240,16 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             decoration: _pressed ? _decorationPressed : _decorationUnpressed,
+            // A FLOOR, not an exact size — see the class doc's [minHeight]
+            // section. `constraints` sits OUTSIDE the padding/decoration in
+            // `Container`'s own build order, so the decorated box (not just
+            // the content inside it) really spans at least [minHeight]; the
+            // Column below stays top-aligned (`mainAxisAlignment.start`, its
+            // default) so any leftover room renders as blank space under the
+            // two content rows rather than stretching them.
+            constraints: widget.minHeight == null
+                ? null
+                : BoxConstraints(minHeight: widget.minHeight!),
             padding: const EdgeInsets.symmetric(
               horizontal: VelvetSpacing.sm + 2,
               vertical: VelvetSpacing.xs + 2,

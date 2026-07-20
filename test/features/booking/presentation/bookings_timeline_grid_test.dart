@@ -19,6 +19,7 @@
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
@@ -167,8 +168,10 @@ void main() {
       // (both files assert, in their own doc comments, that the two MUST
       // match) — not re-exported, so pinned here as a plain literal the way
       // this file already pins other cross-file geometry invariants (e.g. the
-      // 48dp clip floor in the R2 group above).
-      const double hourHeight = 72;
+      // 48dp clip floor in the R2 group above). Raised from 72 to 112 by the
+      // proportional-duration-height pass (2026-07-20, see
+      // `bookings_timeline_grid.dart`'s "ADDENDUM 2").
+      const double hourHeight = 112;
 
       Finder rulerLabel(String text) => find.descendant(
         of: find.byType(TimelineHourRuler),
@@ -623,6 +626,205 @@ void main() {
         // A tiny epsilon absorbs float rounding — the last card's bottom
         // must never render PAST the grid's own resolved bottom edge.
         expect(lastRect.bottom, lessThanOrEqualTo(gridRect.bottom + 0.5));
+      },
+    );
+  });
+
+  group('proportional-duration-height pass (2026-07-20)', () {
+    // Mirrors the private `BookingsTimelineGrid._kSlotH` / `_kHourH` (not
+    // re-exported — same convention the R4 group above already uses for
+    // `hourHeight`). `_kSlotH` (30-minute slot) is `_kHourH / 2` by
+    // construction; see that file's "ADDENDUM 2" for the derivation of both
+    // numbers from `MasterBookingCard`'s measured ~54dp natural height.
+    const double kSlotH = 56;
+    const double kHourH = 112;
+
+    final DateTime day = DateTime(2026, 7, 20);
+
+    testWidgets('a 30-minute booking renders at exactly one slot (56dp)', (
+      WidgetTester tester,
+    ) async {
+      final Booking b = _booking(
+        id: 'dur-30',
+        startAtUtc: DateTime.utc(2026, 7, 20, 6), // 09:00 Kyiv
+        durationMinutes: 30,
+      );
+      await tester.pumpApp(
+        BookingsTimelineGrid(
+          bookings: <Booking>[b],
+          day: day,
+          onBookingTap: (_) {},
+        ),
+      );
+      await tester.pump();
+
+      expect(_cardRect(tester, 'dur-30').height, closeTo(kSlotH, 0.5));
+    });
+
+    testWidgets(
+      'a 60-minute booking renders at exactly two slots (112dp) — twice '
+      'the 30-minute card\'s height',
+      (WidgetTester tester) async {
+        final Booking b = _booking(
+          id: 'dur-60',
+          startAtUtc: DateTime.utc(2026, 7, 20, 6),
+          durationMinutes: 60,
+        );
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[b],
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        final double height = _cardRect(tester, 'dur-60').height;
+        expect(height, closeTo(kHourH, 0.5));
+        expect(height, closeTo(kSlotH * 2, 0.5));
+      },
+    );
+
+    testWidgets(
+      'a 90-minute booking renders at exactly three slots (168dp) — three '
+      'times the 30-minute card\'s height, proving the height tracks '
+      'duration proportionally rather than rounding up to a fixed unit',
+      (WidgetTester tester) async {
+        final Booking b = _booking(
+          id: 'dur-90',
+          startAtUtc: DateTime.utc(2026, 7, 20, 6),
+          durationMinutes: 90,
+        );
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[b],
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        final double height = _cardRect(tester, 'dur-90').height;
+        expect(height, closeTo(kSlotH * 3, 0.5));
+      },
+    );
+
+    testWidgets(
+      'a 45-minute booking renders at 1.5 slots (84dp) — not rounded up to '
+      'a whole slot',
+      (WidgetTester tester) async {
+        final Booking b = _booking(
+          id: 'dur-45',
+          startAtUtc: DateTime.utc(2026, 7, 20, 6),
+          durationMinutes: 45,
+        );
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[b],
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        expect(_cardRect(tester, 'dur-45').height, closeTo(kSlotH * 1.5, 0.5));
+      },
+    );
+
+    testWidgets('a booking shorter than 30 minutes still renders every row, '
+        'un-clipped, at the one-slot floor (56dp) rather than a '
+        'duration-scaled sliver', (WidgetTester tester) async {
+      final Booking b = _booking(
+        id: 'dur-10',
+        startAtUtc: DateTime.utc(2026, 7, 20, 6),
+        durationMinutes: 10,
+      );
+      await tester.pumpApp(
+        BookingsTimelineGrid(
+          bookings: <Booking>[b],
+          day: day,
+          onBookingTap: (_) {},
+        ),
+      );
+      await tester.pump();
+
+      // Floored at one slot, NOT a duration-scaled ~19dp sliver
+      // (10/60*112) — that would be shorter than the card's own natural
+      // content and would need clipping to render at all.
+      expect(_cardRect(tester, 'dur-10').height, closeTo(kSlotH, 0.5));
+
+      // No clipping/forced-height mechanism directly on the card — mirrors
+      // the "short bookings render their full card" group above (which
+      // checks `Positioned`; `OverflowBox` is the OTHER half of the R2
+      // bug's retired pair). Deliberately NOT asserting `ClipRect`
+      // findsNothing here: unlike `master_booking_card_test.dart`'s
+      // isolated-card R2 pin, this test pumps the full
+      // `BookingsTimelineGrid`, whose own vertical+horizontal
+      // `SingleChildScrollView`s legitimately contribute `ClipRect`
+      // ancestors (default `Clip.hardEdge` scroll-viewport clipping) that
+      // have nothing to do with the retired per-card OverflowBox+ClipRect
+      // crop.
+      expect(
+        find.ancestor(
+          of: find.byKey(const ValueKey<String>('timeline-card-dur-10')),
+          matching: find.byType(OverflowBox),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.ancestor(
+          of: find.byKey(const ValueKey<String>('timeline-card-dur-10')),
+          matching: find.byType(Positioned),
+        ),
+        findsNothing,
+      );
+      expect(find.text(b.serviceName), findsOneWidget);
+      expect(find.text(b.clientName!), findsOneWidget);
+    });
+
+    testWidgets(
+      'back-to-back bookings of DIFFERENT durations (60min then 90min) '
+      'tile with only the cosmetic minimum gap, no collision-nudge drift, '
+      'and never intersect',
+      (WidgetTester tester) async {
+        final Booking first = _booking(
+          id: 'tile-60',
+          startAtUtc: DateTime.utc(2026, 7, 20, 6), // 09:00 Kyiv
+          durationMinutes: 60,
+        );
+        final Booking second = _booking(
+          id: 'tile-90',
+          startAtUtc: DateTime.utc(2026, 7, 20, 7), // 10:00 Kyiv, back-to-back
+          durationMinutes: 90,
+        );
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[first, second],
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        final Rect firstRect = _cardRect(tester, 'tile-60');
+        final Rect secondRect = _cardRect(tester, 'tile-90');
+
+        expect(firstRect.overlaps(secondRect), isFalse);
+        expect(secondRect.top, greaterThanOrEqualTo(firstRect.bottom));
+
+        // The tiling itself: since the first card's real height now equals
+        // its full 60-minute wall-clock footprint, the second card's
+        // wall-clock-derived `desiredTop` lands EXACTLY at (or past) the
+        // first card's real bottom, so `_LaneColumn`'s collision-nudge
+        // degenerates to its cosmetic-minimum-gap floor rather than pushing
+        // the card further down to avoid a genuine collision — proving the
+        // "happy consequence" the proportional-height pass exists for.
+        const double kMinInterCardGap = 8; // VelvetSpacing.sm
+        expect(
+          secondRect.top - firstRect.bottom,
+          closeTo(kMinInterCardGap, 0.5),
+        );
       },
     );
   });
