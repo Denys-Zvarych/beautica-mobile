@@ -17,6 +17,7 @@
 // UTC-naive implementation (reading `.hour` off the raw UTC `startAt`) would
 // compute a materially different — and wrong — `top` offset.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
@@ -122,6 +123,149 @@ void main() {
       );
     });
   });
+
+  group(
+    'R4 regression — first hour label must not clip at the viewport top',
+    () {
+      // The bug this pins: `TimelineHourRuler` used to lay its labels out at
+      // `top: i * _kHourH - _kLabelCenteringNudge` so the text visually
+      // centred on its hour line. For `i == 0` that produced `top: -7` — 7dp
+      // ABOVE the ruler's own origin. `TimelineHourRuler`'s own `Stack` uses
+      // `clipBehavior: Clip.none`, so it never clipped that itself, but this
+      // whole widget is the CONTENT of `bookings_timeline_grid.dart`'s outer
+      // vertical `SingleChildScrollView` (default `Clip.hardEdge`), and at
+      // rest (scroll offset 0, Android's clamping physics giving no
+      // overscroll) that permanently cropped the top of the very first hour
+      // label — a real-device report, not a cosmetic nit.
+      //
+      // The fix moved the nudge to the OTHER stack instead (see
+      // `TimelineHourRuler.labelCenteringNudge`'s doc and the `Padding` in
+      // `bookings_timeline_grid.dart`): ruler labels now sit at
+      // `top: i * _kHourH` (never negative, `i == 0` included), and the
+      // gridline/card `Stack` is shifted down by the same constant so the
+      // 7dp label↔line visual relationship is preserved for every hour.
+      //
+      // This test pumps the REAL `BookingsTimelineGrid` (not
+      // `TimelineHourRuler` in isolation, unlike the "past midnight" group
+      // above) so the outer `SingleChildScrollView` that actually did the
+      // clipping is present in the tree — a bare `Center` (as the isolated
+      // ruler tests use) has no clip boundary at all and cannot reproduce
+      // this class of bug.
+      final DateTime day = DateTime(2026, 7, 20);
+      // A single 60-minute booking starting exactly on the hour (09:00 Kyiv,
+      // 06:00 UTC) makes the ruler's extent deterministic: firstHour = 9,
+      // lastHour = 10, i.e. exactly two labels — "09:00" (i == 0, the one
+      // that used to clip) and the accent "10:00" (i == 1, a later label
+      // whose registration must stay untouched by the fix).
+      final Booking onTheHour = _booking(
+        id: 'r4-on-hour',
+        startAtUtc: DateTime.utc(2026, 7, 20, 6),
+        durationMinutes: 60,
+      );
+
+      // Mirrors `TimelineHourRuler._kHourH` / `BookingsTimelineGrid._kHourH`
+      // (both files assert, in their own doc comments, that the two MUST
+      // match) — not re-exported, so pinned here as a plain literal the way
+      // this file already pins other cross-file geometry invariants (e.g. the
+      // 48dp clip floor in the R2 group above).
+      const double hourHeight = 72;
+
+      Finder rulerLabel(String text) => find.descendant(
+        of: find.byType(TimelineHourRuler),
+        matching: find.text(text),
+      );
+
+      /// The gridlines are the `ColoredBox(color: BrandColors.faint)` leaves
+      /// inside the `timeline-lane-stack` `Stack` — no `Key` of their own
+      /// (there's no need for one outside this test), but that `ColoredBox`
+      /// color combination is unique to this widget within the pumped tree
+      /// (grepped: no other Beautica widget colors a bare `ColoredBox` with
+      /// `BrandColors.faint`), so a plain `byWidgetPredicate` is unambiguous
+      /// here. Sorted ascending by rendered top so index 0 is always the
+      /// FIRST (topmost) gridline regardless of `Stack` child order.
+      List<Rect> gridlineRectsAscending(WidgetTester tester) {
+        final Iterable<Element> elements = find
+            .byWidgetPredicate(
+              (Widget w) => w is ColoredBox && w.color == BrandColors.faint,
+            )
+            .evaluate();
+        final List<Rect> rects = elements.map((Element e) {
+          final RenderBox box = e.renderObject! as RenderBox;
+          return box.localToGlobal(Offset.zero) & box.size;
+        }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
+        return rects;
+      }
+
+      testWidgets(
+        'the first-hour label never renders above the viewport origin, and '
+        'every label stays registered 7dp above its own gridline',
+        (WidgetTester tester) async {
+          await tester.pumpApp(
+            BookingsTimelineGrid(
+              bookings: <Booking>[onTheHour],
+              day: day,
+              onBookingTap: (_) {},
+            ),
+          );
+          await tester.pump();
+
+          final Rect firstLabelRect = tester.getRect(rulerLabel('09:00'));
+          final Rect secondLabelRect = tester.getRect(rulerLabel('10:00'));
+          final List<Rect> gridlines = gridlineRectsAscending(tester);
+          expect(
+            gridlines.length,
+            2,
+            reason: 'expected exactly one gridline per hour (09:00, 10:00)',
+          );
+          final Rect firstGridlineRect = gridlines[0];
+          final Rect secondGridlineRect = gridlines[1];
+
+          // THE CLIPPING ASSERTION — this is what goes red on the bug. At
+          // scroll offset 0 (the pumped, unscrolled state), the outer
+          // `SingleChildScrollView`'s viewport top IS the window's origin
+          // (`pumpApp` places this widget directly as `MaterialApp.home`, no
+          // intervening chrome), so any rendered `top < 0` here is content
+          // that a `Clip.hardEdge` ancestor would crop.
+          expect(
+            firstLabelRect.top,
+            greaterThanOrEqualTo(0),
+            reason:
+                'the first hour label rendered above the scrollable '
+                'viewport\'s origin and would be clipped by the outer '
+                'SingleChildScrollView at rest',
+          );
+
+          // REGISTRATION — the first label must still sit exactly
+          // `labelCenteringNudge` above its own gridline …
+          expect(
+            firstGridlineRect.top - firstLabelRect.top,
+            closeTo(TimelineHourRuler.labelCenteringNudge, 0.01),
+          );
+          // … and so must a LATER label (i == 1, never touched by the `i ==
+          // 0` clipping bug) — proving a fix that shoves the whole ruler (or
+          // the whole grid) around by some ad-hoc amount, rather than
+          // preserving this per-hour relationship, cannot pass either.
+          expect(
+            secondGridlineRect.top - secondLabelRect.top,
+            closeTo(TimelineHourRuler.labelCenteringNudge, 0.01),
+          );
+
+          // SPACING — the vertical distance from one hour to the next must
+          // stay exactly `hourHeight` for both labels and gridlines, so a
+          // fix that compresses/stretches spacing instead of redistributing
+          // a constant leading amount cannot pass either.
+          expect(
+            secondLabelRect.top - firstLabelRect.top,
+            closeTo(hourHeight, 0.01),
+          );
+          expect(
+            secondGridlineRect.top - firstGridlineRect.top,
+            closeTo(hourHeight, 0.01),
+          );
+        },
+      );
+    },
+  );
 
   group('ruler hour labels past midnight', () {
     testWidgets('an hour offset of 24 reads "00:00", never "24:00"', (

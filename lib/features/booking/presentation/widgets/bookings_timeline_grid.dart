@@ -312,54 +312,73 @@ class BookingsTimelineGrid extends StatelessWidget {
                     // of lane `Column`s), i.e. to the REAL summed height of
                     // the tallest lane's spacers + actual card sizes, not a
                     // guessed constant. See the file header's "R3" section.
-                    child: Stack(
-                      key: const ValueKey<String>('timeline-lane-stack'),
-                      clipBehavior: Clip.none,
-                      children: <Widget>[
-                        // Finding #8 fix — the hour gridlines are listed
-                        // FIRST so they PAINT first (bottom), and the card
-                        // `Row` below paints second (on top of them). A
-                        // `Stack` paints its children in list order — later
-                        // entries paint over earlier ones — so this ordering
-                        // alone is what stops the gridlines from drawing
-                        // across the booking cards. `Stack`'s SIZE is
-                        // unaffected by this: it is computed from every
-                        // non-`Positioned` child regardless of that child's
-                        // position in the list (the `Positioned` gridlines
-                        // never contribute to sizing either way), so moving
-                        // the sizing `Row` to the end changes paint order
-                        // only, not layout. See the file header's "R3"
-                        // section for why the `Row` must still be the ONE
-                        // non-`Positioned` child driving the `Stack`'s size.
-                        for (int i = firstHour; i <= lastHour; i++)
-                          Positioned(
-                            top: (i - firstHour) * _kHourH,
-                            left: 0,
-                            right: 0,
-                            height: 1,
-                            child: const ColoredBox(color: BrandColors.faint),
-                          ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            for (int lane = 0; lane < lanesCount; lane++) ...[
-                              if (lane > 0)
-                                const SizedBox(width: VelvetSpacing.sm),
-                              _LaneColumn(
-                                key: ValueKey<String>('timeline-lane-$lane'),
-                                bookings: bookings,
-                                indices: indicesByLane[lane],
-                                day: day,
-                                firstMinute: firstMinute,
-                                hourHeight: _kHourH,
-                                cardWidth: _kCardW,
-                                onBookingTap: onBookingTap,
-                              ),
+                    //
+                    // The leading `Padding` is the label-clipping fix (see
+                    // `TimelineHourRuler.labelCenteringNudge`'s doc): rather
+                    // than nudging each ruler label UP (which sent the first
+                    // label's `top` negative and let the outer vertical
+                    // `SingleChildScrollView`'s default `Clip.hardEdge`
+                    // permanently crop it), this whole gridline/card `Stack`
+                    // is nudged DOWN by the same constant instead. The ruler
+                    // and this stack are separate `Stack`s that must stay
+                    // registered against each other — shifting only this
+                    // one, uniformly, preserves the exact 7dp label↔line
+                    // relationship for every hour, `i == 0` included, while
+                    // guaranteeing no `top` in either stack is ever negative.
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        top: TimelineHourRuler.labelCenteringNudge,
+                      ),
+                      child: Stack(
+                        key: const ValueKey<String>('timeline-lane-stack'),
+                        clipBehavior: Clip.none,
+                        children: <Widget>[
+                          // Finding #8 fix — the hour gridlines are listed
+                          // FIRST so they PAINT first (bottom), and the card
+                          // `Row` below paints second (on top of them). A
+                          // `Stack` paints its children in list order — later
+                          // entries paint over earlier ones — so this
+                          // ordering alone is what stops the gridlines from
+                          // drawing across the booking cards. `Stack`'s SIZE
+                          // is unaffected by this: it is computed from every
+                          // non-`Positioned` child regardless of that
+                          // child's position in the list (the `Positioned`
+                          // gridlines never contribute to sizing either
+                          // way), so moving the sizing `Row` to the end
+                          // changes paint order only, not layout. See the
+                          // file header's "R3" section for why the `Row`
+                          // must still be the ONE non-`Positioned` child
+                          // driving the `Stack`'s size.
+                          for (int i = firstHour; i <= lastHour; i++)
+                            Positioned(
+                              top: (i - firstHour) * _kHourH,
+                              left: 0,
+                              right: 0,
+                              height: 1,
+                              child: const ColoredBox(color: BrandColors.faint),
+                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              for (int lane = 0; lane < lanesCount; lane++) ...[
+                                if (lane > 0)
+                                  const SizedBox(width: VelvetSpacing.sm),
+                                _LaneColumn(
+                                  key: ValueKey<String>('timeline-lane-$lane'),
+                                  bookings: bookings,
+                                  indices: indicesByLane[lane],
+                                  day: day,
+                                  firstMinute: firstMinute,
+                                  hourHeight: _kHourH,
+                                  cardWidth: _kCardW,
+                                  onBookingTap: onBookingTap,
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );

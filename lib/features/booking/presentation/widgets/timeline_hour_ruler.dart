@@ -48,9 +48,28 @@ class TimelineHourRuler extends StatelessWidget {
   /// up pixel-for-pixel.
   static const double _kHourH = 72;
 
-  /// Nudges each label so its text vertically centres on its hour line
-  /// instead of hanging below it.
-  static const double _kLabelCenteringNudge = 7;
+  /// The vertical distance each label's text visually sits ABOVE its own
+  /// hour line so the text centres on the line instead of hanging below it.
+  ///
+  /// This constant does NOT nudge the labels themselves (see the clipping
+  /// bug this avoids, below) — [BookingsTimelineGrid] applies it as a
+  /// leading `Padding` on the gridline/card `Stack` instead, shifting THAT
+  /// stack down by this amount so the same 7dp visual relationship holds
+  /// between every label and its line.
+  ///
+  /// CLIPPING BUG (fixed): an earlier version subtracted this constant from
+  /// each label's own `top`, which for `i == 0` produced `top: -7` — 7dp
+  /// above this widget's own origin. `TimelineHourRuler`'s `Stack` uses
+  /// `clipBehavior: Clip.none` so it doesn't clip that itself, but the
+  /// ANCESTOR `SingleChildScrollView` in `bookings_timeline_grid.dart` (the
+  /// real vertical scroller for the whole timeline) defaults to
+  /// `Clip.hardEdge`, and at rest (scroll offset 0, Android's clamping
+  /// physics giving no overscroll) that permanently clipped the very top of
+  /// the first hour label. Shifting the OTHER stack down instead means no
+  /// label `top` can ever go negative in the first place — the ruler's own
+  /// labels are always laid out at `top: i * _kHourH`, i.e. `>= 0` by
+  /// construction, for every `i` including `0`.
+  static const double labelCenteringNudge = 7;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +86,7 @@ class TimelineHourRuler extends StatelessWidget {
           children: <Widget>[
             for (int i = 0; i <= totalHours; i++)
               Positioned(
-                top: i * _kHourH - _kLabelCenteringNudge,
+                top: i * _kHourH,
                 right: 0,
                 child: Text(
                   _wallClockLabel(firstHour + i),
