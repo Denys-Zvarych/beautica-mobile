@@ -157,16 +157,19 @@ class _VelvetNavTile extends StatelessWidget {
   final int index;
   final bool active;
 
-  /// Resolves the go_router path for a nav-bar [index]. Tapping the
-  /// already-active tile resolves to `null` so we never issue a redundant
-  /// navigation to the current location.
+  /// Resolves the go_router path for a nav-bar [index]. Every index maps to
+  /// its real destination; tapping the already-active tile resolves to
+  /// `null` via the guard above so we never issue a redundant navigation to
+  /// the current location. Do not special-case any index to `null` here —
+  /// the `active` guard is the single source of "no-op because we're
+  /// already here".
   String? _routeFor(int index) {
     if (active) return null;
     return switch (index) {
       0 => RouteNames.services, // Послуги
       1 => RouteNames.masterBookings, // Мої записи → Phase 7.6
       2 => RouteNames.masterSchedule, // Графік → Phase 15.2 schedule screen
-      _ => null, // Профіль (3) — the current shell.
+      _ => RouteNames.masterProfile, // Профіль
     };
   }
 

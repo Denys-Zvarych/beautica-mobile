@@ -33,6 +33,7 @@
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -169,10 +170,12 @@ Future<void> _pump(
 }
 
 const Key _servicesMarker = Key('stub-services-screen');
+const Key _scheduleMarker = Key('stub-schedule-screen');
+const Key _profileMarker = Key('stub-profile-screen');
 
-/// Same as [_pump], plus a stub `RouteNames.services` destination so nav-tile
-/// taps that push it can be observed landing. Returns the [GoRouter] so tests
-/// can assert `canPop()`/the mounted screen after a tap.
+/// Same as [_pump], plus stub destinations for every nav-tile route so
+/// nav-tile taps that push them can be observed landing. Returns the
+/// [GoRouter] so tests can assert `canPop()`/the mounted screen after a tap.
 Future<GoRouter> _pumpWithNavRoutes(
   WidgetTester tester,
   _MockBookingRepository repo, {
@@ -190,6 +193,16 @@ Future<GoRouter> _pumpWithNavRoutes(
         path: RouteNames.services,
         builder: (BuildContext context, GoRouterState state) =>
             const Scaffold(body: SizedBox.shrink(key: _servicesMarker)),
+      ),
+      GoRoute(
+        path: RouteNames.masterSchedule,
+        builder: (BuildContext context, GoRouterState state) =>
+            const Scaffold(body: SizedBox.shrink(key: _scheduleMarker)),
+      ),
+      GoRoute(
+        path: RouteNames.masterProfile,
+        builder: (BuildContext context, GoRouterState state) =>
+            const Scaffold(body: SizedBox.shrink(key: _profileMarker)),
       ),
     ],
   );
@@ -459,22 +472,28 @@ void main() {
     // `bookings_day_rail_test.dart` has a plain `test()` (not `testWidgets`)
     // asserting `kRailLeadItems + dayIndex == 1 + dayIndex`. That assertion
     // is SELF-REFERENTIAL: it inlines `kRailLeadItems` on both sides of its
-    // own comparison and never calls `BookingsDiscoveryView._centreRailOn`,
-    // the ACTUAL production call site (`bookings_discovery_view.dart`'s
+    // own comparison and never calls
+    // `BookingsDiscoveryView._alignRailTodayFirst`, the ACTUAL production
+    // call site (`bookings_discovery_view.dart`'s
     // `final int itemIndex = kRailLeadItems + dayIndex;`). Proven by
-    // mutation: hardcoding `_centreRailOn` to `2 + dayIndex` (the design's
+    // mutation: hardcoding that method to `2 + dayIndex` (the design's
     // retired two-lead-item formula, from before «Всі» was dropped) leaves
     // EVERY test in this file green — including that one — because nothing
     // anywhere actually observes the rail's post-open SCROLL POSITION.
     //
     // This test closes that gap by asserting the real, rendered outcome: the
-    // initially selected day's chip must land centred in the rail's visible
-    // viewport after the first frame. An off-by-one lead item shifts it by
-    // exactly one `kRailItemExtent` (62dp) — comfortably outside the
-    // tolerance below, which only has to absorb sub-pixel layout rounding.
+    // initially selected day's chip must land as the LEFTMOST day slot in
+    // the rail's visible viewport after the first frame — the design
+    // decision behind [_alignRailTodayFirst] (today-first, not
+    // today-centred; see that method's doc for why the calendar button
+    // scrolling off-screen here is expected, not a bug). An off-by-one lead
+    // item shifts it by a full `kRailItemExtent` (62dp) — comfortably
+    // outside the tolerance below, which only has to absorb sub-pixel
+    // layout rounding and the rail's own leading `VelvetSpacing.lg` inset.
     testWidgets(
-      'the rail auto-centres the initially selected day in its viewport — '
-      'an off-by-one lead-item offset would land it one full cell off',
+      'the rail opens with today as the LEFTMOST day chip, not centred and '
+      'not at list index 0 — an off-by-one lead-item offset would land it a '
+      'full cell off',
       (tester) async {
         final repo = _MockBookingRepository();
         when(
@@ -496,18 +515,112 @@ void main() {
         final Rect railRect = tester.getRect(
           find.byKey(const Key('master-bookings-day-rail')),
         );
-        final Offset chipCenter = tester.getCenter(
+        final Rect todayRect = tester.getRect(
           find.byKey(dayChipKey(_kyivToday)),
         );
 
+        // Real rendered geometry, not the controller's `offset` — a formula
+        // bug could move the controller while leaving the ON-SCREEN result
+        // wrong (or vice versa), so this asserts what the master actually
+        // sees: today's chip sits at the rail's own leading `VelvetSpacing
+        // .lg` inset, the exact position item 0 occupies at scroll offset
+        // zero.
         expect(
-          (chipCenter.dx - railRect.center.dx).abs(),
-          lessThan(kRailItemExtent / 2),
+          todayRect.left,
+          closeTo(railRect.left + VelvetSpacing.lg, 1.5),
           reason:
-              'today\'s chip is not centred in the rail — the lead-item '
-              'offset `_centreRailOn` uses to convert a day index into a '
-              'scroll target has drifted from `kRailLeadItems`.',
+              'today\'s chip is not flush against the rail\'s leading edge — '
+              'the rail opened centred (or otherwise off) instead of '
+              'today-first.',
         );
+
+        // "Not centred" as a second, independent signal: under the retired
+        // centring behaviour today's chip sat at the rail's MIDPOINT. Pin
+        // that it has moved decisively away from there too, so a partial
+        // regression (today-first math right, but still averaging toward
+        // centre for some reason) cannot hide behind the edge check alone.
+        expect(
+          (todayRect.center.dx - railRect.center.dx).abs(),
+          greaterThan(kRailItemExtent),
+          reason:
+              'today\'s chip is still near the rail\'s centre — the initial '
+              'position has not actually moved off the old centred layout.',
+        );
+      },
+    );
+
+    testWidgets(
+      'past days remain reachable by scrolling left — the today-first '
+      'initial jump does not clamp the rail\'s past-day range',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        final List<(DateTime?, DateTime?)> calls = <(DateTime?, DateTime?)>[];
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((Invocation i) async {
+          calls.add((
+            i.namedArguments[#from] as DateTime?,
+            i.namedArguments[#to] as DateTime?,
+          ));
+          return _page(<Booking>[]);
+        });
+
+        await _pump(tester, repo);
+        await tester.pumpAndSettle();
+        calls.clear(); // drop the initial (today) fetch
+
+        // Well outside `ListView`'s default 250-logical-pixel cache extent
+        // (8 * kRailItemExtent == 496dp) — a near neighbour of today's chip
+        // could already be built-but-clipped by the cache window even
+        // before any scroll, which would make a `findsOne`/`findsNothing`
+        // precondition here meaningless. This day is far enough that it is
+        // reachable ONLY by an actual scroll.
+        final DateTime pastDay = railDayAt(_kyivToday, -8);
+
+        await tester.scrollUntilVisible(
+          find.byKey(dayChipKey(pastDay)),
+          -400,
+          scrollable: find
+              .descendant(
+                of: find.byKey(const Key('master-bookings-day-rail')),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(dayChipKey(pastDay)),
+          findsOne,
+          reason:
+              'a day 8 days before today did not become reachable by '
+              'scrolling left — the today-first jump may have clamped the '
+              'rail\'s scroll range instead of only moving its resting '
+              'position.',
+        );
+
+        // And genuinely tappable — not just present in the tree.
+        await tester.tap(find.byKey(dayChipKey(pastDay)));
+        // fixed-wait-ok: advancing past the 220 ms rail-tap debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          calls.length,
+          1,
+          reason: 'tapping the scrolled-to past day did not issue a request.',
+        );
+        expect(calls.single.$1, pastDay);
+        expect(calls.single.$2, pastDay);
       },
     );
 
@@ -877,6 +990,83 @@ void main() {
           find.byKey(_servicesMarker),
           findsOneWidget,
           reason: 'the Послуги tile must push RouteNames.services',
+        );
+        expect(
+          router.canPop(),
+          isTrue,
+          reason: 'push (not go) — the origin must stay on the back stack',
+        );
+      },
+    );
+
+    testWidgets(
+      'tapping a NON-active tile (Графік, tile 2) pushes /schedule and '
+      'leaves this screen poppable',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        final GoRouter router = await _pumpWithNavRoutes(tester, repo);
+        await tester.pumpAndSettle();
+        expect(router.canPop(), isFalse);
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-2')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(_scheduleMarker),
+          findsOneWidget,
+          reason: 'the Графік tile must push RouteNames.masterSchedule',
+        );
+        expect(
+          router.canPop(),
+          isTrue,
+          reason: 'push (not go) — the origin must stay on the back stack',
+        );
+      },
+    );
+
+    testWidgets(
+      'tapping a NON-active tile (Профіль, tile 3) pushes /master/profile and '
+      'leaves this screen poppable — regression: this tile used to be '
+      'hard-coded to a null route and silently did nothing',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        final GoRouter router = await _pumpWithNavRoutes(tester, repo);
+        await tester.pumpAndSettle();
+        expect(router.canPop(), isFalse);
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(_profileMarker),
+          findsOneWidget,
+          reason: 'the Профіль tile must push RouteNames.masterProfile',
         );
         expect(
           router.canPop(),
