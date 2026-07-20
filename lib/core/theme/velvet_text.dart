@@ -1407,26 +1407,55 @@ abstract final class VelvetText {
   // There is no `masterCardPrice`: the price pill is `pill()` verbatim — that
   // token is already Nunito 11/800 accentDeep, so a `.copyWith(fontSize: 11)`
   // on it would be a no-op wearing a new name.
+  //
+  // Compact-timeline pass (2026-07-20, see `master_booking_card.dart`'s class
+  // doc): the card dropped its avatar row entirely and moved to a two-line
+  // "time/service/price" + "client/status" grid, targeting ~52dp so it fits a
+  // 45-60 minute timeline slot. [masterCardClientName]/[masterCardService]
+  // keep their existing sizes (still exclusive to this card — no other call
+  // site) but now also pin an explicit `height:` — the tight leading a
+  // compact row needs, rather than inheriting their base styles' generous
+  // 1.5/default line height. The old `masterCardDate` (icon + full date+time
+  // caption, e.g. "12 лип, 14:30") is retired — the compact row only needs
+  // the bare time (`formatSlotTime`, a per-day timeline never needs the
+  // date). [masterCardTime] and [masterCardBadgeLabel] are new for the same
+  // pass.
 
-  /// Client name on a master booking card — subheading stepped to 13.5 sp.
+  /// Client name on a master booking card (row 2) — subheading at 12.5 sp,
+  /// height 1.2.
   static final TextStyle masterCardClientName = _subheadingStyle.copyWith(
-    fontSize: 13.5,
-  );
-
-  /// Service name on a master booking card — bodyStrong stepped to 12.5 sp.
-  static final TextStyle masterCardService = _bodyStrongStyle.copyWith(
     fontSize: 12.5,
+    height: 1.2,
   );
 
-  /// Date+time caption on a master booking card — feedback base at 11 sp,
-  /// muted.
-  static final TextStyle masterCardDate = _feedbackBase.copyWith(
+  /// Service name on a master booking card (row 1) — bodyStrong at 11 sp,
+  /// height 1.2 (down from the base style's 1.5 — see this section's header).
+  static final TextStyle masterCardService = _bodyStrongStyle.copyWith(
     fontSize: 11,
-    color: BrandColors.muted,
+    height: 1.2,
+  );
+
+  /// Row 1's leading start-time label (e.g. "09:00") — bodyStrong at 11.5 sp,
+  /// height 1.2, so it reads a touch more prominent than the service name
+  /// beside it without competing with the client name on row 2.
+  static final TextStyle masterCardTime = _bodyStrongStyle.copyWith(
+    fontSize: 11.5,
+    height: 1.2,
+  );
+
+  /// [TimelineStatusBadge]'s label — feedback base at 9 sp, height 1.1 (down
+  /// from the base's 1.4 — a compact pill has no room for generous leading).
+  /// Colour (the resolved [BookingStatusVisual.accent]) is applied at the
+  /// call site via a single `copyWith`, mirroring [feedback]'s own pattern.
+  static final TextStyle masterCardBadgeLabel = _feedbackBase.copyWith(
+    fontSize: 9,
+    height: 1.1,
   );
 
   /// Client monogram initials on a master booking card's avatar — subheading
-  /// stepped to 15 sp, accentDeep.
+  /// stepped to 15 sp, accentDeep. Unused since the compact-timeline pass
+  /// dropped the avatar row (see `master_booking_card.dart`'s
+  /// `_ClientAvatar` doc) — kept for the same future-reuse reason.
   static final TextStyle masterCardInitials = _subheadingStyle.copyWith(
     fontSize: 15,
     color: BrandColors.accentDeep,
@@ -1457,5 +1486,33 @@ abstract final class VelvetText {
     fontSize: 11,
     color: BrandColors.accent,
     fontWeight: FontWeight.w700,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Design-parity pass (finding #4/#5) — the master timeline's month
+  // switcher (`_MonthSwitcher` in `bookings_discovery_view.dart`), above the
+  // day rail.
+  //
+  // Transcribed from the approved preview's inline
+  // `VelvetText.subheading().copyWith(fontSize: 14)` (the month/year label)
+  // and `VelvetText.body().copyWith(fontSize: 12.5, fontWeight:
+  // FontWeight.w700, color: VelvetColors.accentDeep)` (the «Сьогодні» pill
+  // label) — `bookings_toolbar.dart`'s `_MonthSwitcher`. Cached here, at this
+  // app's already-established compact scale (every other transcribed booking
+  // token in this file lands 1-3 sp under its design source), so neither
+  // allocates a TextStyle per rebuild.
+  // ---------------------------------------------------------------------------
+
+  /// Month switcher's "month + year" label (e.g. "Липень 2026") — subheading
+  /// at 12 sp.
+  static final TextStyle monthSwitcherLabel = _subheadingStyle.copyWith(
+    fontSize: 12,
+  );
+
+  /// Month switcher's «Сьогодні» pill label — body at 11 sp, w700, accentDeep.
+  static final TextStyle monthSwitcherTodayLabel = _bodyStyle.copyWith(
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.accentDeep,
   );
 }

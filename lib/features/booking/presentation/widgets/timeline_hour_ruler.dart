@@ -35,7 +35,13 @@ class TimelineHourRuler extends StatelessWidget {
   final int lastHour;
 
   /// Column width — wide enough for "23:00" right-aligned.
-  static const double _kRulerWidth = 46;
+  ///
+  /// Finding #7 (design-parity pass): 42dp, down from the design's own 46dp —
+  /// combined with `BookingsTimelineGrid`'s own reduced ruler↔grid gap, this
+  /// nudges the whole timeline grid slightly left, closer to the approved
+  /// design. Still comfortably fits "23:00" at [VelvetText.timelineHourLabel]'s
+  /// 11 sp at ordinary and moderately scaled-up text sizes.
+  static const double _kRulerWidth = 42;
 
   /// One hour of vertical space — MUST match
   /// `BookingsTimelineGrid._kHourH` so the ruler and the lane hairlines line

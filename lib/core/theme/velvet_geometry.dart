@@ -139,4 +139,27 @@ abstract final class VelvetShadows {
       blurRadius: 8,
     ),
   ];
+
+  /// A single OFFSET dark drop shadow, with no light-highlight pair — the
+  /// master booking card's bottom shadow (design parity pass, `MasterBookingCard`).
+  ///
+  /// The approved SalonManagementDesign card shadow (`_kCardShadow`,
+  /// `booking_widgets.dart:161-172`) pairs an offset `shadowDarkCard` shadow
+  /// with a low-opacity offset near-white highlight. Only the DARK half is
+  /// reproduced here: an offset near-white highlight is the exact Impeller-GLES
+  /// white-corner-wedge trigger (resolved 34db74f — see
+  /// `impeller_circle_shadow_guard_test.dart`'s "offset-opaque-light-shadow
+  /// recipe guard"), while an offset shadow using the non-near-white
+  /// `shadowDarkCard` tone is proven SAFE at any offset (that same guard's
+  /// "classifier does NOT flag the opaque taupe dark shadow at an offset"
+  /// case). This gives the card a real, offset sense of lift — closer to the
+  /// design than the non-offset [borderedCard] halo — while staying provably
+  /// safe.
+  static const List<BoxShadow> cardDropShadow = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkCard,
+      offset: Offset(5, 5),
+      blurRadius: 12,
+    ),
+  ];
 }

@@ -1,14 +1,19 @@
 // Phase 7.10 timeline audit (mobile-perf MEDIUM-2) — pins
 // [ClientAvatarGradients.forKey]'s determinism contract directly.
 //
-// `MasterBookingCard` resolves this ONCE per card lifetime (`initState`) on
-// the assumption that "same key -> same gradient, every time" — see that
-// widget's `_avatarGradientColors` doc. Nothing in the widget tier actually
-// asserts the hashing/memoisation is correct in isolation: a widget test
-// pumping two cards for the same client would pass even if [forKey] returned
-// a RANDOM gradient on every call, as long as both cards happened to call it
-// with the SAME already-cached first result — the memo cache (`_cache`) masks
-// a non-deterministic hash on every call after the first. This file isolates
+// Historically `MasterBookingCard` resolved this ONCE per card lifetime
+// (`initState`) on the assumption that "same key -> same gradient, every
+// time". The compact-timeline pass (2026-07-20) dropped that card's avatar
+// row entirely, so `MasterBookingCard` no longer calls [forKey] at all —
+// [ClientAvatarGradients] is kept as a public, shared utility for any future
+// card that wants the gradient-avatar treatment (see
+// `master_booking_card.dart`'s `_ClientAvatar` doc). This file's assertions
+// are unaffected either way: nothing in the widget tier ever asserted the
+// hashing/memoisation is correct in isolation — a widget test pumping two
+// cards for the same client would pass even if [forKey] returned a RANDOM
+// gradient on every call, as long as both cards happened to call it with the
+// SAME already-cached first result — the memo cache (`_cache`) masks a
+// non-deterministic hash on every call after the first. This file isolates
 // [forKey] from any widget tree so a regression in the hash itself, or in the
 // cache's interaction with it, cannot hide behind a coincidentally-passing
 // widget test.

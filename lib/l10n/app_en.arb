@@ -4669,5 +4669,13 @@
   "bookingsDiscoveryBackSemantics": "Back",
   "@bookingsDiscoveryBackSemantics": {
     "description": "Accessibility label for the shared BookingsDiscoveryView header's back arrow (Phase 7.11), shown only when a host passes a non-null onBack (never on the master's own bottom-nav-tab-root screen, which passes null)."
+  },
+  "masterBookingsAddSemantics": "Add booking",
+  "@masterBookingsAddSemantics": {
+    "description": "Accessibility label for the master bookings header's '+' add-booking button (design-parity finding #6)."
+  },
+  "masterBookingsAddComingSoon": "Manually creating a booking is coming soon",
+  "@masterBookingsAddComingSoon": {
+    "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
   }
 }

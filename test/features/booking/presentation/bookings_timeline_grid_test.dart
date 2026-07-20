@@ -179,10 +179,34 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.text('01:00'), findsOneWidget);
+        // Scoped to the ruler, not a bare `find.text('01:00')`: since the
+        // compact-timeline pass (2026-07-20), `MasterBookingCard` itself
+        // prints the booking's bare Kyiv start time (`formatSlotTime`) on
+        // row 1 — and this booking legitimately starts AT 01:00, so its own
+        // card now ALSO renders "01:00". That is a second, independent
+        // Kyiv-correctness witness (the card's `_minutesSinceDayStart`-driven
+        // position derives the same value the ruler does), not a collision
+        // to work around — but it means the ruler's label can no longer be
+        // found via a bare unscoped text lookup.
+        final Finder rulerLabels = find.descendant(
+          of: find.byType(TimelineHourRuler),
+          matching: find.text('01:00'),
+        );
+        expect(rulerLabels, findsOneWidget);
         expect(find.text('02:00'), findsOneWidget);
         expect(find.text('22:00'), findsNothing);
         expect(find.text('23:00'), findsNothing);
+
+        // The card's OWN start-time label is the second Kyiv-correctness
+        // witness noted above — proves `MasterBookingCard` also reads
+        // through `toBeauticaTime`, not just the ruler.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('timeline-card-crossing')),
+            matching: find.text('01:00'),
+          ),
+          findsOneWidget,
+        );
 
         // Sanity: with no other booking narrowing the extent, the single
         // card anchors its own extent, so it renders flush with the grid's
@@ -201,11 +225,19 @@ void main() {
   group('short bookings render their full card, not a clipped sliver', () {
     // R2 regression — the report this test exists to pin: a duration-scaled
     // Positioned `height:` (floored at 48dp) used to make `MasterBookingCard`
-    // clip its own natural ~150dp content down to that box via an
-    // OverflowBox + ClipRect pair, i.e. "I can see only half of the card"
-    // for anything shorter than ~50 minutes. The fix positions the card by
-    // `top`/`left`/`width` ONLY — no `height:` — so it always renders at its
-    // full natural size regardless of duration.
+    // clip its own natural content down to that box via an OverflowBox +
+    // ClipRect pair, i.e. "I can see only half of the card" for anything
+    // shorter than ~50 minutes. The fix positions the card by `top`/`left`/
+    // `width` ONLY — no `height:` — so it always renders at its full natural
+    // size regardless of duration.
+    //
+    // The `greaterThan(...)` floor below tracks `MasterBookingCard`'s real
+    // natural height, which the compact-timeline pass (2026-07-20) shrank
+    // from ~150dp to ~52-56dp (`MasterBookingCard.estimatedNaturalHeight`) —
+    // it is NOT the old 48dp clip floor re-applied; it just has to stay
+    // comfortably below the card's new real size so a regression that
+    // reintroduces clipping (rendering back down near/at 48dp) still trips
+    // it.
     testWidgets(
       'a 15-minute booking is positioned with no forced height, and its '
       'rendered card is far taller than the old 48dp floor',
@@ -239,12 +271,12 @@ void main() {
         );
 
         // The card's ACTUAL rendered height comfortably clears the old 48dp
-        // floor — proof the full card (avatar row, divider, service row,
-        // price/status row) is on screen, not a truncated sliver of it.
+        // clip floor — proof the full card (both content rows) is on
+        // screen, not a truncated sliver of it.
         final double renderedHeight = tester
             .getSize(find.byKey(const ValueKey<String>('timeline-card-short')))
             .height;
-        expect(renderedHeight, greaterThan(120));
+        expect(renderedHeight, greaterThan(48));
       },
     );
   });

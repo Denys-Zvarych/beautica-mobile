@@ -136,6 +136,26 @@
 // (the hour gridlines) still layer on top of whatever size that resolves to.
 //
 // ============================================================================
+// ADDENDUM (2026-07-20) — THE COMPACT-TIMELINE PASS, AND WHY THIS FILE DIDN'T
+// NEED TO CHANGE FOR IT
+// ============================================================================
+// The ~150-190dp figures throughout R2/R3 above are HISTORICAL — they were
+// true when this file's `_LaneColumn` fix landed, and are the reason that fix
+// was necessary at all. `MasterBookingCard` has since dropped its avatar row
+// and moved to a two-line grid targeting ~52-56dp (`estimatedNaturalHeight`,
+// see that widget's class doc), specifically so real bookings reach their
+// true `desiredTop` more often and the collision-nudge this file computes
+// stays a rare, small correction instead of a growing drift. Nothing in R1,
+// R2, or R3 above needed to change for that: [_LaneColumn]'s
+// `max(_kMinInterCardGap, desiredTop - plannedBottom)` nudge is correct for
+// ANY card height, tall or short — it is the mechanism that made the height
+// reduction safe to ship without touching this file's collision logic at
+// all. A 15-minute slot (18dp of ruler) is still shorter than any realistic
+// card, so the nudge remains load-bearing in that case; it is simply idle
+// (contributes `desiredTop - plannedBottom`, its normal no-collision branch)
+// for everything roomier.
+//
+// ============================================================================
 // THE RULER IS THE KYIV WALL-CLOCK
 // ============================================================================
 // Every card's vertical position reads through [toBeauticaTime] — `Booking
@@ -271,7 +291,11 @@ class BookingsTimelineGrid extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           TimelineHourRuler(firstHour: firstHour, lastHour: lastHour),
-          const SizedBox(width: VelvetSpacing.sm),
+          // Finding #7 — the grid sat too far right of the ruler versus the
+          // design; `VelvetSpacing.xs` (was `.sm`) nudges the whole card area
+          // (and its gridlines) slightly left, combined with
+          // `TimelineHourRuler`'s own narrower column (see that file).
+          const SizedBox(width: VelvetSpacing.xs),
           Expanded(
             child: LayoutBuilder(
               builder: (BuildContext context, BoxConstraints constraints) {
@@ -292,10 +316,29 @@ class BookingsTimelineGrid extends StatelessWidget {
                       key: const ValueKey<String>('timeline-lane-stack'),
                       clipBehavior: Clip.none,
                       children: <Widget>[
-                        // The non-Positioned sizing child MUST come first —
-                        // `Stack` sizes itself from it, then layers every
-                        // Positioned sibling (the hour gridlines below) on
-                        // top of whatever size that resolves to.
+                        // Finding #8 fix — the hour gridlines are listed
+                        // FIRST so they PAINT first (bottom), and the card
+                        // `Row` below paints second (on top of them). A
+                        // `Stack` paints its children in list order — later
+                        // entries paint over earlier ones — so this ordering
+                        // alone is what stops the gridlines from drawing
+                        // across the booking cards. `Stack`'s SIZE is
+                        // unaffected by this: it is computed from every
+                        // non-`Positioned` child regardless of that child's
+                        // position in the list (the `Positioned` gridlines
+                        // never contribute to sizing either way), so moving
+                        // the sizing `Row` to the end changes paint order
+                        // only, not layout. See the file header's "R3"
+                        // section for why the `Row` must still be the ONE
+                        // non-`Positioned` child driving the `Stack`'s size.
+                        for (int i = firstHour; i <= lastHour; i++)
+                          Positioned(
+                            top: (i - firstHour) * _kHourH,
+                            left: 0,
+                            right: 0,
+                            height: 1,
+                            child: const ColoredBox(color: BrandColors.faint),
+                          ),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
@@ -316,14 +359,6 @@ class BookingsTimelineGrid extends StatelessWidget {
                             ],
                           ],
                         ),
-                        for (int i = firstHour; i <= lastHour; i++)
-                          Positioned(
-                            top: (i - firstHour) * _kHourH,
-                            left: 0,
-                            right: 0,
-                            height: 1,
-                            child: const ColoredBox(color: BrandColors.faint),
-                          ),
                       ],
                     ),
                   ),

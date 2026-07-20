@@ -84,6 +84,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/formatters/month_names.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../application/booked_days_notifier.dart';
@@ -146,6 +147,14 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// no «Всі» / null-day state (Phase 7.11).
   late DateTime _day;
 
+  /// The month currently shown by [_MonthSwitcher] (finding #4). Tracks
+  /// [_day]'s month whenever a day is actually selected, but stepping
+  /// prev/next moves ONLY this label + the rail's scroll position — never
+  /// [_day] or the live query — mirroring the approved design's own
+  /// `_focusedMonth`/`_prevMonth`/`_nextMonth`
+  /// (`bookings_toolbar.dart:739-822`). See [_prevMonth]/[_nextMonth].
+  late DateTime _focusedMonth;
+
   late Set<BookingStatus> _statuses;
   late Set<String> _serviceIds;
 
@@ -180,6 +189,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     // derived from it. See `bookings_day_rail.dart`'s header.
     _railFirstDay = railDayAt(_today, -kBookedDaysSpanDays);
     _day = _today;
+    _focusedMonth = DateTime(_day.year, _day.month);
     _statuses = widget.query.statuses.toSet();
     _serviceIds = widget.query.serviceIds.toSet();
     _liveQuery = BookingsDayQuery.of(
@@ -241,6 +251,62 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     }
   }
 
+  // ── Month switcher (findings #4/#5) ─────────────────────────────────────
+
+  /// Clamps [day] into the rail's date bounds
+  /// (`[_railFirstDay, _railFirstDay + kBookedDaysSpanDays * 2]`) — mirrors
+  /// the approved design's `_firstOfMonth` clamp
+  /// (`bookings_toolbar.dart:266-274`), generalised to any day rather than
+  /// only a month's 1st.
+  DateTime _clampToRailSpan(DateTime day) {
+    final DateTime lastRailDay = railDayAt(
+      _railFirstDay,
+      kBookedDaysSpanDays * 2,
+    );
+    if (day.isBefore(_railFirstDay)) return _railFirstDay;
+    if (day.isAfter(lastRailDay)) return lastRailDay;
+    return day;
+  }
+
+  /// The first day of [month], clamped into the rail's span — the target the
+  /// rail recentres on when the switcher steps a month.
+  DateTime _firstOfMonthClamped(DateTime month) =>
+      _clampToRailSpan(DateTime(month.year, month.month));
+
+  /// Steps [_focusedMonth] back one month and recentres the rail on it.
+  /// Deliberately does NOT touch [_day] or [_liveQuery] — a pure RAIL-SCROLL
+  /// affordance, exactly like the design's own `_prevMonth`: "stepping a
+  /// month should move the rail, not just relabel" is satisfied by
+  /// [_centreRailOn], not by re-selecting a day.
+  void _prevMonth() {
+    final DateTime prev = DateTime(_focusedMonth.year, _focusedMonth.month - 1);
+    final DateTime target = _firstOfMonthClamped(prev);
+    setState(() => _focusedMonth = DateTime(target.year, target.month));
+    _centreRailOn(target, animated: true);
+  }
+
+  /// Steps [_focusedMonth] forward one month and recentres the rail on it.
+  /// See [_prevMonth] for why [_day]/[_liveQuery] are untouched.
+  void _nextMonth() {
+    final DateTime next = DateTime(_focusedMonth.year, _focusedMonth.month + 1);
+    final DateTime target = _firstOfMonthClamped(next);
+    setState(() => _focusedMonth = DateTime(target.year, target.month));
+    _centreRailOn(target, animated: true);
+  }
+
+  /// «Сьогодні» (finding #5) — unlike prev/next, this DOES jump the actual
+  /// selection: it re-selects today (mirroring [_applySelectedDay]) and
+  /// resets the switcher's label to today's month, then recentres the rail.
+  void _goToToday() {
+    _dayDebounce?.cancel();
+    setState(() {
+      _day = _today;
+      _focusedMonth = DateTime(_today.year, _today.month);
+      _rebuildQuery();
+    });
+    _centreRailOn(_today, animated: true);
+  }
+
   // ── Query mutation ──────────────────────────────────────────────────────
 
   /// Rebuilds [_liveQuery] from the current [_day]/[_statuses]/[_serviceIds]
@@ -276,6 +342,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   void _applySelectedDay(DateTime day) {
     setState(() {
       _day = dateOnly(day);
+      _focusedMonth = DateTime(_day.year, _day.month);
       _rebuildQuery();
     });
   }
@@ -367,6 +434,24 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     hasServiceIds: _serviceIds.isNotEmpty,
   );
 
+  /// Finding #6 — the header's "+" add-booking affordance.
+  ///
+  /// There is no independent-master "create a booking for a walk-in client"
+  /// route anywhere in this app yet — `RouteNames.bookingNew` is the CLIENT's
+  /// own "book a master" flow (wrong direction: it would walk a MASTER
+  /// through booking themselves as a client). Rather than wire this to a
+  /// route that means something else, or invent a new backend call, this
+  /// shows the same transient-SnackBar "coming soon" pattern the app already
+  /// uses for other unscoped affordances (e.g.
+  /// `reschedule_navigation.dart`'s `bookingRescheduleUnavailable`,
+  /// `SalonBookingComingSoonScreen`'s placeholder copy).
+  void _showAddComingSoon(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(l10n.masterBookingsAddComingSoon)));
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────
 
   @override
@@ -384,8 +469,15 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onBack: widget.onBack,
               activeFilterCount: _activeFilterCount,
               onOpenFilters: _applyFilters,
+              onAdd: () => _showAddComingSoon(context),
             ),
             const _ServiceCatalogueWarmer(),
+            _MonthSwitcher(
+              month: _focusedMonth,
+              onPrev: _prevMonth,
+              onNext: _nextMonth,
+              onToday: _goToToday,
+            ),
             const SizedBox(height: VelvetSpacing.sm),
             Consumer(
               builder: (BuildContext context, WidgetRef ref, Widget? _) {
@@ -600,12 +692,37 @@ class _Header extends StatelessWidget {
     required this.onBack,
     required this.activeFilterCount,
     required this.onOpenFilters,
+    required this.onAdd,
   });
 
   final String title;
   final VoidCallback? onBack;
   final int activeFilterCount;
   final VoidCallback onOpenFilters;
+
+  /// Finding #6 — the add-booking affordance. Always shown: unlike the
+  /// design's salon-wide screen (where this is admin/owner-gated), THIS
+  /// screen only ever renders for the independent master's own bookings, the
+  /// one scope the design always shows it for.
+  final VoidCallback onAdd;
+
+  // Hoisted — `Color.withValues` and `BorderRadius.circular` are not const,
+  // so this can't be `static const`, but resolving once at class-load time
+  // avoids a fresh allocation on every header rebuild (mirrors the same fix
+  // pattern used throughout `master_booking_card.dart`).
+  static final BoxDecoration _addButtonDecoration = BoxDecoration(
+    color: BrandColors.accentDeep,
+    // A rounded-rect, NOT `shape: BoxShape.circle` — the Impeller-GLES
+    // circle+shadow artifact (resolved 34db74f / the guarded avatars in
+    // `impeller_circle_shadow_guard_test.dart`) is specifically triggered by
+    // pairing `BoxShape.circle` with a `boxShadow`. A `BorderRadius.circular`
+    // of half the side length renders visually identical on a square box
+    // while routing through Impeller's correct RRect blur path.
+    borderRadius: BorderRadius.circular(20),
+    boxShadow: const <BoxShadow>[
+      BoxShadow(color: Color(0x506A4A28), offset: Offset(0, 3), blurRadius: 8),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -650,7 +767,141 @@ class _Header extends StatelessWidget {
               activeCount: activeFilterCount,
               onTap: onOpenFilters,
             ),
+            const SizedBox(width: VelvetSpacing.sm),
+            Semantics(
+              button: true,
+              label: l10n.masterBookingsAddSemantics,
+              child: GestureDetector(
+                key: const Key('master-bookings-add'),
+                onTap: onAdd,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  height: 40,
+                  width: 40,
+                  decoration: _addButtonDecoration,
+                  child: const Icon(
+                    Icons.add_rounded,
+                    color: BrandColors.white,
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Month switcher (findings #4/#5) — a nav row above the day rail.
+// ===========================================================================
+
+/// A compact "‹ Липень 2026 ›" navigator plus a «Сьогодні» jump action, sat
+/// between the header and the day rail. Transcribed from the approved
+/// design's `_MonthSwitcher` (`bookings_toolbar.dart:739-822`); see
+/// `_BookingsDiscoveryViewState._prevMonth`/`_nextMonth`/`_goToToday` for why
+/// stepping the month moves only the rail's scroll position, never the
+/// selected day or the live query.
+class _MonthSwitcher extends StatelessWidget {
+  const _MonthSwitcher({
+    required this.month,
+    required this.onPrev,
+    required this.onNext,
+    required this.onToday,
+  });
+
+  final DateTime month;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
+  final VoidCallback onToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final String label = '${monthNominative(month.month)} ${month.year}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.lg,
+        vertical: VelvetSpacing.xs,
+      ),
+      child: Row(
+        children: <Widget>[
+          IconButton(
+            key: const Key('master-bookings-month-prev'),
+            icon: const Icon(Icons.chevron_left_rounded),
+            color: BrandColors.accent,
+            onPressed: onPrev,
+            tooltip: l10n.schedulePrevMonth,
+          ),
+          Expanded(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: VelvetText.monthSwitcherLabel,
+            ),
+          ),
+          IconButton(
+            key: const Key('master-bookings-month-next'),
+            icon: const Icon(Icons.chevron_right_rounded),
+            color: BrandColors.accent,
+            onPressed: onNext,
+            tooltip: l10n.scheduleNextMonth,
+          ),
+          const SizedBox(width: VelvetSpacing.sm),
+          _TodayButton(onTap: onToday, label: l10n.scheduleTodayAction),
+        ],
+      ),
+    );
+  }
+}
+
+/// The «Сьогодні» pill — jumps the rail (and the actual selection) back to
+/// today. `borderedButton`, NOT `extrudedSmall`/`extrudedButton`: this is a
+/// NEW rounded-rect surface in the booking feature, and every other such
+/// surface added since the white-corner-wedge fix (`CalendarButton`,
+/// `MasterBookingCard`) deliberately uses the non-offset bordered recipe
+/// instead of an offset near-white extruded pair — see `bookings_day_rail
+/// .dart`'s `_CalendarButton` for the same reasoning.
+class _TodayButton extends StatelessWidget {
+  const _TodayButton({required this.onTap, required this.label});
+
+  final VoidCallback onTap;
+  final String label;
+
+  static final BoxDecoration _decoration = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.pill),
+    boxShadow: VelvetShadows.borderedButton,
+    border: Border.all(color: BrandColors.accent.withValues(alpha: 0.18)),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        key: const Key('master-bookings-today'),
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.sm + 2),
+          decoration: _decoration,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(
+                Icons.today_rounded,
+                size: 15,
+                color: BrandColors.accentDeep,
+              ),
+              const SizedBox(width: 4),
+              Text(label, style: VelvetText.monthSwitcherTodayLabel),
+            ],
+          ),
         ),
       ),
     );
