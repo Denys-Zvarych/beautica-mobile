@@ -647,8 +647,8 @@ void main() {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
       // Two CONFIRMED, 20-minute, back-to-back bookings on the SAME Kyiv day
-      // as the fake's booked-days seed (`fb.bookingStartsAt`'s date,
-      // 2026-07-20 — Kyiv summer time, UTC+3): 09:00–09:20 then 09:20–09:40.
+      // as the fake's booked-days seed (`fb.bookingStartsAt`'s date):
+      // 09:00–09:20 then 09:20–09:40.
       // Same shape as `bookings_timeline_grid_test.dart`'s "R3 regression"
       // group, but arriving over the wire via [FakeBackend.seedManyBookingsDataset]
       // instead of hand-built `Booking` objects.
@@ -657,17 +657,34 @@ void main() {
       //   * Zero gap between them is the R3 case (the old duration-derived
       //     `top` advance left the second card's top inside the first
       //     card's real ~150-190dp body).
+      //
+      // The DAY is derived from `fb.bookingStartsAt` (same idiom as the filter
+      // test above), never hand-typed. These two rows used to hardcode
+      // `DateTime.utc(2026, 7, 20, ...)` to match what was then a hardcoded
+      // `bookingStartsAt`; once that field was re-anchored to a rolling date,
+      // the hardcoded copy pointed at a day the booked-days rail no longer
+      // offers, so the `dayChipKey(bookedDay)` tap below narrowed to an EMPTY
+      // day and neither card could ever be found. Deriving the day keeps the
+      // two in lockstep by construction.
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
+      final DateTime firstStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
       final List<Map<String, dynamic>> dataset = <Map<String, dynamic>>[
         fb.datasetBookingRow(
           id: 'booking-1',
           status: 'CONFIRMED',
-          startsAt: DateTime.utc(2026, 7, 20, 6), // 09:00 Kyiv
+          startsAt: firstStart, // 09:00 Kyiv
           duration: const Duration(minutes: 20),
         ),
         fb.datasetBookingRow(
           id: 'booking-2-overlap',
           status: 'CONFIRMED',
-          startsAt: DateTime.utc(2026, 7, 20, 6, 20), // 09:20 Kyiv
+          startsAt: firstStart.add(const Duration(minutes: 20)), // 09:20 Kyiv
           duration: const Duration(minutes: 20),
         ),
       ];

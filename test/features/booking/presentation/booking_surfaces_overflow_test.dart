@@ -154,6 +154,7 @@ Booking _booking({
   String? street = _longStreet,
   String? locationNote = _longArrival,
   double price = 1250,
+  double? priceMax,
 }) {
   final DateTime start = DateTime.utc(2026, 11, 28, 15);
   return Booking(
@@ -173,6 +174,7 @@ Booking _booking({
     buildingNo: '15А',
     durationMinutes: 90,
     price: price,
+    priceMax: priceMax,
     startAt: start,
     endAt: start.add(const Duration(minutes: 90)),
     status: status,
@@ -250,6 +252,12 @@ Future<void> _lay(WidgetTester tester) async {
 
 AppLocalizations _l10n(WidgetTester tester, Type ofType) =>
     AppLocalizations.of(tester.element(find.byType(ofType)));
+
+/// `booking_card.dart`'s private `_priceMaxWidth` — restated here so the
+/// headroom assertion reads as an independent measurement rather than an echo
+/// of the source constant. Same technique as
+/// `master_booking_card_test.dart`'s `_kPriceCapWidth`.
+const double _kClientPriceCapWidth = 96;
 
 double _rightEdge(WidgetTester tester, Key key) =>
     tester.getBottomRight(find.byKey(key)).dx;
@@ -402,6 +410,118 @@ void main() {
         );
       }
     }
+
+    // ── 1d. The RANGE price BAND on the client card (perf P2).
+    //
+    // Every fixture above passes `price: 1250` and NO `priceMax`, so
+    // `BookingDisplayX.priceLabel` collapses to a single «1250 ₴» figure and
+    // this card's band — the widest thing its 96dp price anchor ever has to
+    // hold — never rendered in ANY test, at any width or scale. The master
+    // timeline card's equivalent headroom is pinned in
+    // `master_booking_card_test.dart`; `booking_card.dart`'s own headroom
+    // figure was documented but nothing re-measured it (it carried an
+    // ESTIMATED «~74dp / ~22dp» until this block measured the real 76.96dp /
+    // ~19dp — see `_priceMaxWidth`'s doc). This block does, so a type-scale
+    // bump or a lowered cap fails here instead of shipping a silently
+    // scaled-down band.
+    for (final double width in _widths) {
+      for (final double scale in _scales) {
+        testWidgets(
+          'confirmed card @ ${width}dp x$scale — the widest realistic RANGE '
+          'band renders whole and stays right-anchored',
+          (tester) async {
+            await tester.pumpApp(
+              _framed(
+                BookingCard(
+                  // The widest band this card can realistically draw — the
+                  // exact figure `_priceMaxWidth`'s doc measured at 76.96dp.
+                  booking: _booking(
+                    id: 'band',
+                    status: BookingStatus.confirmed,
+                    price: 12500,
+                    priceMax: 25000,
+                  ),
+                  onOpenDetails: () {},
+                ),
+              ),
+              width: width,
+              textScaleFactor: scale,
+            );
+            await _lay(tester);
+
+            // The band really is a BAND — if `priceLabel` ever stopped
+            // emitting the en-dash pair this whole block would silently go
+            // back to testing the single-figure case.
+            // i18n-finder-ok: a price band is data derived from the fixture, not translated UI copy.
+            expect(find.text('12500–25000 ₴'), findsOneWidget);
+
+            // Whole and right-anchored, exactly as the single figure is.
+            expect(
+              _rightEdge(tester, const ValueKey<String>('price-band')),
+              closeTo(
+                _rightEdge(tester, const ValueKey<String>('time-band')),
+                0.6,
+              ),
+              reason: 'the band must anchor to the same right edge as the time',
+            );
+          },
+        );
+      }
+    }
+
+    // The headroom claim itself, at the ONE scale it was measured at. Split
+    // from the sweep above deliberately: 76.96dp against a 96dp cap is a 1.0×
+    // statement, and the card is EXPECTED to scale down at 1.3/2.0 (the
+    // `FittedBox` shrinks rather than clips — that is what the sweep proves
+    // stays overflow-free). Asserting "no scaling" across every cell would be
+    // asserting something false.
+    testWidgets('the widest realistic band needs NO scale-down at 1.0× — the '
+        'documented ~19dp of headroom is real', (tester) async {
+      await tester.pumpApp(
+        _framed(
+          BookingCard(
+            booking: _booking(
+              id: 'band',
+              status: BookingStatus.confirmed,
+              price: 12500,
+              priceMax: 25000,
+            ),
+            onOpenDetails: () {},
+          ),
+        ),
+        width: 360,
+      );
+      await _lay(tester);
+
+      // `FittedBox` scales via a transform without re-laying-out its child, so
+      // comparing the text's own box against the fitted box is a direct read
+      // of whether the scale engaged.
+      final Finder priceText = find.byKey(const ValueKey<String>('price-band'));
+      final double natural = tester
+          .renderObject<RenderBox>(priceText)
+          .size
+          .width;
+      final double fitted = tester
+          .renderObject<RenderBox>(
+            find.ancestor(of: priceText, matching: find.byType(FittedBox)),
+          )
+          .size
+          .width;
+
+      expect(
+        natural,
+        lessThan(_kClientPriceCapWidth),
+        reason:
+            'the widest realistic band must stay UNDER the 96dp cap — if this '
+            'fails the cap has been lowered into real data, or the price type '
+            'scale grew and the headroom figure in booking_card.dart is stale',
+      );
+      expect(
+        fitted,
+        closeTo(natural, 0.01),
+        reason: 'no live booking may be scaled down at 1.0×',
+      );
+    });
   });
 
   // =========================================================================

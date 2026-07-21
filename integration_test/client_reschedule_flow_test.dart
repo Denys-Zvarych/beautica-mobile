@@ -223,6 +223,18 @@ void main() {
     'reschedule helper drives the slot picker from just the appointment id',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
+      // `startsAt` is derived from the SAME booking the FakeBackend serves
+      // (`booking-1`) rather than hand-typed, so the Home Hub card and the
+      // booking behind it can never disagree. It used to read
+      // `DateTime.utc(2026, 7, 20, 15)` — a copy of what was then
+      // `bookingStartsAt`'s hardcoded value — and silently expired with it:
+      // `CountdownChip` (hub_widgets.dart) diffs the target against the REAL
+      // `DateTime.now()`, so the "next appointment" card was rendering «Зараз»
+      // instead of «Через N дн» while still passing, because this flow asserts
+      // only the reschedule affordance. `dateLabel`/`timeLabel` are the card's
+      // pre-formatted display strings and are decorative here — nothing derives
+      // or asserts them.
+      final DateTime seededStart = DateTime.parse(fb.bookingStartsAt);
       final NextAppointment seededAppt = NextAppointment(
         id: 'booking-1',
         masterName: 'Софія Бондар',
@@ -230,7 +242,7 @@ void main() {
         dateLabel: '20 липня',
         timeLabel: '15:00',
         location: 'Київ',
-        startsAt: DateTime.utc(2026, 7, 20, 15),
+        startsAt: seededStart,
         masterInitials: 'СБ',
       );
       final GoRouter router = await AppHarness.boot(

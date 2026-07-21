@@ -47,6 +47,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
 
 /// One selected service carried into the booking recap. [price] is a
@@ -179,8 +180,8 @@ class BookingRecap extends StatelessWidget {
   /// full "Послуги" + "Разом" rendering, unaffected).
   final bool totalOnly;
 
-  /// Whether money is a true statement here at all — forwarded to
-  /// [_ServiceRow] (single mode) / the "Разом" total (list mode). The
+  /// Whether money is a true statement here at all — forwarded to every
+  /// [_ServiceRow] (single AND list mode) and to the "Разом" total. The
   /// booking-FLOW screens always have a price (you're mid-agreement to it)
   /// and leave this at the default `true`; «Деталі запису» sets it `false`
   /// on a cancelled / declined / missed booking (see `Booking.showsPrice`) —
@@ -216,11 +217,16 @@ class BookingRecap extends StatelessWidget {
     final _BookingTotals totals = _BookingTotals.from(selections);
     final Widget totalRow = _TotalRow(
       label: l10n.bookingTotalLabel,
-      semanticsLabel: l10n.bookingTotalSemantics(
-        totals.durationLabel ?? '',
-        totals.priceLabel,
-      ),
-      price: totals.priceLabel,
+      // Gated on [showPrice] for the same reason [_ServiceRow]'s label is: the
+      // semantics tree is a readable surface, so announcing a suppressed
+      // «Разом» band would leak exactly what the visual gate suppresses.
+      semanticsLabel: showPrice
+          ? l10n.bookingTotalSemantics(
+              totals.durationLabel ?? '',
+              totals.priceLabel,
+            )
+          : l10n.bookingTotalSemanticsNoPrice(totals.durationLabel ?? ''),
+      price: showPrice ? totals.priceLabel : null,
       duration: totals.durationLabel,
       compactText: compactText,
     );
@@ -252,6 +258,7 @@ class BookingRecap extends StatelessWidget {
             selection: selections[i],
             dense: dense,
             compactText: compactText,
+            showPrice: showPrice,
           ),
           if (i < selections.length - 1)
             Divider(
@@ -291,17 +298,31 @@ class _ServiceRow extends StatelessWidget {
   /// See [BookingRecap.showPrice]. `false` on «Деталі запису» for a
   /// cancelled / declined / missed booking — the price is simply not built,
   /// and the name column takes the full width (no reserved gap, no "—").
+  ///
+  /// It gates the SEMANTICS label as well as the visual [Text], via the
+  /// price-less `bookingServiceTileSemanticsNoPrice` variant. Announcing a
+  /// suppressed price would be a real leak, not a cosmetic mismatch: the
+  /// semantics tree is a readable surface (TalkBack/VoiceOver, and any
+  /// accessibility-service app on the device), so a screen reader would have
+  /// read out «300–500 ₴» for a booking whose whole point is that no money is
+  /// owed. The accessibility tree must state exactly what the visual tree
+  /// states — keep the two gated on this one flag.
   final bool showPrice;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return Semantics(
-      label: l10n.bookingServiceTileSemantics(
-        selection.name,
-        selection.duration,
-        selection.price,
-      ),
+      label: showPrice
+          ? l10n.bookingServiceTileSemantics(
+              selection.name,
+              selection.duration,
+              selection.price,
+            )
+          : l10n.bookingServiceTileSemanticsNoPrice(
+              selection.name,
+              selection.duration,
+            ),
       child: Padding(
         padding: EdgeInsets.symmetric(
           vertical: dense ? VelvetSpacing.xs + 1 : VelvetSpacing.sm,
@@ -360,7 +381,13 @@ class _TotalRow extends StatelessWidget {
 
   final String label;
   final String semanticsLabel;
-  final String price;
+
+  /// `null` when [BookingRecap.showPrice] is `false` — the band is simply not
+  /// built, exactly as [_ServiceRow] drops its own price. Not an empty string
+  /// and not a placeholder: «Деталі запису» on a cancelled / declined / missed
+  /// booking must assert no sum at all, and the caller has already swapped the
+  /// [semanticsLabel] for the price-less variant to match.
+  final String? price;
   final String? duration;
 
   /// See [BookingRecap.compactText] — shrinks the total row's text a further
@@ -369,6 +396,8 @@ class _TotalRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final String? durationLabel = duration;
+    final String? priceLabel = price;
     return Semantics(
       label: semanticsLabel,
       child: Row(
@@ -381,22 +410,23 @@ class _TotalRow extends StatelessWidget {
                 ? VelvetText.bookName145w800
                 : VelvetText.bookName16w800,
           ),
-          if (duration != null) ...<Widget>[
+          if (durationLabel != null) ...<Widget>[
             const SizedBox(width: VelvetSpacing.sm),
             Text(
-              duration!,
+              durationLabel,
               style: compactText
                   ? VelvetText.feedbackMutedXs
                   : VelvetText.feedbackMutedSm,
             ),
           ],
           const Spacer(),
-          Text(
-            price,
-            style: compactText
-                ? VelvetText.bookAccentBold155
-                : VelvetText.bookPriceMd,
-          ),
+          if (priceLabel != null)
+            Text(
+              priceLabel,
+              style: compactText
+                  ? VelvetText.bookAccentBold155
+                  : VelvetText.bookPriceMd,
+            ),
         ],
       ),
     );
@@ -407,6 +437,36 @@ class _TotalRow extends StatelessWidget {
 /// a (low, high) band so any ranged price carries through to the total; when
 /// the band collapses (low == high) the label is a single value. Durations
 /// are summed in minutes and re-formatted to Ukrainian "X год Y хв".
+///
+/// ## The label is built by the SHARED formatter, and every term is gated
+///
+/// This used to coerce the wire doubles to `int` (`.round()`) and hand-build
+/// its own `'$minSum–$maxSum ₴'` — a third private copy of conventions
+/// `booking_price_labels.dart` already owns, and one that sat OUTSIDE that
+/// family's [isRenderablePrice] gate. [BookingSelection.priceMin]/[priceMax]
+/// are unclamped wire doubles (`master_service_mapper.dart` and
+/// `salon_mapper.dart` both pass the decoded value straight through, and
+/// `jsonDecode('1e400')` yields `double.infinity` without throwing), so the
+/// coercion failed two ways:
+///
+///   * `double.infinity.round()` / `double.nan.round()` THROW
+///     (`UnsupportedError: Infinity or NaN toInt`). This runs inside
+///     [BookingRecap.build], so the booking confirm / success / salon-confirm
+///     screen degraded to an error widget.
+///   * `(1e30).round()` does NOT throw — it saturates to int64 max. One such
+///     service rendered «9223372036854775807 ₴»; two wrapped `minSum +=`
+///     around to a NEGATIVE total («-2 ₴») on the very screen where the
+///     client is agreeing to a price.
+///
+/// So the sums stay `double` (no saturation, no wrap) and the label comes
+/// from [formatBookingTotals] — the same en-dash/«₴» conventions, the same
+/// guard, one copy. On top of that, each TERM is gated before it enters the
+/// accumulator: `+` is not protective, so two out-of-range figures that
+/// cancel (`1e30 + -1e30 == 0.0`) would clear a sum-level check and render a
+/// confident, entirely fictional «0 ₴». An unstatable term therefore poisons
+/// the whole band to [priceUnavailableLabel] rather than being silently
+/// dropped — dropping it would UNDERSTATE the price the client is agreeing
+/// to, which is the harm, not a mitigation of it.
 class _BookingTotals {
   const _BookingTotals({required this.priceLabel, required this.durationLabel});
 
@@ -414,28 +474,40 @@ class _BookingTotals {
   final String? durationLabel;
 
   factory _BookingTotals.from(List<BookingSelection> selections) {
-    int minSum = 0;
-    int maxSum = 0;
+    double minSum = 0;
+    double maxSum = 0;
     int minutes = 0;
+    bool renderable = true;
     for (final BookingSelection s in selections) {
       // Prefer the typed fields (populated by every current call site — see
       // `BookingSelection.fromSalonCatalogService` / `BookingSummaryCards
       // .fromMaster`); regex-reparsing the display strings is kept ONLY as a
       // fallback for a selection built without them (e.g. an older fixture),
       // per-selection so a mixed list still sums correctly.
-      final (int lo, int hi) = s.priceMin != null
-          ? (s.priceMin!.round(), (s.priceMax ?? s.priceMin!).round())
-          : _parsePrice(s.price);
+      final double lo;
+      final double hi;
+      final double? typedMin = s.priceMin;
+      if (typedMin != null) {
+        lo = typedMin;
+        hi = s.priceMax ?? typedMin;
+      } else {
+        final (int parsedLo, int parsedHi) = _parsePrice(s.price);
+        lo = parsedLo.toDouble();
+        hi = parsedHi.toDouble();
+      }
+      if (!isRenderablePrice(lo) || !isRenderablePrice(hi)) renderable = false;
       minSum += lo;
       maxSum += hi;
       minutes += s.durationMinutes ?? parseDurationMinutes(s.duration);
     }
-    final String priceLabel = minSum == maxSum
-        ? '$minSum ₴'
-        : '$minSum–$maxSum ₴';
+    // `formatBookingTotals` re-checks the SUMS (an in-range set of terms can
+    // still add up out of range); `renderable` is the upstream per-term gate
+    // it cannot see. Both must hold for a figure to be stated.
+    final ({String priceLabel, String? durationLabel}) totals =
+        formatBookingTotals(minSum: minSum, maxSum: maxSum, minutes: minutes);
     return _BookingTotals(
-      priceLabel: priceLabel,
-      durationLabel: minutes > 0 ? _formatDuration(minutes) : null,
+      priceLabel: renderable ? totals.priceLabel : priceUnavailableLabel,
+      durationLabel: totals.durationLabel,
     );
   }
 }
@@ -461,14 +533,4 @@ int parseDurationMinutes(String duration) {
   if (h != null) minutes += int.parse(h.group(1)!) * 60;
   if (m != null) minutes += int.parse(m.group(1)!);
   return minutes;
-}
-
-/// Formats total minutes back into Ukrainian "X год Y хв" (dropping a zero
-/// part).
-String _formatDuration(int minutes) {
-  final int h = minutes ~/ 60;
-  final int m = minutes % 60;
-  if (h > 0 && m > 0) return '$h год $m хв';
-  if (h > 0) return '$h год';
-  return '$m хв';
 }

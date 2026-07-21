@@ -249,6 +249,57 @@ void main() {
     );
   });
 
+  // ==========================================================================
+  // The FROZEN price band. `priceMaxAtBooking` is the range CEILING the
+  // backend locked in at booking time, sent ONLY when the master genuinely
+  // left the service as a RANGE then. Its null is MEANINGFUL — "single price"
+  // — so unlike every other nullable field the mapper defaults, it must reach
+  // the domain as a null and never be coalesced to 0.0 or to the floor.
+  // ==========================================================================
+  group('BookingMapper.fromDto — frozen price band', () {
+    test('an absent priceMaxAtBooking maps to a NULL priceMax (single '
+        'price), never 0.0 and never a copy of the floor', () {
+      final Booking b = BookingMapper.fromDto(_validDto(id: 'booking-fixed'));
+
+      expect(b.price, 500);
+      expect(
+        b.priceMax,
+        isNull,
+        reason:
+            'a null ceiling means SINGLE PRICE — coalescing it (to 0.0, or to '
+            'priceAtBooking) erases the distinction the renderer keys off',
+      );
+      expect(b.priceLabel, '500 ₴');
+    });
+
+    test('a present priceMaxAtBooking maps through as the band ceiling', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-range'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 300
+                ..priceMaxAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.price, 300);
+      expect(b.priceMax, 500);
+      expect(b.priceLabel, '300–500 ₴');
+    });
+  });
+
   group('BookingStatus.fromWire', () {
     // Phase 7.1 reversed the old throw-on-unknown contract (a dropped booking
     // is invisible to the master, so the row must survive). Security S1 then

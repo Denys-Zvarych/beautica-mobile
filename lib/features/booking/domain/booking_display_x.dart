@@ -10,6 +10,7 @@
 // Pure Dart: no Flutter imports.
 
 import 'package:beautica_mobile/shared/formatters/booking_address_block.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 
 import 'booking.dart';
@@ -89,6 +90,18 @@ extension BookingDisplayX on Booking {
   /// struck through, not "—". Simply not built.
   bool get showsPrice =>
       status == BookingStatus.confirmed || status == BookingStatus.completed;
+
+  /// HOW the price reads — «300 ₴» for a single price, «300–500 ₴» when the
+  /// master left this service as a genuine RANGE at booking time
+  /// ([Booking.priceMax] non-null). Delegates to the shared
+  /// [formatBookingPrice] so the client card, the master timeline card, «Деталі
+  /// запису»'s recap and its add-to-calendar description can never drift on
+  /// separator, rounding or currency suffix.
+  ///
+  /// Orthogonal to [showsPrice], which decides WHETHER money is shown at all —
+  /// every call site still gates on that first, and a band is gated
+  /// identically to a single figure.
+  String get priceLabel => formatBookingPrice(price: price, priceMax: priceMax);
 
   /// Add-to-calendar only makes sense for an appointment you still have to
   /// show up to.

@@ -64,7 +64,6 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
-import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
@@ -191,9 +190,10 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           '${formatFullDate(booking.startAt)}, '
           '${formatTimeRange(booking.startAt, booking.durationMinutes)}',
       address: booking.addressLine,
-      price: booking.showsPrice
-          ? '${booking.price.toStringAsFixed(0)} ${ServicePriceDisplay.suffix}'
-          : null,
+      // Exactly the string the recap card renders on-screen — both go through
+      // `BookingDisplayX.priceLabel`, so a RANGE booking exports «300–500 ₴»
+      // rather than a floor the client never agreed to on its own.
+      price: booking.showsPrice ? booking.priceLabel : null,
       status: BookingStatusVisual.of(booking, l10n).label,
     );
     return addBookingToCalendar(
@@ -365,7 +365,9 @@ class _DetailBody extends StatelessWidget {
           // `BookingRecap.single`'s doc.
           singleSelection: BookingSelection(
             name: booking.serviceName,
-            price: '${booking.price.toStringAsFixed(0)} ₴',
+            // «300 ₴», or «300–500 ₴» when the master left this service as a
+            // genuine RANGE at booking time — see `BookingDisplayX.priceLabel`.
+            price: booking.priceLabel,
             duration: booking.durationLabel,
           ),
           dense: true,

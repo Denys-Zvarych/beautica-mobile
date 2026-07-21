@@ -82,7 +82,25 @@ abstract class Booking with _$Booking {
     String? street,
     String? buildingNo,
     required int durationMinutes,
+
+    /// The price agreed AT BOOKING TIME (`priceAtBooking` on the wire), never
+    /// re-read from the live catalogue. When [priceMax] is non-null this is the
+    /// band's FLOOR; otherwise it is the whole price.
     required double price,
+
+    /// The band's CEILING, agreed at booking time (`priceMaxAtBooking`).
+    ///
+    /// **Null means SINGLE PRICE — render [price] alone.** It is not a missing
+    /// value and not an error state: the backend populates it only when the
+    /// master genuinely left this service as a `RANGE` (no `priceOverride`) at
+    /// the moment the booking was made, and freezes it there.
+    ///
+    /// The client must NEVER re-derive a band from `priceType`/`priceOverride`
+    /// or the service's current catalogue state — those describe the service
+    /// today, not what was agreed then. Render via
+    /// `BookingDisplayX.priceLabel` (→ `formatBookingPrice`), which is the one
+    /// place the floor/band choice is made.
+    double? priceMax,
     required DateTime startAt,
     required DateTime endAt,
     required BookingStatus status,

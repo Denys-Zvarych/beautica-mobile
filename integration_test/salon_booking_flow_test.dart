@@ -1341,6 +1341,12 @@ void main() {
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend()..currentRole = UserRole.client;
+        // The client's PRE-EXISTING clashing booking, delivered as a 409
+        // payload — not a fixture that must read as "upcoming". It reaches only
+        // `ClientBookingConflictFailure.userMessage` → `formatBookingWindow`, a
+        // pure absolute formatter with no `now()` in it, and no assertion below
+        // reads the rendered date; a fixed instant is more deterministic here.
+        // future-date-ok: clashing booking's own window, see note above.
         final DateTime clashStart = DateTime.utc(2026, 7, 15, 14);
         final ClientBookingConflictFailure conflict =
             ClientBookingConflictFailure(

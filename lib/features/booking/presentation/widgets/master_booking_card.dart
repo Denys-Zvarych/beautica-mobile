@@ -149,12 +149,32 @@
 // layout or stays blank — a locked product decision, not a pass that ran
 // out of room.
 //
-// PRICE STAYS A SINGLE VALUE
+// PRICE MAY BE A FROZEN BAND — «450 ₴» OR «300–500 ₴»
 // -----------------------------------------------------------------------
-// `Booking.price` (`../../domain/booking.dart`) is a single `required
-// double` — a booked, settled appointment has one price, never a min-max
-// range (unlike an unbooked service's `RANGE` pricing, a different model
-// entirely). Both layouts render it via the same [_PriceTag], unchanged.
+// This section previously claimed, as a locked decision, that "a booked,
+// settled appointment has one price, never a min-max range". That is FALSE
+// and has been corrected: the backend now sends `priceMaxAtBooking`
+// alongside `priceAtBooking`, and a booking made against a service the
+// master had left as a genuine `RANGE` (no `priceOverride`) carries both.
+//
+// The contract, in full:
+//   * `Booking.priceMax == null` means SINGLE price — render `price` alone.
+//     Null is not a missing value and not an error state.
+//   * Non-null means the range was real at booking time; `price` is the
+//     floor and `priceMax` the ceiling. Both were FROZEN server-side, once,
+//     at booking time — this card must never re-derive a band from
+//     `priceType`/`priceOverride`/the service's current catalogue state,
+//     which describe the service today rather than what was agreed then.
+//
+// Both layouts render whichever form applies via the same [_PriceTag], fed
+// by the shared `BookingDisplayX.priceLabel` (→ `formatBookingPrice`) so the
+// separator (en-dash), rounding and «₴» suffix can never drift from the
+// client card or «Деталі запису». The `showsPrice` gate is unchanged and
+// applies identically to a band.
+//
+// [_PriceTag] caps its own width and scales down rather than clipping — see
+// its doc — because a two-number band is materially wider than the single
+// figure this card's compact 56dp layout was originally sized around.
 //
 // THE BORDER, NOT THE SHADOW, CARRIES "MORE VISIBLE"
 // -----------------------------------------------------------------------
@@ -253,6 +273,12 @@ class MasterBookingCard extends StatefulWidget {
   /// commonly exceeds its nominal `fontSize * height`) and larger system
   /// font scales. Measured against the real widget in
   /// `master_booking_card_test.dart`'s "compact card height" group.
+  ///
+  /// Row 1's ~20dp term is the price pill, and that pill's height is pinned
+  /// independently of its horizontal `BoxFit.scaleDown` — see [_PriceTag]'s
+  /// zero-width height anchor. Without that anchor a band wide enough to hit
+  /// the pill's width cap would have scaled the pill's HEIGHT down with it
+  /// (uniform fit), silently dragging the compact card below this estimate.
   static const double estimatedNaturalHeight = 56;
 
   @override
@@ -392,8 +418,8 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             // time.
             padding: _useFullLayout ? _fullPadding : _compactPadding,
             child: _useFullLayout
-                ? _buildFullBody(l10n, b, clientName)
-                : _buildCompactBody(l10n, b, clientName),
+                ? _buildFullBody(b, clientName)
+                : _buildCompactBody(b, clientName),
           ),
         ),
       ),
@@ -408,11 +434,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// The dense two-row grid (time/service/price, then client/status) — the
   /// only shape proven to fit a 30-minute (56dp) slot without clipping. See
   /// this file's "Adaptive full/compact layout" header section.
-  Widget _buildCompactBody(
-    AppLocalizations l10n,
-    Booking b,
-    String clientName,
-  ) {
+  Widget _buildCompactBody(Booking b, String clientName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -436,11 +458,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             // would assert a debt that does not exist.
             if (b.showsPrice) ...<Widget>[
               const SizedBox(width: VelvetSpacing.xs),
-              _PriceTag(
-                price:
-                    '${b.price.toStringAsFixed(0)} '
-                    '${l10n.pricingCurrencySuffix}',
-              ),
+              _PriceTag(price: b.priceLabel),
             ],
           ],
         ),
@@ -472,7 +490,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// box is >= [_kFullLayoutMinHeight] — see this file's "Adaptive
   /// full/compact layout" header section. Deliberately has NO avatar and NO
   /// master-name row — see that same section's "WHAT DID NOT COME BACK".
-  Widget _buildFullBody(AppLocalizations l10n, Booking b, String clientName) {
+  Widget _buildFullBody(Booking b, String clientName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -537,12 +555,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
-            if (b.showsPrice)
-              _PriceTag(
-                price:
-                    '${b.price.toStringAsFixed(0)} '
-                    '${l10n.pricingCurrencySuffix}',
-              ),
+            if (b.showsPrice) _PriceTag(price: b.priceLabel),
             const Spacer(),
             // v-pad 3dp per the design's own `BookingStatusBadge` — the
             // compact timeline row keeps the tighter 2dp default (its own
@@ -555,7 +568,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   }
 }
 
-/// A price pill — «450 ₴».
+/// A price pill — «450 ₴», or the frozen band «300–500 ₴».
 ///
 /// Design-parity pass (finding #9): the approved design draws this as a
 /// `NeumorphicInset` recessed well (`booking_widgets.dart`'s `PriceTag`);
@@ -563,10 +576,59 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
 /// `NeumorphicInset` — the same widget the design's own token file's
 /// `NeumorphicInset` maps to, so this is a like-for-like port, not a
 /// reinterpretation.
+///
+/// ## Why the width cap exists (frozen-band pass)
+///
+/// This pill is a NON-flex child of both layouts' price rows, sitting beside
+/// an `Expanded` service name. A non-flex child takes its full intrinsic
+/// width, so on a narrow timeline lane a long band («12500–25000 ₴») could
+/// out-measure the room the row has left and trip a `RenderFlex` overflow —
+/// the single-figure pill this card was sized around never could. Capping the
+/// TEXT at [_maxTextWidth] and letting [FittedBox] scale it down keeps the
+/// pill non-flex (so it stays hard against the row's trailing edge, and the
+/// service name still ellipsises into whatever it leaves) while making an
+/// overflow structurally impossible. `scaleDown` shrinks rather than clips, so
+/// a pathological band stays legible instead of losing its ceiling to an
+/// ellipsis.
 class _PriceTag extends StatelessWidget {
   const _PriceTag({required this.price});
 
+  /// Already-formatted — «450 ₴» or «300–500 ₴». See
+  /// `BookingDisplayX.priceLabel`; this widget never formats money itself.
   final String price;
+
+  /// The widest the pill's TEXT may grow before it scales down. A CAP, not a
+  /// column width — a short «450 ₴» still sizes to its own content.
+  ///
+  /// Sized to the longest band this card can realistically be asked to draw,
+  /// «12500–25000 ₴» (5 + 5 digits), in [VelvetText.pill] (Nunito 11/w800):
+  /// 83.8dp measured, so ~12dp of headroom under this 96
+  /// (`VelvetSpacing.xxl * 2`).
+  ///
+  /// ## The 96 it shares with `booking_card.dart` is a COINCIDENCE — do not
+  /// treat the two as one knob
+  ///
+  /// `booking_card.dart`'s `_priceMaxWidth` is also 96, and an earlier version
+  /// of this doc claimed that made "the two booking cards scale their price at
+  /// the same threshold". That is FALSE and has been corrected: the two caps
+  /// are equal in dp but NOT in glyphs, because the two cards render the price
+  /// at different type scales.
+  ///
+  ///   * this card — [VelvetText.pill] (Nunito 11/w800): «12500–25000 ₴»
+  ///     measures 83.77dp, leaving ~12dp of headroom.
+  ///   * `booking_card.dart` — `VelvetText.bookingCardPrice` (Nunito 10/w800):
+  ///     the same band measures 76.96dp, leaving ~19dp. (Re-measured when that
+  ///     card's band finally got test coverage of its own — it had been
+  ///     carrying an estimated «~74dp / ~22dp» that nothing checked.)
+  ///
+  /// So a future type-scale bump trips THIS card roughly 7dp of band-width
+  /// earlier than the other one. Deliberately left as two independent
+  /// constants rather than one shared token: unifying them would encode a
+  /// coupling that does not exist and would invite the exact wrong edit
+  /// (bumping one token and assuming both cards are still clear). If either
+  /// card's price type scale changes, RE-MEASURE THAT CARD ONLY — and update
+  /// the headroom figures on both docs so this comparison stays honest.
+  static const double _maxTextWidth = VelvetSpacing.xxl * 2; // 96
 
   @override
   Widget build(BuildContext context) {
@@ -577,11 +639,52 @@ class _PriceTag extends StatelessWidget {
           horizontal: VelvetSpacing.sm,
           vertical: 3,
         ),
-        child: Text(
-          price,
-          style: VelvetText.pill(),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        // HEIGHT IS PINNED INDEPENDENTLY OF THE HORIZONTAL SCALE
+        // ---------------------------------------------------------------
+        // `BoxFit.scaleDown` scales UNIFORMLY, so the moment
+        // [_maxTextWidth] binds it shrinks the band's HEIGHT by the same
+        // factor, not just its width — measured: an over-cap band renders
+        // its text at 13.0dp instead of the style's natural 15.0dp. Left
+        // alone that silently drags the whole compact card under
+        // [MasterBookingCard.estimatedNaturalHeight], whose derivation names
+        // this pill's ~20dp row as the card's tallest.
+        //
+        // The zero-width [Text] below is a HEIGHT ANCHOR: an empty string in
+        // the same [VelvetText.pill] style lays out at Size(0.0, 15.0) — no
+        // width contributed to the [Row], full natural line height held. The
+        // [Row] then takes the taller of (anchor, scaled band), which is the
+        // anchor for every scale <= 1, so the pill keeps its natural height
+        // no matter how far the band scales horizontally.
+        //
+        // IT MUST STAY A [Text], NOT A `SizedBox(height: 15)`. 15.0 is the
+        // line height at textScaler 1.0 ONLY; a box cannot see the ambient
+        // scaler, so under the app's own MediaQuery clamp (see `main.dart`'s
+        // 1.3 ceiling) it would under-anchor and hand the height back to the
+        // scaled band — measured with the constant swapped in: at 1.1 the pill
+        // goes 23.0 (in-cap) vs 21.0 (over-cap), at 1.3 23.76 vs 21.0, i.e.
+        // exactly the defect this anchor removes. The [Text] re-derives its
+        // height from the inherited scaler on every build; the constant
+        // freezes one scale. A scale-1.3 case in
+        // `master_booking_card_test.dart` fails on the swap.
+        //
+        // Structural, not documentary, on purpose: the alternative (just
+        // documenting the coupling on `estimatedNaturalHeight`) leaves a live
+        // mechanism that quietly shrinks a real card, and the over-cap case
+        // is now exercised by `master_booking_card_test.dart`'s
+        // "the width cap actually engages" group.
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text('', style: VelvetText.pill()),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _maxTextWidth),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(price, style: VelvetText.pill(), maxLines: 1),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -14,7 +14,9 @@
 //     [BookingDetailResponse.endsAt] — a null value on any of these means the
 //     backend contract is broken (a booking with no id/status/time makes no
 //     sense downstream) and surfaces as [ServerFailure]. All other nullable
-//     fields fall back to a safe default ('' / 0 / 0.0 / false).
+//     fields fall back to a safe default ('' / 0 / 0.0 / false), EXCEPT
+//     `priceMaxAtBooking`, whose null is a real signal ("single price") and is
+//     carried through as `Booking.priceMax == null` — see that field's doc.
 //   - An unrecognised [BookingDetailResponse.status] wire value is NOT an
 //     error: [BookingStatus.fromWire] logs and decodes it to
 //     [BookingStatus.unknown], so the row is KEPT and rendered. It is NOT
@@ -121,6 +123,13 @@ abstract final class BookingMapper {
       buildingNo: dto.buildingNo,
       durationMinutes: dto.durationMinutesAtBooking ?? 0,
       price: dto.priceAtBooking?.toDouble() ?? 0.0,
+      // NOT coalesced — unlike every other nullable field above, a null
+      // ceiling is MEANINGFUL: it is the backend saying "this booking has a
+      // single price". Defaulting it to 0.0 (or to `priceAtBooking`) would
+      // erase that distinction; `Booking.priceMax` stays nullable all the way
+      // to `formatBookingPrice`, which is the one place the floor-vs-band
+      // choice is made. See `Booking.priceMax`'s doc.
+      priceMax: dto.priceMaxAtBooking?.toDouble(),
       startAt: startsAt,
       endAt: endsAt,
       status: status,

@@ -7,13 +7,21 @@
 # but auditing and converting ~30 files in one pass was out of scope for the
 # 2026-07-20 incident fix. They are frozen here so the gate is GREEN today
 # while still blocking NEW absolute future literals in every other (and every
-# freshly-authored) test file under test/features/booking/. This is a
+# freshly-authored) test file under the gate's scan roots. This is a
 # RATCHET: when one of these files is next meaningfully edited, convert its
 # `DateTime.utc(YYYY, ...)` literal(s) to `futureBookingStart()`
 # (test/helpers/booking_fixture_dates.dart) — or annotate a genuinely
 # deliberate fixed instant with `// future-date-ok: <reason>` — and DELETE
 # its line here. The baseline only ever shrinks. One repo-relative path per
-# line.
+# line; paths from EITHER scan root (test/features/booking/,
+# integration_test/) are valid entries.
+#
+# 2026-07-21: the scan was widened to `integration_test/`. NOTHING from that
+# tree was added here — its five offending sites were each judged individually
+# and resolved in place (two fixtures re-anchored to `fb.bookingStartsAt`,
+# three genuinely date-pinned sites annotated `// future-date-ok:`). Widening
+# a guard's reach and then allow-listing whatever it finds would reproduce
+# exactly the blind spot the widening existed to close.
 #
 # Generated 2026-07-20 from the then-current corpus, immediately after fixing
 # the four booking-detail specs whose expired anchor caused 16 real failures

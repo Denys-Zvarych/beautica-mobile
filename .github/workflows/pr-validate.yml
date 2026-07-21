@@ -213,7 +213,14 @@ jobs:
       # files predating this gate are grandfathered in
       # scripts/.stale_future_date_allow (ratchet — baseline only shrinks);
       # new exceptions use `// future-date-ok: <reason>`.
-      - name: Forbid stale absolute future-date fixtures in booking tests
+      #
+      # 2026-07-21 — scan widened to `integration_test/` as well. The gate was
+      # green through the recurrence because it only ever walked
+      # `test/features/booking/`, while a SECOND copy of the same expired
+      # instant sat in `integration_test/support/fake_backend.dart`
+      # (`bookingStartsAt`) and silently flipped every E2E CONFIRMED-affordance
+      # assertion. A guard that cannot see a tier does not protect it.
+      - name: Forbid stale absolute future-date fixtures in booking + E2E tests
         shell: bash
         run: ./scripts/forbid_stale_future_date_fixture.sh
 

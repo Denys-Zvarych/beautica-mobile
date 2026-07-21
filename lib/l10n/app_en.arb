@@ -3400,6 +3400,14 @@
       "price": { "type": "String" }
     }
   },
+  "bookingServiceTileSemanticsNoPrice": "{name}, {duration}",
+  "@bookingServiceTileSemanticsNoPrice": {
+    "description": "Price-less variant of bookingServiceTileSemantics. Used on «Деталі запису» for a cancelled / declined / missed booking, where the price is suppressed visually (Booking.showsPrice == false) and so must not be announced either — the accessibility tree must state exactly what the visual tree states.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "duration": { "type": "String" }
+    }
+  },
   "bookingTotalLabel": "Total",
   "@bookingTotalLabel": {
     "description": "Label of the pinned total-price row on the booking summary shelf."
@@ -3577,6 +3585,13 @@
     "placeholders": {
       "duration": { "type": "String" },
       "price": { "type": "String" }
+    }
+  },
+  "bookingTotalSemanticsNoPrice": "Total {duration}",
+  "@bookingTotalSemanticsNoPrice": {
+    "description": "Price-less variant of bookingTotalSemantics. Used on the booking detail screen for a cancelled / declined / missed booking, where the total band is suppressed visually (Booking.showsPrice == false) and so must not be announced either — the accessibility tree must state exactly what the visual tree states.",
+    "placeholders": {
+      "duration": { "type": "String" }
     }
   },
   "bookingCommentLabel": "Note for the specialist",

@@ -372,12 +372,20 @@ void main() {
     'stable key) and reaches success',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
+      // These are the ALREADY-EXISTING clashing booking's instants inside a 409
+      // payload, not a fixture that must read as "upcoming". They reach only
+      // `ClientBookingConflictFailure.userMessage` → `formatBookingWindow`,
+      // which is a pure absolute formatter with no `now()` in it, and no
+      // assertion in this flow reads the rendered date. A fixed instant is
+      // therefore strictly more deterministic here.
       final ClientBookingConflictFailure conflict =
           ClientBookingConflictFailure(
             conflictingBookingId: 'other-booking-1',
             serviceName: 'Педикюр апаратний',
             masterName: 'Ірина Шевченко',
+            // future-date-ok: clashing booking's own window, see note above.
             startsAt: DateTime.utc(2026, 7, 16, 14),
+            // future-date-ok: clashing booking's own window, see note above.
             endsAt: DateTime.utc(2026, 7, 16, 15, 30),
           );
       // Only service B's FIRST call fails; service A always succeeds.

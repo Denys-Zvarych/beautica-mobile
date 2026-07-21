@@ -36,6 +36,7 @@
 // avatar-row floor.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
@@ -641,4 +642,288 @@ void main() {
       },
     );
   });
+
+  // A booking made against a service the master had left as a genuine RANGE
+  // carries BOTH `price` (floor) and `priceMax` (ceiling), frozen server-side
+  // at booking time. The pill must render the band — the shipped bug was that
+  // it showed the floor alone — and, because it is a NON-flex child beside an
+  // `Expanded` service name, the wider two-number string must not be able to
+  // trip a RenderFlex overflow on a narrow timeline lane.
+  group('frozen RANGE price band', () {
+    testWidgets('the compact layout renders «300–500 ₴», not the floor alone', (
+      WidgetTester tester,
+    ) async {
+      final Booking booking = _shortBooking().copyWith(
+        price: 300,
+        priceMax: 500,
+      );
+
+      await tester.pumpApp(
+        Center(
+          child: MasterBookingCard(booking: booking, onTap: () {}),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('300–500 ₴'), findsOneWidget);
+      expect(
+        find.text('300 ₴'),
+        findsNothing,
+        reason: 'the floor alone is exactly the bug this fixes',
+      );
+    });
+
+    testWidgets('the full layout (>=112dp) renders the band too', (
+      WidgetTester tester,
+    ) async {
+      final Booking booking = _shortBooking(
+        durationMinutes: 60,
+      ).copyWith(price: 300, priceMax: 500);
+
+      await tester.pumpApp(
+        Center(
+          child: MasterBookingCard(
+            booking: booking,
+            onTap: () {},
+            minHeight: 112,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('300–500 ₴'), findsOneWidget);
+    });
+
+    testWidgets('a null priceMax still renders the SINGLE price — null is not '
+        'a missing value', (WidgetTester tester) async {
+      final Booking booking = _shortBooking();
+      expect(booking.priceMax, isNull);
+
+      await tester.pumpApp(
+        Center(
+          child: MasterBookingCard(booking: booking, onTap: () {}),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('450 ₴'), findsOneWidget);
+    });
+
+    // The price pill is a NON-flex child beside an `Expanded` service name, so
+    // a wider two-number band eats into the name's share rather than the other
+    // way round — but if the pill's own intrinsic width ever exceeded what the
+    // row had left, the `Expanded` would be squeezed to zero and the Row would
+    // overflow. `_PriceTag` caps its text at 96dp and scales down, which keeps
+    // the worst band this card can be asked to draw inside the lane's budget.
+    //
+    // 272dp is `BookingsTimelineGrid._kCardW` — the ONE production width this
+    // card is ever built at (the grid scrolls horizontally rather than
+    // narrowing lanes), so this is the real budget, not a synthetic one.
+    for (final ({String label, double width}) lane
+        in <({String label, double width})>[
+          (label: 'the production 272dp lane', width: 272),
+          (label: 'a hypothetical 200dp lane', width: 200),
+        ]) {
+      testWidgets(
+        'the longest band + a long service name stay inside ${lane.label}',
+        (WidgetTester tester) async {
+          final Booking booking = _shortBooking().copyWith(
+            serviceName:
+                'Комплексний догляд за волоссям з ботоксом та укладкою',
+            price: 12500,
+            priceMax: 25000,
+          );
+
+          await tester.pumpApp(
+            Center(
+              child: SizedBox(
+                width: lane.width,
+                child: MasterBookingCard(booking: booking, onTap: () {}),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          // `pumpApp` installs the shared overflow guard, so a RenderFlex
+          // overflow here fails the test on its own; this pins the absence of
+          // any other thrown layout error too.
+          expect(tester.takeException(), isNull);
+          expect(find.text('12500–25000 ₴'), findsOneWidget);
+
+          // This band FITS — it does not exercise the cap. 83.8dp of text
+          // against a 96dp cap means `FittedBox` resolves to scale 1.0 and
+          // the `ConstrainedBox` never binds, so on its own this case proves
+          // only "the realistic worst band needs no scaling". The cap
+          // MECHANISM is exercised by the group below; pinned here so the two
+          // cases can never silently collapse into one.
+          expect(
+            _priceTextWidth(tester),
+            lessThan(_kPriceCapWidth),
+            reason:
+                'the realistic worst band must stay UNDER the cap — if this '
+                'ever fails the cap has been lowered into real data, and the '
+                'over-cap group below is no longer testing anything extra',
+          );
+          expect(_fittedPriceWidth(tester), _priceTextWidth(tester));
+        },
+      );
+    }
+
+    // FINDING-3 REGRESSION — the group above measures 83.8dp against a 96dp
+    // cap, so it never actually engages `_PriceTag`'s `ConstrainedBox` +
+    // `FittedBox(scaleDown)`. These cases push a deliberately pathological
+    // band past the cap and assert the scale-down REALLY fires, in both the
+    // production 272dp lane and the narrower hypothetical one.
+    for (final ({String label, double width}) lane
+        in <({String label, double width})>[
+          (label: 'the production 272dp lane', width: 272),
+          (label: 'a hypothetical 200dp lane', width: 200),
+        ]) {
+      testWidgets('an OVER-cap band actually engages the width cap in '
+          '${lane.label}', (WidgetTester tester) async {
+        final Booking booking = _shortBooking().copyWith(
+          serviceName: 'Комплексний догляд за волоссям з ботоксом та укладкою',
+          price: 1234567,
+          priceMax: 8901234,
+        );
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: lane.width,
+              child: MasterBookingCard(booking: booking, onTap: () {}),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+
+        // The text's own render box keeps its NATURAL size — `FittedBox`
+        // scales via a transform, it does not re-lay-out its child — so
+        // comparing the two boxes is a direct read of whether the scale
+        // engaged. Observed: natural 110.97dp vs fitted 96.0dp (scale ~0.865).
+        final double natural = _priceTextWidth(tester);
+        final double fitted = _fittedPriceWidth(tester);
+        expect(
+          natural,
+          greaterThan(_kPriceCapWidth),
+          reason: 'the fixture must out-measure the cap or this proves nothing',
+        );
+        expect(
+          fitted,
+          _kPriceCapWidth,
+          reason: 'the ConstrainedBox must clamp the band at exactly the cap',
+        );
+        expect(fitted, lessThan(natural), reason: 'scaleDown must have fired');
+
+        // The pill's own box clamps at cap + its horizontal padding, and the
+        // band is still whole — scaled, never ellipsised or clipped.
+        expect(_priceTagWidth(tester), _kPriceCapWidth + VelvetSpacing.sm * 2);
+        expect(find.text('1234567–8901234 ₴'), findsOneWidget);
+      });
+    }
+
+    // FINDING-5 REGRESSION — `BoxFit.scaleDown` scales UNIFORMLY, so before
+    // `_PriceTag` grew its zero-width height anchor an over-cap band shrank
+    // the pill's HEIGHT too (measured: text 15.0dp -> 13.0dp, pill 21 -> 19),
+    // quietly dragging the compact card under
+    // `MasterBookingCard.estimatedNaturalHeight`. The anchor holds the pill at
+    // its natural line height whatever the horizontal scale.
+    //
+    // SWEPT ACROSS textScaler, and that sweep is the point (perf P2). At the
+    // default 1.0 a `SizedBox(height: 15)` would satisfy this test exactly as
+    // well as the `Text` anchor does — 15.0 IS the line height there — so a
+    // 1.0-only case cannot tell a scale-aware anchor from a frozen constant
+    // and silently blesses the swap. Above 1.0 the two diverge: the `Text`
+    // re-derives its height from the inherited scaler, the box cannot see it.
+    // 1.3 is the app's own MediaQuery ceiling (`main.dart`), i.e. a scale real
+    // users reach, not a synthetic one.
+    for (final double scale in <double>[1.0, 1.3]) {
+      testWidgets('an OVER-cap band does not shrink the price pill vertically '
+          '(textScaler $scale)', (WidgetTester tester) async {
+        Future<({double pill, double card})> measure(
+          double price,
+          double priceMax,
+        ) async {
+          await tester.pumpApp(
+            Center(
+              child: SizedBox(
+                width: 272,
+                child: MasterBookingCard(
+                  booking: _shortBooking().copyWith(
+                    price: price,
+                    priceMax: priceMax,
+                  ),
+                  onTap: () {},
+                ),
+              ),
+            ),
+            textScaleFactor: scale,
+          );
+          await tester.pump();
+          return (
+            pill: tester
+                .renderObject<RenderBox>(find.byType(NeumorphicInset).first)
+                .size
+                .height,
+            card: tester
+                .renderObject<RenderBox>(find.byType(MasterBookingCard))
+                .size
+                .height,
+          );
+        }
+
+        final ({double pill, double card}) inCap = await measure(12500, 25000);
+        final ({double pill, double card}) overCap = await measure(
+          1234567,
+          8901234,
+        );
+
+        expect(
+          overCap.pill,
+          inCap.pill,
+          reason:
+              'the height anchor must keep the pill at its natural line height '
+              'even when the width cap scales the band down',
+        );
+        expect(overCap.card, inCap.card);
+        expect(
+          overCap.card,
+          greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight - 2),
+          reason:
+              'a scaled band must not drag the card under its documented '
+              'natural height',
+        );
+      });
+    }
+  });
 }
+
+/// `_PriceTag._maxTextWidth` — private to the widget, restated here so these
+/// tests read as an independent check rather than an echo of the source.
+const double _kPriceCapWidth = VelvetSpacing.xxl * 2; // 96
+
+Finder get _priceFittedBox => find.descendant(
+  of: find.byType(MasterBookingCard),
+  matching: find.byType(FittedBox),
+);
+
+/// The price band's NATURAL width — `FittedBox` scales by transform, so its
+/// child's render box still reports the unscaled size.
+double _priceTextWidth(WidgetTester tester) => tester
+    .renderObject<RenderBox>(
+      find.descendant(of: _priceFittedBox, matching: find.byType(Text)),
+    )
+    .size
+    .width;
+
+/// The width the `ConstrainedBox` actually resolved for the band.
+double _fittedPriceWidth(WidgetTester tester) =>
+    tester.renderObject<RenderBox>(_priceFittedBox).size.width;
+
+/// The whole price pill's outer width, cap + horizontal padding.
+double _priceTagWidth(WidgetTester tester) => tester
+    .renderObject<RenderBox>(find.byType(NeumorphicInset).first)
+    .size
+    .width;
