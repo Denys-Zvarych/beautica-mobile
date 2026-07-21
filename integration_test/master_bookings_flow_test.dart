@@ -48,6 +48,7 @@ import 'package:beautica_mobile/features/services/presentation/services_list_scr
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
@@ -945,6 +946,370 @@ void main() {
             'the rail is the surface that carries the day now; if it ever '
             'disappears, dropping the per-card date stops being safe',
       );
+    },
+  );
+
+  // ── 2026-07-21 — the compact card is a MINIATURE of the >=1h card, and the
+  //      45-minute booking is on the COMPACT side of the threshold ──────────
+  //
+  // Step 2.7 Rule 3b. The two tests below close the one gap the widget tier is
+  // STRUCTURALLY unable to reach, and it is not a coverage gap — it is a
+  // harness-shape gap:
+  //
+  //   `master_booking_card_test.dart` selects a layout by HANDING THE WIDGET A
+  //   `minHeight:` LITERAL (`minHeight: 84` / `minHeight: 112`). That literal
+  //   is the test author's own transcription of what
+  //   `bookings_timeline_grid.dart`'s `_cardMinHeightFor` is believed to
+  //   compute. Nothing in that file executes `_cardMinHeightFor`. So the
+  //   user-facing decision this pass actually made — "a 45-minute booking gets
+  //   the compact card, a 60-minute one gets the full card" — is asserted
+  //   there against a NUMBER, never against a DURATION. Change
+  //   `_cardMinHeightFor`'s floor, or `_kHourH`, or the `durationMinutes` the
+  //   mapper decodes off `durationMinutesAtBooking`, and every widget-tier
+  //   layout-selection case stays green while the shipped app flips 45-minute
+  //   bookings onto the full body — the exact "cards drift off their hour
+  //   line" regression the compact pass exists to prevent.
+  //
+  // These flows drive it from the only end that can prove it: a
+  // `durationMinutesAtBooking` on the wire, through the real mapper, the real
+  // grid, the real height derivation, into the real card.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // the dev VM has no attached emulator (host-only-adapter limitation,
+  // backlog #179/#191), and the headless-proxy workaround does not survive
+  // `AppHarness.loginAs`'s `tap(login_submit)` under the plain
+  // `LiveTestWidgetsFlutterBinding`, so it is not a usable substitute for any
+  // flow in this file. Verified analyze-clean and `dart format`-clean, and
+  // carried into BOTH aggregators by this file's EXISTING imports in
+  // `all_tests.dart` and `all_tests_part2.dart` — extending the flow file adds
+  // no new aggregator wiring. Authored, not passing: CI owns the first run.
+  testWidgets(
+    'a 45-minute booking renders the COMPACT card and a 60-minute one the '
+    'FULL card — the layout threshold, driven from durationMinutes on the wire',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // Same Kyiv day as the fake's booked-days seed, derived from
+      // `fb.bookingStartsAt` rather than hand-typed — see the "two back-to-back"
+      // test above for the incident that idiom prevents.
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
+      final DateTime firstStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+
+      // 45 minutes and 60 minutes, back to back with a gap, so both land in the
+      // SAME lane column and neither can be nudged by collision handling. The
+      // durations are the whole fixture: `_cardMinHeightFor(45, 112)` = 84dp
+      // (below `_kFullLayoutMinHeight`) and `_cardMinHeightFor(60, 112)` = 112dp
+      // (exactly at it). Nothing here passes a `minHeight` — the grid derives
+      // both from `durationMinutesAtBooking` as decoded off the wire.
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'forty-five',
+          status: 'CONFIRMED',
+          startsAt: firstStart, // 09:00–09:45 Kyiv
+          duration: const Duration(minutes: 45),
+        ),
+        fb.datasetBookingRow(
+          id: 'sixty',
+          status: 'CONFIRMED',
+          startsAt: firstStart.add(const Duration(minutes: 60)),
+          duration: const Duration(minutes: 60), // 10:00–11:00 Kyiv
+        ),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+
+      // The MOUNTED screen, not just the location string — a shell-nested push
+      // reads as its parent through `router.location` alone.
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await tester.tap(find.byKey(dayChipKey(bookedDay)));
+      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
+      await tester.pump(const Duration(milliseconds: 300));
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.getMyBookingsCalls,
+        greaterThan(0),
+        reason: 'both cards must be served by the real endpoint',
+      );
+
+      final Finder shortCard = find.byKey(
+        const Key('master-booking-card-forty-five'),
+      );
+      final Finder longCard = find.byKey(
+        const Key('master-booking-card-sixty'),
+      );
+      expect(shortCard, findsOneWidget);
+      expect(longCard, findsOneWidget);
+
+      // ── The 45-minute card is COMPACT. Both bodies now draw a hairline and
+      //      print the same range string, so the ONLY observable difference is
+      //      WHICH divider key rendered and whether the status indicator is a
+      //      dot or a labelled pill — assert both, in both directions. ────────
+      expect(
+        find.byKey(const Key('master-booking-card-compact-divider-forty-five')),
+        findsOneWidget,
+        reason:
+            'a 45-minute booking derives an 84dp floor, below the 112dp '
+            'full-layout threshold — it must render the compact miniature',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-divider-forty-five')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: shortCard,
+          matching: find.byType(TimelineStatusDot),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: shortCard,
+          matching: find.byType(TimelineStatusBadge),
+        ),
+        findsNothing,
+      );
+
+      // ── The 60-minute card is FULL. ───────────────────────────────────────
+      expect(
+        find.byKey(const Key('master-booking-card-divider-sixty')),
+        findsOneWidget,
+        reason:
+            'a 60-minute booking derives a 112dp floor, exactly at the '
+            'threshold — it must render the full divided layout',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-compact-divider-sixty')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: longCard,
+          matching: find.byType(TimelineStatusBadge),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: longCard, matching: find.byType(TimelineStatusDot)),
+        findsNothing,
+      );
+
+      // ── The real rendered boxes, so a "compact layout inside an oversized
+      //      box" regression cannot pass the key checks above. 84dp is the
+      //      45-minute floor met EXACTLY (the compact body's 56dp of content
+      //      leaves 28dp of intentional blank room); the 60-minute card is at
+      //      or above its own 112dp floor because the full body out-measures
+      //      it. ────────────────────────────────────────────────────────────
+      final double shortHeight = tester.getSize(shortCard).height;
+      final double longHeight = tester.getSize(longCard).height;
+      expect(
+        shortHeight,
+        84,
+        reason:
+            'the 45-minute card measured ${shortHeight}dp against its 84dp '
+            'duration-derived floor — either _cardMinHeightFor drifted or the '
+            'compact body no longer fits the slot its duration owns',
+      );
+      expect(
+        longHeight,
+        greaterThanOrEqualTo(112),
+        reason:
+            'the 60-minute card measured ${longHeight}dp — the full body is '
+            'taller than its own 112dp floor, so anything below it means the '
+            'compact body was selected after all',
+      );
+    },
+  );
+
+  // The compact card's SHAPE, end to end. `master_booking_card_test.dart`
+  // asserts the same reading order against a hand-built `Booking`; this proves
+  // the five fields it arranges each survive the wire → generated DTO →
+  // `BookingMapper` → `Booking` → card path, and that the arrangement holds
+  // inside the real timeline rather than under a bare `Center`.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the block above; authored,
+  // analyze-clean, aggregator-carried, CI owns the first run.
+  testWidgets(
+    'the compact card reads identity above the hairline and transaction '
+    'below, every field sourced from a real GET /bookings/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
+      final DateTime wireStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+      const Duration wireDuration = Duration(minutes: 30);
+
+      // `datasetBookingRow` seeds the MASTER-side identity only — the compact
+      // row 1 renders the CLIENT, so the counterparty fields are spread in on
+      // top, from the same `/users/me` persona every other flow asserts
+      // against. Without them the card falls back to the guest label and the
+      // "row 1 names the client" assertion below would silently pass on a
+      // placeholder.
+      final Map<String, dynamic> row = <String, dynamic>{
+        ...fb.datasetBookingRow(
+          id: 'mini',
+          status: 'CONFIRMED',
+          startsAt: wireStart,
+          duration: wireDuration,
+        ),
+        'clientId': 'client-1',
+        'clientFirstName': fb.clientFirstName,
+        'clientLastName': fb.clientLastName,
+      };
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[row]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await tester.tap(find.byKey(dayChipKey(bookedDay)));
+      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
+      await tester.pump(const Duration(milliseconds: 300));
+      await AppHarness.settle(tester);
+
+      final Finder card = find.byKey(const Key('master-booking-card-mini'));
+      expect(card, findsOneWidget);
+      expect(
+        find.byKey(const Key('master-booking-card-compact-divider-mini')),
+        findsOneWidget,
+        reason: 'precondition: a 30-minute booking must be the COMPACT card',
+      );
+
+      // Every expected string is derived from what actually went on the wire —
+      // the range from the two instants, the name from the fake's own persona,
+      // the service name and price straight out of the seeded row map. Nothing
+      // here is a re-typed literal, so a fixture change cannot leave a stale
+      // expectation behind (and no Cyrillic reaches a finder).
+      final String expectedRange = formatSlotTimeRange(
+        wireStart,
+        wireStart.add(wireDuration),
+      );
+      final String expectedClient =
+          '${fb.clientFirstName} ${fb.clientLastName}';
+      final String expectedService = row['serviceName'] as String;
+      final String expectedPrice = formatBookingPrice(
+        price: (row['priceAtBooking'] as num).toDouble(),
+        priceMax: (row['priceMaxAtBooking'] as num?)?.toDouble(),
+      );
+
+      Finder inCard(Finder matching) =>
+          find.descendant(of: card, matching: matching);
+
+      for (final ({String label, String value}) field
+          in <({String label, String value})>[
+            (label: 'the start–end range', value: expectedRange),
+            (label: 'the client name', value: expectedClient),
+            (label: 'the service name', value: expectedService),
+            (label: 'the price', value: expectedPrice),
+          ]) {
+        expect(
+          inCard(find.text(field.value)),
+          findsOneWidget,
+          reason: '${field.label} must reach the compact card off the wire',
+        );
+      }
+
+      // ── ROW 1 (IDENTITY) sits ABOVE the hairline, ROW 2 (TRANSACTION)
+      //      BELOW it. This is the property that makes the compact card a
+      //      MINIATURE of the >=1h card rather than a differently-shaped card
+      //      showing the same fields — and the one a reordering "tidy-up"
+      //      would leave every presence assertion above untouched. ───────────
+      final double hairlineY = tester
+          .getTopLeft(
+            find.byKey(const Key('master-booking-card-compact-divider-mini')),
+          )
+          .dy;
+
+      for (final ({String label, Finder finder}) above
+          in <({String label, Finder finder})>[
+            (
+              label: 'the start–end range',
+              finder: inCard(find.text(expectedRange)),
+            ),
+            (
+              label: 'the client name',
+              finder: inCard(find.text(expectedClient)),
+            ),
+            (
+              label: 'the status dot',
+              finder: inCard(find.byType(TimelineStatusDot)),
+            ),
+          ]) {
+        expect(
+          tester.getTopLeft(above.finder).dy,
+          lessThan(hairlineY),
+          reason: '${above.label} belongs to the identity row, above the rule',
+        );
+      }
+
+      for (final ({String label, Finder finder}) below
+          in <({String label, Finder finder})>[
+            (
+              label: 'the service name',
+              finder: inCard(find.text(expectedService)),
+            ),
+            (label: 'the price', finder: inCard(find.text(expectedPrice))),
+          ]) {
+        expect(
+          tester.getTopLeft(below.finder).dy,
+          greaterThan(hairlineY),
+          reason:
+              '${below.label} belongs to the transaction row, below the rule',
+        );
+      }
+
+      // …and within row 1 the lighter range LEADS the heavier client name, and
+      // the dot is hard right of both — the diagonal the compact layout's
+      // legibility rests on.
+      final double rangeX = tester
+          .getTopLeft(inCard(find.text(expectedRange)))
+          .dx;
+      final double nameX = tester
+          .getTopLeft(inCard(find.text(expectedClient)))
+          .dx;
+      final double dotX = tester
+          .getTopLeft(inCard(find.byType(TimelineStatusDot)))
+          .dx;
+      expect(rangeX, lessThan(nameX));
+      expect(nameX, lessThan(dotX));
+
+      // The compact card never draws the labelled pill — the label lives in
+      // the dot's Semantics/Tooltip channel instead (pinned per status at the
+      // widget tier).
+      expect(inCard(find.byType(TimelineStatusBadge)), findsNothing);
     },
   );
 }

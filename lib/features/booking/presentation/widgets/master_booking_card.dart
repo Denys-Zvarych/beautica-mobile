@@ -22,15 +22,63 @@
 // correctness backstop for the genuinely-tight case (two 15-minute bookings
 // back-to-back) — see that file's R3 header.
 //
-// The two-line grid below (time/service/price, then client/status) is the
-// user-approved shape:
+// The compact layout is a MINIATURE OF THE FULL CARD (2026-07-21)
+// -----------------------------------------------------------------------
+// The compact body previously ran a divider-less two-line grid
+// (time/service/price, then client/status). It has been re-composed so a
+// 30-minute card reads as a scaled-down version of the >=1h card rather
+// than a differently-shaped one — same semantic split, same hairline, same
+// reading order:
 //
 // ```
-// ┌──────────────────────────────┐
-// │ 09:00–09:45 Стрижка жін. 450₴│
-// │ Марія Іванюк     ● Підтв.    │
-// └──────────────────────────────┘
+// ┌──────────────────────────────────────┐
+// │ 09:00–09:30   Марія Іванюк        ●  │  ← when · who · status DOT
+// │ ──────────────────────────────────── │  ← hairline (BrandColors.faint)
+// │ Стрижка жіноча              450 ₴    │  ← what · how much
+// └──────────────────────────────────────┘
+//                 56dp
 // ```
+//
+// Row 1 is IDENTITY (when + who), row 2 is the TRANSACTION (what + how
+// much), and the hairline is the same cut [_buildFullBody] makes between
+// its client-name row and its service row. That is what earns the word
+// "miniature" instead of "shrunk copy".
+//
+// The text [TimelineStatusBadge] compresses to [TimelineStatusDot] in this
+// layout ONLY — the label is what does not fit, so the colour carries the
+// signal and the label moves to the `Semantics`/`Tooltip` channel (see that
+// widget's doc: colour alone across six statuses is not a signal). The
+// >=1h card keeps the labelled pill, unchanged.
+//
+// THE 41dp BUDGET, AND WHAT IT COST TO ADD A DIVIDER
+// -----------------------------------------------------------------------
+// At textScaler 1.0 a 56dp box leaves `56 − 3 (border 1.5 × 2) − 12
+// ([_compactPadding] vertical 6 × 2) = 41dp` of content. The stack:
+//
+//   | row 1     | 15 | [VelvetText.masterCardClientName] 12.5 × 1.2 — the
+//   |           |    | tallest child (time is 13.8, the dot 8)
+//   | gap       |  4 | `VelvetSpacing.xs`
+//   | hairline  |  1 |
+//   | gap       |  4 | `VelvetSpacing.xs`
+//   | row 2     | 17 | the price pill: 15dp line + [_kCompactPriceVPad] × 2
+//   | TOTAL     | 41 | = the budget exactly, zero slack at scale 1.0
+//
+// The divider and its two gaps are 9dp of NET-NEW vertical cost the
+// outgoing two-row layout did not carry (it measured 55dp natural). The
+// status dot buys WIDTH, not height. That 9dp was paid for out of the
+// PRICE PILL's own vertical padding — 3dp -> 1dp via [_PriceTag]'s new
+// `verticalPadding` knob (default 3, so [_buildFullBody] renders
+// byte-identically) — and NOT out of any type size: in a card whose whole
+// job is legibility at a glance in a scrolling timeline, the type scale is
+// the last thing to cut. 6dp of a 21dp pill was air; a recessed well that
+// generously padded is over-articulated at this size anyway.
+//
+// Zero slack at 1.0 is deliberate and is ASSERTED (`master_booking_card_
+// test.dart`'s "the 41dp vertical budget" group) rather than left as a
+// claim — any regression overflows rather than quietly eating the gaps.
+// Above 1.0 the box simply grows: [minHeight] is a floor, never a ceiling
+// (see the class doc), so a 1.3-scaled card renders taller than its slot
+// exactly as the outgoing layout did.
 //
 // ## The time is a RANGE, and carries no date (2026-07-21)
 //
@@ -283,20 +331,32 @@ class MasterBookingCard extends StatefulWidget {
   /// slightly wrong only ever costs a little visual density, never
   /// correctness.
   ///
-  /// Derivation, post compact-timeline pass (this file's class doc): vertical
-  /// padding ×2 (12) + row 1 (the price tag's `NeumorphicInset`, its tallest
-  /// child, ~20) + the inter-row gap (4) + row 2 (the client name /
-  /// `TimelineStatusBadge` line, ~17) ≈ 53dp. Rounded to 56 to absorb
-  /// font-metric overhead (a Nunito/Comfortaa glyph's real ascent+descent
-  /// commonly exceeds its nominal `fontSize * height`) and larger system
-  /// font scales. Measured against the real widget in
-  /// `master_booking_card_test.dart`'s "compact card height" group.
+  /// Derivation, post MINIATURE-OF-THE-FULL-CARD pass (this file's "THE 41dp
+  /// BUDGET" header section, which carries the same arithmetic in full):
+  /// border (1.5 × 2 = 3) + [_MasterBookingCardState._compactPadding]'s
+  /// vertical 6 × 2 (12) + row 1 (15, the client name — the tallest of the
+  /// range label / name / dot) + a `VelvetSpacing.xs` gap (4) + the hairline
+  /// (1) + a second `VelvetSpacing.xs` gap (4) + row 2 (17, the price pill:
+  /// a 15dp line box plus [_MasterBookingCardState._kCompactPriceVPad] × 2)
+  /// = **56dp exactly**.
   ///
-  /// Row 1's ~20dp term is the price pill, and that pill's height is pinned
+  /// NO LONGER A ROUNDED-UP ESTIMATE. The outgoing divider-less grid
+  /// measured 55dp natural against this same 56 and the constant carried
+  /// ~1dp of slop "to absorb font-metric overhead". The re-composed layout
+  /// lands on 56 on the nose at textScaler 1.0 — the budget and the constant
+  /// are now the same number, which is the point: the layout was sized TO
+  /// this box rather than measured after the fact, so a regression that
+  /// eats a gap or re-inflates the pill shows up as a real overflow instead
+  /// of quietly consuming slack. Pinned by `master_booking_card_test.dart`'s
+  /// "the 41dp vertical budget" group. Above textScaler 1.0 the real card is
+  /// TALLER than this (measured 60dp at 1.15, 65dp at 1.3) and the box grows
+  /// to meet it — [minHeight] is a floor, never a ceiling.
+  ///
+  /// Row 2's 17dp term is the price pill, and that pill's height is pinned
   /// independently of its horizontal `BoxFit.scaleDown` — see [_PriceTag]'s
   /// zero-width height anchor. Without that anchor a band wide enough to hit
   /// the pill's width cap would have scaled the pill's HEIGHT down with it
-  /// (uniform fit), silently dragging the compact card below this estimate.
+  /// (uniform fit), silently dragging the compact card below this figure.
   static const double estimatedNaturalHeight = 56;
 
   @override
@@ -371,13 +431,48 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   );
 
   /// The height, in dp, at or above which [build] switches from the
-  /// compact two-row grid to the fuller divided layout — see this file's
+  /// compact grid to the fuller divided layout — see this file's
   /// "Adaptive full/compact layout" header section for the full mechanism.
   /// Equal to `bookings_timeline_grid.dart`'s `_kHourH` (one hour of ruled
   /// space): a booking whose duration-derived floor reaches 60 minutes
   /// (112dp) or more gets the fuller layout; the 30-/45-minute floors
-  /// (56dp/84dp) stay on the compact grid, the only shape proven to fit a
-  /// 56dp box without clipping.
+  /// (56dp/84dp) stay on the compact grid.
+  ///
+  /// ## Why 45-minute cards (84dp) do NOT get the full layout — MEASURED,
+  /// 2026-07-21
+  ///
+  /// The obvious question this threshold invites is whether it is set too
+  /// high: 84dp is half again the compact card's own box, so a 45-minute
+  /// booking might plausibly afford the fuller shape. It cannot, and the
+  /// answer is a rendered measurement rather than a judgement call.
+  /// [_buildFullBody]'s NATURAL height (the same fixture the compact sweeps
+  /// use — a long service name, a frozen RANGE band, a full client name)
+  /// measures:
+  ///
+  ///   | textScaler | natural height |
+  ///   |------------|----------------|
+  ///   | 1.0        | 117.0dp        |
+  ///   | 1.15       | 124.0dp        |
+  ///   | 1.3        | 132.0dp        |
+  ///
+  /// Identical at 226dp, 266dp and 272dp of lane — every row in that body is
+  /// flex-driven, so lane width moves the ellipsis, never the height.
+  ///
+  /// So the full body overshoots an 84dp box by 33dp at scale 1.0 and by
+  /// 48dp at the app's 1.3 textScaler ceiling. Nothing clips (the box grows —
+  /// see "NO CLIPPING, either branch" above), but a 45-minute card would
+  /// render ~1.4x the ruled space its duration owns, which is precisely the
+  /// "cards drift off their hour line" regression the compact-timeline pass
+  /// existed to remove. The lowest threshold that could ever be correct is
+  /// therefore 117 (the full body's own 1.0 floor), not 84 — and 117 > 112
+  /// means this constant is, if anything, already 5dp generous. Left at 112
+  /// so it stays equal to `_kHourH` by construction; the 5dp is absorbed as
+  /// the same overhang the design already accepts on a 60-minute card.
+  ///
+  /// Pinned by `master_booking_card_test.dart`'s "the 45-minute question"
+  /// group, which renders the full body in an 84dp box and asserts the
+  /// overshoot — so a future attempt to lower this constant fails with the
+  /// measurement attached rather than shipping the drift.
   static const double _kFullLayoutMinHeight = 112;
 
   /// Full layout padding — 16dp, matching the approved design's own
@@ -395,33 +490,67 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     vertical: VelvetSpacing.xs + 2,
   );
 
-  /// Width the compact row 1 keeps for its NON-price content before the price
-  /// pill may claim any of it — see [_compactPriceCap] and row 1's own
+  /// The price pill's vertical padding inside the COMPACT layout — 1dp,
+  /// against [_PriceTag]'s own 3dp default which [_buildFullBody] keeps.
+  ///
+  /// This 4dp (2 × 2) is exactly what paid for the hairline divider and its
+  /// two `VelvetSpacing.xs` gaps — see this file's "THE 41dp BUDGET" header
+  /// section. It is spent on the pill rather than on a type step-down on
+  /// purpose: 6dp of the pill's 21dp was air, and a recessed well padded for
+  /// a 112dp card is over-articulated inside a 56dp one, whereas shrinking
+  /// the type would cost the card the legibility-at-a-glance that is its
+  /// entire job in a scrolling timeline.
+  static const double _kCompactPriceVPad = 1;
+
+  /// Width the compact ROW 2 keeps for its service name before the price
+  /// pill may claim any of it — see [_compactPriceCap] and row 2's own
   /// comment in [_buildCompactBody].
   ///
-  /// Derivation, all measured against the real widget, at the WORST case
-  /// (`main.dart`'s 1.3 MediaQuery textScaler ceiling — the label scales, the
-  /// lane does not):
+  /// RE-DERIVED FOR THE MINIATURE LAYOUT (2026-07-21) — 112 -> 68
+  /// ----------------------------------------------------------------------
+  /// The old 112 was budgeted for a row that carried the start–end RANGE
+  /// LABEL, two gaps and the pill (86.6 + 10 + 15 at the 1.3 ceiling). That
+  /// row no longer exists: the range moved up to row 1 (where it sits beside
+  /// the client name and an 8dp dot, both flex/fixed and neither able to
+  /// out-measure the row), and the pill now shares row 2 with the service
+  /// name alone. Carrying the old number forward would have reserved 112dp
+  /// for content that is no longer on the row — capping the pill at 91dp on
+  /// the narrowest lane for no reason at all.
   ///
-  ///   * the start–end range label in [VelvetText.masterCardTime] —
-  ///     «09:00–09:20» is 66.65dp at scale 1.0 and 86.6dp at 1.3;
-  ///   * the row's two gaps — `VelvetSpacing.xs + 2` then `VelvetSpacing.xs`,
-  ///     10dp, fixed;
-  ///   * ~15dp so the `Expanded` service name never collapses to literally
-  ///     nothing on the narrowest lane.
+  /// The re-derivation, against the same worst case:
   ///
-  /// 86.6 + 10 + 15 ≈ 112. Deliberately a FIXED reserve rather than a
-  /// fraction of the lane: a fraction would shave the pill on wide lanes that
-  /// have room to spare, whereas this only ever binds where the arithmetic
-  /// says it must. The narrowest lane the timeline can build is 226dp
+  ///   * the row's single gap — `VelvetSpacing.xs`, 4dp, fixed;
+  ///   * 64dp so the `Expanded` service name keeps a genuinely readable
+  ///     sliver (~5-6 Cyrillic glyphs plus the ellipsis) rather than merely
+  ///     "not literally nothing", which is all the old 15dp bought.
+  ///
+  /// 4 + 64 = **68**. Still a FIXED reserve rather than a fraction of the
+  /// lane, for the same reason as before: a fraction would shave the pill on
+  /// wide lanes that have room to spare.
+  ///
+  /// ## Where it binds — nowhere in production any more, and that is the
+  /// honest result rather than a reason to delete it
+  ///
+  /// The narrowest lane the timeline can build is 226dp
   /// (`bookings_timeline_grid.dart`'s "ADDENDUM 3" clamps its 272dp card to
   /// `constraints.maxWidth`, and the lane area is `deviceWidth − 94`: 24 + 24
   /// screen padding, 42 ruler, 4 gap — so a 320dp device, which this app
-  /// supports throughout, yields `320 − 94 = 226`). 226dp of lane is 203dp of
-  /// inner width after this card's own padding and border, leaving the pill
-  /// 91dp — under its own 112dp ceiling, so the cap engages there and only
-  /// there. A 360dp device's 266dp lane leaves 131dp, i.e. no change at all.
-  static const double _kCompactPriceReserve = 112;
+  /// supports throughout, yields `320 − 94 = 226`). That is 203dp of inner
+  /// width after this card's padding and border, so the cap resolves to
+  /// `203 − 68 = 135dp` — ABOVE the pill's own 112dp ceiling (96dp of text
+  /// plus 2 × `VelvetSpacing.sm`), which means it does not bind, and the
+  /// service name is left 87dp instead of the outgoing layout's 35dp.
+  ///
+  /// Moving the price off the time row is what bought that: row 2's non-flex
+  /// content is now a single self-capping 112dp pill against 203dp of row,
+  /// so an overflow is arithmetically impossible on any production lane
+  /// WITHOUT this cap. The cap stays anyway as the structural backstop for a
+  /// narrower row than production can currently produce (a ~176dp row — a
+  /// 200dp lane — is where it starts binding), because the alternative is
+  /// re-learning the 2026-07-21 lesson: the previous pass deleted a
+  /// "hypothetical" narrow case and the real 226dp floor then went untested
+  /// for a release.
+  static const double _kCompactPriceReserve = 68;
 
   /// The smallest cap [_compactPriceCap] will hand the pill. Below the pill's
   /// own horizontal padding (2 × `VelvetSpacing.sm`) a `ConstrainedBox` would
@@ -492,50 +621,89 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// layout" header section for the full rationale.
   bool get _useFullLayout => (widget.minHeight ?? 0) >= _kFullLayoutMinHeight;
 
-  /// The dense two-row grid (time/service/price, then client/status) — the
-  /// only shape proven to fit a 30-minute (56dp) slot without clipping. See
-  /// this file's "Adaptive full/compact layout" header section.
+  /// The MINIATURE of [_buildFullBody] — identity row (start–end range ·
+  /// client name · status dot), a hairline, then the transaction row
+  /// (service name · price). The only shape proven to fit a 30-minute (56dp)
+  /// slot without clipping. See this file's "The compact layout is a
+  /// MINIATURE OF THE FULL CARD" and "THE 41dp BUDGET" header sections.
   Widget _buildCompactBody(Booking b, String clientName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // Row 1 — start–end time range · service name (flexes) · price.
+        // ROW 1 — IDENTITY: when, then who, then the status dot hard right.
         //
-        // The range roughly DOUBLES this leading label's width versus the
-        // bare start time it replaced, and the `Expanded` service name
-        // between them absorbs that loss by ellipsising. What the service
-        // name CANNOT absorb is the row's two non-flex children out-measuring
-        // the row on their own — which is exactly what happened on the real
-        // narrowest lane once a frozen band was in play: at 226dp
-        // (see [_kCompactPriceReserve]) and the app's 1.3 textScaler ceiling
-        // the range label measures 86.6dp and the capped price pill 112dp,
-        // which with the two gaps is 208.6dp against 203dp of inner width —
-        // a 5.6px overflow with the service name already squeezed to zero.
-        // (An earlier version of this comment claimed the non-flex children
-        // "stay well inside even the narrowest clamped lane (266dp on a
-        // 360dp device)". 266dp is `360 − 94`, not the floor: 320dp is a
-        // supported width throughout this app, so `320 − 94 = 226` is, and at
-        // 226dp the claim was false. `bookings_timeline_grid.dart`'s
-        // "ADDENDUM 3" arithmetic was always right — only this restatement of
-        // which device it bottoms out on was wrong.)
+        // Reading order is deliberate: the lighter range label
+        // ([VelvetText.masterCardTime], Nunito 11.5) LEADS the heavier client
+        // name ([VelvetText.masterCardClientName], Comfortaa 12.5), so the row
+        // reads as a sentence — "at this hour, this person" — rather than as
+        // two cells of a table. That weight gradient is one of the three
+        // things keeping this card off the squashed-grid failure mode; the
+        // other two are the hairline's semantic cut (identity above,
+        // transaction below — the same cut [_buildFullBody] makes) and the
+        // diagonal formed by the dot at top-right against the price pill at
+        // bottom-right, with the flexing text running between them.
         //
-        // What guarantees the fit now is [_kCompactPriceReserve]: the pill is
-        // still non-flex, but it is capped at the row's REAL width minus a
-        // reserve big enough for the range label at the textScaler ceiling,
-        // both gaps, and a service-name sliver — so the three children can
-        // never sum past the row. On any lane from 266dp up the reserve
-        // leaves more than the pill's own 112dp ceiling, so nothing changes
-        // there. Pinned by `master_booking_card_test.dart`'s "narrow-lane"
-        // group, which sweeps 226/266/272 × textScaler 1.0/1.3 × single/band.
+        // NO `LayoutBuilder` AND NO PRICE RESERVE ON THIS ROW — it cannot
+        // overflow on its own. Its non-flex content is the range label
+        // (86.6dp at the 1.3 textScaler ceiling), two fixed gaps (6 + 4) and
+        // an 8dp dot = 104.6dp against the narrowest lane's 203dp of inner
+        // width, leaving the `Expanded` client name ~98dp. The outgoing
+        // layout needed a capped pill here precisely because the PRICE shared
+        // this row; moving it to row 2 is what removed the constraint.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Text(
+              formatSlotTimeRange(b.startAt, b.endAt),
+              style: VelvetText.masterCardTime,
+            ),
+            const SizedBox(width: VelvetSpacing.xs + 2),
+            Expanded(
+              child: Text(
+                clientName,
+                style: VelvetText.masterCardClientName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            // Tight gap on purpose: the dot must read as ATTACHED to the
+            // client name — a status about this appointment — rather than
+            // floating in a third column on the right margin.
+            const SizedBox(width: VelvetSpacing.xs),
+            TimelineStatusDot(booking: b),
+          ],
+        ),
+        const SizedBox(height: VelvetSpacing.xs),
+        // The hairline — the same 1dp `BrandColors.faint` rule
+        // [_buildFullBody] draws, and the same role: it separates the
+        // client-identity row above from the booking detail below. Run
+        // full-width inside the padding rather than inset; an inset rule at
+        // 226dp reads as decoration, edge-to-edge reads as structure.
+        //
+        // Its own key, distinct from the full layout's
+        // `master-booking-card-divider-<id>`, so a test can tell the two
+        // layouts apart by which divider rendered rather than by the mere
+        // presence of one (the compact/full switch is otherwise invisible
+        // now that BOTH bodies carry a hairline and the SAME range string).
+        Container(
+          key: Key('master-booking-card-compact-divider-${b.id}'),
+          height: 1,
+          color: BrandColors.faint,
+        ),
+        const SizedBox(height: VelvetSpacing.xs),
+        // ROW 2 — THE TRANSACTION: service name (flexes) · price.
+        //
         // THIS CARD MUST NOT BE PLACED UNDER `IntrinsicHeight`,
         // `IntrinsicWidth` OR AN `IntrinsicColumnWidth` TABLE COLUMN
         // -----------------------------------------------------------------
-        // The `LayoutBuilder` below is what costs us that: it cannot report
-        // intrinsic dimensions, because doing so would mean running its
-        // builder speculatively at a size it was never laid out at. The
-        // failure is asymmetric between build modes, and the QUIET half is the
-        // dangerous one:
+        // The `LayoutBuilder` below is what costs us that — it moved here
+        // from row 1 in the miniature-layout pass, but the hazard is
+        // unchanged and still applies to the WHOLE card, not just this row:
+        // a `LayoutBuilder` cannot report intrinsic dimensions, because doing
+        // so would mean running its builder speculatively at a size it was
+        // never laid out at. The failure is asymmetric between build modes,
+        // and the QUIET half is the dangerous one:
         //
         //   * DEBUG/JIT — loud. `_RenderLayoutBuilder.computeMaxIntrinsicHeight`
         //     asserts "LayoutBuilder does not support returning intrinsic
@@ -564,16 +732,19 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // caller genuinely needs an equal-height row of these cards, give the
         // row a real height (a `SizedBox`/`ConstrainedBox` the caller computes)
         // rather than asking this subtree to measure itself.
+        //
+        // THE CAP, RE-DERIVED — see [_kCompactPriceReserve]. On every lane
+        // production can build it no longer binds (203dp of row − a 68dp
+        // reserve = 135dp, above the pill's own 112dp ceiling), because the
+        // row's only non-flex child is now a self-capping pill. It is kept as
+        // the structural backstop for a narrower row, and because deleting a
+        // "hypothetical" narrow case is exactly how the real 226dp floor went
+        // untested last time.
         LayoutBuilder(
           builder: (BuildContext context, BoxConstraints rowConstraints) {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                Text(
-                  formatSlotTimeRange(b.startAt, b.endAt),
-                  style: VelvetText.masterCardTime,
-                ),
-                const SizedBox(width: VelvetSpacing.xs + 2),
                 Expanded(
                   child: Text(
                     b.serviceName,
@@ -584,36 +755,23 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
                 ),
                 // See `BookingDisplayX.showsPrice`: a cancelled, declined or
                 // missed appointment owes nothing, so printing a sum on it
-                // would assert a debt that does not exist.
+                // would assert a debt that does not exist. On those cards
+                // this row is the service name alone.
                 if (b.showsPrice) ...<Widget>[
                   const SizedBox(width: VelvetSpacing.xs),
                   ConstrainedBox(
                     constraints: BoxConstraints(
                       maxWidth: _compactPriceCap(rowConstraints.maxWidth),
                     ),
-                    child: _PriceTag(price: b.priceLabel),
+                    child: _PriceTag(
+                      price: b.priceLabel,
+                      verticalPadding: _kCompactPriceVPad,
+                    ),
                   ),
                 ],
               ],
             );
           },
-        ),
-        const SizedBox(height: VelvetSpacing.xs),
-        // Row 2 — client name (flexes) · status badge.
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                clientName,
-                style: VelvetText.masterCardClientName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.xs),
-            TimelineStatusBadge(booking: b),
-          ],
         ),
       ],
     );
@@ -794,11 +952,32 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
 /// Both keep [_maxTextWidth] as the ceiling: on any lane wide enough (266dp
 /// and up) neither bound binds and the pill renders exactly as it always did.
 class _PriceTag extends StatelessWidget {
-  const _PriceTag({required this.price});
+  const _PriceTag({required this.price, this.verticalPadding = _kDefaultVPad});
+
+  /// The pill's default vertical padding — the approved design's own
+  /// `PriceTag` value, which [MasterBookingCard]'s FULL layout keeps
+  /// verbatim. Named (was a bare `3` literal on the constructor default) so
+  /// [_paddingDefault] below can be a compile-time constant without
+  /// re-stating the number.
+  static const double _kDefaultVPad = 3;
 
   /// Already-formatted — «450 ₴» or «300–500 ₴». See
   /// `BookingDisplayX.priceLabel`; this widget never formats money itself.
   final String price;
+
+  /// Vertical padding inside the pill. Defaults to 3dp — the approved
+  /// design's own `PriceTag` value, which [MasterBookingCard]'s FULL layout
+  /// keeps verbatim. The COMPACT layout passes 1dp
+  /// ([MasterBookingCard]'s `_kCompactPriceVPad`): those 4dp are exactly
+  /// what paid for the compact card's hairline divider and its two gaps —
+  /// see `master_booking_card.dart`'s "THE 41dp BUDGET" header section.
+  ///
+  /// A PARAMETER rather than a second widget, and defaulted so the >=1h card
+  /// renders byte-identically — the same shape [TimelineStatusBadge.
+  /// verticalPadding] already established for the same reason. The HEIGHT
+  /// ANCHOR below is unaffected: it pins the pill's LINE box, and this knob
+  /// only moves the padding around it.
+  final double verticalPadding;
 
   /// The widest the pill's TEXT may grow before it scales down. A CAP, not a
   /// column width — a short «450 ₴» still sizes to its own content.
@@ -833,15 +1012,45 @@ class _PriceTag extends StatelessWidget {
   /// the headroom figures on both docs so this comparison stays honest.
   static const double _maxTextWidth = VelvetSpacing.xxl * 2; // 96
 
+  /// The two padding values this widget is ACTUALLY built with, pre-resolved
+  /// as compile-time constants (mobile-perf INFO-2, 2026-07-21).
+  ///
+  /// Turning the vertical inset into a FIELD cost the `EdgeInsets` its
+  /// constness — one allocation per card per build where HEAD had a `const`.
+  /// Only two values exist in the whole app ([_kDefaultVPad] for the >=1h
+  /// card, [_MasterBookingCardState._kCompactPriceVPad] for the compact one),
+  /// so [_resolvePadding] selects between these two instead of building a
+  /// third. The knob itself stays a `double` field — see [verticalPadding]'s
+  /// doc for why it is a parameter and not a second widget — so the
+  /// non-const branch below remains as the correct fallback for any other
+  /// value rather than an assert that would turn a cosmetic tweak into a
+  /// crash.
+  static const EdgeInsets _paddingDefault = EdgeInsets.symmetric(
+    horizontal: VelvetSpacing.sm,
+    vertical: _kDefaultVPad,
+  );
+  static const EdgeInsets _paddingCompact = EdgeInsets.symmetric(
+    horizontal: VelvetSpacing.sm,
+    vertical: _MasterBookingCardState._kCompactPriceVPad,
+  );
+
+  EdgeInsets _resolvePadding() {
+    if (verticalPadding == _kDefaultVPad) return _paddingDefault;
+    if (verticalPadding == _MasterBookingCardState._kCompactPriceVPad) {
+      return _paddingCompact;
+    }
+    return EdgeInsets.symmetric(
+      horizontal: VelvetSpacing.sm,
+      vertical: verticalPadding,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return NeumorphicInset(
       radius: VelvetRadii.pill,
       child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.sm,
-          vertical: 3,
-        ),
+        padding: _resolvePadding(),
         // HEIGHT IS PINNED INDEPENDENTLY OF THE HORIZONTAL SCALE
         // ---------------------------------------------------------------
         // `BoxFit.scaleDown` scales UNIFORMLY, so the moment
@@ -906,6 +1115,234 @@ class _PriceTag extends StatelessWidget {
   }
 }
 
+/// The (status colour, localized status label) pair the timeline's TWO status
+/// indicators — [TimelineStatusBadge] (labelled pill, >=1h cards) and
+/// [TimelineStatusDot] (bare circle, compact cards) — both render.
+///
+/// ## Why this exists rather than each widget calling the factory itself
+///
+/// [BookingStatusVisual.of] (`booking_status_badge.dart`) is already the ONE
+/// place the status→(colour, glyph, label) mapping lives, shared with the
+/// client card, «Деталі запису» and the salon screens. This helper does not
+/// re-implement any of it — it is a single named resolution point INSIDE this
+/// file so the badge and the dot cannot drift from each other either.
+///
+/// That second level matters here specifically because the dot DROPS the
+/// label from the visual channel. Two independent `BookingStatusVisual.of`
+/// call sites would each look correct in review while a future edit that
+/// touched only one of them (say, mapping `unknown` to a different accent in
+/// the pill) would silently ship a card whose dot and whose tooltip disagreed
+/// about the status — the one failure a colour-only indicator cannot survive.
+/// One call, destructured at the two use sites, makes that impossible.
+({Color accent, String label}) _timelineStatusVisual(
+  Booking booking,
+  AppLocalizations l10n,
+) {
+  final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
+  return (accent: v.accent, label: v.label);
+}
+
+/// The COMPACT card's status indicator — a bare status-coloured circle, no
+/// label, no wash, no border.
+///
+/// ## Why the label goes away here and only here
+///
+/// [TimelineStatusBadge]'s pill needs ~55-70dp of the row for its label. The
+/// compact card's row 1 has already committed that width to the client's full
+/// name, which is the thing a master actually scans a day timeline for. The
+/// label is therefore the element that yields — but it is COMPRESSED, never
+/// DROPPED: it moves wholesale to the non-visual channel below.
+///
+/// ## Colour alone is not a signal — the label is mandatory, not a nicety
+///
+/// There are SIX statuses (confirmed, completed, cancelled, declined,
+/// not_completed, unknown) and three of their accents are warm browns a step
+/// apart (`accentLatte`, `accentDeep`, `text`). Sighted users cannot reliably
+/// tell those three apart at 8dp, and a screen-reader user gets nothing at all
+/// from a coloured box. So this widget carries:
+///
+///   * `Semantics(label:)` with the SAME `l10n.bookingStatusSemantics(...)`
+///     string [TimelineStatusBadge] announces, so the two indicators are
+///     indistinguishable to assistive tech;
+///   * a `Tooltip` with the plain status label, for the sighted long-press /
+///     hover path.
+///
+/// Both strings come from [_timelineStatusVisual] → [BookingStatusVisual.of] →
+/// the existing ARB keys the badge already uses. No new l10n key was needed
+/// and none was added.
+///
+/// ## The 8dp
+///
+/// [TimelineStatusBadge] draws a 6dp dot BESIDE its label. Strip the label and
+/// the dot inherits the whole signal, so it steps up one token to
+/// `VelvetSpacing.sm`. Named ([diameter]), not inlined, so the sizing is one
+/// edit rather than two.
+///
+/// Deliberately shadow-FREE, like every other circle in this app: on
+/// Impeller-GLES `shape: BoxShape.circle` + `boxShadow` rasterizes as a hard
+/// white square (`impeller_circle_shadow_guard_test.dart`). A wash halo would
+/// be no better at this size — it would only muddy the hue the dot exists to
+/// communicate.
+class TimelineStatusDot extends StatelessWidget {
+  const TimelineStatusDot({super.key, required this.booking});
+
+  final Booking booking;
+
+  /// `VelvetSpacing.sm` (8dp) — see the class doc. Fixed, so a status change
+  /// can never reflow row 1.
+  static const double diameter = VelvetSpacing.sm;
+
+  /// The number of distinct accents [BookingStatusVisual.of] can resolve to —
+  /// one per status (confirmed, completed, cancelled, declined,
+  /// not_completed, unknown). The bound on [_decorationsByAccent].
+  static const int _kAccentCount = 6;
+
+  /// Per-accent [BoxDecoration] memo (mobile-perf INFO-1, 2026-07-21).
+  ///
+  /// The dot's decoration was previously allocated on EVERY build, against
+  /// this file's own hoisting rule — see
+  /// [_MasterBookingCardState._decorationUnpressed], which landed as a
+  /// mobile-perf MEDIUM for exactly this.
+  ///
+  /// ## Why a memo rather than a hard-coded 6-entry literal
+  ///
+  /// A literal map keyed off the accents `booking_status_badge.dart` happens
+  /// to use today would silently MISS — i.e. quietly regress to the per-build
+  /// allocation this exists to remove, with nothing failing — the moment a
+  /// status is remapped to a different accent or a seventh status ships. This
+  /// memo is keyed by the accent actually resolved, so it cannot drift from
+  /// the factory. It also keeps the dot on [_timelineStatusVisual] as its ONE
+  /// resolution point (no status enum re-derived here), which the dot↔badge
+  /// no-fork guarantee depends on.
+  ///
+  /// Bounded by construction: the status set is closed, so this reaches
+  /// [_kAccentCount] entries and stops. [_decorationFor]'s assert is the
+  /// tripwire if that ever stops being true.
+  static final Map<Color, BoxDecoration> _decorationsByAccent =
+      <Color, BoxDecoration>{};
+
+  static BoxDecoration _decorationFor(Color accent) {
+    assert(
+      _decorationsByAccent.containsKey(accent) ||
+          _decorationsByAccent.length < _kAccentCount,
+      'TimelineStatusDot._decorationsByAccent grew past $_kAccentCount '
+      'entries. It is keyed by status accent and BookingStatusVisual.of maps '
+      'a closed set of $_kAccentCount statuses, so this means either a new '
+      'status shipped (raise _kAccentCount) or an accent is being rebuilt '
+      'per-instance — which would make this map an unbounded leak instead of '
+      'the fixed table it is meant to be.',
+    );
+    return _decorationsByAccent.putIfAbsent(
+      accent,
+      () => BoxDecoration(shape: BoxShape.circle, color: accent),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final ({Color accent, String label}) v = _timelineStatusVisual(
+      booking,
+      l10n,
+    );
+
+    // THE TOOLTIP IS THIS WIDGET'S DOMINANT COST, AND IT STAYS — A RECORDED
+    // DECISION, NOT AN ACCIDENT (mobile-perf LOW-2, 2026-07-21)
+    // -------------------------------------------------------------------
+    // Measured: [TimelineStatusDot] costs 359.6us per instance to mount, of
+    // which the `Tooltip` is 281.6us (78%); +107us on rebuild. Each MOUNTED
+    // tooltip also installs a `PointerRouter` GLOBAL route
+    // (`RawTooltipState.initState`, `raw_tooltip.dart:781`) — measured
+    // +5.93us per pointer event at 100 mounted tooltips — holds a
+    // `GlobalKey`, and allocates a `TextStyle.copyWith` + `Color.withOpacity`
+    // + `BoxDecoration` + `EdgeInsets` + `_TooltipBox` on EVERY build whether
+    // or not it is ever shown.
+    //
+    // It is NOT a regression. The `TimelineStatusBadge` this dot replaced on
+    // the compact card cost 659us, so dot+tooltip is a net -299us per card,
+    // and the rework as a whole moved a 100-card day switch 220.2ms ->
+    // 212.1ms. The tooltip buys an affordance INSIDE a measured improvement;
+    // it is not paying down one.
+    //
+    // KEPT because it is the only IN-PLACE disclosure a SIGHTED user has for
+    // an 8dp colour. The `Semantics` label below serves screen-reader users
+    // and does nothing for a sighted one, and three of the six accents are
+    // warm browns one step apart (`accentLatte`, `accentDeep`, `text`) — see
+    // this class's "Colour alone is not a signal" section. Cheaper
+    // alternatives were evaluated and each lost:
+    //
+    //   * Hoist the styling into a `TooltipTheme`. The per-build allocations
+    //     are computed unconditionally in `Tooltip.build`
+    //     (`tooltip.dart:518+`), so a theme does not remove them — and the
+    //     dominant 281.6us is the RawTooltip state machine + `OverlayPortal`
+    //     + gesture wiring, not the styling. Saves ~nothing of the 78%.
+    //   * ONE grid-level tooltip host instead of one per card. No Flutter API
+    //     does this; it means a bespoke `OverlayPortal` + a grid-level
+    //     `LongPressGestureRecognizer` + hit-testing back to the pressed dot,
+    //     re-implementing dismiss-on-global-pointer, the show delay and the
+    //     platform semantics contract. A new bespoke overlay and its bug
+    //     surface to reclaim ~28ms of a 212ms DAY SWITCH (not a scroll
+    //     frame). Rejected on KISS/YAGNI and risk.
+    //   * Drop it and lean on the >=1h card's labelled `TimelineStatusBadge`
+    //     plus «Деталі запису». A day of 30-minute bookings renders NO
+    //     labelled badge at all, and the detail screen is a navigation away —
+    //     so this is deleting the affordance and calling it an optimisation.
+    //   * A colour legend in the timeline header. A design change (needs
+    //     `frontend-design` + approval, out of scope for an audit pass) and
+    //     it still cannot answer "what is THIS dot" in place.
+    //
+    // If this ever does land on a real frame budget, the honest fix is a
+    // cheaper DISCLOSURE (a header legend, or restoring the label at >=45min),
+    // never a silent deletion.
+    //
+    // TEST-HARNESS HAZARD (mobile-perf INFO-3) — `Tooltip` asserts
+    // `debugCheckHasOverlay(context)` (`raw_tooltip.dart:844`). Every
+    // production call site is under a `Navigator` (`_LaneColumn` ->
+    // `BookingsTimelineGrid` -> `BookingsDiscoveryView`) and the suite is
+    // green, but a future golden or unit test that pumps a bare
+    // [MasterBookingCard] WITHOUT a `MaterialApp`/`Overlay` will now THROW
+    // where it previously would not. Wrap the pump (`pumpApp` already does);
+    // do not "fix" it by deleting the tooltip.
+    //
+    // GESTURE PROPERTY (mobile-perf INFO-4 — measured, intended) — a TAP on
+    // the dot still opens the card: the tooltip's `Listener` is not a
+    // gesture-arena member, so the card's `onTap` is unopposed. A LONG-PRESS
+    // on the dot shows the tooltip and SUPPRESSES the card's `onTap` — the
+    // tooltip's `LongPressGestureRecognizer` wins the arena at its 500ms
+    // deadline, and `onTapCancel` fires so the card's `_pressed` does not
+    // stick. That is correct tooltip behaviour over an 8dp target on a
+    // ~226x56dp card: a deliberate long-press on the status dot asks "what is
+    // this?", not "open this". Documented expectation, not a defect.
+    return Tooltip(
+      message: v.label,
+      // THE STATUS WAS BEING ANNOUNCED TWICE (mobile-security LOW-1)
+      // -----------------------------------------------------------------
+      // Left at its default (`false`), `Tooltip` ALSO annotates the node with
+      // `Semantics(tooltip:)` (`raw_tooltip.dart:850-851`) and fires
+      // `SemanticsService.tooltip(...)` on show (`:562`) — while the
+      // `Semantics(label:)` below already carries the same word. On Android
+      // the `tooltip` property maps to `AccessibilityNodeInfo
+      // .setTooltipText`, which TalkBack reads, so the node announced
+      // «Статус: Підтверджено, Підтверджено».
+      //
+      // The `Semantics(label:)` below is the CANONICAL screen-reader channel
+      // and is deliberately untouched — it is the string that makes this dot
+      // indistinguishable from [TimelineStatusBadge] to assistive tech. This
+      // flag silences only the tooltip's duplicate copy of it, which also
+      // drops one `Semantics` node per card from the semantics tree.
+      excludeFromSemantics: true,
+      child: Semantics(
+        label: l10n.bookingStatusSemantics(v.label),
+        child: SizedBox(
+          height: diameter,
+          width: diameter,
+          child: DecoratedBox(decoration: _decorationFor(v.accent)),
+        ),
+      ),
+    );
+  }
+}
+
 /// The timeline-only compact status pill — a `NeumorphicInset` recessed
 /// well carrying a small status-coloured dot + label, transcribed from the
 /// approved design's own `BookingStatusBadge`
@@ -927,13 +1364,14 @@ class _PriceTag extends StatelessWidget {
 ///
 /// ## Never a second source of truth for what each status MEANS
 ///
-/// This widget resolves colour + label through the exact same
-/// [BookingStatusVisual.of] factory `BookingStatusBadge` uses — the
-/// status→(colour, label) mapping lives in ONE place
-/// (`booking_status_badge.dart`), so the two badges can never drift apart on
-/// what a given [BookingStatus] means, only on how tightly it is drawn. Only
-/// the dot-shaped glyph (no icon cap, matching the approved design) and the
-/// sizing are specific to this widget.
+/// This widget resolves colour + label through [_timelineStatusVisual], which
+/// wraps the exact same [BookingStatusVisual.of] factory `BookingStatusBadge`
+/// uses — the status→(colour, label) mapping lives in ONE place
+/// (`booking_status_badge.dart`), so the badges can never drift apart on what
+/// a given [BookingStatus] means, only on how tightly they are drawn. Only the
+/// dot-shaped glyph (no icon cap, matching the approved design) and the sizing
+/// are specific to this widget. [TimelineStatusDot] — the compact card's
+/// label-less variant — reads the same helper, for the reasons set out on it.
 class TimelineStatusBadge extends StatelessWidget {
   const TimelineStatusBadge({
     super.key,
@@ -954,7 +1392,10 @@ class TimelineStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
+    final ({Color accent, String label}) v = _timelineStatusVisual(
+      booking,
+      l10n,
+    );
 
     return Semantics(
       label: l10n.bookingStatusSemantics(v.label),
