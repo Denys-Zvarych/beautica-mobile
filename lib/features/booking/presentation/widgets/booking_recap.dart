@@ -459,14 +459,12 @@ class _TotalRow extends StatelessWidget {
 ///     client is agreeing to a price.
 ///
 /// So the sums stay `double` (no saturation, no wrap) and the label comes
-/// from [formatBookingTotals] — the same en-dash/«₴» conventions, the same
-/// guard, one copy. On top of that, each TERM is gated before it enters the
-/// accumulator: `+` is not protective, so two out-of-range figures that
-/// cancel (`1e30 + -1e30 == 0.0`) would clear a sum-level check and render a
-/// confident, entirely fictional «0 ₴». An unstatable term therefore poisons
-/// the whole band to [priceUnavailableLabel] rather than being silently
-/// dropped — dropping it would UNDERSTATE the price the client is agreeing
-/// to, which is the harm, not a mitigation of it.
+/// from [formatBookingTotalsFromTerms] — the same en-dash/«₴» conventions, the
+/// same guard, one copy, and the per-TERM gate applied on the way into the
+/// accumulator. That per-term gate lives in the shared formatter rather than
+/// here because all four «Разом» surfaces need it identically; see its doc for
+/// why `+` is not protective and why an unstatable term poisons the whole band
+/// instead of being dropped.
 class _BookingTotals {
   const _BookingTotals({required this.priceLabel, required this.durationLabel});
 
@@ -474,39 +472,33 @@ class _BookingTotals {
   final String? durationLabel;
 
   factory _BookingTotals.from(List<BookingSelection> selections) {
-    double minSum = 0;
-    double maxSum = 0;
-    int minutes = 0;
-    bool renderable = true;
-    for (final BookingSelection s in selections) {
-      // Prefer the typed fields (populated by every current call site — see
-      // `BookingSelection.fromSalonCatalogService` / `BookingSummaryCards
-      // .fromMaster`); regex-reparsing the display strings is kept ONLY as a
-      // fallback for a selection built without them (e.g. an older fixture),
-      // per-selection so a mixed list still sums correctly.
-      final double lo;
-      final double hi;
-      final double? typedMin = s.priceMin;
-      if (typedMin != null) {
-        lo = typedMin;
-        hi = s.priceMax ?? typedMin;
-      } else {
-        final (int parsedLo, int parsedHi) = _parsePrice(s.price);
-        lo = parsedLo.toDouble();
-        hi = parsedHi.toDouble();
-      }
-      if (!isRenderablePrice(lo) || !isRenderablePrice(hi)) renderable = false;
-      minSum += lo;
-      maxSum += hi;
-      minutes += s.durationMinutes ?? parseDurationMinutes(s.duration);
-    }
-    // `formatBookingTotals` re-checks the SUMS (an in-range set of terms can
-    // still add up out of range); `renderable` is the upstream per-term gate
-    // it cannot see. Both must hold for a figure to be stated.
     final ({String priceLabel, String? durationLabel}) totals =
-        formatBookingTotals(minSum: minSum, maxSum: maxSum, minutes: minutes);
+        formatBookingTotalsFromTerms(
+          selections.map((BookingSelection s) {
+            // Prefer the typed fields (populated by every current call site —
+            // see `BookingSelection.fromSalonCatalogService` /
+            // `BookingSummaryCards.fromMaster`); regex-reparsing the display
+            // strings is kept ONLY as a fallback for a selection built without
+            // them (e.g. an older fixture), per-selection so a mixed list still
+            // sums correctly.
+            final double? typedMin = s.priceMin;
+            if (typedMin != null) {
+              return (
+                min: typedMin,
+                max: s.priceMax ?? typedMin,
+                minutes: s.durationMinutes ?? parseDurationMinutes(s.duration),
+              );
+            }
+            final (int parsedLo, int parsedHi) = _parsePrice(s.price);
+            return (
+              min: parsedLo.toDouble(),
+              max: parsedHi.toDouble(),
+              minutes: s.durationMinutes ?? parseDurationMinutes(s.duration),
+            );
+          }),
+        );
     return _BookingTotals(
-      priceLabel: renderable ? totals.priceLabel : priceUnavailableLabel,
+      priceLabel: totals.priceLabel,
       durationLabel: totals.durationLabel,
     );
   }

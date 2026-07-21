@@ -160,23 +160,28 @@ class ScheduleConfirmBar extends StatelessWidget {
 
   /// Sums typed price/duration fields across EVERY assigned service of
   /// EVERY assigned master — never a re-parsed display string.
+  ///
+  /// Goes through [formatBookingTotalsFromTerms] rather than summing first and
+  /// calling [formatBookingTotals] on the totals: a sum-level check alone lets
+  /// two out-of-range figures that cancel (`1e30 + -1e30 == 0.0`) render a
+  /// fictional «0 ₴». See that function's doc for the full rationale.
   (String, String?) _totals(List<SalonMasterSchedule> schedules) {
-    double minSum = 0;
-    double maxSum = 0;
-    int minutes = 0;
-    for (final SalonMasterSchedule schedule in schedules) {
-      for (final SalonCatalogService s in schedule.services) {
-        final double lo = s.priceMin ?? 0;
-        final double hi = s.priceType == ServicePriceType.range
-            ? (s.priceMax ?? lo)
-            : lo;
-        minSum += lo;
-        maxSum += hi;
-        minutes += s.durationMinutes ?? 0;
-      }
-    }
     final ({String priceLabel, String? durationLabel}) totals =
-        formatBookingTotals(minSum: minSum, maxSum: maxSum, minutes: minutes);
+        formatBookingTotalsFromTerms(
+          schedules.expand(
+            (SalonMasterSchedule schedule) =>
+                schedule.services.map((SalonCatalogService s) {
+                  final double lo = s.priceMin ?? 0;
+                  return (
+                    min: lo,
+                    max: s.priceType == ServicePriceType.range
+                        ? (s.priceMax ?? lo)
+                        : lo,
+                    minutes: s.durationMinutes ?? 0,
+                  );
+                }),
+          ),
+        );
     return (totals.priceLabel, totals.durationLabel);
   }
 }

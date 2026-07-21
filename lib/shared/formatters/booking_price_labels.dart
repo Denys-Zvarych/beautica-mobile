@@ -19,13 +19,24 @@
 // here because this file is the family's documented home for the conventions;
 // `service_price_display.dart` imports it rather than growing a second copy.
 //
-// Extracts the identical price-band + duration string building duplicated in
-// `_BookingTotals.from` (`booking_summary_bar.dart`, independent flow) and
-// `ScheduleConfirmBar._totals` (`schedule_confirm_bar.dart`, salon flow).
-// Each caller keeps its own per-model summation (they sum different types —
-// `MasterService` vs `SalonCatalogService`) and passes the summed
-// (minSum, maxSum, minutes) in; only the "X ₴ / X–Y ₴" + duration
-// formatting lives here.
+// Extracts the identical price-band + duration string building that was
+// duplicated across all FOUR «Разом» surfaces: `_BookingTotals.from`
+// (`booking_recap.dart`), `ScheduleConfirmBar._totals`
+// (`schedule_confirm_bar.dart`, salon flow),
+// `IndependentScheduleConfirmBar._totals` and `_AssignConfirmBar._totals`
+// (`salon_master_selection_screen.dart`). Each caller keeps only its own
+// per-model field access (they read different types — `MasterService` vs
+// `SalonCatalogService` vs `BookingSelection`) and maps onto
+// [BookingTotalTerm]; the summation, the per-term gate and the
+// "X ₴ / X–Y ₴" + duration formatting all live here, in
+// [formatBookingTotalsFromTerms].
+//
+// PREFER [formatBookingTotalsFromTerms] over calling [formatBookingTotals] on
+// pre-summed figures. The latter can only re-check the SUMS, and `+` is not
+// protective: two out-of-range terms that cancel (`1e30 + -1e30 == 0.0`) sail
+// through a sum-level check and state a fictional «0 ₴». Summing in the caller
+// and handing the totals over is exactly the shape that let «Infinity ₴» /
+// «-0 ₴» / «1e+30 ₴» reach the salon assign-confirm bar.
 //
 // Pure Dart — no Flutter imports.
 
@@ -72,6 +83,59 @@ const String bookingPriceCurrencySuffix = '₴';
   return (
     priceLabel: priceLabel,
     durationLabel: minutes > 0 ? DurationMinutes.format(minutes) : null,
+  );
+}
+
+/// One service's contribution to a «Разом» total: its price floor, its price
+/// ceiling (equal to [min] when the service is not a RANGE) and its duration.
+///
+/// Callers map their own model — `MasterService`, `SalonCatalogService`,
+/// `BookingSelection` — onto this shape; the per-model field access is the only
+/// part that legitimately differs between the four confirm/recap surfaces.
+typedef BookingTotalTerm = ({double min, double max, int minutes});
+
+/// [formatBookingTotals] with the PER-TERM [isRenderablePrice] gate applied.
+///
+/// ## Why summing first and checking the sum is not enough
+///
+/// `+` is not protective. Two out-of-range figures that cancel
+/// (`1e30 + -1e30 == 0.0`, verified) clear any sum-level check and render a
+/// confident, entirely fictional «0 ₴» — on the very screen where the client is
+/// agreeing to a price. `Infinity` likewise propagates through the accumulator,
+/// and one negative term silently drags [minSum] below zero.
+///
+/// So every TERM is gated on the way into the accumulator, and the sums are
+/// re-checked by [formatBookingTotals] on the way out (an in-range set of terms
+/// can still add up out of range). Both must hold for a figure to be stated.
+///
+/// ## An unstatable term poisons the WHOLE band
+///
+/// The bad term is not dropped. Dropping it would UNDERSTATE the price the
+/// client is agreeing to, which is the harm — not a mitigation of it. The whole
+/// price band therefore collapses to [priceUnavailableLabel]. The DURATION
+/// label is unaffected: it is summed from ints, shares none of the failure
+/// modes above, and staying silent about the time as well would degrade a
+/// surface that is still perfectly able to state it.
+({String priceLabel, String? durationLabel}) formatBookingTotalsFromTerms(
+  Iterable<BookingTotalTerm> terms,
+) {
+  double minSum = 0;
+  double maxSum = 0;
+  int minutes = 0;
+  bool renderable = true;
+  for (final BookingTotalTerm term in terms) {
+    if (!isRenderablePrice(term.min) || !isRenderablePrice(term.max)) {
+      renderable = false;
+    }
+    minSum += term.min;
+    maxSum += term.max;
+    minutes += term.minutes;
+  }
+  final ({String priceLabel, String? durationLabel}) totals =
+      formatBookingTotals(minSum: minSum, maxSum: maxSum, minutes: minutes);
+  return (
+    priceLabel: renderable ? totals.priceLabel : priceUnavailableLabel,
+    durationLabel: totals.durationLabel,
   );
 }
 

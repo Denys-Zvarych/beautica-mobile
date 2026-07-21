@@ -169,20 +169,25 @@ class BookingSummaryBar extends StatelessWidget {
   }
 
   List<Widget> _populatedChildren(AppLocalizations l10n) {
-    // Sum the typed price/duration fields directly (never a re-parsed display
-    // string); the shared formatter turns the totals into the labels.
-    double minSum = 0;
-    double maxSum = 0;
-    int minutes = 0;
-    for (final MasterService s in services) {
-      minSum += s.priceMin;
-      maxSum += s.priceType == ServicePriceType.range
-          ? (s.priceMax ?? s.priceMin)
-          : s.priceMin;
-      minutes += s.durationMinutes;
-    }
+    // Map the typed price/duration fields onto `BookingTotalTerm` (never a
+    // re-parsed display string) and let the shared formatter do the summing.
+    // Handing over TERMS rather than pre-summed figures is deliberate: `+` is
+    // not protective, so two out-of-range terms that cancel
+    // (`1e30 + -1e30 == 0.0`) would clear a sum-level check and state a
+    // confident, fictional «0 ₴» on the very screen where the client agrees to
+    // a price. Same mapping as `IndependentScheduleConfirmBar._totals`.
     final ({String priceLabel, String? durationLabel}) totals =
-        formatBookingTotals(minSum: minSum, maxSum: maxSum, minutes: minutes);
+        formatBookingTotalsFromTerms(
+          services.map(
+            (MasterService s) => (
+              min: s.priceMin,
+              max: s.priceType == ServicePriceType.range
+                  ? (s.priceMax ?? s.priceMin)
+                  : s.priceMin,
+              minutes: s.durationMinutes,
+            ),
+          ),
+        );
     return <Widget>[
       // The extracted, self-contained expand/collapse itemized list — its
       // own internal `ValueListenableBuilder` means an expand/collapse tap

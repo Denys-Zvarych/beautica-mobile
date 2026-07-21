@@ -162,20 +162,18 @@ class IndependentScheduleConfirmBar extends StatelessWidget {
   /// never a re-parsed display string (mirrors `BookingSummaryBar` /
   /// `ScheduleConfirmBar`).
   (String, String?) _totals(List<MasterService> services) {
-    double minSum = 0;
-    double maxSum = 0;
-    int minutes = 0;
-    for (final MasterService s in services) {
-      final double lo = s.priceMin;
-      final double hi = s.priceType == ServicePriceType.range
-          ? (s.priceMax ?? lo)
-          : lo;
-      minSum += lo;
-      maxSum += hi;
-      minutes += s.durationMinutes;
-    }
     final ({String priceLabel, String? durationLabel}) totals =
-        formatBookingTotals(minSum: minSum, maxSum: maxSum, minutes: minutes);
+        formatBookingTotalsFromTerms(
+          services.map(
+            (MasterService s) => (
+              min: s.priceMin,
+              max: s.priceType == ServicePriceType.range
+                  ? (s.priceMax ?? s.priceMin)
+                  : s.priceMin,
+              minutes: s.durationMinutes,
+            ),
+          ),
+        );
     return (totals.priceLabel, totals.durationLabel);
   }
 }

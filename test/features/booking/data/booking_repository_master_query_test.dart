@@ -305,6 +305,13 @@ void main() {
       );
 
       expect(q['from'], '2026-07-01');
+      // The fixed DateTime above is the test INPUT and this string is its
+      // expected SERIALISATION — the pair IS the assertion. `getMyBookings`
+      // never consults the wall clock (no DateTime.now / isPast anywhere in
+      // booking_repository.dart), so this cannot expire into a false pass.
+      // Anchoring it to now() would force the expectation to be re-derived
+      // with the very formatter under test, i.e. make the test tautological.
+      // future-date-ok: pinned INPUT⇄OUTPUT pair, no wall-clock read.
       expect(q['to'], '2026-07-31');
     });
 
@@ -320,6 +327,10 @@ void main() {
       );
 
       expect(q['from'], '2026-01-05');
+      // Month 9 / day 9 are the SUBJECT of this test — they are what must pad
+      // to «09». A rolling date would land on an arbitrary month/day and stop
+      // exercising the padding branch at all.
+      // future-date-ok: the single-digit month/day ARE the test case.
       expect(q['to'], '2026-09-09');
     });
 
@@ -363,6 +374,9 @@ void main() {
 
       expect(fromOnly['from'], '2026-07-01');
       expect(fromOnly.containsKey('to'), isFalse);
+      // Serialisation of the fixed `to:` input above; the subject is that each
+      // bound is independently omittable, not any particular date.
+      // future-date-ok: pinned INPUT⇄OUTPUT pair, no wall-clock read.
       expect(toOnly['to'], '2026-07-31');
       expect(toOnly.containsKey('from'), isFalse);
     });
@@ -448,6 +462,9 @@ void main() {
         'status': <String>['CONFIRMED', 'COMPLETED'],
         'serviceId': <String>['svc-a', 'svc-b'],
         'from': '2026-07-01',
+        // Serialisation of this test's fixed range input; the subject is the
+        // whole-query shape (canonical status order + both bounds present).
+        // future-date-ok: pinned INPUT⇄OUTPUT pair, no wall-clock read.
         'to': '2026-07-31',
       });
     });
@@ -468,6 +485,10 @@ void main() {
         responseData: daysEnvelope(const <String>[]),
       );
 
+      // Serialisation of the fixed `from:`/`to:` inputs above.
+      // `getMyBookedDays` takes both bounds from its caller and never consults
+      // the wall clock, so these cannot expire into a false assertion.
+      // future-date-ok: pinned INPUT⇄OUTPUT pair, no wall-clock read.
       expect(q, <String, dynamic>{'from': '2026-01-20', 'to': '2026-12-05'});
     });
 

@@ -139,8 +139,11 @@ void main() {
       // `salon_booking_flow_test.dart`'s `matches.last.matchedLocation` reader
       // can see through that (verified — both report «/bookings» while the
       // detail screen is genuinely mounted). Asserting either would encode a
-      // false expectation; the mounted screen is the fact this flow needs, and
-      // routing itself is already owned by `client_my_bookings_cancel_flow`.
+      // false expectation; the mounted screen is the fact this flow needs.
+      // (`client_my_bookings_cancel_flow_test.dart` had encoded exactly that
+      // false expectation and now asserts the screen here too — this is the
+      // shared precedent for the push-into-a-shell-branch case, not a
+      // one-off.)
       expect(find.byType(BookingDetailScreen), findsOneWidget);
       expect(
         find.text(_kBand),
