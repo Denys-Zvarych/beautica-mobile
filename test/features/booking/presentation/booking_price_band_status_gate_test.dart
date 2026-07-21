@@ -136,6 +136,47 @@ void _expectNoMoneyAnywhere(WidgetTester tester) {
   );
 }
 
+/// Asserts [MasterBookingCard] is genuinely on screen AND is rendering the
+/// [layout] the case claims to be exercising — `'compact'` or `'full'`.
+///
+/// ## Why this is not just `find.byType(TimelineStatusBadge)` any more
+/// (miniature-layout pass, 2026-07-21)
+///
+/// This is a CONTROL, not the assertion under test: its job is to stop
+/// [_expectNoMoneyAnywhere]'s `findsNothing` sweep from passing vacuously
+/// because nothing was pumped at all. It used to look for
+/// [TimelineStatusBadge] on both layouts, which was true until
+/// `_buildCompactBody` was re-composed into a miniature of the full card:
+/// the compact layout's status indicator is now [TimelineStatusDot], a bare
+/// 8dp circle whose label lives in `Semantics`/`Tooltip` rather than in a
+/// text pill. The full layout still draws the labelled badge, which is why
+/// only the four compact cases went red.
+///
+/// The control's MEANING is unchanged — "a real card rendered, only the money
+/// is suppressed" — and it is deliberately STRONGER than a straight swap
+/// would have been: it also asserts the OTHER layout's indicator is ABSENT.
+/// Without that, a regression collapsing both branches to one layout would
+/// leave the four cases labelled `full` quietly re-testing the compact body,
+/// and the gate would lose half its coverage with every test still green.
+void _expectStatusIndicator(String layout) {
+  final bool compact = layout == 'compact';
+  expect(
+    find.byType(TimelineStatusDot),
+    compact ? findsOneWidget : findsNothing,
+    reason:
+        'the $layout layout must ${compact ? '' : 'NOT '}render the compact '
+        'status dot — if this fails the card is either absent (making the '
+        'money sweep above vacuous) or rendering the wrong branch',
+  );
+  expect(
+    find.byType(TimelineStatusBadge),
+    compact ? findsNothing : findsOneWidget,
+    reason:
+        'the $layout layout must ${compact ? 'NOT ' : ''}render the labelled '
+        'status badge — see above',
+  );
+}
+
 /// The statuses on which money is NOT a true statement — the whole point of
 /// `BookingDisplayX.showsPrice`. `BookingStatus.unknown` is included: a status
 /// this build cannot identify must not be assumed payable.
@@ -268,9 +309,9 @@ void main() {
 
             _expectNoMoneyAnywhere(tester);
 
-            // Control: the card is genuinely on screen — the status badge and
-            // the service name still render, only the money is suppressed.
-            expect(find.byType(TimelineStatusBadge), findsOneWidget);
+            // Control: the card is genuinely on screen — the status indicator
+            // and the service name still render, only the money is suppressed.
+            _expectStatusIndicator(name);
             expect(find.text(booking.serviceName), findsOneWidget);
 
             handle.dispose();
@@ -303,6 +344,10 @@ void main() {
               _semanticsLabels(tester).where((String l) => l.contains(_kBand)),
               isNotEmpty,
             );
+            // Same layout precondition as the moneyless cases above — so a
+            // control that silently started rendering the WRONG layout could
+            // not keep vouching for the gated cases beside it.
+            _expectStatusIndicator(name);
 
             handle.dispose();
           },
