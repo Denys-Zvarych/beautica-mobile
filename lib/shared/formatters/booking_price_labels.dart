@@ -18,6 +18,11 @@
 // on one surface just because it was hardened on another. The predicate lives
 // here because this file is the family's documented home for the conventions;
 // `service_price_display.dart` imports it rather than growing a second copy.
+// The two discovery search cards (`master_result_card.dart`,
+// `salon_result_card.dart`) build their labels from l10n rather than from these
+// formatters — their ARB placeholders are `"type": "int"` — so they import
+// [renderableWholePrice], the int-coercing sibling of the same gate, for the
+// identical reason: one predicate, no second copy.
 //
 // Extracts the identical price-band + duration string building that was
 // duplicated across all FOUR «Разом» surfaces: `_BookingTotals.from`
@@ -225,6 +230,57 @@ const String priceUnavailableLabel = '—';
 /// `(1e20).toStringAsFixed(0)` is `'100000000000000000000'` while
 /// `(1e21).toStringAsFixed(0)` is `'1e+21'`.
 const double _exponentNotationThreshold = 1e21;
+
+/// 2^63 — the magnitude at which `double.round()` stops being faithful.
+///
+/// Dart's `int` is a fixed 64-bit signed integer on the VM, so `round()` does
+/// not overflow and does not throw for a merely-large finite double: it
+/// SATURATES to `9223372036854775807`. Verified: `(9.3e18).round()`,
+/// `(1e20).round()` and `(1e30).round()` all return that same value.
+const double _int64RoundThreshold = 9223372036854775808.0;
+
+/// [value] as a whole-hryvnia `int`, or `null` when it cannot be stated
+/// honestly.
+///
+/// The `int`-typed sibling of [isRenderablePrice], for the surfaces whose ARB
+/// placeholders are declared `"type": "int"` — the two discovery search cards
+/// («{price} ₴», «{min}–{max} ₴», «від {price} ₴») — and which therefore must
+/// coerce the wire `double` before handing it to l10n. That coercion adds a
+/// THIRD failure mode on top of the two [isRenderablePrice] documents, and the
+/// first of them is worse in kind than anything on the booking surfaces:
+///
+///   * `round()` on `Infinity`/`NaN` THROWS `UnsupportedError: Infinity or NaN
+///     toInt`. On a result card the call sits inside `build()`, so a malformed
+///     payload does not merely misprint a figure — it replaces a row of the
+///     search results list, one of the app's most-hit surfaces, with an error
+///     widget. It is reachable from the wire: `jsonDecode('1e400')` yields
+///     `double.infinity` WITHOUT throwing, and `search_mapper.dart` passes the
+///     decoded `minEffectivePrice`/`priceMin`/`priceMax` straight through
+///     unclamped.
+///   * `round()` saturating (above) prints the flatly fabricated
+///     «9223372036854775807 ₴».
+///
+/// ## Why [isRenderablePrice] alone does NOT close the second one
+///
+/// Its ceiling is calibrated for `toStringAsFixed(0)`, which keeps emitting
+/// plain digits all the way to [_exponentNotationThreshold] (1e21). `round()`
+/// saturates ~100× earlier, at [_int64RoundThreshold] (≈9.22e18). So `1e20`
+/// passes [isRenderablePrice] and still saturates. The extra bound is applied
+/// HERE, once, rather than being re-derived at each call site.
+///
+/// ## Unrenderable ⇒ `null` ⇒ ABSENT, never stringified
+///
+/// Same treatment [formatBookingPrice] gives an unrenderable ceiling, and it is
+/// what lets the callers keep their existing branch structure: both search
+/// cards already have a first-class, correct "this bound is not known"
+/// rendering — hide the price line entirely, or collapse the band to the single
+/// known bound. Routing a garbage figure into that existing path is better than
+/// printing [priceUnavailableLabel] on a card that shows no «—» anywhere else.
+int? renderableWholePrice(double? value) {
+  if (value == null) return null;
+  if (!isRenderablePrice(value) || value >= _int64RoundThreshold) return null;
+  return value.round();
+}
 
 /// Whether [value] can be stated as an honest, plain-digit hryvnia figure.
 ///

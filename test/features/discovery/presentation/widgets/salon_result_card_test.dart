@@ -2,10 +2,13 @@
 //
 // Pins the salon-card contract the golden cannot assert behaviourally:
 //   • Item 2/5 — price label «від» decision (salon side). priceMin == priceMax
-//     renders an EXACT fixed price «N ₴» with NO «від»; priceMin < priceMax
-//     renders a «N–M ₴» range; a single bound renders the open-ended «від»;
-//     both null hides the line. Item 5 also asserts the price line RENDERS at
-//     all when data is present (the "salon price renders" confirmation).
+//     renders an EXACT fixed price «N ₴» with NO prefix; priceMin < priceMax
+//     renders a «N–M ₴» range; a single bound renders the open end in the
+//     direction that bound constrains — «від N ₴» for a floor-only card,
+//     «до N ₴» for a ceiling-only one, never the other way round (quoting a
+//     ceiling as «від» would state a false, inflated minimum); both null hides
+//     the line. Item 5 also asserts the price line RENDERS at all when data is
+//     present (the "salon price renders" confirmation).
 //   • Item 6 — the (auth-gated) precomputed `addressLine` renders in place of
 //     the locality line when present; falls back to the locality when null.
 //   • Item 7 — the salon's `servicesLine` (built from serviceNames) renders.
@@ -141,14 +144,20 @@ void main() {
       expect(find.text(l10n.searchResultPriceExact(300)), findsNothing);
     });
 
-    testWidgets('a single bound (max only) keeps the open-ended «від» prefix', (
-      tester,
-    ) async {
-      await _pump(tester, _salon(priceMin: null, priceMax: 900));
+    testWidgets(
+      'a single bound (max only) renders the CEILING-direction open end — '
+      '«до N ₴», never the floor claim «від N ₴»',
+      (tester) async {
+        await _pump(tester, _salon(priceMin: null, priceMax: 900));
 
-      final l10n = _l10n(tester);
-      expect(find.text(l10n.searchPriceFrom(900)), findsOneWidget);
-    });
+        final l10n = _l10n(tester);
+        expect(find.text(l10n.searchPriceUpTo(900)), findsOneWidget);
+        // The card knows no floor, so it must not assert one. «від 900 ₴» would
+        // quote the salon's DEAREST service as its cheapest — a false, inflated
+        // entry price. Direction matters; the two prefixes are not symmetric.
+        expect(find.text(l10n.searchPriceFrom(900)), findsNothing);
+      },
+    );
 
     testWidgets('both bounds null → no price line at all', (tester) async {
       await _pump(tester, _salon(priceMin: null, priceMax: null));
@@ -160,6 +169,161 @@ void main() {
       final l10n = _l10n(tester);
       expect(find.textContaining(l10n.searchPriceCurrencySuffix), findsNothing);
     });
+  });
+
+  // ===========================================================================
+  // Security MEDIUM — `_priceLabel` used to coerce the WIRE doubles
+  // `SalonSearchItem.priceMin`/`priceMax` to `int` with a bare `.round()`
+  // before handing them to l10n, bypassing the shared `isRenderablePrice` gate
+  // that every other money surface passes through. `search_mapper.dart` maps
+  // both unclamped (`dto.priceMin?.toDouble()`), and `jsonDecode('1e400')`
+  // yields `double.infinity` WITHOUT throwing, so the coercion failed two ways
+  // off a malformed payload:
+  //
+  //   1. `double.infinity.round()` / `double.nan.round()` THROW
+  //      (`UnsupportedError: Infinity or NaN toInt`) — inside `build()`, so the
+  //      card became an error widget in the search results list. This is the
+  //      distinguishing failure mode, hence the explicit `takeException()`
+  //      assertion in every case below.
+  //   2. `(1e30).round()` does NOT throw — it saturates to int64 max, so the
+  //      card silently stated «9223372036854775807 ₴». Note `1e20` saturates
+  //      too while passing `isRenderablePrice` (whose ceiling is calibrated for
+  //      `toStringAsFixed(0)`, not for int coercion), which is why the gate is
+  //      `renderableWholePrice` and not `isRenderablePrice` alone.
+  //
+  // An unrenderable bound is routed into the card's EXISTING "this bound is not
+  // known" rendering rather than to `priceUnavailableLabel`: one bad bound
+  // leaves the open-ended label of the DIRECTION that survived («від N ₴» when
+  // the floor lived, «до N ₴» when the ceiling did — the surviving bound is
+  // never substituted into the other direction's claim), two hide the price
+  // line exactly as a salon with no priced services does. The control
+  // case at the end is what makes this group honest — a blanket "always hide
+  // the price" mutation would satisfy the earlier tests and fail it.
+  // ===========================================================================
+  group('SalonResultCard price label — unrenderable wire prices', () {
+    /// Every rendered `Text` string in the tree — used to assert that no
+    /// garbage figure leaked into ANY of them, not merely into the one node a
+    /// scoped finder happened to look at.
+    List<String> renderedTexts(WidgetTester tester) => tester
+        .widgetList<Text>(find.byType(Text))
+        .map((Text t) => t.data ?? '')
+        .toList();
+
+    void expectNoGarbageFigure(WidgetTester tester) {
+      expect(
+        renderedTexts(tester).where(
+          (String s) =>
+              s.contains('Infinity') ||
+              s.contains('NaN') ||
+              s.contains('9223372036854775807') ||
+              s.contains('-500'),
+        ),
+        isEmpty,
+        reason:
+            'no saturated, non-finite or negative figure may be stringified '
+            'onto a search card',
+      );
+    }
+
+    for (final (String name, double bad) in <(String, double)>[
+      ('double.infinity', double.infinity),
+      ('double.nan', double.nan),
+      ('1e30 (int64-saturating)', 1e30),
+      (
+        '1e20 (int64-saturating, but under the isRenderablePrice ceiling)',
+        1e20,
+      ),
+      ('a negative price', -500.0),
+    ]) {
+      testWidgets(
+        'BOTH bounds $name off the wire hide the price line instead of '
+        'throwing out of build()',
+        (tester) async {
+          await _pump(tester, _salon(priceMin: bad, priceMax: bad));
+
+          expect(
+            tester.takeException(),
+            isNull,
+            reason:
+                '$name must never reach a bare `.round()` — that throws '
+                'UnsupportedError inside build() and turns this row of the '
+                'search results list into an error widget',
+          );
+          expect(
+            find.textContaining(_l10n(tester).searchPriceCurrencySuffix),
+            findsNothing,
+            reason:
+                'with neither bound statable the card falls back to its '
+                'existing price-less rendering (line omitted)',
+          );
+          expectNoGarbageFigure(tester);
+        },
+      );
+
+      testWidgets(
+        'a $name priceMax with a good priceMin keeps the open-ended «від N ₴» '
+        'on the surviving bound',
+        (tester) async {
+          await _pump(tester, _salon(priceMin: 300, priceMax: bad));
+
+          expect(tester.takeException(), isNull);
+          // An unrenderable ceiling is ABSENT → the documented "one bound only"
+          // path, which the card already renders correctly.
+          expect(
+            find.text(_l10n(tester).searchPriceFrom(300)),
+            findsOneWidget,
+            reason:
+                'a garbage ceiling lands in the existing open-ended case — the '
+                'known floor is still stated honestly',
+          );
+          expectNoGarbageFigure(tester);
+        },
+      );
+
+      testWidgets(
+        'a $name priceMin with a good priceMax renders «до N ₴» on the '
+        'surviving CEILING — never the floor claim «від N ₴»',
+        (tester) async {
+          await _pump(tester, _salon(priceMin: bad, priceMax: 900));
+
+          expect(tester.takeException(), isNull);
+          expect(
+            find.text(_l10n(tester).searchPriceUpTo(900)),
+            findsOneWidget,
+            reason:
+                'a garbage floor lands in the existing ceiling-only case, '
+                'which states only the bound it actually has',
+          );
+          // The mutation this pins: substituting the surviving bound into
+          // `searchPriceFrom` (as this branch used to) turns an unrenderable
+          // floor into a fabricated MINIMUM of 900 ₴ — the salon's dearest
+          // service advertised as its entry price. Reverting to «від» here
+          // fails this assertion, not merely the one above.
+          expect(
+            find.text(_l10n(tester).searchPriceFrom(900)),
+            findsNothing,
+            reason:
+                'the ceiling must never be quoted as a floor — «від 900 ₴» '
+                'asserts a cheapest price the card does not have',
+          );
+          expectNoGarbageFigure(tester);
+        },
+      );
+    }
+
+    testWidgets(
+      'CONTROL — well-formed wire doubles still render the ordinary «N–M ₴» '
+      'range (a blanket "always hide the price" mutation fails here)',
+      (tester) async {
+        await _pump(tester, _salon(priceMin: 300, priceMax: 1200));
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(_l10n(tester).searchResultPriceRange(300, 1200)),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

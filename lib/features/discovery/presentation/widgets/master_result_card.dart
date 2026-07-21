@@ -21,6 +21,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 
 import '../../../booking/application/pending_service_preselection_provider.dart';
 import '../../../favorites/domain/favorite_target.dart';
@@ -174,13 +175,28 @@ class MasterResultCard extends ConsumerWidget {
   ///   floor null            → null (no priced services → hide the line)
   ///   max null / == floor    → exact fixed price «N ₴» (NO «від»)
   ///   floor < max           → «N–M ₴» range
+  ///
+  /// Both bounds arrive off the wire as unclamped doubles (`search_mapper.dart`
+  /// passes the decoded values straight through) and the ARB placeholders here
+  /// are `"type": "int"`, so each is coerced through [renderableWholePrice]
+  /// rather than a bare `.round()` — see that function for why the bare call
+  /// THROWS out of this `build()` on `Infinity`/`NaN` and saturates to
+  /// «9223372036854775807 ₴» on a merely-large figure.
+  ///
+  /// An unrenderable bound is treated as ABSENT, which needs no new branch: an
+  /// unrenderable ceiling lands in the `max null` case above (the exact price
+  /// the card already renders correctly), and an unrenderable floor lands in
+  /// the `floor null` case — the price line is omitted entirely, exactly as for
+  /// a master with no priced services. Deliberately NOT [priceUnavailableLabel]:
+  /// this card has an established, honest "no price known" state and shows no
+  /// «—» anywhere else.
   static String? _priceLabel(
     AppLocalizations l10n,
     double? floor,
     double? max,
   ) {
-    final int? lo = floor?.round();
-    final int? hi = max?.round();
+    final int? lo = renderableWholePrice(floor);
+    final int? hi = renderableWholePrice(max);
     if (lo == null) return null;
     if (hi == null || hi == lo) return l10n.searchResultPriceExact(lo);
     return l10n.searchResultPriceRange(lo, hi);

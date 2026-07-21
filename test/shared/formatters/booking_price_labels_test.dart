@@ -395,4 +395,85 @@ void main() {
       );
     });
   });
+
+  // ===========================================================================
+  // `renderableWholePrice` — the int-coercing sibling of `isRenderablePrice`,
+  // used by the two discovery search cards (their ARB placeholders are
+  // `"type": "int"`, so they must coerce the wire double before formatting).
+  //
+  // The boundary is the whole point of this group: `double.round()` SATURATES
+  // to int64 max at 2^63 (≈9.22e18), roughly 100× BELOW the 1e21 ceiling
+  // `isRenderablePrice` enforces for `toStringAsFixed(0)`. Gating the search
+  // cards on `isRenderablePrice` alone would therefore still let 1e20 through
+  // and print «9223372036854775807 ₴».
+  // ===========================================================================
+  group('renderableWholePrice — int coercion gate', () {
+    test('a null price stays null', () {
+      expect(renderableWholePrice(null), isNull);
+    });
+
+    test('non-finite input yields null instead of THROWING on .round()', () {
+      // The bare `.round()` these cards used to call throws UnsupportedError
+      // here — inside build(), so the search-results row became an error
+      // widget. Reachable from the wire: jsonDecode('1e400') is Infinity.
+      expect(jsonDecode('1e400'), double.infinity);
+      expect(() => double.infinity.round(), throwsUnsupportedError);
+      expect(() => double.nan.round(), throwsUnsupportedError);
+
+      expect(renderableWholePrice(double.infinity), isNull);
+      expect(renderableWholePrice(double.negativeInfinity), isNull);
+      expect(renderableWholePrice(double.nan), isNull);
+    });
+
+    test('negative input (including -0.0) yields null', () {
+      expect(renderableWholePrice(-500), isNull);
+      expect(renderableWholePrice(-0.0), isNull);
+    });
+
+    test(
+      'int64-saturating magnitudes yield null — INCLUDING the ones that pass '
+      'isRenderablePrice, which is why that predicate alone is not enough here',
+      () {
+        // 1e20 is under the 1e21 exponent-notation ceiling, so the string-side
+        // gate waves it through …
+        expect(isRenderablePrice(1e20), isTrue);
+        // … yet `.round()` still saturates on it, and on everything above 2^63.
+        expect(1e20.round(), 9223372036854775807);
+        expect(9.3e18.round(), 9223372036854775807);
+        expect(1e30.round(), 9223372036854775807);
+
+        expect(renderableWholePrice(9.3e18), isNull);
+        expect(renderableWholePrice(1e20), isNull);
+        expect(renderableWholePrice(1e30), isNull);
+      },
+    );
+
+    test(
+      'the saturation cut is exact — the largest FAITHFUL double still passes',
+      () {
+        // The group above pins only the REJECTING side of the boundary, which a
+        // tightened threshold would satisfy vacuously: lowering
+        // `_int64RoundThreshold` would start hiding prices that render
+        // perfectly, and every existing assertion would stay green. So assert
+        // the last value that must survive.
+        //
+        // 9223372036854774784 is exactly the next representable double BELOW
+        // 2^63 (the ulp at that magnitude is 1024, and 9223372036854774784 +
+        // 1024 == 9223372036854775808). It round-trips faithfully …
+        const double lastFaithful = 9223372036854774784.0;
+        expect(lastFaithful.round(), 9223372036854774784);
+        expect(lastFaithful.round(), isNot(9223372036854775807));
+        // … so the gate must let it through, i.e. the threshold cuts precisely
+        // at the first SATURATING value, not one ulp early.
+        expect(renderableWholePrice(lastFaithful), 9223372036854774784);
+      },
+    );
+
+    test('the guard leaves every well-formed price untouched', () {
+      expect(renderableWholePrice(0), 0);
+      expect(renderableWholePrice(450), 450);
+      expect(renderableWholePrice(499.5), 500);
+      expect(renderableWholePrice(1200), 1200);
+    });
+  });
 }

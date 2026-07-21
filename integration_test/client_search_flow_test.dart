@@ -407,11 +407,24 @@ void main() {
     // The seeded page-0 master + salon both rendered (key = backend id).
     expect(find.byKey(const Key('favorite_master_master-aaa')), findsOneWidget);
     expect(find.byKey(const Key('favorite_salon_salon-xyz')), findsOneWidget);
-    // Master price «від N ₴» + salon price RANGE are the documented gaps.
-    // This string is CLIENT-rendered from l10n (`searchPriceFrom`), NOT a raw
-    // backend `priceDisplay` — it always carries the mobile client's own
+    // Master price. `master-aaa` seeds a floor (450) and NO ceiling, so the
+    // card takes MasterResultCard._priceLabel's `hi == null` branch and renders
+    // the EXACT price — «450 ₴», with NO «від» prefix (b550428 dropped the
+    // prefix for a fixed master price). The SALON card still prefixes an
+    // open-ended floor via `searchPriceFrom`, which is why the two cards read
+    // differently — that asymmetry is intentional, not a gap.
+    //
+    // This string is CLIENT-rendered from l10n (`searchResultPriceExact`), NOT
+    // a raw backend `priceDisplay` — it always carries the mobile client's own
     // current currency glyph («₴»), independent of the backend's formatting.
-    expect(find.text('від 450 ₴'), findsOneWidget);
+    // Resolved off the PUMPED TREE rather than hard-coded: this flow runs only
+    // on CI's emulator job, so a literal that drifts from the ARB can rot
+    // unnoticed for weeks (it did — the old «від 450 ₴» literal outlived the
+    // b550428 render change by a long way).
+    final AppLocalizations l10n = AppLocalizations.of(
+      tester.element(find.byType(SearchResultsScreen)),
+    );
+    expect(find.text(l10n.searchResultPriceExact(450)), findsOneWidget);
 
     // ── Tap the master heart → optimistic flip → POST /favorites ────────────
     expect(fb.addFavoriteCalls, 0);
@@ -692,14 +705,22 @@ void main() {
       // street + note, and the card renders BOTH the locality line (line 1) and
       // the full street·note line (line 2) together. Region/oblast is NOT in the
       // contract, so no oblast text ever appears.
+      // formatLocality() joins the raw districtLabel/cityLabel with a
+      // hard-coded ', ' and never touches AppLocalizations, so this renders
+      // identically under EN — it is backend fixture data, not UI copy.
       expect(
+        // i18n-finder-ok: locale-invariant backend data (see comment above)
         find.text('Печерський, Київ'),
         findsOneWidget,
         reason:
             'the two-line layout keeps the «district, city» locality line even '
             'when an auth-gated street line is also shown.',
       );
+      // The mapper's _formatAddressLine() joins raw street/buildingNo/
+      // locationNote with a hard-coded ', ' + ' · ' and never touches
+      // AppLocalizations — backend fixture data, not UI copy.
       expect(
+        // i18n-finder-ok: locale-invariant backend data (see comment above)
         find.text('вул. Хрещатик, 12 · 2 поверх'),
         findsOneWidget,
         reason:

@@ -14,7 +14,7 @@
 # --- Widget-constructor params (NOT a TextStyle literal) ---------------------
 # `fontSize:` here is forwarded to the HubAvatar/HubPhoto CONSTRUCTOR; the
 # widget itself builds a cached TextStyle internally (see hub_widgets.dart).
-lib/features/passport/presentation/passport_screen.dart:396          # HubAvatar(fontSize:) ctor arg
+lib/features/passport/presentation/passport_screen.dart:409          # HubAvatar(fontSize:) ctor arg
 lib/features/home/presentation/widgets/home_profile_card.dart:58     # HubAvatar(fontSize:) ctor arg
 lib/features/home/presentation/widgets/favorite_masters_card.dart:161 # HubPhoto(fontSize:) ctor arg
 #
