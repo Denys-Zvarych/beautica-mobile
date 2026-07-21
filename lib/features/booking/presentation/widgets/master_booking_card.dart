@@ -27,10 +27,26 @@
 //
 // ```
 // ┌──────────────────────────────┐
-// │ 09:00  Стрижка жіноча    450₴│
+// │ 09:00–09:45 Стрижка жін. 450₴│
 // │ Марія Іванюк     ● Підтв.    │
 // └──────────────────────────────┘
 // ```
+//
+// ## The time is a RANGE, and carries no date (2026-07-21)
+//
+// Both layouts print `start–end` («10:00–11:30») via the shared
+// [formatSlotTimeRange], fed by `Booking.endAt` — the real persisted end
+// instant, never re-derived from `durationMinutes` (see that formatter's doc
+// for why the two cases are deliberately separate functions).
+//
+// The full layout previously paired its `schedule_outlined` glyph with a
+// date+time caption («12 лип, 14:30»). The DATE is gone from both layouts:
+// «Мої записи» is day-scoped — `bookingsDayProvider` returns exactly one Kyiv
+// day per fetch and `BookingsDayRail` above the timeline already names that
+// day — so repeating it on every card was redundant chrome. The glyph and the
+// [VelvetText.masterCardDateFull] style are unchanged; only the string is.
+// A master reading a timeline wants to know how long each appointment RUNS,
+// which the start alone never told them.
 //
 // Dropping the avatar is the main height saving, not a smaller font pass —
 // [ClientAvatarGradients] (`core/theme/brand_colors.dart`, shared/public) and
@@ -54,8 +70,8 @@
 //     Its identity slot renders the master (avatar, professional title, salon
 //     name) — three fields this card must not show.
 //   * The MASTER card's dominant element is the CLIENT's name, with the
-//     booking's start time leading the first line. It answers "who is coming
-//     to me, and for what, and when".
+//     booking's start–end time range leading the first line. It answers "who
+//     is coming to me, for what, and for how long".
 //
 // The genuinely shared pieces ARE shared: `BookingDisplayX.showsPrice` and
 // the date formatters. `BookingStatusBadge` (Phase 14.7) is DELIBERATELY NOT
@@ -83,7 +99,7 @@
 // estimate — so a 60-minute booking now gets a genuine ~112dp box, and a
 // 90-minute one ~168dp. That reopened room the compact pass never had: a
 // 60-minute-and-up card can now afford the approved design's fuller shape
-// (client name → hairline divider → service+date → price+status) without
+// (client name → hairline divider → service+time → price+status) without
 // reintroducing the "cards drift off their hour line" bug — the divider
 // layout only ever renders on a box already tall enough for it.
 //
@@ -185,6 +201,8 @@
 // [_decorationUnpressed] is the safe substitute: more contrast from the
 // stroke itself, the safe non-offset [VelvetShadows.borderedCard] shadow
 // unchanged.
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -377,6 +395,49 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     vertical: VelvetSpacing.xs + 2,
   );
 
+  /// Width the compact row 1 keeps for its NON-price content before the price
+  /// pill may claim any of it — see [_compactPriceCap] and row 1's own
+  /// comment in [_buildCompactBody].
+  ///
+  /// Derivation, all measured against the real widget, at the WORST case
+  /// (`main.dart`'s 1.3 MediaQuery textScaler ceiling — the label scales, the
+  /// lane does not):
+  ///
+  ///   * the start–end range label in [VelvetText.masterCardTime] —
+  ///     «09:00–09:20» is 66.65dp at scale 1.0 and 86.6dp at 1.3;
+  ///   * the row's two gaps — `VelvetSpacing.xs + 2` then `VelvetSpacing.xs`,
+  ///     10dp, fixed;
+  ///   * ~15dp so the `Expanded` service name never collapses to literally
+  ///     nothing on the narrowest lane.
+  ///
+  /// 86.6 + 10 + 15 ≈ 112. Deliberately a FIXED reserve rather than a
+  /// fraction of the lane: a fraction would shave the pill on wide lanes that
+  /// have room to spare, whereas this only ever binds where the arithmetic
+  /// says it must. The narrowest lane the timeline can build is 226dp
+  /// (`bookings_timeline_grid.dart`'s "ADDENDUM 3" clamps its 272dp card to
+  /// `constraints.maxWidth`, and the lane area is `deviceWidth − 94`: 24 + 24
+  /// screen padding, 42 ruler, 4 gap — so a 320dp device, which this app
+  /// supports throughout, yields `320 − 94 = 226`). 226dp of lane is 203dp of
+  /// inner width after this card's own padding and border, leaving the pill
+  /// 91dp — under its own 112dp ceiling, so the cap engages there and only
+  /// there. A 360dp device's 266dp lane leaves 131dp, i.e. no change at all.
+  static const double _kCompactPriceReserve = 112;
+
+  /// The smallest cap [_compactPriceCap] will hand the pill. Below the pill's
+  /// own horizontal padding (2 × `VelvetSpacing.sm`) a `ConstrainedBox` would
+  /// force a `maxWidth` the pill physically cannot meet; this floor keeps the
+  /// constraint satisfiable on a lane narrower than anything production can
+  /// produce (the band simply scales down further there).
+  static const double _kCompactPriceMinWidth = VelvetSpacing.xxl;
+
+  /// The compact price pill's `maxWidth` for a row [rowWidth] dp wide.
+  ///
+  /// An unbounded row (no real call site, but [LayoutBuilder] contracts allow
+  /// it) leaves the pill on its own [_PriceTag] cap, exactly as before.
+  static double _compactPriceCap(double rowWidth) => rowWidth.isFinite
+      ? math.max(rowWidth - _kCompactPriceReserve, _kCompactPriceMinWidth)
+      : double.infinity;
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -439,28 +500,103 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // Row 1 — start time · service name (flexes) · price.
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            Text(formatSlotTime(b.startAt), style: VelvetText.masterCardTime),
-            const SizedBox(width: VelvetSpacing.xs + 2),
-            Expanded(
-              child: Text(
-                b.serviceName,
-                style: VelvetText.masterCardService,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            // See `BookingDisplayX.showsPrice`: a cancelled, declined or
-            // missed appointment owes nothing, so printing a sum on it
-            // would assert a debt that does not exist.
-            if (b.showsPrice) ...<Widget>[
-              const SizedBox(width: VelvetSpacing.xs),
-              _PriceTag(price: b.priceLabel),
-            ],
-          ],
+        // Row 1 — start–end time range · service name (flexes) · price.
+        //
+        // The range roughly DOUBLES this leading label's width versus the
+        // bare start time it replaced, and the `Expanded` service name
+        // between them absorbs that loss by ellipsising. What the service
+        // name CANNOT absorb is the row's two non-flex children out-measuring
+        // the row on their own — which is exactly what happened on the real
+        // narrowest lane once a frozen band was in play: at 226dp
+        // (see [_kCompactPriceReserve]) and the app's 1.3 textScaler ceiling
+        // the range label measures 86.6dp and the capped price pill 112dp,
+        // which with the two gaps is 208.6dp against 203dp of inner width —
+        // a 5.6px overflow with the service name already squeezed to zero.
+        // (An earlier version of this comment claimed the non-flex children
+        // "stay well inside even the narrowest clamped lane (266dp on a
+        // 360dp device)". 266dp is `360 − 94`, not the floor: 320dp is a
+        // supported width throughout this app, so `320 − 94 = 226` is, and at
+        // 226dp the claim was false. `bookings_timeline_grid.dart`'s
+        // "ADDENDUM 3" arithmetic was always right — only this restatement of
+        // which device it bottoms out on was wrong.)
+        //
+        // What guarantees the fit now is [_kCompactPriceReserve]: the pill is
+        // still non-flex, but it is capped at the row's REAL width minus a
+        // reserve big enough for the range label at the textScaler ceiling,
+        // both gaps, and a service-name sliver — so the three children can
+        // never sum past the row. On any lane from 266dp up the reserve
+        // leaves more than the pill's own 112dp ceiling, so nothing changes
+        // there. Pinned by `master_booking_card_test.dart`'s "narrow-lane"
+        // group, which sweeps 226/266/272 × textScaler 1.0/1.3 × single/band.
+        // THIS CARD MUST NOT BE PLACED UNDER `IntrinsicHeight`,
+        // `IntrinsicWidth` OR AN `IntrinsicColumnWidth` TABLE COLUMN
+        // -----------------------------------------------------------------
+        // The `LayoutBuilder` below is what costs us that: it cannot report
+        // intrinsic dimensions, because doing so would mean running its
+        // builder speculatively at a size it was never laid out at. The
+        // failure is asymmetric between build modes, and the QUIET half is the
+        // dangerous one:
+        //
+        //   * DEBUG/JIT — loud. `_RenderLayoutBuilder.computeMaxIntrinsicHeight`
+        //     asserts "LayoutBuilder does not support returning intrinsic
+        //     dimensions" and the frame throws. Verified directly: wrapping
+        //     this card in an `IntrinsicHeight` under a LOOSE incoming height
+        //     (a tight one short-circuits before the intrinsic pass is ever
+        //     requested, so the hazard hides) throws through
+        //     `RenderFlex.computeMaxIntrinsicHeight`.
+        //   * RELEASE/AOT — silent and WRONG. That assert is compiled out, so
+        //     all four of `computeMinIntrinsicWidth`, `computeMaxIntrinsicWidth`,
+        //     `computeMinIntrinsicHeight` and `computeMaxIntrinsicHeight`
+        //     simply return `0.0`. The ancestor then equalises against a
+        //     zero-height measurement and lays the row out to a bogus size — a
+        //     mangled card in the shipped app with nothing thrown, nothing
+        //     logged and no test failure to catch it, because the widget tests
+        //     that would have exploded only ever run in debug.
+        //
+        // Not a theoretical constraint: the `IntrinsicHeight` +
+        // `CrossAxisAlignment.stretch` pattern is live and common in this repo
+        // — `master_profile_screen.dart:439` and
+        // `public_master_profile_screen.dart:410` both use it to equalise a
+        // row of cards to the tallest one, and `home_hub_screen.dart`,
+        // `quick_links_card.dart`, `next_appointment_card.dart` and
+        // `passport_table.dart` do the same. Dropping this card into any such
+        // row is a one-line change that looks harmless and reviews clean. If a
+        // caller genuinely needs an equal-height row of these cards, give the
+        // row a real height (a `SizedBox`/`ConstrainedBox` the caller computes)
+        // rather than asking this subtree to measure itself.
+        LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints rowConstraints) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Text(
+                  formatSlotTimeRange(b.startAt, b.endAt),
+                  style: VelvetText.masterCardTime,
+                ),
+                const SizedBox(width: VelvetSpacing.xs + 2),
+                Expanded(
+                  child: Text(
+                    b.serviceName,
+                    style: VelvetText.masterCardService,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                // See `BookingDisplayX.showsPrice`: a cancelled, declined or
+                // missed appointment owes nothing, so printing a sum on it
+                // would assert a debt that does not exist.
+                if (b.showsPrice) ...<Widget>[
+                  const SizedBox(width: VelvetSpacing.xs),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: _compactPriceCap(rowConstraints.maxWidth),
+                    ),
+                    child: _PriceTag(price: b.priceLabel),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
         const SizedBox(height: VelvetSpacing.xs),
         // Row 2 — client name (flexes) · status badge.
@@ -485,8 +621,9 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
 
   /// The design's fuller layout — client name, a hairline divider, the
   /// service name (below the divider, with the design's accent
-  /// `spa_outlined` glyph) paired with the full date+time, then price +
-  /// status. Only ever built once [LayoutBuilder] has already confirmed the
+  /// `spa_outlined` glyph) paired with the booking's start–end time range
+  /// (date-free — see this file's "The time is a RANGE" header section), then
+  /// price + status. Only ever built once [build] has already confirmed the
   /// box is >= [_kFullLayoutMinHeight] — see this file's "Adaptive
   /// full/compact layout" header section. Deliberately has NO avatar and NO
   /// master-name row — see that same section's "WHAT DID NOT COME BACK".
@@ -512,9 +649,14 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
           color: BrandColors.faint,
         ),
         const SizedBox(height: VelvetSpacing.sm + 2),
-        // Row 2 — service name (below the divider, per design) + full
-        // date+time (via the shared `formatShortDateTime` formatter — never
-        // hand-rolled, see `shared/formatters/booking_date_labels.dart`).
+        // Row 2 — service name (below the divider, per design) + the booking's
+        // start–end time range (via the shared `formatSlotTimeRange`
+        // formatter — never hand-rolled, see
+        // `shared/formatters/booking_date_labels.dart`). NO DATE: this screen
+        // is day-scoped (`bookingsDayProvider` fetches exactly one Kyiv day)
+        // and the day rail above the timeline already names the day, so a
+        // per-card date was redundant chrome. The range reads NARROWER than
+        // the "12 лип, 14:30" caption it replaced, so this row gained margin.
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
@@ -539,7 +681,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
                 ),
                 const SizedBox(width: 3),
                 Text(
-                  formatShortDateTime(b.startAt),
+                  formatSlotTimeRange(b.startAt, b.endAt),
                   style: VelvetText.masterCardDateFull,
                 ),
               ],
@@ -551,12 +693,43 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // `BookingDisplayX.showsPrice`: a cancelled, declined or missed
         // appointment owes nothing, so printing a sum on it would assert a
         // debt that does not exist — the badge alone still renders, pushed
-        // right by the `Spacer`.
+        // right by the `Spacer` in that branch.
+        //
+        // THE PRICE IS `Expanded` + LEFT-ALIGNED, NOT A NON-FLEX PILL BESIDE
+        // A `Spacer` (226dp narrow-lane pass, 2026-07-21)
+        // ---------------------------------------------------------------
+        // This row used to be `_PriceTag` + `Spacer` + badge, i.e. TWO
+        // non-flex children either side of the flex. A `Row` lays non-flex
+        // children out unbounded, so neither could ever see how little room
+        // the row had: on the narrowest real lane (226dp → 191dp of inner
+        // width here, this layout's padding being 16 not 10) a capped 112dp
+        // band plus the badge overflowed by 6.6px at textScaler 1.0, 16px at
+        // 1.15 and 26px at 1.3. Hiding the pill cleared it; shrinking the
+        // service name above did not — so it is the pill's non-flex contract
+        // that had to give, NOT the type scale.
+        //
+        // `Expanded` + `Align` is what gives it: the badge (short, and the
+        // one thing on this row that must stay fully legible) keeps its
+        // intrinsic width, the price then gets ALL the remaining width as a
+        // real bounded constraint, and [_PriceTag]'s inner `Flexible` scales
+        // the band into it. `Align(centerLeft)` reproduces the retired
+        // `Spacer`'s visual result exactly — pill hard left, badge hard
+        // right — with the leftover living inside the `Expanded` instead of
+        // in a sibling. No reserve is needed here (unlike the compact row's
+        // [_kCompactPriceReserve]) because nothing else on this row competes
+        // for that space.
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
-            if (b.showsPrice) _PriceTag(price: b.priceLabel),
-            const Spacer(),
+            if (b.showsPrice)
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _PriceTag(price: b.priceLabel),
+                ),
+              )
+            else
+              const Spacer(),
             // v-pad 3dp per the design's own `BookingStatusBadge` — the
             // compact timeline row keeps the tighter 2dp default (its own
             // budget is far smaller); see [TimelineStatusBadge.verticalPadding].
@@ -579,17 +752,47 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
 ///
 /// ## Why the width cap exists (frozen-band pass)
 ///
-/// This pill is a NON-flex child of both layouts' price rows, sitting beside
-/// an `Expanded` service name. A non-flex child takes its full intrinsic
-/// width, so on a narrow timeline lane a long band («12500–25000 ₴») could
-/// out-measure the room the row has left and trip a `RenderFlex` overflow —
-/// the single-figure pill this card was sized around never could. Capping the
-/// TEXT at [_maxTextWidth] and letting [FittedBox] scale it down keeps the
-/// pill non-flex (so it stays hard against the row's trailing edge, and the
-/// service name still ellipsises into whatever it leaves) while making an
-/// overflow structurally impossible. `scaleDown` shrinks rather than clips, so
-/// a pathological band stays legible instead of losing its ceiling to an
-/// ellipsis.
+/// This pill sits beside an `Expanded` service name (compact) or a status
+/// badge (full). A long band («12500–25000 ₴») is materially wider than the
+/// single figure this card was sized around, so left unbounded it could
+/// out-measure the room the row has left and trip a `RenderFlex` overflow.
+/// Capping the TEXT at [_maxTextWidth] and letting [FittedBox] scale it down
+/// keeps the pill hugging its content (so it stays hard against its row's
+/// edge, and the service name still ellipsises into whatever it leaves) while
+/// making an overflow structurally impossible. `scaleDown` shrinks rather than
+/// clips, so a pathological band stays legible instead of losing its ceiling
+/// to an ellipsis.
+///
+/// ## The cap is a CEILING; the incoming constraint is the real limit
+/// (226dp narrow-lane pass, 2026-07-21)
+///
+/// [_maxTextWidth] alone was NOT enough, and the reason is a `RenderFlex`
+/// detail rather than a mis-measured constant: a `Row` lays its NON-flex
+/// children out with an UNBOUNDED `maxWidth`, so a pill parked as a plain
+/// non-flex child never saw how much room its row actually had. It always
+/// took the full capped 112dp (96 text + 2×8 padding) — and on the real
+/// narrowest lane (226dp: a 320dp device minus 94 of ruler/padding/gap, see
+/// [MasterBookingCard._kCompactPriceReserve]) that overflowed BOTH layouts
+/// once a frozen band was present.
+///
+/// The fix is on the CALLER side, in both rows, and this widget's job is to
+/// honour it: the pill's inner band is a [Flexible], so whenever the pill is
+/// handed a bounded `maxWidth` the [FittedBox] scales into THAT instead of
+/// into a flat 96. The two callers bound it differently, each matching its
+/// row's own priority order:
+///
+///   * compact row 1 — a `ConstrainedBox` whose `maxWidth` is the row's real
+///     width minus a documented reserve for the time label, the gaps and a
+///     service-name sliver. The pill stays NON-flex there on purpose: the
+///     service name must keep absorbing the slack in the common case (a
+///     `Flexible` pill would split the row's free space evenly with the
+///     `Expanded` name and cost that name ~17dp on every device, for nothing).
+///   * full row 3 — an `Expanded` + `Align`, which hands the pill the row's
+///     entire remaining width after the status badge. No reserve is needed
+///     because nothing else in that row competes for it.
+///
+/// Both keep [_maxTextWidth] as the ceiling: on any lane wide enough (266dp
+/// and up) neither bound binds and the pill renders exactly as it always did.
 class _PriceTag extends StatelessWidget {
   const _PriceTag({required this.price});
 
@@ -676,12 +879,24 @@ class _PriceTag extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Text('', style: VelvetText.pill()),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: _maxTextWidth),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerRight,
-                child: Text(price, style: VelvetText.pill(), maxLines: 1),
+            // [Flexible], not a bare [ConstrainedBox] — see this class's
+            // "the cap is a CEILING, the incoming constraint is the floor"
+            // section. A [Row] hands its NON-flex children unbounded width,
+            // so without this the [ConstrainedBox] below would resolve to a
+            // flat [_maxTextWidth] even when the pill's own incoming
+            // `maxWidth` is narrower than that — and the overflow would
+            // simply move INSIDE the pill. Under an unbounded incoming
+            // width (the pill's original non-flex call shape) `Flexible`
+            // lays the child out unbounded exactly as before, so this is a
+            // no-op there.
+            Flexible(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: _maxTextWidth),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(price, style: VelvetText.pill(), maxLines: 1),
+                ),
               ),
             ),
           ],

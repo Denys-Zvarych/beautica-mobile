@@ -1416,10 +1416,9 @@ abstract final class VelvetText {
   // site) but now also pin an explicit `height:` — the tight leading a
   // compact row needs, rather than inheriting their base styles' generous
   // 1.5/default line height. The old `masterCardDate` (icon + full date+time
-  // caption, e.g. "12 лип, 14:30") is retired — the compact row only needs
-  // the bare time (`formatSlotTime`, a per-day timeline never needs the
-  // date). [masterCardTime] and [masterCardBadgeLabel] are new for the same
-  // pass.
+  // caption, e.g. "12 лип, 14:30") is retired — a per-day timeline never
+  // needs the date. [masterCardTime] and [masterCardBadgeLabel] are new for
+  // the same pass.
 
   /// Client name on a master booking card (row 2) — subheading at 12.5 sp,
   /// height 1.2.
@@ -1435,9 +1434,13 @@ abstract final class VelvetText {
     height: 1.2,
   );
 
-  /// Row 1's leading start-time label (e.g. "09:00") — bodyStrong at 11.5 sp,
-  /// height 1.2, so it reads a touch more prominent than the service name
-  /// beside it without competing with the client name on row 2.
+  /// Row 1's leading start–end time range (e.g. "09:00–09:45") — bodyStrong
+  /// at 11.5 sp, height 1.2, so it reads a touch more prominent than the
+  /// service name beside it without competing with the client name on row 2.
+  /// Deliberately NOT stepped down when the label became a range rather than
+  /// a bare start time: the `Expanded` service name beside it absorbs the
+  /// extra width (see `master_booking_card.dart`'s row-1 comment), so the
+  /// type scale never had to pay for it.
   static final TextStyle masterCardTime = _bodyStrongStyle.copyWith(
     fontSize: 11.5,
     height: 1.2,
@@ -1486,9 +1489,16 @@ abstract final class VelvetText {
     fontSize: 12.5,
   );
 
-  /// The FULL layout's date+time caption (e.g. "12 лип, 14:30") — feedback
-  /// base at 11 sp, muted. Transcribed from the design's
+  /// The FULL layout's time caption — feedback base at 11 sp, muted.
+  /// Transcribed from the design's
   /// `VelvetText.feedback(VelvetColors.muted).copyWith(fontSize: 11)`.
+  ///
+  /// Named `…DateFull` for the date+time string it originally carried
+  /// ("12 лип, 14:30"); since 2026-07-21 it renders a bare start–end RANGE
+  /// ("14:30–16:00") — the day-scoped timeline dropped the per-card date, see
+  /// `master_booking_card.dart`'s "The time is a RANGE" header section. The
+  /// token name is left alone deliberately: it is purely a size/colour recipe
+  /// and renaming it would churn every reference for no behavioural gain.
   static final TextStyle masterCardDateFull = _feedbackBase.copyWith(
     fontSize: 11,
     color: BrandColors.muted,

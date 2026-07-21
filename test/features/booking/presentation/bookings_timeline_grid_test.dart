@@ -369,16 +369,16 @@ void main() {
         // Kyiv-correctness witness (the card's `_minutesSinceDayStart`-
         // driven position derives the same value the ruler does) — proves
         // `MasterBookingCard` also reads through `toBeauticaTime`, not just
-        // the ruler. This booking is 60 minutes (a 112dp floor), so the
-        // card renders the ADAPTIVE FULL layout (2026-07-20 design-parity
-        // pass) and prints the full date+time (`formatShortDateTime`), not
-        // the compact grid's bare `formatSlotTime` — see
-        // `master_booking_card.dart`'s "Adaptive full/compact layout"
-        // header section.
+        // the ruler. Since the 2026-07-21 pass BOTH the card's layouts print
+        // the same date-free start–end range (`formatSlotTimeRange`), so this
+        // no longer depends on which layout the 60-minute (112dp floor)
+        // booking selects — see `master_booking_card.dart`'s "The time is a
+        // RANGE" header section. The range is the STRONGER witness of the two
+        // it replaced: it proves BOTH instants convert, not just the start.
         expect(
           find.descendant(
             of: find.byKey(const ValueKey<String>('timeline-card-crossing')),
-            matching: find.text(formatShortDateTime(crossing)),
+            matching: find.text(formatSlotTimeRange(b.startAt, b.endAt)),
           ),
           findsOneWidget,
         );

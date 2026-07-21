@@ -47,6 +47,8 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_boo
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -771,6 +773,178 @@ void main() {
             'silently render on top of',
       );
       expect(find.byType(BookingDetailScreen), findsOneWidget);
+    },
+  );
+
+  // ── 2026-07-21 — the card's time is a RANGE, sourced from the wire `endsAt`,
+  //      and carries NO date ────────────────────────────────────────────────
+  //
+  // Step 2.7 Rule 3b: this pass changed what a real screen prints, so the
+  // widget tier alone does not close the gate. `master_booking_card_test.dart`
+  // proves both layouts print `formatSlotTimeRange(startAt, endAt)` and no
+  // date — but it hands the widget a hand-built `Booking` object, so it can
+  // only ever prove the WIDGET reads the field it is given. Two links of the
+  // real chain are outside its reach:
+  //
+  //   * `endsAt` has to survive the wire -> generated DTO -> `BookingMapper` ->
+  //     `Booking.endAt` path at all. A mapper that dropped `endsAt` and
+  //     back-filled it from `durationMinutesAtBooking` would leave every
+  //     widget-tier assertion green (they are fed a `Booking` whose `endAt` is
+  //     already correct) while shipping a card that silently prints the
+  //     derived end.
+  //   * The card also has to be the one the day-scoped timeline actually
+  //     mounts, with the day rail above it — which is the whole justification
+  //     for dropping the per-card date.
+  //
+  // THE DISCRIMINATING FIXTURE: the seeded row's `endsAt` is deliberately set
+  // 45 minutes past its `startsAt` while `durationMinutesAtBooking` still says
+  // 60. Against an ordinary row the two derivations agree exactly and this
+  // test would pass through a mapper regression unchanged; with them in
+  // disagreement, only a card fed by the real persisted `endsAt` prints
+  // 09:45. Same discrimination the widget tier applies, carried down to the
+  // HTTP boundary. (60 minutes is also what keeps the card on its FULL layout
+  // — `durationMinutes` is what the timeline's height floor reads — so this
+  // exercises the fuller of the two bodies.)
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // the dev VM has no attached emulator (host-only-adapter limitation,
+  // backlog #179/#191). Verified analyze-clean, `dart format`-clean, and
+  // carried into BOTH aggregators by this file's EXISTING imports in
+  // `all_tests.dart` and `all_tests_part2.dart` — no new aggregator wiring is
+  // needed because this extends the existing flow file rather than adding one.
+  // Its first real execution is the CI emulator job: authored, not passing.
+  testWidgets(
+    'the timeline card prints a start–end range read from the wire endsAt, '
+    'and no date, through a real GET /bookings/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // Same Kyiv day as the fake's booked-days seed, derived from
+      // `fb.bookingStartsAt` rather than hand-typed (see the "two back-to-back"
+      // test below for the incident that idiom prevents).
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
+      final DateTime wireStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+      const int wireDurationMinutes = 60;
+      final DateTime wireEnd = wireStart.add(const Duration(minutes: 45));
+
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'range-card',
+            status: 'CONFIRMED',
+            startsAt: wireStart,
+            duration: const Duration(minutes: wireDurationMinutes),
+          ),
+          // The deliberate divergence — see this test's header. Overriding the
+          // key AFTER the spread is what makes `endsAt` disagree with
+          // `durationMinutesAtBooking`, which `datasetBookingRow` otherwise
+          // keeps in lockstep by construction.
+          'endsAt': wireEnd.toIso8601String(),
+        },
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      // Narrow the rail to the seeded day so the card is on screen.
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await tester.tap(find.byKey(dayChipKey(bookedDay)));
+      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
+      await tester.pump(const Duration(milliseconds: 300));
+      await AppHarness.settle(tester);
+
+      final Finder card = find.byKey(
+        const Key('master-booking-card-range-card'),
+      );
+      expect(
+        card,
+        findsOneWidget,
+        reason: 'the seeded booking must have reached the timeline',
+      );
+
+      // ── The RANGE, anchored to the two instants that actually went on the
+      //      wire — not to whatever the widget happens to hold. ──────────────
+      final String expectedRange = formatSlotTimeRange(wireStart, wireEnd);
+      expect(
+        find.descendant(of: card, matching: find.text(expectedRange)),
+        findsOneWidget,
+        reason:
+            'the card must print «$expectedRange» — both wire instants '
+            'converted to the Kyiv wall-clock',
+      );
+
+      // ── …and NOT the duration-derived end. This is the assertion the
+      //      fixture's deliberate endsAt/durationMinutesAtBooking divergence
+      //      exists for: a mapper (or card) that re-derived the end from the
+      //      duration prints 09:00–10:00 here and nothing else in this file
+      //      would notice. ───────────────────────────────────────────────────
+      final String durationDerived = formatTimeRange(
+        wireStart,
+        wireDurationMinutes,
+      );
+      expect(
+        durationDerived,
+        isNot(expectedRange),
+        reason:
+            'the fixture must keep endsAt and durationMinutesAtBooking in '
+            'DISAGREEMENT, or the assertion below proves nothing',
+      );
+      expect(
+        find.descendant(of: card, matching: find.text(durationDerived)),
+        findsNothing,
+        reason:
+            're-deriving the end from durationMinutesAtBooking is exactly the '
+            'second source of truth the persisted endAt avoids',
+      );
+
+      // ── …and NOT the bare start time the range replaced. ──────────────────
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.text(formatSlotTime(wireStart)),
+        ),
+        findsNothing,
+        reason: 'the bare start time alone is the retired pre-range shape',
+      );
+
+      // ── NO DATE anywhere on the card. Probed by the seeded day's own Kyiv
+      //      short-month token (derived, never a Cyrillic literal — the
+      //      `forbid_cyrillic_finder.sh` gate) and SCOPED to the card
+      //      subtree: the `BookingsDayRail` above the timeline legitimately
+      //      renders the month, and that is precisely why the card no longer
+      //      needs to. An unscoped probe would fail on the rail and prove
+      //      nothing about the card. ────────────────────────────────────────
+      final String monthToken =
+          kMonthsUkShort[toBeauticaTime(wireStart).month - 1];
+      expect(
+        find.descendant(of: card, matching: find.textContaining(monthToken)),
+        findsNothing,
+        reason:
+            'a date component ("$monthToken") reached the card — «Мої записи» '
+            'is day-scoped and the rail above already names the day',
+      );
+      expect(
+        find.byType(BookingsDayRail),
+        findsOneWidget,
+        reason:
+            'the rail is the surface that carries the day now; if it ever '
+            'disappears, dropping the per-card date stops being safe',
+      );
     },
   );
 }

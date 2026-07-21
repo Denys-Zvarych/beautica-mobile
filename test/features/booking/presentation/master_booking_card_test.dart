@@ -30,10 +30,26 @@
 // going outside the time lines" report was really about `_LaneColumn`'s
 // collision-nudge compensating for a card that could never fit its own true
 // hour line). The text-content assertions below were updated for the new
-// grid (bare start time via `formatSlotTime`, no more date-chip icon caption)
-// and the height assertions now pin the card comfortably UNDER a 45-minute
-// slot's worth of ruler space instead of proving it clears the old ~150dp
-// avatar-row floor.
+// grid and the height assertions now pin the card comfortably UNDER a
+// 45-minute slot's worth of ruler space instead of proving it clears the old
+// ~150dp avatar-row floor.
+//
+// TIME IS A RANGE, AND CARRIES NO DATE (2026-07-21)
+// -------------------------------------------------
+// BOTH layouts now print `start–end` via `formatSlotTimeRange(startAt,
+// endAt)` — the compact grid's leading label and the full layout's
+// `schedule_outlined` caption alike — and NEITHER prints a date any more (the
+// full layout's old "12 лип, 14:30" caption is gone; «Мої записи» is
+// day-scoped and the day rail already names the day). Two things are asserted
+// throughout, both of which a naive "the range renders" check would miss:
+//
+//   * NO DATE anywhere on the card — checked against the fixture's own
+//     `kMonthsUkShort` token rather than a Cyrillic literal, so it survives
+//     both the i18n-finder gate and a change of fixture date.
+//   * The range comes from `endAt`, NOT from `startAt + durationMinutes`. The
+//     "endAt is the source of truth" case below deliberately hands the
+//     fixture an `endAt` that disagrees with its `durationMinutes`, which is
+//     the only shape that can tell the two derivations apart.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -43,6 +59,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -53,6 +70,21 @@ Booking _shortBooking({
   int durationMinutes = 20,
   BookingStatus status = BookingStatus.confirmed,
 }) {
+  // WHY A PINNED INSTANT AND NOT `futureBookingStart()` (stale-future-date
+  // gate, 2026-07-21)
+  // -----------------------------------------------------------------------
+  // Every assertion in this file that touches time is a WALL-CLOCK STRING
+  // assertion derived from this instant: the «09:00–09:20» range the card
+  // prints, its measured dp width in the narrow-lane sweeps below (a
+  // now-relative anchor makes the label 1-2 glyphs wider or narrower
+  // depending on the hour it lands on, which silently moves every measured
+  // overflow floor), and the `kMonthsUkShort` no-date probe in
+  // `_expectNoDateOnCard`. Expiry cannot change any outcome either:
+  // `MasterBookingCard` renders nothing off `BookingDisplayX.isPast` — the
+  // status badge maps from `booking.status` alone and `showsPrice` is a pure
+  // status predicate — so this fixture is inert with respect to "now" by
+  // construction, not by luck.
+  // future-date-ok: pinned Kyiv wall-clock fixture — see the block above.
   final DateTime startAt = DateTime.utc(2026, 7, 20, 6); // 09:00 Kyiv
   return Booking(
     id: id,
@@ -115,10 +147,18 @@ void main() {
             findsNothing,
           );
 
-          // Row 1 — start time + service name. `formatSlotTime` is the same
-          // bare "HH:mm" formatter the card uses internally.
-          expect(find.text(formatSlotTime(booking.startAt)), findsOneWidget);
+          // Row 1 — start–end range + service name. `formatSlotTimeRange` is
+          // the same shared formatter the card uses internally.
+          expect(
+            find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+            findsOneWidget,
+          );
           expect(find.text(booking.serviceName), findsOneWidget);
+
+          // The bare start time alone must NOT be what renders — that is
+          // exactly the pre-range behaviour this replaced.
+          expect(find.text(formatSlotTime(booking.startAt)), findsNothing);
+          _expectNoDateOnCard(booking);
 
           // Row 2 — client name. Asserted against `booking.clientName` (the
           // same `BookingDisplayX` getter the widget renders) rather than a
@@ -160,8 +200,10 @@ void main() {
         // `MaterialApp.home` hands the card TIGHT constraints equal to the
         // full test surface, and — since the adaptive-layout pass — a
         // `minHeight` that large would trip the >=112dp full-layout switch
-        // and print the full date+time instead of the bare
-        // `formatSlotTime` string this test asserts against.
+        // and render the full body instead of the compact grid this test is
+        // about. (Both bodies now print the SAME range string, so the switch
+        // is no longer observable through the time label alone — the
+        // divider key is what tells them apart.)
         await tester.pumpApp(
           Center(
             child: MasterBookingCard(booking: booking, onTap: () {}),
@@ -169,7 +211,10 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.text(formatSlotTime(booking.startAt)), findsOneWidget);
+        expect(
+          find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+          findsOneWidget,
+        );
         expect(find.text(booking.serviceName), findsOneWidget);
         expect(find.text(booking.clientName!), findsOneWidget);
         expect(find.text('450 ₴'), findsOneWidget);
@@ -287,6 +332,79 @@ void main() {
         expect(find.byType(TimelineStatusBadge), findsOneWidget);
       },
     );
+
+    // THE FULL LAYOUT'S `else` ARM (2026-07-21 re-audit) — row 3's no-price
+    // branch is the ONE arm the narrow-lane fix rewrote that nothing pinned.
+    //
+    // The fix turned row 3 from `_PriceTag` + `Spacer` + badge into
+    // `Expanded(Align(centerLeft, _PriceTag))` + badge, and the `else` arm
+    // kept a bare `Spacer()` so the badge stays hard right when there is no
+    // price. That arm cannot OVERFLOW (a `Spacer` and a badge always fit), so
+    // `pumpApp`'s guard is blind to it — and a "simplification" that dropped
+    // the `Spacer` (leaving the badge to fall to the LEFT edge, under the
+    // service name, where the price used to be) would look plausible in a
+    // diff, break the layout on every cancelled/declined/missed card, and
+    // pass every other test in this file. Hence a positional assertion, not
+    // just a presence one.
+    testWidgets(
+      'a CANCELLED booking in the FULL layout keeps its status badge hard '
+      'right — the no-price arm must not lose its Spacer',
+      (WidgetTester tester) async {
+        final Booking booking = _shortBooking(
+          id: 'cancelled-full-card',
+          durationMinutes: 60,
+          status: BookingStatus.cancelled,
+        );
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 226,
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                minHeight: 112,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byKey(
+            const Key('master-booking-card-divider-cancelled-full-card'),
+          ),
+          findsOneWidget,
+          reason: 'precondition: this must be the FULL layout',
+        );
+        expect(find.text('450 ₴'), findsNothing);
+
+        // `_fullPadding` is `EdgeInsets.all(VelvetSpacing.md)` (16), plus the
+        // card's 1dp border — so a right-aligned badge sits ~17dp in from the
+        // card's own right edge. A badge that lost its `Spacer` would start
+        // at the LEFT padding instead, tens of dp away.
+        final Rect card = tester.getRect(
+          find.byKey(const Key('master-booking-card-cancelled-full-card')),
+        );
+        final Rect badge = tester.getRect(find.byType(TimelineStatusBadge));
+        expect(
+          card.right - badge.right,
+          lessThan(VelvetSpacing.md + 2),
+          reason:
+              'the badge right edge sat ${card.right - badge.right}dp in from '
+              'the card edge — row 3 has lost the Spacer that keeps it right-'
+              'aligned when there is no price to occupy the Expanded',
+        );
+        expect(
+          badge.left - card.left,
+          greaterThan(VelvetSpacing.md + 2),
+          reason:
+              'the badge is hugging the LEFT padding, i.e. it collapsed into '
+              'the slot the price would have used',
+        );
+      },
+    );
   });
 
   group('mobile-perf MEDIUM-4/LOW-5 (2026-07-20) — decoration objects are '
@@ -389,6 +507,11 @@ void main() {
     testWidgets('falls back to the localized guest label, still compact', (
       WidgetTester tester,
     ) async {
+      // The same pinned Kyiv wall-clock instant `_shortBooking` uses — see its
+      // doc for why this file's fixtures are inert with respect to "now".
+      // Hand-built here only because this case needs a null client name, which
+      // the shared factory does not expose.
+      // future-date-ok: pinned Kyiv wall-clock fixture.
       final DateTime startAt = DateTime.utc(2026, 7, 20, 6);
       final Booking booking = Booking(
         id: 'guest-card',
@@ -437,8 +560,8 @@ void main() {
       testWidgets(
         'a >=112dp card (a 60-minute booking\'s floor) renders the FULL '
         'layout: client name, a divider, the service name BELOW the '
-        'divider, full date+time, price and status — all present, none '
-        'clipped',
+        'divider, the start–end time range (NO date), price and status — all '
+        'present, none clipped',
         (WidgetTester tester) async {
           final Booking booking = _shortBooking(
             id: 'full-card',
@@ -464,13 +587,16 @@ void main() {
             findsOneWidget,
           );
           expect(find.text(booking.serviceName), findsOneWidget);
+          // The full layout's `schedule_outlined` caption is the SAME
+          // start–end range the compact grid prints — exactly once, and
+          // date-free.
           expect(
-            find.text(formatShortDateTime(booking.startAt)),
+            find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
             findsOneWidget,
           );
-          // The compact row's bare time must NOT also be printed — the
-          // full layout replaces it with the date+time caption above,
-          // rather than showing both.
+          expect(find.byIcon(Icons.schedule_outlined), findsOneWidget);
+          _expectNoDateOnCard(booking);
+          // The bare start time alone must NOT be printed anywhere.
           expect(find.text(formatSlotTime(booking.startAt)), findsNothing);
           expect(find.text('450 ₴'), findsOneWidget);
           expect(find.byType(TimelineStatusBadge), findsOneWidget);
@@ -505,8 +631,7 @@ void main() {
 
       testWidgets(
         'a 56dp card (the 30-minute floor) stays on the compact grid — no '
-        'divider, no full date+time — and still renders every field '
-        'un-clipped',
+        'divider, no date — and still renders every field un-clipped',
         (WidgetTester tester) async {
           final Booking booking = _shortBooking(
             id: 'compact-floor-card',
@@ -526,17 +651,21 @@ void main() {
 
           expect(tester.takeException(), isNull);
 
-          // The compact-only shape: no divider, no full date+time caption.
+          // The compact-only shape: no divider, and — like the full layout —
+          // no date.
           expect(
             find.byKey(
               const Key('master-booking-card-divider-compact-floor-card'),
             ),
             findsNothing,
           );
-          expect(find.text(formatShortDateTime(booking.startAt)), findsNothing);
+          _expectNoDateOnCard(booking);
 
           // Every field the compact grid DOES show is still there.
-          expect(find.text(formatSlotTime(booking.startAt)), findsOneWidget);
+          expect(
+            find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+            findsOneWidget,
+          );
           expect(find.text(booking.serviceName), findsOneWidget);
           expect(find.text(booking.clientName!), findsOneWidget);
           expect(find.text('450 ₴'), findsOneWidget);
@@ -597,6 +726,229 @@ void main() {
       );
     },
   );
+
+  // The 2026-07-21 pass: both layouts print `start–end`, neither prints a
+  // date. The per-layout content assertions live in the groups above; this
+  // group pins the two properties those assertions cannot express — where the
+  // end instant COMES FROM, and that the widened label cannot overflow the
+  // narrowest lane the timeline ever renders.
+  group('start–end time range', () {
+    // THE MUTATION THIS CATCHES: `formatTimeRange(startAt, durationMinutes)`
+    // substituted for `formatSlotTimeRange(startAt, endAt)`. Against a normal
+    // fixture the two agree exactly, so every other test in this file would
+    // stay green through that swap. Here `endAt` is deliberately 45 minutes
+    // after the start while `durationMinutes` still says 20 — only a card
+    // reading the real persisted `endAt` prints 09:45.
+    for (final ({String label, double? minHeight}) layout
+        in <({String label, double? minHeight})>[
+          (label: 'compact', minHeight: null),
+          (label: 'full', minHeight: 112),
+        ]) {
+      testWidgets('the ${layout.label} layout reads the persisted endAt, never '
+          'startAt + durationMinutes', (WidgetTester tester) async {
+        final Booking base = _shortBooking(id: 'endat-${layout.label}');
+        final Booking booking = base.copyWith(
+          endAt: base.startAt.add(const Duration(minutes: 45)),
+        );
+        expect(
+          booking.durationMinutes,
+          20,
+          reason:
+              'the fixture must keep a durationMinutes that DISAGREES with '
+              'endAt, or this proves nothing',
+        );
+
+        await tester.pumpApp(
+          Center(
+            child: MasterBookingCard(
+              booking: booking,
+              onTap: () {},
+              minHeight: layout.minHeight,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // 09:00 Kyiv + 45 minutes. Asserted through the formatter (not a
+        // literal) so the expectation stays anchored to the fixture, then
+        // cross-checked against the duration-derived string it must NOT be.
+        expect(
+          find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+          findsOneWidget,
+        );
+        expect(
+          find.text(formatTimeRange(booking.startAt, booking.durationMinutes)),
+          findsNothing,
+          reason:
+              're-deriving the end from durationMinutes is exactly the '
+              'second source of truth this formatter choice avoids',
+        );
+      });
+    }
+
+    // OVERFLOW BUDGET — the range roughly DOUBLES row 1's leading label
+    // (measured through `VelvetText.masterCardTime`: «09:00» is 30.45dp,
+    // «09:00–09:20» is 66.65dp at textScaler 1.0, and 39.55 -> 86.58 at 1.3),
+    // so this is the real risk of the change.
+    //
+    // THE NARROWEST LANE IS 226dp, NOT 266 — a 320dp device, not a 360dp one
+    // ---------------------------------------------------------------------
+    // `bookings_timeline_grid.dart`'s "ADDENDUM 3" clamps the 272dp card to
+    // `constraints.maxWidth`, and the lane area is `deviceWidth − 94` (24 + 24
+    // screen padding, 42 ruler, 4 gap). An earlier version of this group
+    // asserted 266dp — `360 − 94` — was "the narrowest lane the production
+    // grid ever renders". It is not: this app treats 320dp as a supported
+    // width throughout (`test/golden/master_profile_golden_test.dart` and
+    // `auth_register_golden_test.dart` both sweep {320, 360, 414};
+    // `service_setup_screen_test.dart` sweeps {320, 360, 412};
+    // `pricing_toggle_overflow_test.dart` exists solely for 320dp;
+    // `login_screen.dart` and `passport_preview_card.dart` both carry 320dp
+    // layout notes), and minSdk 26 keeps 320dp Android 8 hardware in the
+    // supported fleet. `320 − 94 = 226`, so 226dp is the real floor and the
+    // clamp genuinely produces it.
+    //
+    // That mattered concretely: the retired flat `greaterThan(80)` assertion
+    // measured 79.88dp at 226dp — it would have failed by 0.12dp on the
+    // narrowest device it claimed to protect. Each lane now carries its own
+    // measured floor instead of one number that only fits the widest case.
+    //
+    // SWEPT ACROSS textScaler, and that sweep is load-bearing: 1.3 is the
+    // app's own MediaQuery ceiling (`main.dart`), and the range's extra width
+    // scales WITH the text while the lane does not — so the narrowest lane at
+    // the largest scale is the corner the widened label actually threatens.
+    // `pumpApp` installs the overflow guard, so a RenderFlex overflow fails
+    // these on its own.
+    for (final ({String label, double width, double at10, double at13}) lane
+        in <({String label, double width, double at10, double at13})>[
+          (
+            label: 'the narrowest clamped 226dp lane (a 320dp device)',
+            width: 226,
+            at10: 70,
+            at13: 42,
+          ),
+          (
+            label: 'the 266dp lane (a 360dp device)',
+            width: 266,
+            at10: 108,
+            at13: 80,
+          ),
+          (
+            label: 'the unclamped production 272dp lane',
+            width: 272,
+            at10: 113,
+            at13: 86,
+          ),
+        ]) {
+      for (final double scale in <double>[1.0, 1.3]) {
+        testWidgets('the range + a long service name stay inside ${lane.label} '
+            '(textScaler $scale)', (WidgetTester tester) async {
+          final Booking booking = _shortBooking(id: 'narrow-lane').copyWith(
+            serviceName:
+                'Комплексний догляд за волоссям з ботоксом та укладкою',
+          );
+
+          await tester.pumpApp(
+            Center(
+              child: SizedBox(
+                width: lane.width,
+                child: MasterBookingCard(booking: booking, onTap: () {}),
+              ),
+            ),
+            textScaleFactor: scale,
+          );
+          await tester.pump();
+
+          expect(tester.takeException(), isNull);
+          expect(
+            find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+            findsOneWidget,
+          );
+
+          // The `Expanded` service name absorbs the width the wider time
+          // label took, so what matters is that it still gets a USABLE
+          // share rather than being squeezed to an ellipsis-only sliver.
+          // Floors are the real measured width minus ~10dp of slack:
+          // 226dp -> 79.88 / 51.12, 266dp -> 119.88 / 91.12,
+          // 272dp -> 125.88 / 97.12 at scale 1.0 / 1.3.
+          final double expectedFloor = scale == 1.0 ? lane.at10 : lane.at13;
+          final double serviceWidth = tester
+              .renderObject<RenderBox>(find.text(booking.serviceName))
+              .size
+              .width;
+          expect(
+            serviceWidth,
+            greaterThan(expectedFloor),
+            reason:
+                'the service name rendered at ${serviceWidth}dp in a '
+                '${lane.width}dp lane at textScaler $scale — the widened '
+                'start–end label has eaten the row. Shrink the range, not '
+                'the service name.',
+          );
+        });
+      }
+    }
+
+    // The FULL layout's own narrow-lane budget. Its time caption sits in row 2
+    // beside an `Expanded` service name, so it cannot overflow that row on its
+    // own — but it is also the row the change actually touched, and the change
+    // made it NARROWER, not wider: the retired «20 лип, 09:00» caption
+    // measures 70.88dp in `VelvetText.masterCardDateFull` against the range's
+    // 63.76dp (92.13 vs 82.86 at textScaler 1.3). This pins that gain so a
+    // future edit cannot quietly hand it back.
+    for (final double scale in <double>[1.0, 1.3]) {
+      testWidgets(
+        'the FULL layout keeps a usable service column in the narrowest '
+        '226dp lane (textScaler $scale)',
+        (WidgetTester tester) async {
+          final Booking booking =
+              _shortBooking(
+                id: 'narrow-lane-full',
+                durationMinutes: 60,
+              ).copyWith(
+                serviceName:
+                    'Комплексний догляд за волоссям з ботоксом та укладкою',
+              );
+
+          await tester.pumpApp(
+            Center(
+              child: SizedBox(
+                width: 226,
+                child: MasterBookingCard(
+                  booking: booking,
+                  onTap: () {},
+                  minHeight: 112,
+                ),
+              ),
+            ),
+            textScaleFactor: scale,
+          );
+          await tester.pump();
+
+          expect(tester.takeException(), isNull);
+          expect(
+            find.byKey(
+              const Key('master-booking-card-divider-narrow-lane-full'),
+            ),
+            findsOneWidget,
+            reason: 'precondition: this must be the FULL layout',
+          );
+          expect(
+            find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+            findsOneWidget,
+          );
+          _expectNoDateOnCard(booking);
+
+          // Measured 80.24dp at 1.0 and 61.14dp at 1.3; floors carry ~10dp of
+          // slack.
+          final double serviceWidth = tester
+              .renderObject<RenderBox>(find.text(booking.serviceName))
+              .size
+              .width;
+          expect(serviceWidth, greaterThan(scale == 1.0 ? 70 : 50));
+        },
+      );
+    }
+  });
 
   group('border visibility (2026-07-20 design-parity pass)', () {
     testWidgets(
@@ -716,13 +1068,51 @@ void main() {
     // overflow. `_PriceTag` caps its text at 96dp and scales down, which keeps
     // the worst band this card can be asked to draw inside the lane's budget.
     //
-    // 272dp is `BookingsTimelineGrid._kCardW` — the ONE production width this
-    // card is ever built at (the grid scrolls horizontally rather than
-    // narrowing lanes), so this is the real budget, not a synthetic one.
+    // THE TWO WIDTHS ARE BOTH REAL — 272 is `BookingsTimelineGrid._kCardW`,
+    // and since "ADDENDUM 3" (that file) it is a CEILING rather than a fixed
+    // width: the grid clamps it to `constraints.maxWidth`, so a 360dp device
+    // renders 266 (`360 − 94`).
+    //
+    // 266 IS NOT THE FLOOR. An earlier version of this very comment claimed
+    // "266 is therefore the narrowest lane production ever builds this card
+    // at". It is not — `320 − 94 = 226` is, because 320dp is a supported
+    // width (`test/golden/helpers/golden_pump.dart`'s `kGoldenWidths` is
+    // {320, 360, 414}, and `android/app/build.gradle.kts`'s `minSdk = 26`
+    // keeps 320dp hardware in the fleet). That restatement is what hid the
+    // 226dp overflow this file now sweeps for: the arithmetic in
+    // `bookings_timeline_grid.dart` was always right, only the "narrowest
+    // device" gloss on top of it was wrong, and it was copied into three
+    // places before anyone re-derived it. This pair of lanes is therefore the
+    // WIDE end of the coverage; the floor is covered by "THE 226dp NARROW-LANE
+    // SWEEP" below and by the "start–end time range" group's own per-lane,
+    // per-scale sweep. Do not reintroduce a "narrowest lane" claim here.
+    //
+    // WHY "a hypothetical 200dp lane" WAS RETIRED FROM THIS SLOT (and why QA
+    // signed that off, 2026-07-21 re-audit — do not re-litigate)
+    // -------------------------------------------------------------------
+    // This slot previously held a 200dp entry. It was RETIRED, not weakened,
+    // when the card's time label became a start–end range: the range roughly
+    // doubles row 1's leading label, and the row's non-flex children (range
+    // ~68dp + gaps 10dp + the capped price pill 112dp ≈ 190dp) no longer fit
+    // 200dp's ~177dp of inner width, so the pathological-band case below
+    // overflowed by 12dp there.
+    //
+    // 200dp is UNREACHABLE: the lane is `min(272, deviceWidth − 94)`, so
+    // reaching 200 would need a 294dp device, well under the 320dp floor
+    // cited above. It is 26dp under the real 226dp floor (the retired comment
+    // said "66dp under", which was 266 − 200 — the same stale-266 error).
+    // Asserting an unreachable width in place of the reachable one is what
+    // let the real floor go untested, so replacing it with 266 AND adding the
+    // 226 sweep is a strict net gain in coverage, not a retreat.
+    //
+    // Nothing about the CAP mechanism is lost either: the cap is on the
+    // pill's TEXT (96dp) and is independent of lane width, so the over-cap
+    // group below still engages `FittedBox(scaleDown)` at 266dp exactly as it
+    // did at 200dp — as that group's own natural-vs-fitted assertions prove.
     for (final ({String label, double width}) lane
         in <({String label, double width})>[
           (label: 'the production 272dp lane', width: 272),
-          (label: 'a hypothetical 200dp lane', width: 200),
+          (label: 'the narrowest clamped 266dp lane', width: 266),
         ]) {
       testWidgets(
         'the longest band + a long service name stay inside ${lane.label}',
@@ -777,7 +1167,7 @@ void main() {
     for (final ({String label, double width}) lane
         in <({String label, double width})>[
           (label: 'the production 272dp lane', width: 272),
-          (label: 'a hypothetical 200dp lane', width: 200),
+          (label: 'the narrowest clamped 266dp lane', width: 266),
         ]) {
       testWidgets('an OVER-cap band actually engages the width cap in '
           '${lane.label}', (WidgetTester tester) async {
@@ -822,6 +1212,155 @@ void main() {
         expect(_priceTagWidth(tester), _kPriceCapWidth + VelvetSpacing.sm * 2);
         expect(find.text('1234567–8901234 ₴'), findsOneWidget);
       });
+    }
+
+    // THE 226dp NARROW-LANE SWEEP (2026-07-21 audit fix) — the corner both
+    // layouts actually overflowed in
+    // ------------------------------------------------------------------
+    // The two lane sweeps above stop at 266dp and run at textScaler 1.0 only,
+    // which is why the real failure hid: at the true floor (226dp — a 320dp
+    // device, see the "start–end time range" group's own note on why 226 and
+    // not 266) BOTH layouts overflowed once a frozen band was present.
+    // Measured before the fix, all with «12500–25000 ₴»:
+    //
+    //   * compact row 1 — clean at 1.0/1.15, 5.6px over at 1.3. The range
+    //     label is 47.0dp wider than the bare start time it replaced at 1.3
+    //     (36.2dp at 1.0), against ~41dp of slack the old label had left.
+    //   * full row 3 — 6.6px over at 1.0 (with a cap-binding band), 16px at
+    //     1.15, 26px at 1.3. Strictly worse, and NOT caused by the range at
+    //     all: two non-flex children (`_PriceTag`, `TimelineStatusBadge`)
+    //     either side of a `Spacer` simply cannot fit 191dp of inner width.
+    //
+    // Both are now structurally impossible — compact caps the pill at the
+    // row's real width minus a documented reserve, full hands it the row's
+    // whole remainder via `Expanded` + `Align`. `pumpApp` installs the
+    // overflow guard, so the sweep fails on its own if either regresses; the
+    // width assertions then pin WHICH mechanism absorbed the pressure, so a
+    // future "fix" that buys the room by shrinking the service name or the
+    // type scale instead cannot pass quietly.
+    //
+    // 1.15 is in the sweep deliberately: it is where the full layout's
+    // overflow first became scale-driven rather than band-driven, and it is
+    // the only scale at which the two bands below behave identically (both
+    // exceed the pill's own 96dp text cap once scaled).
+    for (final double scale in <double>[1.0, 1.15, 1.3]) {
+      for (final ({String label, double price, double priceMax}) band
+          in <({String label, double price, double priceMax})>[
+            (label: 'the realistic worst band', price: 12500, priceMax: 25000),
+            (
+              label: 'a pathological 7-digit band',
+              price: 1234567,
+              priceMax: 8901234,
+            ),
+          ]) {
+        for (final ({String label, double? minHeight, int duration}) layout
+            in <({String label, double? minHeight, int duration})>[
+              (label: 'compact', minHeight: null, duration: 20),
+              (label: 'full', minHeight: 112, duration: 60),
+            ]) {
+          testWidgets(
+            '${band.label} fits the ${layout.label} layout in the narrowest '
+            '226dp lane (textScaler $scale)',
+            (WidgetTester tester) async {
+              final Booking booking =
+                  _shortBooking(
+                    id: 'narrow-band-${layout.label}',
+                    durationMinutes: layout.duration,
+                  ).copyWith(
+                    serviceName:
+                        'Комплексний догляд за волоссям з ботоксом та укладкою',
+                    price: band.price,
+                    priceMax: band.priceMax,
+                  );
+
+              await tester.pumpApp(
+                Center(
+                  child: SizedBox(
+                    width: 226,
+                    child: MasterBookingCard(
+                      booking: booking,
+                      onTap: () {},
+                      minHeight: layout.minHeight,
+                    ),
+                  ),
+                ),
+                textScaleFactor: scale,
+              );
+              await tester.pump();
+
+              expect(tester.takeException(), isNull);
+
+              // The band is still WHOLE — `scaleDown` shrinks, it never
+              // ellipsises, so absorbing the pressure must not have cost a
+              // digit.
+              expect(find.text(booking.priceLabel), findsOneWidget);
+              // …and the range is still a range, still date-free.
+              expect(
+                find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+                findsOneWidget,
+              );
+              _expectNoDateOnCard(booking);
+
+              // NON-VACUITY — the pill really is bounded below its own
+              // 112dp ceiling (96 cap + 2×8 padding) here, i.e. the new
+              // constraint is doing the work rather than the case having
+              // been comfortable all along. The one exception is the full
+              // layout at 1.0, where the badge is narrow enough that the
+              // row's remainder still clears 112.
+              final double pill = _priceTagWidth(tester);
+              const double ceiling = _kPriceCapWidth + VelvetSpacing.sm * 2;
+              if (layout.label == 'compact' || scale > 1.0) {
+                expect(
+                  pill,
+                  lessThan(ceiling),
+                  reason:
+                      'the pill measured ${pill}dp — at 226dp/$scale it must '
+                      'be held under its own ${ceiling}dp ceiling by the '
+                      'row, or the row is back to the unbounded non-flex '
+                      'contract that overflowed',
+                );
+              }
+
+              // The service name is what must NOT have paid for the fit
+              // beyond the ellipsis it was always allowed to take. Floors
+              // are PER SCALE, not one flat number: the same standard the
+              // "start–end time range" group sets out above ("each lane now
+              // carries its own measured floor instead of one number that
+              // only fits the widest case") applies along the textScaler
+              // axis too. A flat floor low enough to pass at 1.3 leaves
+              // ~25dp of undetected slack at 1.0, so a future edit could
+              // hand the pill 20dp more of the row and only the 1.3 case
+              // would notice — which is one mutation away from no coverage
+              // at all. See [_narrowServiceFloors] for the measurements.
+              final ({double compact, double full})? floors =
+                  _narrowServiceFloors(scale);
+              expect(
+                floors,
+                isNotNull,
+                reason:
+                    'no measured service-name floor recorded for textScaler '
+                    '$scale — add one to _narrowServiceFloors rather than '
+                    'letting the sweep run unpinned',
+              );
+              final double serviceWidth = tester
+                  .renderObject<RenderBox>(find.text(booking.serviceName))
+                  .size
+                  .width;
+              expect(
+                serviceWidth,
+                greaterThan(
+                  layout.label == 'full' ? floors!.full : floors!.compact,
+                ),
+                reason:
+                    'the service name rendered at ${serviceWidth}dp in the '
+                    '${layout.label} layout at textScaler $scale — the '
+                    'overflow must be absorbed by the price pill scaling '
+                    'down, not by squeezing the name out of the card',
+              );
+            },
+          );
+        }
+      }
     }
 
     // FINDING-5 REGRESSION — `BoxFit.scaleDown` scales UNIFORMLY, so before
@@ -898,6 +1437,70 @@ void main() {
       });
     }
   });
+}
+
+/// Asserts NO date component renders anywhere on the card — the 2026-07-21
+/// day-scoped-timeline decision (see `master_booking_card.dart`'s "The time is
+/// a RANGE" header section).
+///
+/// Probes the fixture's own Kyiv short-month token (`лип` for a July booking)
+/// via [kMonthsUkShort] rather than a hard-coded Cyrillic literal: that keeps
+/// it clear of the `forbid_cyrillic_finder.sh` gate AND re-derives itself if
+/// the fixture's date ever moves. The month is the strongest single probe —
+/// the retired «12 лип, 14:30» caption was the ONLY place a date reached this
+/// card, and its month token cannot collide with a service name, a client
+/// name, a status label or a «₴» price.
+///
+/// Reads the month through [toBeauticaTime] for the same reason the card
+/// does: a booking in the last two hours of a UTC day is already the NEXT
+/// Kyiv day, so the raw UTC month is not always the rendered one.
+void _expectNoDateOnCard(Booking booking) {
+  final String month =
+      kMonthsUkShort[toBeauticaTime(booking.startAt).month - 1];
+  expect(
+    find.textContaining(month),
+    findsNothing,
+    reason:
+        'a date component ("$month") reached the card — «Мої записи» is '
+        'day-scoped and the day rail above the timeline already names the '
+        'day, so the card must print the time range alone.',
+  );
+}
+
+/// Measured service-name widths in the 226dp lane WITH a frozen band, per
+/// textScaler, minus slack — the floors the "226dp narrow-lane sweep" pins.
+///
+/// Observed (identical for both bands, because at 226dp the price pill is
+/// bound by the row rather than by its own text in every one of these cases):
+///
+/// | textScaler | compact  | full     |
+/// |------------|----------|----------|
+/// | 1.0        | 35.35dp  | 80.24dp  |
+/// | 1.15       | 25.38dp  | 70.73dp  |
+/// | 1.3        | 15.42dp  | 61.14dp  |
+///
+/// The compact column is small by DESIGN, not by accident:
+/// `MasterBookingCard._kCompactPriceReserve` budgets only ~15dp of the row to
+/// the service name at the 1.3 ceiling, deliberately spending the rest on the
+/// time range and a legible price band. These floors therefore pin "the name
+/// keeps the sliver the reserve promised it", not "the name is comfortable" —
+/// the reserve's own doc comment is the place to argue the split.
+///
+/// Slack is ~5dp on the compact row (where the whole budget is ~15-35dp) and
+/// ~10dp on the full row, so each entry fails on a real shift without
+/// tripping on sub-pixel font-metric drift. The compact floors are what make
+/// a shrunk reserve detectable at EVERY scale instead of only at 1.3.
+///
+/// A lookup FUNCTION rather than a `Map<double, …>` on purpose: Dart bans
+/// `double` keys in a const map, and an epsilon comparison is the honest way
+/// to match a scale anyway. Returns null for an unmeasured scale so the sweep
+/// fails loudly rather than running unpinned.
+({double compact, double full})? _narrowServiceFloors(double scale) {
+  const double eps = 0.001;
+  if ((scale - 1.0).abs() < eps) return (compact: 30, full: 70);
+  if ((scale - 1.15).abs() < eps) return (compact: 20, full: 60);
+  if ((scale - 1.3).abs() < eps) return (compact: 10, full: 50);
+  return null;
 }
 
 /// `_PriceTag._maxTextWidth` — private to the widget, restated here so these

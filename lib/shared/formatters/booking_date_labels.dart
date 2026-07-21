@@ -166,6 +166,39 @@ String formatTimeRange(DateTime start, int totalMinutes) {
       '–${_twoDigits(endLocal.hour)}:${_twoDigits(endLocal.minute)}';
 }
 
+/// The booked time range from TWO REAL INSTANTS, e.g. "14:00–18:30" — the
+/// master's «Мої записи» timeline card (`master_booking_card.dart`, both its
+/// compact and full layouts).
+///
+/// ## Why this exists alongside [formatTimeRange]
+///
+/// [formatTimeRange] derives its end from `start + totalMinutes`, because its
+/// callers (the booking confirm/success summary cards, «Деталі запису», the
+/// salon appointment card) are describing an appointment being ASSEMBLED from
+/// a service duration — there is no server-side end instant to read yet, only
+/// a start and a duration to add.
+///
+/// A persisted `Booking` is the other case: it carries a real `endAt` from the
+/// backend alongside its `startAt`. Re-deriving the end from
+/// `durationMinutes` there would introduce a second, independently-driftable
+/// answer to "when does this finish" — so a card holding a genuine `endAt`
+/// must format THAT, which is what this function takes. Deliberately two
+/// functions rather than one with an optional `end`: the choice is a real
+/// semantic fork (derived vs. persisted end), and an optional parameter would
+/// let a `Booking` call site silently fall back to the derived branch.
+///
+/// Both instants are converted to the Europe/Kyiv wall-clock via
+/// [toBeauticaTime] BEFORE any hour/minute is read (see [formatSlotTime]) —
+/// the wire values are canonical UTC, so a late-evening Kyiv appointment would
+/// otherwise print the wrong hour on both ends. Same en-dash separator as
+/// [formatTimeRange] and [formatBookingWindow].
+String formatSlotTimeRange(DateTime start, DateTime end) {
+  final DateTime startLocal = toBeauticaTime(start);
+  final DateTime endLocal = toBeauticaTime(end);
+  return '${_twoDigits(startLocal.hour)}:${_twoDigits(startLocal.minute)}'
+      '–${_twoDigits(endLocal.hour)}:${_twoDigits(endLocal.minute)}';
+}
+
 // Phase 14.3 — My Bookings card date stub.
 
 /// The booking card's date-stub second line: genitive month + short weekday,
@@ -180,19 +213,11 @@ String formatTimeRange(DateTime start, int totalMinutes) {
 /// The weekday is the short form because on the stub it is a qualifier, not
 /// the subject — the client is scanning for a number, then checking which day
 /// of the week it lands on.
-/// Phase 7.6 — a compact date+time caption for the master's booking card,
-/// e.g. "12 лип, 14:30" (the design's `formatBookingDate`).
 ///
-/// Converts to Beautica (Europe/Kyiv) time FIRST: a `Booking.startAt` is
-/// canonical UTC, so reading `.day`/`.hour` off it directly would print the
-/// wrong day for any appointment in the two hours before local midnight.
-String formatShortDateTime(DateTime instant) {
-  final DateTime local = toBeauticaTime(instant);
-  final String mon = kMonthsUkShort[local.month - 1];
-  return '${local.day} $mon, '
-      '${_twoDigits(local.hour)}:${_twoDigits(local.minute)}';
-}
-
+/// (A sibling `formatShortDateTime` — "12 лип, 14:30" — lived here until the
+/// master timeline card dropped its per-card date in favour of a bare
+/// [formatSlotTimeRange]; it was deleted rather than left as an unused
+/// formatter, since its only caller was that card.)
 String formatStubDayLine(DateTime day) {
   final DateTime local = toBeauticaTime(day);
   final String mon = kMonthsUkGenitive[local.month - 1];
