@@ -241,6 +241,51 @@
 //   provide.
 //
 // ============================================================================
+// ADDENDUM 3 (2026-07-21) — THE NARROW-DEVICE CLIPPED-CARD FIX
+// ============================================================================
+// Real-device report: on a 360dp-wide Android phone the "Мої записи" timeline
+// card was clipped at its right edge and only readable by scrolling the inner
+// horizontal `SingleChildScrollView` sideways — a bug no widget test caught
+// because that scroll view absorbs overflow instead of throwing a RenderFlex
+// overflow error (there is no exception to assert against; the content is
+// just off-screen).
+//
+// THE ARITHMETIC: the lane area's available width is
+//   deviceWidth − 24 (screen padding L) − 24 (screen padding R)
+//              − 42 (`TimelineHourRuler._kRulerWidth`)
+//              − 4  (`VelvetSpacing.xs`, the ruler↔grid gap above)
+//   = deviceWidth − 94.
+// [_kCardW] (272) only fits once `deviceWidth − 94 >= 272`, i.e.
+// `deviceWidth >= 366`. The common 360dp Android baseline clears every term
+// above EXCEPT this one — it has only 266dp of lane area, 6dp short of the
+// fixed 272dp card, so the card's right edge is permanently clipped on first
+// paint.
+//
+// THE FIX: [_kCardW] stays defined as-is but becomes a CEILING, not a fixed
+// width — [build]'s `LayoutBuilder` computes
+// `effectiveCardW = math.min(_kCardW, constraints.maxWidth)` and uses that
+// (never the raw constant) for both [contentWidth] and every lane's
+// `cardWidth`. The clamp is computed from `constraints.maxWidth`, so it can
+// only be known inside the `LayoutBuilder` callback — [contentWidth] moved in
+// there with it (it used to be computed once in [build], before the
+// available width was known).
+//
+// THE CLAMP IS UNCONDITIONAL — APPLIED FOR EVERY [lanesCount], NOT ONLY
+// `lanesCount <= 1`: with 2+ overlap lanes the grid still scrolls
+// horizontally to reach lane 2 and beyond (that is inherent to laying
+// multiple lanes side-by-side and is not this bug), but the LEADING lane's
+// card — the one visible without any horizontal scrolling — must never clip
+// at the viewport's right border on first paint, exactly as in the
+// single-lane case. Clamping only when `lanesCount <= 1` would leave that
+// leading-card clip in place on any narrow device whose day happens to have
+// an overlapping booking. Clamping every lane to the same `effectiveCardW`
+// also keeps all lanes' cards a uniform width, matching every other
+// assumption in this file (`_LaneColumn`'s spacer math, [_cardMinHeightFor]'s
+// height side of the layout, R2/R3 above) — none of which depend on the
+// card's width value, only on it being decided once per render and applied
+// consistently.
+//
+// ============================================================================
 // THE RULER IS THE KYIV WALL-CLOCK
 // ============================================================================
 // Every card's vertical position reads through [toBeauticaTime] — `Booking
@@ -318,7 +363,11 @@ class BookingsTimelineGrid extends StatelessWidget {
   /// duration-floor read off this constant, never a re-derived literal.
   static const double _kSlotH = _kHourH / 2;
 
-  /// One lane's card width.
+  /// One lane's card width CEILING — the design's fixed value, but never
+  /// used directly as a rendered width. See this file's "ADDENDUM 3": [build]
+  /// clamps it down to `constraints.maxWidth` (per render, for every lane)
+  /// before it reaches [contentWidth] or any [_LaneColumn.cardWidth], so a
+  /// narrow device never clips a card at the viewport's right edge.
   static const double _kCardW = 272;
 
   /// The minimum breathing room between two same-lane cards even when their
@@ -370,10 +419,6 @@ class BookingsTimelineGrid extends StatelessWidget {
     final int firstHour = firstMinute ~/ 60;
     final int lastHour = (lastMinute / 60.0).ceil();
 
-    final double contentWidth = lanesCount == 0
-        ? _kCardW
-        : lanesCount * _kCardW + (lanesCount - 1) * VelvetSpacing.sm;
-
     // R3 FIX — group each booking's ORIGINAL index by its assigned lane.
     // [bookings] is already ascending by `startAt` (the class doc's
     // invariant), and this grouping preserves relative order, so each
@@ -401,6 +446,22 @@ class BookingsTimelineGrid extends StatelessWidget {
           Expanded(
             child: LayoutBuilder(
               builder: (BuildContext context, BoxConstraints constraints) {
+                // ADDENDUM 3 fix — clamp the card width to whatever lane
+                // area is actually available BEFORE it's used to compute
+                // [contentWidth] or handed to any lane's cards, so a card
+                // never renders wider than the viewport can show. Applied
+                // for every [lanesCount] unconditionally — see the file
+                // header's "ADDENDUM 3" for why 2+ lanes still needs this on
+                // the LEADING lane even though multi-lane days already
+                // scroll horizontally by design.
+                final double effectiveCardW = math.min(
+                  _kCardW,
+                  constraints.maxWidth,
+                );
+                final double contentWidth = lanesCount == 0
+                    ? effectiveCardW
+                    : lanesCount * effectiveCardW +
+                          (lanesCount - 1) * VelvetSpacing.sm;
                 final double contentW = math.max(
                   contentWidth,
                   constraints.maxWidth,
@@ -490,7 +551,7 @@ class BookingsTimelineGrid extends StatelessWidget {
                                   day: day,
                                   firstMinute: firstMinute,
                                   hourHeight: _kHourH,
-                                  cardWidth: _kCardW,
+                                  cardWidth: effectiveCardW,
                                   onBookingTap: onBookingTap,
                                 ),
                               ],
