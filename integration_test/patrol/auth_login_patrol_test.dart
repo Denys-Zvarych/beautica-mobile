@@ -135,11 +135,32 @@ void main() {
   // "Collect emulator host-side diagnostics" step now uploads what is
   // reachable, and the logcat upload is `always()` so a cancelled run still
   // yields evidence), confirm or kill the ColorBuffer theory, then un-skip.
+  // ⚠️ NO SLASHES IN A patrolTest DESCRIPTION. Not in a route, not in a file
+  // path, not anywhere. AndroidTestOrchestrator names a per-test output file
+  // after the description and calls Context.openFileOutput, which REJECTS any
+  // filename containing a path separator. The result is not a test failure —
+  // the orchestrator process dies:
+  //
+  //   E/AndroidRuntime: FATAL EXCEPTION: AndroidTestOrchestrator
+  //   java.lang.IllegalArgumentException: File ...[... the /home client shell
+  //     ... ].txt contains a path separator
+  //       at android.app.ContextImpl.makeFilename
+  //       at androidx.test.orchestrator.AndroidTestOrchestrator.getOutputStream
+  //       at androidx.test.orchestrator.AndroidTestOrchestrator.executeNextTest
+  //
+  // Gradle then reports only "Instrumentation run failed due to Process
+  // crashed" with ZERO failed assertions, which reads exactly like the
+  // unrelated emulator device-loss issue and cost a full round of diagnosis to
+  // tell apart. This bit us on 2026-07-22 with a description that named the
+  // `/home` route and a file path. Say "the home client shell" instead, and
+  // put paths in the COMMENT, never the description.
+  //
+  // Guarded by scripts/forbid_slash_in_patrol_test_name.sh.
   patrolTest(
-    'CLIENT login navigates to the /home client shell (patrol template) '
+    'CLIENT login navigates to the home client shell (patrol template) '
     '(SKIPPED: mounting the 5-tab client shell kills the CI emulator — '
-    'bisect-confirmed, see comment; same journey covered by '
-    'integration_test/auth_login_flow_test.dart)',
+    'bisect-confirmed, see comment above for the evidence and for where the '
+    'same journey is covered)',
     skip: true,
     config: config,
     ($) async {

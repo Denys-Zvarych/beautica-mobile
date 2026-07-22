@@ -260,6 +260,19 @@ jobs:
         shell: bash
         run: ./scripts/forbid_expectlocation_home.sh
 
+      # 2026-07-22 — forbid '/' inside a patrolTest description.
+      # AndroidTestOrchestrator names a per-test output file after the
+      # description and Context.openFileOutput rejects path separators, so one
+      # slash kills the orchestrator PROCESS. It surfaces only as
+      # "Instrumentation run failed due to Process crashed" with zero failed
+      # assertions — indistinguishable at a glance from the unrelated emulator
+      # device-loss issue, and completely invisible to analyze/format/test,
+      # since nothing host-side touches the orchestrator. Static gate is the
+      # only place this can be caught cheaply. Zero baseline, no allow-list.
+      - name: Forbid slashes in patrol test names
+        shell: bash
+        run: ./scripts/forbid_slash_in_patrol_test_name.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
@@ -276,6 +289,7 @@ jobs:
           ./scripts/forbid_stale_future_date_fixture.sh --self-test
           ./scripts/forbid_missing_test_text_input.sh --self-test
           ./scripts/forbid_expectlocation_home.sh --self-test
+          ./scripts/forbid_slash_in_patrol_test_name.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
