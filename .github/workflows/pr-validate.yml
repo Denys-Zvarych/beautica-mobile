@@ -1072,8 +1072,13 @@ jobs:
             # SIGTERM the cleanup shell ("exit code null"). Must be ONE self-contained
             # line so the `&` background survives this line's own sh -c.
             rm -f /tmp/patrol_approve_done || true
-            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 1; done ) &
+            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do out1=$(timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app 2>&1); rc1=$?; out2=$(timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app 2>&1); rc2=$?; if [ "$rc1" -ne 0 ] || [ -n "$out1" ] || [ "$rc2" -ne 0 ] || [ -n "$out2" ]; then echo "APPROVE-LOOP iter=$i set-app-links rc=$rc1 out=[$out1] user-selection rc=$rc2 out=[$out2]" >> /tmp/patrol_approve.log; fi; i=$((i+1)); sleep 1; done ) &
             patrol build android --target integration_test/patrol
+            # DIAGNOSTIC: the real domain-verification state, right before the
+            # suite runs. If the deep-link test still routes to a browser, this
+            # is the line that says why — look for the domain under "Selection
+            # state" / whether it reads as approved for user 0.
+            echo "=== pm get-app-links (pre-test) ==="; adb shell pm get-app-links com.beautica.beautica_mobile 2>&1 || true
             # Run patrol, capture its exit, signal the loop to stop, then exit with
             # patrol's real code — all on ONE line so the exit status carries
             # (android-emulator-runner runs each line in its own sh -c, so a separate
@@ -1106,6 +1111,13 @@ jobs:
           # GL / gfxstream lines that DID make it into the device log.
           grep -aiE 'ColorBuffer|gfxstream|emuglGLES|EGL_emulation|gralloc|swiftshader' \
             patrol-logcat.txt > emulator-diag/gl-chatter.txt 2>/dev/null || true
+          # App Link approval: the loop's own failures (only written when a
+          # command errors or emits output), plus the final verification state.
+          cp /tmp/patrol_approve.log emulator-diag/ 2>/dev/null || true
+          adb shell pm get-app-links com.beautica.beautica_mobile \
+            > emulator-diag/app-links-final.txt 2>&1 || true
+          grep -aiE 'VIEW|BROWSABLE|webview_shell|assetlinks|DomainVerification|set-app-links' \
+            patrol-logcat.txt > emulator-diag/deeplink-chatter.txt 2>/dev/null || true
           echo "collected:"; find emulator-diag -type f | head -40
 
       - name: Upload patrol device logcat

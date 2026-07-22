@@ -43,7 +43,6 @@ android {
         // the Dart patrolTest(...) cases through native instrumentation. This
         // affects ONLY the androidTest variant — the app's production/debug APK
         // and the headless `flutter test integration_test/` path are untouched.
-        // clearPackageData wipes app data between native test cases for isolation.
         //
         // The AndroidX Test Orchestrator (testOptions below) is REQUIRED here:
         // patrol's PatrolAppService is single-test-per-process, and the
@@ -55,7 +54,37 @@ android {
         // orchestrator (`File ...txt contains a path separator`). De-slash any
         // route names in the test NAME (assertions on real routes are fine).
         testInstrumentationRunner = "pl.leancode.patrol.PatrolJUnitRunner"
-        testInstrumentationRunnerArguments["clearPackageData"] = "true"
+
+        // clearPackageData is DELIBERATELY false. Do not flip it back to true
+        // without reading this.
+        //
+        // It wipes app data before EVERY native test case — and that includes
+        // the package's App Link domain-verification state. The deep-link test
+        // then loses its approval and Android routes the URL to a browser
+        // instead of the app, which the logcat shows verbatim:
+        //
+        //   20:51:32  clearApplicationUserData com.beautica.beautica_mobile
+        //   20:51:40  openUrl(https://…/reset-password?token=…)
+        //   20:51:40  START … cmp=org.chromium.webview_shell/.WebViewBrowserActivity
+        //
+        // Worse than a plain failure: with the link opened in a browser the app
+        // is backgrounded, the Flutter engine stops producing frames, and the
+        // test's `pump()` blocks forever, so the job HANGS until the workflow's
+        // 900s timeout kills it. The background `pm set-app-links` loop in
+        // pr-validate.yml exists solely to fight this, and it loses.
+        //
+        // Turning it off costs nothing, because these tests never relied on it
+        // for isolation: PatrolHarness.boot injects a fresh FakeSecureStorage
+        // and FakeBackend per test and pumps a fresh app tree, so auth state and
+        // network state are already per-test by construction. Nothing in the
+        // patrol suite reads real device storage that a previous case wrote —
+        // the only case using real storage (deep_link) is also the one this
+        // breaks.
+        //
+        // Multi-test support does NOT depend on this flag. That comes from the
+        // AndroidX Test Orchestrator (testOptions below), which runs each case
+        // in a fresh PROCESS; clearPackageData is merely one of its options.
+        testInstrumentationRunnerArguments["clearPackageData"] = "false"
     }
 
     // Phase 17.5 — run each patrol native test in an isolated process via the
