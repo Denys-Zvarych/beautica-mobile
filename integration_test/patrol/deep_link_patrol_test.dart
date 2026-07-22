@@ -80,12 +80,18 @@ void main() {
       // the whole test was over in 2s with `reset_submit` not found.
       //
       // pumpUntilFound polls in 100ms steps and returns the instant the widget
-      // appears, so a healthy run costs only the real round-trip. The generous
-      // timeout also makes the failure DIAGNOSTIC rather than ambiguous: if
-      // this still times out, the intent genuinely never reached the app —
-      // which points at App Link approval (patrol's reinstall wipes it; see the
-      // re-approval loop in pr-validate.yml) or the manifest filter, NOT at a
-      // race we simply did not wait out.
+      // appears, so a healthy run costs only the real round-trip.
+      //
+      // KNOW THIS FAILURE MODE: if App Link approval is lost, the URL opens in
+      // a BROWSER instead of the app. The app is then backgrounded, the Flutter
+      // engine stops producing frames, and `pump()` BLOCKS FOREVER waiting for
+      // one — so this does not fail after the timeout below, it HANGS. The
+      // timeout is only checked between pumps, and control never returns from
+      // the pump. Observed 2026-07-22 when the workflow's re-approval loop had
+      // been slowed from 1s to 5s: the loop lost the race against patrol's
+      // reinstall, and the job sat until the 900s `timeout` in pr-validate.yml
+      // killed it. If this test ever hangs again, check that loop's cadence
+      // FIRST — it is load-bearing for this test specifically.
       await $.tester.pumpUntilFound(
         find.byKey(const ValueKey<String>('reset_submit')),
         timeout: const Duration(seconds: 30),

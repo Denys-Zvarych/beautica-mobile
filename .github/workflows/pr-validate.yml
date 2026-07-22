@@ -1026,20 +1026,28 @@ jobs:
             # API 34, the `integration` job — which runs NO adb loop — passed a
             # 15-minute suite on its own emulator.
             #
-            # At 1s this fired two `adb shell` calls per second for up to 20+
-            # minutes CONCURRENTLY with Gradle/UTP/ddmlib driving the same device,
-            # which made adb contention an obvious suspect.
+            # CADENCE IS 1s AND MUST STAY 1s. It was introduced at 1s by
+            # 3e7dc9c ("keep App Link approved during patrol run") precisely to
+            # win the race against patrol's reinstall, and it is the reason the
+            # deep-link test passes at all.
             #
-            # THAT SUSPICION WAS TESTED AND DISPROVEN — do not re-raise it as the
-            # explanation. Cutting the cadence 5x (1s -> 5s, 120 -> 24 adb calls a
-            # minute) changed NOTHING: the next run failed byte-for-byte
-            # identically, same test, ~87s, same `device 'emulator-5554' not
-            # found`. The loop is not the cause.
+            # DO NOT SLOW IT DOWN. On 2026-07-22 it was cut 5x (1s -> 5s) on a
+            # hypothesis that adb contention from this loop was killing the
+            # emulator. That hypothesis was TESTED AND DISPROVEN — the next run
+            # failed byte-for-byte identically, same test, ~87s, same
+            # `device 'emulator-5554' not found`. The device loss is unrelated
+            # to this loop (it is bisect-confirmed to be the CLIENT test's
+            # client-shell mount; see auth_login_patrol_test.dart).
             #
-            # 5s is kept anyway on its own merits — 120 adb calls a minute was
-            # simply excessive for guarding a one-time reinstall — but it is a
-            # tidy-up, NOT a fix, and tightening it back would not "break" the
-            # job either.
+            # But the slowdown was not free: the deep-link test failed on every
+            # run while the cadence was 5s. Losing the approval race means the
+            # URL opens in a BROWSER, the app is backgrounded, and the Flutter
+            # engine stops producing frames — so the test does not fail fast, it
+            # HANGS, because `pump()` blocks forever waiting for a frame that
+            # never comes. That is what the 900s `timeout` below caught.
+            #
+            # Lesson worth keeping: this loop is load-bearing for the deep-link
+            # test, and it was slowed to chase a defect in a different test.
             #
             # What the evidence actually shows, for whoever picks this up: the
             # failure is DETERMINISTIC, not the intermittent flake this repo has
@@ -1064,13 +1072,13 @@ jobs:
             # SIGTERM the cleanup shell ("exit code null"). Must be ONE self-contained
             # line so the `&` background survives this line's own sh -c.
             rm -f /tmp/patrol_approve_done || true
-            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 420 ]; do timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 5; done ) &
+            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 1; done ) &
             patrol build android --target integration_test/patrol
             # Run patrol, capture its exit, signal the loop to stop, then exit with
             # patrol's real code — all on ONE line so the exit status carries
             # (android-emulator-runner runs each line in its own sh -c, so a separate
             # CODE=$?/exit would not). This makes the step's result equal patrol's.
-            timeout --signal=TERM --kill-after=60 900 patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 900s (rc=$RC) — the suite itself is ~10min when healthy; a hang here is usually patrol_cli stuck on its post-run uninstall against a wedged adb link, NOT a slow test. Logcat is uploaded regardless (if: always)."; fi; exit $RC
+            timeout --signal=TERM --kill-after=60 900 patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 900s (rc=$RC). A healthy suite is ~10min, so this is a hang, not slowness. Two causes seen so far, and the logcat (uploaded on always()) tells them apart: (1) the DEEP-LINK test hanging because App Link approval was lost, so the URL opened in a browser, the app was backgrounded, and pump() blocked forever waiting for a frame the stopped engine never produced — check the re-approval loop above is still at 1s; (2) patrol_cli stuck on its post-run uninstall against a wedged adb link, which looks like the suite finishing and then nothing."; fi; exit $RC
 
       - name: Collect emulator host-side diagnostics
         # The gfxstream/swiftshader ColorBuffer race this repo has chased for
