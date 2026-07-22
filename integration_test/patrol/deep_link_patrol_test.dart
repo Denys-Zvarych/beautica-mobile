@@ -36,6 +36,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
 
+import '../../test/helpers/pump_app.dart';
+
 // The App Link host is locked to the production Railway domain in
 // AndroidManifest.xml's autoVerify intent-filter. A `token` query param is
 // required by ResetPasswordScreen; any non-empty value renders the form (the
@@ -69,8 +71,25 @@ void main() {
       // `$.native.openUrl` (NativeAutomator is being phased out in patrol 4.x).
       await $.platform.mobile.openUrl(_kResetPasswordDeepLink);
 
-      // Let the intent propagate into the Flutter engine and the router settle.
-      await $.pumpAndSettle();
+      // POLL — do NOT use pumpAndSettle here. `openUrl` returns as soon as the
+      // intent is FIRED; Android then has to deliver it to MainActivity, hand
+      // it to the Flutter engine, and let go_router rebuild. pumpAndSettle
+      // settles the CURRENT tree, which is already idle, so it returns almost
+      // immediately and the assertion runs before the link has landed. That is
+      // exactly how this test failed on 2026-07-22: `openUrl` reported ✅ and
+      // the whole test was over in 2s with `reset_submit` not found.
+      //
+      // pumpUntilFound polls in 100ms steps and returns the instant the widget
+      // appears, so a healthy run costs only the real round-trip. The generous
+      // timeout also makes the failure DIAGNOSTIC rather than ambiguous: if
+      // this still times out, the intent genuinely never reached the app —
+      // which points at App Link approval (patrol's reinstall wipes it; see the
+      // re-approval loop in pr-validate.yml) or the manifest filter, NOT at a
+      // race we simply did not wait out.
+      await $.tester.pumpUntilFound(
+        find.byKey(const ValueKey<String>('reset_submit')),
+        timeout: const Duration(seconds: 30),
+      );
 
       // Destination assertion: the reset-password form is now mounted. Keys are
       // locale-invariant (no Ukrainian find.text), per the integration-test
