@@ -28,18 +28,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // RC2 — reads current location from the router instance rather than via
-  // GoRouter.of(context), which fails at the MaterialApp context level.
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   // ── Test 1 — Navigate to /schedule/weekly ────────────────────────────────
 
   testWidgets(
@@ -53,7 +41,7 @@ void main() {
       // reference — no GoRouter.of(context) needed.
       router.go(RouteNames.masterSchedule);
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.masterSchedule);
+      AppHarness.expectLocation(router, RouteNames.masterSchedule);
 
       // Navigate to the weekly template editor directly via the router
       // reference — tapping the schedule-weekly-card GestureDetector is
@@ -62,7 +50,7 @@ void main() {
       // canonical navigation handle for this test suite.
       router.go(RouteNames.scheduleWeeklyEditor);
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.scheduleWeeklyEditor);
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
 
       // The weekly editor should be visible.
       // Wait for the async schedule load.
@@ -102,7 +90,7 @@ void main() {
       // Navigate to weekly editor using the router reference directly.
       router.go(RouteNames.scheduleWeeklyEditor);
       await tester.pumpAndSettle(const Duration(seconds: 2));
-      expectLocation(router, RouteNames.scheduleWeeklyEditor);
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
 
       // Pre-seeded schedule has Monday (dayOfWeek=1) AND Tuesday (dayOfWeek=2)
       // active with 09:00-18:00 each. Toggling Monday OFF leaves Tuesday still
@@ -204,7 +192,7 @@ void main() {
 
       router.go(RouteNames.scheduleWeeklyEditor);
       await tester.pumpAndSettle(const Duration(seconds: 2));
-      expectLocation(router, RouteNames.scheduleWeeklyEditor);
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
 
       // Switch day-1 to «Окремі години» (EXPLICIT_TIMES).
       final Finder explicitChip = find.byKey(
@@ -310,7 +298,7 @@ void main() {
 
     router.go(RouteNames.masterSchedule);
     await tester.pumpAndSettle(const Duration(seconds: 2));
-    expectLocation(router, RouteNames.masterSchedule);
+    AppHarness.expectLocation(router, RouteNames.masterSchedule);
 
     // The day pencil (`schedule-day-pencil`) opens the DayHoursSheet for the
     // currently-selected day. The selection defaults to "today" (the harness

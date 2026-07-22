@@ -30,16 +30,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   testWidgets(
     'settings change-password journey: logged in → change password → OTP → '
     'new password → forced logout → lands on login',
@@ -48,17 +38,17 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
 
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
 
       // ── Step 1 — open the master settings hub ────────────────────────────
       await tester.tap(find.byKey(const Key('btn-menu-master')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.masterMenu);
+      AppHarness.expectLocation(router, RouteNames.masterMenu);
 
       // ── Step 2 — Account row → /settings ──────────────────────────────────
       await tester.tap(find.byKey(const Key('row-account')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.settings);
+      AppHarness.expectLocation(router, RouteNames.settings);
 
       // ── Step 3 — "Змінити пароль" row: sends the first OTP, then navigates
       await tester.ensureVisible(find.byKey(const Key('row-change-password')));
@@ -66,7 +56,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(fb.requestChangePasswordOtpCalls, equals(1));
-      expectLocation(router, RouteNames.changePassword);
+      AppHarness.expectLocation(router, RouteNames.changePassword);
       expect(
         find.byKey(const ValueKey<String>('reset_otp_code_input')),
         findsOneWidget,
@@ -88,7 +78,7 @@ void main() {
       expect(fb.lastVerifyPasswordResetOtpCode, equals('654321'));
 
       // ── Step 5 — set-new-password screen ──────────────────────────────────
-      expectLocation(router, RouteNames.resetPassword);
+      AppHarness.expectLocation(router, RouteNames.resetPassword);
       expect(
         find.byKey(const ValueKey<String>('reset_password')),
         findsOneWidget,
@@ -131,7 +121,7 @@ void main() {
       );
 
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.login);
+      AppHarness.expectLocation(router, RouteNames.login);
     },
   );
 }

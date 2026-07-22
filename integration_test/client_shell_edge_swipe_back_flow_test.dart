@@ -42,16 +42,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   // Commit a left-edge rightward swipe starting inside the shell's real
   // EdgeSwipeBack strip (its rect is read live — the strip sits below the top
   // bar inside an Expanded, so a guessed y offset would be brittle).
@@ -78,12 +68,12 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // Hop to the Bookings tab (branch 3) via the bottom nav.
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientBookings);
+      AppHarness.expectLocation(router, RouteNames.clientBookings);
       expect(
         find.byKey(const Key('client-branch-bookings')),
         findsOneWidget,
@@ -99,7 +89,7 @@ void main() {
       // Commit the left-edge rightward swipe — must return to Home.
       await edgeSwipeBack(tester);
 
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       expect(
         find.byKey(const Key('client-branch-home')),
         findsOneWidget,
@@ -141,19 +131,19 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // Land on the Пошук (Search) tab root via the elevated center disc.
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(activeIndex(tester), kClientSearchBranch);
 
       // Push the REAL results detail onto the SEARCH branch navigator — the
       // stack becomes [search root, results], so the branch canPop.
       router.go(RouteNames.clientSearchResults);
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
       expect(
         find.byKey(const Key('client-search-results')),
         findsOneWidget,
@@ -164,7 +154,7 @@ void main() {
       // ── FIRST swipe — must POP the detail (→ PREVIOUS page), NOT jump Home ──
       await edgeSwipeBack(tester);
 
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(
         find.byKey(const Key('client-search-results')),
         findsNothing,
@@ -186,7 +176,7 @@ void main() {
       // ── SECOND swipe — now on the Пошук tab ROOT → falls back to Home ──────
       await edgeSwipeBack(tester);
 
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       expect(
         activeIndex(tester),
         kClientHomeBranch,

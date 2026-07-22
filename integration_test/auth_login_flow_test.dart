@@ -29,22 +29,6 @@ void main() {
 
   // ── Helper: assert the router landed on [expectedPath] ───────────────────
 
-  /// Reads the current route from the [GoRouter] instance returned by
-  /// [AppHarness.boot]. Using the router reference directly avoids the
-  /// [GoRouter.of(context)] pitfall: [InheritedGoRouter] is a DESCENDANT of
-  /// [MaterialApp.router], so a context obtained at the [MaterialApp] level
-  /// does not have GoRouter in its ancestor chain and throws
-  /// "No GoRouter found in context".
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   // ── Test 1 — INDEPENDENT_MASTER → masterProfile ──────────────────────────
 
   testWidgets('INDEPENDENT_MASTER login navigates to /master/profile', (
@@ -63,7 +47,7 @@ void main() {
     await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
     // Auth succeeded → router should have navigated to master profile.
-    expectLocation(router, RouteNames.masterProfile);
+    AppHarness.expectLocation(router, RouteNames.masterProfile);
 
     // Confirm the fake backend was called.
     expect(fb.loginCalls, equals(1));
@@ -81,8 +65,7 @@ void main() {
 
     // Phase 13.1 — a CLIENT lands on the 5-tab client shell at /home (NOT the
     // legacy `/` home placeholder). Assert the exact landing path.
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
+    final String current = AppHarness.location(router);
     expect(
       current,
       equals(RouteNames.clientHome),
@@ -104,8 +87,22 @@ void main() {
 
     await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
 
-    // SALON_OWNER is post-MVP → lands on home placeholder.
-    expectLocation(router, RouteNames.home);
+    // SALON_OWNER is post-MVP → lands on the `/` home placeholder.
+    //
+    // TIGHTENED (2026-07-22 vacuous-assertion audit): this was
+    // `expectLocation(router, RouteNames.home)`. `RouteNames.home` is '/' and
+    // the helper matched with `startsWith`, so the assertion reduced to
+    // `startsWith('/')` — true for every route in the app. It could not have
+    // failed if SALON_OWNER had landed anywhere at all. `AppHarness
+    // .expectLocation` now REJECTS '/' outright for exactly this reason, so
+    // the exact landing path is asserted directly (the same shape Test 2 above
+    // already uses for CLIENT).
+    expect(
+      AppHarness.location(router),
+      equals(RouteNames.home),
+      reason:
+          'SALON_OWNER must land exactly on the ${RouteNames.home} placeholder',
+    );
     expect(fb.loginCalls, equals(1));
   });
 }

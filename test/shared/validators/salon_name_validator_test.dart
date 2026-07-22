@@ -119,17 +119,18 @@ void main() {
       },
     );
 
-    // The correct non-owner contract: the validator is not invoked.
-    // This is enforced in RegisterStep2Screen._fieldsForRole, which only
-    // attaches the validator to the salon-name field when isSalonOwner is true.
-    // Widget-level coverage of this path is in register_step_2_screen_test.dart
-    // (Tests 1–2: CLIENT and MASTER variants — field-salon-name findsNothing).
-    test('non-owner skip contract is documented (no validator call)', () {
-      // Simulates the non-owner path: the presenter passes an empty string
-      // as the salon name and does NOT call validateSalonName.
-      // We simply assert that null is what the presenter skips returning.
-      const String? nonOwnerResult = null; // validator not called
-      expect(nonOwnerResult, isNull);
-    });
+    // DELETED (2026-07-22 vacuous-assertion audit): a test named
+    // 'non-owner skip contract is documented (no validator call)' lived here.
+    // Its entire body was `const String? nonOwnerResult = null;
+    // expect(nonOwnerResult, isNull);` — it never invoked validateSalonName and
+    // could not fail under any change to the validator or its callers. It was
+    // an assertion about a local it had just declared.
+    //
+    // The non-owner contract (the validator is not attached at all when the
+    // role is not SALON_OWNER — RegisterStep2Screen._fieldsForRole) is really
+    // covered, at the widget level, in
+    // `test/features/auth/presentation/register_step_2_screen_test.dart`
+    // (Tests 1–2: CLIENT and MASTER variants assert
+    // `find.byKey(Key('field-salon-name'))` findsNothing).
   });
 }

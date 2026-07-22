@@ -366,16 +366,100 @@ abstract final class AppHarness {
     return uri.toString();
   }
 
-  /// Convenience assertion built on [location]: the current router location
-  /// must START WITH [expected]. Covers the common case; flows that need the
-  /// raw string (equality, `isNot(startsWith(...))`, etc.) should call
-  /// [location] directly instead.
-  static void expectLocation(GoRouter router, String expected) {
-    final String current = location(router);
+  /// Resolves the current location for a flow that PUSHES ON TOP OF a
+  /// [StatefulShellRoute] branch (the CLIENT 5-tab shell).
+  ///
+  /// [location] is the wrong resolver there: every route reached after the
+  /// initial branch root (a salon/master profile, the booking sub-routes) is
+  /// pushed imperatively ONTO the shell, so `configuration.uri` keeps
+  /// reporting the BRANCH ROOT (`/search`) rather than the displayed screen,
+  /// and [location]'s own `ImperativeRouteMatch` unwrap resolves the push's
+  /// nested match list, not the shell's leaf chain.
+  /// `matches.last.matchedLocation` is what go_router's own
+  /// [ImperativeRouteMatch] uses internally and is always the full absolute
+  /// path (see go_router's `match.dart`), so it reflects the real current
+  /// screen regardless of shell nesting.
+  ///
+  /// Collapsed here (2026-07-22 audit) from three hand-copied duplicates in
+  /// `salon_booking_flow_test.dart`, `service_preselection_flow_test.dart` and
+  /// `independent_multi_service_booking_flow_test.dart`, so the shell variant
+  /// gets the same [expectLocation] matching rule as everything else instead
+  /// of drifting on its own.
+  static String shellLocation(GoRouter router) {
+    // router-location-ok: the shell-push resolver deliberately reads the leaf
+    // match chain; see this method's doc comment for why `.uri` is wrong here.
+    return router
+        .routerDelegate
+        .currentConfiguration
+        .matches
+        .last
+        .matchedLocation;
+  }
+
+  /// Convenience assertion built on [location]. See [expectShellLocation] for
+  /// the [StatefulShellRoute] variant.
+  ///
+  /// MATCHING IS SEGMENT-AWARE, NOT `startsWith` (2026-07-22 audit)
+  /// --------------------------------------------------------------
+  /// This helper used to assert `startsWith(expected)`, and 26 hand-copied
+  /// duplicates of it across `integration_test/` did the same. A raw prefix
+  /// match is far weaker than it reads:
+  ///   • `expectLocation(router, RouteNames.home)` reduces to
+  ///     `startsWith('/')` — TRUE for every one of the ~59 routes in the app.
+  ///     Two flows shipped that exact assertion believing it pinned a landing
+  ///     screen.
+  ///   • `expectLocation(router, '/booking')` silently accepts
+  ///     `/bookings/abc` — a different screen in a different shell branch.
+  ///
+  /// The rule is the one production already uses at
+  /// `lib/routing/auth_redirect.dart:291`: equal, or followed by a `/`
+  /// separator. A `?` boundary is accepted too, because [location] returns the
+  /// full URI including any query string (e.g. `/invite/accept?token=…`),
+  /// which `matchedLocation` never carries.
+  ///
+  /// Flows that need something else (exact equality against a location WITH a
+  /// query, `isNot(...)`, etc.) should call [location] directly.
+  static void expectLocation(GoRouter router, String expected) =>
+      _expectPath(location(router), expected, 'AppHarness.expectLocation');
+
+  /// [expectLocation] for flows that push on top of a [StatefulShellRoute]
+  /// branch — same matching rule, resolved via [shellLocation].
+  static void expectShellLocation(GoRouter router, String expected) =>
+      _expectPath(
+        shellLocation(router),
+        expected,
+        'AppHarness.expectShellLocation',
+      );
+
+  /// Shared segment-aware comparison behind [expectLocation] /
+  /// [expectShellLocation].
+  static void _expectPath(String current, String expected, String caller) {
+    // `'/'` can never be a meaningful expectation: EVERY location starts with
+    // it, so the assertion is unfalsifiable. Fail loudly at the call site
+    // rather than passing vacuously. Assert an exact landing path instead
+    // (`RouteNames.clientHome`, `RouteNames.masterProfile`, …); if you really
+    // do mean the literal `/` route, use `expect(AppHarness.location(router),
+    // equals(RouteNames.home))`.
     expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
+      expected,
+      isNot('/'),
+      reason:
+          '$caller was handed "/" — every location in the app satisfies that, '
+          'so the assertion can never fail. Assert the concrete landing route '
+          'instead, or use expect(AppHarness.location(router), equals("/")).',
+    );
+
+    final bool matches =
+        current == expected ||
+        current.startsWith('$expected/') ||
+        current.startsWith('$expected?');
+
+    expect(
+      matches,
+      isTrue,
+      reason:
+          'Expected router location to be $expected (or a sub-route of it), '
+          'got $current',
     );
   }
 

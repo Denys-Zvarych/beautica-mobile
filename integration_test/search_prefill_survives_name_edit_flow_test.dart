@@ -77,16 +77,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router to be at $expected, got $current',
-    );
-  }
-
   /// Reads the seeded city off the live keepAlive [SearchFiltersController] via
   /// the root [ProviderContainer] (reachable from the always-mounted
   /// [ClientShell]). Reading a keepAlive provider does not re-seed it.
@@ -115,12 +105,12 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // ── 1. Open Пошук → the initState prefill renders the saved city ────────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(find.byKey(const Key('client-branch-search')), findsOneWidget);
       expect(
         tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
@@ -140,15 +130,15 @@ void main() {
       // — the exact keep-alive condition of the reported bug.
       await tester.tap(find.byKey(const Key('client-nav-tile-0')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       await tester.tap(find.byKey(const Key('btn-menu-client')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientMenu);
+      AppHarness.expectLocation(router, RouteNames.clientMenu);
 
       await tester.tap(find.byKey(const Key('row-personal')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientEditPersonal);
+      AppHarness.expectLocation(router, RouteNames.clientEditPersonal);
 
       // ── 3. Change firstName + lastName → Save ───────────────────────────────
       final Finder firstNameField = find.descendant(
@@ -178,7 +168,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // The Save lands back on the client home hub.
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       // The PATCH mutated the backend name (round-trips on the next GET).
       expect(fb.clientFirstName, 'Оновлене', reason: 'PATCH must persist name');
       expect(fb.clientLastName, 'Прізвище');
@@ -218,7 +208,7 @@ void main() {
       // survived, so the row renders the surviving seed.
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
       final String cityRow = tester

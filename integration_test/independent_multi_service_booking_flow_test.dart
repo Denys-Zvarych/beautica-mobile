@@ -204,16 +204,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current =
-        router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   // The seeded `master-aaa` fixture's own two PUBLIC service ids
   // (`FakeBackend._publicMasterServices` — the SAME `GET
   // /masters/master-aaa/services` response `public_master_profile_flow_test.dart`
@@ -324,7 +314,7 @@ void main() {
       );
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingConfirm);
+      AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
       expect(
         fb.getPublicMasterCalls,
@@ -347,7 +337,7 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingSuccess);
+      AppHarness.expectShellLocation(router, RouteNames.bookingSuccess);
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
 
@@ -533,7 +523,7 @@ void main() {
       );
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingConfirm);
+      AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
 
       // ── First submit → service A succeeds, service B 409s ────────────────
@@ -541,7 +531,7 @@ void main() {
       await AppHarness.settle(tester);
 
       // STAYS on the confirm screen — no navigation, no crash, no dialog.
-      expectLocation(router, RouteNames.bookingConfirm);
+      AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
       expect(find.byType(BookingSuccessScreen), findsNothing);
       // The retired conflict dialog must NEVER appear (this is the exact
@@ -579,7 +569,7 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingSuccess);
+      AppHarness.expectShellLocation(router, RouteNames.bookingSuccess);
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
 
@@ -645,7 +635,7 @@ void main() {
       );
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingSlotsTime);
+      AppHarness.expectShellLocation(router, RouteNames.bookingSlotsTime);
       expect(find.byType(BookingTimeScreen), findsOneWidget);
 
       // Scopes a finder to ONE service's slide (both are kept-alive-mounted by

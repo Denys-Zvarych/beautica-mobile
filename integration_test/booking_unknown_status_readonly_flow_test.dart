@@ -74,16 +74,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router at $expected, got $current',
-    );
-  }
-
   AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
       AppLocalizations.of(tester.element(find.byType(screen)));
 
@@ -102,7 +92,7 @@ void main() {
       // Записи tab (bottom-nav tile 3).
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.clientBookings);
+      AppHarness.expectLocation(router, RouteNames.clientBookings);
       expect(find.byType(MyBookingsScreen), findsOneWidget);
 
       // The booking is still CONFIRMED here, so it partitions into Майбутні
@@ -125,7 +115,7 @@ void main() {
       // The pre-7.1 throw was swallowed by the mapper's `on Failure { continue; }`
       // and the booking disappeared. Reaching a rendered detail screen at all is
       // the assertion.
-      expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      AppHarness.expectLocation(router, RouteNames.bookingDetail('booking-1'));
       expect(
         find.byType(BookingDetailScreen),
         findsOneWidget,

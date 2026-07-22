@@ -419,11 +419,17 @@ void main() {
 
     test('every BookingSort targets a whitelisted property — anything else '
         'now 400s (backend 26.6 removed createdAt)', () {
+      // TIGHTENED (2026-07-22 vacuous-assertion audit): this was
+      // `anyOf('startsAt', 'priceAtBooking')`. Every BookingSort value is
+      // `startsAt,*`, so the second branch was dead — and worse, it ADMITTED a
+      // re-added `priceAtBooking`, which is precisely the sort this test's own
+      // name says now 400s (backend 26.8 retired it). A matcher that accepts
+      // the retired behaviour cannot guard against its return.
       for (final BookingSort s in BookingSort.values) {
         final String property = s.wireValue.split(',').first;
         expect(
           property,
-          anyOf('startsAt', 'priceAtBooking'),
+          equals('startsAt'),
           reason: '$s targets "$property", which is off the 26.6 whitelist',
         );
       }

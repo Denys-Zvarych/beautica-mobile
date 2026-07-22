@@ -50,20 +50,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    // The booking/profile routes are pushed imperatively on the CLIENT shell,
-    // so `matches.last.matchedLocation` (what go_router's ImperativeRouteMatch
-    // uses internally) reflects the real current screen — `.uri` would keep
-    // reporting the shell branch root. Mirrors salon_booking_flow_test.
-    final String current =
-        router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   /// Reaches the search results screen with an ACTIVE service filter
   /// (NAILS → CLASSIC_MANICURE), then drains the shared fixture's forced second
   /// master page so the trailing load-more spinner stops and later settles
@@ -130,12 +116,15 @@ void main() {
         expect(masterCard, findsOneWidget);
         await tester.tap(masterCard);
         await AppHarness.settle(tester);
-        expectLocation(router, RouteNames.masterPublicProfile('master-aaa'));
+        AppHarness.expectShellLocation(
+          router,
+          RouteNames.masterPublicProfile('master-aaa'),
+        );
 
         // ── «Записатись до майстра» → the master-scoped booking Step 1 ────────
         await tester.tap(find.byKey(const Key('public-master-book-cta')));
         await AppHarness.settle(tester);
-        expectLocation(router, RouteNames.bookingNew);
+        AppHarness.expectShellLocation(router, RouteNames.bookingNew);
         expect(find.byType(ServiceSelectorSheet), findsOneWidget);
 
         // ── PROOF: exact-slug pre-selection HOISTS + auto-expands the matched
@@ -219,13 +208,16 @@ void main() {
         expect(salonCard, findsOneWidget);
         await tester.tap(salonCard);
         await AppHarness.settle(tester);
-        expectLocation(router, RouteNames.salonPublicProfile('salon-xyz'));
+        AppHarness.expectShellLocation(
+          router,
+          RouteNames.salonPublicProfile('salon-xyz'),
+        );
         expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
 
         // ── «Записатись на послугу» → the salon booking Step 1 ───────────────
         await tester.tap(find.byKey(const Key('salon-book-cta')));
         await AppHarness.settle(tester);
-        expectLocation(router, RouteNames.salonBookingServices);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingServices);
         expect(find.byType(SalonServiceSelectionScreen), findsOneWidget);
 
         // ── PROOF: exact-slug pre-selection HOISTS + auto-expands the matched

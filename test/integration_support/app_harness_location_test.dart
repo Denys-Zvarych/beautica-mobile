@@ -105,4 +105,110 @@ void main() {
     // The convenience assertion wrapper must agree.
     AppHarness.expectLocation(router, '/master/bookings');
   });
+
+  // =========================================================================
+  // AppHarness.expectLocation matching semantics (2026-07-22 audit).
+  //
+  // The helper used to assert `startsWith(expected)`, and 29 hand-copied
+  // duplicates across integration_test/ did the same. `startsWith` is far
+  // weaker than it reads, and the flows that consume it can only run on a
+  // driven emulator — so the matching RULE is pinned here, at the tier that
+  // does run under `flutter test`.
+  // =========================================================================
+  group('AppHarness.expectLocation matching rule', () {
+    /// Runs [body] and returns the [TestFailure] it threw, or null if it
+    /// passed. Lets a test assert that an assertion FAILS.
+    TestFailure? failureFrom(void Function() body) {
+      try {
+        body();
+        return null;
+      } on TestFailure catch (e) {
+        return e;
+      }
+    }
+
+    testWidgets('accepts an exact match and a real sub-route, but REJECTS a '
+        'non-segment prefix', (tester) async {
+      final GoRouter router = GoRouter(
+        initialLocation: '/bookings/abc',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/bookings/:id',
+            builder: (_, _) => const _Probe('detail'),
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      // Exact + segment-aligned parent: both legitimate.
+      AppHarness.expectLocation(router, '/bookings/abc');
+      AppHarness.expectLocation(router, '/bookings');
+
+      // THE FIX: `/booking` is a `startsWith` prefix of `/bookings/abc` but a
+      // DIFFERENT route (RouteNames.bookingNew lives under `/booking/`). The
+      // old `startsWith` matcher accepted this; segment-aware matching must
+      // not.
+      expect(
+        failureFrom(() => AppHarness.expectLocation(router, '/booking')),
+        isNotNull,
+        reason:
+            '/booking must not match /bookings/abc — they are different '
+            'routes in different shell branches',
+      );
+    });
+
+    testWidgets('REJECTS "/" outright — every location satisfies it', (
+      tester,
+    ) async {
+      final GoRouter router = GoRouter(
+        initialLocation: '/master/profile',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/master/profile',
+            builder: (_, _) => const _Probe('profile'),
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      // This is the exact shape two flows shipped (auth_login_flow_test and
+      // auth_login_patrol_test both asserted `RouteNames.home`, which is '/').
+      // Under `startsWith` it passed while the app sat on /master/profile.
+      // This IS the regression pin for the runtime half of
+      // scripts/forbid_expectlocation_home.sh — it asserts the banned call
+      // FAILS, so the banned shape has to appear here verbatim.
+      final TestFailure? failure = failureFrom(
+        // expectlocation-home-ok: deliberately pinning that '/' is rejected
+        () => AppHarness.expectLocation(router, '/'),
+      );
+      expect(
+        failure,
+        isNotNull,
+        reason: 'handing "/" to expectLocation must fail loudly, not pass',
+      );
+      expect(failure.toString(), contains('can never fail'));
+    });
+
+    testWidgets('tolerates a query string on the resolved location', (
+      tester,
+    ) async {
+      final GoRouter router = GoRouter(
+        initialLocation: '/invite/accept?token=abc123',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/invite/accept',
+            builder: (_, _) => const _Probe('invite'),
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      // `location()` returns the full URI including the query, which
+      // `matchedLocation` never carries — so `?` is a boundary too.
+      AppHarness.expectLocation(router, '/invite/accept');
+    });
+  });
 }

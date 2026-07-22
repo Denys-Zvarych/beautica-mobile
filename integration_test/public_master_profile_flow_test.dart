@@ -81,14 +81,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // Push-safe location resolver: see `AppHarness.location`'s doc comment
-  // (integration_test/support/app_harness.dart) for why a raw
-  // `currentConfiguration.uri` read keeps reporting the pre-push location
-  // forever. This file used to carry its own copy of that logic; promoted to
-  // the shared helper (2026-07-19) so every flow imports one implementation.
-  void expectLocation(GoRouter router, String expected) =>
-      AppHarness.expectLocation(router, expected);
-
   // Shared preamble for Flow A / Flow C: log in as CLIENT, push the public
   // profile, open the NAILS category, select the first service, and land on
   // SlotDateScreen («Оберіть дату») via the real router + real repositories
@@ -128,7 +120,7 @@ void main() {
     await tester.tap(find.byKey(const Key('booking-summary-cta')));
     await tester.pumpAndSettle();
 
-    expectLocation(router, RouteNames.bookingSlots);
+    AppHarness.expectLocation(router, RouteNames.bookingSlots);
     expect(find.byType(SlotDateScreen), findsOneWidget);
   }
 
@@ -147,7 +139,7 @@ void main() {
       await AppHarness.loginAs(tester, fb, UserRole.client);
       // fixed-wait-ok: settles the real async login/route-transition step; duration is pumpAndSettle's poll interval, not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // ── Navigate to /masters/master-aaa (the search/favourites card target) ─
       // MasterResultCard now wires onTap → context.push(masterPublicProfile)
@@ -162,7 +154,7 @@ void main() {
       // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, '/masters/master-aaa');
+      AppHarness.expectLocation(router, '/masters/master-aaa');
       expect(
         find.byType(PublicMasterProfileScreen),
         findsOneWidget,
@@ -265,7 +257,7 @@ void main() {
       // fixed-wait-ok: settles the real async route-push step after the tap; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.bookingNew);
+      AppHarness.expectLocation(router, RouteNames.bookingNew);
 
       // ── 403-decoupling regression — never touched GET /masters/me ─────────
       expect(
@@ -300,7 +292,7 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await tester.pumpAndSettle();
 
-      expectLocation(router, RouteNames.bookingSlots);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
       expect(find.byType(SlotDateScreen), findsOneWidget);
 
       // ── Phase 14.14: the calendar day-availability gate fires its real
@@ -341,7 +333,7 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await tester.pumpAndSettle();
 
-      expectLocation(router, RouteNames.bookingSlotsTime);
+      AppHarness.expectLocation(router, RouteNames.bookingSlotsTime);
       expect(find.byType(SlotTimeScreen), findsOneWidget);
 
       // ── Pick the first available chip → «Підтвердити» enables ────────────
@@ -356,7 +348,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // ── Lands on the (Phase 14.2-stubbed) /booking/confirm placeholder ────
-      expectLocation(router, RouteNames.bookingConfirm);
+      AppHarness.expectLocation(router, RouteNames.bookingConfirm);
       expect(
         find.byKey(const Key('booking-confirm-placeholder')),
         findsOneWidget,
@@ -387,7 +379,7 @@ void main() {
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
       // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
 
       // Attempt to reach the CLIENT-facing public profile.
       unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
@@ -395,7 +387,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       // clientOnlyGuard → roleHomePath(independentMaster) → /master/profile.
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
       expect(
         find.byType(PublicMasterProfileScreen),
         findsNothing,
@@ -473,7 +465,7 @@ void main() {
       // «Далі» stays disabled — no date was ever accepted as selected.
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.bookingSlots);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
       expect(
         find.byType(SlotTimeScreen),
         findsNothing,
@@ -561,7 +553,7 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.bookingSlots);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
       expect(
         find.byType(SlotTimeScreen),
         findsNothing,
@@ -602,7 +594,7 @@ void main() {
     unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
     // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expectLocation(router, '/masters/master-aaa');
+    AppHarness.expectLocation(router, '/masters/master-aaa');
 
     // ── Tap the REAL rendered reviews stat tile (the tap the bug report was
     // about) — NOT a `router.push`/`router.go` stand-in for it. ────────────
@@ -617,7 +609,7 @@ void main() {
 
     // The bug was a SILENT no-op — the first and most important assertion
     // is simply that navigation happened at all.
-    expectLocation(router, '/masters/master-aaa/reviews');
+    AppHarness.expectLocation(router, '/masters/master-aaa/reviews');
     expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
 
     // ── The real PUBLIC reviews endpoints fired for master-aaa … ──────────
@@ -700,7 +692,7 @@ void main() {
     unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
     // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expectLocation(router, '/masters/master-aaa');
+    AppHarness.expectLocation(router, '/masters/master-aaa');
 
     // ── Tap the REAL rendered rating stat tile — its OWN GestureDetector,
     // distinct from the reviews tile Flow E already exercised. ───────────
@@ -713,7 +705,7 @@ void main() {
     // fixed-wait-ok: settles the real async route-push + review-provider loads; not a total-wait guess.
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
-    expectLocation(router, '/masters/master-aaa/reviews');
+    AppHarness.expectLocation(router, '/masters/master-aaa/reviews');
     expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
 
     // The real PUBLIC endpoints fired for master-aaa — never the

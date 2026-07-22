@@ -76,17 +76,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // ── Helper: assert the router landed on [expected] ───────────────────────
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router to be at $expected, got $current',
-    );
-  }
-
   /// Logs in as CLIENT, lands on /home, opens the burger, and settles on the
   /// /client/menu settings hub. Returns the live router for location asserts.
   Future<GoRouter> openSettingsHub(WidgetTester tester, FakeBackend fb) async {
@@ -94,13 +83,13 @@ void main() {
     await AppHarness.loginAs(tester, fb, UserRole.client);
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
-    expectLocation(router, RouteNames.clientHome);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
 
     // Open the home-hub burger → pushes /client/menu.
     await tester.tap(find.byKey(const Key('btn-menu-client')));
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
-    expectLocation(router, RouteNames.clientMenu);
+    AppHarness.expectLocation(router, RouteNames.clientMenu);
     expect(
       find.byType(ClientSettingsHubScreen),
       findsOneWidget,
@@ -124,7 +113,7 @@ void main() {
       // Open Contacts edit from the hub.
       await tester.tap(find.byKey(const Key('row-contacts')));
       await tester.pumpAndSettle(const Duration(seconds: 2));
-      expectLocation(router, RouteNames.clientEditContacts);
+      AppHarness.expectLocation(router, RouteNames.clientEditContacts);
 
       // The phone field pre-populates from the cached /users/me profile.
       expect(
@@ -184,7 +173,7 @@ void main() {
       expect(body.containsKey('firstName'), isFalse);
 
       // Save navigated home; the new phone round-trips through the fake state.
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       expect(
         fb.clientPhone,
         '+380 67 111 22 33',
@@ -244,7 +233,7 @@ void main() {
       // Open Location edit from the hub.
       await tester.tap(find.byKey(const Key('row-location')));
       await tester.pumpAndSettle(const Duration(seconds: 2));
-      expectLocation(router, RouteNames.clientEditLocation);
+      AppHarness.expectLocation(router, RouteNames.clientEditLocation);
 
       // The locality cascade renders…
       expect(
@@ -339,7 +328,7 @@ void main() {
       );
 
       // Save left the editor (navigated home) — proving no validation block.
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       // The picked city round-trips through the fake /users/me state.
       expect(
         fb.clientCityId,

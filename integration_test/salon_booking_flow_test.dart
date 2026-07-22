@@ -327,26 +327,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    // `currentConfiguration.uri` deliberately EXCLUDES `ImperativeRouteMatch`
-    // entries (see go_router's `RouteMatchList.uri` doc comment) — every
-    // route this flow reaches after the initial `/search` tab (the salon
-    // profile + all 3 salon-booking routes) is pushed imperatively via
-    // `context.push`/`context.go` ON TOP OF the CLIENT `StatefulShellRoute`,
-    // so `.uri` would keep reporting the shell branch's root ('/search')
-    // instead of the actually-displayed screen. `matches.last.matchedLocation`
-    // is what go_router's own `ImperativeRouteMatch` uses internally and is
-    // always the full absolute path (see `match.dart`), so it reflects the
-    // real current screen regardless of shell nesting.
-    final String current =
-        router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   testWidgets('CLIENT books a salon service end to end: profile CTA → service '
       'selection → master assignment (ineligible masters filtered, eligible '
       'masters auto-attached) → coming-soon placeholder', (tester) async {
@@ -431,7 +411,7 @@ void main() {
       expect(salonCard, findsOneWidget);
       await tester.tap(salonCard);
       await AppHarness.settle(tester);
-      expectLocation(router, '/salons/salon-xyz');
+      AppHarness.expectShellLocation(router, '/salons/salon-xyz');
       expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
 
       // ── Tap "Записатись на послугу" → service selection (NOT a crash) ──
@@ -440,7 +420,7 @@ void main() {
       await tester.tap(bookCta);
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.salonBookingServices);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingServices);
       expect(find.byType(SalonServiceSelectionScreen), findsOneWidget);
       expect(
         tester.takeException(),
@@ -555,7 +535,7 @@ void main() {
       // selected service, never a roster fan-out.
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.salonBookingMasters);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingMasters);
       expect(find.byType(SalonMasterSelectionScreen), findsOneWidget);
       expect(
         tester.takeException(),
@@ -722,7 +702,7 @@ void main() {
       // placeholder — that hand-off only happens once BOTH assigned masters
       // (master-ccc, master-ddd) are fully scheduled, via the confirm bar
       // built later in this test. ─────────────────────────────────────────
-      expectLocation(router, RouteNames.salonBookingTime);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingTime);
       expect(find.byType(SalonTimeScreen), findsOneWidget);
       expect(
         tester.takeException(),
@@ -859,7 +839,7 @@ void main() {
       await tester.tap(find.byKey(const Key('salon-time-back')));
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.salonBookingTime);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingTime);
       expect(
         find.byType(SalonTimeScreen),
         findsOneWidget,
@@ -915,7 +895,7 @@ void main() {
       );
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.salonBookingTime);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingTime);
       expect(
         find.byType(SalonTimeScreen),
         findsOneWidget,
@@ -1058,7 +1038,7 @@ void main() {
       await tester.tap(scheduleConfirmCta);
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.salonBookingConfirm);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
       expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
       // No booking has been written by merely reaching the confirm screen.
@@ -1144,7 +1124,7 @@ void main() {
       await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.salonBookingSuccess);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingSuccess);
       expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
 
@@ -1294,14 +1274,14 @@ void main() {
         );
         await AppHarness.settle(tester);
 
-        expectLocation(router, RouteNames.salonBookingConfirm);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
         expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
 
         // First submit → m-two fails (409) → stay on confirm.
         await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
         await AppHarness.settle(tester);
 
-        expectLocation(router, RouteNames.salonBookingConfirm);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
         expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
         expect(find.byType(SalonBookingSuccessScreen), findsNothing);
         expect(repo.callsFor('m-one'), 1);
@@ -1311,7 +1291,7 @@ void main() {
         await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
         await AppHarness.settle(tester);
 
-        expectLocation(router, RouteNames.salonBookingSuccess);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingSuccess);
         expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
         // m-one booked once (never re-sent); m-two booked twice (fail + retry),
         // both reusing its stable idempotency key.
@@ -1407,7 +1387,7 @@ void main() {
           ),
         );
         await AppHarness.settle(tester);
-        expectLocation(router, RouteNames.salonBookingConfirm);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
 
         // m-two's write fails with the CLIENT's own conflict (unrelated
         // third booking) — swap in the failing behaviour on the recording
@@ -1428,7 +1408,7 @@ void main() {
         await AppHarness.settle(tester);
 
         // The batch is NOT failed — still on confirm, m-one settled fine.
-        expectLocation(router, RouteNames.salonBookingConfirm);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
         expect(find.byType(SalonBookingSuccessScreen), findsNothing);
         expect(repo.callsFor('m-one'), 1);
         expect(repo.callsFor('m-two'), 1);
@@ -1473,7 +1453,7 @@ void main() {
         await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
         await AppHarness.settle(tester);
 
-        expectLocation(router, RouteNames.salonBookingSuccess);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingSuccess);
         expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
         expect(repo.callsFor('m-one'), 1);
         expect(repo.callsFor('m-two'), 2);
@@ -1546,7 +1526,7 @@ void main() {
         );
         await AppHarness.settle(tester);
 
-        expectLocation(router, RouteNames.salonBookingConfirm);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
         expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
 
         final AppLocalizations l10n = AppLocalizations.of(
@@ -1570,7 +1550,7 @@ void main() {
 
         // SETTLED, PARTIAL FAILURE: m-one's checkmark is visible at rest —
         // hasFailures=true keeps it showing.
-        expectLocation(router, RouteNames.salonBookingConfirm);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
         expect(find.byType(SalonBookingSuccessScreen), findsNothing);
         expect(
           find.descendant(
@@ -1612,7 +1592,7 @@ void main() {
         repo.succeed('m-two');
         await AppHarness.settle(tester);
 
-        expectLocation(router, RouteNames.salonBookingSuccess);
+        AppHarness.expectShellLocation(router, RouteNames.salonBookingSuccess);
         expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
         expect(repo.callsFor('m-one'), 1);
         expect(repo.callsFor('m-two'), 2);

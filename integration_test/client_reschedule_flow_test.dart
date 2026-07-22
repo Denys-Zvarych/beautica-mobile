@@ -50,16 +50,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router at $expected, got $current',
-    );
-  }
-
   AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
       AppLocalizations.of(tester.element(find.byType(screen)));
 
@@ -114,13 +104,13 @@ void main() {
       // ── Open «МОЇ ЗАПИСИ» (bottom-nav tile 3) and land on the detail. ──────
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.clientBookings);
+      AppHarness.expectLocation(router, RouteNames.clientBookings);
       expect(find.byType(MyBookingsScreen), findsOneWidget);
       expect(find.byType(BookingCard), findsOneWidget);
 
       await tester.tap(find.byType(BookingCard));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      AppHarness.expectLocation(router, RouteNames.bookingDetail('booking-1'));
       expect(find.byType(BookingDetailScreen), findsOneWidget);
 
       // ── «Перенести» → the shared reschedule helper seeds + pushes the slot
@@ -136,13 +126,13 @@ void main() {
       );
       await tester.tap(reschedule);
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.bookingSlots);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
 
       // ── Pick a NEW date + time through the real picker. ───────────────────
       await pickNewDateAndTime(tester);
 
       // ── The confirm screen is in RESCHEDULE mode. ─────────────────────────
-      expectLocation(router, RouteNames.bookingConfirm);
+      AppHarness.expectLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
       final AppLocalizations confirmL10n = l10nOf(tester, BookingConfirmScreen);
       // CTA reads «Перенести запис» (never «Записатись»).
@@ -169,7 +159,7 @@ void main() {
       await AppHarness.settle(tester);
 
       // Landed on the RESCHEDULE success screen.
-      expectLocation(router, RouteNames.bookingSuccess);
+      AppHarness.expectLocation(router, RouteNames.bookingSuccess);
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
       final AppLocalizations successL10n = l10nOf(tester, BookingSuccessScreen);
@@ -268,7 +258,7 @@ void main() {
 
       // The shared helper loaded the booking (GET /bookings/booking-1) + the
       // master profile and pushed the slot picker — seeded to reschedule.
-      expectLocation(router, RouteNames.bookingSlots);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
       expect(find.byType(SlotDateScreen), findsOneWidget);
       expect(
         fb.getBookingDetailCalls,

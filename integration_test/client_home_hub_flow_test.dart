@@ -60,17 +60,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // ── Helper: assert the router landed on [expected] ───────────────────────
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router to be at $expected, got $current',
-    );
-  }
-
   // ── Test 1 — CLIENT login lands on /home (HomeHubScreen) ─────────────────
 
   testWidgets(
@@ -91,7 +80,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // Must be at /home.
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // HomeHubScreen must be mounted.
       expect(
@@ -259,12 +248,12 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // Master lands on /master/profile after login.
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
 
       // Attempt to navigate to /home — must be bounced back.
       router.go(RouteNames.clientHome);
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
       expect(
         find.byType(HomeHubScreen),
         findsNothing,
@@ -274,7 +263,7 @@ void main() {
       // Attempt /rating — also gated.
       router.go(RouteNames.myRating);
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
       expect(
         find.byKey(const Key('my_rating_back_button')),
         findsNothing,
@@ -369,7 +358,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // Pre-condition: on Home.
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // Tap the in-page Passport preview tile (unique widget type, no localised
       // string — robust finder).
@@ -380,7 +369,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       // Page changed to the Passport branch...
-      expectLocation(router, RouteNames.clientPassport);
+      AppHarness.expectLocation(router, RouteNames.clientPassport);
       expect(
         find.byKey(const Key('client-branch-passport')),
         findsOneWidget,
