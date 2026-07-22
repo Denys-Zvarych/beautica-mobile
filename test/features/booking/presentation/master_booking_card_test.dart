@@ -2535,85 +2535,17 @@ void main() {
     }
   });
 
-  // `_kCompactPriceReserve` (68) does not bind on ANY lane the timeline can
-  // build — 226dp of lane is 203dp of row, so the cap resolves to 135dp,
-  // above `_PriceTag`'s own 112dp ceiling. That is documented on the constant
-  // and is the honest state of things; what it left behind is a constant
-  // NOTHING fails on: 0 and 130 render identically to 68 at every production
-  // width. This exercises it at the width where it genuinely engages, so the
-  // number is a commitment rather than a free parameter — and the assertion is
-  // its stated PURPOSE (the ~64dp readable service-name sliver), not the
-  // literal, so a wrong reserve fails with the sliver it cost.
-  group('_kCompactPriceReserve binds below the production floor', () {
-    testWidgets(
-      'on a sub-production 190dp lane the pill yields exactly the documented '
-      '64dp sliver to the service name',
-      (WidgetTester tester) async {
-        final Booking booking = _shortBooking(id: 'reserve').copyWith(
-          serviceName: 'Комплексний догляд за волоссям з ботоксом та укладкою',
-          price: 1234567,
-          priceMax: 8901234,
-        );
-
-        await tester.pumpApp(
-          Center(
-            child: SizedBox(
-              width: 190,
-              child: MasterBookingCard(booking: booking, onTap: () {}),
-            ),
-          ),
-        );
-        await tester.pump();
-
-        expect(tester.takeException(), isNull);
-
-        // The hairline is full-bleed inside the padding, so its width IS the
-        // row width the `LayoutBuilder` resolved — read rather than re-derived
-        // from the lane, so a padding change cannot silently shift the target.
-        final double row = tester
-            .getSize(
-              find.byKey(
-                const Key('master-booking-card-compact-divider-reserve'),
-              ),
-            )
-            .width;
-        final double pill = _priceTagWidth(tester);
-        final double service = tester
-            .renderObject<RenderBox>(find.text(booking.serviceName))
-            .size
-            .width;
-
-        expect(
-          row,
-          lessThan(180),
-          reason:
-              'precondition: the cap only engages below a ~180dp row — above '
-              'it the pill\'s own 112dp ceiling binds first and this test '
-              'proves nothing about the reserve',
-        );
-        expect(
-          pill,
-          closeTo(row - 68, 0.01),
-          reason:
-              'the pill measured ${pill}dp on a ${row}dp row — the compact '
-              'cap is `row − _kCompactPriceReserve`, so this is the reserve '
-              'read back out of the layout',
-        );
-        expect(
-          service,
-          closeTo(64, 0.01),
-          reason:
-              'the service name kept ${service}dp — the reserve exists to '
-              'leave it 64dp (a readable ~5-6 Cyrillic glyphs plus the '
-              'ellipsis) after the row\'s single 4dp gap. A reserve of 0 hands '
-              'the pill its full 112dp ceiling and leaves ~51dp here; a larger '
-              'one starves the pill instead.',
-        );
-        // The band is scaled, never clipped or ellipsised, even squeezed.
-        expect(find.text(booking.priceLabel), findsOneWidget);
-      },
-    );
-  });
+  // The `_kCompactPriceReserve` group that lived here was DELETED 2026-07-22
+  // alongside the constant and the per-card `LayoutBuilder` that measured the
+  // row for it (mobile-perf MEDIUM — see `master_booking_card.dart`'s row 2
+  // comment). It asserted the pill was capped at `row − 68` on a
+  // sub-production 190dp lane; there is no cap any more, so there is nothing
+  // left for it to pin. The behaviour it actually protected — the price band
+  // SCALING rather than clipping or ellipsising when squeezed — is covered by
+  // the "the compact budget, decomposed" group above, whose per-lane /
+  // per-textScaler sweep reads `_PriceTag`'s OWN `_maxTextWidth` ceiling
+  // ([_kPriceCapWidth]) and its `FittedBox` scale, neither of which this
+  // removal touches.
 }
 
 /// Asserts NO date component renders anywhere on the card — the 2026-07-21

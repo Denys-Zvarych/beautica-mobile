@@ -153,9 +153,17 @@ abstract interface class BookingRepository {
   /// user narrows the list filter (see `bookedDaysProvider`).
   ///
   /// The backend caps the range at 366 days and requires both bounds.
+  ///
+  /// [cancelToken] (mobile-perf LOW, 2026-07-22) mirrors [getMyBookings]'.
+  /// This is the single heaviest request in the feature — a full ±180-day
+  /// sweep — so a logout or a screen pop mid-flight must be able to abort it
+  /// rather than leave it running to completion for a result nobody will read.
+  /// Disposing the Riverpod element stops the RESULT from landing but does
+  /// not, by itself, abort the underlying Dio request.
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
+    CancelToken? cancelToken,
   });
 
   /// Fetches the enriched detail for a single booking.
@@ -366,6 +374,7 @@ final class HttpBookingRepository implements BookingRepository {
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
+    CancelToken? cancelToken,
   }) async {
     try {
       // Raw Dio rather than the generated client, for the same reason
@@ -378,6 +387,7 @@ final class HttpBookingRepository implements BookingRepository {
           'from': toApiDate(from),
           'to': toApiDate(to),
         },
+        cancelToken: cancelToken,
       );
 
       final Object? payload = response.data?['data'];
@@ -765,6 +775,20 @@ final class HttpBookingRepository implements BookingRepository {
 
   /// Maps a [DioException] to a typed [Failure]. Mirrors the identical
   /// mapping in `HttpSalonRepository` / `HttpMasterRepository`.
+  ///
+  /// `badCertificate` gets its own branch (mobile-security LOW) rather than
+  /// sharing the `badResponse`/`cancel`/`unknown` catch-all, exactly as
+  /// `HttpSalonRepository._mapDioException` already does — copying that
+  /// precedent CONVERGES the two files rather than diverging this one. The
+  /// motivation is sharper here than it was there: this repository's
+  /// `CancelToken` plumbing makes `DioExceptionType.cancel` a ROUTINE event
+  /// (every logout, every `bookedDaysProvider` dispose), so a possible-MITM
+  /// TLS failure on the app's most PII-dense traffic would otherwise be
+  /// indistinguishable in telemetry from a user popping a screen. The
+  /// [Failure] handed back to the UI is deliberately UNCHANGED
+  /// ([ServerFailure] — still fails closed); only the log signal is split
+  /// out. The cross-repository sweep of the remaining lump-everything
+  /// mappers stays a separate backlog item.
   Failure _mapDioException(DioException e) {
     if (e.error is Failure) return e.error as Failure;
     switch (e.type) {
@@ -773,9 +797,21 @@ final class HttpBookingRepository implements BookingRepository {
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
         return NetworkFailure(cause: e);
+      case DioExceptionType.badCertificate:
+        // Deliberately NOT gated behind `kDebugMode` (unlike the routine
+        // per-call-site DioException logs elsewhere in this file): a possible
+        // MITM must be visible in release-build telemetry, not only in local
+        // debug runs. No PII, no token, no booking id is logged — just the
+        // fact that certificate validation failed for booking traffic.
+        log(
+          'TLS/certificate validation failed for booking traffic — '
+          'possible MITM',
+          name: 'booking.repository.security',
+          level: 1000,
+        );
+        return ServerFailure(statusCode: e.response?.statusCode, cause: e);
       case DioExceptionType.badResponse:
       case DioExceptionType.cancel:
-      case DioExceptionType.badCertificate:
       case DioExceptionType.unknown:
         return ServerFailure(statusCode: e.response?.statusCode, cause: e);
     }

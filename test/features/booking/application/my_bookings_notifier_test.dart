@@ -25,6 +25,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -704,6 +705,111 @@ void main() {
         ),
       ).called(2);
     });
+
+    test('a failing refresh surfaces the mapped Failure AND releases the '
+        '_refreshing guard — a subsequent refresh still issues a request '
+        '(the guard is not a one-shot latch tripped by the throw)', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'c1',
+            status: BookingStatus.confirmed,
+            // Fixed PAST literal — see the `c2` fixture below for why.
+            startAt: DateTime.utc(2000, 1, 1),
+          ),
+        ]),
+      );
+      final c = _container(repo);
+
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
+
+      // Re-stub page 0 to throw a MAPPED Failure (not a bare Exception) for
+      // the refresh call — AsyncValue.guard converts it into an AsyncError.
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+
+      final notifier = c.read(myBookingsProvider(BookingTab.upcoming).notifier);
+      await notifier.refresh();
+
+      final AsyncValue<MyBookingsState> afterFailure = c.read(
+        myBookingsProvider(BookingTab.upcoming),
+      );
+      expect(afterFailure.hasError, isTrue);
+      expect(afterFailure.error, isA<NetworkFailure>());
+
+      // EMPIRICALLY VERIFIED (not guessed): Riverpod 3's notifier `state`
+      // setter runs every assignment through `copyWithPrevious`
+      // (`riverpod`'s `element.dart`), so the resulting AsyncError STILL
+      // carries the pre-refresh `MyBookingsState` as `.value` — this is
+      // NOT an AsyncData, `hasError` is true, but `hasValue`/`.value` are
+      // also populated from the last successful fetch. The previously
+      // rendered list is therefore preserved (a screen reading `.value`
+      // off the error keeps showing 'c1' rather than going blank), and it
+      // is NOT stuck mid-load: `isLoadingMore` on that carried-forward
+      // value is false.
+      expect(afterFailure.hasValue, isTrue);
+      expect(
+        afterFailure.value!.items.map((Booking b) => b.id),
+        <String>['c1'],
+        reason:
+            'the previous page must survive as the AsyncError\'s carried '
+            '.value, not be wiped',
+      );
+      expect(
+        afterFailure.value!.isLoadingMore,
+        isFalse,
+        reason: 'no spinner may be left stuck on after a failed refresh',
+      );
+
+      // The guard released: re-stub a SUCCESSFUL page 0 and refresh again
+      // — a second request must actually be issued, proving `_refreshing`
+      // was reset in the `finally` block despite the throw.
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'c2',
+            status: BookingStatus.confirmed,
+            // Fixed PAST literal (not `futureBookingStart()`): this test
+            // only checks that the id/page changed after the second
+            // refresh, not any `isPast`/`isUpcoming` affordance — see
+            // `scripts/forbid_stale_future_date_fixture.sh`'s documented
+            // exemption for a literal that can never become "upcoming".
+            startAt: DateTime.utc(2000, 1, 2),
+          ),
+        ]),
+      );
+      await notifier.refresh();
+
+      final AsyncValue<MyBookingsState> afterSecondRefresh = c.read(
+        myBookingsProvider(BookingTab.upcoming),
+      );
+      expect(afterSecondRefresh.hasError, isFalse);
+      expect(afterSecondRefresh.value!.items.map((Booking b) => b.id), <String>[
+        'c2',
+      ]);
+      // 1 initial build + 1 failed refresh + 1 successful refresh = 3.
+      verify(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(3);
+    });
   });
 
   // Product rule (decided 2026-07-16): a booking moves to «Минулі»/Past ONLY
@@ -840,6 +946,30 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(c.read(myBookingsProvider(BookingTab.upcoming)).hasError, isTrue);
+    });
+
+    test('propagates a MAPPED repository Failure as an AsyncError carrying '
+        'that exact type — not just hasError', () async {
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+      final c = _container(repo);
+
+      c.listen(myBookingsProvider(BookingTab.upcoming), (_, _) {});
+      c.read(myBookingsProvider(BookingTab.upcoming));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final AsyncValue<MyBookingsState> state = c.read(
+        myBookingsProvider(BookingTab.upcoming),
+      );
+      expect(state.hasError, isTrue);
+      expect(state.error, isA<NetworkFailure>());
     });
   });
 

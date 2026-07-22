@@ -286,6 +286,222 @@
 // consistently.
 //
 // ============================================================================
+// ADDENDUM 4 (2026-07-22) — VIEWPORT CULLING, AND THE MEMOISED LAYOUT MODEL
+// ============================================================================
+// mobile-perf HIGH: a `SingleChildScrollView` paints its WHOLE child — there
+// is no `RenderViewport` culling — so at the server's `size: 100` ceiling the
+// grid mounted ~200 layers and issued ~200 `MaskFilter.blur` RRect draws per
+// day (every `MasterBookingCard` carries a `RepaintBoundary`, and its
+// `_PriceTag` → `NeumorphicInset` a second one plus a blurred `CustomPaint`),
+// whether or not the card was anywhere near the viewport.
+//
+// THE FIX, AND WHY IT IS NOT A `ListView`: a lazy list cannot lay lanes out
+// against a shared hour ruler (see the class doc's "do NOT generalise" note
+// and R1/R3 above) — swapping one in would resurrect exactly the layout bugs
+// this non-lazy grid exists to avoid. Instead [_LaneColumn] keeps emitting a
+// child for EVERY booking, in the same order, at the same size — it just
+// emits a bare `SizedBox(width: cardWidth, height: cardMinHeight)` in place of
+// the `MasterBookingCard` when that card's planned box falls outside the
+// culling window. The `Column`'s child count, child order and per-child
+// geometry are all unchanged, so R3's "a Column physically cannot lay child
+// N+1 above child N's bottom" guarantee and [assignLanes] are both untouched.
+//
+// WHY THE SUBSTITUTION IS SIZE-EXACT, AND THE TEXT-SCALE GATE: [SUPERSEDED BY
+// ADDENDUM 6 — read that first.] This addendum culled on BOTH sides of the
+// viewport, which made size fidelity load-bearing (a card culled ABOVE the
+// visible band shifts everything below it, visible cards included). Since
+// every height in this file is a textScaler-1.0 measurement (see ADDENDUM 2),
+// that forced a gate: culling ran only when
+// `MediaQuery.textScalerOf(context).scale(1) <= 1.0`. ADDENDUM 6 removed both
+// the above-window culling and the gate.
+//
+// THE WINDOW, AND WHY IT DOES NOT REBUILD PER SCROLL PIXEL: the window is
+// `[offset - V, offset + 2V]` (V = viewport height) — a full viewport of
+// slack on each side of the visible band — recomputed only once the scroll
+// offset has drifted `V / 2` from where the current window was anchored. That
+// hysteresis is what keeps the scroll listener from calling `setState` every
+// frame, and it is safe by arithmetic: a drift bounded by `V / 2` against
+// slack of `V` leaves half a viewport of margin at both edges. (ADDENDUM 6
+// keeps this window verbatim; it only stops acting on the window's TOP edge.)
+// Before the controller has any metrics the window falls back to the SCREEN
+// height, which over-estimates the viewport and therefore only ever culls
+// LESS — and ADDENDUM 6 replaces that seed with the real
+// `viewportDimension` on the first post-frame callback.
+//
+// THE MEMOISED LAYOUT MODEL (mobile-perf MEDIUM): [assignLanes] (N `MapEntry`
+// allocations + a sort) and the per-card Kyiv-midnight anchor used to be
+// recomputed on every `build()` — including every one of the culling
+// rebuilds above. Both are pure functions of `bookings` + `day`, so
+// [_BookingsTimelineGridState] computes them once in `initState` and again
+// only when `!identical(widget.bookings, old.bookings) || widget.day !=
+// old.day`. The Kyiv midnight in particular was being reconstructed on EVERY
+// [_minutesSinceDayStart] call (~3N per build, i.e. 300 timezone-table
+// lookups at N=100) — it is now built once and passed in.
+//
+// ============================================================================
+// ADDENDUM 5 (2026-07-22) — THE CULLING PLACEHOLDER'S SIZE INVARIANT, STATED
+// PROPERLY (mobile-qa HIGH; ADDENDUM 4's own argument was wrong)
+// ============================================================================
+// ADDENDUM 4 justified its placeholder by claiming the real card "would have
+// rendered at exactly `cardMinHeight`", because [_cardMinHeightFor]'s 56dp
+// floor clears the card's 54dp natural height. That reasoning covers
+// `MasterBookingCard`'s COMPACT layout ONLY. The card switches to its FULL
+// layout at `minHeight >= MasterBookingCard.fullLayoutMinHeight` (112dp), and
+// the full layout's own natural content measures 117dp — while a 60-minute
+// booking's floor is exactly 112dp. So the single most common booking length
+// rendered a 117dp card behind a 112dp placeholder, and because [_LaneColumn]
+// is a flex `Column`, every card below a culled one moved UP 5dp per culled
+// card. Measured by mobile-qa: with two hour-long cards culled off the top,
+// the next card's content offset went 250 -> 240. The hour gridlines are
+// `Positioned` and never culled, so the cards slid out of registration with
+// their own hour lines as the day scrolled — a visible correctness bug, worse
+// than the paint cost culling exists to remove.
+//
+// THE INVARIANT, STATED AS AN INVARIANT (not as an argument about one
+// layout) — AMENDED BY ADDENDUM 6, WHICH DEMOTED IT FROM LOAD-BEARING TO
+// NICE-TO-HAVE. As ADDENDUM 5 originally shipped it read:
+//
+//   For every booking, at textScaler 1.0, the height of the widget
+//   [_LaneColumn] emits is the SAME whether that booking is culled or not.
+//   Substitution is a layout no-op; only paint work is removed.
+//
+// ADDENDUM 6 replaces it with a weaker claim that holds at EVERY text scale
+// — "no VISIBLE content moves" — and keeps everything below purely as the
+// mechanism that makes the scroll extent stable at scale 1.0. Read ADDENDUM 6
+// for the invariant now in force.
+//
+// THE MECHANISM — direction (a): make the placeholder genuinely size-exact.
+// [_LaneColumn] no longer sizes the placeholder from the FLOOR it hands the
+// card ([_cardMinHeightFor]); it sizes it from
+// `MasterBookingCard.occupiedHeightFor(floor)` — the box the card really
+// occupies, `max(floor, the selected layout's natural content height)`. That
+// is computable WITHOUT building the card because both inputs are pure
+// functions of the floor: which layout is selected is `floor >=
+// fullLayoutMinHeight`, and each layout's natural height is a
+// content-independent exact number (`estimatedNaturalHeight` 56 /
+// `fullLayoutNaturalHeight` 117 — every row in both bodies is a single
+// ellipsised line, so lane width and string length move the ellipsis, never
+// the height).
+//
+// Direction (b) — "only cull cards whose floor keeps them in the compact
+// layout" — was rejected: it would surrender culling for exactly the
+// bookings a real working day is made of (>=60 minutes), i.e. most of the
+// paint cost, to avoid publishing a number the card already knows about
+// itself and that `master_booking_card_test.dart` already pins.
+//
+// THE SAME NUMBER NOW DRIVES `plannedBottom`. It used to advance by the bare
+// floor, so on a day of hour-long bookings the PLANNED position drifted 5dp
+// per card from the RENDERED one — harmless for R3 (the `Column` guarantees
+// no overlap however wrong the planning is) but not for culling, which tests
+// `plannedTop` against a window in real screen coordinates. Planned and
+// rendered positions now coincide.
+//
+// ENFORCED BY TESTS, NOT BY THIS COMMENT — the previous comment argued the
+// invariant and was wrong, so:
+//   * `bookings_timeline_grid_test.dart`'s "ADDENDUM 4 — viewport culling"
+//     group asserts the placeholder is the exact box (width AND height) of
+//     the card it replaced, and that no card's offset within the timeline
+//     content changes as the view scrolls.
+//   * `widgets/master_booking_card_layout_height_test.dart` closes the
+//     derivation itself: it renders the REAL card at every floor this grid
+//     can produce (15/30/45/60/61/90/120-minute durations, plus the exact
+//     `fullLayoutMinHeight` boundary and one step either side of it) and
+//     asserts `occupiedHeightFor` predicted the rendered height to the pixel.
+//     A future density pass that moves either layout's natural height fails
+//     there, with the measurement attached, instead of shipping the reflow.
+//
+// STILL TEXT-SCALE-1.0 ONLY. `fullLayoutNaturalHeight` is 124dp at 1.15 and
+// 132dp at 1.3, so ADDENDUM 4's `_cullEnabled` gate is unchanged and remains
+// load-bearing: above 1.0 nothing is culled at all.
+// ^^^ TRUE WHEN WRITTEN, NO LONGER TRUE — see ADDENDUM 6. The gate is gone;
+// `occupiedHeightFor` survives it, and is still exact at 1.0.
+//
+// ============================================================================
+// ADDENDUM 6 (2026-07-22) — CULL BELOW ONLY, AT EVERY TEXT SCALE
+// (mobile-perf MEDIUM: the gate disabled culling for a large share of real
+// users)
+// ============================================================================
+// ADDENDUM 5 closed its reflow bug by making the placeholder size-exact, and
+// bought that exactness with `_cullEnabled` — culling ran only at textScaler
+// 1.0. `main.dart` clamps the ambient scale's CEILING to 1.3 but does not
+// clamp it down, so Android's ordinary "Large" font setting (1.15) and the
+// clamped maximum (1.3) both reach this widget intact. Every such user got
+// `_cullEnabled == false` for the whole session, i.e. the original
+// ~200-layer / ~100-blur grid that ADDENDUM 4 exists to remove. The HIGH was
+// simply unfixed for them.
+//
+// THE FIX: STOP MAKING SIZE-EXACTNESS LOAD-BEARING. Culling now happens only
+// BELOW the visible window, never above it. A card that is culled sits at
+// least a full viewport BELOW the visible band (the window's `+2V` edge minus
+// the `V/2` re-anchor drift leaves >= V/2 of margin — see ADDENDUM 4's
+// arithmetic, unchanged), so if its placeholder height is imperfect, the only
+// content it displaces is content that is ITSELF off-screen and further down.
+// Nothing on screen moves, and the hour-ruler registration ADDENDUM 5 was
+// about is preserved BY CONSTRUCTION rather than by a measurement table: the
+// cards from the top of the day down to the visible band are never
+// substituted at all, so their positions cannot drift however wrong a
+// placeholder below them is.
+//
+// THE INVARIANT NOW IN FORCE (replacing ADDENDUM 5's):
+//
+//   At EVERY text scale, no card at or above the visible band is ever
+//   replaced by a placeholder. Therefore the content offset of every card
+//   from the day's start through the bottom of the viewport is independent of
+//   the scroll offset, and no visible card can move because of culling.
+//   Placeholder height fidelity affects only the SCROLL EXTENT and the
+//   positions of other off-screen cards below the window.
+//
+// WHAT THIS COSTS: the tail of the day above the current scroll position is
+// no longer culled, so scrolling to the bottom of a 100-card day does
+// eventually materialise all 100. The win that remains is the one that
+// matters most — first paint, every day switch, and every short scroll of a
+// long day materialise only the head of the list plus three viewports of
+// slack, instead of the whole day.
+//
+// WHY NOT THE OTHER DIRECTION (make `occupiedHeightFor` a function of the
+// ambient `TextScaler` against a measured table — 124dp @1.15, 132dp @1.3 —
+// and gate only above the largest measured entry): correct but brittle. It
+// hard-codes per-scale measurements that any typography change silently
+// invalidates, and the test that enforces it would have to sweep every scale
+// the platform can hand us. This direction needs no measurement at all to be
+// CORRECT.
+//
+// `occupiedHeightFor` IS KEPT, DELIBERATELY, THOUGH IT IS NO LONGER
+// LOAD-BEARING: it is already written and already pinned to the pixel by
+// `master_booking_card_layout_height_test.dart`, and it is what keeps
+// `maxScrollExtent` exactly stable at textScaler 1.0 (planned == rendered, so
+// the extent does not change at all as below-window placeholders resolve).
+// Above 1.0 the extent does wobble slightly as the tail materialises — up to
+// ~15dp per culled card at 1.3 — which is invisible on the target platform:
+// the scroll OFFSET never changes, only the distance still available below
+// it, and `MaterialScrollBehavior` builds no `Scrollbar` on Android/iOS, so
+// there is no thumb to jump. Do not delete `occupiedHeightFor` to "simplify";
+// deleting it would trade an exact extent at the dominant text scale for
+// nothing.
+//
+// TWO SMALLER FIXES LANDED IN THE SAME PASS:
+//
+//  * THE VIEWPORT SEED (mobile-perf LOW). `ScrollPosition` does not notify
+//    its listeners on `applyViewportDimension`, so the SCREEN-height seed
+//    used to persist for an un-scrolled day's entire lifetime —
+//    over-materialising ~3.6 viewports instead of 3, on exactly the frames
+//    that matter. [_syncViewportFromMetrics] now reads the real
+//    `position.viewportDimension` in a post-frame callback scheduled from
+//    [didChangeDependencies], so first paint and every dependency change
+//    (rotation included) converge on the true viewport.
+//
+//  * THE PER-CARD GEOMETRY (mobile-perf LOW). `startMinute` (a
+//    [toBeauticaTime] timezone-table lookup plus a `difference`),
+//    [_cardMinHeightFor], `occupiedHeightFor` and the running `plannedTop`
+//    used to be recomputed inside `_LaneColumn.build`. Before culling, lane
+//    columns rebuilt only on a data change; culling made them rebuild on
+//    every window re-anchor (~every half viewport of scroll), so at N=100
+//    that was ~100 timezone lookups per re-anchor ON A SCROLLING FRAME. All
+//    of it is a pure function of `bookings + day`, so it now lives in
+//    [_CardGeometry], computed once in [_recomputeLayoutModel] beside
+//    [_laneGeometry]. The scroll path does one `>` comparison per card.
+//
+// ============================================================================
 // THE RULER IS THE KYIV WALL-CLOCK
 // ============================================================================
 // Every card's vertical position reads through [toBeauticaTime] — `Booking
@@ -316,9 +532,17 @@ import 'timeline_hour_ruler.dart';
 /// list.
 ///
 /// SEC (LOW-5): the non-lazy grid has a second cost beyond render work —
-/// EVERY card's client-name-bearing `Semantics` node (`master_booking_card
-/// .dart`) exists in the accessibility tree for the whole day at once, not
-/// just the on-screen ones. The retired `ListView.builder` virtualized, so
+/// every card's client-name-bearing `Semantics` node (`master_booking_card
+/// .dart`) exists in the accessibility tree at once for the whole materialised
+/// part of the day, not just the on-screen part. (ADDENDUM 6 narrowed this
+/// from the literal "EVERY card, always" it said when written: a card culled
+/// below the window emits a bare `SizedBox` with no `Semantics` node at all,
+/// so a day's tail is not exposed until it is scrolled towards. That is an
+/// incidental narrowing, NOT a mitigation — culling is a paint optimisation
+/// with no security contract, everything from the day's start down to the
+/// window is still exposed simultaneously, and a hostile app that scrolls the
+/// view still sweeps the lot. The trade-off below is accepted on exactly the
+/// same terms as before.) The retired `ListView.builder` virtualized, so
 /// only visible cards were ever exposed. `FLAG_SECURE` (acquired by the
 /// hosting screen's `ScreenProtectionManager`) blocks screenshots/screen
 /// recording but does NOT gate the Android Accessibility API, so a hostile
@@ -330,7 +554,7 @@ import 'timeline_hour_ruler.dart';
 /// reintroducing one here would resurrect the R1-adjacent layout bugs this
 /// non-lazy grid exists to avoid. Do NOT restructure this widget to "fix"
 /// either dimension of the trade-off.
-class BookingsTimelineGrid extends StatelessWidget {
+class BookingsTimelineGrid extends StatefulWidget {
   const BookingsTimelineGrid({
     required this.bookings,
     required this.day,
@@ -385,9 +609,125 @@ class BookingsTimelineGrid extends StatelessWidget {
   );
 
   @override
-  Widget build(BuildContext context) {
+  State<BookingsTimelineGrid> createState() => _BookingsTimelineGridState();
+}
+
+class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
+  /// The grid's OWN vertical scroll controller — the culling window's only
+  /// source of truth (see the file header's "ADDENDUM 4"). Owned here rather
+  /// than injected: nothing outside this widget drives or reads this scroll.
+  final ScrollController _scrollController = ScrollController();
+
+  // ── The memoised layout model (ADDENDUM 4, extended by ADDENDUM 6) ────
+  // Pure functions of `widget.bookings` + `widget.day`; recomputed ONLY in
+  // [_recomputeLayoutModel], never in [build].
+  late List<List<_CardGeometry>> _laneGeometry;
+  late int _lanesCount;
+  late int _firstMinute;
+  late int _lastMinute;
+
+  // ── The culling window (ADDENDUM 4) ───────────────────────────────────
+
+  /// The scroll offset the current window is anchored at. Starts at 0, which
+  /// is exact: [_scrollController] is created here, so the grid always mounts
+  /// unscrolled.
+  double _windowOffset = 0;
+
+  /// The viewport height the current window was sized from. Seeded from the
+  /// SCREEN height in [didChangeDependencies] — an over-estimate, which can
+  /// only ever cull less — and replaced with the scroll position's real
+  /// `viewportDimension` by [_syncViewportFromMetrics] on the first
+  /// post-frame callback (mobile-perf LOW; see the file header's
+  /// "ADDENDUM 6").
+  double _windowViewport = 0;
+
+  /// Guards [_syncViewportFromMetrics] against queueing more than one
+  /// post-frame callback at a time.
+  bool _viewportSyncScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _recomputeLayoutModel();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_windowViewport <= 0) {
+      _windowViewport = MediaQuery.sizeOf(context).height;
+    }
+    // `ScrollPosition` never notifies on `applyViewportDimension`, so the
+    // seed above would otherwise persist for an un-scrolled day's whole
+    // lifetime. Re-read it after the frame that just laid the viewport out —
+    // and again after any dependency change (a rotation, a
+    // `MediaQuery` insets change), since those resize it silently too.
+    _scheduleViewportSync();
+  }
+
+  @override
+  void didUpdateWidget(covariant BookingsTimelineGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // `identical`, not `==`: `List` has reference equality anyway, and the
+    // notifier hands out a fresh list on every fetch — so this is exactly
+    // "did the data actually change", with no O(N) comparison.
+    if (!identical(widget.bookings, oldWidget.bookings) ||
+        widget.day != oldWidget.day) {
+      _recomputeLayoutModel();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Reads the scroll view's REAL viewport height once the frame that laid it
+  /// out has completed, replacing [didChangeDependencies]'s screen-height
+  /// seed. See the file header's "ADDENDUM 6".
+  void _scheduleViewportSync() {
+    if (_viewportSyncScheduled) return;
+    _viewportSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _viewportSyncScheduled = false;
+      if (!mounted) return;
+      _syncViewportFromMetrics();
+    });
+  }
+
+  void _syncViewportFromMetrics() {
+    if (!_scrollController.hasClients) return;
+    final ScrollPosition position = _scrollController.position;
+    if (!position.hasViewportDimension) return;
+    final double viewport = position.viewportDimension;
+    if (viewport <= 0 || viewport == _windowViewport) return;
+    setState(() {
+      _windowViewport = viewport;
+      if (position.hasPixels) _windowOffset = position.pixels;
+    });
+  }
+
+  /// Rebuilds everything derived from `bookings` + `day` — lane assignment,
+  /// the Kyiv-midnight anchor, the grid's minute extent, and (ADDENDUM 6)
+  /// every card's per-lane geometry.
+  void _recomputeLayoutModel() {
+    final List<Booking> bookings = widget.bookings;
+    final DateTime day = widget.day;
+
     final List<int> lanes = assignLanes(bookings);
-    final int lanesCount = laneCount(lanes);
+    _lanesCount = laneCount(lanes);
+
+    // Hoisted out of [_minutesSinceDayStart] (mobile-perf MEDIUM): that
+    // function used to construct this `TZDateTime` on every call, ~3N times
+    // per build. It cannot change unless [BookingsTimelineGrid.day] does.
+    final tz.TZDateTime midnight = tz.TZDateTime(
+      beauticaZone,
+      day.year,
+      day.month,
+      day.day,
+    );
 
     // ------------------------------------------------------------------
     // R1 FIX — minutes-since-[day]'s-Kyiv-midnight, never scalar hours.
@@ -400,40 +740,99 @@ class BookingsTimelineGrid extends StatelessWidget {
     // that: even a single, zero-duration-adjacent booking still renders at
     // least one hour of ruler. See the file header's R1 section.
     // ------------------------------------------------------------------
-    final int firstMinute = bookings.isEmpty
-        ? 0
-        : bookings
-              .map((Booking b) => _minutesSinceDayStart(b.startAt, day))
-              .reduce(math.min);
-    final int lastMinuteCandidate = bookings.isEmpty
-        ? firstMinute + 60
-        : bookings
-              .map(
-                (Booking b) =>
-                    _minutesSinceDayStart(b.startAt, day) + b.durationMinutes,
-              )
-              .reduce(math.max);
-    // Floor: the grid is never shorter than one hour, whatever the data says.
-    final int lastMinute = math.max(lastMinuteCandidate, firstMinute + 60);
+    // Each booking's start, in minutes since the selected Kyiv midnight —
+    // computed ONCE here (ADDENDUM 6) rather than per card in
+    // `_LaneColumn.build`, which culling turned into a per-re-anchor,
+    // on-a-scrolling-frame cost of ~N timezone-table lookups.
+    final List<int> startMinutes = <int>[
+      for (final Booking b in bookings)
+        _minutesSinceDayStart(b.startAt, midnight),
+    ];
 
-    final int firstHour = firstMinute ~/ 60;
-    final int lastHour = (lastMinute / 60.0).ceil();
+    _firstMinute = startMinutes.isEmpty ? 0 : startMinutes.reduce(math.min);
+    final int lastMinuteCandidate = bookings.isEmpty
+        ? _firstMinute + 60
+        : <int>[
+            for (int i = 0; i < bookings.length; i++)
+              startMinutes[i] + bookings[i].durationMinutes,
+          ].reduce(math.max);
+    // Floor: the grid is never shorter than one hour, whatever the data says.
+    _lastMinute = math.max(lastMinuteCandidate, _firstMinute + 60);
 
     // R3 FIX — group each booking's ORIGINAL index by its assigned lane.
     // [bookings] is already ascending by `startAt` (the class doc's
-    // invariant), and this grouping preserves relative order, so each
-    // `indices` list below is ascending by `startAt` too without a second
-    // sort — exactly the order [_LaneColumn] needs to lay its cards out
+    // invariant), and this grouping preserves relative order, so each lane's
+    // list below is ascending by `startAt` too without a second sort —
+    // exactly the order [_LaneColumn] needs to lay its cards out
     // top-to-bottom. See the file header's "R3" section.
     final List<List<int>> indicesByLane = List<List<int>>.generate(
-      lanesCount,
+      _lanesCount,
       (_) => <int>[],
     );
     for (int i = 0; i < bookings.length; i++) {
       indicesByLane[lanes[i]].add(i);
     }
 
+    // ADDENDUM 6 — the per-card geometry, memoised alongside the lanes. Every
+    // term below is a pure function of `bookings` + `day`, so none of it
+    // belongs on the culling rebuild path.
+    const double hourHeight = BookingsTimelineGrid._kHourH;
+    _laneGeometry = <List<_CardGeometry>>[
+      for (final List<int> indices in indicesByLane)
+        _geometryForLane(
+          bookings: bookings,
+          indices: indices,
+          startMinutes: startMinutes,
+          firstMinute: _firstMinute,
+          hourHeight: hourHeight,
+        ),
+    ];
+  }
+
+  /// Re-anchors the culling window when the scroll offset has drifted half a
+  /// viewport from where it was last anchored — see the file header's
+  /// "ADDENDUM 4" for why half a viewport against a full viewport of slack is
+  /// safe, and why this must NOT re-anchor per frame.
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final ScrollPosition position = _scrollController.position;
+    if (!position.hasPixels || !position.hasViewportDimension) return;
+    final double viewport = position.viewportDimension;
+    if (viewport <= 0) return;
+    if (viewport == _windowViewport &&
+        (position.pixels - _windowOffset).abs() < viewport / 2) {
+      return;
+    }
+    setState(() {
+      _windowOffset = position.pixels;
+      _windowViewport = viewport;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Booking> bookings = widget.bookings;
+    final int lanesCount = _lanesCount;
+    final int firstMinute = _firstMinute;
+    final int firstHour = firstMinute ~/ 60;
+    final int lastHour = (_lastMinute / 60.0).ceil();
+
+    // The culling band's BOTTOM edge only, expressed in the lane `Column`s'
+    // own local coordinates. `_windowOffset` is measured against the scroll
+    // view's child, whose origin sits [TimelineHourRuler.labelCenteringNudge]
+    // above each lane's own origin (the `Padding` below), hence the shift.
+    //
+    // ADDENDUM 6 — there is deliberately no matching `visibleTop`: cards
+    // above the window are never culled, which is what lets culling run at
+    // every text scale without the placeholder having to be size-exact. Do
+    // not reintroduce a top edge without re-reading ADDENDUM 5 and 6.
+    final double visibleBottom =
+        _windowOffset +
+        2 * _windowViewport -
+        TimelineHourRuler.labelCenteringNudge;
+
     return SingleChildScrollView(
+      controller: _scrollController,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -455,7 +854,7 @@ class BookingsTimelineGrid extends StatelessWidget {
                 // the LEADING lane even though multi-lane days already
                 // scroll horizontally by design.
                 final double effectiveCardW = math.min(
-                  _kCardW,
+                  BookingsTimelineGrid._kCardW,
                   constraints.maxWidth,
                 );
                 final double contentWidth = lanesCount == 0
@@ -527,14 +926,16 @@ class BookingsTimelineGrid extends StatelessWidget {
                             half++
                           )
                             Positioned(
-                              top: (half - firstHour * 2) * _kSlotH,
+                              top:
+                                  (half - firstHour * 2) *
+                                  BookingsTimelineGrid._kSlotH,
                               left: 0,
                               right: 0,
                               height: 1,
                               child: ColoredBox(
                                 color: half.isEven
                                     ? BrandColors.faint
-                                    : _halfHourLineColor,
+                                    : BookingsTimelineGrid._halfHourLineColor,
                               ),
                             ),
                           Row(
@@ -547,12 +948,10 @@ class BookingsTimelineGrid extends StatelessWidget {
                                 _LaneColumn(
                                   key: ValueKey<String>('timeline-lane-$lane'),
                                   bookings: bookings,
-                                  indices: indicesByLane[lane],
-                                  day: day,
-                                  firstMinute: firstMinute,
-                                  hourHeight: _kHourH,
+                                  geometry: _laneGeometry[lane],
                                   cardWidth: effectiveCardW,
-                                  onBookingTap: onBookingTap,
+                                  visibleBottom: visibleBottom,
+                                  onBookingTap: widget.onBookingTap,
                                 ),
                               ],
                             ],
@@ -580,85 +979,77 @@ class BookingsTimelineGrid extends StatelessWidget {
 class _LaneColumn extends StatelessWidget {
   const _LaneColumn({
     required this.bookings,
-    required this.indices,
-    required this.day,
-    required this.firstMinute,
-    required this.hourHeight,
+    required this.geometry,
     required this.cardWidth,
+    required this.visibleBottom,
     required this.onBookingTap,
     super.key,
   });
 
-  /// The FULL day's bookings — [indices] selects this lane's subset.
+  /// The FULL day's bookings — [geometry] selects this lane's subset by
+  /// [_CardGeometry.bookingIndex].
   final List<Booking> bookings;
 
-  /// This lane's booking indices into [bookings], ascending by `startAt`
-  /// (guaranteed by the caller — see `BookingsTimelineGrid.build`'s grouping
-  /// comment).
-  final List<int> indices;
+  /// This lane's precomputed per-card geometry, ascending by `startAt` —
+  /// memoised by the grid's state (see the file header's "ADDENDUM 6"), so
+  /// this build does no timezone lookups and no layout arithmetic at all.
+  final List<_CardGeometry> geometry;
 
-  final DateTime day;
-  final int firstMinute;
-  final double hourHeight;
   final double cardWidth;
+
+  /// The culling band's BOTTOM edge in this column's own coordinates — a card
+  /// planned entirely below it is replaced by an identically-sized `SizedBox`.
+  ///
+  /// ADDENDUM 6: there is no top edge. Cards at or above the visible band are
+  /// NEVER culled, so no visible card can move if a placeholder's height is
+  /// imperfect — which is what allows culling at every text scale.
+  final double visibleBottom;
+
   final ValueChanged<Booking> onBookingTap;
 
   @override
   Widget build(BuildContext context) {
     final List<Widget> children = <Widget>[];
-    // The PLANNED bottom edge of the previous card, in the same "minutes
-    // since firstMinute, scaled to px" space as every `top` in this file.
-    //
-    // PROPORTIONAL-DURATION-HEIGHT PASS (this file's "ADDENDUM 2"): advances
-    // by each card's actual computed `minHeight` (`_cardMinHeightFor`), not
-    // the fixed `MasterBookingCard.estimatedNaturalHeight` the R3-era code
-    // used — a real, duration-derived commitment now exists, so it is the
-    // better planning number. This remains a PLANNING number only, exactly
-    // as before: it decides how generous the blank space between cards
-    // looks, never whether two cards can overlap — that guarantee comes from
-    // the `Column` below physically laying out child N+1 after child N's
-    // REAL rendered size, regardless of this estimate (see the file header's
-    // "R3" section, unchanged by this pass).
-    double plannedBottom = 0;
 
-    for (int k = 0; k < indices.length; k++) {
-      final Booking booking = bookings[indices[k]];
-      final int startMinute = _minutesSinceDayStart(booking.startAt, day);
-      final double desiredTop = (startMinute - firstMinute) / 60.0 * hourHeight;
-      final double cardMinHeight = _cardMinHeightFor(
-        booking.durationMinutes,
-        hourHeight,
-      );
+    for (final _CardGeometry geo in geometry) {
+      final Booking booking = bookings[geo.bookingIndex];
 
-      final double spacer = k == 0
-          ? desiredTop
-          : math.max(
-              BookingsTimelineGrid._kMinInterCardGap,
-              desiredTop - plannedBottom,
-            );
+      // ADDENDUM 4/5/6 — viewport culling. The placeholder is the box the
+      // card is EXPECTED to occupy (`cardWidth` × [_CardGeometry.
+      // occupiedHeight]), emitted in the SAME position in the `Column`, so
+      // nothing about the lane's geometry — or R3's no-overlap guarantee —
+      // changes. The width matters as much as the height: a lane whose cards
+      // were all replaced by height-only boxes would collapse to zero width
+      // and drag every lane to its right sideways.
+      final bool culled = geo.plannedTop > visibleBottom;
 
-      children.add(SizedBox(height: spacer));
+      children.add(SizedBox(height: geo.spacer));
       children.add(
-        // MEDIUM-1 (perf): `MasterBookingCard` is a `StatefulWidget` whose
-        // press state drives an `AnimatedScale` (110ms) + `AnimatedContainer`
-        // (150ms) — without a boundary, one card's press animation dirties
-        // the whole shared layer, so at the ~100-card ceiling a single tap
-        // could repaint the entire grid. Same pattern as
-        // `calendar_button.dart` and `booking_status_medallion.dart`.
-        RepaintBoundary(
-          child: SizedBox(
-            width: cardWidth,
-            child: MasterBookingCard(
-              key: ValueKey<String>('timeline-card-${booking.id}'),
-              booking: booking,
-              onTap: () => onBookingTap(booking),
-              minHeight: cardMinHeight,
-            ),
-          ),
-        ),
+        culled
+            ? SizedBox(
+                key: ValueKey<String>('timeline-card-culled-${booking.id}'),
+                width: cardWidth,
+                height: geo.occupiedHeight,
+              )
+            // MEDIUM-1 (perf): `MasterBookingCard` is a `StatefulWidget` whose
+            // press state drives an `AnimatedScale` (110ms) +
+            // `AnimatedContainer` (150ms) — without a boundary, one card's
+            // press animation dirties the whole shared layer, so at the
+            // ~100-card ceiling a single tap could repaint the entire grid.
+            // Same pattern as `calendar_button.dart` and
+            // `booking_status_medallion.dart`.
+            : RepaintBoundary(
+                child: SizedBox(
+                  width: cardWidth,
+                  child: MasterBookingCard(
+                    key: ValueKey<String>('timeline-card-${booking.id}'),
+                    booking: booking,
+                    onTap: () => onBookingTap(booking),
+                    minHeight: geo.minHeight,
+                  ),
+                ),
+              ),
       );
-
-      plannedBottom += spacer + cardMinHeight;
     }
 
     return Column(
@@ -667,6 +1058,104 @@ class _LaneColumn extends StatelessWidget {
       children: children,
     );
   }
+}
+
+/// One card's fully-resolved position and size within its lane `Column` —
+/// memoised by [_BookingsTimelineGridState._recomputeLayoutModel] (see the
+/// file header's "ADDENDUM 6") so that a culling rebuild costs one `>`
+/// comparison per card instead of a timezone-table lookup plus the whole
+/// layout arithmetic.
+class _CardGeometry {
+  const _CardGeometry({
+    required this.bookingIndex,
+    required this.spacer,
+    required this.plannedTop,
+    required this.minHeight,
+    required this.occupiedHeight,
+  });
+
+  /// Index into the grid's FULL day list, not into this lane.
+  final int bookingIndex;
+
+  /// The blank `SizedBox` emitted immediately before this card.
+  final double spacer;
+
+  /// This card's planned top edge in the lane's own coordinates — `spacer`
+  /// added to the previous card's planned bottom. Compared against the
+  /// culling window's bottom edge.
+  final double plannedTop;
+
+  /// The duration-derived FLOOR handed to `MasterBookingCard.minHeight`.
+  final double minHeight;
+
+  /// The box the card is expected to really occupy — [minHeight] raised to
+  /// the selected layout's natural content height when that is taller. Exact
+  /// at textScaler 1.0 (pinned by `master_booking_card_layout_height_test
+  /// .dart`); an under-estimate above it, which ADDENDUM 6 made non-load-
+  /// bearing.
+  final double occupiedHeight;
+}
+
+/// Resolves one lane's [_CardGeometry] list — the arithmetic that used to
+/// live inline in `_LaneColumn.build`.
+///
+/// `plannedBottom` is the PLANNED bottom edge of the previous card, in the
+/// same "minutes since firstMinute, scaled to px" space as every `top` in
+/// this file. Per the PROPORTIONAL-DURATION-HEIGHT PASS (this file's
+/// "ADDENDUM 2") it advances by each card's real occupied box, not the fixed
+/// `MasterBookingCard.estimatedNaturalHeight` the R3-era code used;
+/// ADDENDUM 5 sharpened it further to `MasterBookingCard.occupiedHeightFor
+/// (...)` rather than the bare [_cardMinHeightFor] FLOOR, so for a card whose
+/// layout overshoots its floor (the >=60-minute full layout) the planned
+/// position equals the rendered one exactly. This remains a PLANNING number
+/// only: it decides how generous the blank space between cards looks, never
+/// whether two cards can overlap — that guarantee comes from the `Column`
+/// physically laying out child N+1 after child N's REAL rendered size,
+/// regardless of this estimate (see the file header's "R3" section).
+List<_CardGeometry> _geometryForLane({
+  required List<Booking> bookings,
+  required List<int> indices,
+  required List<int> startMinutes,
+  required int firstMinute,
+  required double hourHeight,
+}) {
+  final List<_CardGeometry> geometry = <_CardGeometry>[];
+  double plannedBottom = 0;
+
+  for (int k = 0; k < indices.length; k++) {
+    final int index = indices[k];
+    final double desiredTop =
+        (startMinutes[index] - firstMinute) / 60.0 * hourHeight;
+    final double minHeight = _cardMinHeightFor(
+      bookings[index].durationMinutes,
+      hourHeight,
+    );
+    final double occupiedHeight = MasterBookingCard.occupiedHeightFor(
+      minHeight,
+    );
+
+    final double spacer = k == 0
+        ? desiredTop
+        : math.max(
+            BookingsTimelineGrid._kMinInterCardGap,
+            desiredTop - plannedBottom,
+          );
+    final double plannedTop = plannedBottom + spacer;
+
+    geometry.add(
+      _CardGeometry(
+        bookingIndex: index,
+        spacer: spacer,
+        plannedTop: plannedTop,
+        minHeight: minHeight,
+        occupiedHeight: occupiedHeight,
+      ),
+    );
+
+    plannedBottom = plannedTop + occupiedHeight;
+  }
+
+  return geometry;
 }
 
 /// A booking's proportional-duration card floor — see this file's
@@ -681,17 +1170,16 @@ double _cardMinHeightFor(int durationMinutes, double hourHeight) {
   return math.max(proportional, hourHeight / 2);
 }
 
-/// Minutes between [day]'s Kyiv midnight and [instant]'s Kyiv wall-clock —
-/// the R1 fix's anchor. A booking ending after midnight yields a value
-/// **greater than 1440** rather than wrapping to a small number, so
+/// Minutes between the selected day's Kyiv [midnight] and [instant]'s Kyiv
+/// wall-clock — the R1 fix's anchor. A booking ending after midnight yields a
+/// value **greater than 1440** rather than wrapping to a small number, so
 /// monotonicity holds by construction.
-int _minutesSinceDayStart(DateTime instant, DateTime day) {
+///
+/// [midnight] is passed IN rather than derived here (mobile-perf MEDIUM): it
+/// is a pure function of the selected day, and constructing a `TZDateTime` per
+/// call cost ~3N timezone-table lookups per build. See the file header's
+/// "ADDENDUM 4".
+int _minutesSinceDayStart(DateTime instant, tz.TZDateTime midnight) {
   final tz.TZDateTime local = toBeauticaTime(instant);
-  final tz.TZDateTime midnight = tz.TZDateTime(
-    beauticaZone,
-    day.year,
-    day.month,
-    day.day,
-  );
   return local.difference(midnight).inMinutes;
 }

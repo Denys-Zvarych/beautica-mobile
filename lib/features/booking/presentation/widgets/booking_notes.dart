@@ -22,6 +22,29 @@
 /// which words are theirs and which arrived — the container says so before
 /// either heading is read.
 ///
+/// ## The headings are VIEWER-relative — «Ваші …» is never shown to the
+/// other side (mobile-security LOW, 2026-07-22)
+///
+/// «Деталі запису» is one screen serving BOTH sides of a booking
+/// ([BookingViewerRole]), and this block was the one surface on it that was
+/// never told which side it was rendering for. On `/master/bookings/:id` a
+/// master therefore read the CLIENT's brief under «Ваші побажання» *(your
+/// wishes)* and the client's cancellation note under «Ваша причина» *(your
+/// reason)*, while their OWN `providerComment` came back recessed — the
+/// [InboundNote] well that means "somebody else wrote this to you" — under
+/// «Коментар майстра». Every attribution on the app's own dispute record was
+/// inverted for the provider.
+///
+/// Every factory below now takes the [BookingViewerRole] and picks both the
+/// heading AND the [inbound] flag from it. The rule is unchanged and
+/// symmetric: YOUR words get [OutboundNote]'s hairline rule, THEIRS get
+/// [InboundNote]'s recessed well.
+///
+/// This is a FRAMING fix, NOT a visibility one. Mutual note visibility is a
+/// locked product decision — the provider still sees the client's brief and
+/// cancellation note, the client still sees the provider's comment on both
+/// DECLINED and NOT_COMPLETED. Do not add audience-based suppression here.
+///
 /// ## ⚠ PORTER, READ THIS FIRST — `providerComment` is NOT `CancellationReason`
 ///
 /// Every note rendered here is [Booking.clientComment],
@@ -41,6 +64,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+import '../../application/booking_viewer_role.dart';
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
 import '../../domain/booking_status.dart';
@@ -88,47 +112,59 @@ class BookingNoteSpec {
   /// cancellation; a quote mark on a no-show account) and the ACCENT (error
   /// red when something was taken from you; deep coffee, never red, for a
   /// no-show) — both mirror [BookingStatusVisual]'s vocabulary.
-  static BookingNoteSpec? forStatus(Booking b, AppLocalizations l10n) {
+  static BookingNoteSpec? forStatus(
+    Booking b,
+    AppLocalizations l10n, {
+    required BookingViewerRole viewer,
+  }) {
+    final bool isProvider = viewer.isProvider;
     switch (b.status) {
-      // The provider cancelled. Backend requires this note, so in practice
-      // it is always present.
+      // The provider cancelled. `providerComment` is the PROVIDER's own
+      // writing, so it is outbound for them and inbound for the client.
       case BookingStatus.declined:
         final String? text = b.providerComment;
         if (text == null) return null;
         return BookingNoteSpec(
           text: text,
-          heading: l10n.bookingNoteHeadingProviderComment(b.providerGenitive),
+          heading: isProvider
+              ? l10n.bookingNoteHeadingYourComment
+              : l10n.bookingNoteHeadingProviderComment(b.providerGenitive),
           icon: b.atSalon
               ? Icons.storefront_rounded
               : Icons.content_cut_rounded,
           accent: BrandColors.error,
-          inbound: true,
+          inbound: !isProvider,
         );
 
-      // The provider's account of the no-show, in their own words. Also
-      // backend-required. Deep coffee, not red.
+      // The provider's account of the no-show, in their own words. Deep
+      // coffee, not red. Same authorship split as DECLINED above.
       case BookingStatus.notCompleted:
         final String? text = b.providerComment;
         if (text == null) return null;
         return BookingNoteSpec(
           text: text,
-          heading: l10n.bookingNoteHeadingProviderComment(b.providerGenitive),
+          heading: isProvider
+              ? l10n.bookingNoteHeadingYourComment
+              : l10n.bookingNoteHeadingProviderComment(b.providerGenitive),
           icon: Icons.format_quote_rounded,
           accent: BrandColors.textSecondary,
-          inbound: true,
+          inbound: !isProvider,
         );
 
-      // The client's own words, echoed back. OPTIONAL — null is ordinary (a
-      // silent self-cancellation).
+      // The CLIENT's own words. OPTIONAL — null is ordinary (a silent
+      // self-cancellation). Echoed back to the client; ARRIVES for the
+      // provider, who is reading why their booking went away.
       case BookingStatus.cancelled:
         final String? text = b.clientCancellationNote;
         if (text == null) return null;
         return BookingNoteSpec(
           text: text,
-          heading: l10n.bookingNoteHeadingYourReason,
+          heading: isProvider
+              ? l10n.bookingNoteHeadingClientReason
+              : l10n.bookingNoteHeadingYourReason,
           icon: Icons.subdirectory_arrow_right_rounded,
           accent: BrandColors.muted,
-          inbound: false,
+          inbound: isProvider,
         );
 
       // No note. CONFIRMED/COMPLETED because neither carries a provider or
@@ -147,23 +183,33 @@ class BookingNoteSpec {
   ///
   /// Already saved by the backend and already collected by
   /// `BookingCommentField` on the booking flow — this only renders it.
-  /// Outbound, always: the client's own words, so they get the margin rule
-  /// and no container, exactly like their cancellation note.
-  static BookingNoteSpec? clientBriefFor(Booking b, AppLocalizations l10n) {
+  ///
+  /// Always the CLIENT's own words, so the direction follows the viewer: the
+  /// client gets them back as marginalia ([OutboundNote]), the provider
+  /// receives them as a brief ([InboundNote]).
+  static BookingNoteSpec? clientBriefFor(
+    Booking b,
+    AppLocalizations l10n, {
+    required BookingViewerRole viewer,
+  }) {
     final String? text = b.clientComment;
     if (text == null) return null;
+    final bool isProvider = viewer.isProvider;
     return BookingNoteSpec(
       text: text,
-      heading: l10n.bookingNoteHeadingYourWishes,
+      heading: isProvider
+          ? l10n.bookingNoteHeadingClientWishes
+          : l10n.bookingNoteHeadingYourWishes,
       icon: Icons.subdirectory_arrow_right_rounded,
       accent: BrandColors.muted,
-      inbound: false,
+      inbound: isProvider,
     );
   }
 }
 
-/// A note somebody else wrote **to** the client — the provider's reason for
-/// cancelling, or their account of a no-show.
+/// A note the OTHER side wrote to whoever is reading — the provider's reason
+/// for cancelling or their account of a no-show (client view), or the
+/// client's booking brief / cancellation note (provider view).
 ///
 /// A recessed well — the only recessed element on any booking surface. See
 /// the library doc: depth is authorship.
@@ -219,8 +265,9 @@ class InboundNote extends StatelessWidget {
   }
 }
 
-/// The client's **own** words, handed back to them — their cancellation
-/// note, or the brief they typed when booking.
+/// The reader's **own** words, handed back to them — the client's booking
+/// brief or cancellation note on the client view, the provider's own comment
+/// on the provider view.
 ///
 /// No container: a hairline margin rule and the words — marginalia, not a
 /// message. Set beside an [InboundNote] it is unmistakably the quieter
@@ -425,15 +472,28 @@ class _NoteToggle extends StatelessWidget {
 /// afterwards. Renders NOTHING (a zero-height box) when the booking has
 /// neither — see [has].
 class BookingNotes extends StatelessWidget {
-  const BookingNotes({super.key, required this.booking});
+  const BookingNotes({super.key, required this.booking, required this.viewer});
 
   final Booking booking;
 
+  /// Which side of the booking is reading these notes — see the library doc's
+  /// "The headings are VIEWER-relative" section. Resolved from the SESSION
+  /// (`bookingViewerRoleProvider`) by the screen, never guessed here.
+  final BookingViewerRole viewer;
+
   /// `true` when [booking] has anything at all to say. Callers use it to
   /// decide whether to emit the block into a list at all.
-  static bool has(Booking b, AppLocalizations l10n) =>
-      BookingNoteSpec.clientBriefFor(b, l10n) != null ||
-      BookingNoteSpec.forStatus(b, l10n) != null;
+  ///
+  /// Takes the [viewer] purely to share ONE resolution path with [build] —
+  /// the viewer changes headings and direction, never whether a note EXISTS
+  /// (mutual visibility is locked; see the library doc).
+  static bool has(
+    Booking b,
+    AppLocalizations l10n, {
+    required BookingViewerRole viewer,
+  }) =>
+      BookingNoteSpec.clientBriefFor(b, l10n, viewer: viewer) != null ||
+      BookingNoteSpec.forStatus(b, l10n, viewer: viewer) != null;
 
   @override
   Widget build(BuildContext context) {
@@ -443,11 +503,25 @@ class BookingNotes extends StatelessWidget {
     final BookingNoteSpec? brief = BookingNoteSpec.clientBriefFor(
       booking,
       l10n,
+      viewer: viewer,
     );
-    final BookingNoteSpec? outcome = BookingNoteSpec.forStatus(booking, l10n);
+    final BookingNoteSpec? outcome = BookingNoteSpec.forStatus(
+      booking,
+      l10n,
+      viewer: viewer,
+    );
 
     final List<Widget> blocks = <Widget>[
-      if (brief != null) OutboundNote(spec: brief),
+      // `.inbound` decides the CONTAINER exactly as it does for [outcome]
+      // below — never a hardcoded direction. [clientBriefFor] resolves it to
+      // `viewer.isProvider`, so the provider reads the client's brief in the
+      // recessed [InboundNote] well (matching its «Побажання клієнта»
+      // heading) while the client gets their own words back as [OutboundNote]
+      // marginalia. Hardcoding [OutboundNote] here put the provider's heading
+      // in the client's container — heading and container contradicting each
+      // other on the one surface the direction exists to disambiguate.
+      if (brief != null)
+        brief.inbound ? InboundNote(spec: brief) : OutboundNote(spec: brief),
       if (outcome != null)
         outcome.inbound
             ? InboundNote(spec: outcome)

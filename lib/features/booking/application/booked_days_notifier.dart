@@ -62,6 +62,7 @@
 
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -123,6 +124,15 @@ Future<Set<DateTime>> bookedDays(Ref ref) async {
   final Timer timer = Timer(const Duration(minutes: 30), link.close);
   ref.onDispose(timer.cancel);
 
+  // Abort the in-flight sweep when this element goes away (mobile-perf LOW,
+  // 2026-07-22). Disposal alone stops the RESULT from landing but leaves the
+  // request itself running — and this is the feature's heaviest call (a full
+  // ±180-day range). A logout (the `authProvider` watch above severs the
+  // keepAlive link and disposes this element) or a screen pop now cancels it
+  // outright, mirroring `BookingsDayNotifier`'s own token.
+  final CancelToken cancelToken = CancelToken();
+  ref.onDispose(cancelToken.cancel);
+
   // Recomputed on every build — never hoisted to a field or a top-level final,
   // which would pin "today" to first-use for the process's lifetime.
   final DateTime today = dateOnly(DateTime.now());
@@ -145,7 +155,7 @@ Future<Set<DateTime>> bookedDays(Ref ref) async {
 
   final List<DateTime> days = await ref
       .read(bookingRepositoryProvider)
-      .getMyBookedDays(from: from, to: to);
+      .getMyBookedDays(from: from, to: to, cancelToken: cancelToken);
 
   // The repository already returns date-only locals; `dateOnly` again is a
   // cheap idempotent guard so a membership test can never miss on a stray

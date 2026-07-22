@@ -852,16 +852,22 @@ GoRouter appRouter(Ref ref) {
       // rather than inside a `StatefulShellBranch`: the master surface is not a
       // StatefulShellRoute at all — unlike the CLIENT shell above, the master's
       // four "tabs" are four flat routes that each render their own
-      // `VelvetBottomNavBar` and navigate by `context.push`. The Phase 7.6
+      // `VelvetBottomNavBar` and navigate by `context.go` (a deliberate
+      // reversal of the earlier `context.push` decision — see
+      // `velvet_bottom_nav_bar.dart`'s `onTap` comment for why stacking a
+      // route per tab tap grew the back stack unboundedly). The Phase 7.6
       // phase doc's "register in the master shell branch, mirroring
       // `app_router.dart:455-490`" describes a structure that does not exist
       // here; mirroring the /bookings + :bookingId NESTING (which is the part
       // that matters) is what is done instead.
       //
       // `builder:` (MaterialPage), not `pageBuilder: _instantPage` — the tab is
-      // reached by `context.push`, so it needs the theme's
-      // CupertinoPageTransitionsBuilder for the left-edge swipe-back gesture.
-      // Same fix as `/master/schedule` and `/masters/:masterId` above.
+      // reached by `context.go`, which makes it a stack ROOT, so there is no
+      // swipe-back gesture to arm here (Flutter disarms it for any `isFirst`
+      // route regardless of page type). `builder:` is kept so the route gets
+      // the same theme-driven page-transition builder as its sibling
+      // stack-root screens, exactly as `RouteNames.masterProfile` above
+      // documents. Same shape as `/master/schedule` and `/masters/:masterId`.
       GoRoute(
         path: RouteNames.masterBookings,
         builder: (context, state) => const MasterBookingsScreen(),

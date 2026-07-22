@@ -33,6 +33,7 @@
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -55,6 +56,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 // Fixture identities injected BY these tests — NOT app copy, and
@@ -68,22 +70,19 @@ const String _otherClientLast = 'Мороз';
 /// screen uses — never a literal. See the file header (LOW #334).
 DateTime get _kyivToday => dateOnly(toBeauticaTime(DateTime.now()));
 
-/// Whether the host's local calendar day currently differs from Kyiv's —
-/// mirrors `bookings_day_rail_test.dart`'s `_hostObservesTransition` skip
-/// pattern for the DST guards. Dart has no clock-injection seam anywhere in
-/// this codebase (`grep -rl package:clock` is empty), and the screen calls
-/// `DateTime.now()` directly in `initState`, so the ONLY way to distinguish
-/// "used Kyiv" from "used host-local" is to run at a moment the two actually
-/// disagree — which does not hold for the whole day even on a non-Kyiv host.
-bool _hostObservesKyivSkew() => dateOnly(DateTime.now()) != _kyivToday;
-
-String _kyivSkewSuffix(bool observed) => observed
-    ? ''
-    : ' [SKIPPED on this host at this instant: local time '
-          '${DateTime.now()} and Kyiv time currently name the same calendar '
-          'day, so a regression to host-local "today" cannot be observed '
-          'right now — covered whenever the host runs during the Kyiv/host '
-          'skew window, e.g. on CI\'s UTC runner]';
+/// A LATE-EVENING UTC instant whose Kyiv calendar day is the NEXT day — the
+/// pinned "now" the Kyiv-vs-naive landing-query guard runs against.
+///
+/// 22:30 UTC is past Kyiv midnight in BOTH halves of the year (UTC+3 summer →
+/// 01:30, UTC+2 winter → 00:30), so the skew this test needs exists on every
+/// run rather than during a ~3h window per day. The date is derived from
+/// `futureBookingStart()` rather than written as a literal — see
+/// `test/helpers/booking_fixture_dates.dart` and
+/// `scripts/forbid_stale_future_date_fixture.sh`.
+DateTime _kyivSkewInstantUtc() {
+  final DateTime base = futureBookingStart();
+  return DateTime.utc(base.year, base.month, base.day, 22, 30);
+}
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -149,6 +148,13 @@ Future<void> _pump(
   WidgetTester tester,
   _MockBookingRepository repo, {
   Set<DateTime> bookedDays = const <DateTime>{},
+  // Pinned "now", injected through the production clock seam
+  // (`bookings_discovery_view.dart`'s `initState`). `null` leaves the real
+  // wall clock in place, which is what every pre-existing test here wants.
+  DateTime Function()? clock,
+  // Pass `(_, _) => null` to DISABLE Riverpod's exponential-backoff retry, so
+  // an AsyncError settles and a fetch count stays exact.
+  Duration? Function(int retryCount, Object error)? retry,
 }) async {
   await tester.pumpRoutedApp(
     GoRouter(
@@ -161,10 +167,12 @@ Future<void> _pump(
         ),
       ],
     ),
+    retry: retry,
     overrides: <Object>[
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(repo),
       bookedDaysProvider.overrideWith((ref) async => bookedDays),
+      if (clock != null) clockProvider.overrideWithValue(clock),
     ],
   );
 }
@@ -278,6 +286,143 @@ void main() {
 
       expect(find.byType(MyBookingsErrorState), findsOne);
     });
+
+    // =====================================================================
+    // mobile-qa (2026-07-22) — THE RETRY WAS NEVER TAPPED.
+    //
+    // The test above is named "…with a retry" but only asserts the error
+    // WIDGET renders. `MyBookingsErrorState` takes `onRetry` as a plain
+    // `VoidCallback`, so it renders identically whether the screen wires it
+    // to `ref.invalidate(bookingsDayProvider(_liveQuery))`, to `() {}`, or —
+    // the interesting failure — to a STALE query captured at first build.
+    // None of those three is distinguishable without actually tapping it.
+    //
+    // Both tests below use sequential `verify(...).called(1)` (mirroring
+    // `my_bookings_interactions_test.dart`'s retry case): mocktail's `verify`
+    // CONSUMES the calls it matches, so the second `called(1)` counts only
+    // what happened after the tap.
+    // =====================================================================
+
+    testWidgets('tapping retry re-issues the day fetch — the handler is '
+        'wired, not a no-op', (tester) async {
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+          sort: any(named: 'sort'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).thenThrow(Exception('boom'));
+
+      // Riverpod's default exponential-backoff retry would fire mid-settle
+      // and make the fetch counts below non-deterministic.
+      await _pump(tester, repo, retry: (_, _) => null);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_bookings_error_retry')), findsOne);
+
+      // Consume the landing fetch.
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+          sort: any(named: 'sort'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).called(1);
+
+      await tester.tap(find.byKey(const Key('my_bookings_error_retry')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+          sort: any(named: 'sort'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).called(1);
+    });
+
+    testWidgets(
+      'retry refetches the CURRENTLY selected day, not the landing day',
+      (tester) async {
+        // The failure this catches: `onRetry` closing over a query captured
+        // once at first build (or over `widget.query`) rather than reading
+        // the live `_liveQuery`. The master would tap «Спробувати ще раз» on
+        // Thursday's failed timeline and silently re-request Monday's — the
+        // error state would never clear, with no clue why.
+        final repo = _MockBookingRepository();
+        final List<DateTime?> froms = <DateTime?>[];
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((Invocation i) async {
+          froms.add(i.namedArguments[#from] as DateTime?);
+          throw Exception('boom');
+        });
+
+        await _pump(tester, repo, retry: (_, _) => null);
+        await tester.pumpAndSettle();
+
+        // Landing day failed.
+        expect(froms, <DateTime?>[_kyivToday]);
+
+        // Move the rail to a DIFFERENT day; that day fails too.
+        final DateTime otherDay = railDayAt(_kyivToday, 1);
+        await tester.tap(find.byKey(dayChipKey(otherDay)));
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          froms.last,
+          otherDay,
+          reason: 'fixture guard: the rail tap did not re-scope the query',
+        );
+        froms.clear();
+
+        expect(find.byKey(const Key('my_bookings_error_retry')), findsOne);
+        await tester.tap(find.byKey(const Key('my_bookings_error_retry')));
+        await tester.pumpAndSettle();
+
+        expect(
+          froms,
+          isNotEmpty,
+          reason: 'retry issued no request at all — the handler is inert',
+        );
+        expect(
+          froms.single,
+          otherDay,
+          reason:
+              'retry refetched ${froms.single} instead of the selected day '
+              '$otherDay — onRetry is bound to a STALE query, so the '
+              'error state can never clear on any day but the landing one.',
+        );
+        expect(froms.single, isNot(_kyivToday));
+      },
+    );
 
     testWidgets(
       'renders a card per booking INSIDE the timeline grid — no vertical '
@@ -790,10 +935,50 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('DISTINGUISHES Kyiv "today" from host "today"'
-        '${_kyivSkewSuffix(_hostObservesKyivSkew())}', (tester) async {
+    // mobile-qa (2026-07-22) — DE-SKIPPED VIA THE CLOCK SEAM.
+    //
+    // This guard used to carry `skip: !_hostObservesKyivSkew()`, i.e. it only
+    // ran at an instant when the host's own calendar day happened to differ
+    // from Kyiv's — roughly a 3h/24h window on a UTC runner, and never on a
+    // Kyiv-time host. It was empirically confirmed to be SKIPPING. The
+    // dedicated `TZ=Europe/Kyiv` CI step does not rescue it either: that step
+    // runs `bookings_day_rail_test.dart` only, and under `TZ=Europe/Kyiv` the
+    // skew is zero by construction, so the guard would skip there too. In
+    // other words: the single test standing between this screen and a
+    // host-local landing query was running approximately never.
+    //
+    // `bookings_discovery_view.dart` now reads `clockProvider` instead of
+    // calling `DateTime.now()` directly, so "now" can be PINNED and the skew
+    // manufactured on every run. No `skip:`.
+    //
+    // WHY A UTC-FLAGGED PINNED INSTANT IS THE RIGHT WITNESS: the injected
+    // value is what a regressed `dateOnly(<clock>())` would read its
+    // `.year/.month/.day` off. Pinning a UTC instant therefore makes the
+    // naive reading resolve to the UTC calendar day on EVERY host — exactly
+    // the CI runner's situation — instead of depending on the developer
+    // machine's zone. The correct reading (`toBeauticaTime` first) resolves
+    // to the NEXT day. The two are unconditionally different.
+    testWidgets('DISTINGUISHES Kyiv "today" from a naive host reading', (
+      tester,
+    ) async {
+      final DateTime fixedNow = _kyivSkewInstantUtc();
+      final DateTime kyivDay = dateOnly(toBeauticaTime(fixedNow));
+      final DateTime naiveDay = dateOnly(fixedNow);
+
+      // Fixture guard — if these ever coincide the assertions below prove
+      // nothing, and this must fail loudly rather than pass vacuously.
+      expect(
+        kyivDay,
+        isNot(naiveDay),
+        reason:
+            'the pinned instant no longer straddles Kyiv midnight, so the '
+            'Kyiv-vs-naive distinction is unobservable and every assertion '
+            'below would pass for the wrong reason',
+      );
+
       final repo = _MockBookingRepository();
       DateTime? capturedFrom;
+      DateTime? capturedTo;
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
@@ -807,20 +992,30 @@ void main() {
         ),
       ).thenAnswer((Invocation i) async {
         capturedFrom = i.namedArguments[#from] as DateTime?;
+        capturedTo = i.namedArguments[#to] as DateTime?;
         return _page(<Booking>[]);
       });
 
-      await _pump(tester, repo);
+      await _pump(tester, repo, clock: () => fixedNow);
       await tester.pumpAndSettle();
 
       expect(
         capturedFrom,
-        isNot(dateOnly(DateTime.now())),
+        kyivDay,
         reason:
-            'The landing query matched host "today" — the screen must use '
-            'Kyiv "today" (toBeauticaTime), not DateTime.now() directly.',
+            'The landing query did not land on the KYIV calendar day of the '
+            'pinned instant. The screen must derive its opening day through '
+            'toBeauticaTime, never off the raw clock value.',
       );
-    }, skip: !_hostObservesKyivSkew());
+      expect(
+        capturedFrom,
+        isNot(naiveDay),
+        reason:
+            'The landing query matched the NAIVE (host/UTC) calendar day — '
+            'toBeauticaTime has been dropped from the derivation.',
+      );
+      expect(capturedTo, kyivDay, reason: 'a single-day query is from == to');
+    });
   });
 
   // -------------------------------------------------------------------------

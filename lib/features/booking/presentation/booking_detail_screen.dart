@@ -383,7 +383,13 @@ class _DetailBody extends StatelessWidget {
         // ── Every note this booking carries, in the order they were
         //    written. The ONLY surface that renders note text — the card
         //    shows none.
-        if (BookingNotes.has(booking, l10n)) BookingNotes(booking: booking),
+        // `viewer` is threaded through (mobile-security LOW, 2026-07-22) —
+        // without it the master read the CLIENT's brief under «Ваші
+        // побажання» and their OWN comment inside the recessed inbound well.
+        // See `booking_notes.dart`'s "The headings are VIEWER-relative"
+        // section; this is a framing fix, NOT a visibility one.
+        if (BookingNotes.has(booking, l10n, viewer: viewer))
+          BookingNotes(booking: booking, viewer: viewer),
       ],
     );
   }

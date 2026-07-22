@@ -18,6 +18,7 @@ import 'package:beautica_mobile/features/booking/application/booking_viewer_role
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
@@ -45,6 +46,8 @@ const String _serviceName = 'Манікюр з покриттям';
 
 const String _providerDeclineNote = 'Майстер захворів, перепрошуємо.';
 const String _providerNoShowNote = 'Клієнт не прийшов на візит.';
+const String _clientBriefNote = 'Без ароматизаторів — алергія.';
+const String _clientCancelNote = 'Плани змінилися, вибачте.';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -64,6 +67,8 @@ Booking _booking({
   String? clientFirstName = _clientFirst,
   String? clientLastName = _clientLast,
   String? providerComment,
+  String? clientComment,
+  String? clientCancellationNote,
   String? salonName,
   DateTime? startAt,
 }) {
@@ -91,6 +96,8 @@ Booking _booking({
     status: status,
     canReview: false,
     providerComment: providerComment,
+    clientComment: clientComment,
+    clientCancellationNote: clientCancellationNote,
     masterProfessionalTitle: _masterTitle,
   );
 }
@@ -533,6 +540,265 @@ void main() {
       expect(find.byType(BookingNotes), findsOne);
       expect(find.textContaining(_providerDeclineNote), findsOne);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Branch 4 — NOTE FRAMING is viewer-relative (mobile-security LOW,
+  // 2026-07-22)
+  // -------------------------------------------------------------------------
+  //
+  // Every note assertion in the "shared surface" group above stops at
+  // `find.byType(BookingNotes), findsOne` plus the note BODY. That is exactly
+  // the coverage that let the framing bug ship in the first place: the block
+  // renders, and the words are there, whichever heading and whichever
+  // container the app wrapped them in. On `/master/bookings/:id` a master was
+  // reading the CLIENT's brief under «Ваші побажання» (*your* wishes) and the
+  // client's cancellation note under «Ваша причина» (*your* reason), while
+  // their OWN `providerComment` came back in the recessed [InboundNote] well —
+  // the container that means "somebody else wrote this to you". Every
+  // attribution on the app's own dispute record was inverted for the provider,
+  // and the whole suite stayed green.
+  //
+  // So these tests assert the two things the body text cannot:
+  //   • the HEADING (resolved through l10n — never a Cyrillic literal), and
+  //   • the CONTAINER, which is the library's primary authorship signal
+  //     ("depth is authorship": [InboundNote]'s recessed well = arrived,
+  //     [OutboundNote]'s hairline rule = your own words).
+  //
+  // Each provider-view case has its CLIENT-view twin, because a framing fix
+  // that simply inverted the rule everywhere would satisfy either half alone.
+
+  group('note framing is viewer-relative', () {
+    /// The container [note] is rendered inside — the authorship signal.
+    /// Returns `InboundNote` / `OutboundNote` as a Type so failures name the
+    /// wrong container directly.
+    Type containerOf(WidgetTester tester, String noteText) {
+      final Finder text = find.textContaining(noteText);
+      expect(
+        text,
+        findsOneWidget,
+        reason: 'the note body «$noteText» did not render at all',
+      );
+      final bool inbound = find
+          .ancestor(of: text, matching: find.byType(InboundNote))
+          .evaluate()
+          .isNotEmpty;
+      return inbound ? InboundNote : OutboundNote;
+    }
+
+    // ── The client's booking-time brief ──────────────────────────────────
+
+    testWidgets(
+      'PROVIDER view: the client\'s brief arrives — «Побажання клієнта», in '
+      'the recessed inbound well',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(clientComment: _clientBriefNote),
+          role: UserRole.independentMaster,
+        );
+
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingClientWishes),
+          findsOne,
+          reason:
+              'the master read the client\'s brief under a «Ваші …» heading '
+              '— the note is not theirs',
+        );
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingYourWishes),
+          findsNothing,
+        );
+        expect(
+          containerOf(tester, _clientBriefNote),
+          InboundNote,
+          reason:
+              'the client\'s brief rendered in the hairline OUTBOUND '
+              'container on the PROVIDER view. Depth is authorship (see '
+              '`booking_notes.dart`\'s library doc): words that ARRIVED must '
+              'sit in the recessed well, or the container contradicts the '
+              'heading directly above it.',
+        );
+      },
+    );
+
+    testWidgets(
+      'CLIENT view: the same brief is handed back — «Ваші побажання», as '
+      'outbound marginalia (regression twin)',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(clientComment: _clientBriefNote),
+          role: UserRole.client,
+        );
+
+        expect(find.text(_l10n(tester).bookingNoteHeadingYourWishes), findsOne);
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingClientWishes),
+          findsNothing,
+        );
+        expect(containerOf(tester, _clientBriefNote), OutboundNote);
+      },
+    );
+
+    // ── The client's cancellation note ───────────────────────────────────
+
+    testWidgets(
+      'PROVIDER view: the client\'s cancellation note arrives — «Причина '
+      'клієнта», inbound',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(
+            status: BookingStatus.cancelled,
+            clientCancellationNote: _clientCancelNote,
+          ),
+          role: UserRole.independentMaster,
+        );
+
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingClientReason),
+          findsOne,
+        );
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingYourReason),
+          findsNothing,
+          reason:
+              '«Ваша причина» told the master they cancelled their own '
+              'booking — the client did',
+        );
+        expect(containerOf(tester, _clientCancelNote), InboundNote);
+      },
+    );
+
+    testWidgets(
+      'CLIENT view: their own cancellation note is «Ваша причина», outbound '
+      '(regression twin)',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(
+            status: BookingStatus.cancelled,
+            clientCancellationNote: _clientCancelNote,
+          ),
+          role: UserRole.client,
+        );
+
+        expect(find.text(_l10n(tester).bookingNoteHeadingYourReason), findsOne);
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingClientReason),
+          findsNothing,
+        );
+        expect(containerOf(tester, _clientCancelNote), OutboundNote);
+      },
+    );
+
+    // ── The provider's own comment ───────────────────────────────────────
+
+    testWidgets(
+      'PROVIDER view: their OWN decline comment is «Ваш коментар», outbound — '
+      'never recessed as though it had arrived',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(
+            status: BookingStatus.declined,
+            providerComment: _providerDeclineNote,
+          ),
+          role: UserRole.independentMaster,
+        );
+
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingYourComment),
+          findsOne,
+        );
+        expect(
+          containerOf(tester, _providerDeclineNote),
+          OutboundNote,
+          reason:
+              'the master\'s own words came back in the recessed inbound '
+              'well — the container that means "somebody else wrote this to '
+              'you"',
+        );
+      },
+    );
+
+    testWidgets(
+      'PROVIDER view: the same holds for a NOT_COMPLETED (no-show) account',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(
+            status: BookingStatus.notCompleted,
+            providerComment: _providerNoShowNote,
+          ),
+          role: UserRole.independentMaster,
+        );
+
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingYourComment),
+          findsOne,
+        );
+        expect(containerOf(tester, _providerNoShowNote), OutboundNote);
+      },
+    );
+
+    testWidgets(
+      'CLIENT view: the provider\'s comment is attributed to them and arrives '
+      'inbound (regression twin)',
+      (tester) async {
+        final Booking b = _booking(
+          status: BookingStatus.declined,
+          providerComment: _providerDeclineNote,
+        );
+        await _pump(tester, b, role: UserRole.client);
+
+        expect(
+          find.text(
+            _l10n(tester).bookingNoteHeadingProviderComment(b.providerGenitive),
+          ),
+          findsOne,
+        );
+        expect(
+          find.text(_l10n(tester).bookingNoteHeadingYourComment),
+          findsNothing,
+          reason:
+              '«Ваш коментар» would tell the client they wrote the '
+              'provider\'s decline reason',
+        );
+        expect(containerOf(tester, _providerDeclineNote), InboundNote);
+      },
+    );
+
+    // ── Both notes at once: the two containers must DIFFER ────────────────
+
+    testWidgets(
+      'PROVIDER view: a booking carrying BOTH the client\'s brief and the '
+      'provider\'s own comment renders them in DIFFERENT containers — the '
+      'distinction is the point',
+      (tester) async {
+        // The library doc's motivating case, from the provider's side: one
+        // screen, two notes, opposite authorship. If both collapse into the
+        // same container the reader has lost the primary signal, even with
+        // correct headings.
+        await _pump(
+          tester,
+          _booking(
+            status: BookingStatus.declined,
+            clientComment: _clientBriefNote,
+            providerComment: _providerDeclineNote,
+          ),
+          role: UserRole.independentMaster,
+        );
+
+        expect(containerOf(tester, _clientBriefNote), InboundNote);
+        expect(containerOf(tester, _providerDeclineNote), OutboundNote);
+        expect(
+          containerOf(tester, _clientBriefNote),
+          isNot(containerOf(tester, _providerDeclineNote)),
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

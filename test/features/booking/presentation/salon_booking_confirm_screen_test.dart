@@ -96,6 +96,7 @@ class _FakeBookingRepository implements BookingRepository {
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
+    CancelToken? cancelToken,
   }) => throw UnimplementedError();
 
   @override
@@ -185,6 +186,7 @@ class _GatedBookingRepository implements BookingRepository {
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
+    CancelToken? cancelToken,
   }) => throw UnimplementedError();
 
   @override

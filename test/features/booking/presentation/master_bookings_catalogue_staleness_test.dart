@@ -43,6 +43,7 @@ import 'package:beautica_mobile/features/services/data/master_service_catalog_pr
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
@@ -78,7 +79,9 @@ MasterService _service(String id, String name) => MasterService(
 );
 
 Booking _booking(String id) {
-  final DateTime start = DateTime.utc(2026, 7, 20, 12);
+  // Now-relative, never an absolute literal — see
+  // `test/helpers/booking_fixture_dates.dart` for the time bomb this avoids.
+  final DateTime start = futureBookingStart();
   return Booking(
     id: id,
     masterId: 'm1',

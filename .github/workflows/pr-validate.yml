@@ -196,13 +196,15 @@ jobs:
         shell: bash
         run: ./scripts/forbid_naive_router_location.sh
 
-      # Phase 7.1 perf P4 — MasterBookingsQuery.raw() containment. `.of()` is
-      # the only path that truncates from/to to local midnight; `.raw()` skips
-      # it, so a date picker wired straight to `.raw()` mints a new
-      # masterBookingsProvider family member per SECOND the user taps in. Has
-      # to be a structural gate: nothing about the leak is visible to a test or
-      # a lint (the screen behaves correctly, it just refetches per tap).
-      - name: Forbid MasterBookingsQuery.raw outside its declaring file
+      # Phase 7.1 perf P4, retargeted Phase 7.9 — BookingsDayQuery.masterOwn()
+      # containment (the retired `MasterBookingsQuery.raw` this gate originally
+      # guarded is gone). `.of()` is the only normalising path: it sorts
+      # statuses/serviceIds canonically and truncates `day` to date-only, so a
+      # rail wired straight to `.masterOwn(` mints a new bookingsDayProvider
+      # family member per tap. Has to be a structural gate: nothing about the
+      # leak is visible to a test or a lint (the screen behaves correctly, it
+      # just refetches per tap).
+      - name: Forbid BookingsDayQuery.masterOwn outside its declaring file
         shell: bash
         run: ./scripts/forbid_raw_bookings_query.sh
 

@@ -77,10 +77,12 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -155,7 +157,18 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// [_day] or the live query — mirroring the approved design's own
   /// `_focusedMonth`/`_prevMonth`/`_nextMonth`
   /// (`bookings_toolbar.dart:739-822`). See [_prevMonth]/[_nextMonth].
-  late DateTime _focusedMonth;
+  ///
+  /// A [ValueNotifier], NOT a plain `State` field (mobile-perf HIGH): because
+  /// [_prevMonth]/[_nextMonth] deliberately change nothing but this LABEL, a
+  /// `setState` for them rebuilt the entire subtree — `_Loaded` →
+  /// [BookingsTimelineGrid] → `assignLanes` + up to 100 `MasterBookingCard`s
+  /// (~212ms measured) — on the exact frame [_centreRailOn] starts its 320ms
+  /// `animateTo`, stuttering the rail on its first frame. Routing the label
+  /// through a [ValueListenableBuilder] in [_MonthSwitcher] confines the
+  /// rebuild to the one `Text` that actually changed. [_goToToday] and
+  /// [_applySelectedDay] keep their `setState` — they genuinely change the
+  /// query — and simply assign this notifier alongside it.
+  late final ValueNotifier<DateTime> _focusedMonth;
 
   late Set<BookingStatus> _statuses;
   late Set<String> _serviceIds;
@@ -185,13 +198,22 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   @override
   void initState() {
     super.initState();
-    _today = dateOnly(toBeauticaTime(DateTime.now()));
+    // `clockProvider`, NOT a bare `DateTime.now()` (mobile-qa, 2026-07-22).
+    // The Kyiv-vs-host distinction this line exists to make is only OBSERVABLE
+    // at an instant when the two name different calendar days — roughly a 3h
+    // window per day on a UTC runner — so the guard test for it was gated
+    // behind a `skip:` that empirically never ran. Reading the injectable
+    // clock seam lets that test pin "now" inside the skew window and assert
+    // the landing query unconditionally. See `master_bookings_screen_test
+    // .dart`'s "initial day" group. Behaviour in production is unchanged:
+    // `clockProvider` resolves to `DateTime.now`.
+    _today = dateOnly(toBeauticaTime(ref.read(clockProvider)()));
     // CALENDAR arithmetic — `subtract(Duration(days: n))` would land on 23:00
     // or 01:00 across a Europe/Kyiv DST transition and skew every rail date
     // derived from it. See `bookings_day_rail.dart`'s header.
     _railFirstDay = railDayAt(_today, -kBookedDaysSpanDays);
     _day = _today;
-    _focusedMonth = DateTime(_day.year, _day.month);
+    _focusedMonth = ValueNotifier<DateTime>(DateTime(_day.year, _day.month));
     _statuses = widget.query.statuses.toSet();
     _serviceIds = widget.query.serviceIds.toSet();
     _liveQuery = BookingsDayQuery.of(
@@ -223,6 +245,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     _dayDebounce?.cancel();
     _screenProtection.release();
     _railController.dispose();
+    _focusedMonth.dispose();
     super.dispose();
   }
 
@@ -338,19 +361,27 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// affordance, exactly like the design's own `_prevMonth`: "stepping a
   /// month should move the rail, not just relabel" is satisfied by
   /// [_centreRailOn], not by re-selecting a day.
+  ///
+  /// NO `setState` (mobile-perf HIGH) — see [_focusedMonth]'s doc. The only
+  /// thing this changes is the switcher's label, so it assigns the notifier
+  /// and lets the [ValueListenableBuilder] repaint that one `Text` instead of
+  /// rebuilding the timeline on the same frame the rail starts animating.
   void _prevMonth() {
-    final DateTime prev = DateTime(_focusedMonth.year, _focusedMonth.month - 1);
+    final DateTime current = _focusedMonth.value;
+    final DateTime prev = DateTime(current.year, current.month - 1);
     final DateTime target = _firstOfMonthClamped(prev);
-    setState(() => _focusedMonth = DateTime(target.year, target.month));
+    _focusedMonth.value = DateTime(target.year, target.month);
     _centreRailOn(target, animated: true);
   }
 
   /// Steps [_focusedMonth] forward one month and recentres the rail on it.
-  /// See [_prevMonth] for why [_day]/[_liveQuery] are untouched.
+  /// See [_prevMonth] for why [_day]/[_liveQuery] are untouched and why this
+  /// does not `setState`.
   void _nextMonth() {
-    final DateTime next = DateTime(_focusedMonth.year, _focusedMonth.month + 1);
+    final DateTime current = _focusedMonth.value;
+    final DateTime next = DateTime(current.year, current.month + 1);
     final DateTime target = _firstOfMonthClamped(next);
-    setState(() => _focusedMonth = DateTime(target.year, target.month));
+    _focusedMonth.value = DateTime(target.year, target.month);
     _centreRailOn(target, animated: true);
   }
 
@@ -359,9 +390,9 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// resets the switcher's label to today's month, then recentres the rail.
   void _goToToday() {
     _dayDebounce?.cancel();
+    _focusedMonth.value = DateTime(_today.year, _today.month);
     setState(() {
       _day = _today;
-      _focusedMonth = DateTime(_today.year, _today.month);
       _rebuildQuery();
     });
     _centreRailOn(_today, animated: true);
@@ -396,9 +427,10 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// ([_selectDay]). [_goToToday] mirrors this shape directly rather than
   /// calling it, since it also has to move the rail's scroll position.
   void _applySelectedDay(DateTime day) {
+    final DateTime selected = dateOnly(day);
+    _focusedMonth.value = DateTime(selected.year, selected.month);
     setState(() {
-      _day = dateOnly(day);
-      _focusedMonth = DateTime(_day.year, _day.month);
+      _day = selected;
       _rebuildQuery();
     });
   }
@@ -466,7 +498,21 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// uses for other unscoped affordances (e.g.
   /// `reschedule_navigation.dart`'s `bookingRescheduleUnavailable`,
   /// `SalonBookingComingSoonScreen`'s placeholder copy).
-  void _showAddComingSoon(BuildContext context) {
+  ///
+  /// ZERO-ARG ON PURPOSE (mobile-perf LOW): it reads `context` off the
+  /// `State` so the call site can pass the TEAR-OFF (`onAdd:
+  /// _showAddComingSoon`) rather than a fresh `() => _showAddComingSoon(
+  /// context)` closure per build. Dart canonicalises instance-method
+  /// tear-offs, so the resulting `VoidCallback` is `identical` across
+  /// rebuilds — which saves ONE closure allocation per build and keeps
+  /// `_Header`'s `onAdd` field stable. It does NOT let `_Header` skip its
+  /// subtree: `build` constructs a fresh `_Header(...)` every time, and a
+  /// `StatelessWidget` element only short-circuits when the NEW widget
+  /// instance is `identical` to the old one (`Element.update`'s first check)
+  /// — a claim an earlier revision of this comment made and that was simply
+  /// false. Keep the tear-off for the allocation, not for a skip that never
+  /// happened; do not reintroduce the `BuildContext` parameter.
+  void _showAddComingSoon() {
     final AppLocalizations l10n = AppLocalizations.of(context);
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
@@ -490,7 +536,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onBack: widget.onBack,
               activeFilterCount: _activeFilterCount,
               onOpenFilters: _applyFilters,
-              onAdd: () => _showAddComingSoon(context),
+              onAdd: _showAddComingSoon,
             ),
             const _ServiceCatalogueWarmer(),
             _MonthSwitcher(
@@ -815,6 +861,10 @@ class _Header extends StatelessWidget {
 /// `_BookingsDiscoveryViewState._prevMonth`/`_nextMonth`/`_goToToday` for why
 /// stepping the month moves only the rail's scroll position, never the
 /// selected day or the live query.
+///
+/// Takes a [ValueListenable] rather than a bare `DateTime` (mobile-perf HIGH
+/// — see `_BookingsDiscoveryViewState._focusedMonth`): the label is the ONLY
+/// thing a prev/next step changes, so it is the only thing that rebuilds.
 class _MonthSwitcher extends StatelessWidget {
   const _MonthSwitcher({
     required this.month,
@@ -823,7 +873,7 @@ class _MonthSwitcher extends StatelessWidget {
     required this.onToday,
   });
 
-  final DateTime month;
+  final ValueListenable<DateTime> month;
   final VoidCallback onPrev;
   final VoidCallback onNext;
   final VoidCallback onToday;
@@ -831,7 +881,6 @@ class _MonthSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final String label = '${monthNominative(month.month)} ${month.year}';
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: VelvetSpacing.lg,
@@ -847,10 +896,14 @@ class _MonthSwitcher extends StatelessWidget {
             tooltip: l10n.schedulePrevMonth,
           ),
           Expanded(
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: VelvetText.monthSwitcherLabel,
+            child: ValueListenableBuilder<DateTime>(
+              valueListenable: month,
+              builder: (BuildContext context, DateTime value, Widget? _) =>
+                  Text(
+                    '${monthNominative(value.month)} ${value.year}',
+                    textAlign: TextAlign.center,
+                    style: VelvetText.monthSwitcherLabel,
+                  ),
             ),
           ),
           IconButton(

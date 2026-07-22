@@ -60,6 +60,7 @@ import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart'
 import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
@@ -357,6 +358,220 @@ void main() {
       reason:
           'the day rail rebuilt on a bookingsDayProvider emission on the '
           'REAL screen — same regression as the header case above.',
+    );
+  });
+
+  // ===========================================================================
+  // mobile-qa (2026-07-22) — THE MONTH-SWITCHER HALF OF THE SAME INVARIANT.
+  // ===========================================================================
+  //
+  // The two tests above pin the PROVIDER→WIDGET direction (an emission must
+  // not rebuild siblings). This group pins the opposite direction, added by
+  // the mobile-perf HIGH fix that moved `_focusedMonth` from a `State` field
+  // to a `ValueNotifier`: a WIDGET interaction that changes nothing but a
+  // LABEL must not rebuild the timeline.
+  //
+  // Why it matters, in the fix's own words: `_prevMonth`/`_nextMonth`
+  // deliberately move only the switcher's label and the rail's scroll
+  // position — never `_day`, never `_liveQuery`. Before the fix they still
+  // called `setState`, so every month step rebuilt `_Loaded` →
+  // `BookingsTimelineGrid` → `assignLanes` + up to 100 `MasterBookingCard`s
+  // (~212ms measured) on the exact frame `_centreRailOn` starts its 320ms
+  // `animateTo` — stuttering the rail on its first frame.
+  //
+  // NOTHING OBSERVES THIS TODAY. A `setState` reinstated in `_prevMonth`
+  // (the most natural "fix" for any future month-switcher bug) restores the
+  // full 212ms rebuild with no test anywhere going red — the label still
+  // updates, the rail still scrolls, the timeline still renders. Only widget
+  // IDENTITY can tell the two apart.
+  //
+  // VACUOUS-ASSERTION TRAP (same as the LOW-4 block above): the witness must
+  // be non-const at its real call site. `BookingsTimelineGrid(bookings:,
+  // day:, onBookingTap:)` is constructed from runtime values inside
+  // `_Loaded.build`, so `identical()` genuinely reflects a rebuild.
+
+  group('month switcher does not rebuild the timeline', () {
+    /// The month switcher's label `Text` — reached through the
+    /// `ValueListenableBuilder<DateTime>` the perf fix introduced, so this
+    /// never hard-codes a Cyrillic month name (the i18n-finder gate) and
+    /// never depends on `monthNominative`'s exact formatting.
+    String monthLabel(WidgetTester tester) => tester
+        .widget<Text>(
+          find
+              .descendant(
+                of: find.byType(ValueListenableBuilder<DateTime>),
+                matching: find.byType(Text),
+              )
+              .first,
+        )
+        .data!;
+
+    Future<_MockBookingRepository> pumpScreen(WidgetTester tester) async {
+      final _MockBookingRepository repo = _MockBookingRepository();
+      final DateTime kyivToday = dateOnly(toBeauticaTime(DateTime.now()));
+      final DateTime start = kyivToday.toUtc().add(const Duration(hours: 12));
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => PageResponse<Booking>(
+          items: <Booking>[
+            Booking(
+              id: 'b1',
+              masterId: 'm1',
+              masterFirstName: 'Марія',
+              masterLastName: 'Іванюк',
+              masterType: 'INDEPENDENT_MASTER',
+              clientId: 'c1',
+              clientFirstName: 'Олена',
+              clientLastName: 'Ковальчук',
+              serviceId: 's1',
+              serviceName: 'Манікюр',
+              durationMinutes: 60,
+              price: 650,
+              startAt: start,
+              endAt: start.add(const Duration(minutes: 60)),
+              status: BookingStatus.confirmed,
+              canReview: false,
+            ),
+          ],
+          page: 0,
+          totalPages: 1,
+          totalElements: 1,
+        ),
+      );
+
+      await tester.pumpApp(
+        const MasterBookingsScreen(),
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          bookingRepositoryProvider.overrideWithValue(repo),
+          bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+        ],
+      );
+      await tester.pumpAndSettle();
+      return repo;
+    }
+
+    BookingsTimelineGrid grid(WidgetTester tester) =>
+        tester.widget<BookingsTimelineGrid>(find.byType(BookingsTimelineGrid));
+
+    testWidgets(
+      'stepping the month forward relabels the switcher WITHOUT rebuilding '
+      'BookingsTimelineGrid — the ValueNotifier confines the rebuild to one '
+      'Text',
+      (tester) async {
+        await pumpScreen(tester);
+
+        final BookingsTimelineGrid before = grid(tester);
+        final String labelBefore = monthLabel(tester);
+
+        await tester.tap(find.byKey(const Key('master-bookings-month-next')));
+        await tester.pumpAndSettle();
+
+        // Fixture guard FIRST — if the tap did nothing, the identity
+        // assertion below would pass for the wrong reason.
+        expect(
+          monthLabel(tester),
+          isNot(labelBefore),
+          reason:
+              'the month step did not relabel the switcher at all, so the '
+              'no-rebuild assertion proves nothing',
+        );
+        expect(
+          identical(grid(tester), before),
+          isTrue,
+          reason:
+              'BookingsTimelineGrid was reconstructed by a month step. A '
+              'month step changes only the LABEL and the rail\'s scroll '
+              'position — it must not setState the discovery view, or the '
+              'whole timeline (assignLanes + up to 100 cards) rebuilds on '
+              'the same frame the rail starts its 320ms animation.',
+        );
+      },
+    );
+
+    testWidgets('stepping BACK behaves the same way', (tester) async {
+      await pumpScreen(tester);
+
+      final BookingsTimelineGrid before = grid(tester);
+      final String labelBefore = monthLabel(tester);
+
+      await tester.tap(find.byKey(const Key('master-bookings-month-prev')));
+      await tester.pumpAndSettle();
+
+      expect(monthLabel(tester), isNot(labelBefore));
+      expect(identical(grid(tester), before), isTrue);
+    });
+
+    // ── The contrast cases: interactions that MUST still rebuild ──────────
+    //
+    // Without these, the two tests above would be satisfied by a screen that
+    // never rebuilds the timeline for anything — including a genuine day
+    // change, which would be a far worse bug (a stale day's bookings under a
+    // newly selected date).
+
+    testWidgets(
+      'selecting a DIFFERENT rail day DOES rebuild the timeline — the '
+      'no-rebuild rule is scoped to the month step, not blanket',
+      (tester) async {
+        await pumpScreen(tester);
+
+        final BookingsTimelineGrid before = grid(tester);
+        final DateTime kyivToday = dateOnly(toBeauticaTime(DateTime.now()));
+
+        await tester.tap(find.byKey(dayChipKey(railDayAt(kyivToday, 1))));
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          identical(grid(tester), before),
+          isFalse,
+          reason:
+              'the timeline did NOT rebuild after the selected day changed — '
+              'the screen is now showing one day\'s bookings under another '
+              'day\'s heading',
+        );
+      },
+    );
+
+    testWidgets(
+      '«Сьогодні» DOES rebuild the timeline — it re-selects the day, unlike '
+      'prev/next',
+      (tester) async {
+        await pumpScreen(tester);
+        final DateTime kyivToday = dateOnly(toBeauticaTime(DateTime.now()));
+
+        // Move off today first, so «Сьогодні» has a real selection change to
+        // make rather than resolving to the day already shown.
+        await tester.tap(find.byKey(dayChipKey(railDayAt(kyivToday, 2))));
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        final BookingsTimelineGrid before = grid(tester);
+
+        await tester.tap(find.byKey(const Key('master-bookings-today')));
+        await tester.pumpAndSettle();
+
+        expect(
+          identical(grid(tester), before),
+          isFalse,
+          reason:
+              '«Сьогодні» left the timeline untouched — it must re-select '
+              'today (setState + a new query), not merely relabel like '
+              'prev/next',
+        );
+      },
     );
   });
 }

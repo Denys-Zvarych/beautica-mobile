@@ -307,6 +307,70 @@ class _DayChip extends StatelessWidget {
   final VoidCallback onTap;
   final String semanticLabel;
 
+  /// Memoised weekday-caption styles, keyed by the resolved colour (mobile-perf
+  /// LOW, 2026-07-22).
+  ///
+  /// [build] used to allocate two `TextStyle`s per chip on EVERY rail rebuild
+  /// — and the rail rebuilds on every day selection, every `bookedDays`
+  /// resolution and every scroll-driven `ListView` recycle. The permutation
+  /// set is CLOSED and tiny: three weekday colours (`accentDeep` selected /
+  /// `muted` past / `textSecondary` ordinary) and three number colours
+  /// (`accent` / `muted` / `text`), so a keyed memo reaches its ceiling
+  /// immediately and stops. Same pattern (and same reasoning) as
+  /// `master_booking_card.dart`'s `TimelineStatusDot._decorationsByAccent`.
+  ///
+  /// Keyed by the RESOLVED colour rather than by the `selected`/`muted`
+  /// booleans so it cannot drift from the resolution below if a token is
+  /// remapped.
+  static final Map<Color, TextStyle> _weekdayStyles = <Color, TextStyle>{};
+
+  /// The day-number style memo. Keyed by `(colour, isToday && !selected)` —
+  /// the today-but-unselected flag drives BOTH the weight step (w800 vs w700)
+  /// and the accent underline, so it is part of the identity of the style,
+  /// not an overlay on it. Six entries maximum (3 colours × 2 states).
+  static final Map<(Color, bool), TextStyle> _numberStyles =
+      <(Color, bool), TextStyle>{};
+
+  /// The bound on both memos — 3 weekday colours, and 3 number colours × 2
+  /// today-states. See [_weekdayStyleFor]'s assert.
+  static const int _kWeekdayStyleCount = 3;
+  static const int _kNumberStyleCount = 6;
+
+  static TextStyle _weekdayStyleFor(Color color) {
+    assert(
+      _weekdayStyles.containsKey(color) ||
+          _weekdayStyles.length < _kWeekdayStyleCount,
+      '_DayChip._weekdayStyles grew past $_kWeekdayStyleCount entries — the '
+      'weekday colour set is closed, so this means either a new state shipped '
+      '(raise the bound) or a colour is being rebuilt per-instance, which '
+      'would make this memo an unbounded leak instead of the fixed table it '
+      'is meant to be.',
+    );
+    return _weekdayStyles.putIfAbsent(
+      color,
+      () => VelvetText.railWeekday.copyWith(color: color),
+    );
+  }
+
+  static TextStyle _numberStyleFor(Color color, {required bool todayMark}) {
+    assert(
+      _numberStyles.containsKey((color, todayMark)) ||
+          _numberStyles.length < _kNumberStyleCount,
+      '_DayChip._numberStyles grew past $_kNumberStyleCount entries — see '
+      '_weekdayStyleFor for why that bound is structural.',
+    );
+    return _numberStyles.putIfAbsent(
+      (color, todayMark),
+      () => VelvetText.railDayNumber.copyWith(
+        color: color,
+        fontWeight: todayMark ? FontWeight.w800 : FontWeight.w700,
+        decoration: todayMark ? TextDecoration.underline : TextDecoration.none,
+        decorationColor: BrandColors.accent,
+        decorationThickness: 1.5,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Selection outranks pastness — see the class doc.
@@ -335,23 +399,13 @@ class _DayChip extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Text(
-                weekday,
-                style: VelvetText.railWeekday.copyWith(color: weekdayColor),
-              ),
+              Text(weekday, style: _weekdayStyleFor(weekdayColor)),
               const SizedBox(height: _dayChipCaptionGap),
               Text(
                 '${date.day}',
-                style: VelvetText.railDayNumber.copyWith(
-                  color: numberColor,
-                  fontWeight: (isToday && !selected)
-                      ? FontWeight.w800
-                      : FontWeight.w700,
-                  decoration: (isToday && !selected)
-                      ? TextDecoration.underline
-                      : TextDecoration.none,
-                  decorationColor: BrandColors.accent,
-                  decorationThickness: 1.5,
+                style: _numberStyleFor(
+                  numberColor,
+                  todayMark: isToday && !selected,
                 ),
               ),
               const SizedBox(height: 4),

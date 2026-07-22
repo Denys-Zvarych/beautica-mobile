@@ -79,6 +79,7 @@ class _RecordingRepo implements BookingRepository {
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
+    CancelToken? cancelToken,
   }) => throw UnimplementedError();
 
   @override

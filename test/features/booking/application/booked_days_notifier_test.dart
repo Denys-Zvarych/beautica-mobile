@@ -22,10 +22,14 @@
 // `AuthNotifier.logout`-side `ref.invalidate` call was considered and
 // rejected.
 
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -33,6 +37,9 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart'
+    show calendarDayCount;
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -103,6 +110,7 @@ void main() {
       () => repo.getMyBookedDays(
         from: any(named: 'from'),
         to: any(named: 'to'),
+        cancelToken: any(named: 'cancelToken'),
       ),
     ).thenAnswer((_) async => days);
   }
@@ -156,6 +164,7 @@ void main() {
         () => repo.getMyBookedDays(
           from: any(named: 'from'),
           to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(2);
       expect(master2Days, <DateTime>{DateTime(2026, 7, 15)});
@@ -192,6 +201,7 @@ void main() {
         () => repo.getMyBookedDays(
           from: any(named: 'from'),
           to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).called(1);
     });
@@ -235,5 +245,213 @@ void main() {
       );
       sub.close();
     });
+  });
+
+  group('bookedDaysProvider — failure path, ±180-day bounds, dateOnly '
+      'normalisation, and CancelToken disposal', () {
+    test('a failing fetch surfaces as an AsyncError carrying the mapped '
+        'Failure — not just hasError', () async {
+      when(
+        () => repo.getMyBookedDays(
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+
+      final result = await _containerWithAuth(
+        repo,
+        const AuthSession.authenticated(user: _master1, accessToken: 'token-1'),
+      );
+
+      result.container.listen(bookedDaysProvider, (_, _) {});
+      result.container.read(bookedDaysProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final AsyncValue<Set<DateTime>> state = result.container.read(
+        bookedDaysProvider,
+      );
+      expect(state.hasError, isTrue);
+      expect(state.error, isA<NetworkFailure>());
+    });
+
+    test('requests the inclusive ±kBookedDaysSpanDays window at LOCAL '
+        'MIDNIGHT via calendar arithmetic — the property a Duration-based '
+        'offset violates across a Kyiv DST transition', () async {
+      late DateTime capturedFrom;
+      late DateTime capturedTo;
+      when(
+        () => repo.getMyBookedDays(
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((Invocation invocation) async {
+        capturedFrom = invocation.namedArguments[#from] as DateTime;
+        capturedTo = invocation.namedArguments[#to] as DateTime;
+        return const <DateTime>[];
+      });
+
+      final result = await _containerWithAuth(
+        repo,
+        const AuthSession.authenticated(user: _master1, accessToken: 'token-1'),
+      );
+      await visit(result.container);
+
+      final DateTime today = dateOnly(DateTime.now());
+      final DateTime expectedFrom = DateTime(
+        today.year,
+        today.month,
+        today.day - kBookedDaysSpanDays,
+      );
+      final DateTime expectedTo = DateTime(
+        today.year,
+        today.month,
+        today.day + kBookedDaysSpanDays,
+      );
+
+      // The exact calendar-arithmetic value.
+      expect(capturedFrom, expectedFrom);
+      expect(capturedTo, expectedTo);
+
+      // LOCAL MIDNIGHT — `DateTime(y, m, d ± n)` always normalises to
+      // midnight; `today.subtract(Duration(days: n))` does NOT when the
+      // subtracted span crosses a DST transition (it lands on 23:00/01:00
+      // instead). This assertion holds unconditionally for the calendar-
+      // arithmetic implementation, on every day of the year, which is what
+      // makes it the right thing to pin rather than the raw equality above
+      // (which a `Duration`-based mutation could still coincidentally
+      // satisfy if the mutant happened to land on midnight on a day no DST
+      // boundary is crossed).
+      expect(capturedFrom.hour, 0);
+      expect(capturedFrom.minute, 0);
+      expect(capturedFrom.second, 0);
+      expect(capturedTo.hour, 0);
+      expect(capturedTo.minute, 0);
+      expect(capturedTo.second, 0);
+
+      // Inclusive span is 2*180 = 361 days start-to-end minus one for the
+      // fencepost — i.e. exactly `2 * kBookedDaysSpanDays` CALENDAR days
+      // between `from` and `to`, comfortably under the backend's 366-day
+      // cap. Counted with `calendarDayCount` (DST-safe, re-anchors in UTC)
+      // — never `.difference().inDays`, which truncates across a Kyiv DST
+      // transition and would silently read one day short.
+      expect(
+        calendarDayCount(capturedFrom, capturedTo),
+        2 * kBookedDaysSpanDays,
+      );
+
+      // HONESTY NOTE on discriminating power: whether the midnight
+      // assertions above actually go RED under a
+      // `today.subtract(Duration(days: kBookedDaysSpanDays))` mutation
+      // depends on whether TODAY's ±180-day window happens to cross a
+      // Europe/Kyiv DST transition (last Sunday of March / October) — it is
+      // not literally guaranteed for every possible "today" a future test
+      // run could see. In practice the ±180-day (361-day) window is close
+      // to a full calendar year, so it crosses at least one of the two
+      // yearly transitions for the overwhelming majority of dates (see
+      // `bookings_day_rail.dart`'s `calendarDayCount` doc for the identical
+      // reasoning) — verified for the date this test was written against
+      // (2026-07-22, whose ±180-day window spans 2026-01-23..2027-01-18 and
+      // crosses both the 2026-03-29 and 2026-10-25 transitions). The
+      // narrow band of dates where the window crosses neither transition is
+      // the one case this test cannot discriminate for; there is no way to
+      // close that gap without an injectable clock in production, which is
+      // out of scope for a test-only change.
+    });
+
+    test(
+      'the repository response\'s stray time-of-day components are '
+      'normalised away via dateOnly, so a date-only key hits the Set',
+      () async {
+        stubBookedDays(<DateTime>[DateTime(2026, 7, 10, 13, 45, 30)]);
+        final result = await _containerWithAuth(
+          repo,
+          const AuthSession.authenticated(
+            user: _master1,
+            accessToken: 'token-1',
+          ),
+        );
+
+        final Set<DateTime> days = await result.container.read(
+          bookedDaysProvider.future,
+        );
+
+        expect(days, <DateTime>{DateTime(2026, 7, 10)});
+        expect(
+          days.contains(DateTime(2026, 7, 10)),
+          isTrue,
+          reason: 'a date-only membership probe must hit the normalised key',
+        );
+        expect(
+          days.contains(DateTime(2026, 7, 10, 13, 45, 30)),
+          isFalse,
+          reason:
+              'the Set key must be date-only — the raw stray-time value from '
+              'the repo must not be what actually got stored',
+        );
+      },
+    );
+
+    test(
+      'disposing the provider element cancels the in-flight request — '
+      'ref.onDispose(cancelToken.cancel) (mobile-perf LOW, 2026-07-22)',
+      () async {
+        final Completer<List<DateTime>> gate = Completer<List<DateTime>>();
+        CancelToken? capturedToken;
+        when(
+          () => repo.getMyBookedDays(
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer((Invocation invocation) {
+          capturedToken =
+              invocation.namedArguments[#cancelToken] as CancelToken?;
+          return gate.future;
+        });
+
+        final result = await _containerWithAuth(
+          repo,
+          const AuthSession.authenticated(
+            user: _master1,
+            accessToken: 'token-1',
+          ),
+        );
+
+        final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = result
+            .container
+            .listen(bookedDaysProvider, (_, _) {});
+        result.container.read(bookedDaysProvider);
+        // Let the request actually reach the repo (the mock's `when` above)
+        // before the element is disposed — the gate future never resolves, so
+        // the fetch stays genuinely in flight throughout this test.
+        await Future<void>.delayed(Duration.zero);
+
+        expect(capturedToken, isNotNull);
+        expect(
+          capturedToken!.isCancelled,
+          isFalse,
+          reason: 'must not already be cancelled while genuinely in flight',
+        );
+
+        // Explicit disposal — NOT relying solely on `_containerWithAuth`'s own
+        // `addTearDown`, since the assertion below must run AFTER disposal.
+        // `ProviderContainer.dispose()` is documented safe to call more than
+        // once ("Subsequent calls will be no-op"), so the `addTearDown`
+        // registered inside `_containerWithAuth` firing again at test end is
+        // harmless.
+        sub.close();
+        result.container.dispose();
+
+        expect(
+          capturedToken!.isCancelled,
+          isTrue,
+          reason:
+              'ref.onDispose(cancelToken.cancel) must fire when the element '
+              'is disposed, aborting the still-pending ±180-day sweep',
+        );
+      },
+    );
   });
 }

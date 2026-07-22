@@ -359,6 +359,63 @@ class MasterBookingCard extends StatefulWidget {
   /// (uniform fit), silently dragging the compact card below this figure.
   static const double estimatedNaturalHeight = 56;
 
+  /// The [minHeight] at or above which this card renders its fuller divided
+  /// layout instead of the compact grid — the public face of
+  /// [_MasterBookingCardState._kFullLayoutMinHeight], which carries the full
+  /// derivation. Exposed so a CALLER that must predict this card's rendered
+  /// box (see [occupiedHeightFor]) reads the very constant [build] switches
+  /// on, rather than re-deriving the threshold and drifting from it.
+  static const double fullLayoutMinHeight =
+      _MasterBookingCardState._kFullLayoutMinHeight;
+
+  /// [_buildFullBody]'s natural rendered height at textScaler 1.0 — the
+  /// [estimatedNaturalHeight] of the OTHER layout, and EXACT rather than an
+  /// estimate for the same reason: the full body is a fixed stack of
+  /// single-line rows, so its height is independent of the booking's text
+  /// (lane width moves the ellipsis, never the height — measured identical at
+  /// 226 / 266 / 272dp of lane).
+  ///
+  /// Derivation: border (1.5 × 2 = 3) + [_MasterBookingCardState._fullPadding]
+  /// (16 × 2 = 32) + the client-name row + `VelvetSpacing.sm + 2` + the 1dp
+  /// hairline + `VelvetSpacing.sm + 2` + the service/time row +
+  /// `VelvetSpacing.xs + 2` + the price/badge row = **117dp**.
+  ///
+  /// Pinned by `master_booking_card_test.dart`'s "the FULL body still
+  /// measures exactly 117dp at textScaler 1.0" case, and — as the input to
+  /// [occupiedHeightFor] — by `master_booking_card_layout_height_test.dart`,
+  /// which renders the real card at every floor the timeline can produce and
+  /// asserts the prediction matches to the pixel.
+  ///
+  /// TEXT SCALE 1.0 ONLY. The same measurement is 124dp at 1.15 and 132dp at
+  /// 1.3, so any caller predicting a box from this constant MUST gate itself
+  /// on `MediaQuery.textScalerOf(context).scale(1) <= 1.0` — see
+  /// `bookings_timeline_grid.dart`'s "ADDENDUM 5".
+  static const double fullLayoutNaturalHeight = 117;
+
+  /// The EXACT height this card's decorated box occupies when built with
+  /// [minHeight], at textScaler 1.0 — computable without building the card.
+  ///
+  /// [minHeight] is a floor, never a ceiling (see the class doc), so the box
+  /// resolves to `max(floor, the selected layout's natural content height)`,
+  /// and which layout is selected is itself a pure function of [minHeight]
+  /// ([fullLayoutMinHeight]). Both branches' naturals are content-independent
+  /// exact numbers ([estimatedNaturalHeight] / [fullLayoutNaturalHeight]), so
+  /// this is a real prediction rather than an estimate.
+  ///
+  /// Exists for `bookings_timeline_grid.dart`'s viewport culling, whose
+  /// placeholder must reserve precisely the room the real card would take or
+  /// every card below it reflows off its hour line. Do NOT use it to SIZE a
+  /// card (that would reintroduce the exact-height clipping bug the class doc
+  /// forbids) — it predicts, it never constrains.
+  ///
+  /// Valid at textScaler 1.0 only — see [fullLayoutNaturalHeight].
+  static double occupiedHeightFor(double minHeight) => math.max(
+    minHeight,
+    minHeight >= fullLayoutMinHeight
+        ? fullLayoutNaturalHeight
+        : estimatedNaturalHeight,
+  );
+
   @override
   State<MasterBookingCard> createState() => _MasterBookingCardState();
 }
@@ -502,70 +559,19 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// entire job in a scrolling timeline.
   static const double _kCompactPriceVPad = 1;
 
-  /// Width the compact ROW 2 keeps for its service name before the price
-  /// pill may claim any of it — see [_compactPriceCap] and row 2's own
-  /// comment in [_buildCompactBody].
-  ///
-  /// RE-DERIVED FOR THE MINIATURE LAYOUT (2026-07-21) — 112 -> 68
-  /// ----------------------------------------------------------------------
-  /// The old 112 was budgeted for a row that carried the start–end RANGE
-  /// LABEL, two gaps and the pill (86.6 + 10 + 15 at the 1.3 ceiling). That
-  /// row no longer exists: the range moved up to row 1 (where it sits beside
-  /// the client name and an 8dp dot, both flex/fixed and neither able to
-  /// out-measure the row), and the pill now shares row 2 with the service
-  /// name alone. Carrying the old number forward would have reserved 112dp
-  /// for content that is no longer on the row — capping the pill at 91dp on
-  /// the narrowest lane for no reason at all.
-  ///
-  /// The re-derivation, against the same worst case:
-  ///
-  ///   * the row's single gap — `VelvetSpacing.xs`, 4dp, fixed;
-  ///   * 64dp so the `Expanded` service name keeps a genuinely readable
-  ///     sliver (~5-6 Cyrillic glyphs plus the ellipsis) rather than merely
-  ///     "not literally nothing", which is all the old 15dp bought.
-  ///
-  /// 4 + 64 = **68**. Still a FIXED reserve rather than a fraction of the
-  /// lane, for the same reason as before: a fraction would shave the pill on
-  /// wide lanes that have room to spare.
-  ///
-  /// ## Where it binds — nowhere in production any more, and that is the
-  /// honest result rather than a reason to delete it
-  ///
-  /// The narrowest lane the timeline can build is 226dp
-  /// (`bookings_timeline_grid.dart`'s "ADDENDUM 3" clamps its 272dp card to
-  /// `constraints.maxWidth`, and the lane area is `deviceWidth − 94`: 24 + 24
-  /// screen padding, 42 ruler, 4 gap — so a 320dp device, which this app
-  /// supports throughout, yields `320 − 94 = 226`). That is 203dp of inner
-  /// width after this card's padding and border, so the cap resolves to
-  /// `203 − 68 = 135dp` — ABOVE the pill's own 112dp ceiling (96dp of text
-  /// plus 2 × `VelvetSpacing.sm`), which means it does not bind, and the
-  /// service name is left 87dp instead of the outgoing layout's 35dp.
-  ///
-  /// Moving the price off the time row is what bought that: row 2's non-flex
-  /// content is now a single self-capping 112dp pill against 203dp of row,
-  /// so an overflow is arithmetically impossible on any production lane
-  /// WITHOUT this cap. The cap stays anyway as the structural backstop for a
-  /// narrower row than production can currently produce (a ~176dp row — a
-  /// 200dp lane — is where it starts binding), because the alternative is
-  /// re-learning the 2026-07-21 lesson: the previous pass deleted a
-  /// "hypothetical" narrow case and the real 226dp floor then went untested
-  /// for a release.
-  static const double _kCompactPriceReserve = 68;
-
-  /// The smallest cap [_compactPriceCap] will hand the pill. Below the pill's
-  /// own horizontal padding (2 × `VelvetSpacing.sm`) a `ConstrainedBox` would
-  /// force a `maxWidth` the pill physically cannot meet; this floor keeps the
-  /// constraint satisfiable on a lane narrower than anything production can
-  /// produce (the band simply scales down further there).
-  static const double _kCompactPriceMinWidth = VelvetSpacing.xxl;
-
-  /// The compact price pill's `maxWidth` for a row [rowWidth] dp wide.
-  ///
-  /// An unbounded row (no real call site, but [LayoutBuilder] contracts allow
-  /// it) leaves the pill on its own [_PriceTag] cap, exactly as before.
-  static double _compactPriceCap(double rowWidth) => rowWidth.isFinite
-      ? math.max(rowWidth - _kCompactPriceReserve, _kCompactPriceMinWidth)
-      : double.infinity;
+  // THE COMPACT PRICE CAP IS GONE — REMOVED 2026-07-22 (mobile-perf MEDIUM)
+  // ----------------------------------------------------------------------
+  // `_kCompactPriceReserve` (68), `_kCompactPriceMinWidth` and
+  // `_compactPriceCap(rowWidth)` used to compute a `maxWidth` for the compact
+  // row's price pill from the row's own measured width, which is what forced
+  // the per-card `LayoutBuilder` this file's row 2 comment now documents the
+  // removal of. The cap was inert on every device the app supports (it
+  // resolved to 135dp against the pill's own 112dp ceiling), and the
+  // measurement it required cost a relayout boundary per card up to 100 times
+  // per day AND made the whole card illegal under `IntrinsicHeight`. Overflow
+  // safety on that row is structural, not arithmetic — see [_PriceTag]'s
+  // `Flexible` + `FittedBox(fit: BoxFit.scaleDown)` and row 2's comment in
+  // [_buildCompactBody]. Do not reintroduce a width-measuring cap here.
 
   @override
   Widget build(BuildContext context) {
@@ -694,84 +700,74 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         const SizedBox(height: VelvetSpacing.xs),
         // ROW 2 — THE TRANSACTION: service name (flexes) · price.
         //
-        // THIS CARD MUST NOT BE PLACED UNDER `IntrinsicHeight`,
-        // `IntrinsicWidth` OR AN `IntrinsicColumnWidth` TABLE COLUMN
+        // NO `LayoutBuilder` HERE — REMOVED 2026-07-22 (mobile-perf MEDIUM)
         // -----------------------------------------------------------------
-        // The `LayoutBuilder` below is what costs us that — it moved here
-        // from row 1 in the miniature-layout pass, but the hazard is
-        // unchanged and still applies to the WHOLE card, not just this row:
-        // a `LayoutBuilder` cannot report intrinsic dimensions, because doing
-        // so would mean running its builder speculatively at a size it was
-        // never laid out at. The failure is asymmetric between build modes,
-        // and the QUIET half is the dangerous one:
+        // This row used to be wrapped in one, purely to compute a
+        // `maxWidth` cap for the price pill from the row's own width. That
+        // cap was provably INERT on every device the app supports: the
+        // narrowest lane the timeline can build is 226dp
+        // (`bookings_timeline_grid.dart`'s "ADDENDUM 3" clamps its 272dp card
+        // to `constraints.maxWidth`, and the lane area is `deviceWidth − 94`
+        // — 24 + 24 screen padding, 42 ruler, 4 gap — so a 320dp device
+        // yields `320 − 94 = 226`), which is 203dp of inner width after this
+        // card's padding and border. The cap resolved to `203 − 68 = 135dp`,
+        // ABOVE [_PriceTag._maxTextWidth]'s own 112dp ceiling, so it never
+        // bound anything.
         //
-        //   * DEBUG/JIT — loud. `_RenderLayoutBuilder.computeMaxIntrinsicHeight`
-        //     asserts "LayoutBuilder does not support returning intrinsic
-        //     dimensions" and the frame throws. Verified directly: wrapping
-        //     this card in an `IntrinsicHeight` under a LOOSE incoming height
-        //     (a tight one short-circuits before the intrinsic pass is ever
-        //     requested, so the hazard hides) throws through
-        //     `RenderFlex.computeMaxIntrinsicHeight`.
-        //   * RELEASE/AOT — silent and WRONG. That assert is compiled out, so
-        //     all four of `computeMinIntrinsicWidth`, `computeMaxIntrinsicWidth`,
-        //     `computeMinIntrinsicHeight` and `computeMaxIntrinsicHeight`
-        //     simply return `0.0`. The ancestor then equalises against a
-        //     zero-height measurement and lays the row out to a bogus size — a
-        //     mangled card in the shipped app with nothing thrown, nothing
-        //     logged and no test failure to catch it, because the widget tests
-        //     that would have exploded only ever run in debug.
+        // What it DID cost, up to 100 times per day: a relayout boundary per
+        // card, plus this subtree being built during LAYOUT rather than
+        // build — and, worse, it made the whole card illegal under
+        // `IntrinsicHeight`/`IntrinsicWidth`/an `IntrinsicColumnWidth` table
+        // column, because a `LayoutBuilder` cannot report intrinsic
+        // dimensions. That failure was asymmetric and the quiet half was the
+        // dangerous one: DEBUG/JIT asserts "LayoutBuilder does not support
+        // returning intrinsic dimensions" and throws, while RELEASE/AOT
+        // compiles the assert out and silently returns `0.0` from all four
+        // intrinsic queries — a mangled card in the shipped app with nothing
+        // thrown, nothing logged and no test failure, because the widget
+        // tests that would have exploded only ever run in debug. The
+        // `IntrinsicHeight` + `CrossAxisAlignment.stretch` pattern is live
+        // and common in this repo (`master_profile_screen.dart`,
+        // `public_master_profile_screen.dart`, `home_hub_screen.dart`,
+        // `quick_links_card.dart`, `next_appointment_card.dart`,
+        // `passport_table.dart`), so that was a one-line landmine for any
+        // future caller.
         //
-        // Not a theoretical constraint: the `IntrinsicHeight` +
-        // `CrossAxisAlignment.stretch` pattern is live and common in this repo
-        // — `master_profile_screen.dart:439` and
-        // `public_master_profile_screen.dart:410` both use it to equalise a
-        // row of cards to the tallest one, and `home_hub_screen.dart`,
-        // `quick_links_card.dart`, `next_appointment_card.dart` and
-        // `passport_table.dart` do the same. Dropping this card into any such
-        // row is a one-line change that looks harmless and reviews clean. If a
-        // caller genuinely needs an equal-height row of these cards, give the
-        // row a real height (a `SizedBox`/`ConstrainedBox` the caller computes)
-        // rather than asking this subtree to measure itself.
-        //
-        // THE CAP, RE-DERIVED — see [_kCompactPriceReserve]. On every lane
-        // production can build it no longer binds (203dp of row − a 68dp
-        // reserve = 135dp, above the pill's own 112dp ceiling), because the
-        // row's only non-flex child is now a self-capping pill. It is kept as
-        // the structural backstop for a narrower row, and because deleting a
-        // "hypothetical" narrow case is exactly how the real 226dp floor went
-        // untested last time.
-        LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints rowConstraints) {
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    b.serviceName,
-                    style: VelvetText.masterCardService,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                // See `BookingDisplayX.showsPrice`: a cancelled, declined or
-                // missed appointment owes nothing, so printing a sum on it
-                // would assert a debt that does not exist. On those cards
-                // this row is the service name alone.
-                if (b.showsPrice) ...<Widget>[
-                  const SizedBox(width: VelvetSpacing.xs),
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: _compactPriceCap(rowConstraints.maxWidth),
-                    ),
-                    child: _PriceTag(
-                      price: b.priceLabel,
-                      verticalPadding: _kCompactPriceVPad,
-                    ),
-                  ),
-                ],
-              ],
-            );
-          },
+        // OVERFLOW SAFETY IS STRUCTURAL, NOT ARITHMETIC: [_PriceTag] caps its
+        // own text at [_PriceTag._maxTextWidth] and wraps it in a `Flexible` +
+        // `FittedBox(fit: BoxFit.scaleDown)`, so it scales into whatever
+        // bounded width this `Row` hands it however narrow that gets — no
+        // reserve, and no row-width measurement, required.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                b.serviceName,
+                style: VelvetText.masterCardService,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            // See `BookingDisplayX.showsPrice`: a cancelled, declined or
+            // missed appointment owes nothing, so printing a sum on it
+            // would assert a debt that does not exist. On those cards
+            // this row is the service name alone.
+            if (b.showsPrice) ...<Widget>[
+              const SizedBox(width: VelvetSpacing.xs),
+              // NON-flex, exactly as the retired `ConstrainedBox` was: a
+              // `Row` hands its non-flex children unbounded width, under
+              // which [_PriceTag]'s own `Flexible` + [_PriceTag._maxTextWidth]
+              // resolve to the identical 112dp ceiling the inert 135dp cap
+              // used to sit above. Making it `Flexible` here would NOT be
+              // equivalent — it would split the free space with the service
+              // name's `Expanded` instead of leaving the remainder to it.
+              _PriceTag(
+                price: b.priceLabel,
+                verticalPadding: _kCompactPriceVPad,
+              ),
+            ],
+          ],
         ),
       ],
     );
@@ -873,9 +869,9 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // the band into it. `Align(centerLeft)` reproduces the retired
         // `Spacer`'s visual result exactly — pill hard left, badge hard
         // right — with the leftover living inside the `Expanded` instead of
-        // in a sibling. No reserve is needed here (unlike the compact row's
-        // [_kCompactPriceReserve]) because nothing else on this row competes
-        // for that space.
+        // in a sibling. No reserve is needed here — nothing else on this row
+        // competes for that space (and the compact row's own reserve is gone
+        // too; see the note where it used to be declared).
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
@@ -929,8 +925,8 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
 /// children out with an UNBOUNDED `maxWidth`, so a pill parked as a plain
 /// non-flex child never saw how much room its row actually had. It always
 /// took the full capped 112dp (96 text + 2×8 padding) — and on the real
-/// narrowest lane (226dp: a 320dp device minus 94 of ruler/padding/gap, see
-/// [MasterBookingCard._kCompactPriceReserve]) that overflowed BOTH layouts
+/// narrowest lane (226dp: a 320dp device minus 94 of ruler/padding/gap — see
+/// `bookings_timeline_grid.dart`'s "ADDENDUM 3") that overflowed BOTH layouts
 /// once a frozen band was present.
 ///
 /// The fix is on the CALLER side, in both rows, and this widget's job is to
@@ -939,12 +935,14 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
 /// into a flat 96. The two callers bound it differently, each matching its
 /// row's own priority order:
 ///
-///   * compact row 1 — a `ConstrainedBox` whose `maxWidth` is the row's real
-///     width minus a documented reserve for the time label, the gaps and a
-///     service-name sliver. The pill stays NON-flex there on purpose: the
-///     service name must keep absorbing the slack in the common case (a
-///     `Flexible` pill would split the row's free space evenly with the
-///     `Expanded` name and cost that name ~17dp on every device, for nothing).
+///   * compact row 2 — a plain NON-flex child, so [_maxTextWidth] alone is
+///     the ceiling. It stays non-flex on purpose: the service name must keep
+///     absorbing the slack (a `Flexible` pill would split the row's free
+///     space evenly with the `Expanded` name and cost that name ~17dp on
+///     every device, for nothing). The row-width-derived `ConstrainedBox`
+///     that used to sit here was removed 2026-07-22 — it never bound, and
+///     buying it cost a `LayoutBuilder` per card; see [MasterBookingCard]'s
+///     row 2 comment.
 ///   * full row 3 — an `Expanded` + `Align`, which hands the pill the row's
 ///     entire remaining width after the status badge. No reserve is needed
 ///     because nothing else in that row competes for it.

@@ -40,6 +40,7 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 class _CountingScreenProtection extends ScreenProtectionManager {
@@ -63,7 +64,12 @@ class _StubAuth extends AuthNotifier {
 }
 
 Booking _booking() {
-  final DateTime start = DateTime.utc(2026, 7, 20, 15);
+  // Now-relative, never an absolute literal — see
+  // `test/helpers/booking_fixture_dates.dart` for the time bomb this avoids.
+  // This suite pumps «Деталі запису», whose affordances are gated on
+  // `BookingDisplayX.isPast`, so an expired literal here is precisely the
+  // 2026-07-20 incident's shape.
+  final DateTime start = futureBookingStart();
   return Booking(
     id: 'b1',
     masterId: 'm1',

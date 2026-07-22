@@ -3759,6 +3759,18 @@
       "genitive": { "type": "String" }
     }
   },
+  "bookingNoteHeadingClientWishes": "Побажання клієнта",
+  "@bookingNoteHeadingClientWishes": {
+    "description": "Heading over the client's booking-time note as the PROVIDER sees it on the booking detail screen — the client's words arriving, not the reader's own."
+  },
+  "bookingNoteHeadingClientReason": "Причина клієнта",
+  "@bookingNoteHeadingClientReason": {
+    "description": "Heading over the client's cancellation note as the PROVIDER sees it on the booking detail screen."
+  },
+  "bookingNoteHeadingYourComment": "Ваш коментар",
+  "@bookingNoteHeadingYourComment": {
+    "description": "Heading over the provider's own note (decline reason or no-show account) as the PROVIDER sees it on the booking detail screen."
+  },
   "bookingNoteShowMore": "Показати більше",
   "@bookingNoteShowMore": {
     "description": "Expand toggle for a clamped booking note."

@@ -38,25 +38,33 @@
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears in
 // CONTENT ASSERTIONS only.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_bookings_states.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
+import 'package:beautica_mobile/shared/formatters/month_names.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 /// The REAL rendered geometry of the [MasterBookingCard] keyed
@@ -66,6 +74,14 @@ import 'support/app_harness.dart';
 /// ancestor any more — see the R3 fix in `bookings_timeline_grid.dart`).
 Rect _masterCardRect(WidgetTester tester, String bookingId) =>
     tester.getRect(find.byKey(ValueKey<String>('timeline-card-$bookingId')));
+
+/// Resolves the localisation instance off a MOUNTED screen's own element —
+/// mirrors `client_leave_review_flow_test.dart`'s identically-named helper.
+/// Lets a flow assert against `l10n.<key>` (locale-invariant, rename-proof)
+/// instead of a Cyrillic literal, without threading a `BuildContext` through
+/// every test body.
+AppLocalizations _l10nOf(WidgetTester tester, Type screen) =>
+    AppLocalizations.of(tester.element(find.byType(screen)));
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -1310,6 +1326,398 @@ void main() {
       // the dot's Semantics/Tooltip channel instead (pinned per status at the
       // widget tier).
       expect(inCard(find.byType(TimelineStatusBadge)), findsNothing);
+    },
+  );
+
+  // ── 2026-07-22 — the month switcher is a PURE rail-scroll affordance ───────
+  //
+  // Step 2.7 Rule 3b: `_prevMonth`/`_nextMonth` (`bookings_discovery_view
+  // .dart`) are documented as deliberately NOT touching `_day`/`_liveQuery` —
+  // stepping the month moves only the switcher's own label and the rail's
+  // scroll position, mirroring the approved design's own `_prevMonth`. Nothing
+  // in the widget tier drives this through a REAL `GET /bookings/me` call
+  // count: a regression that made a month step start re-selecting a day (and
+  // re-fetching) would leave every mocked-repository assertion untouched,
+  // because a mock never notices an EXTRA call it wasn't told to expect.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // the dev VM has no attached emulator (host-only-adapter limitation,
+  // backlog #179/#191). Verified analyze-clean; authored, not passing — CI
+  // owns the first run.
+  testWidgets(
+    'the month switcher only moves the rail — the label changes but the '
+    'selected day and the live query do not, and no extra GET /bookings/me '
+    'fires',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      // The screen opens on Kyiv "today"'s month — the SAME derivation the
+      // widget itself uses (`dateOnly(toBeauticaTime(DateTime.now()))` in
+      // `_BookingsDiscoveryViewState.initState`), never a hand-typed
+      // month/year that could silently drift from the real device clock.
+      final DateTime todayKyiv = dateOnly(toBeauticaTime(DateTime.now()));
+      final String initialLabel =
+          '${monthNominative(todayKyiv.month)} ${todayKyiv.year}';
+      expect(find.text(initialLabel), findsOneWidget);
+
+      final int callsBeforeSwitch = fb.getMyBookingsCalls;
+      final Map<String, dynamic>? queryBeforeSwitch = fb.lastMyBookingsQuery;
+
+      // ── Step forward one month — only the label moves. ────────────────────
+      await tester.tap(find.byKey(const Key('master-bookings-month-next')));
+      await AppHarness.settle(tester);
+
+      final DateTime nextMonth = DateTime(todayKyiv.year, todayKyiv.month + 1);
+      final String nextLabel =
+          '${monthNominative(nextMonth.month)} ${nextMonth.year}';
+      expect(find.text(nextLabel), findsOneWidget);
+      expect(find.text(initialLabel), findsNothing);
+
+      // ── …then back — the label returns to the original month. ─────────────
+      await tester.tap(find.byKey(const Key('master-bookings-month-prev')));
+      await AppHarness.settle(tester);
+      expect(find.text(initialLabel), findsOneWidget);
+      expect(find.text(nextLabel), findsNothing);
+
+      // ── Neither step touched the selection or issued a new request. ───────
+      expect(
+        fb.getMyBookingsCalls,
+        callsBeforeSwitch,
+        reason:
+            'a month step is a pure rail-scroll affordance — it must not '
+            'issue a NEW GET /bookings/me',
+      );
+      expect(
+        fb.lastMyBookingsQuery,
+        same(queryBeforeSwitch),
+        reason:
+            'the recorded query object itself must be the SAME instance — a '
+            'new fetch would have replaced it with a fresh map',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason: "the originally-selected day's content must still be shown",
+      );
+    },
+  );
+
+  // ── 2026-07-22 — «Сьогодні» jumps the SELECTION back to Kyiv today ─────────
+  //
+  // Step 2.7 Rule 3b: unlike the month switcher above, `_goToToday` DOES
+  // re-select the day and re-fetch (mirrors `_applySelectedDay`) — the widget
+  // tier cannot prove the resulting request actually carries Kyiv "today" at
+  // the wire (`from == to == today`), only that the notifier's own in-memory
+  // query argument looks right against a mocked repository.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // authored, analyze-clean; CI owns the first run.
+  testWidgets(
+    '«Сьогодні» returns the selection to Kyiv today and re-fetches with '
+    'from == to == Kyiv today, on the wire',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      // Narrow to a NON-today rail day first — the seeded booking's own day
+      // (`fb.bookingStartsAt`'s date), always 7 real-clock days out from Kyiv
+      // today (see that field's own doc for why it is anchored that way).
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await tester.tap(find.byKey(dayChipKey(bookedDay)));
+      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
+      await tester.pump(const Duration(milliseconds: 300));
+      await AppHarness.settle(tester);
+      expect(
+        fb.lastMyBookingsQuery!['from'],
+        toApiDate(bookedDay),
+        reason:
+            'precondition: the selection must have actually moved off '
+            'today before «Сьогодні» is asked to bring it back',
+      );
+
+      final int callsBeforeToday = fb.getMyBookingsCalls;
+
+      // ── Tap «Сьогодні». ─────────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('master-bookings-today')));
+      await AppHarness.settle(tester);
+
+      final DateTime todayKyiv = dateOnly(toBeauticaTime(DateTime.now()));
+      final String expectedToday = toApiDate(todayKyiv);
+
+      expect(
+        fb.getMyBookingsCalls,
+        greaterThan(callsBeforeToday),
+        reason: '«Сьогодні» must re-select the day and issue a NEW fetch',
+      );
+      final Map<String, dynamic> q = fb.lastMyBookingsQuery!;
+      expect(
+        q['from'],
+        expectedToday,
+        reason:
+            'the re-fetch must carry Kyiv TODAY, not the host device\'s '
+            'own date',
+      );
+      expect(q['to'], expectedToday);
+    },
+  );
+
+  // ── 2026-07-22 — the header's «+» add-booking affordance ───────────────────
+  //
+  // Step 2.7 Rule 3b: `_showAddComingSoon` (`bookings_discovery_view.dart`)
+  // reads `AppLocalizations`/`ScaffoldMessenger` off a REAL `BuildContext` —
+  // the widget tier can prove the callback fires against a mocked notifier,
+  // but not that the real chrome (a real `Scaffold`/`MaterialApp`-hosted
+  // `ScaffoldMessenger`, behind a real login) actually surfaces the SnackBar.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // authored, analyze-clean; CI owns the first run.
+  testWidgets('the «+» add-booking affordance shows a coming-soon SnackBar', (
+    tester,
+  ) async {
+    final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+    await AppHarness.settle(tester);
+    expect(find.byType(MasterBookingsScreen), findsOneWidget);
+    expect(AppHarness.location(router), startsWith(RouteNames.masterBookings));
+
+    final AppLocalizations l10n = _l10nOf(tester, MasterBookingsScreen);
+
+    await tester.tap(find.byKey(const Key('master-bookings-add')));
+    await AppHarness.settle(tester);
+
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(find.text(l10n.masterBookingsAddComingSoon), findsOneWidget);
+
+    // Drain the SnackBar's auto-dismiss timer so none is pending at teardown
+    // (mirrors `client_leave_review_flow_test.dart`'s identical drain).
+    await tester.pumpUntilGone(find.text(l10n.masterBookingsAddComingSoon));
+  });
+
+  // ── 2026-07-22 — the day-scoped SKELETON, while the first fetch is pending ─
+  //
+  // Step 2.7 Rule 3b: `master_bookings_screen_test.dart` proves the skeleton
+  // renders on `AsyncLoading` against a repository whose `Future` the test
+  // controls directly. It cannot prove the SAME skeleton renders while a REAL
+  // `GET /bookings/me` — through Dio's real interceptor chain — is genuinely
+  // in flight. The gate below is a Dio interceptor added to
+  // `FakeBackend.dio` from the TEST side (not a change to the fake's own
+  // route wiring in `support/fake_backend.dart`, which this file does not
+  // own): it holds the first `/bookings/me` request open with a `Completer`
+  // until the test lets it through, exactly mirroring how a slow real network
+  // would leave the day-scoped provider on `AsyncLoading`.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // authored, analyze-clean; CI owns the first run.
+  testWidgets(
+    'the day-scoped skeleton renders while the first day load is in flight, '
+    'and clears once it resolves',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      // Gate ONLY the day-scoped `/bookings/me` fetch, not the FILTER-
+      // INDEPENDENT `/bookings/me/booked-days` rail call — the latter's path
+      // ends in "booked-days", so `endsWith('/bookings/me')` never matches it
+      // and the rail still loads normally while the body stays pending.
+      final Completer<void> gate = Completer<void>();
+      int hits = 0;
+      fb.dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest:
+              (
+                RequestOptions options,
+                RequestInterceptorHandler handler,
+              ) async {
+                if (options.path.endsWith('/bookings/me') && hits == 0) {
+                  hits++;
+                  await gate.future;
+                }
+                handler.next(options);
+              },
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      expect(
+        find.byKey(const Key('master-bookings-skeleton')),
+        findsOneWidget,
+        reason:
+            'the day-scoped fetch is still pending — the skeleton must be '
+            'showing, not an empty or loaded body',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsNothing,
+      );
+
+      // ── Let the gated request resolve. ─────────────────────────────────────
+      gate.complete();
+      await AppHarness.settle(tester);
+
+      expect(find.byKey(const Key('master-bookings-skeleton')), findsNothing);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason:
+            'once the fetch resolves the skeleton must clear and the '
+            'seeded booking must render',
+      );
+    },
+  );
+
+  // ── 2026-07-22 — a genuinely empty day: the TRUE empty state ───────────────
+  //
+  // Step 2.7 Rule 3b: `MasterBookingsEmptyState` vs `MasterBookingsNoResultsState`
+  // is a real product distinction (see `master_bookings_states.dart`'s file
+  // header) the widget tier already pins against a mocked, hand-built empty
+  // page. This closes the same gap every other flow in this file closes for
+  // its own surface: proving the distinction survives a REAL, empty
+  // `GET /bookings/me` page — `seedManyBookingsDataset` with an EMPTY list is
+  // the fake's own supported way to serve a real (statuses, sort, page) slice
+  // over NOTHING, so no filter needs to be forced to get here, matching the
+  // "no filter active, nothing to reset" precondition the true-empty copy
+  // requires.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // authored, analyze-clean; CI owns the first run.
+  testWidgets('a genuinely empty day renders the TRUE empty state, not the '
+      'no-results-from-filter one', (tester) async {
+    final fb = FakeBackend()
+      ..currentRole = UserRole.independentMaster
+      ..seedManyBookingsDataset(const <Map<String, dynamic>>[]);
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+    await AppHarness.settle(tester);
+
+    expect(find.byType(MasterBookingsScreen), findsOneWidget);
+    expect(AppHarness.location(router), startsWith(RouteNames.masterBookings));
+    expect(
+      find.byType(MasterBookingsEmptyState),
+      findsOneWidget,
+      reason:
+          'no filter is active — an empty day must render the TRUE empty '
+          'state, not the filter-empty one',
+    );
+    expect(find.byKey(const Key('master-bookings-empty')), findsOneWidget);
+    expect(find.byKey(const Key('master-bookings-no-results')), findsNothing);
+    expect(
+      find.byKey(const Key('master-booking-card-booking-1')),
+      findsNothing,
+    );
+  });
+
+  // ── 2026-07-22 — a failed fetch: the error state, and a working retry ──────
+  //
+  // Step 2.7 Rule 3b: `master_bookings_screen_test.dart` proves the error
+  // widget renders on `AsyncError` and that its `onRetry` calls
+  // `ref.invalidate` against a MOCKED repository. It cannot prove a real
+  // failed `GET /bookings/me` — through the real Dio interceptor chain, the
+  // real repository's `DioException` → `Failure` mapping — actually reaches
+  // that widget, or that tapping retry issues a real SECOND request that
+  // succeeds. Same TEST-SIDE Dio interceptor technique as the skeleton flow
+  // above (added to `FakeBackend.dio`, not to the fake's own route wiring):
+  // it rejects only the FIRST `/bookings/me` attempt, before the request ever
+  // reaches the fake's adapter — so `fb.getMyBookingsCalls` (incremented
+  // inside the fake's own route callback) never counts the rejected attempt,
+  // and only the real, successful retry increments it.
+  //
+  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
+  // authored, analyze-clean; CI owns the first run.
+  testWidgets(
+    'a failed GET /bookings/me renders the error state, and retry issues a '
+    'real, successful refetch',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      int hits = 0;
+      fb.dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest:
+              (RequestOptions options, RequestInterceptorHandler handler) {
+                if (options.path.endsWith('/bookings/me') && hits == 0) {
+                  hits++;
+                  handler.reject(
+                    DioException(
+                      requestOptions: options,
+                      type: DioExceptionType.connectionError,
+                      error: 'simulated connection failure (test-side gate)',
+                    ),
+                  );
+                  return;
+                }
+                handler.next(options);
+              },
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      expect(find.byType(MyBookingsErrorState), findsOneWidget);
+      expect(find.byKey(const Key('my_bookings_error')), findsOneWidget);
+      expect(find.byKey(const Key('my_bookings_error_retry')), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsNothing,
+      );
+
+      final int callsBeforeRetry = fb.getMyBookingsCalls;
+
+      await tester.tap(find.byKey(const Key('my_bookings_error_retry')));
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.getMyBookingsCalls,
+        callsBeforeRetry + 1,
+        reason:
+            'retry must have issued exactly one real, successful GET '
+            '/bookings/me — the rejected first attempt never reached the '
+            'fake, so this counts ONLY the retry',
+      );
+      expect(find.byKey(const Key('my_bookings_error')), findsNothing);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason:
+            'the retry must have succeeded and rendered the seeded '
+            'booking',
+      );
     },
   );
 }

@@ -35,6 +35,31 @@
 # gate DOES fire on both files without those annotations — verified by
 # removing them.
 #
+# 2026-07-22 (mobile-qa test-writing pass): the ratchet turned again, this
+# time for SEVEN files, and for the reason the header above anticipated — the
+# grandfathered `DateTime.utc(2026, 7, 20, …)` instants have now ELAPSED, so
+# the "not live time bombs today" clause written on 2026-07-20 had expired on
+# its own terms. All seven were meaningfully edited in this pass and are
+# DELISTED:
+#   * booking_lane_layout_test.dart, bookings_timeline_grid_test.dart —
+#     converted wholesale. Both anchor RELATIVE offsets, so each grew a
+#     now-relative day helper instead of per-site literals: `_at(hour, min)`
+#     over a `futureBookingStart()`-derived UTC midnight in the lane suite,
+#     and `_kyivAtUtc(hour, min)` in the grid suite. The grid helper takes a
+#     KYIV wall-clock hour and returns the UTC instant via `tz.TZDateTime`
+#     rather than subtracting a hard-coded `-3`: the old literals silently
+#     assumed Kyiv summer time, which stops being true for half the year the
+#     moment the anchor day starts moving.
+#   * bookings_discovery_view_reuse_test.dart,
+#     master_bookings_filter_wiring_test.dart,
+#     master_bookings_catalogue_staleness_test.dart,
+#     booking_detail_screen_protection_test.dart,
+#     widgets/booking_status_badge_test.dart — one `startAt` fixture each,
+#     swapped to `futureBookingStart()`.
+# `booking_detail_screen_protection_test.dart` was the one genuine live bomb
+# of the seven: it pumps «Деталі запису», whose affordances gate on
+# `BookingDisplayX.isPast` — the exact 2026-07-20 incident shape.
+#
 # Generated 2026-07-20 from the then-current corpus, immediately after fixing
 # the four booking-detail specs whose expired anchor caused 16 real failures
 # (booking_detail_screen_test.dart, booking_detail_interactions_test.dart,
@@ -46,21 +71,14 @@ test/features/booking/data/booking_mapper_test.dart
 test/features/booking/data/booking_repository_test.dart
 test/features/booking/data/slot_repository_test.dart
 test/features/booking/domain/booking_display_x_test.dart
-test/features/booking/domain/booking_lane_layout_test.dart
-test/features/booking/presentation/booking_detail_screen_protection_test.dart
-test/features/booking/presentation/bookings_discovery_view_reuse_test.dart
-test/features/booking/presentation/bookings_timeline_grid_test.dart
 test/features/booking/presentation/booking_success_calendar_test.dart
 test/features/booking/presentation/booking_surfaces_overflow_test.dart
 test/features/booking/presentation/leave_review_screen_test.dart
-test/features/booking/presentation/master_bookings_catalogue_staleness_test.dart
-test/features/booking/presentation/master_bookings_filter_wiring_test.dart
 test/features/booking/presentation/my_bookings_interactions_test.dart
 test/features/booking/presentation/my_bookings_screen_test.dart
 test/features/booking/presentation/reschedule_navigation_test.dart
 test/features/booking/presentation/widgets/booking_card_font_size_test.dart
 test/features/booking/presentation/widgets/booking_card_master_name_wrap_test.dart
-test/features/booking/presentation/widgets/booking_status_badge_test.dart
 test/features/booking/presentation/widgets/cancel_booking_dialog_test.dart
 test/features/booking/presentation/widgets/client_booking_conflict_dialog_test.dart
 test/features/booking/presentation/widgets/independent_schedule_confirm_bar_test.dart
