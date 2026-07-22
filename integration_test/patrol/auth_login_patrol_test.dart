@@ -45,8 +45,29 @@ void main() {
     );
   }
 
+  // ⚠️ TEMPORARY BISECT, ROUND 2 — REVERT THIS SKIP ONCE THE RUN REPORTS. ⚠️
+  //
+  // This test is not broken; it is the one that PASSES. It is skipped for one
+  // run so that the CLIENT login case below runs FIRST instead of second.
+  //
+  // Round 1 skipped the CLIENT test and the emulator survived — including
+  // through `deep_link_patrol_test`, which does its own full
+  // `pumpWidgetAndSettle(ProviderScope(child: BeauticaApp()))`, i.e. a second
+  // app mount. So "the second mount kills the session" is already falsified;
+  // the failure tracks the CLIENT test specifically, not its position.
+  //
+  // Round 2 separates the last two possibilities:
+  //   • CLIENT passes when it runs first  → the trigger needs a PRECEDING mount
+  //     (cumulative GL/graphics state), not the CLIENT screen on its own.
+  //   • CLIENT still kills the device     → it is that screen, full stop. The
+  //     suspect is then the five-tab StatefulShellRoute client shell
+  //     (RouteNames.clientHome == '/home', five independent navigators) versus
+  //     the far lighter /master/profile tree test 1 lands on.
   patrolTest(
-    'INDEPENDENT_MASTER login navigates to master profile route (patrol template)',
+    'INDEPENDENT_MASTER login navigates to master profile route (patrol template) '
+    '(TEMPORARILY SKIPPED: bisect round 2 — running CLIENT login first; '
+    'restore as soon as the run reports)',
+    skip: true,
     config: config,
     ($) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
@@ -66,39 +87,28 @@ void main() {
     },
   );
 
-  // ⚠️ TEMPORARY BISECT — REVERT THIS SKIP ONCE THE ANSWER IS IN. ⚠️
+  // ⚠️ RESTORED — this is the test under investigation. Do not skip it again
+  // without reading the round-2 note above; it must RUN for that bisect.
   //
-  // This test is not broken. It is skipped for exactly one CI run, to answer a
-  // single question about a device-loss failure that is NOT a flake.
+  // History, so nobody re-derives it: when this test ran SECOND it killed the
+  // emulator every time — `device 'emulator-5554' not found`, twice on two
+  // commits, byte-for-byte, with patrol reporting ZERO failed assertions. Test
+  // 1 passed in 6s each time. Round 1 skipped this test and the emulator
+  // survived the whole suite, which falsified "the second app mount kills the
+  // session" (deep_link_patrol_test does its own full mount and was fine).
   //
-  // Observed twice, byte-for-byte identical on two different commits:
-  //   test 1 (INDEPENDENT_MASTER login)  → ✅ passes in 6s
-  //   test 2 (this one)                  → device dies
-  //   `device 'emulator-5554' not found`; run ends ~87s
-  //   patrol's own summary: 1 successful, 0 FAILED, 2 skipped
-  // No assertion failed. The emulator went away underneath the run.
+  // Also already ruled out, do not re-propose: the background app-link
+  // re-approval loop (cadence cut 5x, failure byte-identical), and the adb
+  // binary/server resolution mismatch (one server, no version conflict —
+  // `patrol doctor`'s "adb not found" is step-ordering, it runs before the
+  // emulator action puts platform-tools on PATH).
   //
-  // Ruled out already: the background app-link re-approval loop (cadence was
-  // cut 5x from 1s to 5s — failure was unchanged, so adb contention from that
-  // loop is NOT the cause). Also note the captured logcat contains ZERO
-  // `beautica` lines and ends during boot chatter, i.e. the background
-  // `adb logcat` lost the device before the app ever started, and
-  // `[EmulatorConsole]: Failed to start Emulator console for 5554` is printed
-  // before any test runs.
-  //
-  // THE QUESTION THIS SKIP ANSWERS:
-  //   • If the run now dies on the NEXT test instead → the failure is
-  //     POSITIONAL (the second app restart / second PatrolHarness.boot kills
-  //     the adb session), and nothing is wrong with this test.
-  //   • If the remaining tests all pass → the failure is SPECIFIC to this
-  //     CLIENT login flow, and the hunt narrows to what it does differently.
-  // Either outcome halves the search space; neither depends on a hypothesis
-  // being right first.
+  // NOTE the assertion at the end of this test is currently vacuous:
+  // `RouteNames.home` is '/', and expectLocation matches with startsWith, so it
+  // admits every route in the app. Separately under review — do not treat a
+  // green result here as proof the CLIENT lands anywhere in particular.
   patrolTest(
-    'CLIENT login navigates to home placeholder route (patrol template) '
-    '(TEMPORARILY SKIPPED: one-run bisect for the emulator device-loss '
-    'failure — see the comment above; restore as soon as the run reports)',
-    skip: true,
+    'CLIENT login navigates to home placeholder route (patrol template)',
     config: config,
     ($) async {
       final fb = FakeBackend()..currentRole = UserRole.client;

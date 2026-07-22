@@ -1037,15 +1037,56 @@ jobs:
             # patrol's real code — all on ONE line so the exit status carries
             # (android-emulator-runner runs each line in its own sh -c, so a separate
             # CODE=$?/exit would not). This makes the step's result equal patrol's.
-            patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; exit $RC
+            timeout --signal=TERM --kill-after=60 900 patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 900s (rc=$RC) — the suite itself is ~10min when healthy; a hang here is usually patrol_cli stuck on its post-run uninstall against a wedged adb link, NOT a slow test. Logcat is uploaded regardless (if: always)."; fi; exit $RC
+
+      - name: Collect emulator host-side diagnostics
+        # The gfxstream/swiftshader ColorBuffer race this repo has chased for
+        # weeks announces itself on the EMULATOR PROCESS's own stdout
+        # ("Failed to find ColorBuffer"), which is NOT reachable from here: the
+        # emulator is launched by android-emulator-runner, so its stdout goes to
+        # that action's log group and there is nothing to tee. Do not add a
+        # `| tee` to the script expecting to catch it — it will silently capture
+        # nothing, which is worse than not trying.
+        #
+        # What IS reachable is collected below: the emulator's host-side log and
+        # crash files, plus the GL/gfxstream chatter that does reach logcat
+        # (EGL_emulation / emuglGLESv2 / gralloc tags). Combined with the always-
+        # uploaded device logcat, that is the best evidence available without
+        # patching the action itself.
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p emulator-diag
+          for d in /tmp/android-"$USER" /tmp/android-unknown "$HOME"/.android; do
+            [ -d "$d" ] && find "$d" -maxdepth 2 -type f \( -name '*.log' -o -name '*crash*' -o -name '*.ini' \) \
+              -exec cp --parents {} emulator-diag/ \; 2>/dev/null || true
+          done
+          # GL / gfxstream lines that DID make it into the device log.
+          grep -aiE 'ColorBuffer|gfxstream|emuglGLES|EGL_emulation|gralloc|swiftshader' \
+            patrol-logcat.txt > emulator-diag/gl-chatter.txt 2>/dev/null || true
+          echo "collected:"; find emulator-diag -type f | head -40
 
       - name: Upload patrol device logcat
-        if: failure()
+        # `always()`, NOT `failure()`. This gate cost a real investigation:
+        # runs #292/#293 lost the emulator mid-suite, but `patrol test` HUNG on
+        # its post-run uninstall and the jobs were cancelled rather than failing.
+        # `failure()` is FALSE on cancellation, so neither run uploaded anything,
+        # and the newest artifact on the shelf was from #291 — a run that had
+        # died on a CLI version check before any test executed. Its logcat held
+        # ten seconds of boot chatter and zero app lines, which was then read as
+        # evidence about a failure it had never observed.
+        #
+        # A diagnostic artifact must survive the failure modes it exists to
+        # diagnose. Cancellation and timeout are exactly when it is needed most.
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           # Per-API suffix keeps the artifact name unique across the parallel
           # matrix jobs — actions/upload-artifact requires unique names.
           name: patrol-logcat-${{ github.run_number }}-api${{ matrix.api-level }}
-          path: patrol-logcat.txt
+          path: |
+            patrol-logcat.txt
+            emulator-diag/
           if-no-files-found: ignore
           retention-days: 7
