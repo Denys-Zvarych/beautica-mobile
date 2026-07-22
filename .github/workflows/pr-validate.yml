@@ -694,11 +694,18 @@ jobs:
           # AOT, asserts stripped, release-like — the inverse of the debug
           # `flutter test` pass. Uses the standard host driver in
           # test_driver/integration_test.dart.
+          #
+          # ONE PHYSICAL LINE, deliberately — do NOT reformat with backslash
+          # continuations for readability. android-emulator-runner executes each
+          # physical line of `script:` as its own `sh -c` invocation, so a
+          # trailing `\` is passed as a literal argument rather than continuing
+          # the command: `flutter drive \` alone yields `Target file "\" not
+          # found.` and the job dies before the driver starts. The `integration`
+          # job above follows the same rule (long single lines joined with `;`).
+          # This bit us for real: the job is label-gated, so the break sat
+          # undetected from 2026-07-07 until a `run-patrol` label first ran it.
           script: |
-            flutter drive \
-              --profile \
-              --driver=test_driver/integration_test.dart \
-              --target=integration_test/logout_flow_test.dart
+            flutter drive --profile --driver=test_driver/integration_test.dart --target=integration_test/logout_flow_test.dart
 
   # ---------------------------------------------------------------------------
   # Native-surface change detection — the additive gate for the `patrol` job.
