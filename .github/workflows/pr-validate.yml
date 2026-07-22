@@ -839,6 +839,12 @@ jobs:
   patrol:
     name: Patrol native E2E (emulator) (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
+    # Bound the job. Without this it inherits GitHub's 6-hour default, and a
+    # hung emulator burns six hours of runner time before anyone notices. On
+    # 2026-07-22 this job sat ~90 minutes on the test step before the emulator
+    # died; a healthy run is well under 30. 45 gives generous headroom for a
+    # cold native compile without letting a hang run away.
+    timeout-minutes: 45
     # Matrix axis: API 34 only. API 29 was dropped — its x86_64 system image
     # crashes with a native jemalloc SIGSEGV during native-thread creation
     # (art::Thread::CreateNativeThread → je_malloc) before any patrol test runs.
@@ -971,9 +977,36 @@ jobs:
             # BACKGROUND RE-APPROVAL LOOP (load-bearing fix). patrol test rebuilds +
             # reinstalls the app right before running, which WIPES App Link approval,
             # so a one-shot pre-approval is gone by the time openUrl fires (deep-link
-            # test runs 3rd). This loop re-asserts STATE_APPROVED every second for
-            # both default and user scope, so whenever patrol's reinstall lands the
-            # domain is re-approved before the intent is fired.
+            # test runs 3rd). This loop re-asserts STATE_APPROVED for both default
+            # and user scope, so whenever patrol's reinstall lands the domain is
+            # re-approved before the intent is fired.
+            #
+            # CADENCE IS 5s, NOT 1s — do not tighten it back. On 2026-07-22, the
+            # first run in which this job ever reached the tests (a CLI version
+            # mismatch had killed it earlier, so the loop had never actually run in
+            # anger), the emulator died mid-suite with
+            # `device 'emulator-5554' not found` and
+            # `[EmulatorConsole]: Failed to start Emulator console for 5554` BEFORE
+            # any test started. Patrol reported 0 test failures — 1 passed, 2
+            # skipped, and the run simply lost its device. In that SAME workflow
+            # run, on the same runner image, same emulator-runner action and same
+            # API 34, the `integration` job — which runs NO adb loop — passed a
+            # 15-minute suite on its own emulator.
+            #
+            # At 1s this fired two `adb shell` calls per second for up to 20+
+            # minutes CONCURRENTLY with Gradle/UTP/ddmlib driving the same device,
+            # and the test that died (auth_login) does not use App Links at all.
+            # Contention for the adb server / emulator console is the leading
+            # hypothesis for a flake previously investigated at length without
+            # resolution (RAM, test splitting, ensureSemantics, bisection, action
+            # bump, GPU mode were all ruled out — none of them touched this loop,
+            # because this loop had never executed).
+            #
+            # 5s still lands well inside the window between patrol's reinstall and
+            # the deep-link test. If the flake persists, the next step is to stop
+            # looping entirely: the approval is wiped by a ONE-TIME reinstall, so
+            # re-asserting continuously is treating a single event as a continuous
+            # one.
             #
             # It STOPS the instant patrol finishes, via the sentinel file written on
             # the patrol line below — the emulator-runner action waits for backgrounded
@@ -984,7 +1017,7 @@ jobs:
             # SIGTERM the cleanup shell ("exit code null"). Must be ONE self-contained
             # line so the `&` background survives this line's own sh -c.
             rm -f /tmp/patrol_approve_done || true
-            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 1; done ) &
+            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 420 ]; do timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 5; done ) &
             patrol build android --target integration_test/patrol
             # Run patrol, capture its exit, signal the loop to stop, then exit with
             # patrol's real code — all on ONE line so the exit status carries
