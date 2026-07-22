@@ -33,8 +33,9 @@
 // scaffold's `headerTrailing` slot), NOT the pinned footer — it copies the
 // appointment somewhere else, it does not act ON the booking, so it does not
 // belong in the primary/destructive action hierarchy. (Before, it sat in the
-// scroll body as a full-width `CalendarButton` pill in `belowRecap`; that pill
-// still serves both success screens + the home hub.) NOT_COMPLETED gets no
+// scroll body as a full-width `CalendarButton` pill in a page-level slot below
+// the recap; that slot is gone — the success screens now hang a compact
+// `CalendarButton` off each appointment card instead.) NOT_COMPLETED gets no
 // rebook shortcut: offering one under the provider's own account of a no-show
 // would read as the app brokering a reconciliation the client never asked for.
 //

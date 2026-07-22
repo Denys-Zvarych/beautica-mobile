@@ -14,10 +14,13 @@
 //
 // Each entry in [recapCards] is wrapped by the scaffold in the SAME
 // `_reveal(0.6, 0.86)` interval and separated by a `md` gap (the salon flow's
-// N-card list). [belowRecap] is an optional extra scroll widget revealed a
-// touch later (`_reveal(0.66, 0.9)`) — the independent flow's "Додати в
-// календар" link, which the salon flow has no analogue for. [homeGap] tunes
-// the gap above the pinned footer.
+// N-card list). [homeGap] tunes the gap above the pinned footer.
+//
+// There is no page-level slot below the recap: the independent flow's old
+// "Додати в календар" pill lived there, and the multi-service rework moved
+// that export onto each appointment card (`BookingSummaryCards.trailingAction`)
+// because the OS INSERT sheet takes one event per invocation. The slot went
+// with it — do not reintroduce one without a real call site.
 //
 // GENERALIZATION (Phase 14.3 — «Деталі запису»): the scaffold gained three
 // knobs so a REFERENCE view (opened any time, for any booking, including
@@ -60,9 +63,9 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'success_lottie_badge.dart';
 
 /// The shared post-submit / reference-view scaffold. See the file header for
-/// how [recapCards] / [belowRecap] / [homeGap] / [heroBuilder] / [actions] /
-/// [canPop] map onto the three call sites (two success screens + the booking
-/// detail screen).
+/// how [recapCards] / [homeGap] / [heroBuilder] / [actions] / [canPop] map
+/// onto the three call sites (two success screens + the booking detail
+/// screen).
 class BookingSuccessScaffold extends StatefulWidget {
   const BookingSuccessScaffold({
     super.key,
@@ -70,7 +73,6 @@ class BookingSuccessScaffold extends StatefulWidget {
     required this.subline,
     required this.recapCards,
     this.actions = const <Widget>[],
-    this.belowRecap,
     this.homeGap = VelvetSpacing.md,
     this.heroBuilder,
     this.showHero = true,
@@ -101,11 +103,6 @@ class BookingSuccessScaffold extends StatefulWidget {
   /// empty list (the default) renders no pinned footer at all — no reserved
   /// padding for a control that is not there.
   final List<Widget> actions;
-
-  /// Optional extra scroll content revealed just after the recap (the
-  /// independent flow's / detail screen's calendar affordance). `null` for
-  /// the salon flow.
-  final Widget? belowRecap;
 
   /// Gap between the scrolling recap and the pinned footer.
   final double homeGap;
@@ -210,7 +207,8 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
       CurveTween(curve: Interval(start, end, curve: Curves.easeOutCubic)),
     );
     // PERF: isolate this animated subtree's repaints from its static siblings
-    // (title/subline/recap cards/button all sit in the same Column) — mirrors
+    // (title, subline and every recap card share one Column; the pinned
+    // `actions` footer is revealed through this same helper) — mirrors
     // NeumorphicButton.build()'s press-animation RepaintBoundary.
     return RepaintBoundary(
       child: AnimatedBuilder(
@@ -236,12 +234,8 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
         children.add(const SizedBox(height: VelvetSpacing.md));
       }
     }
-    if (widget.belowRecap != null) {
-      children.add(const SizedBox(height: VelvetSpacing.sm + 2));
-      children.add(_reveal(start: 0.66, end: 0.9, child: widget.belowRecap!));
-    } else if (widget.recapCards.isNotEmpty) {
-      // Salon flow: the original loop trailed a `md` gap after the last card
-      // too.
+    if (widget.recapCards.isNotEmpty) {
+      // The original loop trailed a `md` gap after the last card too.
       children.add(const SizedBox(height: VelvetSpacing.md));
     }
     return children;

@@ -3,18 +3,16 @@
 // (`lib/features/booking/presentation/widgets/booking_success_scaffold.dart`).
 //
 // Extracted from the ~90%-identical success structure in BOTH
-// `booking_success_screen.dart` (independent flow — ONE recap card + a
-// `belowRecap` "Додати в календар" link, default `homeGap`) and
-// `salon_booking_success_screen.dart` (salon flow — N recap cards, no
-// `belowRecap`, tighter `homeGap`). The scaffold owns the PopScope back-block,
-// the staggered reveal, the Lottie badge and the pinned "На головну" CTA.
+// `booking_success_screen.dart` (independent flow — ONE recap card, default
+// `homeGap`) and `salon_booking_success_screen.dart` (salon flow — N recap
+// cards, tighter `homeGap`). The scaffold owns the PopScope back-block, the
+// staggered reveal, the Lottie badge and the pinned "На головну" CTA.
 //
 // These pin the contract BOTH composition sites depend on:
 //   • N recap cards render, staggered — none dropped (salon N≥2 path);
 //   • PopScope(canPop:false) blocks back (both flows);
 //   • `disableAnimations` jumps the reveal straight to its resting state;
-//   • the optional `belowRecap` / `homeGap` param paths (independent passes
-//     belowRecap; salon doesn't).
+//   • the optional `homeGap` param path.
 //
 // Recap cards are keyed test stand-ins (`recap-0…`) — the real recap widgets
 // have their own tests (`booking_summary_cards_test.dart`,
@@ -27,7 +25,6 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../../helpers/pump_app.dart';
 
 const Key _kHomeKey = Key('booking-success-home-cta');
-const Key _kBelowRecapKey = Key('below-recap-probe');
 
 Widget _card(int i) => SizedBox(
   key: ValueKey<String>('recap-$i'),
@@ -47,7 +44,6 @@ Widget _reducedMotion(Widget scaffold) => Builder(
 
 BookingSuccessScaffold _scaffold({
   required int cardCount,
-  Widget? belowRecap,
   double? homeGap,
   VoidCallback? onHome,
 }) {
@@ -72,7 +68,6 @@ BookingSuccessScaffold _scaffold({
       ),
     ],
     recapCards: <Widget>[for (int i = 0; i < cardCount; i++) _card(i)],
-    belowRecap: belowRecap,
     homeGap: homeGap ?? 16,
   );
 }
@@ -168,37 +163,6 @@ void main() {
   });
 
   group('BookingSuccessScaffold — optional param paths', () {
-    testWidgets('belowRecap is rendered when supplied (independent flow)', (
-      tester,
-    ) async {
-      await _pumpTall(tester);
-      await tester.pumpApp(
-        _reducedMotion(
-          _scaffold(
-            cardCount: 1,
-            belowRecap: const SizedBox(
-              key: _kBelowRecapKey,
-              height: 24,
-              child: ColoredBox(color: Color(0xFF333333)),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(_kBelowRecapKey), findsOneWidget);
-    });
-
-    testWidgets('belowRecap is absent when not supplied (salon flow)', (
-      tester,
-    ) async {
-      await _pumpTall(tester);
-      await tester.pumpApp(_reducedMotion(_scaffold(cardCount: 2)));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(_kBelowRecapKey), findsNothing);
-    });
-
     testWidgets(
       'homeGap sets the gap between the scrolling recap and the pinned CTA',
       (tester) async {

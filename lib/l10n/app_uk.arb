@@ -3634,7 +3634,14 @@
   },
   "bookingAddCalendarSemantics": "Додати запис у календар",
   "@bookingAddCalendarSemantics": {
-    "description": "Accessibility label for the booking success screen's «Додати в календар» link."
+    "description": "Accessibility label for the «Деталі запису» (booking detail) screen's header «Додати в календар» icon button. Not used by the booking success screen, whose exports are per-appointment and use bookingAddCalendarServiceSemantics instead."
+  },
+  "bookingAddCalendarServiceSemantics": "Додати «{service}» у календар",
+  "@bookingAddCalendarServiceSemantics": {
+    "description": "Accessibility label for a per-appointment «Додати в календар» button on the booking success screen, where several buttons coexist and each must announce which service it adds.",
+    "placeholders": {
+      "service": { "type": "String" }
+    }
   },
   "bookingCalendarEventTitle": "{service} · {provider}",
   "@bookingCalendarEventTitle": {
