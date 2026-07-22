@@ -167,11 +167,33 @@ abstract final class AppHarness {
   /// "Tried to override a provider twice within the same container"). The caller
   /// already holds the instance it passed in, so the storage is reachable for
   /// assertions without a separate accessor.
+  ///
+  /// [retry] is forwarded to [ProviderScope.retry], which sets the retry
+  /// policy for EVERY provider in the harness container. It exists for one
+  /// specific need: asserting a FAILURE surface (an error state and its
+  /// «retry» affordance).
+  ///
+  /// Riverpod 3 retries a failed provider automatically — ten times, with
+  /// exponential backoff (`ProviderContainer.defaultRetry`: 200 ms doubling
+  /// to a 6 400 ms ceiling, ~38 s in total). Until that budget is spent the
+  /// provider re-enters `AsyncLoading` between attempts, so `AsyncValue.when`
+  /// keeps taking its `loading` branch and the `error` branch never renders.
+  /// A test that stubs a failing endpoint and then looks for the error state
+  /// therefore finds the LOADING state instead — not because the error state
+  /// is broken, but because the framework is still transparently retrying
+  /// underneath it.
+  ///
+  /// Passing `(_, _) => null` disables that auto-retry so the failure surfaces
+  /// on the first attempt, letting the test assert the error branch and its
+  /// manual «retry» button deterministically and in milliseconds rather than
+  /// after a 38-second real-time wait. It changes NOTHING about the app's own
+  /// behaviour — only how long the harness waits before observing it.
   static Future<GoRouter> boot(
     WidgetTester tester,
     FakeBackend fakeBackend, {
     FakeSecureStorage? storage,
     List<Object> extraOverrides = const <Object>[],
+    Duration? Function(int retryCount, Object error)? retry,
   }) async {
     installOverflowGuard();
 
@@ -237,6 +259,7 @@ abstract final class AppHarness {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: retry,
         // ProviderScope.overrides accepts List<Override>; we cast so callers
         // can pass a plain list without importing the internal Override type.
         // ignore: avoid_dynamic_calls

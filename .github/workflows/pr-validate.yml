@@ -914,11 +914,26 @@ jobs:
         run: dart run build_runner build --delete-conflicting-outputs
 
       # patrol_cli is a GLOBAL tool — intentionally not a repo dependency.
-      # Pin the major to match the patrol package (^4.x) so the CLI protocol
-      # matches the on-device test bundle.
+      #
+      # PIN THE EXACT VERSION. patrol_cli and the `patrol` package ship a
+      # hard compatibility check: the CLI refuses to run against a package
+      # version it does not declare support for, and the pairing is exact,
+      # not semver-compatible. patrol_cli 4.5.x requires `patrol` 4.7.0
+      # ("This version requires version `4.7.0` of `patrol` package", CLI
+      # 4.5.0 changelog); 4.4.0 paired with patrol 4.6.x.
+      #
+      # This line previously read `dart pub global activate patrol_cli` with
+      # NO constraint, while the comment above it claimed a major-version
+      # pin. It was unpinned in fact. On 2026-07-22 the CLI moved to 4.5.1
+      # while pubspec still had `patrol: ^4.6.1`, and the job died with
+      # "Patrol version 4.6.1 ... is not compatible with patrol_cli version
+      # 4.5.1". Because the job is `run-patrol`-gated it had never run on an
+      # ordinary PR, so the break surfaced only when the label was applied.
+      #
+      # Bump BOTH together, never one: this pin and `patrol:` in pubspec.yaml.
       - name: Install patrol_cli
         run: |
-          dart pub global activate patrol_cli
+          dart pub global activate patrol_cli 4.5.1
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
 
       - name: patrol doctor

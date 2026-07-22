@@ -201,7 +201,7 @@ dev_dependencies:
   # headless `flutter test integration_test/all_tests.dart` path is unaffected —
   # patrol tests live under integration_test/patrol/ and are excluded from the
   # aggregator.
-  patrol: ^4.6.1
+  patrol: ^4.7.1
 
   # Lints — flutter_lints + riverpod_lint via custom_lint.
   # Upgraded custom_lint stack to ^0.8.1 in Phase 1.4 to resolve the

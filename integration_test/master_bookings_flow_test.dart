@@ -29,11 +29,38 @@
 // derivation end-to-end is to drive a REAL master login through a real router
 // — which is exactly what a widget test cannot do.
 //
-// ⚠ EXECUTION STATUS: this flow has NOT been run on a device. The dev VM has no
-// attached emulator (the known host-only-adapter limitation, backlog #179/#191),
-// so it is verified here as analyze-clean and correctly wired into BOTH
-// aggregators; its first real execution is the CI emulator job. This is stated
-// rather than implied — it has not passed, it has been authored.
+// ✅ EXECUTION STATUS (2026-07-22): every case in this file has now RUN AND
+// PASSED on a real handset — Samsung SM-M127F, Android, debug integration_test
+// APK, 15/15 green. The per-test "not run on a device" notes that used to sit
+// above each case have been removed rather than left to rot.
+//
+// The first real run found ELEVEN failures, every one of them in the test
+// code, and they are worth recording because they are the traps this harness
+// sets for anything authored blind against it:
+//
+//   • THE INJECTED CLOCK. `AppHarness.boot` overrides `clockProvider` with
+//     `kFixedNow` (2026-06-14), and `BookingsDiscoveryView` honours it — so
+//     the screen's "today", its rail and its landing query are all June 14th
+//     2026 whatever day the suite runs on. Any expectation derived from
+//     `DateTime.now()` disagrees with the app by the drift between the two.
+//     Use `_kyivToday`.
+//   • THE LAZY RAIL. The day rail is a `ListView.builder` of 361 cells that
+//     opens today-first, so ~6 days exist at a time. `fb.bookingStartsAt` is
+//     anchored to the REAL clock, leaving the seeded day ~45 cells off-screen
+//     and unbuilt. Scroll it in — `_selectRailDay`.
+//   • THE NAV BAR USES `go`, NOT `push`. A tab tap REPLACES the stack, so
+//     `router.canPop()` is false after one, and `router.pop()` is not how a
+//     user leaves a tab.
+//   • RIVERPOD 3 RETRIES FAILED PROVIDERS automatically — ten times over
+//     ~38 s, sitting in `AsyncLoading` in between — so a stubbed failure does
+//     NOT surface an error state promptly. See `AppHarness.boot`'s [retry].
+//   • THE SKELETON SHIMMERS FOREVER. `BookingsSkeleton` calls
+//     `AnimationController.repeat`, so `pumpAndSettle` can never settle while
+//     it is up. CI emulators hid this by zeroing the animation scales; a real
+//     handset does not.
+//   • THE DAY CACHE IS REAL. `bookingsDayProvider` is a keepAlive family
+//     behind a bounded LRU, so returning to an already-loaded day is served
+//     from cache and issues NO new request.
 //
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears in
 // CONTENT ASSERTIONS only.
@@ -83,6 +110,71 @@ Rect _masterCardRect(WidgetTester tester, String bookingId) =>
 AppLocalizations _l10nOf(WidgetTester tester, Type screen) =>
     AppLocalizations.of(tester.element(find.byType(screen)));
 
+/// Kyiv "today" **as the app under test computes it** — derived from the
+/// harness's INJECTED clock (`kFixedNow`, 2026-06-14 12:00 UTC), never from
+/// the host device clock.
+///
+/// `BookingsDiscoveryView.initState` reads `clockProvider`, which
+/// `AppHarness.boot` overrides to `kFixedNow`, so the screen's "today", its
+/// day rail and its landing query are all anchored to June 14th 2026 no
+/// matter what day the suite runs on. A test that reaches for
+/// `DateTime.now()` instead is asserting against the RUNNER's calendar and
+/// will disagree with the app by however far the two have drifted — which is
+/// exactly how the month-switcher and «Сьогодні» flows first failed (the app
+/// rendered «Червень 2026», the test demanded «Липень 2026»).
+///
+/// Using the injected clock is the STRONGER assertion, not a concession:
+/// because `kFixedNow` is deliberately far from any real run date, an app
+/// that fell back to a bare `DateTime.now()` would now fail this file loudly
+/// instead of passing by coincidence.
+final DateTime _kyivToday = dateOnly(toBeauticaTime(kFixedNow));
+
+/// Scrolls the day rail until [day]'s chip is actually built, taps it, and
+/// waits out the screen's 220 ms day-tap debounce.
+///
+/// The rail is a LAZY `ListView.builder` — 361 chips at a fixed
+/// `kRailItemExtent`, of which only the visible handful are ever built — and
+/// it opens aligned to "today"-first, so roughly six days are on screen at
+/// once. Every seeded-booking day in this file comes from
+/// `fb.bookingStartsAt`, which is anchored to the REAL clock (7 days out)
+/// while the rail is anchored to the INJECTED one, leaving the target ~45
+/// cells to the right of the viewport and therefore never built. A bare
+/// `tester.tap(find.byKey(dayChipKey(day)))` then fails the finder outright:
+/// "Found 0 widgets with key master-bookings-day-chip-2026-07-29".
+///
+/// Production is correct here — a real master scrolls the rail to reach a
+/// day, which is precisely what this helper does. Same class of fix, and the
+/// same reasoning, as `tapCalendarDay` in `test/helpers/pump_app.dart`
+/// (commit `e177305`), which scrolls `MonthCalendar` cells into view before
+/// tapping them.
+/// Scrolls the day rail until [day]'s chip is BUILT and on screen, without
+/// tapping it — for assertions about a cell's own content (its
+/// has-bookings dot) that must not also change the selection.
+///
+/// A no-op when the chip is already visible, so it is safe to call ahead of
+/// [_selectRailDay] on the same day.
+Future<void> _scrollRailTo(WidgetTester tester, DateTime day) async {
+  await tester.scrollUntilVisible(
+    find.byKey(dayChipKey(day)),
+    400,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const Key('master-bookings-day-rail')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+    maxScrolls: 200,
+  );
+}
+
+Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
+  await _scrollRailTo(tester, day);
+  await tester.tap(find.byKey(dayChipKey(day)));
+  // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
+  await tester.pump(const Duration(milliseconds: 300));
+  await AppHarness.settle(tester);
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -120,8 +212,14 @@ void main() {
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
       expect(
         router.canPop(),
-        isTrue,
-        reason: 'push, not go — the profile origin stays on the back stack',
+        isFalse,
+        reason:
+            'go, NOT push — the bottom nav bar REPLACES the stack on a tab '
+            'switch (`_VelvetNavTile.onTap` calls `context.go`, a deliberate '
+            'reversal of the earlier push behaviour; see that call site). '
+            '`push` grew the back stack once per tab tap, so hopping the four '
+            'tabs left it four deep. A revert to `push` would make this true '
+            'again and fail here.',
       );
 
       // ── 3. The list rendered from GET /bookings/me. ───────────────────────
@@ -203,6 +301,9 @@ void main() {
         fb.bookingStartsAt.substring(0, 10),
       );
       expect(find.byType(BookingsDayRail), findsOneWidget);
+      // The seeded day sits ~45 lazily-built cells right of the opening
+      // viewport — scroll it into existence before reading its dot.
+      await _scrollRailTo(tester, bookedDay);
       expect(
         find.byKey(dayDotKey(bookedDay)),
         findsOneWidget,
@@ -211,13 +312,7 @@ void main() {
 
       // ── 5. Selecting that rail day re-queries with from == to ON THE WIRE. ─
       final int callsBeforeNarrow = fb.getMyBookingsCalls;
-      await tester.tap(find.byKey(dayChipKey(bookedDay)));
-      // The screen debounces day-chip taps by 220 ms; the filtered request
-      // does not leave until it elapses, so there is no earlier state to
-      // pump-until.
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      await _selectRailDay(tester, bookedDay);
 
       expect(
         fb.getMyBookingsCalls,
@@ -315,11 +410,6 @@ void main() {
   // parts of this test that used to drive it through a real fetch are gone
   // with it — `bookings_day_picker.dart` and `bookings_day_picker_test.dart`
   // no longer exist.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // the dev VM has no attached emulator (host-only-adapter limitation,
-  // backlog #179/#191). Verified analyze-clean and wired into both
-  // aggregators; first real execution is the CI emulator job.
   testWidgets('the filter sheet has no Дата section — Phase 7.13', (
     tester,
   ) async {
@@ -398,15 +488,6 @@ void main() {
   // query was recorded (a fake/backend that silently ignored the status
   // filter would still leave both cards on screen even with a correct
   // recorded query).
-  //
-  // ⚠ EXECUTION STATUS: this flow has NOT been run on a device — see the file
-  // header note above; the dev VM has no attached emulator (host-only-adapter
-  // limitation, backlog #179/#191). It is verified analyze-clean and wired
-  // into BOTH aggregators that carry this file — `all_tests.dart` and
-  // `all_tests_part2.dart` (this file has no import in `all_tests_part1.dart`;
-  // that split shard never carried it) — via this file's EXISTING import, no
-  // new aggregator wiring needed. Its first real execution is the CI emulator
-  // job, so state it as authored, not passing.
   testWidgets(
     'selecting a status AND a service in the filter sheet reaches GET '
     '/bookings/me as real query params, and the rendered list narrows to '
@@ -448,10 +529,7 @@ void main() {
       final DateTime bookedDay = parseApiDate(
         fb.bookingStartsAt.substring(0, 10),
       );
-      await tester.tap(find.byKey(dayChipKey(bookedDay)));
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      await _selectRailDay(tester, bookedDay);
 
       expect(
         find.byKey(const ValueKey<String>('timeline-card-filter-confirmed')),
@@ -545,11 +623,6 @@ void main() {
   // («Послуги», backed by the fake `GET /independent-masters/me/services`)
   // round trip — the class of thing a widget test stubbing the repository
   // cannot exercise.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // the dev VM has no attached emulator (host-only-adapter limitation,
-  // backlog #179/#191). Verified analyze-clean and wired into both
-  // aggregators; first real execution is the CI emulator job.
   testWidgets(
     '«Мої записи» is no longer a dead end — the bottom nav bar round-trips '
     'to «Послуги» and back, and the already-active tile is a no-op',
@@ -584,8 +657,8 @@ void main() {
         reason: 'precondition: nothing pushed yet',
       );
 
-      // ── B. Tapping a non-active tile (Послуги) pushes and mounts the real
-      //      services screen, backed by the fake services endpoint. ─────────
+      // ── B. Tapping a non-active tile (Послуги) REPLACES the stack with the
+      //      real services screen, backed by the fake services endpoint. ────
       await tester.tap(find.byKey(const Key('master-nav-tile-0')));
       await AppHarness.settle(tester);
 
@@ -593,12 +666,24 @@ void main() {
       expect(AppHarness.location(router), startsWith(RouteNames.services));
       expect(
         router.canPop(),
-        isTrue,
-        reason: 'push, not go — «Мої записи» stays on the back stack',
+        isFalse,
+        reason:
+            'go, NOT push — `_VelvetNavTile.onTap` calls `context.go`, so a '
+            'tab switch REPLACES the stack instead of growing it. This is '
+            'the load-bearing assertion of the unbounded-back-stack fix: '
+            'under the old `push` behaviour each of the four tabs left '
+            'another entry behind, and this would read true.',
       );
 
-      // ── C. Popping back lands on the SAME still-mounted bookings screen. ───
-      router.pop();
+      // ── C. The bar itself is the way back — «Мої записи» round-trips to the
+      //      bookings screen, and the stack STILL has not grown. ─────────────
+      //
+      // `router.pop()` is deliberately NOT used here: with `go` there is
+      // nothing to pop, and popping is not how a user leaves a tab. The bar
+      // rendered on every one of the four tab screens IS the return path —
+      // that is the property that makes stack-replacing `go` safe (see
+      // `_VelvetNavTile.build`'s comment), so exercising it is the point.
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
       await AppHarness.settle(tester);
 
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
@@ -610,11 +695,14 @@ void main() {
       expect(
         router.canPop(),
         isFalse,
-        reason: 'back on the tab root — nothing left to pop',
+        reason:
+            'a full there-and-back tab round-trip must leave the stack '
+            'exactly as it started — one entry, nothing to pop',
       );
 
-      // ── D. Tapping the now-active tile (Мої записи) again is a no-op — no
-      //      duplicate /master/bookings gets pushed onto itself. ─────────────
+      // ── D. Tapping the now-active tile (Мої записи) again is a no-op — it
+      //      neither navigates nor re-issues the day fetch. ──────────────────
+      final int callsBeforeNoOp = fb.getMyBookingsCalls;
       await tester.tap(find.byKey(const Key('master-nav-tile-1')));
       await AppHarness.settle(tester);
 
@@ -627,6 +715,21 @@ void main() {
             'of the first',
       );
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+      // Under `go` a redundant re-navigation would not grow the stack, so
+      // `canPop` alone can no longer prove the active tile is inert. The
+      // absence of a fresh `GET /bookings/me` can: re-entering the route
+      // would remount the screen and re-issue its landing query.
+      expect(
+        fb.getMyBookingsCalls,
+        callsBeforeNoOp,
+        reason:
+            'the active tile must not re-navigate — a `go` to the current '
+            'location would remount MasterBookingsScreen and refetch the day',
+      );
     },
   );
 
@@ -652,16 +755,10 @@ void main() {
   // actual field report: a card renders its FULL height (not clipped), and a
   // tap on the visually-earlier card resolves to the earlier booking (not
   // the later one it used to render on top of).
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // the dev VM has no attached emulator (host-only-adapter limitation,
-  // backlog #179/#191). Verified analyze-clean and wired into both
-  // aggregators (via this file's existing import in `all_tests.dart` /
-  // `all_tests_part1.dart` / `all_tests_part2.dart` — no new import needed);
-  // first real execution is the CI emulator job.
   testWidgets(
-    'two back-to-back short bookings on the same day both render full-height '
-    'and the earlier card wins the tap, through a real GET /bookings/me',
+    'two back-to-back short bookings on the same day both render their full '
+    'natural height and the earlier card wins the tap, through a real GET '
+    '/bookings/me',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
@@ -721,10 +818,7 @@ void main() {
       final DateTime bookedDay = parseApiDate(
         fb.bookingStartsAt.substring(0, 10),
       );
-      await tester.tap(find.byKey(dayChipKey(bookedDay)));
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      await _selectRailDay(tester, bookedDay);
 
       // ── Both cards actually reached the screen over the real wire. ────────
       expect(
@@ -736,9 +830,26 @@ void main() {
         findsOneWidget,
       );
 
-      // ── R2 — neither card is clipped: both clear the old 48dp floor by a
-      //      wide margin, proving the FULL content (avatar, divider, service
-      //      row, price/status row) rendered, not a truncated sliver. ───────
+      // ── R2 — neither card is clipped: each one renders at least its
+      //      layout's FULL natural height, not a truncated sliver. ──────────
+      //
+      // The bound is `MasterBookingCard.estimatedNaturalHeight` — the card's
+      // own published constant for the compact body's natural size — not a
+      // hand-picked number. These are 20-minute bookings, so the grid floors
+      // them at one 30-minute slot (`_cardMinHeightFor`: max(proportional,
+      // hourHeight / 2)) and `MasterBookingCard` correctly renders its
+      // COMPACT branch, well below `fullLayoutMinHeight` (112dp). They
+      // measure 57dp on a real handset.
+      //
+      // The original `greaterThan(120)` here was unsatisfiable by
+      // construction: it is the FULL layout's bound (`fullLayoutNaturalHeight`
+      // is 117dp) applied to a card that, by its own duration, must render
+      // compact — a threshold this very file proves elsewhere ("a 45-minute
+      // booking renders the COMPACT card and a 60-minute one the FULL card").
+      // Asserting against the card's own natural-height constant keeps R2's
+      // real meaning — nothing is truncated — while agreeing with the layout
+      // the app is specified to choose. A card clipped to a sliver, which is
+      // the field bug this guards, still fails it.
       final double earlyHeight = tester
           .getSize(
             find.byKey(const ValueKey<String>('timeline-card-booking-1')),
@@ -751,8 +862,14 @@ void main() {
             ),
           )
           .height;
-      expect(earlyHeight, greaterThan(120));
-      expect(laterHeight, greaterThan(120));
+      expect(
+        earlyHeight,
+        greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
+      );
+      expect(
+        laterHeight,
+        greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
+      );
 
       // ── R3 — the two rendered Rects do not intersect, and the later card
       //      sits entirely below the earlier one. ────────────────────────────
@@ -822,14 +939,6 @@ void main() {
   // HTTP boundary. (60 minutes is also what keeps the card on its FULL layout
   // — `durationMinutes` is what the timeline's height floor reads — so this
   // exercises the fuller of the two bodies.)
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // the dev VM has no attached emulator (host-only-adapter limitation,
-  // backlog #179/#191). Verified analyze-clean, `dart format`-clean, and
-  // carried into BOTH aggregators by this file's EXISTING imports in
-  // `all_tests.dart` and `all_tests_part2.dart` — no new aggregator wiring is
-  // needed because this extends the existing flow file rather than adding one.
-  // Its first real execution is the CI emulator job: authored, not passing.
   testWidgets(
     'the timeline card prints a start–end range read from the wire endsAt, '
     'and no date, through a real GET /bookings/me',
@@ -880,10 +989,7 @@ void main() {
       final DateTime bookedDay = parseApiDate(
         fb.bookingStartsAt.substring(0, 10),
       );
-      await tester.tap(find.byKey(dayChipKey(bookedDay)));
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      await _selectRailDay(tester, bookedDay);
 
       final Finder card = find.byKey(
         const Key('master-booking-card-range-card'),
@@ -989,16 +1095,6 @@ void main() {
   // These flows drive it from the only end that can prove it: a
   // `durationMinutesAtBooking` on the wire, through the real mapper, the real
   // grid, the real height derivation, into the real card.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // the dev VM has no attached emulator (host-only-adapter limitation,
-  // backlog #179/#191), and the headless-proxy workaround does not survive
-  // `AppHarness.loginAs`'s `tap(login_submit)` under the plain
-  // `LiveTestWidgetsFlutterBinding`, so it is not a usable substitute for any
-  // flow in this file. Verified analyze-clean and `dart format`-clean, and
-  // carried into BOTH aggregators by this file's EXISTING imports in
-  // `all_tests.dart` and `all_tests_part2.dart` — extending the flow file adds
-  // no new aggregator wiring. Authored, not passing: CI owns the first run.
   testWidgets(
     'a 45-minute booking renders the COMPACT card and a 60-minute one the '
     'FULL card — the layout threshold, driven from durationMinutes on the wire',
@@ -1054,10 +1150,7 @@ void main() {
       final DateTime bookedDay = parseApiDate(
         fb.bookingStartsAt.substring(0, 10),
       );
-      await tester.tap(find.byKey(dayChipKey(bookedDay)));
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      await _selectRailDay(tester, bookedDay);
 
       expect(
         fb.getMyBookingsCalls,
@@ -1160,9 +1253,6 @@ void main() {
   // the five fields it arranges each survive the wire → generated DTO →
   // `BookingMapper` → `Booking` → card path, and that the arrangement holds
   // inside the real timeline rather than under a bare `Center`.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the block above; authored,
-  // analyze-clean, aggregator-carried, CI owns the first run.
   testWidgets(
     'the compact card reads identity above the hairline and transaction '
     'below, every field sourced from a real GET /bookings/me',
@@ -1211,10 +1301,7 @@ void main() {
       final DateTime bookedDay = parseApiDate(
         fb.bookingStartsAt.substring(0, 10),
       );
-      await tester.tap(find.byKey(dayChipKey(bookedDay)));
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      await _selectRailDay(tester, bookedDay);
 
       final Finder card = find.byKey(const Key('master-booking-card-mini'));
       expect(card, findsOneWidget);
@@ -1339,11 +1426,6 @@ void main() {
   // count: a regression that made a month step start re-selecting a day (and
   // re-fetching) would leave every mocked-repository assertion untouched,
   // because a mock never notices an EXTRA call it wasn't told to expect.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // the dev VM has no attached emulator (host-only-adapter limitation,
-  // backlog #179/#191). Verified analyze-clean; authored, not passing — CI
-  // owns the first run.
   testWidgets(
     'the month switcher only moves the rail — the label changes but the '
     'selected day and the live query do not, and no extra GET /bookings/me '
@@ -1360,11 +1442,13 @@ void main() {
         startsWith(RouteNames.masterBookings),
       );
 
-      // The screen opens on Kyiv "today"'s month — the SAME derivation the
-      // widget itself uses (`dateOnly(toBeauticaTime(DateTime.now()))` in
-      // `_BookingsDiscoveryViewState.initState`), never a hand-typed
-      // month/year that could silently drift from the real device clock.
-      final DateTime todayKyiv = dateOnly(toBeauticaTime(DateTime.now()));
+      // The screen opens on Kyiv "today"'s month — where "today" is the
+      // INJECTED clock the screen actually reads (`clockProvider`, overridden
+      // to `kFixedNow` by `AppHarness.boot`), not the host runner's date. See
+      // `_kyivToday`'s doc: reaching for `DateTime.now()` here made this
+      // assertion demand «Липень 2026» of a screen correctly rendering
+      // «Червень 2026».
+      final DateTime todayKyiv = _kyivToday;
       final String initialLabel =
           '${monthNominative(todayKyiv.month)} ${todayKyiv.year}';
       expect(find.text(initialLabel), findsOneWidget);
@@ -1418,12 +1502,9 @@ void main() {
   // tier cannot prove the resulting request actually carries Kyiv "today" at
   // the wire (`from == to == today`), only that the notifier's own in-memory
   // query argument looks right against a mocked repository.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // authored, analyze-clean; CI owns the first run.
   testWidgets(
-    '«Сьогодні» returns the selection to Kyiv today and re-fetches with '
-    'from == to == Kyiv today, on the wire',
+    '«Сьогодні» returns the selection to the INJECTED clock\'s Kyiv today, '
+    'whose from == to == today query the wire already saw',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -1436,16 +1517,33 @@ void main() {
         startsWith(RouteNames.masterBookings),
       );
 
+      // ── The LANDING query, on the wire: from == to == the Kyiv date of the
+      //      injected clock. This is the "today query" «Сьогодні» must later
+      //      return to, captured before anything narrows it. ────────────────
+      final String expectedToday = toApiDate(_kyivToday);
+      expect(
+        fb.lastMyBookingsQuery!['from'],
+        expectedToday,
+        reason:
+            'the landing fetch must carry the Kyiv date of the INJECTED '
+            'clock, not the host device\'s own date. The two are deliberately '
+            'far apart in this harness (`kFixedNow` is 2026-06-14; the runner '
+            'is whenever the suite runs), so a screen that fell back to a '
+            'bare `DateTime.now()` fails here rather than passing by '
+            'accident.',
+      );
+      expect(fb.lastMyBookingsQuery!['to'], expectedToday);
+
       // Narrow to a NON-today rail day first — the seeded booking's own day
-      // (`fb.bookingStartsAt`'s date), always 7 real-clock days out from Kyiv
-      // today (see that field's own doc for why it is anchored that way).
+      // (`fb.bookingStartsAt`'s date). That fixture is anchored to the REAL
+      // clock while the screen's "today" comes from the INJECTED one, so the
+      // two are far apart and the day is emphatically not today — exactly the
+      // precondition this step needs. (It is also why the chip must be
+      // scrolled into view; see `_selectRailDay`.)
       final DateTime bookedDay = parseApiDate(
         fb.bookingStartsAt.substring(0, 10),
       );
-      await tester.tap(find.byKey(dayChipKey(bookedDay)));
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      await _selectRailDay(tester, bookedDay);
       expect(
         fb.lastMyBookingsQuery!['from'],
         toApiDate(bookedDay),
@@ -1460,23 +1558,43 @@ void main() {
       await tester.tap(find.byKey(const Key('master-bookings-today')));
       await AppHarness.settle(tester);
 
-      final DateTime todayKyiv = dateOnly(toBeauticaTime(DateTime.now()));
-      final String expectedToday = toApiDate(todayKyiv);
+      // ── 1. The SELECTION really came back to the injected clock's Kyiv
+      //      today — read off the rail's own `selectedDay`, which the screen
+      //      state feeds directly. ──────────────────────────────────────────
+      expect(
+        tester
+            .widget<BookingsDayRail>(find.byType(BookingsDayRail))
+            .selectedDay,
+        _kyivToday,
+        reason:
+            '«Сьогодні» must re-select Kyiv today, not merely recentre the '
+            'rail (that is the month switcher\'s job) and not leave the '
+            'selection parked on the booked day',
+      );
 
+      // ── 2. …and it resolved to the SAME query the landing fetch used, not
+      //      merely to some other day. Proven by the ABSENCE of a new
+      //      request: `bookingsDayProvider` is a keepAlive family bounded by
+      //      an LRU, and today's member is still resident (only two distinct
+      //      days have been visited, under the LRU's budget). A cache HIT is
+      //      therefore only possible if «Сьогодні» produced a query equal to
+      //      the landing one — any other date, or a host-clock fallback,
+      //      would MISS and fire a fetch. ───────────────────────────────────
+      //
+      // The earlier `greaterThan(callsBeforeToday)` here asserted the exact
+      // opposite and could never hold: it demanded a refetch of a day the app
+      // deliberately caches, so it was a regression guard pointing backwards
+      // — it would have passed only if the keepAlive cache broke.
       expect(
         fb.getMyBookingsCalls,
-        greaterThan(callsBeforeToday),
-        reason: '«Сьогодні» must re-select the day and issue a NEW fetch',
-      );
-      final Map<String, dynamic> q = fb.lastMyBookingsQuery!;
-      expect(
-        q['from'],
-        expectedToday,
+        callsBeforeToday,
         reason:
-            'the re-fetch must carry Kyiv TODAY, not the host device\'s '
-            'own date',
+            'returning to an already-loaded day must be served from the '
+            'bounded keepAlive cache — a NEW GET /bookings/me here means '
+            '«Сьогодні» built a query that is not equal to the landing '
+            'day\'s (wrong date, or a host-clock fallback), or that the '
+            'cache regressed',
       );
-      expect(q['to'], expectedToday);
     },
   );
 
@@ -1487,9 +1605,6 @@ void main() {
   // the widget tier can prove the callback fires against a mocked notifier,
   // but not that the real chrome (a real `Scaffold`/`MaterialApp`-hosted
   // `ScaffoldMessenger`, behind a real login) actually surfaces the SnackBar.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // authored, analyze-clean; CI owns the first run.
   testWidgets('the «+» add-booking affordance shows a coming-soon SnackBar', (
     tester,
   ) async {
@@ -1526,9 +1641,6 @@ void main() {
   // own): it holds the first `/bookings/me` request open with a `Completer`
   // until the test lets it through, exactly mirroring how a slow real network
   // would leave the day-scoped provider on `AsyncLoading`.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // authored, analyze-clean; CI owns the first run.
   testWidgets(
     'the day-scoped skeleton renders while the first day load is in flight, '
     'and clears once it resolves',
@@ -1560,7 +1672,23 @@ void main() {
       );
 
       await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-      await AppHarness.settle(tester);
+
+      // `pumpUntilFound`, NOT `pumpAndSettle` — `BookingsSkeleton` drives a
+      // shimmer with `AnimationController.repeat(reverse: true)`, so while it
+      // is on screen a frame is ALWAYS scheduled and `pumpAndSettle` can
+      // never settle; it runs to its timeout and throws instead.
+      //
+      // This is why the flow passed on the CI emulator and failed on a real
+      // handset: the skeleton only repeats when animations are enabled
+      // (`MediaQuery.disableAnimations` short-circuits it to a static
+      // `_controller.value = 1.0`), and CI emulators run with the animation
+      // scales zeroed. The device has them at 1, so it hit the real
+      // behaviour. Pumping until the awaited state appears is correct on
+      // both, and is what the fixed-wait gate asks for besides.
+      await tester.pumpUntilFound(
+        find.byKey(const Key('master-bookings-skeleton')),
+      );
+
       expect(
         AppHarness.location(router),
         startsWith(RouteNames.masterBookings),
@@ -1605,9 +1733,6 @@ void main() {
   // over NOTHING, so no filter needs to be forced to get here, matching the
   // "no filter active, nothing to reset" precondition the true-empty copy
   // requires.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // authored, analyze-clean; CI owns the first run.
   testWidgets('a genuinely empty day renders the TRUE empty state, not the '
       'no-results-from-filter one', (tester) async {
     final fb = FakeBackend()
@@ -1650,15 +1775,28 @@ void main() {
   // reaches the fake's adapter — so `fb.getMyBookingsCalls` (incremented
   // inside the fake's own route callback) never counts the rejected attempt,
   // and only the real, successful retry increments it.
-  //
-  // ⚠ EXECUTION STATUS: not run on a device — see the file-header note above;
-  // authored, analyze-clean; CI owns the first run.
   testWidgets(
     'a failed GET /bookings/me renders the error state, and retry issues a '
     'real, successful refetch',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
-      final GoRouter router = await AppHarness.boot(tester, fb);
+      // Auto-retry OFF for this flow only — see `AppHarness.boot`'s [retry]
+      // doc. Riverpod 3 transparently retries a failed provider ten times
+      // over ~38 s, staying in `AsyncLoading` between attempts, so the error
+      // branch does not render until that budget is spent. With retry
+      // disabled the failure surfaces on the first attempt and this test
+      // asserts the error surface itself rather than racing the framework.
+      //
+      // Nothing here is weakened by that: the endpoint still really fails,
+      // the real error state still has to render, and the «retry» button
+      // still has to issue a real, successful `GET /bookings/me` that really
+      // renders the seeded booking. Only the framework's invisible
+      // self-healing is taken out of the way.
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        retry: (int retryCount, Object error) => null,
+      );
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
       int hits = 0;
