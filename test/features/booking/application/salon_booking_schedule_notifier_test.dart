@@ -9,6 +9,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/application/salon_booking_schedule_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
@@ -18,6 +19,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../../../helpers/booking_fixture_dates.dart';
 
 class _MockSlotRepository extends Mock implements SlotRepository {}
 
@@ -279,6 +282,61 @@ void main() {
 
       expect(token.isCancelled, isTrue);
       pending.complete(const <BookingSlot>[]);
+    });
+
+    // FAILURE PATH (mobile-qa gap-fix — the MEDIUM this file was flagged for).
+    // Every other test in this group pinned `getMasterSlots` on its happy path
+    // only, which left the one outcome the client actually notices unpinned: a
+    // regression that swallowed the repository's error — a `try`/`catch`
+    // returning `const <BookingSlot>[]`, the most tempting "make the red go
+    // away" edit in the file — would be INVISIBLE to every existing assertion
+    // here, while on screen it turns a failed fetch into «немає вільних
+    // годин». Those two are not interchangeable: an empty day is a true
+    // statement the client acts on by picking another day, whereas a swallowed
+    // network error sends them away from a master who is in fact free.
+    //
+    // The assertion is on the MAPPED Failure subtype rather than a bare
+    // `hasError, isTrue` (house idiom — see
+    // `bookings_day_notifier_test.dart`'s 'a failing fetch surfaces as an
+    // AsyncError'): `hasError` alone would still pass if `SlotRepository`
+    // stopped mapping `DioException` → `Failure` and leaked the raw Dio error
+    // up to the widget layer, which is exactly the drift the error/retry UI
+    // cannot render.
+    test('a failing getMasterSlots surfaces as an AsyncError carrying the '
+        'MAPPED Failure — never a silently-empty slot list', () async {
+      when(
+        () => repo.getMasterSlots(
+          masterId: any(named: 'masterId'),
+          serviceId: any(named: 'serviceId'),
+          date: any(named: 'date'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+
+      final container = makeContainer();
+      final query = SalonMasterDaySlotsQuery(
+        masterId: 'm1',
+        serviceId: 'svc-1',
+        date: futureBookingStart(),
+      );
+
+      container.listen(salonMasterDaySlotsProvider(query), (_, _) {});
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final AsyncValue<List<BookingSlot>> state = container.read(
+        salonMasterDaySlotsProvider(query),
+      );
+
+      expect(state.hasError, isTrue);
+      expect(state.error, isA<NetworkFailure>());
+      expect(
+        state.hasValue,
+        isFalse,
+        reason:
+            'the failed fetch must not ALSO present a value — a slot list '
+            'alongside the error is what lets the grid paint "no slots" over '
+            'a state that is really "we do not know"',
+      );
     });
   });
 }

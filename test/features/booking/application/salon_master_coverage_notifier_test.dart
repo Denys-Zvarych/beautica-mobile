@@ -299,8 +299,142 @@ void main() {
 
         expect(coverage, isEmpty);
       });
+
+      // CHUNK-BOUNDARY ALIGNMENT UNDER FAILURE (mobile-qa gap-fix — the
+      // MEDIUM this file was flagged for).
+      //
+      // The two degradation tests above both fit in a single fetch chunk, so
+      // neither exercises the invariant that actually makes degradation SAFE:
+      // `perService[i]` must stay aligned with `selectedServiceIds[i]` even
+      // when an earlier entry failed. The provider holds that alignment by
+      // returning an EMPTY LIST from its catch — the failed slot keeps its
+      // index — and the obvious "tidy-up" edit (dropping empty results while
+      // assembling `perService`, or filtering the failures out of
+      // `batchResults`) silently shifts every subsequent index by one.
+      //
+      // That is not a cosmetic misattribution. The map's VALUE is the
+      // master-scoped `masterServiceId` that the slot query and ultimately
+      // `POST /bookings` are keyed on (see `salon_master_schedule.dart`'s
+      // id-space note), so a one-slot shift books the client a DIFFERENT
+      // service than the one they picked, with no visible symptom until the
+      // appointment. Ten services span two chunks (`_kFetchChunkSize` is 8)
+      // with the failure inside the first, so both the shift-within-chunk and
+      // the shift-across-the-chunk-boundary cases are pinned at once.
+      test('a service failing inside the FIRST chunk keeps every LATER '
+          'service — including those past the chunk boundary — attributed to '
+          'its OWN serviceDefId and assignment id', () async {
+        final repo = _MockSalonRepository();
+        final List<String> selected = <String>[
+          for (int i = 1; i <= 10; i++) 'svc-$i',
+        ];
+        _stubBySvc(repo, <String, Object>{
+          for (final String svc in selected)
+            svc: <BookableMasterAssignment>[
+              (masterId: 'm-$svc', masterServiceId: 'assign-$svc'),
+            ],
+          // Overrides the entry spread above — svc-3 is index 2, well inside
+          // the first chunk.
+          'svc-3': const NetworkFailure(),
+        });
+
+        final container = ProviderContainer(
+          overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+        );
+        addTearDown(container.dispose);
+
+        final args = SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: selected,
+        );
+        final Map<String, Map<String, String>> coverage = await container.read(
+          salonMasterServiceCoverageProvider(args).future,
+        );
+
+        for (final String svc in selected) {
+          if (svc == 'svc-3') continue;
+          expect(
+            coverage['m-$svc'],
+            <String, String>{svc: 'assign-$svc'},
+            reason:
+                '$svc must resolve to its OWN master and its OWN assignment '
+                'id; anything else means the failed svc-3 slot collapsed and '
+                'shifted the tail of the selection',
+          );
+        }
+
+        // The failed service contributes nothing anywhere — neither its own
+        // row, nor (via a collapsed index) some later service\'s row.
+        for (final Map<String, String> row in coverage.values) {
+          expect(
+            row.containsKey('svc-3'),
+            isFalse,
+            reason: 'svc-3 resolved to no masters at all',
+          );
+        }
+        expect(coverage.containsKey('m-svc-3'), isFalse);
+        expect(
+          coverage,
+          hasLength(9),
+          reason: 'exactly the nine succeeding services contributed a master',
+        );
+      });
     },
   );
+
+  // THE CEILING OF THE DEGRADATION GUARD (mobile-qa gap-fix).
+  //
+  // The guard above is `on Failure catch` — deliberately narrow — and the
+  // repository it wraps only maps `DioException` (`getBookableMasters` in
+  // `salon_repository.dart`: `on Failure { rethrow }` / `on DioException {
+  // map }`). So an error that is NEITHER — the realistic one being a mapper
+  // `TypeError` from a malformed row in an otherwise-200 response — escapes
+  // BOTH layers and fails the whole provider, blanking the entire master-
+  // selection grid over one bad row on one service.
+  //
+  // This test does not claim that is the right behaviour; it makes the blast
+  // radius VISIBLE, because nothing else in this file states where the
+  // degradation stops. If the guard is ever widened to a bare `catch` this
+  // test goes red on purpose — that is the point at which the widening should
+  // be a considered decision (it also starts swallowing programming errors)
+  // rather than a silent side effect.
+  group('salonMasterServiceCoverageProvider — degradation ceiling', () {
+    test('a NON-Failure error is NOT degraded — it propagates out of the '
+        'provider instead of resolving to partial coverage', () async {
+      final repo = _MockSalonRepository();
+      when(
+        () => repo.getBookableMasters(
+          salonId: any(named: 'salonId'),
+          serviceDefId: any(named: 'serviceDefId'),
+        ),
+      ).thenAnswer(
+        (_) async => throw StateError('malformed BookableMasterAssignment row'),
+      );
+
+      final container = ProviderContainer(
+        overrides: [salonRepositoryProvider.overrideWithValue(repo)],
+        // No auto-retry: the assertion is about the FIRST outcome, and a
+        // retry timer would outlive the test.
+        retry: (int _, Object _) => null,
+      );
+      addTearDown(container.dispose);
+
+      const args = SalonBookingMasterSelectionArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1'],
+      );
+
+      await expectLater(
+        container.read(salonMasterServiceCoverageProvider(args).future),
+        throwsA(isA<StateError>()),
+      );
+
+      final AsyncValue<Map<String, Map<String, String>>> state = container.read(
+        salonMasterServiceCoverageProvider(args),
+      );
+      expect(state.hasError, isTrue);
+      expect(state.error, isA<StateError>());
+    });
+  });
 
   group(
     'salonMasterServiceCoverageProvider — call shape (one call per selected '
@@ -446,6 +580,17 @@ void main() {
         final container = ProviderContainer(
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
+        // M1 pairing. This container is disposed EXPLICITLY mid-test (that
+        // disposal IS the subject), so it used to be the one construction in
+        // this file without an `addTearDown` partner — and the gap was real,
+        // not cosmetic: if the `await` below throws, or an `expect` ahead of
+        // the explicit `dispose()` fails, the container never gets torn down
+        // and its keepAlive Timer leaks into whichever test runs next, where
+        // it surfaces as an unrelated "pending timer" failure. Pairing it here
+        // is safe because `ProviderContainer.dispose()` is idempotent
+        // (`if (_disposed) return;` — riverpod 3.x `provider_container.dart`),
+        // so the explicit call still does the real work and this is a no-op.
+        addTearDown(container.dispose);
 
         const args = SalonBookingMasterSelectionArgs(
           salonId: _kSalonId,

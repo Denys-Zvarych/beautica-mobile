@@ -194,6 +194,31 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
   }
 
   /// A fade + upward-slide reveal over a sub-interval of [_controller].
+  ///
+  /// PERF (mobile-perf P1): the fade is a [FadeTransition], NOT a raw [Opacity]
+  /// rebuilt inside the [AnimatedBuilder]. `Opacity` is a plain widget, so the
+  /// old shape re-ran the builder, re-inflated an `Opacity` element and pushed
+  /// its opacity through the render tree on EVERY frame of the 1350 ms
+  /// staggered entrance — once per recap card, each of which now also carries a
+  /// bordered, shadowed pill. `FadeTransition`'s `RenderAnimatedOpacity`
+  /// subscribes to the animation itself and answers a tick with `markNeedsPaint`
+  /// alone: no element rebuild, no compositing-bits churn, the work stays in the
+  /// layer tree.
+  ///
+  /// The upward slide stays on an [AnimatedBuilder]-driven [Transform.translate]
+  /// deliberately — it is an ABSOLUTE 18 dp travel, and [SlideTransition]'s
+  /// offset is a FRACTION of the child's own height. Cards, the headline and the
+  /// one-line subline differ in height by an order of magnitude, so a fractional
+  /// slide would give each element a different travel and visibly change an
+  /// already-approved entrance. A translate-only `Transform` costs a
+  /// `canvas.translate`, and the pre-built `child` is handed to the builder so
+  /// nothing below it rebuilds.
+  ///
+  /// Timing, curve and travel are unchanged: the same
+  /// `Interval(start, end, curve: Curves.easeOutCubic)`, the same 18 dp rise,
+  /// and the same implicit 0..1 opacity clamp (`RenderAnimatedOpacity` clamps
+  /// internally via `Color.getAlphaFromOpacity`, exactly as the explicit
+  /// `.clamp(0.0, 1.0)` did).
   Widget _reveal({
     required double start,
     required double end,
@@ -211,16 +236,16 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
     // `actions` footer is revealed through this same helper) — mirrors
     // NeumorphicButton.build()'s press-animation RepaintBoundary.
     return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: curved,
-        builder: (BuildContext context, Widget? c) => Opacity(
-          opacity: curved.value.clamp(0.0, 1.0),
-          child: Transform.translate(
+      child: FadeTransition(
+        opacity: curved,
+        child: AnimatedBuilder(
+          animation: curved,
+          builder: (BuildContext context, Widget? c) => Transform.translate(
             offset: Offset(0, (1 - curved.value) * 18),
             child: c,
           ),
+          child: child,
         ),
-        child: child,
       ),
     );
   }

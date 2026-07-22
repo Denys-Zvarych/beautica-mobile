@@ -370,6 +370,33 @@ class _ServiceRow extends StatelessWidget {
 /// The bold "Разом" total line: [label] (left) with the muted total
 /// [duration] beside it (the appointment length), and the summed [price] on
 /// the right in camel/bold (a range when any per-service price was a range).
+///
+/// ## Why the row is flexible (the 320 dp × 2.0 overflow)
+///
+/// Every one of the three texts used to be an UNFLEXED child of a `Row` whose
+/// only elastic member was a `Spacer`. A `Spacer` only ever *donates* space, so
+/// once the three intrinsic widths summed past the card, the row had no way to
+/// give: on the booking-success grand-total card at 320 dp × textScaler 2.0 the
+/// card offers 248 dp of content width while «Разом» (70.1) + `sm` gap (8) +
+/// «2 год 15 хв» (121.7) + «1200 ₴» (83.3) want 283.1 — a hard
+/// `RenderFlex overflowed by 35 pixels on the right`.
+///
+/// The row now states an explicit order of sacrifice:
+///   * **[price] never yields.** It is the number the client is agreeing to;
+///     truncating or shrinking it is not an option at any scale, so it stays
+///     an unflexed child (laid out at its intrinsic width first) and merely
+///     carries a `sm` left padding as its minimum gap.
+///   * **[duration] wraps.** It is the only member that can lose a line break
+///     without losing information — «2 год 15 хв» becomes two lines rather than
+///     an ellipsis, so no minute is ever hidden.
+///   * **[label] holds its intrinsic width**, as the row's anchor word.
+///
+/// `MainAxisAlignment.spaceBetween` replaces the old `Spacer`: a `Spacer` is an
+/// `Expanded`, so leaving it in place would have split the free space with the
+/// flexible left group instead of yielding it. With `spaceBetween` the loose
+/// left group takes only what it needs and the surplus still pushes the price
+/// hard against the right margin — byte-identical placement at ordinary text
+/// scales, elastic only once the row genuinely runs out of room.
 class _TotalRow extends StatelessWidget {
   const _TotalRow({
     required this.label,
@@ -403,29 +430,50 @@ class _TotalRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
+        // Stands in for the row's former trailing `Spacer` — see the class doc.
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[
-          Text(
-            label,
-            style: compactText
-                ? VelvetText.bookName145w800
-                : VelvetText.bookName16w800,
-          ),
-          if (durationLabel != null) ...<Widget>[
-            const SizedBox(width: VelvetSpacing.sm),
-            Text(
-              durationLabel,
-              style: compactText
-                  ? VelvetText.feedbackMutedXs
-                  : VelvetText.feedbackMutedSm,
+          Flexible(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: <Widget>[
+                Text(
+                  label,
+                  style: compactText
+                      ? VelvetText.bookName145w800
+                      : VelvetText.bookName16w800,
+                ),
+                if (durationLabel != null) ...<Widget>[
+                  const SizedBox(width: VelvetSpacing.sm),
+                  // The one member allowed to give: it WRAPS (no `maxLines`,
+                  // no ellipsis) so a squeezed «2 год 15 хв» costs a line, not
+                  // a minute.
+                  Flexible(
+                    child: Text(
+                      durationLabel,
+                      style: compactText
+                          ? VelvetText.feedbackMutedXs
+                          : VelvetText.feedbackMutedSm,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-          const Spacer(),
+          ),
           if (priceLabel != null)
-            Text(
-              priceLabel,
-              style: compactText
-                  ? VelvetText.bookAccentBold155
-                  : VelvetText.bookPriceMd,
+            Padding(
+              // Minimum breathing room once the left group expands to fill —
+              // NOT a second `SizedBox` child, which `spaceBetween` would turn
+              // into a second gap and unpin the price from the right margin.
+              padding: const EdgeInsets.only(left: VelvetSpacing.sm),
+              child: Text(
+                priceLabel,
+                style: compactText
+                    ? VelvetText.bookAccentBold155
+                    : VelvetText.bookPriceMd,
+              ),
             ),
         ],
       ),

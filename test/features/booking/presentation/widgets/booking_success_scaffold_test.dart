@@ -146,12 +146,19 @@ void main() {
         // already be resting after didChangeDependencies pins the controller.
         await tester.pump();
 
-        final Finder revealOpacity = find
-            .ancestor(of: find.byKey(_kHomeKey), matching: find.byType(Opacity))
+        // The reveal fades through a `FadeTransition`, not a raw `Opacity`
+        // rebuilt per frame (mobile-perf P1 — see `_reveal`'s doc). The claim
+        // under test is unchanged: at rest the CTA is at FULL opacity on the
+        // first frame. Read it off the transition's own animation.
+        final Finder revealFade = find
+            .ancestor(
+              of: find.byKey(_kHomeKey),
+              matching: find.byType(FadeTransition),
+            )
             .first;
-        final Opacity opacity = tester.widget<Opacity>(revealOpacity);
+        final FadeTransition fade = tester.widget<FadeTransition>(revealFade);
         expect(
-          opacity.opacity,
+          fade.opacity.value,
           1.0,
           reason:
               'reduced motion must pin the staggered-reveal controller to its '

@@ -698,18 +698,34 @@ void main() {
       },
     );
 
-    // STRESS SIZES: 320dp @ 1.6 (narrow phone, large OS font) and 400dp @ 2.0
-    // (max accessibility scale). Both are CLEAN today.
+    // STRESS SIZES: 320dp @ 2.0 (the narrowest Android phone at the maximum
+    // accessibility text scale) and 400dp @ 2.0. Both are CLEAN, and 320 @ 2.0
+    // is now the tightest reachable configuration this screen has to survive.
     //
-    // 320dp @ 2.0 is deliberately NOT one of them: the recap card overflows by
-    // 35px on the right at that size — and it does so with the per-appointment
-    // buttons REMOVED too (verified by deleting `trailingAction` and
-    // re-running), so it is a PRE-EXISTING defect in the card's own rows, not
-    // a regression from the calendar rework. Pinning it here would redden this
-    // suite for someone else's bug; it is reported separately instead. Raise
-    // these knobs to 320/2.0 once that is fixed.
+    // It did not used to be. 320 @ 2.0 overflowed the recap card by 35px on the
+    // right, in the grand-total row: «Разом» (70.1) + the `sm` gap (8) + «2 год
+    // 15 хв» (121.7) + «1200 ₴» (83.3) wanted 283.1dp of the card's 248dp, and
+    // every one of the three was an UNFLEXED child of a `Row` whose only
+    // elastic member was a `Spacer` — which can donate space but can never
+    // absorb a deficit, so the row had no way to give. `_TotalRow` now states
+    // an explicit order of sacrifice instead (duration `Flexible` and wrapping,
+    // price unflexed and right-pinned via `MainAxisAlignment.spaceBetween`) —
+    // see its class doc in `booking_recap.dart`. This loop is the pin that
+    // keeps that fix in place: `pumpApp`'s overflow guard fails on ANY
+    // RenderFlex overflow, so a revert to the unflexed row reddens 320 @ 2.0
+    // here immediately.
+    //
+    // WHERE THE CLIFF ACTUALLY IS — stated plainly rather than left for the
+    // next person to rediscover: the row is elastic, not infinitely so. 320 @
+    // 4.0 and 240 @ 2.0 both still overflow. Neither is a configuration this
+    // app can be put into: `sw320dp` is the Android platform minimum width (no
+    // narrower bucket exists), and 2.0 is the ceiling of the OS accessibility
+    // font scale. So the untested region above is unreachable, NOT unknown —
+    // but if a future device, a desktop/window-resize target, or an in-app
+    // text-scale control ever pushes past 320 @ 2.0, the answer is another
+    // elastic member in that row, not a larger number in this list.
     for (final (double width, double scale) in <(double, double)>[
-      (320, 1.6),
+      (320, 2.0),
       (400, 2.0),
     ]) {
       testWidgets(
