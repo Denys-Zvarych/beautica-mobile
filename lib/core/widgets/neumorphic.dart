@@ -89,21 +89,83 @@ class NeumorphicCard extends StatelessWidget {
 /// fields and selected/active surfaces. Flutter's [BoxShadow] cannot render
 /// inner shadows, so we paint two offset inner glows on a clipped canvas.
 class _InsetShadowPainter extends CustomPainter {
-  // Paint objects hoisted to instance fields so they are allocated once per
-  // painter instance instead of on every paint() call.
-  _InsetShadowPainter({required this.radius});
+  const _InsetShadowPainter._({required this.radius});
 
   final double radius;
 
-  final Paint _dark = Paint()
+  // ---------------------------------------------------------------------
+  // Paints — process-wide singletons (mobile-perf MEDIUM #7, 2026-07-22).
+  //
+  // Previously these were INSTANCE fields. Combined with NeumorphicInset.build
+  // constructing `_InsetShadowPainter(radius: radius)` afresh on every build,
+  // that meant three Paint allocations per build of every inset in the app —
+  // two of them carrying a MaskFilter.blur. The old "hoisted so they are
+  // allocated once per painter instance" comment was true but bought nothing,
+  // because a new painter instance WAS the per-build allocation.
+  //
+  // They depend on nothing instance-specific (not even radius), so they are
+  // static. Sharing Paint objects across painters is safe: they are never
+  // mutated after construction and painting happens on a single thread —
+  // the same pattern the framework itself uses.
+  // ---------------------------------------------------------------------
+  static final Paint _dark = Paint()
     ..color = BrandColors.shadowDarkButton
     ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
 
-  final Paint _light = Paint()
+  static final Paint _light = Paint()
     ..color = BrandColors.shadowLightStrong
     ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
 
-  final Paint _fill = Paint()..color = BrandColors.base;
+  static final Paint _fill = Paint()..color = BrandColors.base;
+
+  /// Upper bound on [_painterCache], asserted in [forRadius].
+  ///
+  /// Mirrors the tripwire on `TimelineStatusDot._decorationsByAccent` and
+  /// `_DayChip`'s style caches. Unlike those the key set here is not closed by
+  /// an enum, so the cap is empirical: an audit of every `NeumorphicInset`
+  /// call site (2026-07-22) found ~12 distinct radii — the `VelvetRadii`
+  /// tokens (16 field/button, 24 card/logoTile, 999 pill) plus a handful of
+  /// local constants (6, 10, 12, 13, 28, 33, 44, 48, 52). Crucially EVERY one
+  /// resolves to a compile-time constant at its call site; the two call sites
+  /// that look computed (`height / 2` in `interval_editor.dart` and
+  /// `working_hours_screen.dart`) both read a `const double height = 32`.
+  ///
+  /// The cap is set to roughly double the observed count so introducing a new
+  /// design token does not trip it, while a genuinely layout-derived radius
+  /// (which would make this map an unbounded leak rather than the fixed table
+  /// it is meant to be) blows the budget almost immediately.
+  static const int _kMaxCachedRadii = 24;
+
+  /// Per-radius painter memo.
+  ///
+  /// [NeumorphicInset] is used across the whole app, so this removes both the
+  /// painter and its three Paints from the per-build allocation path. Returning
+  /// the SAME instance for a given radius is also strictly fewer repaints:
+  /// `RenderCustomPaint`'s `painter` setter short-circuits when the new painter
+  /// is equal to the old one, so an unchanged radius no longer even reaches
+  /// [shouldRepaint].
+  static final Map<double, _InsetShadowPainter> _painterCache =
+      <double, _InsetShadowPainter>{};
+
+  /// Returns the shared painter for [radius], creating it on first use.
+  static _InsetShadowPainter forRadius(double radius) {
+    assert(
+      _painterCache.containsKey(radius) ||
+          _painterCache.length < _kMaxCachedRadii,
+      '_InsetShadowPainter._painterCache grew past $_kMaxCachedRadii entries. '
+      'It is keyed by radius, and every NeumorphicInset call site is expected '
+      'to pass a compile-time constant (a VelvetRadii token or a local const), '
+      'so this means a computed / layout-derived radius is now reaching it — '
+      'which would make this cache an unbounded leak instead of the fixed '
+      'table it is meant to be. Either route the caller through a token or, '
+      'if the new radii are genuinely a small fixed set, raise '
+      '_kMaxCachedRadii.',
+    );
+    return _painterCache.putIfAbsent(
+      radius,
+      () => _InsetShadowPainter._(radius: radius),
+    );
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -170,7 +232,10 @@ class NeumorphicInset extends StatelessWidget {
           ),
         ),
         child: CustomPaint(
-          painter: _InsetShadowPainter(radius: radius),
+          // Shared per-radius instance — see [_InsetShadowPainter.forRadius].
+          // Identical pixels to the previous per-build construction; only the
+          // allocation (and the redundant repaint) goes away.
+          painter: _InsetShadowPainter.forRadius(radius),
           child: child,
         ),
       ),

@@ -701,6 +701,64 @@ jobs:
               --target=integration_test/logout_flow_test.dart
 
   # ---------------------------------------------------------------------------
+  # Native-surface change detection — the additive gate for the `patrol` job.
+  #
+  # GitHub cannot combine a workflow-level `paths:` filter with a job-level
+  # `if:`, so change detection has to be its own job whose output the `patrol`
+  # job's `if:` consumes.
+  #
+  # This job ALWAYS runs (it is cheap: checkout + one filter step). The filter
+  # step itself only runs on `pull_request`, because that is the only event
+  # with a meaningful diff to filter. On `schedule` / `workflow_dispatch` /
+  # `push` the step is skipped and `steps.filter.outputs.native` is the empty
+  # string, so `needs.changes.outputs.native == 'true'` is false and the
+  # scheduled run falls through to its own unconditional clause in `patrol`'s
+  # `if:` — i.e. the nightly is NEVER gated on a diff.
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect native-surface changes
+    runs-on: ubuntu-latest
+    # dorny/paths-filter reads the PR file list via the API on pull_request.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      native: ${{ steps.filter.outputs.native }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Filter native-surface paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36  # v3.0.2
+        with:
+          # Everything here genuinely changes what the patrol flows exercise.
+          # Keep this list TIGHT — a false positive costs a full emulator boot.
+          filters: |
+            native:
+              # Whole Android shell: manifests (App-Link intent filters +
+              # flutter_deeplinking_enabled), Gradle/AGP config, res/xml
+              # network_security_config, signing, ProGuard.
+              - 'android/**'
+              # Redundant with android/** today, but keeps the gate correct if
+              # a manifest is ever added outside android/.
+              - '**/AndroidManifest.xml'
+              # The patrol flows themselves + their support helpers.
+              - 'integration_test/patrol/**'
+              # go_router config: the deep-link flow asserts that an App Link
+              # actually RESOLVES to the right screen, so a route change can
+              # break the native test without touching android/.
+              - 'lib/routing/**'
+              # App bootstrap — decides what the cold-start intent lands on.
+              - 'lib/main.dart'
+              # patrol / flutter pins and `test_directory`, which control what
+              # the native test bundle even contains.
+              - 'pubspec.yaml'
+              # The job definition itself.
+              - '.github/workflows/pr-validate.yml'
+
+  # ---------------------------------------------------------------------------
   # Patrol native E2E (Phase 17.5).
   #
   # Covers OS-level surfaces integration_test cannot reach (deep-link intents,
@@ -713,13 +771,25 @@ jobs:
   # WHY THIS JOB IS GATED (not per-PR):
   #   The native compile builds the androidTest variant + AndroidX Test
   #   Orchestrator and boots a full emulator — materially slower than the fast
-  #   jobs. The patrol flow set is small and changes rarely, so per-PR runtime
-  #   cost is not justified. This job therefore runs only on:
+  #   jobs. Running it on every PR is not justified, so it runs only on:
   #     • the nightly `schedule` trigger,
   #     • manual `workflow_dispatch`,
-  #     • PRs explicitly labelled `run-patrol`.
+  #     • PRs explicitly labelled `run-patrol`,
+  #     • PRs that touch a native surface (see the `changes` job's filter).
   #   It is a SEPARATE job, so it never blocks or merges into the fast
   #   `validate` / `integration` jobs.
+  #
+  #   The last clause was added because label-only opt-in meant a PR that broke
+  #   App Link routing merged green — nobody remembers to add a label for a
+  #   regression they do not know they are introducing.
+  #
+  # EXPECTED OUTCOME PER TRIGGER (all five cases the `if:` must get right):
+  #   1. schedule            -> RUNS (clause 1; never gated on a diff)
+  #   2. workflow_dispatch   -> RUNS (clause 2)
+  #   3. PR + `run-patrol`   -> RUNS (clause 3, label branch)
+  #   4. PR touching native  -> RUNS (clause 3, changed-paths branch)
+  #   5. any other PR / push -> SKIPPED (no clause matches; `push` is
+  #                             deliberately absent — its PR already covered it)
   patrol:
     name: Patrol native E2E (emulator) (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
@@ -735,15 +805,48 @@ jobs:
       fail-fast: false
       matrix:
         api-level: [34]
-    # Skip on ordinary push/PR; opt in via schedule, manual dispatch, or label.
+    # `changes` always succeeds, so gating on it cannot silently skip patrol;
+    # it only makes the changed-paths output available to the `if:` below.
+    needs: changes
+    # Skip on ordinary push/PR; run on schedule, manual dispatch, the opt-in
+    # label, or a PR that touches a native surface. See the per-trigger table
+    # in the comment block above.
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-       contains(github.event.pull_request.labels.*.name, 'run-patrol'))
+       (contains(github.event.pull_request.labels.*.name, 'run-patrol') ||
+        needs.changes.outputs.native == 'true'))
     steps:
+      # =====================================================================
+      # !!! PRE-RELEASE ONLY — MUST BE FLIPPED BACK TO `main` AT RELEASE !!!
+      #
+      # `ref: dev` on the SCHEDULED run is deliberate, not a mistake.
+      #
+      # WHY: GitHub runs `schedule` workflows only from the DEFAULT BRANCH,
+      # which is `main`. During development nothing is committed to `main`
+      # directly — all work targets `dev` — so an unpinned nightly would
+      # exercise a stale `main` while real regressions sat on `dev`, caught
+      # neither per-PR (this job is gated) nor nightly. That is the exact hole
+      # this pin closes.
+      #
+      # AT RELEASE: when `main` becomes the branch that actually ships, delete
+      # the `with:` block below (reverting to the default-branch checkout) or
+      # change 'dev' to 'main'. Leaving it pinned to `dev` post-release means
+      # the nightly silently stops testing what users run.
+      #
+      # SCOPE: the override applies ONLY to `schedule`. For `pull_request` and
+      # `workflow_dispatch` the ref MUST stay empty so checkout uses the
+      # triggering ref — pinning `dev` unconditionally would make a labelled
+      # or native-path PR test `dev` instead of the PR head, i.e. report a
+      # green patrol run for code that was never built.
+      #
+      # Tracked in docs/mobile-phases/mobile-backlog.md → Pre-release checklist.
+      # =====================================================================
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || '' }}
 
       - name: Set up Java 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
