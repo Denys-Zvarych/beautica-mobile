@@ -59,6 +59,29 @@ abstract final class PatrolHarness {
     PatrolIntegrationTester $,
     FakeBackend fakeBackend,
   ) async {
+    // ── TEXT-INPUT MOCK REGISTRATION — DO NOT DELETE ────────────────────────
+    //
+    // Mirrors the same call in `integration_test/support/app_harness.dart`
+    // (see that file's comment for the full mechanism). Short version:
+    // `enterText` posts its editing state with the connection id
+    // `TestTextInput._client ?? -1`; `PatrolBinding` overrides
+    // `registerTestTextInput => false` (patrol 4.6.1, `lib/src/binding.dart`
+    // line 136 — byte-identical to
+    // `IntegrationTestWidgetsFlutterBinding`'s), so `_client` is never
+    // assigned and the id is always `-1`; the `-1` escape hatch in
+    // `TextInput._handleTextInputInvocation` lives inside an
+    // `assert(() {...}())` block that non-debug builds STRIP. Result: every
+    // `enterText` is a SILENT no-op and every form field stays empty.
+    //
+    // THIS HARNESS CAN RUN NON-DEBUG. `patrol_cli` 4.4.0 exposes `--profile`
+    // and `--release` build-mode flags on `patrol test` / `patrol build`
+    // (`lib/src/runner/patrol_command.dart` lines 82-89, 428-430). The
+    // `patrol` CI job passes neither today, so it runs debug and is not
+    // currently broken — but the defect is one CLI flag away, so register
+    // unconditionally rather than relying on the job's argv staying put.
+    // `register()` is idempotent.
+    $.tester.binding.testTextInput.register();
+
     AppStartTime.setStartForTest(
       DateTime.now().subtract(const Duration(seconds: 5)),
     );

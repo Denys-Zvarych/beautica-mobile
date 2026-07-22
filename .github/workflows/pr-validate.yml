@@ -226,6 +226,22 @@ jobs:
         shell: bash
         run: ./scripts/forbid_stale_future_date_fixture.sh
 
+      # 2026-07-22 — `tester.enterText` is a SILENT NO-OP in profile/release
+      # unless the harness registers the test text-input mock: the editing
+      # state is posted with client id -1 (both
+      # IntegrationTestWidgetsFlutterBinding and PatrolBinding override
+      # `registerTestTextInput => false`), and the -1 escape hatch in
+      # TextInput._handleTextInputInvocation lives inside an
+      # `assert(() {...}())` block that non-debug builds strip. Every field
+      # then stays empty and the flow fails downstream with a misleading tap
+      # error. 16 integration flows call enterText and ALL boot through
+      # AppHarness.boot, so one deleted line silently guts the
+      # `integration-profile` job. Invisible to analyze, to lints, and to the
+      # debug suite (debug keeps the assert) — hence a structural gate.
+      - name: Forbid missing testTextInput.register() in integration harnesses
+        shell: bash
+        run: ./scripts/forbid_missing_test_text_input.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
@@ -240,6 +256,7 @@ jobs:
           ./scripts/forbid_raw_bookings_query.sh --self-test
           ./scripts/forbid_naive_router_location.sh --self-test
           ./scripts/forbid_stale_future_date_fixture.sh --self-test
+          ./scripts/forbid_missing_test_text_input.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
@@ -632,6 +649,28 @@ jobs:
   # PROFILE mode via `flutter drive` (asserts stripped, AOT, release-like). It is
   # scoped to logout_flow_test (the critical auth-cascade flow) to keep the AOT
   # compile bounded.
+  #
+  # WHAT THIS JOB ACTUALLY RE-GUARDS (corrected 2026-07-22 — the earlier
+  # wording above overstated it). It does NOT re-guard the
+  # CircularDependencyError that `logout_flow_test.dart` was written for:
+  # Riverpod's `_debugAssertCanDependOn` is `kDebugMode`-only, so with asserts
+  # stripped that specific regression CANNOT fire here — in profile this test
+  # can never fail for its own stated reason. What the job legitimately is:
+  # a "does the critical auth flow still work end-to-end with asserts OFF"
+  # smoke test. Its value is the assert-stripping-changes-behaviour class in
+  # general, and it has already paid for itself once — it is how the silent
+  # `enterText` drop was found (`tester.enterText` no-ops in profile unless the
+  # harness registers the text-input mock; see
+  # `scripts/forbid_missing_test_text_input.sh`). Do not describe this job as
+  # the profile-mode counterpart of the cyclic-invalidation guard; it isn't.
+  #
+  # DO NOT ADD SCREENSHOT CAPTURE HERE — it will only ever produce black
+  # frames. `LoginScreen.initState` acquires `screenProtectionProvider`, whose
+  # `_enable()` starts with `if (kDebugMode) return;` (see
+  # `lib/core/security/screen_protection.dart`). So FLAG_SECURE is set in
+  # PROFILE but not in debug, and `adb shell screencap` on this job returns an
+  # all-black image (confirmed on a physical device, 2026-07-22). Debug this
+  # job from `adb logcat` / the driver's stdout, not from screenshots.
   #
   # WHY THIS JOB IS GATED (not per-PR), matching the `patrol` job idiom exactly:
   #   The profile AOT compile adds ~1.5–3 min to the critical path on every PR.

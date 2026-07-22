@@ -175,6 +175,47 @@ abstract final class AppHarness {
   }) async {
     installOverflowGuard();
 
+    // ── TEXT-INPUT MOCK REGISTRATION — DO NOT DELETE ────────────────────────
+    //
+    // WITHOUT THIS LINE, `tester.enterText(...)` IS A SILENT NO-OP IN ANY
+    // NON-DEBUG BUILD (`flutter drive --profile` / `--release`). Every field
+    // stays empty, the form's own "required" validation correctly bails, and
+    // the failure surfaces far downstream as a confusing tap/navigation
+    // assertion. It looks redundant in a debug `flutter test` run — it is not.
+    //
+    // MECHANISM
+    // ---------
+    //  1. `WidgetTester.enterText` ultimately posts a
+    //     `TextInputClient.updateEditingState` platform message carrying the
+    //     connection id `TestTextInput._client ?? -1`.
+    //  2. `IntegrationTestWidgetsFlutterBinding` overrides
+    //     `registerTestTextInput => false`, so the binding never registers the
+    //     `TestTextInput` mock handler, `_client` is never assigned, and the id
+    //     posted is ALWAYS `-1`.
+    //  3. In `TextInput._handleTextInputInvocation`, the escape hatch that
+    //     accepts `-1` ("the framework is in a test") lives INSIDE an
+    //     `assert(() { ... }())` block.
+    //  4. Asserts are stripped in profile/release. The `-1` message therefore
+    //     falls through and the injected value is DISCARDED WITHOUT ERROR.
+    //
+    // Registering the mock assigns a real `_client` id, so the message routes
+    // through the normal (non-assert) path and the text actually lands in the
+    // field — identically in debug and profile.
+    //
+    // WHY PER-`boot()`, AND WHY UNCONDITIONAL
+    // ---------------------------------------
+    // The binding's `reset()` between tests clears `_client`, but it only
+    // re-registers when `registerTestTextInput` is true — which it never is
+    // here. So registration has to happen on every boot, not once per isolate.
+    // Keeping it unconditional (rather than `if (!kDebugMode)`) means debug and
+    // profile exercise ONE code path, so the debug suite actually covers what
+    // the profile drive runs. `register()` is idempotent.
+    //
+    // Regression-guarded by the post-`enterText` assertion in [loginAs] (which
+    // turns a silent drop into a one-line diagnosis) and structurally by
+    // `scripts/forbid_missing_test_text_input.sh`.
+    tester.binding.testTextInput.register();
+
     // Load the IANA timezone database so booking/slot formatters can convert to
     // the pinned Europe/Kyiv wall-clock. The E2E harness boots the real app tree
     // via `_HarnessApp` (NOT `main()`), so main.dart's initBeauticaTimeZones()
@@ -341,6 +382,59 @@ abstract final class AppHarness {
     await Future<void>.delayed(const Duration(seconds: 2));
   }
 
+  // ── Text-field introspection ──────────────────────────────────────────────
+
+  /// The live text currently held by the [EditableText] under [fieldKey], or
+  /// `null` when no such field is mounted.
+  ///
+  /// Reads [EditableTextState.textEditingValue] rather than the widget's
+  /// controller so it reflects what the ENGINE-side editing state actually
+  /// committed — which is exactly what silently diverges from the value passed
+  /// to `tester.enterText` when the text-input mock is unregistered (see the
+  /// `testTextInput.register()` comment in [boot]).
+  ///
+  /// The project's field keys sit on composite widgets (e.g.
+  /// `NeumorphicTextField`), so the [EditableText] is looked up as a
+  /// DESCENDANT, not as the keyed widget itself.
+  static String? _fieldText(WidgetTester tester, String fieldKey) {
+    final Finder editable = find.descendant(
+      of: find.byKey(ValueKey<String>(fieldKey)),
+      matching: find.byType(EditableText),
+    );
+    if (editable.evaluate().isEmpty) return null;
+    return tester
+        .state<EditableTextState>(editable.first)
+        .textEditingValue
+        .text;
+  }
+
+  /// Asserts the field under [fieldKey] actually holds [expected].
+  ///
+  /// Use immediately after `tester.enterText` on any shared path that must work
+  /// in non-debug builds: an unregistered text-input mock makes `enterText` a
+  /// SILENT no-op once asserts are stripped, and without this check the failure
+  /// only surfaces much later as a misleading tap/navigation assertion.
+  static void _expectFieldText(
+    WidgetTester tester,
+    String fieldKey,
+    String expected,
+  ) {
+    expect(
+      _fieldText(tester, fieldKey),
+      expected,
+      reason:
+          'tester.enterText did not land in "$fieldKey". In a non-debug build '
+          'this is almost always the unregistered text-input mock: enterText '
+          'posts its editing state with client id -1 '
+          '(IntegrationTestWidgetsFlutterBinding.registerTestTextInput == '
+          'false), and the -1 escape hatch in '
+          'TextInput._handleTextInputInvocation lives inside an '
+          'assert(() {...}()) block that profile/release STRIPS, so the value '
+          'is discarded without error. AppHarness.boot must call '
+          'tester.binding.testTextInput.register() — check it is still there.',
+    );
+  }
+
   // ── Convenience: drive the login flow to completion ───────────────────────
 
   /// Drives the real login form with the fixture email for [role], taps Submit,
@@ -383,6 +477,21 @@ abstract final class AppHarness {
     );
     await settle(tester);
 
+    // TEXT-INJECTION GUARD — assert the fields ACTUALLY took the text before
+    // blaming the tap. `tester.enterText` posts its editing state with the
+    // connection id `TestTextInput._client ?? -1`, and
+    // `IntegrationTestWidgetsFlutterBinding.registerTestTextInput` is `false`,
+    // so the id is `-1` unless `boot()` registered the mock. The `-1` escape
+    // hatch in `TextInput._handleTextInputInvocation` sits inside an
+    // `assert(() {...}())`, which profile/release STRIPS — so in a non-debug
+    // build the value is silently discarded and every field stays empty.
+    //
+    // This assertion converts that silent drop into a one-line diagnosis AT THE
+    // CAUSE, in any build mode. It is the regression test for the
+    // `testTextInput.register()` call in [boot] (see its comment).
+    _expectFieldText(tester, 'login_email', email);
+    _expectFieldText(tester, 'login_password', 'Secret1234');
+
     // Ensure the submit button is on-screen + interactive before tapping
     // (best-effort: only scrolls if the form has a Scrollable ancestor).
     final Finder submit = find.byKey(const ValueKey<String>('login_submit'));
@@ -408,12 +517,37 @@ abstract final class AppHarness {
       await tester.pump();
       await tester.pump();
     }
+    // DIAGNOSE HONESTLY. The pre-2026-07-22 version of this guard asserted
+    // "the button was absorbed by an in-flight overlay/route transition"
+    // unconditionally — which was FLATLY WRONG on the profile drive (the real
+    // cause was silently-dropped `enterText`, see [boot]) and cost a full
+    // investigation. Re-read the fields AT THE POINT OF FAILURE and only claim
+    // absorption when they are actually populated; otherwise say so plainly.
+    // A guard that confidently states the wrong cause is worse than one that
+    // admits it does not know.
+    final String? emailAtFailure = _fieldText(tester, 'login_email');
+    final String? passwordAtFailure = _fieldText(tester, 'login_password');
+    final bool fieldsPopulated =
+        (emailAtFailure != null && emailAtFailure.isNotEmpty) &&
+        (passwordAtFailure != null && passwordAtFailure.isNotEmpty);
     expect(
       fakeBackend.loginCalls,
       greaterThan(callsBefore),
-      reason:
-          'login_submit tap did not trigger _submit() — the button was absorbed '
-          'by an in-flight overlay/route transition (see app_harness flake guard)',
+      reason: fieldsPopulated
+          ? 'login_submit tap did not trigger _submit(), and BOTH credential '
+                'fields are populated at the point of failure '
+                '(login_email="$emailAtFailure") — so the most likely cause is '
+                'the button being absorbed by an in-flight overlay/route '
+                'transition (see the app_harness flake guard).'
+          : 'login_submit tap did not trigger _submit(), and the credential '
+                'fields are NOT populated at the point of failure '
+                '(login_email=${emailAtFailure == null ? '<not mounted>' : '"$emailAtFailure"'}, '
+                'login_password=${passwordAtFailure == null ? '<not mounted>' : '${passwordAtFailure.length} chars'}) '
+                '— LoginScreen._submit() bailed at its own empty-field '
+                'validation. This is NOT tap absorption. Either the screen was '
+                'remounted between enterText and the tap, or the injected text '
+                'was dropped (see the testTextInput.register() comment in '
+                'AppHarness.boot).',
     );
 
     // Pump until all auth microtasks and router redirects settle:
