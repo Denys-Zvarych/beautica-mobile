@@ -995,18 +995,32 @@ jobs:
             #
             # At 1s this fired two `adb shell` calls per second for up to 20+
             # minutes CONCURRENTLY with Gradle/UTP/ddmlib driving the same device,
-            # and the test that died (auth_login) does not use App Links at all.
-            # Contention for the adb server / emulator console is the leading
-            # hypothesis for a flake previously investigated at length without
-            # resolution (RAM, test splitting, ensureSemantics, bisection, action
-            # bump, GPU mode were all ruled out — none of them touched this loop,
-            # because this loop had never executed).
+            # which made adb contention an obvious suspect.
             #
-            # 5s still lands well inside the window between patrol's reinstall and
-            # the deep-link test. If the flake persists, the next step is to stop
-            # looping entirely: the approval is wiped by a ONE-TIME reinstall, so
-            # re-asserting continuously is treating a single event as a continuous
-            # one.
+            # THAT SUSPICION WAS TESTED AND DISPROVEN — do not re-raise it as the
+            # explanation. Cutting the cadence 5x (1s -> 5s, 120 -> 24 adb calls a
+            # minute) changed NOTHING: the next run failed byte-for-byte
+            # identically, same test, ~87s, same `device 'emulator-5554' not
+            # found`. The loop is not the cause.
+            #
+            # 5s is kept anyway on its own merits — 120 adb calls a minute was
+            # simply excessive for guarding a one-time reinstall — but it is a
+            # tidy-up, NOT a fix, and tightening it back would not "break" the
+            # job either.
+            #
+            # What the evidence actually shows, for whoever picks this up: the
+            # failure is DETERMINISTIC, not the intermittent flake this repo has
+            # classified it as since 2026-07-01. Two runs on two commits both
+            # died at the same point — test 1 passes in 6s, test 2 kills the
+            # device — with patrol reporting ZERO failed assertions. The captured
+            # logcat contains no `beautica` lines at all and ends during boot
+            # chatter, so the background `adb logcat` lost the device before the
+            # app even started, and `[EmulatorConsole]: Failed to start Emulator
+            # console for 5554` prints before any test runs. `patrol doctor` also
+            # reports `Program adb not found` while $ANDROID_HOME is set, so
+            # patrol_cli, the emulator-runner action and Gradle's ddmlib may not
+            # all be resolving the same adb. That mismatch is UNVERIFIED — it is
+            # a direction, not a diagnosis.
             #
             # It STOPS the instant patrol finishes, via the sentinel file written on
             # the patrol line below — the emulator-runner action waits for backgrounded

@@ -66,8 +66,39 @@ void main() {
     },
   );
 
+  // ⚠️ TEMPORARY BISECT — REVERT THIS SKIP ONCE THE ANSWER IS IN. ⚠️
+  //
+  // This test is not broken. It is skipped for exactly one CI run, to answer a
+  // single question about a device-loss failure that is NOT a flake.
+  //
+  // Observed twice, byte-for-byte identical on two different commits:
+  //   test 1 (INDEPENDENT_MASTER login)  → ✅ passes in 6s
+  //   test 2 (this one)                  → device dies
+  //   `device 'emulator-5554' not found`; run ends ~87s
+  //   patrol's own summary: 1 successful, 0 FAILED, 2 skipped
+  // No assertion failed. The emulator went away underneath the run.
+  //
+  // Ruled out already: the background app-link re-approval loop (cadence was
+  // cut 5x from 1s to 5s — failure was unchanged, so adb contention from that
+  // loop is NOT the cause). Also note the captured logcat contains ZERO
+  // `beautica` lines and ends during boot chatter, i.e. the background
+  // `adb logcat` lost the device before the app ever started, and
+  // `[EmulatorConsole]: Failed to start Emulator console for 5554` is printed
+  // before any test runs.
+  //
+  // THE QUESTION THIS SKIP ANSWERS:
+  //   • If the run now dies on the NEXT test instead → the failure is
+  //     POSITIONAL (the second app restart / second PatrolHarness.boot kills
+  //     the adb session), and nothing is wrong with this test.
+  //   • If the remaining tests all pass → the failure is SPECIFIC to this
+  //     CLIENT login flow, and the hunt narrows to what it does differently.
+  // Either outcome halves the search space; neither depends on a hypothesis
+  // being right first.
   patrolTest(
-    'CLIENT login navigates to home placeholder route (patrol template)',
+    'CLIENT login navigates to home placeholder route (patrol template) '
+    '(TEMPORARILY SKIPPED: one-run bisect for the emulator device-loss '
+    'failure — see the comment above; restore as soon as the run reports)',
+    skip: true,
     config: config,
     ($) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
