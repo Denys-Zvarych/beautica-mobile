@@ -48,6 +48,12 @@ import '../../domain/booking.dart';
 import 'labelled_row.dart';
 import 'section_rule.dart';
 
+// MO-5 — the multi-service VISIT cancel confirmation, kept in this library (a
+// `part`) so it reuses this dialog's private destructive chrome
+// (`_DestructiveBadge`, `_NoteField`, `_DestructiveButton`) verbatim while the
+// single-booking dialog's own render stays byte-for-byte unchanged.
+part 'cancel_visit_dialog.dart';
+
 /// Opens the cancellation confirmation for [booking].
 ///
 /// Resolves to the client's note (possibly an EMPTY string — they confirmed

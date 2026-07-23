@@ -76,11 +76,22 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
 
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
 import '../../domain/booking_status.dart';
+import '../../domain/my_bookings_entry.dart';
 import 'booking_status_badge.dart';
+
+// MO-5 — the multi-service VISIT card, an additive sibling of `BookingCard`.
+// Kept in the SAME library (a `part`) so it reuses this file's private ticket
+// chrome — `_CardChrome`, `_DateStub`, `_MasterPhoto`, `_ServiceLine`, the grid
+// constants — verbatim, WITHOUT changing a byte of the single-service card's
+// own render. The single card is unchanged; the visit card only swaps the
+// middle "what" region for a count·duration summary + an ordered service list.
+part 'visit_card.dart';
 
 /// One booking in the «МОЇ ЗАПИСИ» list. See the library doc.
 class BookingCard extends StatefulWidget {

@@ -289,6 +289,8 @@ void main() {
       'clientPassport': RouteNames.clientPassport,
       'bookingDetail()': RouteNames.bookingDetail(kSampleId),
       'bookingReview()': RouteNames.bookingReview(kSampleId),
+      'appointmentDetail()': RouteNames.appointmentDetail(kSampleId),
+      'appointmentReview()': RouteNames.appointmentReview(kSampleId),
       'clientSearchResults': RouteNames.clientSearchResults,
       'masterPublicProfile()': RouteNames.masterPublicProfile(kSampleId),
       'masterPublicReviews()': RouteNames.masterPublicReviews(kSampleId),

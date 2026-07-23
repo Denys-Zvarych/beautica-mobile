@@ -156,7 +156,9 @@ void main() {
 
     expect(find.byKey(const Key('salon-confirm-visit-card')), findsOneWidget);
     expect(find.byKey(const Key('salon-confirm-address-card')), findsOneWidget);
+    // i18n-finder-ok: service name is backend fixture data, not localized UI copy
     expect(find.text('Манікюр з покриттям'), findsOneWidget);
+    // i18n-finder-ok: service name is backend fixture data, not localized UI copy
     expect(find.text('Педикюр'), findsOneWidget);
   });
 

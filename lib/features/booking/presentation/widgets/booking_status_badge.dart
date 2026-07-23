@@ -81,8 +81,23 @@ class BookingStatusVisual {
   /// Resolves the visual for [booking]. [BookingDisplayX.atSalon] no longer
   /// affects the CANCELLED/DECLINED label (both read «Скасовано») — it now
   /// only picks the provider glyph (storefront vs scissors) for a decline.
-  factory BookingStatusVisual.of(Booking booking, AppLocalizations l10n) {
-    switch (booking.status) {
+  factory BookingStatusVisual.of(Booking booking, AppLocalizations l10n) =>
+      BookingStatusVisual.forStatus(
+        booking.status,
+        atSalon: booking.atSalon,
+        l10n: l10n,
+      );
+
+  /// The `Booking`-free resolver — the same visual keyed on a raw [status] +
+  /// [atSalon] flag, for surfaces that have those two facts but no `Booking`
+  /// (MO-5's multi-service VISIT detail, whose aggregate is an `Appointment`,
+  /// not a `Booking`). [BookingStatusVisual.of] delegates here.
+  factory BookingStatusVisual.forStatus(
+    BookingStatus status, {
+    required bool atSalon,
+    required AppLocalizations l10n,
+  }) {
+    switch (status) {
       // Common case — every upcoming booking is one — so the wash stays
       // ordinary. A column of small green caps reads as "all good"; a column
       // of saturated pills would flatten the exceptional cards.
@@ -140,9 +155,7 @@ class BookingStatusVisual {
       case BookingStatus.declined:
         return BookingStatusVisual(
           label: l10n.bookingStatusCancelled,
-          icon: booking.atSalon
-              ? Icons.storefront_rounded
-              : Icons.content_cut_rounded,
+          icon: atSalon ? Icons.storefront_rounded : Icons.content_cut_rounded,
           accent: BrandColors.error,
           wash: BrandColors.error.withValues(alpha: _exceptional),
         );

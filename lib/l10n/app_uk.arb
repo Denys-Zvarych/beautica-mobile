@@ -3979,6 +3979,14 @@
   "@reviewUnavailableCta": {
     "description": "Button in the not-reviewable info state that returns to the bookings list."
   },
+  "visitReviewComingSoonTitle": "Відгук про візит скоро буде",
+  "@visitReviewComingSoonTitle": {
+    "description": "MO-5 placeholder title on the multi-service visit review screen (MO-6 completes the form)."
+  },
+  "visitReviewComingSoonBody": "Незабаром ви зможете залишити один відгук про весь візит.",
+  "@visitReviewComingSoonBody": {
+    "description": "MO-5 placeholder body on the multi-service visit review screen (MO-6 completes the form)."
+  },
   "reviewErrAlreadyReviewed": "Ви вже залишили відгук про цей запис.",
   "@reviewErrAlreadyReviewed": {
     "description": "Error message when POST /reviews returns 409 because a review already exists for the booking."

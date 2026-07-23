@@ -93,6 +93,20 @@ abstract final class RouteNames {
   static String bookingReview(String bookingId) =>
       '$clientBookings/${Uri.encodeComponent(bookingId)}/review';
 
+  /// MO-5 — «Деталі запису» for a multi-service VISIT, nested under
+  /// [clientBookings] (own navigator, swipe-back returns to the list). Reached
+  /// by tapping a `VisitCard`. Distinct `visit/` segment so it never collides
+  /// with the single-booking [bookingDetail]'s `:bookingId` param.
+  static String appointmentDetail(String appointmentId) =>
+      '$clientBookings/visit/${Uri.encodeComponent(appointmentId)}';
+
+  /// MO-5 — the VISIT review path, nested under [appointmentDetail]. The visit
+  /// detail's «Залишити відгук» CTA routes here carrying the appointmentId so a
+  /// visit is reviewed once as a whole (`POST /appointments/{id}/review`), never
+  /// the per-booking review of a child. MO-6 completes the screen wiring.
+  static String appointmentReview(String appointmentId) =>
+      '$clientBookings/visit/${Uri.encodeComponent(appointmentId)}/review';
+
   /// Phase 13.3 — discovery results. Reached from the Пошук filters screen's
   /// «Показати майстрів» CTA via `context.push(..., extra: SearchFilters)`. A
   /// `push` (not a branch hop) so the swipe-back gesture returns to the filters

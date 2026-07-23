@@ -227,6 +227,7 @@ void main() {
       // The visit recap lists both selected services.
       // i18n-finder-ok: service names are catalogue fixture data.
       expect(find.text('Манікюр з покриттям'), findsOneWidget);
+      // i18n-finder-ok: service name is backend fixture data, not localized UI copy
       expect(find.text('Педикюр апаратний'), findsOneWidget);
 
       // Submit → ONE createAppointment → success.

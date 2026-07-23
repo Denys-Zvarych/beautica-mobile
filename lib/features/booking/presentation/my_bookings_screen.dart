@@ -33,7 +33,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../application/my_bookings_notifier.dart';
-import '../domain/booking.dart';
+import '../domain/my_bookings_entry.dart';
 import '../domain/booking_tab.dart';
 import 'widgets/booking_card.dart';
 import 'widgets/bookings_empty_state.dart';
@@ -93,6 +93,12 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
     context.push(RouteNames.bookingDetail(bookingId));
   }
 
+  /// A multi-service VISIT card opens the appointment detail
+  /// (`GET /appointments/{id}`), NOT the per-booking detail — see MO-5.
+  void _openVisit(String appointmentId) {
+    context.push(RouteNames.appointmentDetail(appointmentId));
+  }
+
   void _onFindMaster() => context.go(RouteNames.clientSearch);
 
   @override
@@ -130,6 +136,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
                     key: PageStorageKey<BookingTab>(tab),
                     tab: tab,
                     onOpenDetails: _openDetails,
+                    onOpenVisit: _openVisit,
                     onFindMaster: _onFindMaster,
                   ),
               ],
@@ -147,11 +154,13 @@ class _BookingsTabView extends ConsumerStatefulWidget {
     super.key,
     required this.tab,
     required this.onOpenDetails,
+    required this.onOpenVisit,
     required this.onFindMaster,
   });
 
   final BookingTab tab;
   final void Function(String bookingId) onOpenDetails;
+  final void Function(String appointmentId) onOpenVisit;
   final VoidCallback onFindMaster;
 
   @override
@@ -239,27 +248,42 @@ class _BookingsTabViewState extends ConsumerState<_BookingsTabView> {
               ],
             );
           }
+          // MO-5 — collapse a visit's per-service rows into one card. Pure,
+          // client-side, order-preserving over the rows already fetched — NO
+          // per-row `getAppointment` (only the visit DETAIL screen fetches).
+          final List<MyBookingsEntry> entries = groupBookingsByAppointment(
+            state.items,
+          );
           final int extra = state.hasMore ? 1 : 0;
           return ListView.separated(
             key: ValueKey<String>('my-bookings-list-${widget.tab.name}'),
             controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: kMyBookingsListPadding,
-            itemCount: state.items.length + extra,
+            itemCount: entries.length + extra,
             separatorBuilder: (BuildContext context, int i) =>
                 const SizedBox(height: VelvetSpacing.md),
             itemBuilder: (BuildContext context, int i) {
-              if (i >= state.items.length) {
+              if (i >= entries.length) {
                 return const MyBookingsLoadMoreSpinner();
               }
-              final Booking booking = state.items[i];
-              return RepaintBoundary(
-                key: ValueKey<String>(booking.id),
-                child: BookingCard(
-                  booking: booking,
-                  onOpenDetails: () => widget.onOpenDetails(booking.id),
+              final MyBookingsEntry entry = entries[i];
+              return switch (entry) {
+                SingleBookingEntry(:final booking) => RepaintBoundary(
+                  key: ValueKey<String>(booking.id),
+                  child: BookingCard(
+                    booking: booking,
+                    onOpenDetails: () => widget.onOpenDetails(booking.id),
+                  ),
                 ),
-              );
+                VisitBookingEntry(:final appointmentId) => RepaintBoundary(
+                  key: ValueKey<String>('visit-$appointmentId'),
+                  child: VisitCard(
+                    entry: entry,
+                    onOpenDetails: () => widget.onOpenVisit(appointmentId),
+                  ),
+                ),
+              };
             },
           );
         },
