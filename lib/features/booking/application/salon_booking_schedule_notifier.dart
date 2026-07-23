@@ -142,8 +142,8 @@ class SalonBookingSchedule extends _$SalonBookingSchedule {
 }
 
 /// Fetches the bookable time slots for [query.masterId] +
-/// [query.serviceId] (the master's PRIMARY assigned service — see this
-/// file's header) on [query.date].
+/// [query.serviceIds] (the master's PRIMARY assigned service as a one-element
+/// list today — see this file's header) on [query.date].
 ///
 /// Generated provider name: `salonMasterDaySlotsProvider` — a family, call
 /// it with a [SalonMasterDaySlotsQuery].
@@ -161,7 +161,7 @@ Future<List<BookingSlot>> salonMasterDaySlots(
       .watch(slotRepositoryProvider)
       .getMasterSlots(
         masterId: query.masterId,
-        serviceId: query.serviceId,
+        serviceIds: query.serviceIds,
         date: query.date,
         cancelToken: cancelToken,
       );

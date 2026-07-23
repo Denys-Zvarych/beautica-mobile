@@ -91,7 +91,7 @@ class _FakeSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async => daySlots;
@@ -101,7 +101,7 @@ class _FakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
     final List<WorkingDay> days = <WorkingDay>[];

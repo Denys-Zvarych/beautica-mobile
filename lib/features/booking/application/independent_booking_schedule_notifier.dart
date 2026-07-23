@@ -125,8 +125,8 @@ class IndependentBookingSchedule extends _$IndependentBookingSchedule {
   }
 }
 
-/// Fetches the bookable time slots for [query.masterId] + [query.serviceId]
-/// (the selected service's own id — no assignment-id indirection in the
+/// Fetches the bookable time slots for [query.masterId] + [query.serviceIds]
+/// (the selected services' own ids — no assignment-id indirection in the
 /// independent flow) on [query.date].
 ///
 /// Generated provider name: `independentServiceDaySlotsProvider` — a family,
@@ -145,7 +145,7 @@ Future<List<BookingSlot>> independentServiceDaySlots(
       .watch(slotRepositoryProvider)
       .getMasterSlots(
         masterId: query.masterId,
-        serviceId: query.serviceId,
+        serviceIds: query.serviceIds,
         date: query.date,
         cancelToken: cancelToken,
       );

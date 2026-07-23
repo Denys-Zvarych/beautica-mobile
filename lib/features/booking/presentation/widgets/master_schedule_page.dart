@@ -406,7 +406,9 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
           // salon-wide catalog id) — the backend's slots endpoint 404s
           // ("masterService not found") on the catalog id. See
           // `SalonMasterSchedule.primaryServiceAssignmentId`'s doc comment.
-          serviceId: widget.schedule.primaryServiceAssignmentId,
+          // MO-2: single-service path — one-element list keeps the same wire
+          // request and family cache key as before. MO-3/MO-4 widen this.
+          serviceIds: <String>[widget.schedule.primaryServiceAssignmentId],
           date: date,
         ),
       ),

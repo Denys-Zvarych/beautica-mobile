@@ -130,7 +130,10 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   WorkingDaysQuery get _workingDaysQuery => WorkingDaysQuery.month(
     masterId: widget.args.masterId,
     anyDayInMonth: _visibleMonth,
-    serviceId: widget.args.services.first.id,
+    // MO-2: single-service path — `services.first` as a one-element list keeps
+    // the same wire request and the same family cache key as before. MO-3/MO-4
+    // widen this to the full ordered selection.
+    serviceIds: <String>[widget.args.services.first.id],
   );
 
   static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
@@ -151,12 +154,15 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   }
 
   void _selectDay(DateTime day) {
+    // MO-2: single-service path — `services.first` as a one-element list keeps
+    // the same wire request as before. MO-3/MO-4 widen this to the full
+    // ordered selection.
     final String serviceId = widget.args.services.first.id;
     ref
         .read(slotPickerProvider.notifier)
         .loadSlots(
           masterId: widget.args.masterId,
-          serviceId: serviceId,
+          serviceIds: <String>[serviceId],
           date: day,
         );
   }

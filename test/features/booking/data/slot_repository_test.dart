@@ -75,7 +75,7 @@ void main() {
 
       final slots = await repository.getMasterSlots(
         masterId: 'master-1',
-        serviceId: 'service-1',
+        serviceIds: <String>['service-1'],
         date: DateTime(2026, 7, 10, 15, 30), // time-of-day must be discarded
       );
 
@@ -127,7 +127,7 @@ void main() {
 
       final slots = await repository.getMasterSlots(
         masterId: 'master-1',
-        serviceId: 'service-1',
+        serviceIds: <String>['service-1'],
         date: DateTime(2026, 7, 11),
       );
 
@@ -173,7 +173,7 @@ void main() {
 
       final slots = await repository.getMasterSlots(
         masterId: 'master-1',
-        serviceId: 'service-1',
+        serviceIds: <String>['service-1'],
         date: DateTime(2026, 7, 10),
       );
 
@@ -199,7 +199,7 @@ void main() {
       await expectLater(
         repository.getMasterSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceIds: <String>['service-1'],
           date: DateTime(2026, 7, 10),
         ),
         throwsA(isA<NetworkFailure>()),
@@ -228,7 +228,7 @@ void main() {
       await expectLater(
         repository.getMasterSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceIds: <String>['service-1'],
           date: DateTime(2026, 7, 10),
         ),
         throwsA(
@@ -257,7 +257,7 @@ void main() {
       await expectLater(
         repository.getMasterSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceIds: <String>['service-1'],
           date: DateTime(2026, 7, 10),
         ),
         throwsA(same(mapped)),
@@ -514,7 +514,7 @@ void main() {
         masterId: 'master-1',
         from: DateTime(2026, 7, 1),
         to: DateTime(2026, 7, 31),
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
       );
 
       final captured = verify(
@@ -570,6 +570,307 @@ void main() {
         ),
       ).captured;
       expect(captured.single, isNull);
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // MO-2 — the public `serviceIds` list widens single→multi. The single-service
+  // path stays byte-for-byte identical on the wire; a multi-service list
+  // serialises to N ordered repeated `serviceId=` params; and the ≤10 /
+  // non-empty guard fails fast (assert) BEFORE the generated client is touched.
+  // ───────────────────────────────────────────────────────────────────────────
+  group('MO-2 serviceIds serialization + fail-fast guard', () {
+    Response<ApiResponseAvailableSlotsResponse> emptySlotsOk() {
+      final slotsDto =
+          (AvailableSlotsResponseBuilder()
+                ..date = Date(2026, 7, 10)
+                ..slots = ListBuilder<AvailableSlotResponse>(const []))
+              .build();
+      return Response<ApiResponseAvailableSlotsResponse>(
+        data: ApiResponseAvailableSlotsResponse(
+          (b) => b
+            ..data.replace(slotsDto)
+            ..success = true,
+        ),
+        requestOptions: RequestOptions(path: _slotsPath),
+        statusCode: 200,
+      );
+    }
+
+    Response<ApiResponseListMasterWorkingDayResponse> emptyDaysOk() {
+      return Response<ApiResponseListMasterWorkingDayResponse>(
+        data: ApiResponseListMasterWorkingDayResponse(
+          (b) => b
+            ..data = ListBuilder<MasterWorkingDayResponse>(const [])
+            ..success = true,
+        ),
+        requestOptions: RequestOptions(
+          path: '/api/v1/masters/master-1/working-days',
+        ),
+        statusCode: 200,
+      );
+    }
+
+    group('getMasterSlots', () {
+      test(
+        'a 1-element list serialises to exactly one `serviceId=` param — '
+        'byte-for-byte identical to the pre-MO-2 single-service request',
+        () async {
+          when(
+            () => masterApi.getAvailableSlots(
+              masterId: 'master-1',
+              serviceId: any(named: 'serviceId'),
+              date: any(named: 'date'),
+              cancelToken: any(named: 'cancelToken'),
+            ),
+          ).thenAnswer((_) async => emptySlotsOk());
+
+          await repository.getMasterSlots(
+            masterId: 'master-1',
+            serviceIds: <String>['service-1'],
+            date: DateTime(2026, 7, 10),
+          );
+
+          final captured = verify(
+            () => masterApi.getAvailableSlots(
+              masterId: 'master-1',
+              serviceId: captureAny(named: 'serviceId'),
+              date: any(named: 'date'),
+              cancelToken: any(named: 'cancelToken'),
+            ),
+          ).captured;
+          // The single wrapped id is exactly what the pre-MO-2 code sent — a
+          // singleton BuiltList → one `serviceId=service-1` query param.
+          expect(captured.single, BuiltList<String>(<String>['service-1']));
+        },
+      );
+
+      test('a 2-service list serialises BOTH `serviceId=` params in list order '
+          '(the repeatable param the backend sums durations over)', () async {
+        when(
+          () => masterApi.getAvailableSlots(
+            masterId: 'master-1',
+            serviceId: any(named: 'serviceId'),
+            date: any(named: 'date'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer((_) async => emptySlotsOk());
+
+        await repository.getMasterSlots(
+          masterId: 'master-1',
+          serviceIds: <String>['svc-a', 'svc-b'],
+          date: DateTime(2026, 7, 10),
+        );
+
+        final captured = verify(
+          () => masterApi.getAvailableSlots(
+            masterId: 'master-1',
+            serviceId: captureAny(named: 'serviceId'),
+            date: any(named: 'date'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).captured;
+        // Order is significant (back-to-back running order); BuiltList equality
+        // is order-sensitive, so this pins `serviceId=svc-a&serviceId=svc-b`.
+        expect(captured.single, BuiltList<String>(<String>['svc-a', 'svc-b']));
+        expect(
+          captured.single,
+          isNot(BuiltList<String>(<String>['svc-b', 'svc-a'])),
+        );
+      });
+
+      test('an empty serviceIds list fails fast (assert) before any client '
+          'call', () async {
+        await expectLater(
+          repository.getMasterSlots(
+            masterId: 'master-1',
+            serviceIds: const <String>[],
+            date: DateTime(2026, 7, 10),
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+        verifyNever(
+          () => masterApi.getAvailableSlots(
+            masterId: any(named: 'masterId'),
+            serviceId: any(named: 'serviceId'),
+            date: any(named: 'date'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        );
+      });
+
+      test(
+        'more than maxServicesPerVisit (>10) fails fast (assert) before any '
+        'client call — mirrors the backend MAX_SERVICES_PER_VISIT cap',
+        () async {
+          final tooMany = <String>[
+            for (int i = 0; i <= maxServicesPerVisit; i++) 'svc-$i',
+          ];
+          expect(tooMany.length, greaterThan(maxServicesPerVisit));
+
+          await expectLater(
+            repository.getMasterSlots(
+              masterId: 'master-1',
+              serviceIds: tooMany,
+              date: DateTime(2026, 7, 10),
+            ),
+            throwsA(isA<AssertionError>()),
+          );
+          verifyNever(
+            () => masterApi.getAvailableSlots(
+              masterId: any(named: 'masterId'),
+              serviceId: any(named: 'serviceId'),
+              date: any(named: 'date'),
+              cancelToken: any(named: 'cancelToken'),
+            ),
+          );
+        },
+      );
+
+      test('exactly maxServicesPerVisit (10) is accepted — the boundary does '
+          'NOT fail fast', () async {
+        when(
+          () => masterApi.getAvailableSlots(
+            masterId: 'master-1',
+            serviceId: any(named: 'serviceId'),
+            date: any(named: 'date'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer((_) async => emptySlotsOk());
+
+        final exactlyMax = <String>[
+          for (int i = 0; i < maxServicesPerVisit; i++) 'svc-$i',
+        ];
+        final slots = await repository.getMasterSlots(
+          masterId: 'master-1',
+          serviceIds: exactlyMax,
+          date: DateTime(2026, 7, 10),
+        );
+
+        expect(slots, isEmpty);
+        verify(
+          () => masterApi.getAvailableSlots(
+            masterId: 'master-1',
+            serviceId: BuiltList<String>(exactlyMax),
+            date: any(named: 'date'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).called(1);
+      });
+    });
+
+    group('getWorkingDays', () {
+      test('a 2-service list serialises BOTH `serviceId=` params in order '
+          '(availability-aware summed-duration mode)', () async {
+        when(
+          () => masterApi.getWorkingDays(
+            masterId: 'master-1',
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            serviceId: any(named: 'serviceId'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer((_) async => emptyDaysOk());
+
+        await repository.getWorkingDays(
+          masterId: 'master-1',
+          from: DateTime(2026, 7, 1),
+          to: DateTime(2026, 7, 31),
+          serviceIds: <String>['svc-a', 'svc-b'],
+        );
+
+        final captured = verify(
+          () => masterApi.getWorkingDays(
+            masterId: 'master-1',
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            serviceId: captureAny(named: 'serviceId'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).captured;
+        expect(captured.single, BuiltList<String>(<String>['svc-a', 'svc-b']));
+      });
+
+      test('a 1-element list is byte-identical to the pre-MO-2 single-service '
+          'request (one `serviceId=` param)', () async {
+        when(
+          () => masterApi.getWorkingDays(
+            masterId: 'master-1',
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            serviceId: any(named: 'serviceId'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer((_) async => emptyDaysOk());
+
+        await repository.getWorkingDays(
+          masterId: 'master-1',
+          from: DateTime(2026, 7, 1),
+          to: DateTime(2026, 7, 31),
+          serviceIds: <String>['svc-1'],
+        );
+
+        final captured = verify(
+          () => masterApi.getWorkingDays(
+            masterId: 'master-1',
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            serviceId: captureAny(named: 'serviceId'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).captured;
+        expect(captured.single, BuiltList<String>(<String>['svc-1']));
+      });
+
+      test(
+        'a non-null but EMPTY serviceIds list fails fast (assert) before any '
+        'client call',
+        () async {
+          await expectLater(
+            repository.getWorkingDays(
+              masterId: 'master-1',
+              from: DateTime(2026, 7, 1),
+              to: DateTime(2026, 7, 31),
+              serviceIds: const <String>[],
+            ),
+            throwsA(isA<AssertionError>()),
+          );
+          verifyNever(
+            () => masterApi.getWorkingDays(
+              masterId: any(named: 'masterId'),
+              from: any(named: 'from'),
+              to: any(named: 'to'),
+              serviceId: any(named: 'serviceId'),
+              cancelToken: any(named: 'cancelToken'),
+            ),
+          );
+        },
+      );
+
+      test('more than maxServicesPerVisit (>10) fails fast (assert) before any '
+          'client call', () async {
+        final tooMany = <String>[
+          for (int i = 0; i <= maxServicesPerVisit; i++) 'svc-$i',
+        ];
+        await expectLater(
+          repository.getWorkingDays(
+            masterId: 'master-1',
+            from: DateTime(2026, 7, 1),
+            to: DateTime(2026, 7, 31),
+            serviceIds: tooMany,
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+        verifyNever(
+          () => masterApi.getWorkingDays(
+            masterId: any(named: 'masterId'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            serviceId: any(named: 'serviceId'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        );
+      });
     });
   });
 }

@@ -31,7 +31,7 @@ void main() {
         masterId: masterId,
         from: jul1,
         to: jul31,
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
       );
       final scheduleShape = WorkingDaysQuery(
         masterId: masterId,
@@ -55,18 +55,40 @@ void main() {
         masterId: masterId,
         from: jul1,
         to: jul31,
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
       );
       final svc2 = WorkingDaysQuery(
         masterId: masterId,
         from: jul1,
         to: jul31,
-        serviceId: 'svc-2',
+        serviceIds: <String>['svc-2'],
       );
 
       expect(svc1 == svc2, isFalse);
       expect(svc1.hashCode == svc2.hashCode, isFalse);
     });
+
+    test(
+      'serviceIds order is significant: [a,b] and [b,a] are DISTINCT family '
+      'members (the summed-duration availability differs by running order)',
+      () {
+        final ab = WorkingDaysQuery(
+          masterId: masterId,
+          from: jul1,
+          to: jul31,
+          serviceIds: <String>['svc-a', 'svc-b'],
+        );
+        final ba = WorkingDaysQuery(
+          masterId: masterId,
+          from: jul1,
+          to: jul31,
+          serviceIds: <String>['svc-b', 'svc-a'],
+        );
+
+        expect(ab == ba, isFalse);
+        expect(ab.hashCode == ba.hashCode, isFalse);
+      },
+    );
 
     test('two queries with the SAME serviceId (and same masterId/range) are '
         'equal with equal hashCode — the family-cache hit path', () {
@@ -74,13 +96,13 @@ void main() {
         masterId: masterId,
         from: jul1,
         to: jul31,
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
       );
       final b = WorkingDaysQuery(
         masterId: masterId,
         from: jul1,
         to: jul31,
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
       );
 
       expect(a, b);
@@ -104,18 +126,18 @@ void main() {
         masterId: masterId,
         from: DateTime(2026, 7, 1, 13, 45, 30),
         to: DateTime(2026, 7, 31, 23, 59, 59),
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
       );
       final dateOnly = WorkingDaysQuery(
         masterId: masterId,
         from: DateTime(2026, 7, 1),
         to: DateTime(2026, 7, 31),
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
       );
 
       expect(withTime.from, DateTime(2026, 7, 1));
       expect(withTime.to, DateTime(2026, 7, 31));
-      expect(withTime.serviceId, 'svc-1');
+      expect(withTime.serviceIds, <String>['svc-1']);
       expect(
         withTime,
         dateOnly,
@@ -132,12 +154,12 @@ void main() {
       final q = WorkingDaysQuery.month(
         masterId: masterId,
         anyDayInMonth: DateTime(2026, 7, 15, 9, 30),
-        serviceId: 'svc-9',
+        serviceIds: <String>['svc-9'],
       );
 
       expect(q.from, DateTime(2026, 7, 1));
       expect(q.to, DateTime(2026, 7, 31));
-      expect(q.serviceId, 'svc-9');
+      expect(q.serviceIds, <String>['svc-9']);
     });
 
     test(
@@ -148,7 +170,7 @@ void main() {
           anyDayInMonth: DateTime(2026, 7, 15),
         );
 
-        expect(q.serviceId, isNull);
+        expect(q.serviceIds, isNull);
       },
     );
 
@@ -157,7 +179,7 @@ void main() {
       final scoped = WorkingDaysQuery.month(
         masterId: masterId,
         anyDayInMonth: DateTime(2026, 7, 10),
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
       );
       final shape = WorkingDaysQuery.month(
         masterId: masterId,
@@ -186,7 +208,7 @@ void main() {
         final q = WorkingDaysQuery.month(
           masterId: masterId,
           anyDayInMonth: DateTime(2026, month, 15),
-          serviceId: 'svc-1',
+          serviceIds: <String>['svc-1'],
         );
         final int inclusiveDays = q.to.difference(q.from).inDays + 1;
         expect(

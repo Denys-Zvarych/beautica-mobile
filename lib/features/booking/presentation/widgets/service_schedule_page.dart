@@ -132,7 +132,9 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
   WorkingDaysQuery get _workingDaysQuery => WorkingDaysQuery.month(
     masterId: _masterId,
     anyDayInMonth: _visibleMonth,
-    serviceId: _serviceId,
+    // MO-2: single-service path — one-element list keeps the same wire request
+    // and family cache key as before. MO-3/MO-4 widen to the full selection.
+    serviceIds: <String>[_serviceId],
   );
 
   static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
@@ -353,7 +355,9 @@ class _ServiceSchedulePageState extends ConsumerState<ServiceSchedulePage>
       independentServiceDaySlotsProvider(
         IndependentServiceDaySlotsQuery(
           masterId: _masterId,
-          serviceId: _serviceId,
+          // MO-2: single-service path — one-element list keeps the same wire
+          // request and family cache key as before. MO-3/MO-4 widen this.
+          serviceIds: <String>[_serviceId],
           date: date,
         ),
       ),

@@ -152,12 +152,15 @@ class _FakeSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async {
     getMasterSlotsCallCount++;
-    lastServiceId = serviceId;
+    // MO-2: the salon flow drives the single-service (primary assignment)
+    // path today — collapse the one-element list to the existing String? field
+    // so the assignment-id assertions stay unchanged.
+    lastServiceId = serviceIds.isEmpty ? null : serviceIds.first;
     return slotsToReturn;
   }
 
@@ -166,11 +169,13 @@ class _FakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
     getWorkingDaysCalled = true;
-    lastWorkingDaysServiceId = serviceId;
+    lastWorkingDaysServiceId = serviceIds == null || serviceIds.isEmpty
+        ? null
+        : serviceIds.first;
     final List<WorkingDay> days = <WorkingDay>[];
     for (
       DateTime d = from;
@@ -196,7 +201,7 @@ class _PerMasterFakeSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async => slotsByMaster[masterId] ?? const <BookingSlot>[];
@@ -206,7 +211,7 @@ class _PerMasterFakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
     final List<WorkingDay> days = <WorkingDay>[];
@@ -235,7 +240,7 @@ class _ThrowOnceWorkingDaysSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
     getWorkingDaysCalls++;
@@ -254,7 +259,7 @@ class _ThrowOnceWorkingDaysSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async => const <BookingSlot>[];
@@ -272,7 +277,7 @@ class _ThrowingMasterSlotsSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async => throw Exception('boom');
@@ -282,7 +287,7 @@ class _ThrowingMasterSlotsSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
     final List<WorkingDay> days = <WorkingDay>[];

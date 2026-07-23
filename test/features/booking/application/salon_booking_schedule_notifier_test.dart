@@ -201,7 +201,7 @@ void main() {
         'masterId/serviceId/date and resolves to its result', () async {
       final query = SalonMasterDaySlotsQuery(
         masterId: 'm1',
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
         date: DateTime(2026, 7, 14, 13),
       );
       final fixture = <BookingSlot>[
@@ -214,7 +214,7 @@ void main() {
       when(
         () => repo.getMasterSlots(
           masterId: any(named: 'masterId'),
-          serviceId: any(named: 'serviceId'),
+          serviceIds: any(named: 'serviceIds'),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -229,13 +229,13 @@ void main() {
       final captured = verify(
         () => repo.getMasterSlots(
           masterId: captureAny(named: 'masterId'),
-          serviceId: captureAny(named: 'serviceId'),
+          serviceIds: captureAny(named: 'serviceIds'),
           date: captureAny(named: 'date'),
           cancelToken: captureAny(named: 'cancelToken'),
         ),
       ).captured;
       expect(captured[0], 'm1');
-      expect(captured[1], 'svc-1');
+      expect(captured[1], <String>['svc-1']);
       expect(captured[2], DateTime(2026, 7, 14));
     });
 
@@ -247,7 +247,7 @@ void main() {
       when(
         () => repo.getMasterSlots(
           masterId: any(named: 'masterId'),
-          serviceId: any(named: 'serviceId'),
+          serviceIds: any(named: 'serviceIds'),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -256,7 +256,7 @@ void main() {
       final container = makeContainer();
       final query = SalonMasterDaySlotsQuery(
         masterId: 'm1',
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
         date: DateTime(2026, 7, 14),
       );
 
@@ -269,7 +269,7 @@ void main() {
       final captured = verify(
         () => repo.getMasterSlots(
           masterId: any(named: 'masterId'),
-          serviceId: any(named: 'serviceId'),
+          serviceIds: any(named: 'serviceIds'),
           date: any(named: 'date'),
           cancelToken: captureAny(named: 'cancelToken'),
         ),
@@ -307,7 +307,7 @@ void main() {
       when(
         () => repo.getMasterSlots(
           masterId: any(named: 'masterId'),
-          serviceId: any(named: 'serviceId'),
+          serviceIds: any(named: 'serviceIds'),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -316,7 +316,7 @@ void main() {
       final container = makeContainer();
       final query = SalonMasterDaySlotsQuery(
         masterId: 'm1',
-        serviceId: 'svc-1',
+        serviceIds: <String>['svc-1'],
         date: futureBookingStart(),
       );
 

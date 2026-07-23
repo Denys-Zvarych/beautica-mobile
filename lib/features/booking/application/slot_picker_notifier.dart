@@ -76,10 +76,12 @@ class SlotPicker extends _$SlotPicker {
   }
 
   /// Selects [date], resets any previously-chosen slot, and fetches that
-  /// day's slots for [masterId] + [serviceId].
+  /// day's slots for [masterId] + the ordered [serviceIds] visit selection
+  /// (non-empty; one element in the single-service path — MO-3/MO-4 wire the
+  /// multi-service summed block).
   Future<void> loadSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
   }) async {
     _activeCancelToken?.cancel();
@@ -95,7 +97,7 @@ class SlotPicker extends _$SlotPicker {
     final AsyncValue<List<BookingSlot>> result = await AsyncValue.guard(
       () => repo.getMasterSlots(
         masterId: masterId,
-        serviceId: serviceId,
+        serviceIds: serviceIds,
         date: date,
         cancelToken: cancelToken,
       ),
