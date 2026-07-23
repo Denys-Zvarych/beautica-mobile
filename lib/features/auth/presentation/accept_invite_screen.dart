@@ -295,40 +295,48 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     final l10n = AppLocalizations.of(context);
     final inviteAsync = ref.watch(acceptInviteProvider(widget.token));
 
-    return inviteAsync.when(
-      loading: () => AuthScaffold(
-        showBack: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            const VelvetHeader(),
-            Text(l10n.inviteHeading, style: VelvetText.heading()),
-            const SizedBox(height: VelvetSpacing.lg),
-            const Center(child: CircularProgressIndicator()),
-          ],
+    // The screen-container key is present in ALL THREE async states
+    // (loading / error / data) so it mounts on the first frame, independent of
+    // the token-validation network call. The patrol native deep-link test
+    // asserts on this key the instant go_router mounts the screen — see
+    // integration_test/patrol/deep_link_patrol_test.dart.
+    return KeyedSubtree(
+      key: const ValueKey<String>('accept_invite_screen'),
+      child: inviteAsync.when(
+        loading: () => AuthScaffold(
+          showBack: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const VelvetHeader(),
+              Text(l10n.inviteHeading, style: VelvetText.heading()),
+              const SizedBox(height: VelvetSpacing.lg),
+              const Center(child: CircularProgressIndicator()),
+            ],
+          ),
         ),
-      ),
-      error: (e, _) => AuthScaffold(
-        showBack: true,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            const VelvetHeader(),
-            Text(l10n.inviteHeading, style: VelvetText.heading()),
-            const SizedBox(height: VelvetSpacing.lg),
-            AuthBanner(
-              icon: Icons.error_outline_rounded,
-              message: l10n.inviteInvalidError,
-              color: BrandColors.error,
-            ),
-          ],
+        error: (e, _) => AuthScaffold(
+          showBack: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const VelvetHeader(),
+              Text(l10n.inviteHeading, style: VelvetText.heading()),
+              const SizedBox(height: VelvetSpacing.lg),
+              AuthBanner(
+                icon: Icons.error_outline_rounded,
+                message: l10n.inviteInvalidError,
+                color: BrandColors.error,
+              ),
+            ],
+          ),
         ),
-      ),
-      data: (invite) => _buildForm(
-        l10n,
-        invite.email,
-        invite.role,
-        invite.expiresInHoursFrom(ref.watch(clockProvider)()),
+        data: (invite) => _buildForm(
+          l10n,
+          invite.email,
+          invite.role,
+          invite.expiresInHoursFrom(ref.watch(clockProvider)()),
+        ),
       ),
     );
   }
