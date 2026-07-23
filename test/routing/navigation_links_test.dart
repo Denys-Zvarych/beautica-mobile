@@ -300,7 +300,6 @@ void main() {
       'bookingSuccess': RouteNames.bookingSuccess,
       'salonBookingServices': RouteNames.salonBookingServices,
       'salonBookingMasters': RouteNames.salonBookingMasters,
-      'salonBookingComingSoon': RouteNames.salonBookingComingSoon,
       'salonBookingTime': RouteNames.salonBookingTime,
       'salonBookingConfirm': RouteNames.salonBookingConfirm,
       'salonBookingSuccess': RouteNames.salonBookingSuccess,

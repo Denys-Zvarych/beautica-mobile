@@ -68,9 +68,9 @@ import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dar
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
@@ -194,10 +194,24 @@ const _kSalonMaster = SalonMasterSummary(
 
 SalonBookingTimeArgs _validSalonTimeArgs() => const SalonBookingTimeArgs(
   salonId: _kSalonId,
-  selectedServiceIds: <String>['svc-1'],
-  assignedServiceIdsByMaster: <String, List<String>>{
-    _kSalonMasterId: <String>['svc-1'],
-  },
+  visit: SalonMasterSchedule(
+    masterId: _kSalonMasterId,
+    firstName: 'Salon',
+    lastName: 'Master',
+    type: MasterType.salonMaster,
+    services: <SalonCatalogService>[
+      SalonCatalogService(
+        id: 'svc-1',
+        name: 'Манікюр',
+        durationLabel: '1 год',
+        priceDisplay: '500 ₴',
+        durationMinutes: 60,
+        priceType: ServicePriceType.fixed,
+        priceMin: 500,
+      ),
+    ],
+    orderedMasterServiceIds: <String>['assign-svc-1'],
+  ),
 );
 
 const _clientUser = User(
@@ -492,19 +506,6 @@ void main() {
         },
       );
 
-      testWidgets(
-        '/booking/salon/coming-soon (extra: salonId) → /master/profile',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _masterSession);
-
-          router.go(RouteNames.salonBookingComingSoon, extra: _kSalonId);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.masterProfile));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
-
       testWidgets('/booking/salon/time (extra: valid args) → /master/profile', (
         tester,
       ) async {
@@ -595,18 +596,6 @@ void main() {
 
         expect(locationOf(router), equals(RouteNames.salonBookingMasters));
         expect(find.byType(SalonMasterSelectionScreen), findsOneWidget);
-      });
-
-      testWidgets('/booking/salon/coming-soon (extra: salonId)', (
-        tester,
-      ) async {
-        final router = await pumpRouterAs(tester, _clientSession);
-
-        router.go(RouteNames.salonBookingComingSoon, extra: _kSalonId);
-        await tester.pumpAndSettle();
-
-        expect(locationOf(router), equals(RouteNames.salonBookingComingSoon));
-        expect(find.byType(SalonBookingComingSoonScreen), findsOneWidget);
       });
 
       testWidgets('/booking/salon/time (extra: valid args)', (tester) async {
@@ -809,33 +798,6 @@ void main() {
 
       // Phase 14.13 — /booking/salon/coming-soon requires a non-empty String
       // (salonId) extra, mirroring /booking/salon/services' guard shape.
-      testWidgets(
-        '/booking/salon/coming-soon with a missing extra redirects to /home '
-        '(clientHome)',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _clientSession);
-
-          router.go(RouteNames.salonBookingComingSoon);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
-
-      testWidgets(
-        '/booking/salon/coming-soon with a wrong-typed extra redirects to '
-        '/home (clientHome)',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _clientSession);
-
-          router.go(RouteNames.salonBookingComingSoon, extra: 42);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
 
       // Phase 14.16 — /booking/salon/time has no natural upstream salon id
       // to chain-redirect through either — same "no natural upstream"

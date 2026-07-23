@@ -123,7 +123,7 @@ const _kSalonSchedule = SalonMasterSchedule(
   lastName: 'Мельник',
   type: MasterType.salonMaster,
   services: <SalonCatalogService>[_kCatalogService],
-  primaryServiceAssignmentId: 'svc-1',
+  orderedMasterServiceIds: <String>['svc-1'],
 );
 
 Future<double> _pumpSlotDateScreenCalendarWidth(WidgetTester tester) async {
@@ -157,12 +157,10 @@ Future<double> _pumpSlotDateScreenCalendarWidth(WidgetTester tester) async {
 
 Future<double> _pumpMasterSchedulePageCalendarWidth(WidgetTester tester) async {
   await tester.pumpApp(
-    Scaffold(
+    const Scaffold(
       body: MasterSchedulePage(
         schedule: _kSalonSchedule,
-        avatarGradient: const <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
-        onCompleted: () {},
-        keepAlive: true,
+        avatarGradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
       ),
     ),
     overrides: <Object>[

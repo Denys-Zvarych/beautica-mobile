@@ -52,7 +52,6 @@ import '../features/booking/presentation/leave_review_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
-import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
 import '../features/booking/presentation/salon_booking_success_screen.dart';
 import '../features/booking/presentation/salon_master_selection_screen.dart';
@@ -746,12 +745,12 @@ GoRouter appRouter(Ref ref) {
           args: state.extra! as SalonBookingMasterSelectionArgs,
         ),
       ),
-      // Phase 14.16/14.17 — Salon booking flow step 3 (per-master date/time
-      // picker). `SalonMasterSelectionScreen`'s «Підтвердити» CTA now pushes
-      // here (with a `SalonBookingTimeArgs` in `extra`) instead of directly
-      // hopping to [salonBookingComingSoon] — same "no natural upstream
-      // extra" fallback shape as [salonBookingMasters] above, since a
-      // missing/wrong-typed extra has nothing to chain-redirect through.
+      // MO-4 — Salon booking flow step 3 (single date/time picker).
+      // `SalonMasterSelectionScreen`'s «Далі» CTA pushes here with a
+      // `SalonBookingTimeArgs` (the resolved single-master visit) in `extra` —
+      // same "no natural upstream extra" fallback shape as [salonBookingMasters]
+      // above, since a missing/wrong-typed extra has nothing to chain-redirect
+      // through.
       GoRoute(
         path: RouteNames.salonBookingTime,
         redirect: (context, state) {
@@ -765,33 +764,13 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             SalonTimeScreen(args: state.extra! as SalonBookingTimeArgs),
       ),
-      // Phase 14.13 — Salon booking flow step 4 PLACEHOLDER. Step 4
-      // (confirmation/submit) is unscoped; `SalonTimeScreen`'s «Підтвердити»
-      // CTA (Phase 14.17) routes here instead — carrying the salon id (a
-      // bare String) in `extra` for the "back to profile" action — never
-      // into the independent-master `SlotPickerScreen` (single-master flow,
-      // wrong model for a salon booking), and never a `POST /bookings` call.
-      GoRoute(
-        path: RouteNames.salonBookingComingSoon,
-        redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
-          final Object? extra = state.extra;
-          if (extra is! String || extra.isEmpty) {
-            return RouteNames.clientHome;
-          }
-          return null;
-        },
-        builder: (context, state) =>
-            SalonBookingComingSoonScreen(salonId: state.extra! as String),
-      ),
-      // Phase 14.18 — Salon booking flow step 4 (confirmation + submit).
+      // MO-4 — Salon booking flow step 4 (confirmation + submit).
       // `SalonTimeScreen`'s «Підтвердити» CTA pushes here with a
-      // `SalonBookingConfirmArgs` (the N resolved per-master appointments) in
-      // `extra`; this screen submits one `POST /bookings` per master. A
-      // missing/wrong-typed extra has no natural upstream to chain through, so
-      // it bounces to the CLIENT home shell — same fallback shape as
-      // [salonBookingMasters]/[salonBookingTime] above.
+      // `SalonBookingConfirmArgs` (the single resolved visit) in `extra`; this
+      // screen submits ONE `POST /appointments` via the shared
+      // `AppointmentSubmit`. A missing/wrong-typed extra has no natural upstream
+      // to chain through, so it bounces to the CLIENT home shell — same
+      // fallback shape as [salonBookingMasters]/[salonBookingTime] above.
       GoRoute(
         path: RouteNames.salonBookingConfirm,
         redirect: (context, state) {

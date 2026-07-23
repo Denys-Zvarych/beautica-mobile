@@ -4288,6 +4288,18 @@
   "@salonBookingMastersIntro": {
     "description": "Intro line under the top bar on the salon booking master-assignment screen."
   },
+  "salonBookingPickMasterIntro": "Choose the master who will perform all selected services.",
+  "@salonBookingPickMasterIntro": {
+    "description": "Intro line on the salon booking master-selection screen (single covering master)."
+  },
+  "salonBookingNoCoveringMasterTitle": "No single master performs all selected services",
+  "@salonBookingNoCoveringMasterTitle": {
+    "description": "Empty-state title when no single master performs every selected service."
+  },
+  "salonBookingNoCoveringMasterHint": "Adjust your service selection to see available masters.",
+  "@salonBookingNoCoveringMasterHint": {
+    "description": "Empty-state hint guiding the client to adjust their service selection."
+  },
   "salonBookingMastersSectionLabel": "Available masters",
   "@salonBookingMastersSectionLabel": {
     "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."

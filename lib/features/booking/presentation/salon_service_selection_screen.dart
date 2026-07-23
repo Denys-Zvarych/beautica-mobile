@@ -63,6 +63,8 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
+    show maxServicesPerVisit;
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -223,6 +225,29 @@ class _SalonServiceSelectionScreenState
     });
   }
 
+  /// Toggles [id] in/out of the visit selection, capped at
+  /// [maxServicesPerVisit] (the backend `MAX_SERVICES_PER_VISIT`). An ADD that
+  /// would exceed the cap is refused with a friendly SnackBar rather than
+  /// silently dropped — a removal is never blocked. The selection is a `Set`
+  /// keyed by service id, so a service can be chosen at most once (dedupe).
+  /// Mirrors `ServiceSelectorSheet._onToggleService` (the independent flow) 1:1.
+  void _onToggleService(String id) {
+    final bool willAdd = !_selectionController.isSelected(id);
+    if (willAdd && _selectionController.value.length >= maxServicesPerVisit) {
+      final l10n = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(l10n.bookingMaxServicesReached(maxServicesPerVisit)),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      return;
+    }
+    _selectionController.toggleService(id);
+  }
+
   void _goNext(List<SalonCatalogService> selected) {
     context.push(
       RouteNames.salonBookingMasters,
@@ -269,8 +294,7 @@ class _SalonServiceSelectionScreenState
                 // comment), so this is the same toggle the catalogue
                 // checkbox uses — both removal paths converge on identical
                 // end-state.
-                onRemove: (MasterService s) =>
-                    _selectionController.toggleService(s.id),
+                onRemove: (MasterService s) => _onToggleService(s.id),
               );
             },
           );
@@ -312,7 +336,7 @@ class _SalonServiceSelectionScreenState
                     hoistedKeys: _hoistedKeys,
                     expandedKeys: _expandedKeys,
                     selectedIdsListenable: _selectionController,
-                    onToggleService: _selectionController.toggleService,
+                    onToggleService: _onToggleService,
                     onToggleExpand: _toggleExpand,
                   );
                 },

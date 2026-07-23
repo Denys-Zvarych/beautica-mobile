@@ -4288,6 +4288,18 @@
   "@salonBookingMastersIntro": {
     "description": "Intro line under the top bar on the salon booking master-assignment screen."
   },
+  "salonBookingPickMasterIntro": "Оберіть майстра, який виконає всі обрані послуги.",
+  "@salonBookingPickMasterIntro": {
+    "description": "Intro line on the salon booking master-selection screen (single covering master)."
+  },
+  "salonBookingNoCoveringMasterTitle": "Жоден майстер не виконує всі обрані послуги",
+  "@salonBookingNoCoveringMasterTitle": {
+    "description": "Empty-state title when no single master performs every selected service."
+  },
+  "salonBookingNoCoveringMasterHint": "Змініть перелік послуг, щоб побачити доступних майстрів.",
+  "@salonBookingNoCoveringMasterHint": {
+    "description": "Empty-state hint guiding the client to adjust their service selection."
+  },
   "salonBookingMastersSectionLabel": "Доступні майстри",
   "@salonBookingMastersSectionLabel": {
     "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."

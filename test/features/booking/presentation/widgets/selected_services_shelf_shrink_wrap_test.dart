@@ -25,12 +25,8 @@
 // stable `booking-summary-expanded-list` key and the toggle by its key; only
 // fixture service names (test data) are ever referenced by value.
 
-import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/schedule_confirm_bar.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/selected_services_shelf.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -92,39 +88,21 @@ Widget _independentBar(List<MasterService> services) => Scaffold(
   ),
 );
 
-/// The salon-flow bar composing the shelf. `selectedServices` is the flattened
-/// client selection the shelf itemizes; the single schedule just satisfies the
-/// required constructor params (the shelf sizing is driven by `selectedServices`).
-Widget _salonBar(List<MasterService> services) {
-  final SalonMasterSchedule schedule = SalonMasterSchedule(
-    masterId: 'm1',
-    firstName: 'Олена',
-    lastName: 'Ковальчук',
-    type: MasterType.independentMaster,
-    services: <SalonCatalogService>[
-      for (final MasterService s in services)
-        SalonCatalogService(
-          id: s.id,
-          name: s.name,
-          durationLabel: '1 год',
-          priceDisplay: s.priceDisplay,
-          durationMinutes: s.durationMinutes,
-          priceType: ServicePriceType.fixed,
-          priceMin: s.priceMin,
-        ),
-    ],
-    primaryServiceAssignmentId: 'assignment-m1-${services.first.id}',
-  );
-  return Scaffold(
-    bottomNavigationBar: ScheduleConfirmBar(
-      schedules: <SalonMasterSchedule>[schedule],
-      selectedServices: services,
-      scheduledCount: 0,
-      totalCount: 1,
-      onConfirm: () {},
-    ),
-  );
-}
+/// The salon-flow bar composing the shelf. Post-MO-4 the salon booking flow
+/// itemizes the visit's services through the SAME shared [BookingSummaryBar]
+/// (the per-master `ScheduleConfirmBar` was retired with the single-visit
+/// rework), so this pins the shrink-wrap contract from the salon entry point
+/// too.
+Widget _salonBar(List<MasterService> services) => Scaffold(
+  bottomNavigationBar: BookingSummaryBar(
+    services: services,
+    // i18n-finder-ok: test-only CTA caption, never asserted by value.
+    ctaLabel: 'Далі',
+    ctaIcon: Icons.arrow_forward_rounded,
+    enabled: true,
+    onAction: () {},
+  ),
+);
 
 /// Expands the shelf and returns the rendered height of the itemized-list panel.
 Future<double> _expandAndMeasurePanel(WidgetTester tester) async {

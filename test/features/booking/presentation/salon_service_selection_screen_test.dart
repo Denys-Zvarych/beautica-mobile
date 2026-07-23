@@ -16,12 +16,15 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
+    show maxServicesPerVisit;
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,6 +81,32 @@ const _stubCatalog = <SalonServiceCategoryEntry>[
     services: <SalonCatalogService>[_svcB1],
   ),
 ];
+
+/// [count] distinct services in ONE expanded category — for the 10-cap test
+/// (mirrors `service_selector_sheet_test.dart`'s `_manyServices`, the
+/// independent flow's own cap fixture, so the salon multi-select's shared
+/// `maxServicesPerVisit` guard is pinned on BOTH surfaces).
+List<SalonServiceCategoryEntry> _manyServicesCatalog(int count) =>
+    <SalonServiceCategoryEntry>[
+      SalonServiceCategoryEntry(
+        category: 'MANICURE',
+        displayName: 'Манікюр',
+        count: count,
+        services: <SalonCatalogService>[
+          for (int i = 0; i < count; i++)
+            SalonCatalogService(
+              id: 'svc-$i',
+              name: 'Послуга $i',
+              durationLabel: '1 год',
+              priceDisplay: '300 ₴',
+              category: 'MANICURE',
+              durationMinutes: 60,
+              priceType: ServicePriceType.fixed,
+              priceMin: 300,
+            ),
+        ],
+      ),
+    ];
 
 /// [GoRouter] with the screen under test at its initial location, plus a
 /// terminal capture route for `/booking/salon/masters` so navigation (and the
@@ -497,6 +526,118 @@ void main() {
           containsAll(<String>['svc-a1', 'svc-a2']),
         );
         expect(captured?.selectedServiceIds, hasLength(2));
+      },
+    );
+  });
+
+  // MO-4 req 7 — the salon multi-select shares `ServiceSelectorSheet`'s
+  // `_onToggleService` cap+dedupe logic (both cap at `maxServicesPerVisit` via a
+  // `Set` keyed by id). These pin BOTH invariants on the salon surface so a
+  // future divergence from the independent flow can't slip a >10 or duplicated
+  // payload into `SalonBookingMasterSelectionArgs`.
+  group('visit-selection cap + dedupe (MO-4)', () {
+    testWidgets(
+      'caps the selection at maxServicesPerVisit (10) — the 11th add is refused '
+      'with the friendly cap SnackBar, and «Далі» carries exactly 10 ids',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 8000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        SalonBookingMasterSelectionArgs? captured;
+        await tester.pumpRoutedApp(
+          _routerFor(onReached: (args) => captured = args),
+          overrides: [
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => _manyServicesCatalog(11)),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // The only category (MANICURE) is expanded by default — tap all 11
+        // tiles; the 11th add must be refused (cap = 10).
+        for (int i = 0; i < 11; i++) {
+          await tester.tap(
+            find.byKey(Key('salon_booking_service_tile_svc-$i')),
+          );
+          await tester.pump();
+        }
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonServiceSelectionScreen)),
+        );
+        expect(
+          find.text(l10n.bookingMaxServicesReached(maxServicesPerVisit)),
+          findsOneWidget,
+          reason: 'the 11th add must surface the friendly cap message',
+        );
+
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('masters-screen-reached'), findsOneWidget);
+        expect(
+          captured?.selectedServiceIds,
+          hasLength(maxServicesPerVisit),
+          reason:
+              'the visit must carry at most maxServicesPerVisit services — '
+              'the 11th was never added',
+        );
+        // No id appears twice — the Set-backed selection dedupes.
+        expect(
+          captured!.selectedServiceIds.toSet(),
+          hasLength(captured!.selectedServiceIds.length),
+          reason: 'selectedServiceIds must be duplicate-free',
+        );
+      },
+    );
+
+    testWidgets(
+      're-tapping a selected tile toggles it OFF (Set dedupe) — the id is not '
+      'added twice and «Далі» carries the surviving single id',
+      (tester) async {
+        SalonBookingMasterSelectionArgs? captured;
+        await tester.pumpRoutedApp(
+          _routerFor(onReached: (args) => captured = args),
+          overrides: [
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => _stubCatalog),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder tile = find.byKey(
+          const Key('salon_booking_service_tile_svc-a1'),
+        );
+        // Select → deselect → select: an idempotent Set toggle, never a
+        // second copy of the same id.
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+
+        // Add a second, distinct service so the payload is non-trivially sized.
+        await tester.tap(
+          find.byKey(const Key('salon_booking_service_tile_svc-a2')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('masters-screen-reached'), findsOneWidget);
+        expect(
+          captured?.selectedServiceIds,
+          <String>['svc-a1', 'svc-a2'],
+          reason:
+              'toggling svc-a1 three times leaves it selected exactly ONCE — '
+              'no duplicate id in the payload',
+        );
       },
     );
   });

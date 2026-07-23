@@ -180,36 +180,24 @@ abstract final class RouteNames {
   /// `SalonMasterSelectionScreen`, CLIENT-guarded.
   static const String salonBookingMasters = '/booking/salon/masters';
 
-  /// Step 3 placeholder — the per-master time picker
-  /// (`docs/signup-designs/SalonBookingTime/`) is deferred; this minimal
-  /// stub is where «Підтвердити» on `SalonMasterSelectionScreen` routes
-  /// instead, carrying the salon id (a bare `String`) in `extra` so the
-  /// placeholder can offer a "back to profile" action. Never routes into the
-  /// independent-master `SlotPickerScreen` — that flow assumes one master,
-  /// not the salon's N-appointments-per-master model.
-  static const String salonBookingComingSoon = '/booking/salon/coming-soon';
-
-  /// Step 3 — per-master date/time picker ("Час"), Phase 14.16/14.17. Pushed
-  /// from `SalonMasterSelectionScreen`'s «Підтвердити» CTA with a
-  /// `SalonBookingTimeArgs` in `extra`. Renders `SalonTimeScreen`,
-  /// CLIENT-guarded. [salonBookingComingSoon] stays in the route tree
-  /// unchanged — it is now THIS screen's own «Підтвердити» hand-off target
-  /// (standing in for the not-yet-scoped step 4), not the direct target of
-  /// step 2's confirm CTA anymore.
+  /// Step 3 — single date/time picker ("Час"), MO-4. Pushed from
+  /// `SalonMasterSelectionScreen`'s «Далі» CTA with a `SalonBookingTimeArgs`
+  /// (the resolved single-master visit) in `extra`. Renders `SalonTimeScreen`,
+  /// CLIENT-guarded. (The pre-MO-4 `/booking/salon/coming-soon` placeholder
+  /// route is retired.)
   static const String salonBookingTime = '/booking/salon/time';
 
-  /// Step 4 — salon booking confirmation (review + submit), Phase 14.18.
-  /// Pushed from `SalonTimeScreen`'s «Підтвердити» CTA with a
-  /// `SalonBookingConfirmArgs` (the N resolved per-master appointments) in
-  /// `extra`. Renders `SalonBookingConfirmScreen`, CLIENT-guarded; submits one
-  /// `POST /bookings` per master. Replaces [salonBookingComingSoon] as the
-  /// step-3 «Підтвердити» hand-off target — the coming-soon stub is retired
-  /// (no longer routed to, but its route stays registered harmlessly).
+  /// Step 4 — salon booking confirmation (review + submit), MO-4. Pushed from
+  /// `SalonTimeScreen`'s «Далі» CTA with a `SalonBookingConfirmArgs` (the
+  /// single resolved visit) in `extra`. Renders `SalonBookingConfirmScreen`,
+  /// CLIENT-guarded; submits ONE `POST /appointments` via the shared
+  /// `AppointmentSubmit`.
   static const String salonBookingConfirm = '/booking/salon/confirm';
 
-  /// Step 4b — salon booking success recap, Phase 14.18. Reached ONLY via
-  /// `SalonBookingConfirmScreen`'s `pushReplacement` once EVERY appointment's
-  /// booking succeeded, carrying a `SalonBookingSuccessArgs` in `extra`.
+  /// Step 4b — salon booking success recap, MO-4. Reached ONLY via
+  /// `SalonBookingConfirmScreen`'s `pushReplacement` once the single
+  /// `POST /appointments` succeeded, carrying a `SalonBookingSuccessArgs` in
+  /// `extra`.
   /// Renders `SalonBookingSuccessScreen` (`PopScope(canPop: false)`),
   /// CLIENT-guarded; a missing/invalid `extra` bounces to [clientHome].
   static const String salonBookingSuccess = '/booking/salon/success';
