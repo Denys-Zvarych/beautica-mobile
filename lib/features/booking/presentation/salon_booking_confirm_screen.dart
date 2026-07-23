@@ -42,6 +42,8 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 
 import '../application/booking_notifier.dart';
+import '../application/my_bookings_notifier.dart';
+import '../domain/booking_tab.dart';
 import '../domain/create_appointment_request.dart';
 import '../domain/salon_booking_confirm_args.dart';
 import 'widgets/booking_comment_field.dart';
@@ -108,6 +110,16 @@ class _SalonBookingConfirmScreenState
             ),
           );
       if (!mounted) return;
+      // A newly-created booking is auto-CONFIRMED → lands in the upcoming tab.
+      // The client shell keeps the My Bookings branch mounted
+      // (`StatefulShellRoute.indexedStack`), so its autoDispose notifier never
+      // re-fetches on tab re-select — invalidate it here from the widget layer
+      // (mirroring the independent flow's `BookingConfirmScreen`) so the new
+      // booking shows without a manual pull-to-refresh. A cross-provider
+      // invalidate from a Notifier would trip
+      // `forbid_provider_self_invalidation`; this is a widget-layer `ref`, so it
+      // is compliant.
+      ref.invalidate(myBookingsProvider(BookingTab.upcoming));
       context.pushReplacement(
         RouteNames.salonBookingSuccess,
         extra: SalonBookingSuccessArgs(

@@ -10,12 +10,19 @@
 //      idempotency key (de-dupe).
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
+import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
+import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_confirm_screen.dart';
@@ -28,7 +35,9 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -118,6 +127,83 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   @override
   Future<void> createAppointmentReview(
     String id, {
+    required int rating,
+    String? comment,
+  }) => throw UnimplementedError();
+}
+
+/// COUNTS `getMyBookings` reads so the salon confirm screen's widget-layer
+/// `ref.invalidate(myBookingsProvider(BookingTab.upcoming))` (fired on a
+/// successful CREATE) is observable as a re-fetch: a still-listened autoDispose
+/// notifier only calls `getMyBookings` again when it is invalidated. Mirrors the
+/// independent flow's `_RecordingRescheduleRepository` in booking_confirm_test.
+class _RecordingBookingRepository implements BookingRepository {
+  int getMyBookingsCalls = 0;
+  final List<Iterable<BookingStatus>> statusesSeen =
+      <Iterable<BookingStatus>>[];
+
+  Booking _bookingFixture() => Booking(
+    id: 'booking-salon-1',
+    masterId: 'm2',
+    masterFirstName: 'Софія',
+    masterLastName: 'Мельник',
+    masterType: 'SALON_MASTER',
+    serviceId: 'svc-1',
+    serviceName: 'Манікюр з покриттям',
+    durationMinutes: 90,
+    price: 500,
+    startAt: DateTime(2026, 7, 20, 14),
+    endAt: DateTime(2026, 7, 20, 15, 30),
+    status: BookingStatus.confirmed,
+    canReview: false,
+  );
+
+  @override
+  Future<PageResponse<Booking>> getMyBookings({
+    required Iterable<BookingStatus> statuses,
+    BookingSort? sort,
+    required int page,
+    int size = kBookingsPageSize,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+    CancelToken? cancelToken,
+  }) async {
+    getMyBookingsCalls++;
+    statusesSeen.add(statuses);
+    return PageResponse<Booking>(
+      items: <Booking>[_bookingFixture()],
+      page: page,
+      totalPages: 1,
+      totalElements: 1,
+    );
+  }
+
+  @override
+  Future<Booking> createBooking(CreateBookingRequest req) =>
+      throw UnimplementedError();
+
+  @override
+  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
+
+  @override
+  Future<Booking> getBookingById(String id) => throw UnimplementedError();
+
+  @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> cancelBooking(String id, {String? reason}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> createReview({
+    required String bookingId,
     required int rating,
     String? comment,
   }) => throw UnimplementedError();
@@ -230,6 +316,77 @@ void main() {
     expect(fake.requests[1].idempotencyKey, _kIdemKey);
     expect(find.text('salon-success-reached'), findsOneWidget);
   });
+
+  // mobile-qa — stale-My-Bookings regression (salon flow). A successful salon
+  // CREATE (a newly-booked, auto-CONFIRMED visit) must invalidate the upcoming
+  // My Bookings list from the WIDGET layer: the client shell keeps that branch
+  // mounted (`StatefulShellRoute.indexedStack`), so its autoDispose notifier
+  // only re-fetches when invalidated — otherwise the new booking is invisible on
+  // the already-mounted Записи tab until a manual pull-to-refresh. This mirrors
+  // the independent flow's assertion in booking_confirm_test.dart. Without the
+  // `ref.invalidate(myBookingsProvider(BookingTab.upcoming))` in
+  // SalonBookingConfirmScreen._submit, `getMyBookingsCalls` stays at 1 and this
+  // fails.
+  testWidgets(
+    'a successful CREATE invalidates upcoming My Bookings from the widget layer '
+    '(it re-fetches) and navigates to success',
+    (tester) async {
+      final fake = _FakeAppointmentRepository(
+        appointmentToReturn: _appointmentFixture(),
+      );
+      final bookings = _RecordingBookingRepository();
+      await tester.pumpRoutedApp(
+        _router(),
+        overrides: <Object>[
+          ..._overrides(fake),
+          bookingRepositoryProvider.overrideWith((_) => bookings),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // Mount + warm the upcoming tab BEFORE the create — this is the branch the
+      // shell keeps alive while the booking flow is pushed on top of it.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(SalonBookingConfirmScreen)),
+        listen: false,
+      );
+      final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
+          container.listen(
+            myBookingsProvider(BookingTab.upcoming),
+            (_, _) {},
+            fireImmediately: true,
+          );
+      addTearDown(subList.close);
+      await container.read(myBookingsProvider(BookingTab.upcoming).future);
+      expect(bookings.getMyBookingsCalls, 1);
+      // Precision: the create lands in the UPCOMING tab (auto-CONFIRMED), so it
+      // is the upcoming family key the screen must invalidate — assert the tab
+      // we warmed queried exactly the CONFIRMED status set.
+      expect(
+        bookings.statusesSeen.single,
+        BookingTab.upcoming.statuses,
+        reason: 'the warmed tab is the upcoming (CONFIRMED) family key',
+      );
+
+      await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+      await tester.pumpAndSettle();
+
+      expect(fake.requests, hasLength(1));
+      expect(find.text('salon-success-reached'), findsOneWidget);
+
+      // The widget-layer invalidate forced a background re-fetch of the still
+      // -listened (mounted) upcoming tab — its `getMyBookings` ran a 2nd time.
+      await container.read(myBookingsProvider(BookingTab.upcoming).future);
+      expect(
+        bookings.getMyBookingsCalls,
+        2,
+        reason:
+            'a successful salon CREATE must invalidate '
+            'myBookingsProvider(BookingTab.upcoming) so the mounted list '
+            're-fetches without a manual pull-to-refresh',
+      );
+    },
+  );
 
   // MO-4 req 6 — the salon confirm reuses the independent flow's failure
   // mapping: the single inline banner (`salon-confirm-submit-error`) is

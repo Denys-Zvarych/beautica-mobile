@@ -170,6 +170,15 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
               ),
             );
         if (!mounted) return;
+        // A newly-created booking is auto-CONFIRMED → lands in the upcoming
+        // tab. The client shell keeps the My Bookings branch mounted
+        // (`StatefulShellRoute.indexedStack`), so its autoDispose notifier never
+        // re-fetches on tab re-select — invalidate it here from the widget layer
+        // (mirroring the reschedule branch above) so the new booking shows
+        // without a manual pull-to-refresh. A cross-provider invalidate from a
+        // Notifier would trip `forbid_provider_self_invalidation`; this is a
+        // widget-layer `ref`, so it is compliant.
+        ref.invalidate(myBookingsProvider(BookingTab.upcoming));
       }
       context.pushReplacement(
         RouteNames.bookingSuccess,

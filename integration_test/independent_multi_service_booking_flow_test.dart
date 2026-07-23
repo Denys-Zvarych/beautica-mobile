@@ -46,7 +46,9 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -70,9 +72,16 @@ const MethodChannel _kCalendarChannel = MethodChannel('add_2_calendar');
 /// [failOnceWith] if set (then clears it, so a retry succeeds) — mirrors the
 /// "fail once, then succeed on retry" shape, keyed by the single visit call.
 class _FakeAppointmentRepository implements AppointmentRepository {
-  _FakeAppointmentRepository({this.failOnceWith});
+  _FakeAppointmentRepository({this.failOnceWith, this.onCreated});
 
   Failure? failOnceWith;
+
+  /// Invoked synchronously on a SUCCESSFUL create, BEFORE the request resolves —
+  /// lets a flow mutate `FakeBackend` state (e.g. append the just-booked visit
+  /// to `/bookings/me`) so the confirm screen's post-create
+  /// `ref.invalidate(myBookingsProvider(upcoming))` re-fetches the NEW row.
+  final void Function(CreateAppointmentRequest req)? onCreated;
+
   final List<CreateAppointmentRequest> requests = <CreateAppointmentRequest>[];
 
   @override
@@ -83,6 +92,7 @@ class _FakeAppointmentRepository implements AppointmentRepository {
       failOnceWith = null;
       throw typed;
     }
+    onCreated?.call(req);
     final DateTime end = req.startAt.add(const Duration(minutes: 150));
     return Appointment(
       id: 'appt-1',
@@ -474,4 +484,134 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
+
+  // =========================================================================
+  // Test 4 — STALE-MY-BOOKINGS regression (Step 2.7 Rule 3b). THE gap the
+  // debugger named: the client shell is a `StatefulShellRoute.indexedStack`, so
+  // once the CLIENT opens the Записи tab its `MyBookingsScreen` branch stays
+  // MOUNTED (offstage) while the booking flow is pushed on top of it — its
+  // autoDispose `myBookingsProvider(upcoming)` therefore never re-fetches on a
+  // plain tab re-select. A newly-created booking is auto-CONFIRMED → belongs in
+  // upcoming, but the mounted-and-cached list did NOT show it until a manual
+  // pull-to-refresh. The fix: `BookingConfirmScreen._submit` invalidates
+  // `myBookingsProvider(BookingTab.upcoming)` from the widget layer on the
+  // CREATE success path (mirroring the reschedule path).
+  //
+  // The widget tier proves the invalidate fires (booking_confirm_test.dart's
+  // "a successful CREATE invalidates upcoming My Bookings" + the salon twin).
+  // NO widget test proves the REAL indexedStack scenario end-to-end: open the
+  // tab ONCE (branch mounts + caches an EMPTY upcoming list) → book a visit
+  // through the real confirm→success flow → return to the ALREADY-MOUNTED tab →
+  // the new card is visible WITHOUT any pull-to-refresh gesture. This is that
+  // flow. `/bookings/me` starts EMPTY and the fake create appends the booked row
+  // to the FakeBackend dataset, so the ONLY way the card appears on return is
+  // the confirm screen's invalidate re-fetching the mounted branch. Removing the
+  // invalidate makes the final assertion fail (verified by mutation).
+  testWidgets('CLIENT opens the (empty) Записи tab, books a visit, returns to the '
+      'already-mounted tab and sees the new booking WITHOUT a pull-to-refresh '
+      '(indexedStack keeps the branch mounted)', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    // The upcoming list starts EMPTY — the mounted branch caches "no bookings".
+    fb.seedManyBookingsDataset(const <Map<String, dynamic>>[]);
+
+    const String newBookingId = 'booking-created-1';
+    // On a successful create the fake backend gains ONE upcoming (CONFIRMED,
+    // future) booking — exactly what a real auto-confirmed POST /appointments
+    // would make visible on the next GET /bookings/me.
+    final repo = _FakeAppointmentRepository(
+      onCreated: (CreateAppointmentRequest req) {
+        fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+          fb.datasetBookingRow(
+            id: newBookingId,
+            status: 'CONFIRMED',
+            startsAt: req.startAt,
+            duration: const Duration(minutes: 150),
+          ),
+        ]);
+      },
+    );
+
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      extraOverrides: <Object>[
+        appointmentRepositoryProvider.overrideWithValue(repo),
+      ],
+    );
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await AppHarness.settle(tester);
+
+    // ── 1. Open the Записи branch ONCE — the indexedStack mounts it and its
+    //       myBookingsProvider(upcoming) caches the EMPTY list. ─────────────
+    await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.clientBookings);
+    expect(find.byType(MyBookingsScreen), findsOneWidget);
+    expect(
+      find.byType(BookingCard),
+      findsNothing,
+      reason: 'the upcoming tab starts empty — nothing booked yet',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('service-$newBookingId')),
+      findsNothing,
+    );
+
+    // ── 2. Book a visit: push the REAL confirm screen ON TOP of the shell
+    //       (the Записи branch stays mounted offstage), then submit. ────────
+    unawaited(
+      router.push(
+        RouteNames.bookingConfirm,
+        extra: visitArgs(idempotencyKey: 'itest-stale-list-key'),
+      ),
+    );
+    await AppHarness.settle(tester);
+    AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
+    expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+    await AppHarness.settle(tester);
+
+    AppHarness.expectShellLocation(router, RouteNames.bookingSuccess);
+    expect(find.byType(BookingSuccessScreen), findsOneWidget);
+    expect(repo.requests, hasLength(1));
+
+    // ── 3. Leave the success screen for /home, then re-select the Записи tab.
+    //       NO pull-to-refresh is performed anywhere in this flow. ──────────
+    await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
+
+    await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.clientBookings);
+    expect(find.byType(MyBookingsScreen), findsOneWidget);
+
+    // ── 4. THE ASSERTION: the just-booked visit is visible on the mounted
+    //       upcoming tab with NO manual refresh — only the confirm screen's
+    //       widget-layer invalidate could have re-fetched the branch. ───────
+    expect(
+      find.byType(BookingCard),
+      findsOneWidget,
+      reason:
+          'the auto-CONFIRMED booking must appear on the already-mounted '
+          'Записи tab after the create — the confirm screen invalidated '
+          'myBookingsProvider(upcoming), so the indexedStack-cached branch '
+          're-fetched WITHOUT a pull-to-refresh',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('service-$newBookingId')),
+      findsOneWidget,
+    );
+    final AppLocalizations listL10n = AppLocalizations.of(
+      tester.element(find.byType(MyBookingsScreen)),
+    );
+    expect(
+      find.text(listL10n.bookingStatusConfirmed),
+      findsOneWidget,
+      reason: 'the new card carries the «Підтверджено» badge',
+    );
+    expect(tester.takeException(), isNull);
+  }, timeout: const Timeout(Duration(seconds: 120)));
 }

@@ -742,6 +742,61 @@ void main() {
         expect(fake.getMyBookingsCalls, 2);
       },
     );
+
+    // A successful CREATE (a newly-booked, auto-CONFIRMED visit) invalidates
+    // the upcoming My Bookings list from the widget layer — the client shell
+    // keeps that branch mounted, so its autoDispose notifier only re-fetches
+    // when invalidated. Mirrors the reschedule assertion above.
+    testWidgets(
+      'a successful CREATE invalidates upcoming My Bookings from the widget '
+      'layer (it re-fetches) and navigates to success',
+      (tester) async {
+        final appointments = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        final bookings = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            appointmentRepositoryProvider.overrideWith((_) => appointments),
+            bookingRepositoryProvider.overrideWith((_) => bookings),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(RouteNames.bookingConfirm, extra: _confirmArgs()),
+        );
+        await tester.pumpAndSettle();
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
+            container.listen(
+              myBookingsProvider(BookingTab.upcoming),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subList.close);
+        await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        expect(bookings.getMyBookingsCalls, 1);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(appointments.requests, hasLength(1));
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        // The widget-layer invalidate forced a background re-fetch of the still
+        // -listened (mounted) upcoming tab.
+        await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        expect(bookings.getMyBookingsCalls, 2);
+      },
+    );
   });
 
   group('BookingSuccessScreen', () {

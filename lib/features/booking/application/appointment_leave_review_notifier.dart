@@ -69,12 +69,14 @@ class AppointmentLeaveReview extends _$AppointmentLeaveReview {
         // Stale form: the visit is already reviewed. Refetch so the screen flips
         // to its own not-reviewable state (backlog row 60 fix), then rethrow so
         // the mapped failure still reaches the screen for its message.
+        // cycle-safe: appointmentDetailProvider fetches GET /appointments/{id} and never watches appointmentLeaveReviewProvider — no back-edge, no cycle.
         ref.invalidate(appointmentDetailProvider(appointmentId));
         rethrow;
       }
       // Flip the detail screen's `canReview` to false (server-computed) so the
       // entry CTA disappears and any stale review deep link lands on the
       // not-reviewable info state.
+      // cycle-safe: appointmentDetailProvider fetches GET /appointments/{id} and never watches appointmentLeaveReviewProvider — no back-edge, no cycle.
       ref.invalidate(appointmentDetailProvider(appointmentId));
     });
   }
