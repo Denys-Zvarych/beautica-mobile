@@ -202,12 +202,12 @@
 //   construction, not by convention. See `MasterBookingCard`'s own class doc
 //   for the widget-side half of this contract.
 //
-//   Because slot height (56dp) was chosen to already clear the card's real
-//   content height (54dp), the duration-derived floor is ALSO always `>=`
-//   natural content height for every booking `>= 30` minutes — the two
-//   constraints coincide in the common case and only diverge for the
-//   sub-30-minute floor, which is exactly where `_LaneColumn`'s
-//   collision-nudge remains load-bearing (see below).
+//   NOTE (superseded by ADDENDUM 7): the original pass CONFLATED two floors —
+//   it chose a 56dp slot to clear the 54dp card and then let that same 56dp
+//   double as both the gridline unit AND the card's minimum. ADDENDUM 7
+//   splits them: the gridline slot (`_kSlotH`, now 84dp) and the card's
+//   legibility minimum (`MasterBookingCard.estimatedNaturalHeight`, 56dp) are
+//   now independent numbers. The card floor is `56dp`, NOT `hourHeight / 2`.
 //
 // WHY `_LaneColumn` IS STILL NECESSARY, NOT VESTIGIAL:
 //   For a booking `>= 30` minutes, its computed height now equals its real
@@ -502,6 +502,48 @@
 //    [_laneGeometry]. The scroll path does one `>` comparison per card.
 //
 // ============================================================================
+// ADDENDUM 7 (2026-07-24) — VERTICAL-SCALE PASS: CARDS LAND ON THEIR END LINE
+// ============================================================================
+// THE REPORT: a booking ending at 14:00 rendered its card bottom down to
+// ~14:10 — the card overran its end-time line. ADDENDUM 2's proportional
+// scale was correct in spirit but two numbers fought each other.
+//
+// THE ROOT CAUSE — A CONFLATED FLOOR:
+//   `_cardMinHeightFor` floored the card at `hourHeight / 2` (one 30-minute
+//   slot). At `_kHourH = 112` that slot was 56dp, which happened to equal the
+//   card's real legible height (54dp + headroom), so the single number 56 was
+//   doing DOUBLE DUTY: the gridline unit AND the card's minimum. The two only
+//   coincidentally agreed. As long as the card floor tracked `hourHeight / 2`,
+//   raising the scale to make cards land on their line would raise the floor
+//   in lockstep and re-open the same overrun — the fix would silently fail.
+//
+// THE TWO-PART FIX:
+//   1. Raise `_kHourH` 112 -> 168 (and the ruler's, in lockstep). At 168 a
+//      booking's proportional height `duration/60 * 168` lands its bottom
+//      exactly on its end-time line.
+//   2. DECOUPLE the card floor from the slot: `_cardMinHeightFor` now floors
+//      at `MasterBookingCard.estimatedNaturalHeight` (56dp, the compact card's
+//      own natural legible height), NOT `hourHeight / 2` (now 84dp). This is
+//      the load-bearing change — without it the floor would jump 56 -> 84 and
+//      short cards would overrun to a 30-minute footprint again.
+//
+// THE RESULTING BEHAVIOUR — STATED HONESTLY:
+//   * Bookings >= 20 minutes: card bottom lands EXACTLY on the end-time line.
+//     A 20-minute band is `20/60 * 168 = 56dp`, precisely the legibility
+//     floor — the break-even. 60-min = 168dp, 45-min = 126dp, all exact.
+//   * Bookings < 20 minutes: floored at 56dp (a 20-minute band's worth). The
+//     card is a hair TALLER than its wall-clock footprint — a residual
+//     overrun that remains BY DESIGN. It is irreducible: a card cannot render
+//     legibly below 56dp, and services can be as short as 1 minute, so no
+//     finite vertical scale zeroes it. Fully UN-CLIPPED — the box grows, it
+//     never crops (the R2 OverflowBox/ClipRect ban still holds).
+//   * 45-minute cards now clear the full-layout threshold (126dp >= 117dp), so
+//     they take the fuller divided layout — see `MasterBookingCard`'s
+//     `_kFullLayoutMinHeight` doc, whose old "45-min stays compact" reasoning
+//     inverted here.
+//   * A working day scrolls 1.5x longer than at 112 — accepted.
+//
+// ============================================================================
 // THE RULER IS THE KYIV WALL-CLOCK
 // ============================================================================
 // Every card's vertical position reads through [toBeauticaTime] — `Booking
@@ -577,14 +619,26 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// One hour of vertical space — MUST match
   /// `TimelineHourRuler._kHourH` so the ruler and the lane hairlines line up.
   ///
-  /// See this file's "ADDENDUM 2" for the derivation: raised from `72` to
-  /// `112` so a 30-minute slot (`_kSlotH`, `56dp`) clears
-  /// `MasterBookingCard`'s real measured height (`54dp`).
-  static const double _kHourH = 112;
+  /// See this file's "ADDENDUM 2" for the derivation. VERTICAL-SCALE PASS
+  /// (2026-07-24) raised it from `112` to `168`: at `112` a booking's
+  /// proportional card outran its end-time line because the legibility floor
+  /// (`56dp`) was conflated with the 30-minute slot floor (`56dp`), so a card
+  /// could never land its bottom on the line for short bookings. Decoupling
+  /// the two floors (see `_cardMinHeightFor`) and raising the scale to `168`
+  /// makes every booking `>= 20` minutes land its card bottom EXACTLY on its
+  /// end-time line (`duration/60 * 168`); a 20-minute band is `56dp` — the
+  /// break-even where the proportional height equals the legibility floor. The
+  /// day now scrolls 1.5x longer than at `112`, an accepted consequence.
+  static const double _kHourH = 168;
 
   /// One 30-minute slot — the grid's minimum unit (ADDENDUM 2). Half of
-  /// [_kHourH] by construction; both the gridline spacing and every card's
-  /// duration-floor read off this constant, never a re-derived literal.
+  /// [_kHourH] by construction (now `84dp`). Drives the half-hour GRIDLINE
+  /// spacing only. As of the vertical-scale pass it no longer governs the
+  /// card floor: the card's legibility minimum is
+  /// [MasterBookingCard.estimatedNaturalHeight] (`56dp`), decoupled from this
+  /// slot so short bookings land on their end-time line (see
+  /// `_cardMinHeightFor`). Read off this constant for gridlines, never a
+  /// re-derived literal.
   static const double _kSlotH = _kHourH / 2;
 
   /// One lane's card width CEILING — the design's fixed value, but never
@@ -777,13 +831,23 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // term below is a pure function of `bookings` + `day`, so none of it
     // belongs on the culling rebuild path.
     const double hourHeight = BookingsTimelineGrid._kHourH;
+    // ADDENDUM 7 (part 2) — the card layer's vertical ORIGIN is the FLOORED
+    // hour (`firstHour * 60`), NOT the raw `_firstMinute`. The gridlines and
+    // the ruler both anchor to `firstHour = _firstMinute ~/ 60` (see [build]
+    // and `TimelineHourRuler`), so anchoring cards to `_firstMinute` instead
+    // slid the whole card layer up by `(_firstMinute mod 60)` minutes whenever
+    // the day's first booking started off-hour (e.g. 13:40 → a 40-minute,
+    // 112dp shift), and cards no longer landed on their end-time gridlines.
+    // Sharing this ONE floored origin makes a card's top/bottom offsets
+    // coincide with the gridline offsets for its start/end times.
+    final int originMinute = (_firstMinute ~/ 60) * 60;
     _laneGeometry = <List<_CardGeometry>>[
       for (final List<int> indices in indicesByLane)
         _geometryForLane(
           bookings: bookings,
           indices: indices,
           startMinutes: startMinutes,
-          firstMinute: _firstMinute,
+          originMinute: originMinute,
           hourHeight: hourHeight,
         ),
     ];
@@ -1100,8 +1164,12 @@ class _CardGeometry {
 /// live inline in `_LaneColumn.build`.
 ///
 /// `plannedBottom` is the PLANNED bottom edge of the previous card, in the
-/// same "minutes since firstMinute, scaled to px" space as every `top` in
-/// this file. Per the PROPORTIONAL-DURATION-HEIGHT PASS (this file's
+/// same "minutes since [originMinute], scaled to px" space as every `top` in
+/// this file. [originMinute] is the FLOORED-hour origin (`firstHour * 60`)
+/// that the gridlines and ruler also anchor to (see the file header's
+/// "ADDENDUM 7" part 2), so a card's top/bottom land on the gridlines for its
+/// start/end times even when the day's first booking starts off-hour. Per the
+/// PROPORTIONAL-DURATION-HEIGHT PASS (this file's
 /// "ADDENDUM 2") it advances by each card's real occupied box, not the fixed
 /// `MasterBookingCard.estimatedNaturalHeight` the R3-era code used;
 /// ADDENDUM 5 sharpened it further to `MasterBookingCard.occupiedHeightFor
@@ -1116,7 +1184,7 @@ List<_CardGeometry> _geometryForLane({
   required List<Booking> bookings,
   required List<int> indices,
   required List<int> startMinutes,
-  required int firstMinute,
+  required int originMinute,
   required double hourHeight,
 }) {
   final List<_CardGeometry> geometry = <_CardGeometry>[];
@@ -1125,7 +1193,7 @@ List<_CardGeometry> _geometryForLane({
   for (int k = 0; k < indices.length; k++) {
     final int index = indices[k];
     final double desiredTop =
-        (startMinutes[index] - firstMinute) / 60.0 * hourHeight;
+        (startMinutes[index] - originMinute) / 60.0 * hourHeight;
     final double minHeight = _cardMinHeightFor(
       bookings[index].durationMinutes,
       hourHeight,
@@ -1160,14 +1228,21 @@ List<_CardGeometry> _geometryForLane({
 
 /// A booking's proportional-duration card floor — see this file's
 /// "ADDENDUM 2" for the full derivation. Proportional to [durationMinutes]
-/// against [hourHeight], floored at one 30-minute slot (`hourHeight / 2`) so
-/// nothing under 30 minutes renders shorter than the grid's stated minimum
-/// unit. This is a MINIMUM, not an exact size — [MasterBookingCard] applies
-/// it as a `BoxConstraints.minHeight`, so real content taller than this
-/// value always wins (see that widget's class doc).
+/// against [hourHeight], floored at the compact card's natural legible height
+/// ([MasterBookingCard.estimatedNaturalHeight], `56dp`) so nothing renders
+/// shorter than a card can legibly draw. This floor is INDEPENDENT of the
+/// 30-minute slot (`hourHeight / 2`, now `84dp`): the slot governs the
+/// gridlines, the legibility minimum governs the card. Decoupling them is the
+/// load-bearing change of the vertical-scale pass — keeping the floor at
+/// `hourHeight / 2` would have re-inflated every card back off its end-time
+/// line (a 20-minute band's proportional height is `56dp`, but an `84dp`
+/// floor would overrun it to a 30-minute footprint). This is a MINIMUM, not
+/// an exact size — [MasterBookingCard] applies it as a
+/// `BoxConstraints.minHeight`, so real content taller than this value always
+/// wins (see that widget's class doc).
 double _cardMinHeightFor(int durationMinutes, double hourHeight) {
   final double proportional = durationMinutes / 60.0 * hourHeight;
-  return math.max(proportional, hourHeight / 2);
+  return math.max(proportional, MasterBookingCard.estimatedNaturalHeight);
 }
 
 /// Minutes between the selected day's Kyiv [midnight] and [instant]'s Kyiv

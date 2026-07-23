@@ -239,10 +239,11 @@ void main() {
       // (both files assert, in their own doc comments, that the two MUST
       // match) — not re-exported, so pinned here as a plain literal the way
       // this file already pins other cross-file geometry invariants (e.g. the
-      // 48dp clip floor in the R2 group above). Raised from 72 to 112 by the
-      // proportional-duration-height pass (2026-07-20, see
-      // `bookings_timeline_grid.dart`'s "ADDENDUM 2").
-      const double hourHeight = 112;
+      // 48dp clip floor in the R2 group above). Raised 72 -> 112 by the
+      // proportional-duration-height pass (2026-07-20), then 112 -> 168 by the
+      // vertical-scale pass (2026-07-24, see `bookings_timeline_grid.dart`'s
+      // "ADDENDUM 7") so bookings land on their end-time line.
+      const double hourHeight = 168;
 
       Finder rulerLabel(String text) => find.descendant(
         of: find.byType(TimelineHourRuler),
@@ -423,7 +424,7 @@ void main() {
         // `MasterBookingCard` also reads through `toBeauticaTime`, not just
         // the ruler. Since the 2026-07-21 pass BOTH the card's layouts print
         // the same date-free start–end range (`formatSlotTimeRange`), so this
-        // no longer depends on which layout the 60-minute (112dp floor)
+        // no longer depends on which layout the 60-minute (168dp floor)
         // booking selects — see `master_booking_card.dart`'s "The time is a
         // RANGE" header section. The range is the STRONGER witness of the two
         // it replaced: it proves BOTH instants convert, not just the start.
@@ -697,6 +698,22 @@ void main() {
         );
         await tester.pump();
 
+        // VERTICAL-SCALE PASS (ADDENDUM 7): at 168dp/hour the 18:00 card sits
+        // ~3024dp down, well below the initial cull window, so it starts as a
+        // placeholder. Scroll to the very bottom to materialise the real card
+        // before measuring it — the grid-extent property under test is
+        // independent of culling (the placeholder reserves the exact box).
+        final ScrollableState scrollable = tester.state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(BookingsTimelineGrid),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+        await tester.pump();
+
         final Rect gridRect = tester.getRect(
           find.byKey(const ValueKey<String>('timeline-lane-stack')),
         );
@@ -712,15 +729,17 @@ void main() {
   group('proportional-duration-height pass (2026-07-20)', () {
     // Mirrors the private `BookingsTimelineGrid._kSlotH` / `_kHourH` (not
     // re-exported — same convention the R4 group above already uses for
-    // `hourHeight`). `_kSlotH` (30-minute slot) is `_kHourH / 2` by
-    // construction; see that file's "ADDENDUM 2" for the derivation of both
-    // numbers from `MasterBookingCard`'s measured ~54dp natural height.
-    const double kSlotH = 56;
-    const double kHourH = 112;
+    // `hourHeight`). `_kSlotH` (30-minute GRIDLINE slot) is `_kHourH / 2` by
+    // construction; see that file's "ADDENDUM 7" for why the vertical scale
+    // rose to 168 and the card's legibility floor
+    // (`MasterBookingCard.estimatedNaturalHeight`, 56dp) was DECOUPLED from
+    // this slot so bookings >= 20min land their card bottom on the end line.
+    const double kSlotH = 84;
+    const double kHourH = 168;
 
     final DateTime day = _day;
 
-    testWidgets('a 30-minute booking renders at exactly one slot (56dp)', (
+    testWidgets('a 30-minute booking renders at exactly one slot (84dp)', (
       WidgetTester tester,
     ) async {
       final Booking b = _booking(
@@ -741,10 +760,8 @@ void main() {
     });
 
     testWidgets(
-      'a 60-minute booking renders at AT LEAST two slots (112dp) — the '
-      'floor still tracks duration proportionally, though the adaptive '
-      'FULL layout\'s own natural content is slightly taller than the '
-      'bare floor at this exact threshold',
+      'a 60-minute booking renders at EXACTLY two slots (168dp) — its card '
+      'bottom lands precisely on its end-time line',
       (WidgetTester tester) async {
         final Booking b = _booking(
           id: 'dur-60',
@@ -762,32 +779,19 @@ void main() {
 
         final double height = _cardRect(tester, 'dur-60').height;
 
-        // NOT `closeTo(kHourH, 0.5)` any more (pre-adaptive-layout-pass
-        // behaviour): a 60-minute booking's floor (112dp) is exactly this
-        // group's `_kFullLayoutMinHeight` threshold
-        // (`master_booking_card.dart`), so the card now renders the
-        // ADAPTIVE FULL layout (client name / divider / service+date /
-        // price+status) instead of the old compact two-row grid — and that
-        // fuller layout's own natural content (~117dp measured, padding +
-        // four stacked rows) is a few dp TALLER than the pure
-        // duration-derived floor. [minHeight] is a floor, never a ceiling
-        // (see `master_booking_card.dart`'s class doc), so the box grows to
-        // fit it — exactly the documented, no-clipping behaviour, not a
-        // regression. The 90-minute sibling test below still lands on an
-        // EXACT floor match, because ITS floor (168dp) is already taller
-        // than the full layout's natural content, so the floor — not the
-        // content — wins there.
-        expect(height, greaterThanOrEqualTo(kHourH));
-        // A generous ceiling so a genuine future regression (e.g. the full
-        // layout ballooning past its intended ~117dp) still trips this
-        // test rather than being silently absorbed by a `greaterThan`-only
-        // check.
-        expect(height, lessThan(140));
+        // VERTICAL-SCALE PASS (ADDENDUM 7): a 60-minute booking's
+        // proportional height is `60/60 * 168 = 168dp`, which exceeds both
+        // the 56dp legibility floor AND the adaptive full layout's own 117dp
+        // natural content — so the duration-derived height wins outright and
+        // the card lands EXACTLY on its end-time line (kSlotH * 2 = 168). No
+        // more "full layout slightly taller than the floor" slack: at 168
+        // the scale is roomy enough that the proportional height dominates.
+        expect(height, closeTo(kSlotH * 2, 0.5));
       },
     );
 
     testWidgets(
-      'a 90-minute booking renders at exactly three slots (168dp) — three '
+      'a 90-minute booking renders at exactly three slots (252dp) — three '
       'times the 30-minute card\'s height, proving the height tracks '
       'duration proportionally rather than rounding up to a fixed unit',
       (WidgetTester tester) async {
@@ -811,7 +815,7 @@ void main() {
     );
 
     testWidgets(
-      'a 45-minute booking renders at 1.5 slots (84dp) — not rounded up to '
+      'a 45-minute booking renders at 1.5 slots (126dp) — not rounded up to '
       'a whole slot',
       (WidgetTester tester) async {
         final Booking b = _booking(
@@ -832,8 +836,8 @@ void main() {
       },
     );
 
-    testWidgets('a booking shorter than 30 minutes still renders every row, '
-        'un-clipped, at the one-slot floor (56dp) rather than a '
+    testWidgets('a booking shorter than 20 minutes still renders every row, '
+        'un-clipped, at the 56dp legibility floor rather than a '
         'duration-scaled sliver', (WidgetTester tester) async {
       final Booking b = _booking(
         id: 'dur-10',
@@ -849,10 +853,17 @@ void main() {
       );
       await tester.pump();
 
-      // Floored at one slot, NOT a duration-scaled ~19dp sliver
-      // (10/60*112) — that would be shorter than the card's own natural
-      // content and would need clipping to render at all.
-      expect(_cardRect(tester, 'dur-10').height, closeTo(kSlotH, 0.5));
+      // VERTICAL-SCALE PASS (ADDENDUM 7): sub-20-minute bookings floor at the
+      // card's 56dp legibility minimum (`MasterBookingCard
+      // .estimatedNaturalHeight`), NOT a duration-scaled ~28dp sliver
+      // (10/60*168) which would be too short to render legibly and NOT the
+      // 84dp gridline slot (the floor is decoupled from the slot now). This
+      // is the documented residual overrun below 20min — irreducible because
+      // a card cannot render below 56dp and services can be 1 minute long.
+      expect(
+        _cardRect(tester, 'dur-10').height,
+        closeTo(MasterBookingCard.estimatedNaturalHeight, 0.5),
+      );
 
       // No clipping/forced-height mechanism directly on the card — mirrors
       // the "short bookings render their full card" group above (which
@@ -882,6 +893,73 @@ void main() {
       expect(find.text(b.serviceName), findsOneWidget);
       expect(find.text(b.clientName!), findsOneWidget);
     });
+
+    testWidgets(
+      'a 20-minute booking renders at EXACTLY 56dp — the break-even where '
+      'the proportional height meets the legibility floor, zero overrun '
+      '(the user\'s reported case: a card ending at 14:00 stops at 14:00)',
+      (WidgetTester tester) async {
+        final Booking b = _booking(
+          id: 'dur-20',
+          startAtUtc: _kyivAtUtc(9),
+          durationMinutes: 20,
+        );
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[b],
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        // 20/60 * 168 = 56, exactly `MasterBookingCard.estimatedNaturalHeight`
+        // — the proportional height and the legibility floor coincide, so the
+        // card bottom lands precisely on its end-time line with no residual.
+        expect(
+          _cardRect(tester, 'dur-20').height,
+          closeTo(kHourH * 20 / 60, 0.5),
+        );
+      },
+    );
+
+    testWidgets(
+      'INVARIANT: every booking >= 20 minutes lands its card bottom exactly '
+      'on its end-time line (height == duration/60 * kHourH) — no floor or '
+      'full-layout inflation past the line for any legible duration',
+      (WidgetTester tester) async {
+        const List<int> durations = <int>[20, 25, 30, 45, 60, 90];
+        // Staggered by 30min from 08:00 so every card stays in the top,
+        // never-culled band (the last starts at 10:30 == 1764dp, well inside
+        // the r3-last test's proven-renderable extent). Height is independent
+        // of vertical position and of any collision nudge, so overlap between
+        // longer cards is harmless to this assertion.
+        final List<Booking> bookings = <Booking>[
+          for (int i = 0; i < durations.length; i++)
+            _booking(
+              id: 'dur-${durations[i]}',
+              startAtUtc: _kyivAtUtc(8, i * 30),
+              durationMinutes: durations[i],
+            ),
+        ];
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: bookings,
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        for (final int mins in durations) {
+          expect(
+            _cardRect(tester, 'dur-$mins').height,
+            closeTo(kHourH * mins / 60, 1.0),
+            reason: 'a $mins-min card must be $mins/60 * $kHourH dp tall',
+          );
+        }
+      },
+    );
 
     testWidgets(
       'back-to-back bookings of DIFFERENT durations (60min then 90min) '
@@ -926,6 +1004,190 @@ void main() {
           secondRect.top - firstRect.bottom,
           closeTo(kMinInterCardGap, 0.5),
         );
+      },
+    );
+  });
+
+  group('ADDENDUM 7 — a card\'s BOTTOM edge lands on its end-time gridline', () {
+    // The user's complaint was a card that CROSSES its own end-time line
+    // («ending at 14:00 rendered its card bottom down to ~14:10»). The
+    // proportional-height tests above pin the card's HEIGHT
+    // (`duration/60 * 168`), which is necessary but NOT sufficient: a card of
+    // the exact right height can still cross its line if it is positioned
+    // wrong. The strongest guard is to tie the card's rendered BOTTOM Y to the
+    // rendered Y of the `Positioned` gridline for its `endAt`, so the card
+    // provably cannot end anywhere but on its own line. Added by mobile-qa
+    // (2026-07-24) — the proportional-height suite as shipped never asserted
+    // this coincidence.
+
+    /// The HOUR gridlines only — half-hour lines use `_halfHourLineColor`
+    /// (`BrandColors.faint` at alpha 0.4), so filtering on the full-opacity
+    /// `BrandColors.faint` `ColoredBox` yields exactly the on-the-hour lines.
+    /// `_hasCardAncestor` excludes the card's own same-coloured hairline
+    /// divider (see the R4 group). Sorted ascending by rendered top.
+    List<Rect> hourGridlinesAscending(WidgetTester tester) {
+      final Iterable<Element> elements = find
+          .byWidgetPredicate(
+            (Widget w) => w is ColoredBox && w.color == BrandColors.faint,
+          )
+          .evaluate();
+      return elements.where((Element e) => !_hasCardAncestor(e)).map((
+        Element e,
+      ) {
+        final RenderBox box = e.renderObject! as RenderBox;
+        return box.localToGlobal(Offset.zero) & box.size;
+      }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
+    }
+
+    testWidgets(
+      'a time-anchored 20-minute booking (11:40–12:00, after an hour-aligned '
+      'first booking with an idle gap) lands its card bottom EXACTLY on the '
+      '12:00 gridline — height alone cannot prove this, position must too',
+      (WidgetTester tester) async {
+        // The FIRST booking is hour-aligned (09:00) so the whole card layer is
+        // correctly registered against the ruler; the SECOND has a real idle
+        // gap before it, so its spacer is time-derived (not the cosmetic
+        // collision-nudge floor) and it sits at its true wall-clock position.
+        // Its end (12:00) is an on-the-hour gridline.
+        final Booking first = _booking(
+          id: 'anchor-first',
+          startAtUtc: _kyivAtUtc(9),
+          durationMinutes: 20,
+        );
+        final Booking probe = _booking(
+          id: 'anchor-probe',
+          startAtUtc: _kyivAtUtc(11, 40),
+          durationMinutes: 20,
+        );
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[first, probe],
+            day: _day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        final List<Rect> hourLines = hourGridlinesAscending(tester);
+        // firstHour 9 → lastHour 12: gridlines 09:00, 10:00, 11:00, 12:00.
+        expect(
+          hourLines.length,
+          4,
+          reason: 'expected hour gridlines at 09:00, 10:00, 11:00, 12:00',
+        );
+        final Rect endGridline = hourLines.last; // 12:00
+        final Rect probeCard = _cardRect(tester, 'anchor-probe');
+
+        expect(
+          probeCard.bottom,
+          closeTo(endGridline.top, 1.0),
+          reason:
+              'the 11:40–12:00 card bottom (${probeCard.bottom}) must land on '
+              'the 12:00 gridline (${endGridline.top}) — a card that ends '
+              'anywhere but on its own line is the exact overrun the user '
+              'reported',
+        );
+      },
+    );
+
+    testWidgets(
+      'a single OFF-HOUR-anchored booking (13:40–14:00) lands its card bottom '
+      'on the 14:00 gridline — regression for the day\'s first booking not '
+      'starting on a whole hour',
+      (WidgetTester tester) async {
+        // The literal witness from the user's example. This is the case the
+        // proportional-height suite never exercised: EVERY fixture there
+        // starts the day on a whole hour (or half hour), so the card layer
+        // happens to register with the ruler. A real master's first
+        // appointment is routinely at :15/:30/:40 — and then the card layer is
+        // anchored to `firstMinute` while the ruler/gridlines are anchored to
+        // the floored `firstHour`, shifting every card up by
+        // `(firstMinute mod 60)` minutes. See mobile-qa finding [HIGH].
+        final Booking b = _booking(
+          id: 'offhour',
+          startAtUtc: _kyivAtUtc(13, 40),
+          durationMinutes: 20,
+        );
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[b],
+            day: _day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        final List<Rect> hourLines = hourGridlinesAscending(tester);
+        // firstHour 13 → lastHour 15: gridlines 13:00, 14:00, 15:00. The
+        // booking ends at 14:00, the SECOND hour line.
+        expect(hourLines.length, greaterThanOrEqualTo(2));
+        final Rect endGridline = hourLines[1]; // 14:00
+        final Rect card = _cardRect(tester, 'offhour');
+
+        expect(
+          card.bottom,
+          closeTo(endGridline.top, 1.0),
+          reason:
+              'the 13:40–14:00 card bottom (${card.bottom}) must land on the '
+              '14:00 gridline (${endGridline.top}). If these differ by '
+              '(firstMinute mod 60)/60 * 168 dp, the card layer is anchored to '
+              'firstMinute while the ruler is anchored to the floored '
+              'firstHour — every card is drawn too high and no card lands on '
+              'its end line. Fix: anchor cards to firstHour*60, not '
+              'firstMinute (BookingsTimelineGrid._recomputeLayoutModel).',
+        );
+      },
+    );
+
+    testWidgets(
+      'LOCKSTEP: the ruler\'s rendered hour-band height equals the grid\'s '
+      'gridline hour-band height — the two _kHourH constants cannot desync',
+      (WidgetTester tester) async {
+        // The debugger flagged ruler/grid _kHourH desync as the failure mode
+        // if the two private constants ever diverge. This compares the two
+        // RENDERED bands to EACH OTHER (not to a literal), so a coordinated
+        // rename or a one-sided edit both trip it.
+        final Booking b = _booking(
+          id: 'lockstep',
+          startAtUtc: _kyivAtUtc(9),
+          durationMinutes: 120, // spans 09:00–11:00 → three hour lines
+        );
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[b],
+            day: _day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        Rect rulerLabel(String t) => tester.getRect(
+          find.descendant(
+            of: find.byType(TimelineHourRuler),
+            matching: find.text(t),
+          ),
+        );
+        final double rulerBand =
+            rulerLabel('10:00').top - rulerLabel('09:00').top;
+
+        final List<Rect> hourLines = hourGridlinesAscending(tester);
+        expect(hourLines.length, greaterThanOrEqualTo(2));
+        final double gridBand = hourLines[1].top - hourLines[0].top;
+
+        expect(
+          gridBand,
+          closeTo(rulerBand, 0.01),
+          reason:
+              'the ruler laid one hour out at ${rulerBand}dp but the grid '
+              'gridlines at ${gridBand}dp — TimelineHourRuler._kHourH and '
+              'BookingsTimelineGrid._kHourH have desynced; the ruler labels '
+              'and the lane hairlines no longer line up',
+        );
+        // And both really are the 168dp vertical-scale-pass value.
+        expect(rulerBand, closeTo(168, 0.5));
       },
     );
   });
@@ -1169,9 +1431,9 @@ void main() {
       'a card more than a full viewport below the visible band renders as a '
       'placeholder, and materialises once scrolled to',
       (WidgetTester tester) async {
-        // 09:00 and 21:00 Kyiv: 12 wall-clock hours apart, i.e. 1344dp of
-        // ruler at 112dp/hour. The initial window's bottom edge is
-        // `0 + 2 × 600 − 7 = 1193`, so the late card starts below it.
+        // 09:00 and 21:00 Kyiv: 12 wall-clock hours apart, i.e. 2016dp of
+        // ruler at 168dp/hour (ADDENDUM 7). The initial window's bottom edge
+        // is `0 + 2 × 600 − 7 = 1193`, so the late card starts well below it.
         final Booking early = _booking(
           id: 'cull-early',
           startAtUtc: _kyivAtUtc(9),
@@ -1252,25 +1514,26 @@ void main() {
     //    card's measured natural height (54dp)"
     //
     // That reasoning is about `MasterBookingCard`'s COMPACT layout only. The
-    // card switches to its ADAPTIVE FULL layout once `minHeight >= 112dp`
-    // (`master_booking_card.dart`'s `_kFullLayoutMinHeight`), and the full
-    // layout's own natural content measures ~117dp — which this very file
-    // already documents and asserts in the "proportional-duration-height
-    // pass" group above ("a 60-minute booking renders at AT LEAST two slots
-    // … the adaptive FULL layout's own natural content is slightly taller
-    // than the bare floor at this exact threshold").
+    // card switches to its ADAPTIVE FULL layout once
+    // `minHeight >= fullLayoutNaturalHeight` (117dp, `_kFullLayoutMinHeight`),
+    // and the full layout's own natural content also measures 117dp.
     //
-    // A 60-MINUTE BOOKING LANDS EXACTLY THERE: floor 112dp, real card 117dp.
-    // So its placeholder is 5dp SHORT, and because `_LaneColumn` is a flex
-    // `Column`, every card below a culled one moves UP by 5dp per culled
-    // card — measured: with two 60-minute cards culled off the top, the next
-    // card sits at content offset 240 instead of 250.
-    //
-    // WHY THIS IS NOT COSMETIC: the hour gridlines are `Positioned` children
-    // of the same `Stack` and are NEVER culled, so they keep exact 112dp
-    // spacing. The cards therefore slide OUT OF REGISTRATION with the ruler
-    // as the day scrolls — the one relationship this whole widget exists to
+    // HISTORICAL MOTIVATION (scale 112, pre-ADDENDUM 7): a 60-minute booking's
+    // floor was 112dp but its real card rendered at 117dp (full layout), so a
+    // naive `minHeight` placeholder was 5dp SHORT, and because `_LaneColumn`
+    // is a flex `Column`, every card below a culled one moved UP by 5dp per
+    // culled card — sliding cards OUT OF REGISTRATION with the never-culled
+    // `Positioned` gridlines, the one relationship this widget exists to
     // maintain (see the file header's "THE RULER IS THE KYIV WALL-CLOCK").
+    // That is exactly why the placeholder must reserve `occupiedHeightFor`
+    // (which accounts for the layout switch), not the bare `minHeight`.
+    //
+    // AT THE CURRENT 168dp SCALE (ADDENDUM 7) that specific 5dp gap no longer
+    // arises — a 60-minute floor is now 168dp >= 117dp, so `occupiedHeightFor`
+    // and `minHeight` coincide at 168 — but `occupiedHeightFor` is KEPT
+    // because it is the general, scale-independent predictor: it stays exact
+    // for every duration, including any future scale where the floor lands
+    // between the compact (56dp) and full (117dp) naturals.
     //
     // How it was resolved: ADDENDUM 5 took the first branch — the
     // placeholder reserves `MasterBookingCard.occupiedHeightFor(floor)`, the

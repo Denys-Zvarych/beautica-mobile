@@ -48,13 +48,14 @@ class TimelineHourRuler extends StatelessWidget {
   /// up pixel-for-pixel.
   ///
   /// PROPORTIONAL-DURATION-HEIGHT PASS (2026-07-20) — raised from `72` to
-  /// `112`. See `bookings_timeline_grid.dart`'s "ADDENDUM 2" for the full
-  /// derivation; the short version: the grid's 30-minute slot must be `>=`
-  /// `MasterBookingCard`'s real measured height (54dp) or a card taller than
-  /// its own slot would need `_LaneColumn`'s collision-nudge on every
-  /// ordinary booking instead of only the sub-30-minute edge case. `56` (half
-  /// of `112`) clears 54dp with a hairline of headroom.
-  static const double _kHourH = 112;
+  /// `112`, then VERTICAL-SCALE PASS (2026-07-24) raised it again to `168`.
+  /// MUST stay in LOCKSTEP with `BookingsTimelineGrid._kHourH` or the ruler
+  /// labels and the lane hairlines desync. See `bookings_timeline_grid.dart`'s
+  /// "ADDENDUM 2" for the full derivation; the short version: at `168` a
+  /// booking `>= 20` minutes lands its card bottom exactly on its end-time
+  /// line (`duration/60 * 168`), which `112` could not do because the card's
+  /// legibility floor (`56dp`) was pinned to the 30-minute slot floor.
+  static const double _kHourH = 168;
 
   /// The vertical distance each label's text visually sits ABOVE its own
   /// hour line so the text centres on the line instead of hanging below it.

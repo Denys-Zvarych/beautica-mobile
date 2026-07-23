@@ -221,7 +221,7 @@ void main() {
         // above (see its comment): without it, `pumpApp`'s
         // `MaterialApp.home` hands the card TIGHT constraints equal to the
         // full test surface, and — since the adaptive-layout pass — a
-        // `minHeight` that large would trip the >=112dp full-layout switch
+        // `minHeight` that large would trip the >=117dp full-layout switch
         // and render the full body instead of the compact grid this test is
         // about. (Both bodies now print the SAME range string AND carry a
         // hairline, so the switch is only observable through WHICH divider
@@ -626,7 +626,9 @@ void main() {
               child: MasterBookingCard(
                 booking: booking,
                 onTap: () {},
-                minHeight: 112,
+                // A 60-minute booking's floor (ADDENDUM 7: 60/60 * 168 = 168),
+                // comfortably past the 117dp full-layout switch.
+                minHeight: 168,
               ),
             ),
           ),
@@ -682,7 +684,7 @@ void main() {
         for (final ({String label, double minHeight, int duration}) layout
             in <({String label, double minHeight, int duration})>[
               (label: 'compact', minHeight: 56, duration: 30),
-              (label: 'full', minHeight: 112, duration: 60),
+              (label: 'full', minHeight: 168, duration: 60),
             ]) {
           await tester.pumpApp(
             Center(
@@ -986,7 +988,7 @@ void main() {
         }
 
         final double compact = await pillHeight(56, 30);
-        final double full = await pillHeight(112, 60);
+        final double full = await pillHeight(168, 60);
 
         // 15dp line box + 3dp × 2 in the full layout, + 1dp × 2 in the compact
         // one. The FULL figure is the design's own `PriceTag` value and must
@@ -1070,7 +1072,7 @@ void main() {
     'switch reads the resolved minHeight constraint, not durationMinutes',
     () {
       testWidgets(
-        'a >=112dp card (a 60-minute booking\'s floor) renders the FULL '
+        'a >=117dp card (a 60-minute booking\'s 168dp floor) renders the FULL '
         'layout: client name, a divider, the service name BELOW the '
         'divider, the start–end time range (NO date), price and status — all '
         'present, none clipped',
@@ -1085,7 +1087,7 @@ void main() {
               child: MasterBookingCard(
                 booking: booking,
                 onTap: () {},
-                minHeight: 112,
+                minHeight: 168,
               ),
             ),
           );
@@ -1152,13 +1154,16 @@ void main() {
       );
 
       testWidgets(
-        'a 56dp card (the 30-minute floor) stays on the compact grid — its '
-        'own hairline, a status dot, no date — and still renders every field '
-        'un-clipped',
+        'a 56dp card (the legibility-minimum floor, a sub-20-minute booking) '
+        'stays on the compact grid — its own hairline, a status dot, no date '
+        '— and still renders every field un-clipped',
         (WidgetTester tester) async {
+          // ADDENDUM 7: 56dp is the card floor for any booking whose
+          // proportional height falls below it (< 20 minutes at 168dp/hour),
+          // decoupled from the 30-minute gridline slot (now 84dp).
           final Booking booking = _shortBooking(
             id: 'compact-floor-card',
-            durationMinutes: 30,
+            durationMinutes: 15,
           );
 
           await tester.pumpApp(
@@ -1220,7 +1225,7 @@ void main() {
         (WidgetTester tester) async {
           // This test intentionally re-runs the FIRST test's own divider
           // assertion against a card whose `minHeight` is comfortably past
-          // the >=112dp threshold, as a standing structural guard: it is
+          // the >=117dp threshold, as a standing structural guard: it is
           // the automated half of the manual mutation check documented in
           // the phase report (temporarily hardcoding `_useFullLayout` to
           // always return `false` in `master_booking_card.dart` and
@@ -1238,7 +1243,7 @@ void main() {
               child: MasterBookingCard(
                 booking: booking,
                 onTap: () {},
-                minHeight: 168,
+                minHeight: 252,
               ),
             ),
           );
@@ -1250,7 +1255,7 @@ void main() {
             ),
             findsOneWidget,
             reason:
-                'a 168dp (90-minute) card must select the FULL layout — if '
+                'a 252dp (90-minute) card must select the FULL layout — if '
                 'this fails, the height-vs-threshold switch in '
                 'MasterBookingCard.build has regressed to always picking '
                 'the compact body.',
@@ -1261,101 +1266,31 @@ void main() {
     },
   );
 
-  // THE 45-MINUTE QUESTION (2026-07-21) — evidence for `_kFullLayoutMinHeight`
-  // staying at 112 rather than dropping to 84.
+  // THE 45-MINUTE QUESTION (2026-07-21, INVERTED by ADDENDUM 7 on 2026-07-24)
+  // — why a 45-minute card NOW gets the full layout.
   //
-  // A 45-minute booking's duration-derived floor is 84dp (`45/60 × _kHourH`,
-  // `bookings_timeline_grid.dart`), half again the compact card's own box, so
-  // "surely the full layout fits by now" is the obvious next edit. It does
-  // not, and this group is the rendered proof rather than a comment asserting
-  // it. `_buildFullBody`'s NATURAL height, measured with the worst realistic
+  // When the scale was 112dp/hour a 45-minute booking's floor was 84dp, below
+  // `_buildFullBody`'s 117dp natural, so it stayed COMPACT to avoid overshoot.
+  // ADDENDUM 7 raised the scale to 168dp/hour: a 45-minute floor is now
+  // `45/60 × 168 = 126dp`, which CLEARS the 117dp natural, so the card takes
+  // the full layout AND fits inside its ruled band (126 >= 117) — the exact
+  // reason `_kFullLayoutMinHeight` is set to `fullLayoutNaturalHeight` (117):
+  // a card gets the fuller shape precisely once its duration owns enough ruled
+  // space to contain it.
+  //
+  // `_buildFullBody`'s NATURAL height, measured with the worst realistic
   // content (a long service name and a frozen RANGE band) at the narrowest
-  // production lane:
-  //
-  //   | textScaler | natural |
-  //   |------------|---------|
-  //   | 1.0        | 117.0dp |
-  //   | 1.15       | 124.0dp |
-  //   | 1.3        | 132.0dp |
-  //
-  // Identical at 226 / 266 / 272dp of lane — every row in that body is
-  // flex-driven, so lane width moves the ellipsis, never the height. The
-  // measurement is EXACT rather than a lower bound because all three exceed
-  // the 112dp floor the card is pumped with, so the box is sized by content.
-  //
-  // 117 > 84 by 33dp at scale 1.0 and by 48dp at the app's 1.3 ceiling: a
-  // 45-minute card on the full layout would render ~1.4× the ruled space its
-  // duration owns, which is precisely the "cards drift off their hour line"
-  // regression the compact-timeline pass existed to remove.
-  group('the 45-minute question — why _kFullLayoutMinHeight stays at 112', () {
-    for (final double scale in <double>[1.0, 1.15, 1.3]) {
-      testWidgets(
-        'the FULL body\'s natural height overshoots an 84dp box (textScaler '
-        '$scale)',
-        (WidgetTester tester) async {
-          final Booking booking =
-              _shortBooking(id: 'full-natural', durationMinutes: 60).copyWith(
-                serviceName:
-                    'Комплексний догляд за волоссям з ботоксом та укладкою',
-                price: 12500,
-                priceMax: 25000,
-              );
-
-          await tester.pumpApp(
-            Center(
-              child: SizedBox(
-                width: 226,
-                child: MasterBookingCard(
-                  booking: booking,
-                  onTap: () {},
-                  minHeight: 112,
-                ),
-              ),
-            ),
-            textScaleFactor: scale,
-          );
-          await tester.pump();
-
-          expect(tester.takeException(), isNull);
-          expect(
-            find.byKey(const Key('master-booking-card-divider-full-natural')),
-            findsOneWidget,
-            reason: 'precondition: this must be the FULL layout',
-          );
-
-          final double natural = tester
-              .getSize(
-                find.byKey(const Key('master-booking-card-full-natural')),
-              )
-              .height;
-
-          // Strictly greater than the pumped floor, so this IS the content's
-          // own height and not the constraint's.
-          expect(
-            natural,
-            greaterThan(112),
-            reason:
-                'the full body measured ${natural}dp — at or under the 112dp '
-                'floor it was pumped with, so this number is the CONSTRAINT '
-                'rather than the content and the overshoot below proves '
-                'nothing. Re-measure with a lower floor.',
-          );
-          expect(
-            natural,
-            greaterThan(84 + 30),
-            reason:
-                'the full body measured ${natural}dp against an 84dp '
-                '45-minute slot. If this ever drops near 84, re-run the '
-                'measurement table in this group\'s header and only THEN '
-                'consider lowering _kFullLayoutMinHeight.',
-          );
-        },
-      );
-    }
-
+  // production lane, is 117.0dp @1.0 (124 @1.15, 132 @1.3) — pinned exactly by
+  // the "the FULL body still measures exactly …dp" group below. At the app's
+  // 1.3 ceiling a 45-minute card's full body (132dp) does grow ~6dp past its
+  // 126dp band; nothing clips (content always wins), the same overhang the
+  // design accepts, and far smaller than the ~48dp overshoot the OLD 84dp
+  // floor would have produced.
+  group('the 45-minute question — why a 45-minute card now gets the full '
+      'layout (ADDENDUM 7)', () {
     testWidgets(
-      'a 45-minute card (84dp) therefore selects the COMPACT layout, and fits '
-      'inside its slot with room to spare',
+      'a 45-minute card (126dp floor) selects the FULL layout and renders at '
+      'exactly 126dp at textScaler 1.0 — the floor contains its 117dp natural',
       (WidgetTester tester) async {
         final Booking booking =
             _shortBooking(id: 'forty-five', durationMinutes: 45).copyWith(
@@ -1365,6 +1300,9 @@ void main() {
               priceMax: 25000,
             );
 
+        // A 45-minute booking's real ADDENDUM 7 floor: 45/60 * 168 = 126dp.
+        const double floor = 126;
+
         await tester.pumpApp(
           Center(
             child: SizedBox(
@@ -1372,7 +1310,7 @@ void main() {
               child: MasterBookingCard(
                 booking: booking,
                 onTap: () {},
-                minHeight: 84,
+                minHeight: floor,
               ),
             ),
           ),
@@ -1380,41 +1318,50 @@ void main() {
         await tester.pump();
 
         expect(tester.takeException(), isNull);
+        // The FULL layout's divider, NOT the compact one — the inversion this
+        // whole group now documents.
+        expect(
+          find.byKey(const Key('master-booking-card-divider-forty-five')),
+          findsOneWidget,
+        );
         expect(
           find.byKey(
             const Key('master-booking-card-compact-divider-forty-five'),
           ),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('master-booking-card-divider-forty-five')),
           findsNothing,
         );
         expect(
           tester
               .getSize(find.byKey(const Key('master-booking-card-forty-five')))
               .height,
-          84,
+          closeTo(floor, 0.5),
           reason:
-              'the 84dp floor must be met exactly — the compact body\'s 56dp '
-              'of content leaves 28dp of blank room below it, which is the '
-              'intended "the card fills the slot its duration occupies" '
-              'behaviour, not an overflow.',
+              'the 126dp floor must be met — it exceeds the full body\'s 117dp '
+              'natural, so the floor (not the content) sizes the box and the '
+              'card lands exactly on its 45-minute end-time line.',
         );
       },
     );
 
-    // The threshold's exact boundary, so a future off-by-one (>= vs >) is a
-    // failure rather than a silently different card on 60-minute bookings.
+    // The threshold's exact boundary is now 117 (== fullLayoutNaturalHeight),
+    // so a future off-by-one (>= vs >) or a drift of the constant is a failure
+    // rather than a silently different card.
     for (final ({double minHeight, bool full}) boundary
         in <({double minHeight, bool full})>[
-          (minHeight: 111, full: false),
-          (minHeight: 112, full: true),
+          (minHeight: 116, full: false),
+          (minHeight: 117, full: true),
         ]) {
       testWidgets('minHeight ${boundary.minHeight} selects the '
           '${boundary.full ? 'FULL' : 'COMPACT'} layout', (
         WidgetTester tester,
       ) async {
+        expect(
+          MasterBookingCard.fullLayoutMinHeight,
+          117,
+          reason:
+              'fixture guard: the switch must be at 117 (the full body\'s own '
+              'natural) or this boundary pair is measuring the wrong edge',
+        );
         await tester.pumpApp(
           Center(
             child: MasterBookingCard(
@@ -1453,7 +1400,7 @@ void main() {
     for (final ({String label, double? minHeight}) layout
         in <({String label, double? minHeight})>[
           (label: 'compact', minHeight: null),
-          (label: 'full', minHeight: 112),
+          (label: 'full', minHeight: 168),
         ]) {
       testWidgets('the ${layout.label} layout reads the persisted endAt, never '
           'startAt + durationMinutes', (WidgetTester tester) async {
@@ -1643,7 +1590,7 @@ void main() {
                 child: MasterBookingCard(
                   booking: booking,
                   onTap: () {},
-                  minHeight: 112,
+                  minHeight: 168,
                 ),
               ),
             ),
@@ -1787,7 +1734,7 @@ void main() {
       );
     });
 
-    testWidgets('the full layout (>=112dp) renders the band too', (
+    testWidgets('the full layout (>=117dp) renders the band too', (
       WidgetTester tester,
     ) async {
       final Booking booking = _shortBooking(
@@ -1799,7 +1746,7 @@ void main() {
           child: MasterBookingCard(
             booking: booking,
             onTap: () {},
-            minHeight: 112,
+            minHeight: 168,
           ),
         ),
       );
@@ -2015,7 +1962,7 @@ void main() {
         for (final ({String label, double? minHeight, int duration}) layout
             in <({String label, double? minHeight, int duration})>[
               (label: 'compact', minHeight: null, duration: 20),
-              (label: 'full', minHeight: 112, duration: 60),
+              (label: 'full', minHeight: 168, duration: 60),
             ]) {
           testWidgets(
             '${band.label} fits the ${layout.label} layout in the narrowest '
@@ -2363,11 +2310,16 @@ void main() {
                 child: MasterBookingCard(
                   booking: booking,
                   onTap: () {},
-                  // The card's own natural height, not a floor that could mask
-                  // it — 1 is below every layout's content, and the switch
-                  // reads `minHeight`, so the FULL body must be selected
-                  // explicitly instead.
-                  minHeight: 112,
+                  // Pumped exactly at the switch (== fullLayoutNaturalHeight,
+                  // 117): the LOWEST minHeight that selects the full body. At
+                  // textScaler 1.0 box == floor == the 117dp natural; at 1.15
+                  // and 1.3 the content grows to 124 / 132 STRICTLY past this
+                  // floor, so those two are genuine content measurements and
+                  // catch any leak from the compact pass. (Since ADDENDUM 7
+                  // set the switch equal to the 1.0 natural, a below-natural
+                  // floor can no longer select the full layout, so the 1.0
+                  // point is pinned at the switch rather than as free content.)
+                  minHeight: MasterBookingCard.fullLayoutMinHeight,
                 ),
               ),
             ),
@@ -2500,7 +2452,7 @@ void main() {
           }
 
           final ({Color accent, String label}) dot = await render(56, 30);
-          final ({Color accent, String label}) badge = await render(112, 60);
+          final ({Color accent, String label}) badge = await render(168, 60);
 
           expect(
             dot.accent,

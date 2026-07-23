@@ -490,47 +490,35 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// The height, in dp, at or above which [build] switches from the
   /// compact grid to the fuller divided layout — see this file's
   /// "Adaptive full/compact layout" header section for the full mechanism.
-  /// Equal to `bookings_timeline_grid.dart`'s `_kHourH` (one hour of ruled
-  /// space): a booking whose duration-derived floor reaches 60 minutes
-  /// (112dp) or more gets the fuller layout; the 30-/45-minute floors
-  /// (56dp/84dp) stay on the compact grid.
+  /// Equal to [MasterBookingCard.fullLayoutNaturalHeight] (`117dp`, the full
+  /// body's own natural floor at textScaler 1.0): a booking whose
+  /// duration-derived floor reaches `117dp` or more gets the fuller layout;
+  /// anything shorter stays on the compact grid.
   ///
-  /// ## Why 45-minute cards (84dp) do NOT get the full layout — MEASURED,
-  /// 2026-07-21
+  /// ## The 45-minute card DOES get the full layout now — VERTICAL-SCALE
+  /// PASS, 2026-07-24
   ///
-  /// The obvious question this threshold invites is whether it is set too
-  /// high: 84dp is half again the compact card's own box, so a 45-minute
-  /// booking might plausibly afford the fuller shape. It cannot, and the
-  /// answer is a rendered measurement rather than a judgement call.
+  /// This premise INVERTED when `_kHourH` rose to `168`. A 45-minute booking's
+  /// duration-derived floor is now `45/60 * 168 = 126dp`, which is `>= 117`,
+  /// so it selects the fuller layout — and correctly so: at `168` the full
+  /// body's `117dp` natural height fits comfortably inside a 45-minute band's
+  /// `126dp` of ruled space, so the card no longer overshoots its end-time
+  /// line. (At the old `112` scale a 45-minute floor was only `84dp`, below
+  /// the `117dp` body, which is why the earlier pass kept 45-minute cards
+  /// compact to avoid drift; that reasoning is now obsolete.) The threshold is
+  /// set to the full body's own natural floor so a card takes the fuller shape
+  /// exactly when its ruled band can contain it without overhang.
+  ///
   /// [_buildFullBody]'s NATURAL height (the same fixture the compact sweeps
   /// use — a long service name, a frozen RANGE band, a full client name)
-  /// measures:
+  /// measures 117dp at textScaler 1.0 (124dp at 1.15, 132dp at 1.3); it is
+  /// identical at 226 / 266 / 272dp of lane because every row is flex-driven,
+  /// so lane width moves the ellipsis, never the height.
   ///
-  ///   | textScaler | natural height |
-  ///   |------------|----------------|
-  ///   | 1.0        | 117.0dp        |
-  ///   | 1.15       | 124.0dp        |
-  ///   | 1.3        | 132.0dp        |
-  ///
-  /// Identical at 226dp, 266dp and 272dp of lane — every row in that body is
-  /// flex-driven, so lane width moves the ellipsis, never the height.
-  ///
-  /// So the full body overshoots an 84dp box by 33dp at scale 1.0 and by
-  /// 48dp at the app's 1.3 textScaler ceiling. Nothing clips (the box grows —
-  /// see "NO CLIPPING, either branch" above), but a 45-minute card would
-  /// render ~1.4x the ruled space its duration owns, which is precisely the
-  /// "cards drift off their hour line" regression the compact-timeline pass
-  /// existed to remove. The lowest threshold that could ever be correct is
-  /// therefore 117 (the full body's own 1.0 floor), not 84 — and 117 > 112
-  /// means this constant is, if anything, already 5dp generous. Left at 112
-  /// so it stays equal to `_kHourH` by construction; the 5dp is absorbed as
-  /// the same overhang the design already accepts on a 60-minute card.
-  ///
-  /// Pinned by `master_booking_card_test.dart`'s "the 45-minute question"
-  /// group, which renders the full body in an 84dp box and asserts the
-  /// overshoot — so a future attempt to lower this constant fails with the
-  /// measurement attached rather than shipping the drift.
-  static const double _kFullLayoutMinHeight = 112;
+  /// Nothing clips in either branch (the box grows — see "NO CLIPPING, either
+  /// branch" above); this threshold only chooses which layout renders.
+  static const double _kFullLayoutMinHeight =
+      MasterBookingCard.fullLayoutNaturalHeight;
 
   /// Full layout padding — 16dp, matching the approved design's own
   /// `BookingCard` padding (`EdgeInsets.all(VelvetSpacing.md)` in the
