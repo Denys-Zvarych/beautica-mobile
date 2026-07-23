@@ -10,6 +10,7 @@
 //
 // Pure Dart: no ProviderScope, no widget tree.
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:dio/dio.dart';
@@ -17,6 +18,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockDio extends Mock implements Dio {}
+
+class _MockSalonApi extends Mock implements SalonControllerApi {}
+
+class _MockServiceApi extends Mock implements ServiceControllerApi {}
+
+class _MockReviewApi extends Mock implements ReviewControllerApi {}
+
+class _MockMediaApi extends Mock implements MediaControllerApi {}
 
 Response<Map<String, dynamic>> _okEnvelope() => Response<Map<String, dynamic>>(
   requestOptions: RequestOptions(path: '/api/v1/salons'),
@@ -30,7 +39,13 @@ void main() {
 
   setUp(() {
     dio = _MockDio();
-    repository = HttpSalonRepository(dio);
+    repository = HttpSalonRepository(
+      dio,
+      _MockSalonApi(),
+      _MockServiceApi(),
+      _MockReviewApi(),
+      _MockMediaApi(),
+    );
   });
 
   group('SalonCreateDto.toJson', () {

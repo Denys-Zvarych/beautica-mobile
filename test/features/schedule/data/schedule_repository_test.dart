@@ -166,6 +166,86 @@ void main() {
         );
       },
     );
+
+    // Phase 15.6 — pin the guard on listOverrides for the INVERTED case too. The
+    // existing >366-day test covers listOverrides' upper bound; this adds the
+    // ordering half so BOTH range methods reject BOTH invariants before any call.
+    test('listOverrides inverted range rejects before any API call', () async {
+      await expectLater(
+        repository.listOverrides(DateTime(2026, 6, 10), DateTime(2026, 6, 1)),
+        rejectsBeforeCall,
+      );
+
+      verifyNever(
+        () => masterApi.getOverrides(
+          masterId: any(named: 'masterId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      );
+    });
+
+    // Phase 15.6 — the guard's ACCEPT path: a normal in-bounds window (and the
+    // exact 366-day boundary, which is inclusive) must pass through to the API.
+    // Without this, all three guard tests above would still pass if the guard
+    // rejected EVERYTHING — this proves it admits the valid range.
+    test('a normal month range passes the guard and reaches the API', () async {
+      when(
+        () => masterApi.getEffectiveSchedule(
+          masterId: any(named: 'masterId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseListEffectiveDayResponse>(
+          data: ApiResponseListEffectiveDayResponse((b) => b..success = true),
+          requestOptions: RequestOptions(path: _path),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.effectiveSchedule(
+        DateTime(2026, 6, 1),
+        DateTime(2026, 6, 30),
+      );
+
+      verify(
+        () => masterApi.getEffectiveSchedule(
+          masterId: any(named: 'masterId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).called(1);
+    });
+
+    test(
+      'the inclusive 366-day boundary is accepted (reaches the API)',
+      () async {
+        when(
+          () => masterApi.getOverrides(
+            masterId: any(named: 'masterId'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer(
+          (_) async => _overridesEnvelope(const <ScheduleOverrideResponse>[]),
+        );
+
+        final from = DateTime(2026, 1, 1);
+        // Exactly kMaxScheduleRangeDays apart → span == 366 → on the inclusive bound.
+        final to = from.add(const Duration(days: kMaxScheduleRangeDays));
+
+        await repository.listOverrides(from, to);
+
+        verify(
+          () => masterApi.getOverrides(
+            masterId: any(named: 'masterId'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).called(1);
+      },
+    );
   });
 
   group('listOverrides — happy path', () {
@@ -217,6 +297,152 @@ void main() {
         DateTime(2026, 6, 30),
       );
       expect(overrides, isEmpty);
+    });
+  });
+
+  group('clearOverride — happy path', () {
+    test(
+      'DELETEs the override on the given date and completes (void)',
+      () async {
+        when(
+          () => masterApi.clearOverride(
+            masterId: any(named: 'masterId'),
+            date: any(named: 'date'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<ApiResponseVoid>(
+            data: ApiResponseVoid((b) => b..success = true),
+            requestOptions: RequestOptions(
+              path: '/api/v1/masters/$_masterId/overrides',
+            ),
+            statusCode: 200,
+          ),
+        );
+
+        await expectLater(
+          repository.clearOverride(DateTime(2026, 6, 10)),
+          completes,
+        );
+
+        // The DateTime's year/month/day must reach the API as the wire Date,
+        // addressed to this master.
+        verify(
+          () => masterApi.clearOverride(
+            masterId: _masterId,
+            date: Date(2026, 6, 10),
+          ),
+        ).called(1);
+      },
+    );
+
+    test('connectionError → NetworkFailure', () async {
+      when(
+        () => masterApi.clearOverride(
+          masterId: any(named: 'masterId'),
+          date: any(named: 'date'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(
+            path: '/api/v1/masters/$_masterId/overrides',
+          ),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.clearOverride(DateTime(2026, 6, 10)),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('empty masterId → UnauthorizedFailure, no API call', () async {
+      final unauthRepo = HttpScheduleRepository(
+        masterApi: masterApi,
+        masterId: '',
+      );
+
+      await expectLater(
+        unauthRepo.clearOverride(DateTime(2026, 6, 10)),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+
+      verifyNever(
+        () => masterApi.clearOverride(
+          masterId: any(named: 'masterId'),
+          date: any(named: 'date'),
+        ),
+      );
+    });
+  });
+
+  group('deleteWeeklySchedule — happy path', () {
+    test(
+      'DELETEs the template by id for this master and completes (void)',
+      () async {
+        when(
+          () => masterApi.deleteWeeklySchedule(
+            masterId: any(named: 'masterId'),
+            scheduleId: any(named: 'scheduleId'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<ApiResponseVoid>(
+            data: ApiResponseVoid((b) => b..success = true),
+            requestOptions: RequestOptions(path: _weeklyPath),
+            statusCode: 200,
+          ),
+        );
+
+        await expectLater(
+          repository.deleteWeeklySchedule('sched-42'),
+          completes,
+        );
+
+        verify(
+          () => masterApi.deleteWeeklySchedule(
+            masterId: _masterId,
+            scheduleId: 'sched-42',
+          ),
+        ).called(1);
+      },
+    );
+
+    test('connectionError → NetworkFailure', () async {
+      when(
+        () => masterApi.deleteWeeklySchedule(
+          masterId: any(named: 'masterId'),
+          scheduleId: any(named: 'scheduleId'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _weeklyPath),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.deleteWeeklySchedule('sched-42'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('empty masterId → UnauthorizedFailure, no API call', () async {
+      final unauthRepo = HttpScheduleRepository(
+        masterApi: masterApi,
+        masterId: '',
+      );
+
+      await expectLater(
+        unauthRepo.deleteWeeklySchedule('sched-42'),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+
+      verifyNever(
+        () => masterApi.deleteWeeklySchedule(
+          masterId: any(named: 'masterId'),
+          scheduleId: any(named: 'scheduleId'),
+        ),
+      );
     });
   });
 

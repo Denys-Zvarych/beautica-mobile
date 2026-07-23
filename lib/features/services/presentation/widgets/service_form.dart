@@ -11,7 +11,7 @@
 //   modes. Dirty-state tracking includes the selected category.
 // Phase 5.6 — Flexible pricing: replaced the single price field with
 //   [PricingField] — a two-mode segmented control (Фіксована / Діапазон).
-//   - FIXED mode: one "Сума" amount field with "грн" suffix.
+//   - FIXED mode: one "Сума" amount field with "₴" suffix.
 //   - RANGE mode: side-by-side "Від" / "До" fields with an inline range error hint.
 //   - Edit form pre-fills the toggle + fields from [MasterService.priceType],
 //     [priceMin], [priceMax].
@@ -43,6 +43,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/pricing_f
 import 'package:beautica_mobile/features/services/presentation/widgets/searchable_select_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
 import 'package:flutter/material.dart';
@@ -142,7 +143,9 @@ class ServiceForm extends StatefulWidget {
         ? selectedTypeCategory
         : previousCategory;
     if (typeCategory == null || typeCategory.isEmpty) return true;
-    return typeCategory != newCategory;
+    // Slug-safe comparison: keep-on-same-category, but immune to case/whitespace
+    // drift (e.g. 'BROWS ' vs 'BROWS'). Clear only on a genuine category change.
+    return !categorySlugMatches(typeCategory, newCategory);
   }
 
   /// Edit-flow hardening rule (Phase 16.5). Decides whether the name field
@@ -164,6 +167,59 @@ class ServiceForm extends StatefulWidget {
   @override
   State<ServiceForm> createState() => _ServiceFormState();
 }
+
+/// The whole-hryvnia seed text for one price [TextEditingController] on the
+/// EDIT flow, or `''` when the stored figure cannot be stated honestly.
+///
+/// ## Why the gate
+///
+/// Every figure passes [renderableWholePrice] — the shared, int-coercing price
+/// gate in `shared/formatters/booking_price_labels.dart`, the same one the two
+/// discovery search cards use — before it is stringified. The bound is NOT
+/// re-derived here; there is one predicate for the whole app.
+///
+/// This used to be a bare `initial!.priceMin.toInt().toString()`, and
+/// `double.toInt()` fails the identical two ways `double.round()` does:
+///
+///   * it THROWS `UnsupportedError: Infinity or NaN toInt` on a non-finite
+///     value, and
+///   * it silently SATURATES to `9223372036854775807` at/above 2^63 — so `1e20`
+///     and `1e30` both seed that fabricated figure while passing
+///     `isRenderablePrice`, whose ceiling is calibrated for
+///     `toStringAsFixed(0)` (1e21), not for int coercion.
+///
+/// Both are reachable from the wire: `MasterServiceMapper` passes the decoded
+/// `num` straight through as `.toDouble()`, unclamped and by documented design
+/// (`master_service_mapper.dart`), and `jsonDecode('1e400')` yields
+/// `double.infinity` WITHOUT throwing. The throw is the worse mode on THIS
+/// surface — it happens inside `initState()`, so the master's own service-edit
+/// screen would fail to build at all rather than merely misprint a number.
+///
+/// ## Why the fallback is EMPTY, not a placeholder
+///
+/// This seeds an editable controller, not a read-only label. Anything printed
+/// here is a value the master can save back verbatim, so the usual
+/// [priceUnavailableLabel] («—») and a `0` fallback are both worse than nothing:
+/// `0` would silently overwrite the server's real price with a fabricated one,
+/// and «—» would sit in a numeric field looking like data.
+///
+/// Empty is the one seed the form already REFUSES to submit — `_pricingValid`
+/// requires a non-blank amount that clears `validatePriceAmount`, so an
+/// unstatable stored price blocks Save behind the ordinary "вкажіть ціну"
+/// required error until the master retypes a clean figure, and the save then
+/// writes exactly what they typed. Display and save therefore never disagree:
+/// what is shown (nothing) is what would be sent (nothing — submit is blocked).
+///
+/// The BASELINE is seeded from this same helper, so the form opens un-dirty and
+/// the master's first keystroke is what marks it dirty.
+///
+/// Rounding (`renderableWholePrice` uses `round()`) also brings the seed into
+/// line with the read-only `ServicePriceDisplay`, which renders the same stored
+/// figure with `toStringAsFixed(0)`: a stored `300.99` now pre-fills `301` as
+/// the service card already displayed it, instead of the old `toInt()`
+/// truncation's `300`.
+String _priceSeed(double? value) =>
+    renderableWholePrice(value)?.toString() ?? '';
 
 class _ServiceFormState extends State<ServiceForm> {
   static const _tag = 'feature.services.form';
@@ -236,12 +292,14 @@ class _ServiceFormState extends State<ServiceForm> {
   String? _selectedCategory;
 
   /// Currently selected platform service-type id (Phase 16.3). Null = the
-  /// master has not chosen a service type (the picker is optional). Submitted
-  /// as [MasterServiceCreate.serviceTypeId]; a null value sends no type.
+  /// master has not chosen a service type yet. Submitted as
+  /// [MasterServiceCreate.serviceTypeId].
   ///
-  /// The picker UI that drives this lives in Phase 16.4 — it calls
-  /// [onServiceTypeSelected] / [clearServiceType]; this phase only wires the
-  /// behavior.
+  /// On CREATE the type is mandatory (backend `@NotNull`): [_serviceTypeError]
+  /// raises a required error and [_isValid] blocks submit while this is null.
+  /// On EDIT the PATCH leaves an unchanged type alone, so a null here is
+  /// tolerated. The picker drives this via [onServiceTypeSelected] /
+  /// [clearServiceType].
   String? _selectedServiceTypeId;
 
   /// Ukrainian name of the currently-selected service type. Captured alongside
@@ -303,21 +361,16 @@ class _ServiceFormState extends State<ServiceForm> {
     _baselinePricingMode = initial?.priceType ?? ServicePriceType.fixed;
 
     // Seed pricing baseline from the loaded service.
-    // priceMin is the canonical floor for both modes; display as integer.
-    _baselinePriceFixed =
-        (initial?.priceType == ServicePriceType.fixed &&
-            initial?.priceMin != null)
-        ? initial!.priceMin.toInt().toString()
+    // priceMin is the canonical floor for both modes; display as whole ₴ via
+    // [_priceSeed], which routes every figure through the SHARED price gate.
+    _baselinePriceFixed = initial?.priceType == ServicePriceType.fixed
+        ? _priceSeed(initial?.priceMin)
         : '';
-    _baselinePriceMin =
-        (initial?.priceType == ServicePriceType.range &&
-            initial?.priceMin != null)
-        ? initial!.priceMin.toInt().toString()
+    _baselinePriceMin = initial?.priceType == ServicePriceType.range
+        ? _priceSeed(initial?.priceMin)
         : '';
-    _baselinePriceMax =
-        (initial?.priceType == ServicePriceType.range &&
-            initial?.priceMax != null)
-        ? initial!.priceMax!.toInt().toString()
+    _baselinePriceMax = initial?.priceType == ServicePriceType.range
+        ? _priceSeed(initial?.priceMax)
         : '';
 
     _selectedCategory = initial?.category;
@@ -330,6 +383,14 @@ class _ServiceFormState extends State<ServiceForm> {
     _baselineServiceTypeId = initial?.serviceTypeId;
     _selectedServiceTypeId = initial?.serviceTypeId;
     _selectedServiceTypeNameUk = initial?.serviceTypeNameUk;
+    // Phase 16.5 pre-seed gap fix: the loaded service's category IS the parent
+    // category of its service type by construction, so carry it from the first
+    // frame. Without this the compatibility check on the very first category
+    // change would fall back to the (then-still-equal) previous category and
+    // never recognise an orphaning change. Null in create mode (no initial).
+    _selectedServiceTypeCategory = initial?.serviceTypeId != null
+        ? initial?.category
+        : null;
     _pricingMode = _baselinePricingMode;
 
     _nameCtrl = TextEditingController(text: _baselineName);
@@ -388,12 +449,31 @@ class _ServiceFormState extends State<ServiceForm> {
     );
   }
 
-  /// Inline error for the service type, sourced solely from the backend
-  /// cross-field validation (Phase 16.3 — e.g. the chosen type does not belong
-  /// to the selected category). There is no client-side validator because the
-  /// service type is optional; the error is purely the mapped-back
-  /// `serviceTypeId` server message. Null when there is none.
-  String? _serviceTypeError() => _serverFieldErrors['serviceTypeId'];
+  /// Inline error for the service type.
+  ///
+  /// Two sources, in precedence order:
+  ///   1. The mapped-back `serviceTypeId` server message (Phase 16.3 cross-field
+  ///      validation — e.g. the chosen type does not belong to the selected
+  ///      category, or a contract-drift 400). Always wins when present.
+  ///   2. A client-side REQUIRED check — the service type is mandatory on CREATE
+  ///      (backend `CreateServiceDefinitionRequest.serviceTypeId` is `@NotNull`;
+  ///      the DB column is NOT NULL). Surfaces after the first submit attempt
+  ///      when no type is selected, mirroring `_categoryError`. In EDIT mode the
+  ///      picker stays optional (PATCH `UpdateServiceDefinitionRequest`
+  ///      `serviceTypeId` = null means "leave unchanged"), so no required error
+  ///      is raised.
+  ///
+  /// Null when there is no error.
+  String? _serviceTypeError(AppLocalizations l10n) {
+    final String? server = _serverFieldErrors['serviceTypeId'];
+    if (server != null) return server;
+    // Required only on create; edit uses PATCH "no change" semantics.
+    if (widget.initial != null) return null;
+    if (!_submitted) return null;
+    return (_selectedServiceTypeId == null || _selectedServiceTypeId!.isEmpty)
+        ? l10n.serviceTypeRequired
+        : null;
+  }
 
   /// Name-controller listener. Behaves exactly like `_onChanged('name')` for
   /// re-validation / dirty tracking, but additionally resets
@@ -617,6 +697,9 @@ class _ServiceFormState extends State<ServiceForm> {
       _durationError(l10n) == null &&
       _pricingValid(l10n) &&
       _categoryError(l10n) == null &&
+      // Service type is mandatory on create (backend @NotNull); blocks submit
+      // client-side so the user gets an inline error instead of a 400 round-trip.
+      _serviceTypeError(l10n) == null &&
       _durationCtrl.text.trim().isNotEmpty;
 
   // --- Submit ---------------------------------------------------------------
@@ -693,6 +776,29 @@ class _ServiceFormState extends State<ServiceForm> {
       }
       final Map<String, String> mapped = _mapServerFieldErrors(f.fieldErrors);
       if (mapped.isEmpty) {
+        // Phase 16.5 safety net: the backend hardened category-only edits to
+        // return a fieldless 400 ("service type does not belong to the selected
+        // category") when a category change orphans the still-selected type.
+        // That carries NO `errors` map, so it lands here. When we can attribute
+        // it — a type is still selected AND the category was changed (dirty) —
+        // surface a localized inline error on the service-type field instead of
+        // the raw English server message. The gate is structural (not a string
+        // match on the English text), so any OTHER future business 400 still
+        // falls through to the generic snackbar below.
+        final bool typeSelected = _selectedServiceTypeId != null;
+        final bool categoryDirty = _selectedCategory != _baselineCategory;
+        if (typeSelected && categoryDirty) {
+          if (mounted) {
+            setState(() {
+              _serverFieldErrors = Map<String, String>.unmodifiable(
+                <String, String>{
+                  'serviceTypeId': l10n.serviceTypeCategoryMismatch,
+                },
+              );
+            });
+          }
+          return;
+        }
         // No recognised field — surface the backend's generic message (or a
         // localized fallback) as a snackbar so the submit never dies silently.
         if (context.mounted) {
@@ -877,7 +983,7 @@ class _ServiceFormState extends State<ServiceForm> {
           ValueListenableBuilder<int>(
             valueListenable: _revalidateTick,
             builder: (BuildContext context, _, _) =>
-                _ServiceTypeError(errorText: _serviceTypeError()),
+                _ServiceTypeError(errorText: _serviceTypeError(l10n)),
           ),
         ],
         const SizedBox(height: VelvetSpacing.lg),

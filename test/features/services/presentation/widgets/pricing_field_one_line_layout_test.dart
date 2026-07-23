@@ -5,13 +5,15 @@
 //        FIXED = [duration | price]        — 2 equal Expanded slots
 //        RANGE = [duration | min – max]    — 3 equal Expanded slots (the
 //                separator '–' is non-Expanded between min and max)
-//   2. hideSuffixWhenActive=true on price fields: "грн" hides while the field
-//      is focused OR has text. hideSuffixWhenActive=false on the duration well:
-//      "хв" is always visible. (Suffix-absence tests for the "type then gone"
-//      path live here; the no-overlap + vertical-growth suite lives in
+//   2. hideSuffixWhenActive=true on price fields: the currency suffix (l10n
+//      `pricingCurrencySuffix`, "₴") hides while the field is focused OR has
+//      text. hideSuffixWhenActive=false on the duration well: "хв" is always
+//      visible. (Suffix-absence tests for the "type then gone" path live
+//      here; the no-overlap + vertical-growth suite lives in
 //      pricing_field_clipping_test.dart.)
 //   3. A '–' en-dash separator appears between min and max in RANGE mode.
-//   4. A value typed while "грн" is hidden still submits the correct amount.
+//   4. A value typed while the currency suffix is hidden still submits the
+//      correct amount.
 //
 // All tests use PricingField directly (no full ServiceForm pump needed), except
 // the submit-value test which pumps a minimal ServiceForm.
@@ -31,6 +33,8 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -50,13 +54,19 @@ class _MockServiceRepository extends Mock implements ServiceRepository {}
 class _FakeMasterServiceCreate extends Fake implements MasterServiceCreate {}
 
 /// Stub MasterService returned by the mock on a successful create call.
+///
+/// `priceDisplay` mirrors the raw server-formatted string
+/// (`PriceDisplayFormatter` in beautica-backend now appends " ₴", matching
+/// the mobile client's own formatters). This fixture is never
+/// rendered/asserted in this file; it only needs to be a plausible mock
+/// repository return value.
 const _kStubService = MasterService(
   id: 'svc-layout-test',
   serviceDefId: 'def-layout-test',
   name: 'Тест',
   durationMinutes: 60,
   priceMin: 750,
-  priceDisplay: '750 грн',
+  priceDisplay: '750 ₴',
 );
 
 // ---------------------------------------------------------------------------
@@ -133,6 +143,12 @@ _pumpPricingField(
   );
 }
 
+// approvedCategoriesProvider is overridden in _pumpServiceForm (it fetches via
+// categoryRequestApi, not the repo).
+const _kCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+];
+
 /// Pumps a [ServiceForm] inside a ProviderScope (needed for category provider).
 Future<void> _pumpServiceForm(
   WidgetTester tester, {
@@ -146,7 +162,15 @@ Future<void> _pumpServiceForm(
 
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        serviceRepositoryProvider.overrideWithValue(repo),
+        approvedCategoriesProvider.overrideWith((ref) async => _kCategories),
+        // Selecting a category mounts the service-type picker → stub the
+        // provider so no un-mocked repository fetch fires in-tree.
+        serviceTypesProvider.overrideWith(
+          (ref, String categoryName) async => const <ServiceTypeOption>[],
+        ),
+      ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -160,12 +184,34 @@ Future<void> _pumpServiceForm(
   await tester.pump();
 }
 
+/// Selects the mandatory service type (create requires one) via the form State.
+/// Call AFTER the category is selected.
+Future<void> _selectServiceType(WidgetTester tester) async {
+  final dynamic state = tester.state(find.byType(ServiceForm));
+  state.onServiceTypeSelected(
+    const ServiceTypeOption(
+      id: 'stype-manicure',
+      slug: 'MANICURE_A',
+      nameUk: 'Класичний манікюр',
+      categoryName: 'MANICURE',
+    ),
+  );
+  await tester.pump();
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 void main() {
   setUpAll(() => registerFallbackValue(_FakeMasterServiceCreate()));
+
+  // Resolve the price-field currency suffix from l10n rather than hardcoding
+  // the literal — the "hide-suffix-on-type" and "submit value intact" groups
+  // below assert against this single source of truth.
+  final String priceSuffix = lookupAppLocalizations(
+    const Locale('uk'),
+  ).pricingCurrencySuffix;
 
   // ==========================================================================
   // 1. ONE-LINE LAYOUT — duration and price field(s) share a single Row.
@@ -392,14 +438,15 @@ void main() {
   });
 
   // ==========================================================================
-  // 3. HIDE-SUFFIX-ON-TYPE — "грн" hides as soon as the price field has text.
-  //    The full cycle: empty → грн present; enter text → absent; clear → present.
-  //    Duration "хв" stays present in all three states.
+  // 3. HIDE-SUFFIX-ON-TYPE — the currency suffix hides as soon as the price
+  //    field has text. The full cycle: empty → suffix present; enter text →
+  //    absent; clear → present. Duration "хв" stays present in all three
+  //    states.
   // ==========================================================================
-  group('hide-грн-on-type cycle', () {
+  group('hide-suffix-on-type cycle', () {
     testWidgets(
-      'price field FIXED: грн present when empty, absent after typing, '
-      'present after clearing; хв always present',
+      'price field FIXED: currency suffix present when empty, absent after '
+      'typing, present after clearing; хв always present',
       (tester) async {
         final handles = await _pumpPricingField(
           tester,
@@ -410,15 +457,17 @@ void main() {
 
         final priceSuffixUnder = find.descendant(
           of: find.byKey(priceKey),
-          matching: find.text('грн'),
+          matching: find.text(priceSuffix),
         );
         final durSuffixAll = find.text('хв');
 
-        // ── (a) Empty + unfocused: "грн" must be present ─────────────────────
+        // ── (a) Empty + unfocused: currency suffix must be present ──────────
         expect(
           priceSuffixUnder,
           findsOneWidget,
-          reason: 'step a: "грн" must be visible when price field is empty',
+          reason:
+              'step a: the currency suffix must be visible when price field '
+              'is empty',
         );
         expect(
           durSuffixAll,
@@ -426,7 +475,7 @@ void main() {
           reason: 'step a: "хв" must always be visible',
         );
 
-        // ── (b) Enter text: "грн" must disappear ─────────────────────────────
+        // ── (b) Enter text: currency suffix must disappear ──────────────────
         await tester.enterText(
           find.descendant(
             of: find.byKey(priceKey),
@@ -439,7 +488,9 @@ void main() {
         expect(
           priceSuffixUnder,
           findsNothing,
-          reason: 'step b: "грн" must be HIDDEN once the price field has text',
+          reason:
+              'step b: the currency suffix must be HIDDEN once the price '
+              'field has text',
         );
         expect(
           durSuffixAll,
@@ -448,7 +499,7 @@ void main() {
               'step b: "хв" must still be visible after price field has text',
         );
 
-        // ── (c) Clear text: "грн" must return ────────────────────────────────
+        // ── (c) Clear text: currency suffix must return ──────────────────────
         handles.fixedCtrl.clear();
         // Unfocus so hideSuffixWhenActive sees !_focused && !_hasText.
         await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -458,8 +509,8 @@ void main() {
           priceSuffixUnder,
           findsOneWidget,
           reason:
-              'step c: "грн" must be VISIBLE again after the price field is '
-              'cleared and unfocused',
+              'step c: the currency suffix must be VISIBLE again after the '
+              'price field is cleared and unfocused',
         );
         expect(
           durSuffixAll,
@@ -559,90 +610,88 @@ void main() {
   });
 
   // ==========================================================================
-  // 5. SUBMIT VALUE INTACT — a value typed while "грн" is hidden submits the
-  //    correct amount. The suffix hide is purely visual; the controller text
-  //    (and therefore the submitted payload) must carry the typed price.
+  // 5. SUBMIT VALUE INTACT — a value typed while the currency suffix is
+  //    hidden submits the correct amount. The suffix hide is purely visual;
+  //    the controller text (and therefore the submitted payload) must carry
+  //    the typed price.
   // ==========================================================================
-  group('submit value intact when "грн" is hidden', () {
+  group('submit value intact when currency suffix is hidden', () {
     late _MockServiceRepository repo;
 
     setUp(() {
       repo = _MockServiceRepository();
-      when(() => repo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ],
-      );
       when(() => repo.create(any())).thenAnswer((_) async => _kStubService);
     });
 
-    testWidgets(
-      'FIXED: price typed while "грн" is hidden submits the correct amount',
-      (tester) async {
-        MasterServiceCreate? captured;
-        await _pumpServiceForm(
-          tester,
-          onSubmit: (input) async => captured = input,
-          repo: repo,
-        );
+    testWidgets('FIXED: price typed while currency suffix is hidden submits the '
+        'correct amount', (tester) async {
+      MasterServiceCreate? captured;
+      await _pumpServiceForm(
+        tester,
+        onSubmit: (input) async => captured = input,
+        repo: repo,
+      );
 
-        // Enter duration so validation passes.
-        await tester.enterText(
-          find.descendant(
-            of: find.byKey(const Key('field-service-duration')),
-            matching: find.byType(TextField),
-          ),
-          '60',
-        );
-
-        // Enter price — at this point "грн" hides (field has text).
-        final priceFieldFinder = find.descendant(
-          of: find.byKey(const Key('pricing-fixed-amount')),
+      // Enter duration so validation passes.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
           matching: find.byType(TextField),
-        );
-        await tester.enterText(priceFieldFinder, '750');
-        await tester.pump();
+        ),
+        '60',
+      );
 
-        // Verify "грн" is hidden now (confirming hideSuffixWhenActive is active).
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('pricing-fixed-amount')),
-            matching: find.text('грн'),
-          ),
-          findsNothing,
-          reason:
-              'precondition: "грн" must be hidden while the price field has '
-              'text (otherwise the suffix-hide feature is not exercised)',
-        );
+      // Enter price — at this point the currency suffix hides (field has text).
+      final priceFieldFinder = find.descendant(
+        of: find.byKey(const Key('pricing-fixed-amount')),
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(priceFieldFinder, '750');
+      await tester.pump();
 
-        // Select category to pass the category validator.
-        await selectCategoryOption(tester, 'MANICURE');
+      // Verify the suffix is hidden now (confirming hideSuffixWhenActive is
+      // active).
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('pricing-fixed-amount')),
+          matching: find.text(priceSuffix),
+        ),
+        findsNothing,
+        reason:
+            'precondition: the currency suffix must be hidden while the '
+            'price field has text (otherwise the suffix-hide feature is '
+            'not exercised)',
+      );
 
-        // Tap submit.
-        await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
-        await tester.pump();
-        await tester.tap(find.byKey(const Key('btn-submit-service')));
-        await tester.pumpAndSettle();
+      // Select category to pass the category validator.
+      await selectCategoryOption(tester, 'MANICURE');
+      await _selectServiceType(tester);
 
-        // The submitted payload must carry the typed price — the suffix hide is
-        // purely visual and must not affect the value in the controller.
-        expect(
-          captured,
-          isNotNull,
-          reason: 'onSubmit must be called when the form is valid',
-        );
-        expect(
-          captured!.price,
-          750.0,
-          reason:
-              'the submitted price must be 750 regardless of whether "грн" '
-              'was visible at the time of submission',
-        );
-      },
-    );
+      // Tap submit.
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pumpAndSettle();
+
+      // The submitted payload must carry the typed price — the suffix hide is
+      // purely visual and must not affect the value in the controller.
+      expect(
+        captured,
+        isNotNull,
+        reason: 'onSubmit must be called when the form is valid',
+      );
+      expect(
+        captured!.price,
+        750.0,
+        reason:
+            'the submitted price must be 750 regardless of whether the '
+            'currency suffix was visible at the time of submission',
+      );
+    });
 
     testWidgets(
-      'RANGE: prices typed while "грн" is hidden submit correct min/max amounts',
+      'RANGE: prices typed while currency suffix is hidden submit correct '
+      'min/max amounts',
       (tester) async {
         MasterServiceCreate? captured;
         await _pumpServiceForm(
@@ -684,6 +733,7 @@ void main() {
 
         // Select category.
         await selectCategoryOption(tester, 'MANICURE');
+        await _selectServiceType(tester);
 
         // Submit.
         await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));

@@ -1,4 +1,6 @@
 // Phase 2.13 — Forgot Password (request) screen — VelvetTouch redesign.
+// Beautica OTP task (Phase B3) — replaces the old email-link confirmation
+// state with navigation to the OTP verification screen.
 //
 // SOURCE OF TRUTH:
 //   docs/signup-designs/VelvetTouchDesign/lib/screens/forgot_password_screen.dart
@@ -13,22 +15,23 @@
 //   - ConsumerStatefulWidget + ConsumerState
 //   - ScreenProtector lifecycle (has an email field)
 //   - AuthNotifier.requestPasswordReset(email) call
-//   - _linkSent toggle (form → confirmation on any successful non-throwing call)
 //   - _inlineError for genuine transport / server errors
 //   - _submit() + _backToLogin() navigation logic
 //   - AppLocalizations for all user-visible strings
 //   - RouteNames.login navigation via context.go()
 //   - validateEmail() inline validation (no Form + GlobalKey)
 //
-// Anti-enumeration: confirmation copy is identical whether or not the account
-// exists. The backend always returns a generic 200; the screen shows
-// confirmation on ANY non-throwing call.
+// Beautica OTP task change: this screen is now SINGLE-STATE (form only). A
+// successful `POST /auth/forgot-password` no longer flips to an in-screen
+// "check your email for a link" confirmation — it navigates straight to
+// `ResetOtpVerificationScreen` (the same generic anti-enumeration guarantee
+// still holds: the backend always returns a generic 200 regardless of
+// whether the account exists, so navigation itself reveals nothing).
 //
 // Widget keys (ValueKey<String>):
 //   'forgot_email'         — email NeumorphicTextField
-//   'forgot_submit'        — send CTA (form state)
-//   'forgot_preview_reset' — "У мене є посилання" CTA (sent state)
-//   'auth_scaffold_back'   — top-left back button (AuthScaffold, all states)
+//   'forgot_submit'        — send CTA
+//   'auth_scaffold_back'   — top-left back button (AuthScaffold)
 
 import 'dart:developer';
 
@@ -39,7 +42,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/security/screen_protection.dart';
-import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
@@ -49,12 +51,15 @@ import '../../../shared/validators/email_validator.dart';
 import 'auth_notifier.dart';
 import 'widgets/auth_scaffold.dart';
 
-/// Forgot-password request screen — Phase 2.13 VelvetTouch.
+/// Forgot-password request screen — Phase 2.13 VelvetTouch; Beautica OTP task
+/// Phase B3.
 ///
-/// Two states on one screen:
-///   A — email entry + "Надіслати посилання" CTA.
-///   B — generic anti-enumeration confirmation (medallion, spam hint,
-///       "У мене є посилання" preview CTA, back-to-login link).
+/// Single state: email entry + "Надіслати код" CTA. On success, navigates to
+/// [RouteNames.resetOtpVerification] carrying the submitted email (a bare
+/// `String`) in `extra` — the anti-enumeration guarantee is preserved because
+/// the backend's `POST /auth/forgot-password` always returns a generic 200
+/// regardless of whether the account exists, so the navigation itself never
+/// discloses anything.
 class ForgotPasswordRequestScreen extends ConsumerStatefulWidget {
   const ForgotPasswordRequestScreen({super.key});
 
@@ -66,9 +71,6 @@ class ForgotPasswordRequestScreen extends ConsumerStatefulWidget {
 class _ForgotPasswordRequestScreenState
     extends ConsumerState<ForgotPasswordRequestScreen> {
   final TextEditingController _emailController = TextEditingController();
-
-  /// True once a request has succeeded → swap to the confirmation state.
-  bool _linkSent = false;
 
   /// True while a forgot-password request is in flight.
   bool _submitting = false;
@@ -117,17 +119,17 @@ class _ForgotPasswordRequestScreenState
     try {
       await ref.read(authProvider.notifier).requestPasswordReset(email);
       if (!mounted) return;
-      setState(() {
-        _submitting = false;
-        _linkSent = true;
-      });
       if (kDebugMode) {
         log(
-          'Forgot-password: showing generic confirmation',
+          'Forgot-password: OTP dispatched, navigating to verification',
           name: 'auth.reset',
           level: 800,
         );
       }
+      await context.push(RouteNames.resetOtpVerification, extra: email);
+      // Reset the in-flight flag on return (e.g. the user swipes back to
+      // this screen) so a second submit is not silently disabled.
+      if (mounted) setState(() => _submitting = false);
     } catch (e) {
       if (!mounted) return;
       final l10n2 = AppLocalizations.of(context);
@@ -165,96 +167,45 @@ class _ForgotPasswordRequestScreenState
     return AuthScaffold(
       showBack: true,
       onBack: _backToLogin,
-      bottomBar: _linkSent
-          ? null
-          : NeumorphicButton(
-              key: const ValueKey<String>('forgot_submit'),
-              label: l10n.forgotPasswordSubmit,
-              loading: _submitting,
-              onPressed: (_submitting || _emailController.text.trim().isEmpty)
-                  ? null
-                  : _submit,
-            ),
-      child: _linkSent ? _success(context, l10n) : _form(l10n),
-    );
-  }
-
-  // ── States ──────────────────────────────────────────────────────────────
-
-  Widget _form(AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        const VelvetHeader(),
-        Text(l10n.forgotPasswordHeadline, style: VelvetText.heading()),
-        const SizedBox(height: VelvetSpacing.sm),
-        Text(l10n.forgotPasswordSubText, style: VelvetText.body()),
-        const SizedBox(height: VelvetSpacing.xl),
-        NeumorphicTextField(
-          key: const ValueKey<String>('forgot_email'),
-          label: l10n.forgotPasswordEmailLabel,
-          controller: _emailController,
-          hintText: l10n.forgotPasswordEmailPlaceholder,
-          keyboardType: TextInputType.emailAddress,
-          textInputAction: TextInputAction.done,
-          maxLength: 255,
-          prefixIcon: const Icon(Icons.alternate_email_rounded),
-          autofillHints: const <String>[AutofillHints.email],
-          errorText: _inlineError,
-          onChanged: (_) {
-            // Single setState coalesces the error clear + CTA enabled-state
-            // rebuild into one markNeedsBuild per keystroke.
-            setState(() {
-              if (_inlineError != null) _inlineError = null;
-            });
-          },
-          onSubmitted: _submitting ? null : (_) => _submit(),
-          enabled: !_submitting,
-        ),
-      ],
-    );
-  }
-
-  Widget _success(BuildContext context, AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        const VelvetHeader(),
-        Center(
-          child: Container(
-            height: 72,
-            width: 72,
-            decoration: const BoxDecoration(
-              color: BrandColors.base,
-              shape: BoxShape.circle,
-              boxShadow: VelvetShadows.extrudedSmall,
-            ),
-            child: const Icon(
-              Icons.send_rounded,
-              color: BrandColors.success,
-              size: 28,
-            ),
+      bottomBar: NeumorphicButton(
+        key: const ValueKey<String>('forgot_submit'),
+        label: l10n.forgotPasswordSubmit,
+        loading: _submitting,
+        onPressed: (_submitting || _emailController.text.trim().isEmpty)
+            ? null
+            : _submit,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const VelvetHeader(),
+          Text(l10n.forgotPasswordHeadline, style: VelvetText.heading()),
+          const SizedBox(height: VelvetSpacing.sm),
+          Text(l10n.forgotPasswordSubText, style: VelvetText.body()),
+          const SizedBox(height: VelvetSpacing.xl),
+          NeumorphicTextField(
+            key: const ValueKey<String>('forgot_email'),
+            label: l10n.forgotPasswordEmailLabel,
+            controller: _emailController,
+            hintText: l10n.forgotPasswordEmailPlaceholder,
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.done,
+            maxLength: 255,
+            prefixIcon: const Icon(Icons.alternate_email_rounded),
+            autofillHints: const <String>[AutofillHints.email],
+            errorText: _inlineError,
+            onChanged: (_) {
+              // Single setState coalesces the error clear + CTA enabled-state
+              // rebuild into one markNeedsBuild per keystroke.
+              setState(() {
+                if (_inlineError != null) _inlineError = null;
+              });
+            },
+            onSubmitted: _submitting ? null : (_) => _submit(),
+            enabled: !_submitting,
           ),
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-        Text(
-          l10n.forgotPasswordConfirmTitle,
-          style: VelvetText.heading(),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: VelvetSpacing.sm),
-        Text(
-          l10n.forgotPasswordConfirmDesc,
-          style: VelvetText.body(),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: VelvetSpacing.xl),
-        NeumorphicButton(
-          key: const ValueKey<String>('forgot_preview_reset'),
-          label: l10n.forgotPasswordResendLink,
-          onPressed: () => context.go(RouteNames.resetPassword),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

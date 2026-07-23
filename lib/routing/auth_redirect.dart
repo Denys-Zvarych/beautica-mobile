@@ -31,6 +31,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/app_start_time.dart';
+import 'role_home.dart';
 import 'route_names.dart';
 
 /// Guaranteed minimum time the animated splash wordmark is visible.
@@ -91,10 +92,13 @@ String? authRedirectForLocation(
   // + /register/step-3. They are all unauthenticated-only and treated as the
   // same auth-route surface as /register.
   //
-  // Phase 2.13 — the forgot-password flow (/forgot-password + /reset-password)
-  // is likewise unauthenticated-only. /reset-password is reached via the
-  // emailed deep link with a `?token=` query param; matchedLocation strips the
-  // query string, so it matches RouteNames.resetPassword here.
+  // Phase 2.13 / Beautica OTP task Phase B — the forgot-password flow
+  // (/forgot-password + /reset-password/otp) is unauthenticated-only.
+  // /reset-password/otp now receives the submitted email via in-app
+  // navigation `extra` rather than being reached from an emailed link
+  // directly. NOTE: /reset-password (the final "set new password" step) is
+  // deliberately NOT listed here — see [isAtDualAccessResetPasswordRoute]
+  // below, since that screen is also reachable authenticated.
   //
   // Phase 2.20 — /invite/accept is unauthenticated-only. It is reached from
   // the emailed invite deep link (`/invite/accept?token=...`). Once the user
@@ -108,12 +112,25 @@ String? authRedirectForLocation(
       location == RouteNames.registerStep2 ||
       location == RouteNames.registerStep3 ||
       location == RouteNames.forgotPassword ||
-      location == RouteNames.resetPassword ||
+      location == RouteNames.resetOtpVerification ||
       location == RouteNames.acceptInvite;
+
+  // Beautica OTP task Phase B4/B5 — /reset-password ("set new password") is
+  // reachable by BOTH unauthenticated users (the forgot-password OTP flow)
+  // and authenticated users (the settings change-password flow) —
+  // `ResetPasswordScreen` is the SAME widget for both, distinguished only by
+  // the `fromChangePassword` flag carried in its `ResetPasswordArgs` extra.
+  // Mirrors [isAtPostRegisterRoute]'s rationale: an authenticated user here
+  // must NOT be bounced to /home, so this is excluded from the strict
+  // "authenticated + unauthOnlyRoute → role home" rule below.
+  final isAtDualAccessResetPasswordRoute = location == RouteNames.resetPassword;
 
   // Routes where an unauthenticated user may remain once session has settled.
   // /splash is NOT included — it is only valid while session.isLoading is true.
-  final isAtAuthRoute = isAtUnauthOnlyRoute || isAtPostRegisterRoute;
+  final isAtAuthRoute =
+      isAtUnauthOnlyRoute ||
+      isAtPostRegisterRoute ||
+      isAtDualAccessResetPasswordRoute;
 
   // While the session is resolving, do NOT yank a user off an auth route they
   // are already on. This matters for the registration wizard: register()
@@ -168,15 +185,18 @@ String? authRedirectForLocation(
   // finish verification, instead of being yanked away before they can enter the
   // OTP.
   //
-  // Role dispatch (Phase 4.2):
+  // Role dispatch (Phase 4.2 + Phase 13.1):
   //   INDEPENDENT_MASTER → /master/profile (the Phase 4 master home screen)
+  //   CLIENT             → /home (the Phase 13.1 5-tab client shell landing)
   //   all other roles    → / (home shell, shows a "coming soon" screen)
+  //
+  // This is the single source of truth for post-login landing — both this gate
+  // and the post-login `context.go` in login_screen.dart resolve the landing
+  // path through the shared [roleHomePath] helper, so the dispatch can never
+  // drift between the two sites.
   if (isAuthenticated && (isAtUnauthOnlyRoute || isAtSplash)) {
     final auth = session.value as Authenticated;
-    return switch (auth.user.role) {
-      UserRole.independentMaster => RouteNames.masterProfile,
-      _ => RouteNames.home,
-    };
+    return roleHomePath(auth.user.role);
   }
 
   // Role gate: /services/* is only accessible to INDEPENDENT_MASTER.
@@ -188,7 +208,7 @@ String? authRedirectForLocation(
   if (isAuthenticated && location.startsWith('/services')) {
     final Authenticated auth = session.value! as Authenticated;
     if (auth.user.role != UserRole.independentMaster) {
-      return RouteNames.home;
+      return roleHomePath(auth.user.role);
     }
   }
 
@@ -202,7 +222,79 @@ String? authRedirectForLocation(
   if (isAuthenticated && location.startsWith('/master/')) {
     final Authenticated auth = session.value! as Authenticated;
     if (auth.user.role != UserRole.independentMaster) {
-      return RouteNames.home;
+      return roleHomePath(auth.user.role);
+    }
+  }
+
+  // Role gate (Phase 15.6 — OQ-2 hardening): the schedule EDIT surfaces are
+  // INDEPENDENT_MASTER-only in MVP. `/schedule` (MasterScheduleScreen) already
+  // gates every edit affordance on `scheduleEditableProvider` and is a safe
+  // read-only landing for any future viewer; but the deep edit destinations —
+  // `/schedule/weekly` (WeeklyTemplateEditorScreen), `/schedule/day`,
+  // `/schedule/copy` — are full edit surfaces that do NOT self-check the
+  // capability. A read-only role (SALON_MASTER) deep-linking/pushing straight
+  // to one of those would otherwise reach editable controls. Redirect every
+  // non-INDEPENDENT_MASTER role away from the entire `/schedule` subtree to the
+  // home "coming soon" shell, mirroring the `/master/*` and `/services` gates
+  // above. When salon staff gain a (read-only/editable-per-membership) schedule
+  // surface in a later phase, this gate widens to admit those roles and the
+  // editor screens add their own `scheduleEditableProvider` check — but for MVP
+  // the single-point router gate keeps the edit surfaces fully enclosed.
+  if (isAuthenticated && location.startsWith('/schedule')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.independentMaster) {
+      return roleHomePath(auth.user.role);
+    }
+  }
+
+  // Role gate: /client/* is only accessible to CLIENT.
+  //
+  // The mirror of the /master/* gate above: the CLIENT settings hub and its
+  // per-section edit pages (/client/menu, /client/edit/personal, etc.) are
+  // CLIENT-only. Any non-CLIENT authenticated role (INDEPENDENT_MASTER, salon
+  // roles) that navigates to a /client/* path is redirected to its own landing
+  // (INDEPENDENT_MASTER → profile, everyone else → "coming soon" home shell).
+  // These routes are NOT opened to any other role.
+  if (isAuthenticated && location.startsWith('/client/')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.client) {
+      return roleHomePath(auth.user.role);
+    }
+  }
+
+  // Role gate (Phase 13.1 + Phase 13.7): CLIENT-only surfaces.
+  //
+  // The inverse of the /master/*, /services, /schedule gates above: any non-
+  // CLIENT authenticated role (INDEPENDENT_MASTER, salon roles) that lands on a
+  // client branch is bounced to its own landing — INDEPENDENT_MASTER back to
+  // its profile, everyone else to the "coming soon" home shell. This keeps the
+  // CLIENT and MASTER shells mutually fenced off: a MASTER can never reach
+  // /home, /favorites, /search, /bookings, /passport, or any other CLIENT-only
+  // surface, and the gates above already keep a CLIENT out of every /master/*,
+  // /services and /schedule surface.
+  //
+  // Phase 13.7 (revised) — /rating (MyRatingScreen) is a CLIENT quick-link
+  // target added outside the StatefulShellRoute branches; it must be gated here
+  // to prevent non-CLIENT roles from reaching it.
+  // Exact-segment matching avoids snagging unrelated future paths.
+  if (isAuthenticated) {
+    const clientBranchPrefixes = <String>[
+      RouteNames.clientHome,
+      RouteNames.clientFavorites,
+      RouteNames.clientSearch,
+      RouteNames.clientBookings,
+      RouteNames.clientPassport,
+      // Phase 13.7 (revised) — standalone CLIENT quick-link targets (not in shell branches)
+      RouteNames.myRating,
+    ];
+    final isAtClientBranch = clientBranchPrefixes.any(
+      (p) => location == p || location.startsWith('$p/'),
+    );
+    if (isAtClientBranch) {
+      final Authenticated auth = session.value! as Authenticated;
+      if (auth.user.role != UserRole.client) {
+        return roleHomePath(auth.user.role);
+      }
     }
   }
 

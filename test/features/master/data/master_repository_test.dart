@@ -355,6 +355,106 @@ void main() {
       expect(master.type, MasterType.salonOwner);
     });
 
+    test('success: salonMaster type is mapped correctly', () async {
+      // The SALON_MASTER wire enum maps to MasterType.salonMaster — the
+      // remaining branch in MasterMapper._masterTypeFromDto (the independentMaster
+      // and salonOwner branches are already covered above).
+      final dto = buildDto(
+        masterId: 'master-3',
+        masterType: MasterDetailResponseMasterTypeEnum.SALON_MASTER,
+      );
+      when(
+        () => masterApi.getMyProfile(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-3');
+
+      expect(master.type, MasterType.salonMaster);
+    });
+
+    test('mapper throws ServerFailure(null) when DTO masterId is null', () async {
+      // A null masterId signals a broken backend contract. MasterMapper.fromDto
+      // throws const ServerFailure(statusCode: null); the repository's
+      // `on Failure { rethrow }` arm must let it pass through unchanged (not be
+      // re-wrapped as a generic ServerFailure with a cause).
+      final dto =
+          (MasterDetailResponseBuilder()
+                // masterId intentionally left unset → null in the built DTO.
+                ..firstName = 'Оля'
+                ..lastName = 'Коваль'
+                ..avgRating = 4.5
+                ..reviewCount = 10
+                ..masterType =
+                    MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+      when(
+        () => masterApi.getMyProfile(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      await expectLater(
+        repository.getMyProfile('master-1'),
+        throwsA(
+          isA<ServerFailure>()
+              .having((f) => f.statusCode, 'statusCode', isNull)
+              .having((f) => f.cause, 'cause', isNull),
+        ),
+      );
+    });
+
+    test(
+      'getMyProfile throws ServerFailure(null) when envelope data is null',
+      () async {
+        // The API envelope deserialized but carried no `data` payload
+        // (res.data?.data == null). The repository must surface this as
+        // ServerFailure(statusCode: null) BEFORE reaching the mapper.
+        when(() => masterApi.getMyProfile()).thenAnswer(
+          (_) async => Response<ApiResponseMasterDetailResponse>(
+            data: ApiResponseMasterDetailResponse((b) => b..success = true),
+            requestOptions: RequestOptions(path: _getMasterPath),
+            statusCode: 200,
+          ),
+        );
+
+        await expectLater(
+          repository.getMyProfile('master-1'),
+          throwsA(
+            isA<ServerFailure>()
+                .having((f) => f.statusCode, 'statusCode', isNull)
+                .having((f) => f.cause, 'cause', isNull),
+          ),
+        );
+      },
+    );
+
+    test(
+      'street, buildingNo and locationNote round-trip from DTO to Master',
+      () async {
+        final dto =
+            (MasterDetailResponseBuilder()
+                  ..masterId = 'master-1'
+                  ..firstName = 'Оля'
+                  ..lastName = 'Коваль'
+                  ..avgRating = 4.5
+                  ..reviewCount = 10
+                  ..masterType =
+                      MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+                  ..street = 'вул. Хрещатик'
+                  ..buildingNo = '12А'
+                  ..locationNote = 'кв. 3, 2 поверх')
+                .build();
+
+        when(
+          () => masterApi.getMyProfile(),
+        ).thenAnswer((_) async => apiResponse(dto));
+
+        final master = await repository.getMyProfile('master-1');
+
+        expect(master.street, 'вул. Хрещатик');
+        expect(master.buildingNo, '12А');
+        expect(master.locationNote, 'кв. 3, 2 поверх');
+      },
+    );
+
     test('DioException connectionError → NetworkFailure', () async {
       when(() => masterApi.getMyProfile()).thenThrow(
         DioException(
@@ -415,7 +515,7 @@ void main() {
                 ..reviewCount = 10
                 ..masterType =
                     MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
-                ..phoneNumber = '+380501234567')
+                ..phoneNumber = '+380501111111')
               .build();
 
       when(
@@ -426,7 +526,7 @@ void main() {
 
       expect(
         master.phoneNumber,
-        '+380501234567',
+        '+380501111111',
         reason: 'phoneNumber from DTO must be forwarded to the Master entity',
       );
     });
@@ -511,6 +611,7 @@ void main() {
           bio: '',
           contactPhone: '',
           instagram: '',
+          professionalTitle: '',
         ),
       );
 
@@ -544,8 +645,9 @@ void main() {
           firstName: 'Аня',
           lastName: 'Коваль',
           bio: '',
-          contactPhone: '+380501234567',
+          contactPhone: '+380501111111',
           instagram: '',
+          professionalTitle: '',
         ),
       );
 
@@ -571,7 +673,7 @@ void main() {
       );
       expect(
         captured['phoneNumber'],
-        '+380501234567',
+        '+380501111111',
         reason: 'phoneNumber value must match the supplied contactPhone',
       );
     });
@@ -593,6 +695,7 @@ void main() {
           bio: '',
           contactPhone: '   ',
           instagram: '',
+          professionalTitle: '',
         ),
       );
 
@@ -630,6 +733,7 @@ void main() {
           bio: '',
           contactPhone: '',
           instagram: '@beauty_ua',
+          professionalTitle: '',
         ),
       );
 
@@ -671,6 +775,7 @@ void main() {
           bio: '',
           contactPhone: '',
           instagram: '',
+          professionalTitle: '',
         ),
       );
 
@@ -708,6 +813,139 @@ void main() {
       );
     });
 
+    // ── G — professionalTitle always present in body (never omitted) ──────────
+    //
+    // Backend contract: professionalTitle is a clear-on-empty field (same
+    // semantics as bio / instagram). An empty string clears it server-side;
+    // omitting the key leaves the stale value intact. The repository must
+    // ALWAYS include the key, with '' when the user cleared the title.
+
+    test(
+      'includes professionalTitle as empty string when cleared (key present)',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => _okProfileEnvelope());
+
+        await repository.updateMyProfile(
+          const MasterUpdate(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            bio: '',
+            contactPhone: '',
+            instagram: '',
+            professionalTitle: '',
+          ),
+        );
+
+        final captured =
+            verify(
+                  () => dio.patch<Map<String, dynamic>>(
+                    _profilePatchPath,
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+
+        expect(
+          captured.containsKey('professionalTitle'),
+          isTrue,
+          reason:
+              'professionalTitle key must always be present so a clear persists '
+              'server-side',
+        );
+        expect(
+          captured['professionalTitle'],
+          '',
+          reason:
+              'cleared professionalTitle must be sent as an empty string, not '
+              'omitted',
+        );
+      },
+    );
+
+    test(
+      'forwards a non-empty professionalTitle value to the request body',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => _okProfileEnvelope());
+
+        await repository.updateMyProfile(
+          const MasterUpdate(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            bio: '',
+            contactPhone: '',
+            instagram: '',
+            professionalTitle: 'Майстер манікюру',
+          ),
+        );
+
+        final captured =
+            verify(
+                  () => dio.patch<Map<String, dynamic>>(
+                    _profilePatchPath,
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+
+        expect(
+          captured['professionalTitle'],
+          'Майстер манікюру',
+          reason:
+              'professionalTitle value must be forwarded to the request body',
+        );
+      },
+    );
+
+    test(
+      'trims whitespace-only professionalTitle to empty string before sending',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => _okProfileEnvelope());
+
+        await repository.updateMyProfile(
+          const MasterUpdate(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            bio: '',
+            contactPhone: '',
+            instagram: '',
+            professionalTitle: '   ',
+          ),
+        );
+
+        final captured =
+            verify(
+                  () => dio.patch<Map<String, dynamic>>(
+                    _profilePatchPath,
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+
+        expect(
+          captured['professionalTitle'],
+          '',
+          reason:
+              'whitespace-only professionalTitle must be trimmed to empty string '
+              'before sending (it clears the field server-side)',
+        );
+      },
+    );
+
     // ── F2 — whitespace-only bio / instagram are trimmed to '' and sent ──────
 
     test('trims whitespace-only bio / instagram to empty string', () async {
@@ -725,6 +963,7 @@ void main() {
           bio: '   ',
           contactPhone: '',
           instagram: '   ',
+          professionalTitle: '',
         ),
       );
 
@@ -764,6 +1003,7 @@ void main() {
             bio: '',
             contactPhone: '',
             instagram: '',
+            professionalTitle: '',
           ),
         ),
         throwsA(isA<NetworkFailure>()),
@@ -787,6 +1027,7 @@ void main() {
     bio: '',
     contactPhone: '',
     instagram: '',
+    professionalTitle: '',
   );
 
   group('updateMyProfile — totality + bounded retry', () {

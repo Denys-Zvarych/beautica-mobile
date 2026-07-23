@@ -80,6 +80,10 @@ Future<void> _pumpForm(
   WidgetTester tester,
   _MockServiceRepository repo, {
   required void Function(MasterServiceCreate) onSubmit,
+  // The approvedCategoriesProvider now feeds the picker directly (no longer via
+  // repo.fetchApprovedCategories). Pass a custom resolver to exercise the
+  // error / loading / alternate-list branches; the default is the happy list.
+  Future<List<ServiceCategoryOption>> Function()? categories,
 }) async {
   // Selecting a category mounts the second-level _ServiceTypeChips section,
   // making the form taller. Use a roomy viewport so every chip + the submit CTA
@@ -94,6 +98,9 @@ Future<void> _pumpForm(
     ProviderScope(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
+        approvedCategoriesProvider.overrideWith(
+          (ref) async => categories != null ? await categories() : _options,
+        ),
         // Selecting a category mounts _ServiceTypeChips → serviceTypesProvider.
         // Stub it to a calm empty list so no un-mocked fetch fires in-tree.
         serviceTypesProvider.overrideWith(
@@ -124,7 +131,7 @@ MasterService _serviceWithCategory(String category) => MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
 );
 
 /// Pumps a [ServiceForm] seeded with [initial] (edit flow). Optionally clamps
@@ -135,6 +142,9 @@ Future<void> _pumpFormWithInitial(
   _MockServiceRepository repo, {
   required MasterService initial,
   double? physicalWidth,
+  // Feeds approvedCategoriesProvider directly (see _pumpForm). Defaults to the
+  // happy list; pass an empty / alternate list to exercise label-fallback cases.
+  List<ServiceCategoryOption> categories = _options,
 }) async {
   if (physicalWidth != null) {
     tester.view.physicalSize = Size(physicalWidth, 1280);
@@ -146,6 +156,7 @@ Future<void> _pumpFormWithInitial(
     ProviderScope(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
+        approvedCategoriesProvider.overrideWith((ref) async => categories),
         // The seeded initial.category mounts _ServiceTypeChips on pump → stub
         // serviceTypesProvider to an empty list so no real fetch fires.
         serviceTypesProvider.overrideWith(
@@ -182,9 +193,6 @@ void main() {
 
   setUp(() {
     repo = _MockServiceRepository();
-    when(
-      () => repo.fetchApprovedCategories(),
-    ).thenAnswer((_) async => _options);
   });
 
   // ── 1. Renders displayName labels ──────────────────────────────────────────
@@ -237,6 +245,17 @@ void main() {
     // is stable and re-selecting does not break the wire-value contract.
     await selectCategoryOption(tester, 'MANICURE');
     await selectCategoryOption(tester, 'MANICURE');
+    // Service type is mandatory on create — select one (name already typed, so
+    // the auto-fill does not clobber it).
+    (tester.state(find.byType(ServiceForm)) as dynamic).onServiceTypeSelected(
+      const ServiceTypeOption(
+        id: 'stype-manicure',
+        slug: 'MANICURE_A',
+        nameUk: 'Класичний манікюр',
+        categoryName: 'MANICURE',
+      ),
+    );
+    await tester.pump();
 
     await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
     await tester.tap(find.byKey(const Key('btn-submit-service')));
@@ -470,17 +489,20 @@ void main() {
   testWidgets(
     '7. picker error renders error state + retry chip; retry re-fetches',
     (tester) async {
-      // The fetch fails while [fail] is true, then succeeds once the retry flips
-      // it. A returned Future.error (rather than a thrown Failure) is what the
-      // FutureProvider resolves into AsyncError under pumpAndSettle here.
+      // approvedCategoriesProvider now feeds the picker directly. The resolver
+      // fails while [fail] is true, then succeeds once the retry flips it; the
+      // retry's `ref.invalidate(approvedCategoriesProvider)` re-runs this same
+      // (sticky) override, so flipping the flag changes what the re-fetch yields.
       var fail = true;
-      when(() => repo.fetchApprovedCategories()).thenAnswer(
-        (_) => fail
-            ? Future<List<ServiceCategoryOption>>.error(const NetworkFailure())
-            : Future<List<ServiceCategoryOption>>.value(_options),
+      await _pumpForm(
+        tester,
+        repo,
+        onSubmit: (_) {},
+        categories: () async {
+          if (fail) throw const NetworkFailure();
+          return _options;
+        },
       );
-
-      await _pumpForm(tester, repo, onSubmit: (_) {});
 
       // The closed category field shows an error affordance (not a chevron),
       // and no option is selectable yet.
@@ -497,16 +519,26 @@ void main() {
       expect(find.byKey(const Key('select-menu-error')), findsOneWidget);
       expect(find.byKey(const Key('select-menu-retry')), findsOneWidget);
 
-      // Recovery: flip the stub to success, then tap retry. The retry button
+      // Recovery: flip the resolver to success, then tap retry. The retry button
       // closes the sheet and invalidates approvedCategoriesProvider, forcing a
-      // fresh repo call.
+      // fresh fetch that now resolves to data.
       fail = false;
       await tester.tap(find.byKey(const Key('select-menu-retry')));
       await tester.pumpAndSettle();
 
-      // Re-fetch happened. Re-open the (now resolved) menu → the option renders.
-      verify(() => repo.fetchApprovedCategories()).called(greaterThan(1));
+      // Re-fetch happened: the error affordance is gone and the refreshed
+      // options render in the (now resolved) menu — proving a real reload, not a
+      // stale error frame.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('select-category-field')),
+          matching: find.byIcon(Icons.error_outline_rounded),
+        ),
+        findsNothing,
+        reason: 'a successful retry must clear the error affordance',
+      );
       await openCategoryMenu(tester);
+      expect(find.byKey(const Key('select-menu-error')), findsNothing);
       expect(find.byKey(const Key('chip-category-MANICURE')), findsOneWidget);
       expect(find.text('Манікюр'), findsOneWidget);
     },
@@ -518,14 +550,12 @@ void main() {
     // A Completer that never completes → the provider stays in the loading
     // state so the skeleton row is rendered.
     final completer = Completer<List<ServiceCategoryOption>>();
-    when(
-      () => repo.fetchApprovedCategories(),
-    ).thenAnswer((_) => completer.future);
 
     await tester.pumpWidget(
       ProviderScope(
         overrides: <Object>[
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) => completer.future),
         ].cast(),
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -611,6 +641,95 @@ void main() {
     },
   );
 
+  // ── 9b. Dialog in-flight submitting state (never-completing request) ─────────
+
+  testWidgets(
+    '9b. while requestCategory is in flight the submit CTA shows its spinner, '
+    'the inputs are disabled, and the dialog stays open',
+    (tester) async {
+      // Hold the request open on a Completer that never resolves during the
+      // assertions → the dialog sits in its _submitting state so we can observe
+      // the in-flight loading affordance in isolation.
+      final completer = Completer<void>();
+      when(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+        ),
+      ).thenAnswer((_) => completer.future);
+
+      await _pumpForm(tester, repo, onSubmit: (_) {});
+      await openCategoryMenu(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-suggest')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-suggest')));
+      await tester.pumpAndSettle();
+
+      // Valid name so submit passes validation and reaches the repository.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-category-request-name')),
+          matching: find.byType(TextField),
+        ),
+        'Манікюр',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
+      // Single pump advances into the in-flight state WITHOUT settling — the
+      // request future never resolves, so pumpAndSettle would hang.
+      await tester.pump();
+
+      // (a) The submit CTA renders its in-flight spinner.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('btn-submit-suggest-category')),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+        reason:
+            'the submit button shows a spinner while the request is in '
+            'flight',
+      );
+
+      // (b) The label/icon layer is swapped out for the spinner — the send icon
+      // is gone, proving the CTA is in its loading (not idle, tappable) state.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('btn-submit-suggest-category')),
+          matching: find.byIcon(Icons.send_rounded),
+        ),
+        findsNothing,
+        reason: 'the idle label/icon is replaced by the in-flight spinner',
+      );
+
+      // (c) The name field is disabled while submitting (no double-edit).
+      final TextField nameField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('field-category-request-name')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(
+        nameField.enabled,
+        isFalse,
+        reason: 'inputs lock while the request is in flight',
+      );
+
+      // (d) The dialog stays open (it did not pop while awaiting the request).
+      expect(
+        find.byKey(const Key('field-category-request-name')),
+        findsOneWidget,
+      );
+
+      // Resolve the request so the dialog pops and no pending timer leaks into
+      // teardown.
+      completer.complete();
+      await tester.pumpAndSettle();
+    },
+  );
+
   // ── 10. displayName length validation (> 100 chars) ─────────────────────────
 
   testWidgets(
@@ -672,14 +791,11 @@ void main() {
     'never the raw slug; wire value preserved on submit',
     (tester) async {
       // Approved list does NOT contain BROWS (deactivated/retired category).
-      when(
-        () => repo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => _options);
-
       await _pumpFormWithInitial(
         tester,
         repo,
         initial: _serviceWithCategory('BROWS'),
+        categories: _options,
       );
 
       // The persisted selection stays visible in the closed dropdown field even
@@ -704,14 +820,11 @@ void main() {
     'never the raw slug',
     (tester) async {
       // Transient empty list while the backend is slow / returns nothing.
-      when(
-        () => repo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
-
       await _pumpFormWithInitial(
         tester,
         repo,
         initial: _serviceWithCategory('NAIL_ART'),
+        categories: const <ServiceCategoryOption>[],
       );
 
       final field = find.byKey(const Key('select-category-field'));
@@ -733,14 +846,11 @@ void main() {
     '13. selected category present in approved list shows the Ukrainian '
     'displayName (happy-path regression guard)',
     (tester) async {
-      when(
-        () => repo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => _options);
-
       await _pumpFormWithInitial(
         tester,
         repo,
         initial: _serviceWithCategory('MANICURE'),
+        categories: _options,
       );
 
       final field = find.byKey(const Key('select-category-field'));
@@ -771,13 +881,12 @@ void main() {
         ServiceCategoryOption(name: 'MAKEUP', displayName: 'Макіяж'),
         ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
       ];
-      when(() => repo.fetchApprovedCategories()).thenAnswer((_) async => many);
-
       await _pumpFormWithInitial(
         tester,
         repo,
         initial: _serviceWithCategory('BROWS'),
         physicalWidth: 360,
+        categories: many,
       );
 
       final field = find.byKey(const Key('select-category-field'));

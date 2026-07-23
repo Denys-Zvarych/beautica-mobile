@@ -59,7 +59,7 @@ const _editService = MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
 );
 
 // Service types keyed by category. The picker is driven by
@@ -103,14 +103,15 @@ String _nameText(WidgetTester tester) =>
 void main() {
   late _MockServiceRepository repo;
 
+  // approvedCategoriesProvider is overridden directly below (it fetches via
+  // categoryRequestApi, not the repo).
+  const categories = <ServiceCategoryOption>[
+    ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+    ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+  ];
+
   setUp(() {
     repo = _MockServiceRepository();
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
   });
 
   Future<void> pumpForm(
@@ -127,6 +128,7 @@ void main() {
       ProviderScope(
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => categories),
           // Return the slice for whichever category the picker queries, so a
           // category change genuinely repopulates the option list.
           serviceTypesProvider.overrideWith((ref, String categoryName) async {
@@ -284,7 +286,7 @@ void main() {
         durationMinutes: 60,
         priceType: ServicePriceType.fixed,
         priceMin: 500,
-        priceDisplay: '500 грн',
+        priceDisplay: '500 ₴',
       );
       await pumpForm(tester, onSubmit: neverSubmit, initial: blankNameService);
 
@@ -323,7 +325,7 @@ void main() {
         durationMinutes: 45,
         priceType: ServicePriceType.fixed,
         priceMin: 300,
-        priceDisplay: '300 грн',
+        priceDisplay: '300 ₴',
       );
 
       MasterServiceCreate? captured;

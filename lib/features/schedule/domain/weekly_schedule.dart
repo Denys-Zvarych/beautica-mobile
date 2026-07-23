@@ -20,6 +20,7 @@
 // mutable members, which is acceptable here because these snapshots are rebuilt
 // (never mutated in place) on every load.
 
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'schedule_model.dart';
@@ -69,12 +70,24 @@ abstract class WeeklySchedule with _$WeeklySchedule {
 /// source.
 ///
 /// [intervals] are the working intervals in effect for [date] (empty for a
-/// day-off or a no-schedule day). [source] tags how the day was resolved.
+/// day-off, a no-schedule day, OR an EXPLICIT_TIMES day). [times] (Phase 15.7)
+/// are the resolved discrete start times — non-empty ONLY for an EXPLICIT_TIMES
+/// day. The wire `EffectiveDayResponse` carries no `mode`, so [isExplicitTimes]
+/// is derived from a non-empty [times] list. [source] tags how the day was
+/// resolved.
 @freezed
 abstract class EffectiveDay with _$EffectiveDay {
   const factory EffectiveDay({
     required DateTime date,
     required EffectiveSource source,
     required List<WorkInterval> intervals,
+    @Default(<TimeOfDay>[]) List<TimeOfDay> times,
   }) = _EffectiveDay;
+
+  const EffectiveDay._();
+
+  /// True when this resolved day is expressed as discrete start times rather
+  /// than continuous intervals — i.e. the wire response returned a non-empty
+  /// `times` list (the response has no `mode` field to read directly).
+  bool get isExplicitTimes => times.isNotEmpty;
 }

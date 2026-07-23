@@ -28,6 +28,8 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart'
@@ -75,20 +77,62 @@ final _rangeMaxField = find.descendant(
 AppLocalizations _l10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byType(ServiceForm)));
 
+/// The service type surfaced by the picker for the MANICURE category. Service
+/// type is MANDATORY on create, so every happy-path submit selects this.
+const _manicureType = ServiceTypeOption(
+  id: 'stype-manicure',
+  slug: 'MANICURE_CLASSIC',
+  nameUk: 'Класичний манікюр',
+  categoryName: 'MANICURE',
+);
+
+/// A FIXED edit-mode service (category + type already loaded). Used by the
+/// generic-snackbar-fallback test: in edit mode the category is unchanged, so
+/// the Phase-16.5 category-mismatch safety net stays dormant and a truly
+/// unmapped 400 reaches the generic snackbar. (On CREATE that fallback is now
+/// shadowed — a mandatory type is always selected and the category is always
+/// dirty (null→value), which trips the safety net first.)
+const _editService = MasterService(
+  id: 'svc-edit-1',
+  serviceDefId: 'def-edit-1',
+  name: 'Мій власний манікюр',
+  category: 'MANICURE',
+  serviceTypeId: 'type-loaded',
+  serviceTypeNameUk: 'Класичний манікюр',
+  durationMinutes: 60,
+  priceType: ServicePriceType.fixed,
+  priceMin: 500,
+  priceDisplay: '500 ₴',
+);
+
+List<ServiceTypeOption> _typesFor(String categoryName) =>
+    categoryName == 'MANICURE'
+    ? const <ServiceTypeOption>[_manicureType]
+    : const <ServiceTypeOption>[];
+
+/// Reaches the form State (private class) to select the mandatory service type.
+/// Must be called AFTER the category is selected, since a category change
+/// clears an incompatible type selection.
+Future<void> selectServiceType(WidgetTester tester) async {
+  final dynamic state = tester.state(find.byType(ServiceForm));
+  state.onServiceTypeSelected(_manicureType);
+  await tester.pump();
+}
+
 void main() {
   setUpAll(() => registerFallbackValue(_FakeMasterServiceCreate()));
 
   late _MockServiceRepository repo;
 
+  // The category chip row watches approvedCategoriesProvider, now overridden
+  // directly below (the provider fetches via categoryRequestApi, not the repo).
+  const categories = <ServiceCategoryOption>[
+    ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+    ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+  ];
+
   setUp(() {
     repo = _MockServiceRepository();
-    // The category chip row watches approvedCategoriesProvider → repository.
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
   });
 
   /// Pump a [ServiceForm] with [onSubmit] inside a fresh ProviderScope.
@@ -108,7 +152,16 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
+        overrides: [
+          serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => categories),
+          // The service-type picker mounts when a category is selected and
+          // watches serviceTypesProvider(category); stub it so no un-mocked
+          // repository fetch fires inside the form subtree.
+          serviceTypesProvider.overrideWith(
+            (ref, String categoryName) async => _typesFor(categoryName),
+          ),
+        ],
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
@@ -141,6 +194,10 @@ void main() {
     await tester.enterText(_nameField, 'Манікюр');
     await tester.enterText(_fixedPriceField, '500');
     await selectCategoryOption(tester, 'MANICURE');
+    // Service type is mandatory on create — select it AFTER the category so the
+    // selection is not cleared by the category change. Name is already non-empty
+    // so the type's name-prefill does not clobber it.
+    await selectServiceType(tester);
   }
 
   // =========================================================================
@@ -228,6 +285,7 @@ void main() {
       await tester.enterText(_durationField, '60');
       await tester.enterText(_fixedPriceField, '500');
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester);
     }
 
     testWidgets(
@@ -288,6 +346,7 @@ void main() {
         await tester.enterText(_rangeMinField, '400');
         await tester.enterText(_rangeMaxField, '700');
         await selectCategoryOption(tester, 'MANICURE');
+        await selectServiceType(tester);
         await tapSubmit(tester);
         await tester.pumpAndSettle();
 
@@ -297,18 +356,26 @@ void main() {
     );
 
     testWidgets(
-      'unmapped server field falls back to a SnackBar with the server message',
+      'unmapped server field falls back to a SnackBar with the server message '
+      '(edit mode — category unchanged, so the type-mismatch net is dormant)',
       (tester) async {
         const serverMsg = 'Невідома помилка валідації сервера';
+        // Edit mode: the loaded service already carries a category + type and
+        // neither is changed, so `categoryDirty` is false and the Phase-16.5
+        // safety net does not intercept — the generic snackbar fallback for a
+        // genuinely unmapped field is exercised. (Doing this on CREATE would trip
+        // the mismatch net because a mandatory type + dirty category are always
+        // present — see fixture note.)
         await pumpForm(
           tester,
+          initial: _editService,
           onSubmit: (_) async => throw const ValidationFailure(
             // 'salonId' is not a field this form renders → must NOT map inline.
             fieldErrors: <String, String>{'salonId': 'irrelevant'},
             serverMessage: serverMsg,
           ),
         );
-        await fillFullyValidFixed(tester);
+        // Everything is prefilled from the initial service; submit as-is.
         await tapSubmit(tester);
         await tester.pumpAndSettle();
 
@@ -361,6 +428,7 @@ void main() {
       await tester.enterText(_rangeMinField, '400.25');
       await tester.enterText(_rangeMaxField, '700.50');
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester);
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -492,6 +560,7 @@ void main() {
       await tester.enterText(_fixedPriceField, '500');
       await tester.pumpAndSettle();
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester);
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -526,6 +595,12 @@ void main() {
         await tester.enterText(_durationField, '60');
         await tester.enterText(_fixedPriceField, '500');
         await selectCategoryOption(tester, 'MANICURE');
+        // Select the mandatory type, then RE-BLANK the name: selecting a type
+        // auto-fills an empty name, so clear it again to prove a blank name is
+        // still accepted on submit while a type is present.
+        await selectServiceType(tester);
+        await tester.enterText(_nameField, '');
+        await tester.pump();
         await tapSubmit(tester);
         await tester.pumpAndSettle();
 
@@ -554,10 +629,14 @@ void main() {
             captured = input;
           },
         );
-        await tester.enterText(_nameField, '   ');
         await tester.enterText(_durationField, '60');
         await tester.enterText(_fixedPriceField, '500');
         await selectCategoryOption(tester, 'MANICURE');
+        // Select the mandatory type (auto-fills the empty name), then set the
+        // name to whitespace-only to prove it is treated as blank on submit.
+        await selectServiceType(tester);
+        await tester.enterText(_nameField, '   ');
+        await tester.pump();
         await tapSubmit(tester);
         await tester.pumpAndSettle();
 

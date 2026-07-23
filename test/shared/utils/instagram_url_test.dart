@@ -201,18 +201,19 @@ void main() {
       expect(canonicalInstagramUri('@'), isNull);
     });
 
-    test('degenerate dot handles "." / ".." are ACCEPTED today (known LOW)', () {
-      // known LOW: "." and ".." match the handle charset [A-Za-z0-9._]{1,30}
-      // and are not in the host allow-list, so they pass validation and reach
-      // Uri.parse. Uri then NORMALIZES the dot path segments away, collapsing
-      // both to the bare canonical host https://instagram.com/ — harmless
-      // (still the canonical Instagram host) but not a real profile. Pinned to
-      // today's behavior; not "fixed" here. Tracked in
-      // docs/mobile-phases/mobile-backlog.md.
-      expect(canonicalInstagramUri('.'), isNotNull);
-      expect(canonicalInstagramUri('.').toString(), 'https://instagram.com/');
-      expect(canonicalInstagramUri('..'), isNotNull);
-      expect(canonicalInstagramUri('..').toString(), 'https://instagram.com/');
+    test('degenerate dot-/underscore-only handles "." / ".." / "_" → null', () {
+      // mobile-security LOW (fixed): "." and ".." match the bare charset
+      // [A-Za-z0-9._]{1,30} and are not in the host allow-list, so they used to
+      // pass validation and reach Uri.parse — which NORMALIZES the dot path
+      // segments away, collapsing both to the bare canonical host
+      // https://instagram.com/ (harmless, but not a real profile). The
+      // `(?=.*[A-Za-z0-9])` lookahead now REQUIRES at least one alphanumeric
+      // char, so a handle with no letters/digits is rejected outright.
+      expect(canonicalInstagramUri('.'), isNull);
+      expect(canonicalInstagramUri('..'), isNull);
+      expect(canonicalInstagramUri('_'), isNull);
+      expect(canonicalInstagramUri('___'), isNull);
+      expect(canonicalInstagramUri('._.'), isNull);
     });
   });
 }

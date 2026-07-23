@@ -35,8 +35,9 @@ const _validUpdate = MasterUpdate(
   firstName: 'Аня',
   lastName: 'Коваль',
   bio: 'bio',
-  contactPhone: '+380501234567',
+  contactPhone: '+380501111111',
   instagram: '@x',
+  professionalTitle: '',
 );
 
 ({Dio dio, DioAdapter adapter, HttpMasterRepository repo}) _wire() {

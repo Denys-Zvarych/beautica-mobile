@@ -26,9 +26,11 @@
 //   NL-14  /verification back link → /register/step-3               ✅ covered (verification_screen_test)
 //   NL-15  /done "Go to app" → /                                    ✅ covered (done_screen_test)
 //   NL-16  /done "Setup later" → /                                  ✅ covered (done_screen_test)
-//   NL-17  /forgot-password "Send" confirmation → stays (shows sent state)  ✅ covered
-//   NL-18  /forgot-password sent state "preview reset" → /reset-password   ✅ covered
-//   NL-19  /forgot-password sent state back-to-login → /login               ✅ covered
+//   NL-17  /forgot-password "Send" success → /reset-password/otp (Beautica OTP
+//          task Phase B3 — replaces the old in-screen "sent" confirmation
+//          state)                                                  ✅ covered (forgot_password_request_screen_test)
+//   NL-18  (retired — the old sent-state "preview reset" CTA no longer exists)
+//   NL-19  /forgot-password back button → /login                   ✅ covered (this file, NL-B03)
 //   NL-20  /reset-password success CTA → /login                     ✅ covered (reset_password_screen_test)
 //   NL-21  /reset-password invalid CTA → /forgot-password            ✅ covered (reset_password_screen_test)
 //   NL-22  /invite/accept success → / (via router redirect)         ❌ GAP — new test NL-22 below
@@ -58,6 +60,7 @@
 //   NL-B04  AuthScaffold showBack=true on /reset-password (form) → back → /login ❌ GAP — new test
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -72,10 +75,12 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/forgot_password_request_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_2_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_3_screen.dart';
+import 'package:beautica_mobile/features/auth/domain/reset_password_args.dart';
 import 'package:beautica_mobile/features/auth/presentation/reset_password_screen.dart';
 import 'package:beautica_mobile/features/auth/state/accept_invite_notifier.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -112,18 +117,36 @@ const _loadingSession = AsyncLoading<AuthSession>();
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Builds a [MaterialApp.router] with l10n delegates and a fixed locale.
-Widget _wrap(GoRouter router, {ProviderContainer? container}) {
-  final child = MaterialApp.router(
-    routerConfig: router,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    supportedLocales: AppLocalizations.supportedLocales,
-    locale: const Locale('uk'),
-  );
-  if (container != null) {
-    return UncontrolledProviderScope(container: container, child: child);
+/// Stubs `authProvider` to a settled, authenticated session so the PRODUCTION
+/// [appRouterProvider] can be read without live network/storage calls. Mirrors
+/// `app_router_page_type_test.dart`'s idiom — the established way to drive the
+/// real router from a unit test.
+class _FixedAuthNotifier extends AuthNotifier {
+  _FixedAuthNotifier(this._fixed);
+
+  final AsyncValue<AuthSession> _fixed;
+
+  @override
+  Future<AuthSession> build() async {
+    state = _fixed;
+    return _fixed.value ?? const AuthSession.unauthenticated();
   }
-  return ProviderScope(child: child);
+}
+
+/// Reads the REAL production router with the minimum overrides needed to avoid
+/// network / platform-channel I/O.
+GoRouter _productionRouter() {
+  final container = ProviderContainer(
+    overrides: [
+      authProvider.overrideWith(
+        () => _FixedAuthNotifier(_authenticatedSession),
+      ),
+      authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+      secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+    ],
+  );
+  addTearDown(container.dispose);
+  return container.read(appRouterProvider);
 }
 
 /// Minimal probe that renders its label as Text.
@@ -216,117 +239,188 @@ void main() {
   // -------------------------------------------------------------------------
   // NL-R01: Every RouteNames constant maps to a GoRoute in app_router.dart.
   // -------------------------------------------------------------------------
-  // This test builds a minimal GoRouter that mirrors the real app_router
-  // registrations using the actual RouteNames constants, then navigates to
-  // each one and asserts that go_router resolves it (i.e. no "No matching
-  // routes found" error is thrown). This catches any RouteNames constant that
-  // was added to route_names.dart but forgotten in app_router.dart.
+  // WHAT CHANGED (2026-07-22 vacuous-assertion audit)
+  // -------------------------------------------------
+  // This test used to build its OWN `GoRouter`, commented "Mirror of the
+  // production app_router registrations", and never imported app_router.dart
+  // at all. It therefore asserted that the routes the TEST had just registered
+  // were registered — deleting a real route from app_router.dart could not
+  // fail it, which is the exact regression the test's name claims to catch. It
+  // also only covered 14 of the RouteNames constants.
+  //
+  // It now resolves every constant against the PRODUCTION `appRouterProvider`
+  // via `RouteConfiguration.findMatch`, which performs pure pattern matching
+  // (no redirects, no auth guards, no widget tree) and returns an error match
+  // list when nothing is registered for a location.
+  //
+  // MUTATION-VERIFIED: commenting out the `/settings` GoRoute registration in
+  // lib/routing/app_router.dart turns this test red
+  // ('RouteNames.settings → /settings ... resolves to NO registered GoRoute').
+  // Restored immediately; not committed.
   group('NL-R01: Route registration completeness', () {
-    testWidgets(
-      'NL-R01: every RouteNames constant resolves to a registered GoRoute',
-      (tester) async {
-        // Mirror of the production app_router registrations — uses real
-        // RouteNames constants so the test catches constant/path mismatches.
-        final router = GoRouter(
-          initialLocation: RouteNames.splash,
-          redirect: (_, _) => null,
-          routes: <RouteBase>[
-            GoRoute(
-              path: RouteNames.splash,
-              builder: (_, _) => const _Probe('splash'),
-            ),
-            GoRoute(
-              path: RouteNames.login,
-              builder: (_, _) => const _Probe('login'),
-            ),
-            GoRoute(
-              path: RouteNames.acceptInvite,
-              builder: (_, _) => const _Probe('accept-invite'),
-            ),
-            GoRoute(
-              path: RouteNames.registerRole,
-              builder: (_, _) => const _Probe('register-role'),
-            ),
-            GoRoute(
-              path: RouteNames.forgotPassword,
-              builder: (_, _) => const _Probe('forgot-password'),
-            ),
-            GoRoute(
-              path: RouteNames.resetPassword,
-              builder: (_, _) => const _Probe('reset-password'),
-            ),
-            // ShellRoute mirrors the production nesting; the test only checks
-            // that routes resolve — shell chrome is not rendered here.
-            ShellRoute(
-              builder: (_, _, child) => child,
-              routes: <RouteBase>[
-                GoRoute(
-                  path: RouteNames.register,
-                  builder: (_, _) => const _Probe('register-step-1'),
-                ),
-                GoRoute(
-                  path: RouteNames.registerStep2,
-                  builder: (_, _) => const _Probe('register-step-2'),
-                ),
-                GoRoute(
-                  path: RouteNames.registerStep3,
-                  builder: (_, _) => const _Probe('register-step-3'),
-                ),
-              ],
-            ),
-            GoRoute(
-              path: RouteNames.verification,
-              builder: (_, _) => const _Probe('verification'),
-            ),
-            GoRoute(
-              path: RouteNames.done,
-              builder: (_, _) => const _Probe('done'),
-            ),
-            GoRoute(
-              path: RouteNames.home,
-              builder: (_, _) => const _Probe('home'),
-            ),
-            GoRoute(
-              path: RouteNames.settings,
-              builder: (_, _) => const _Probe('settings'),
-            ),
-          ],
+    // Every RouteNames member, with the path-building functions instantiated
+    // against a sample id. Keyed by member name for a readable failure.
+    //
+    // This map is hand-maintained (Dart has no reflection), so the drift guard
+    // below cross-checks its size against the declaration count in
+    // route_names.dart — a new constant that is not added here fails THAT
+    // test rather than silently escaping this one.
+    const String kSampleId = 'sample-id';
+    final Map<String, String> allRoutes = <String, String>{
+      'splash': RouteNames.splash,
+      'login': RouteNames.login,
+      'registerRole': RouteNames.registerRole,
+      'register': RouteNames.register,
+      'registerStep2': RouteNames.registerStep2,
+      'registerStep3': RouteNames.registerStep3,
+      'forgotPassword': RouteNames.forgotPassword,
+      'resetOtpVerification': RouteNames.resetOtpVerification,
+      'resetPassword': RouteNames.resetPassword,
+      'changePassword': RouteNames.changePassword,
+      'acceptInvite': RouteNames.acceptInvite,
+      'verification': RouteNames.verification,
+      'done': RouteNames.done,
+      'home': RouteNames.home,
+      'settings': RouteNames.settings,
+      'clientHome': RouteNames.clientHome,
+      'clientFavorites': RouteNames.clientFavorites,
+      'clientSearch': RouteNames.clientSearch,
+      'clientBookings': RouteNames.clientBookings,
+      'clientPassport': RouteNames.clientPassport,
+      'bookingDetail()': RouteNames.bookingDetail(kSampleId),
+      'bookingReview()': RouteNames.bookingReview(kSampleId),
+      'clientSearchResults': RouteNames.clientSearchResults,
+      'masterPublicProfile()': RouteNames.masterPublicProfile(kSampleId),
+      'masterPublicReviews()': RouteNames.masterPublicReviews(kSampleId),
+      'salonPublicProfile()': RouteNames.salonPublicProfile(kSampleId),
+      'bookingNew': RouteNames.bookingNew,
+      'bookingSlots': RouteNames.bookingSlots,
+      'bookingSlotsTime': RouteNames.bookingSlotsTime,
+      'bookingConfirm': RouteNames.bookingConfirm,
+      'bookingSuccess': RouteNames.bookingSuccess,
+      'salonBookingServices': RouteNames.salonBookingServices,
+      'salonBookingMasters': RouteNames.salonBookingMasters,
+      'salonBookingComingSoon': RouteNames.salonBookingComingSoon,
+      'salonBookingTime': RouteNames.salonBookingTime,
+      'salonBookingConfirm': RouteNames.salonBookingConfirm,
+      'salonBookingSuccess': RouteNames.salonBookingSuccess,
+      'clientMenu': RouteNames.clientMenu,
+      'clientEditPersonal': RouteNames.clientEditPersonal,
+      'clientEditContacts': RouteNames.clientEditContacts,
+      'clientEditLocation': RouteNames.clientEditLocation,
+      'contactSupport': RouteNames.contactSupport,
+      'masterProfile': RouteNames.masterProfile,
+      'masterBookings': RouteNames.masterBookings,
+      'masterBookingDetail()': RouteNames.masterBookingDetail(kSampleId),
+      'masterMenu': RouteNames.masterMenu,
+      'masterEditPersonal': RouteNames.masterEditPersonal,
+      'masterEditContacts': RouteNames.masterEditContacts,
+      'masterEditLocation': RouteNames.masterEditLocation,
+      'masterReceivedReviews': RouteNames.masterReceivedReviews,
+      'services': RouteNames.services,
+      'serviceCreate': RouteNames.serviceCreate,
+      'serviceEdit()': RouteNames.serviceEdit(kSampleId),
+      'serviceSetup': RouteNames.serviceSetup,
+      'masterSchedule': RouteNames.masterSchedule,
+      'scheduleWeeklyEditor': RouteNames.scheduleWeeklyEditor,
+      'scheduleDayOverride': RouteNames.scheduleDayOverride,
+      'schedulePropagate': RouteNames.schedulePropagate,
+      'myRating': RouteNames.myRating,
+    };
+
+    // The ONE deliberate exclusion. `/master/working-hours` was retired in
+    // Phase 6.2 (it wrote the deprecated `working_hours` table and was
+    // deep-link-reachable with no production navigation); the constant is kept
+    // only because auth_redirect_test.dart uses it as a representative
+    // `/master/*` path. `app_router_page_type_test.dart`'s RR-1 asserts the
+    // opposite — that it stays UNregistered — so this exclusion is itself
+    // covered by a test, not merely asserted here.
+    const Set<String> deliberatelyUnregistered = <String>{'workingHours'};
+
+    test('NL-R01: every RouteNames constant resolves to a registered GoRoute '
+        'in the PRODUCTION app_router', () {
+      final GoRouter router = _productionRouter();
+
+      final List<String> unresolved = <String>[];
+      allRoutes.forEach((String member, String path) {
+        final RouteMatchList match = router.configuration.findMatch(
+          Uri.parse(path),
         );
-        addTearDown(router.dispose);
+        if (match.isError) unresolved.add('RouteNames.$member → $path');
+      });
 
-        await tester.pumpWidget(_wrap(router));
-        await tester.pumpAndSettle();
+      expect(
+        unresolved,
+        isEmpty,
+        reason:
+            'These RouteNames constants resolve to NO registered GoRoute in '
+            'lib/routing/app_router.dart. Either register the route or delete '
+            'the constant — a constant with no route is a nav target that '
+            'throws at runtime:\n  ${unresolved.join('\n  ')}',
+      );
+    });
 
-        // Navigate to every registered RouteNames constant and assert the
-        // router resolves it without throwing. The probe label is derived
-        // from the path so we can assert each destination independently.
-        final routeChecks = <String, String>{
-          RouteNames.login: 'login',
-          RouteNames.registerRole: 'register-role',
-          RouteNames.register: 'register-step-1',
-          RouteNames.registerStep2: 'register-step-2',
-          RouteNames.registerStep3: 'register-step-3',
-          RouteNames.forgotPassword: 'forgot-password',
-          RouteNames.resetPassword: 'reset-password',
-          RouteNames.acceptInvite: 'accept-invite',
-          RouteNames.verification: 'verification',
-          RouteNames.done: 'done',
-          RouteNames.home: 'home',
-          RouteNames.settings: 'settings',
-        };
+    test('NL-R01b: the retired /master/working-hours constant stays '
+        'unregistered', () {
+      final GoRouter router = _productionRouter();
 
-        for (final entry in routeChecks.entries) {
-          router.go(entry.key);
-          await tester.pumpAndSettle();
-          expect(
-            find.text(entry.value),
-            findsOneWidget,
-            reason:
-                'RouteNames.${entry.key} must resolve to a registered GoRoute '
-                '— the probe text "${entry.value}" must be present after '
-                'router.go("${entry.key}")',
-          );
-        }
+      expect(
+        router.configuration
+            .findMatch(Uri.parse(RouteNames.workingHours))
+            .isError,
+        isTrue,
+        reason:
+            'RouteNames.workingHours is the ONE constant NL-R01 excludes. If it '
+            'is ever re-registered, remove it from `deliberatelyUnregistered` '
+            'and delete this test — do not leave the exclusion silently stale.',
+      );
+    });
+
+    // DRIFT GUARD for the hand-maintained map above. Without it, a RouteNames
+    // constant added tomorrow is simply absent from `allRoutes` and NL-R01
+    // keeps passing — the same "the test only checks what the test knows
+    // about" failure mode the mirrored router had.
+    test(
+      'NL-R01c: the NL-R01 route map covers every RouteNames declaration',
+      () {
+        final List<String> source = File(
+          'lib/routing/route_names.dart',
+        ).readAsLinesSync();
+
+        // `static const String <name> =` and `static String <name>(` — the two
+        // declaration shapes RouteNames uses.
+        final RegExp decl = RegExp(
+          r'^\s*static\s+(?:const\s+)?String\s+(\w+)\s*[=(]',
+        );
+        final Set<String> declared = source
+            .map(decl.firstMatch)
+            .nonNulls
+            .map((RegExpMatch m) => m.group(1)!)
+            .toSet();
+
+        // Normalise the map's keys (the function entries carry a `()` suffix).
+        final Set<String> covered = allRoutes.keys
+            .map(
+              (String k) => k.endsWith('()') ? k.substring(0, k.length - 2) : k,
+            )
+            .toSet()
+            .union(deliberatelyUnregistered);
+
+        expect(
+          declared.difference(covered),
+          isEmpty,
+          reason:
+              'RouteNames declares constants that NL-R01 does not check. Add '
+              'them to `allRoutes` (or, if deliberately unregistered, to '
+              '`deliberatelyUnregistered` WITH a justifying comment).',
+        );
+        expect(
+          covered.difference(declared),
+          isEmpty,
+          reason:
+              'NL-R01 checks names that no longer exist in RouteNames — stale '
+              'entries in `allRoutes`/`deliberatelyUnregistered`.',
+        );
       },
     );
   });
@@ -767,8 +861,11 @@ void main() {
             GoRoute(
               path: RouteNames.resetPassword,
               builder: (context, state) {
-                final token = state.uri.queryParameters['token'] ?? '';
-                return ResetPasswordScreen(token: token);
+                final args = state.extra as ResetPasswordArgs?;
+                return ResetPasswordScreen(
+                  resetTicket: args?.resetTicket ?? '',
+                  fromChangePassword: args?.fromChangePassword ?? false,
+                );
               },
             ),
           ],
@@ -791,9 +888,13 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Navigate to /reset-password (push from /login, simulating deep-link).
+        // Navigate to /reset-password (push from /login), carrying the reset
+        // ticket via in-app `extra` — no more `?token=` deep-link query param.
         unawaited(
-          router.push('${RouteNames.resetPassword}?token=test-token'),
+          router.push(
+            RouteNames.resetPassword,
+            extra: const ResetPasswordArgs(resetTicket: 'test-ticket'),
+          ),
         ); // ignore: unawaited_futures
         await tester.pumpAndSettle();
 

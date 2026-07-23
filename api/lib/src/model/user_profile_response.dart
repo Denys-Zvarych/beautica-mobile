@@ -19,11 +19,16 @@ part 'user_profile_response.g.dart';
 /// * [phoneNumber]
 /// * [cityId]
 /// * [districtId]
+/// * [oblastId]
+/// * [cityName]
+/// * [oblastName]
+/// * [districtName]
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
 /// * [bio]
 /// * [instagram]
+/// * [professionalTitle]
 /// * [isActive]
 /// * [emailVerified]
 /// * [salonId]
@@ -54,6 +59,18 @@ abstract class UserProfileResponse
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
 
+  @BuiltValueField(wireName: r'oblastId')
+  String? get oblastId;
+
+  @BuiltValueField(wireName: r'cityName')
+  String? get cityName;
+
+  @BuiltValueField(wireName: r'oblastName')
+  String? get oblastName;
+
+  @BuiltValueField(wireName: r'districtName')
+  String? get districtName;
+
   @BuiltValueField(wireName: r'street')
   String? get street;
 
@@ -68,6 +85,9 @@ abstract class UserProfileResponse
 
   @BuiltValueField(wireName: r'instagram')
   String? get instagram;
+
+  @BuiltValueField(wireName: r'professionalTitle')
+  String? get professionalTitle;
 
   @BuiltValueField(wireName: r'isActive')
   bool? get isActive;
@@ -163,6 +183,34 @@ class _$UserProfileResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.oblastId != null) {
+      yield r'oblastId';
+      yield serializers.serialize(
+        object.oblastId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.cityName != null) {
+      yield r'cityName';
+      yield serializers.serialize(
+        object.cityName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.oblastName != null) {
+      yield r'oblastName';
+      yield serializers.serialize(
+        object.oblastName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.districtName != null) {
+      yield r'districtName';
+      yield serializers.serialize(
+        object.districtName,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.street != null) {
       yield r'street';
       yield serializers.serialize(
@@ -195,6 +243,13 @@ class _$UserProfileResponseSerializer
       yield r'instagram';
       yield serializers.serialize(
         object.instagram,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.professionalTitle != null) {
+      yield r'professionalTitle';
+      yield serializers.serialize(
+        object.professionalTitle,
         specifiedType: const FullType(String),
       );
     }
@@ -300,6 +355,34 @@ class _$UserProfileResponseSerializer
           ) as String;
           result.districtId = valueDes;
           break;
+        case r'oblastId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.oblastId = valueDes;
+          break;
+        case r'cityName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.cityName = valueDes;
+          break;
+        case r'oblastName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.oblastName = valueDes;
+          break;
+        case r'districtName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.districtName = valueDes;
+          break;
         case r'street':
           final valueDes = serializers.deserialize(
             value,
@@ -334,6 +417,13 @@ class _$UserProfileResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.instagram = valueDes;
+          break;
+        case r'professionalTitle':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.professionalTitle = valueDes;
           break;
         case r'isActive':
           final valueDes = serializers.deserialize(

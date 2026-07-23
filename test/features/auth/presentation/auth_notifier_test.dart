@@ -30,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
@@ -40,15 +41,26 @@ import 'package:beautica_mobile/features/auth/domain/register_result.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/master/data/master_repository.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 
+import '../../../helpers/fakes/fake_master_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
+
+/// Spy [DayKeepAliveLru] for the session-boundary-PII logout test below —
+/// records whether [clear] was actually invoked by the REAL
+/// `AuthNotifier.logout()` rather than exercising the real LRU's own
+/// eviction bookkeeping (already covered by `bookings_day_notifier_test
+/// .dart`).
+class _SpyDayKeepAliveLru extends Mock implements DayKeepAliveLru {}
 
 /// Spy [SecureStorage] for the M5 logout-wipe group.
 ///
@@ -429,18 +441,22 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 5b — Logout invalidates servicesListProvider (keepAlive: true)
+    // Test 5a2 — mobile-qa gap-fix (KNOWN COVERAGE GAP 3, mobile-security
+    // MEDIUM regression guard): logout() must reset screenProtectionProvider.
+    //
+    // `AuthNotifier.logout()` (auth_notifier.dart:829-837) calls
+    // `ref.read(screenProtectionProvider).reset()` after wiping storage, so a
+    // PII screen's dialog (e.g. `ClientBookingConflictDialog` open over
+    // `BookingConfirmScreen`) that is still holding an acquired ref count when
+    // a logout fires (e.g. `RefreshInterceptor` force-logout on a failed
+    // token refresh) cannot leave FLAG_SECURE / the iOS app-switcher blur
+    // latched on past the auth boundary. This pins that contract directly —
+    // a future refactor that drops the `.reset()` call would otherwise only
+    // be caught manually on a real device.
     // -----------------------------------------------------------------------
-    // Note: masterProfileProvider is intentionally NOT subscribed here because
-    // it watches authProvider, which causes Riverpod's debug circular-dependency
-    // assertion to fire when authProvider.logout() calls
-    // ref.invalidate(masterProfileProvider). In production, both invalidations
-    // work correctly. masterProfileProvider also auto-invalidates when authProvider
-    // transitions to Unauthenticated (since it watches it), so its PII-clearing
-    // is doubly guaranteed. This test guards the NEW servicesListProvider
-    // invalidation (added when keepAlive: true was introduced).
     test(
-      'logout → servicesListProvider (keepAlive) emits new state after invalidation',
+      'logout resets screenProtectionProvider — a non-zero acquirer count '
+      'is force-zeroed even though no screen ever called release()',
       () async {
         final repo = MockAuthRepository();
         final storage = FakeSecureStorage();
@@ -452,57 +468,298 @@ void main() {
         when(() => repo.me()).thenAnswer((_) async => testUser);
         when(() => repo.logout()).thenAnswer((_) async {});
 
-        // Override serviceRepositoryProvider with a mock that has NO transitive
-        // dependency on authProvider. Without this override, Riverpod's debug
-        // circular-dependency check fires because the transitive graph contains:
-        //   servicesListProvider → serviceRepositoryProvider → authProvider
-        // Using a stub breaks that chain so ref.invalidate(servicesListProvider)
-        // can be called from inside authProvider's notifier in debug mode.
-        final serviceRepo = _MockServiceRepository();
-        when(
-          () => serviceRepo.listMyServices(),
-        ).thenAnswer((_) async => const <MasterService>[]);
+        final screenProtection = ScreenProtectionManager();
 
         final container = ProviderContainer(
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
-            serviceRepositoryProvider.overrideWithValue(serviceRepo),
+            screenProtectionProvider.overrideWithValue(screenProtection),
           ],
         );
         addTearDown(container.dispose);
 
-        // Authenticate first.
         await container.read(authProvider.future);
 
-        // Subscribe to servicesListProvider so it has a live listener.
-        final servicesStates = <AsyncValue<Object?>>[];
-        container.listen<AsyncValue<Object?>>(
-          servicesListProvider,
-          (_, next) => servicesStates.add(next),
-          fireImmediately: true,
-        );
-        // Wait for the initial fetch to settle to AsyncData.
-        await container.read(servicesListProvider.future);
-        final servicesBefore = servicesStates.length;
+        // Simulate a PII screen (e.g. BookingConfirmScreen with the conflict
+        // dialog open above it) holding protection acquired — WITHOUT ever
+        // calling release(), mirroring a logout fired mid-dialog.
+        screenProtection.acquire();
+        expect(screenProtection.acquirerCount, 1);
 
         await container.read(authProvider.notifier).logout();
-        // Wait for the provider to finish its post-invalidation rebuild so we
-        // capture all state transitions (AsyncLoading → AsyncData).
-        await container.read(servicesListProvider.future);
 
-        // servicesListProvider must have emitted at least one additional state
-        // after logout, confirming ref.invalidate(servicesListProvider) triggered
-        // a rebuild. Riverpod may batch AsyncLoading + AsyncData into a single
-        // emission for keepAlive providers; asserting on length (not specific
-        // state type) is robust to that batching behaviour.
         expect(
-          servicesStates.length,
-          greaterThan(servicesBefore),
-          reason: 'servicesListProvider must be invalidated on logout',
+          screenProtection.acquirerCount,
+          0,
+          reason:
+              'logout() must force-reset the screen-protection acquirer '
+              'count to 0 even when the acquiring screen never disposed / '
+              'released it — otherwise FLAG_SECURE / the app-switcher blur '
+              'stays latched on past the auth boundary (mobile-security '
+              'MEDIUM)',
+        );
+
+        // Sanity: logout itself still completed normally.
+        expect(
+          container.read(authProvider).value,
+          equals(const AuthSession.unauthenticated()),
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 5a3 — mobile-qa gap-fix (session-boundary PII, mobile-security
+    // HIGH, 2026-07-19): logout() must call `dayKeepAliveLruProvider.clear()`
+    // — the defence-in-depth half of the fix (layer (b)).
+    //
+    // `bookings_day_notifier_test.dart`'s own session-boundary group already
+    // covers `BookingsDayNotifier.build`'s `authProvider`-id watch (layer
+    // (a)) and exercises `DayKeepAliveLru.clear()` directly (layer (b)) —
+    // but that second test calls `clear()` on the container itself, which
+    // its own comment admits is only "the exact call `AuthNotifier.logout`
+    // makes," not a call THROUGH `logout()`. Nothing in the suite pinned the
+    // real wiring at `auth_notifier.dart:863`'s
+    // `ref.read(dayKeepAliveLruProvider).clear()` call site — a refactor
+    // dropping it would go undetected.
+    //
+    // WHY THIS IS AN INTERACTION TEST, NOT AN OUTCOME TEST — an important
+    // finding from building this test, recorded so nobody "fixes" it back to
+    // an outcome assertion later:
+    //
+    // The obvious design would build a real `bookingsDayProvider(query)`
+    // member, close its active listener so it's pinned ONLY by the bounded
+    // keepAlive cache, call the REAL `logout()`, and then assert via
+    // `container.exists(bookingsDayProvider(query))` that the member is
+    // gone — WITHOUT ever re-reading it (a re-read would let layer (a)'s own
+    // lazy-rebuild-on-read cascade explain a pass on its own).
+    //
+    // That design was built and mutation-tested — and it does NOT isolate
+    // layer (b). Reading Riverpod 3.2.1's own source
+    // (`package:riverpod/src/core/element.dart`) shows `invalidateSelf()` —
+    // the exact call layer (a)'s `authProvider.select` watch triggers when
+    // the id changes — UNCONDITIONALLY calls `runOnDispose()` (which clears
+    // ANY held `KeepAliveLink`s on that element, regardless of who created
+    // them) followed immediately by `mayNeedDispose()` (which schedules
+    // disposal once there are zero links AND zero active listeners). For a
+    // member with no active listener, this means layer (a) ALONE already
+    // tears down the keepAlive link and schedules disposal, synchronously,
+    // the moment the session flips — before layer (b)'s `clear()` call
+    // would even run. Deleting the `clear()` call at `auth_notifier.dart:863`
+    // and re-running the `exists()`-based version of this test left it GREEN
+    // — it did not discriminate (a) from (b) at all, exactly the trap this
+    // audit was asked to check for.
+    //
+    // So instead of asserting an outcome that (a) can produce on its own,
+    // this test verifies the INTERACTION directly: `dayKeepAliveLruProvider`
+    // is overridden with a spy, `logout()` is called for real, and the
+    // assertion is simply that `.clear()` was invoked on it. This pins the
+    // `auth_notifier.dart:863` call site itself, independent of whatever
+    // Riverpod's internal disposal timing happens to do — the one thing an
+    // outcome-based test in this framework version cannot do.
+    test("logout() calls dayKeepAliveLruProvider.clear() — the auth-notifier "
+        'side of the session-boundary PII fix (mobile-security HIGH, '
+        '2026-07-19)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final lruSpy = _SpyDayKeepAliveLru();
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+      when(() => lruSpy.clear()).thenReturn(null);
+
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          dayKeepAliveLruProvider.overrideWithValue(lruSpy),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Cold start settles to Authenticated (matches the M5 groups above).
+      await container.read(authProvider.future);
+
+      verifyNever(() => lruSpy.clear());
+
+      // The REAL logout() — not a hand-rolled equivalent.
+      await container.read(authProvider.notifier).logout();
+
+      verify(() => lruSpy.clear()).called(1);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 5b — Logout cascades teardown to servicesListProvider (keepAlive)
+    //
+    // NEW CONTRACT (2026-06-18 circular-dependency fix): logout() no longer
+    // calls ref.invalidate(servicesListProvider). servicesListProvider watches
+    // serviceRepositoryProvider, which watches masterProfileProvider, which
+    // watches authProvider. When logout() flips auth to Unauthenticated, that
+    // watch chain rebuilds the list automatically — no manual invalidation.
+    //
+    // The OLD version of this test stubbed serviceRepositoryProvider with a
+    // mock that broke the `→ authProvider` edge "to avoid the circular-dependency
+    // assert" — i.e. it engineered the very bug away. This rewrite wires the
+    // PRODUCTION graph (serviceRepository + servicesList real) with only the
+    // leaf masterRepositoryProvider stubbed, registers the cyclic edge via the
+    // live listener below, and asserts the cascade contract: logout completes
+    // WITHOUT throwing and the list re-emits as auth tears down.
+    test('logout → servicesListProvider (keepAlive) rebuilds via the auth-watch '
+        'cascade, without a manual invalidation and without throwing', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      // Production serviceRepository + servicesList providers — NOT stubbed.
+      // Only the leaf data-layer masterRepositoryProvider is overridden so the
+      // real masterProfileProvider builds (and thus registers its
+      // `ref.watch(authProvider)` reverse edge). This keeps the cyclic edge the
+      // old test removed, so a reverted invalidate() would re-trip the assert.
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Authenticate first.
+      await container.read(authProvider.future);
+
+      // Subscribe to servicesListProvider so it has a live listener — this is
+      // what registers serviceRepository → masterProfile → authProvider in the
+      // graph. listMyServices() on the real HttpServiceRepository short-circuits
+      // via _assertAuthenticated() throwing UnauthorizedFailure (the fake master
+      // resolves a non-empty masterId, so it actually fetches; we only care that
+      // a state is emitted, not its data), so capture states, not values.
+      final servicesStates = <AsyncValue<Object?>>[];
+      container.listen<AsyncValue<Object?>>(
+        servicesListProvider,
+        (_, next) => servicesStates.add(next),
+        fireImmediately: true,
+      );
+      final servicesBefore = servicesStates.length;
+
+      // logout() must complete without throwing — no manual invalidation, no
+      // CircularDependencyError from a back-edge recorded inside authProvider.
+      await expectLater(
+        container.read(authProvider.notifier).logout(),
+        completes,
+        reason:
+            'logout() must not throw — it no longer invalidates the cyclic '
+            'providers; the watch cascade handles teardown',
+      );
+
+      // Auth settled to Unauthenticated → the watch chain pushed the list into
+      // a new state (the cascade teardown the manual invalidate used to force).
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+      );
+      expect(
+        servicesStates.length,
+        greaterThan(servicesBefore),
+        reason:
+            'servicesListProvider must re-emit as the auth-watch cascade tears '
+            'it down on logout — without any manual ref.invalidate',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 5c — Logout rebuilds serviceRepositoryProvider via the auth cascade
+    //
+    // NEW CONTRACT (2026-06-18 circular-dependency fix): logout() no longer
+    // calls ref.invalidate(serviceRepositoryProvider). The provider watches
+    // masterProfileProvider, which watches authProvider. When logout() flips
+    // auth to Unauthenticated, masterProfileProvider rebuilds (and now throws
+    // UnauthorizedFailure → masterId resolves to '' on the next build), so
+    // serviceRepositoryProvider is rebuilt around an empty masterId — the
+    // previous account's master id cannot survive. No manual invalidation.
+    //
+    // The OLD version of this test overrode serviceRepositoryProvider with a
+    // per-build mock factory that BROKE the `→ authProvider` edge "so the debug
+    // circular-dependency assertion does not fire" — again engineering the bug
+    // away. This rewrite wires the PRODUCTION serviceRepository + masterProfile
+    // graph (only the leaf masterRepositoryProvider stubbed) so the cyclic edge
+    // is registered, and asserts the cascade contract: logout completes without
+    // throwing and the repository is rebuilt to a fresh instance that no longer
+    // carries the previous account's master id.
+    // -----------------------------------------------------------------------
+    test('logout → serviceRepositoryProvider (keepAlive) is rebuilt via the '
+        'auth-watch cascade (fresh instance, empty masterId) so stale service '
+        'data cannot survive logout — and logout does not throw', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      // Production serviceRepository + masterProfile graph. Only the leaf
+      // masterRepositoryProvider is stubbed, so masterProfileProvider builds
+      // for real and registers its `ref.watch(authProvider)` reverse edge —
+      // the cyclic edge the old override removed. A reverted invalidate()
+      // would re-trip the CircularDependencyError assert here.
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Authenticate, then keep the keepAlive repository alive with a listener
+      // so the instance read before logout is the cached production instance
+      // (mirrors a live screen holding it). This listener is also what wires
+      // serviceRepository → masterProfile → authProvider into the graph.
+      await container.read(authProvider.future);
+      // Let masterProfileProvider settle so serviceRepositoryProvider is built
+      // around the resolved (non-empty) masterId from the fake profile.
+      await container.read(masterProfileProvider.future);
+      final sub = container.listen(
+        serviceRepositoryProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      addTearDown(sub.close);
+
+      final repoBefore = container.read(serviceRepositoryProvider);
+
+      await expectLater(
+        container.read(authProvider.notifier).logout(),
+        completes,
+        reason:
+            'logout() must not throw — it no longer invalidates '
+            'serviceRepositoryProvider; the auth-watch cascade rebuilds it',
+      );
+
+      final repoAfter = container.read(serviceRepositoryProvider);
+
+      expect(
+        identical(repoBefore, repoAfter),
+        isFalse,
+        reason:
+            'the auth-watch cascade must rebuild serviceRepositoryProvider on '
+            'logout (masterProfile → empty masterId) so the next read produces '
+            "a fresh repository — a re-used instance would carry the previous "
+            "account's master id and leak its service data.",
+      );
+    });
 
     // -----------------------------------------------------------------------
     // Test 6 — register success
@@ -909,6 +1166,106 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // Test 13b — refreshUser re-settles Authenticated with the fresh user,
+    //            preserving the current access token.
+    // -----------------------------------------------------------------------
+    test(
+      'refreshUser refreshes session user and preserves access token',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        const updatedUser = User(
+          id: 'u1',
+          email: 'test@example.com',
+          role: UserRole.independentMaster,
+          firstName: 'Updated',
+          lastName: 'Name',
+        );
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => rotatedTokens);
+        // First me() (cold-start build) → original user; subsequent me()
+        // (refreshUser) → updated user.
+        var meCalls = 0;
+        when(() => repo.me()).thenAnswer((_) async {
+          meCalls++;
+          return meCalls == 1 ? testUser : updatedUser;
+        });
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        // Cold start settled with the original user + rotatedTokens.accessToken.
+        expect(
+          (container.read(authProvider).value as Authenticated).user,
+          equals(testUser),
+        );
+
+        await container.read(authProvider.notifier).refreshUser();
+
+        final session = container.read(authProvider).value;
+        expect(session, isA<Authenticated>());
+        // Fresh user surfaced…
+        expect((session as Authenticated).user, equals(updatedUser));
+        // …and the access token from the settled session is preserved.
+        expect(session.accessToken, equals(rotatedTokens.accessToken));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 13c — refreshUser is a no-op when Unauthenticated.
+    // -----------------------------------------------------------------------
+    test('refreshUser is a no-op when Unauthenticated', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage(); // no token → Unauthenticated.
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container.read(authProvider.notifier).refreshUser();
+
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+      );
+      // me() must never be called when there is no session to refresh.
+      verifyNever(() => repo.me());
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 13d — refreshUser tolerates a me() failure: the prior Authenticated
+    //            session (user + access token) is left intact.
+    // -----------------------------------------------------------------------
+    test('refreshUser preserves session when me() fails', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      var meCalls = 0;
+      when(() => repo.me()).thenAnswer((_) async {
+        meCalls++;
+        if (meCalls == 1) return testUser; // cold-start build succeeds.
+        throw const NetworkFailure(); // refreshUser fetch fails.
+      });
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      // Must not throw and must not blow away the session.
+      await container.read(authProvider.notifier).refreshUser();
+
+      final session = container.read(authProvider).value;
+      expect(session, isA<Authenticated>());
+      expect((session as Authenticated).user, equals(testUser));
+      expect(session.accessToken, equals(rotatedTokens.accessToken));
+    });
+
+    // -----------------------------------------------------------------------
     // Test 14 — register passes businessName through to the repository
     // -----------------------------------------------------------------------
     test(
@@ -1191,6 +1548,60 @@ void main() {
         expect(await storage.readRefreshToken(), isNull);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // verifyEmail — repo.me() fails AFTER a successful verify (Finding 1).
+    //
+    // The verify call returns a full session (refresh token persisted), but the
+    // follow-up GET /users/me throws. The notifier MUST surface that failure as
+    // AsyncError (with the original error + stack) rather than hang in a stale
+    // state. It also rethrows so the calling screen renders the inline error.
+    // -----------------------------------------------------------------------
+    test('verifyEmail: repo.me() failure after a successful verify → AsyncError '
+        '(not a stale/hung state) and rethrows', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.verifyEmail(
+          email: any(named: 'email'),
+          otp: any(named: 'otp'),
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+      // The profile load fails — this is the path Finding 1 guards.
+      when(() => repo.me()).thenThrow(const ServerFailure(statusCode: 500));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .verifyEmail(email: 'anya@example.com', otp: '123456'),
+        throwsA(isA<ServerFailure>()),
+      );
+
+      // THE REGRESSION GUARD: the failure surfaces as AsyncError, not a stale
+      // AsyncData(Unauthenticated) / hung AsyncLoading.
+      final value = container.read(authProvider);
+      expect(
+        value,
+        isA<AsyncError<AuthSession>>(),
+        reason:
+            'a repo.me() failure after verify must settle the provider into '
+            'AsyncError so the UI can react instead of hanging',
+      );
+      expect((value as AsyncError<AuthSession>).error, isA<ServerFailure>());
+      expect(value.stackTrace, isNotNull);
+
+      // The in-memory cold-start token must NOT linger after the half-built
+      // session failed (security invariant — no replayable token left behind).
+      expect(
+        container.read(authProvider.notifier).lastKnownAccessToken,
+        isNull,
+        reason: 'a failed verify must clear both in-memory access-token caches',
+      );
+    });
   });
 
   // =========================================================================
@@ -1345,7 +1756,7 @@ void main() {
 
         when(
           () => repo.confirmPasswordReset(
-            token: any(named: 'token'),
+            resetTicket: any(named: 'resetTicket'),
             newPassword: any(named: 'newPassword'),
           ),
         ).thenAnswer((_) async {});
@@ -1358,7 +1769,7 @@ void main() {
           () => container
               .read(authProvider.notifier)
               .confirmPasswordReset(
-                token: 'raw-token',
+                resetTicket: 'raw-ticket',
                 newPassword: 'NewSecret123',
               ),
           returnsNormally,
@@ -1377,7 +1788,7 @@ void main() {
 
       when(
         () => repo.confirmPasswordReset(
-          token: any(named: 'token'),
+          resetTicket: any(named: 'resetTicket'),
           newPassword: any(named: 'newPassword'),
         ),
       ).thenThrow(const ResetTokenInvalidFailure());
@@ -1389,7 +1800,7 @@ void main() {
         () => container
             .read(authProvider.notifier)
             .confirmPasswordReset(
-              token: 'expired',
+              resetTicket: 'expired',
               newPassword: 'NewSecret123',
             ),
         throwsA(isA<ResetTokenInvalidFailure>()),
@@ -1402,7 +1813,7 @@ void main() {
 
       when(
         () => repo.confirmPasswordReset(
-          token: any(named: 'token'),
+          resetTicket: any(named: 'resetTicket'),
           newPassword: any(named: 'newPassword'),
         ),
       ).thenThrow(const NetworkFailure());
@@ -1413,8 +1824,122 @@ void main() {
       await expectLater(
         () => container
             .read(authProvider.notifier)
-            .confirmPasswordReset(token: 't', newPassword: 'NewSecret123'),
+            .confirmPasswordReset(
+              resetTicket: 't',
+              newPassword: 'NewSecret123',
+            ),
         throwsA(isA<NetworkFailure>()),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Beautica OTP task Phase B2 — requestChangePasswordOtp
+  // -------------------------------------------------------------------------
+
+  group('requestChangePasswordOtp', () {
+    test(
+      'success: resolves without throwing or mutating session state',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(() => repo.requestChangePasswordOtp()).thenAnswer((_) async {});
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        final stateBefore = container.read(authProvider).value;
+
+        await expectLater(
+          () =>
+              container.read(authProvider.notifier).requestChangePasswordOtp(),
+          returnsNormally,
+        );
+
+        expect(container.read(authProvider).value, equals(stateBefore));
+        verify(() => repo.requestChangePasswordOtp()).called(1);
+      },
+    );
+
+    test('rethrows ResendThrottledFailure from the repository', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.requestChangePasswordOtp(),
+      ).thenThrow(const ResendThrottledFailure(retryAfterSeconds: 42));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container.read(authProvider.notifier).requestChangePasswordOtp(),
+        throwsA(isA<ResendThrottledFailure>()),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Beautica OTP task Phase B2 — verifyPasswordResetOtp
+  // -------------------------------------------------------------------------
+
+  group('verifyPasswordResetOtp', () {
+    test(
+      'success: returns the reset ticket without mutating session state',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.verifyPasswordResetOtp(
+            email: any(named: 'email'),
+            code: any(named: 'code'),
+          ),
+        ).thenAnswer((_) async => 'ticket-xyz');
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        final stateBefore = container.read(authProvider).value;
+
+        final ticket = await container
+            .read(authProvider.notifier)
+            .verifyPasswordResetOtp(email: 'anya@example.com', code: '123456');
+
+        expect(ticket, 'ticket-xyz');
+        // Pure request/response — no session side-effect (unlike verifyEmail).
+        expect(container.read(authProvider).value, equals(stateBefore));
+        verify(
+          () => repo.verifyPasswordResetOtp(
+            email: 'anya@example.com',
+            code: '123456',
+          ),
+        ).called(1);
+      },
+    );
+
+    test('rethrows PasswordResetOtpFailure from the repository', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.verifyPasswordResetOtp(
+          email: any(named: 'email'),
+          code: any(named: 'code'),
+        ),
+      ).thenThrow(
+        const PasswordResetOtpFailure(
+          code: PasswordResetOtpErrorCode.invalidCode,
+        ),
+      );
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .verifyPasswordResetOtp(email: 'anya@example.com', code: '000000'),
+        throwsA(isA<PasswordResetOtpFailure>()),
       );
     });
   });
@@ -2331,15 +2856,15 @@ void main() {
   // Unlike the rest of the file (which uses the plain FakeSecureStorage), this
   // group needs `verify(() => storage.deleteAll())` interaction assertions, so
   // it uses [SpySecureStorage] (a mocktail Mock delegating to a backing fake).
-  // It also overrides serviceRepositoryProvider with a stub to break the
-  // servicesListProvider → serviceRepositoryProvider → authProvider circular
-  // dependency that Riverpod's debug check would otherwise flag when logout()
-  // calls ref.invalidate(servicesListProvider) (mirrors Test 5b).
+  // It keeps a stub serviceRepositoryProvider override purely so these
+  // storage-wipe tests do not depend on the real Dio-backed service graph — the
+  // override is incidental here (since the 2026-06-18 fix removed the cyclic
+  // ref.invalidate() calls, logout() no longer needs the edge broken at all).
   // =========================================================================
   group('logout — secure-storage wipe is unconditional (M5)', () {
     // Local container builder for this group only — does NOT touch the shared
-    // makeContainer(). Wires the spy storage + a stub service repository so the
-    // logout() invalidation chain runs without the circular-dependency assert.
+    // makeContainer(). Wires the spy storage + a stub service repository so
+    // these storage-wipe tests stay off the real Dio-backed service graph.
     ProviderContainer makeM5Container({
       required AuthRepository repo,
       required SpySecureStorage storage,
@@ -2353,6 +2878,7 @@ void main() {
         overrides: [
           authRepositoryProvider.overrideWith((_) => repo),
           secureStorageProvider.overrideWith((_) => storage),
+          // cycle-stub-ok: the M5 group asserts logout's storage-wipe/interaction behaviour on server-error paths — it does NOT exercise the auth→services watch cascade. That cascade is covered by tests 5b/5c, which deliberately keep the REAL serviceRepository/servicesList graph (only the leaf masterRepositoryProvider stubbed) so the cycle assert can fire there.
           serviceRepositoryProvider.overrideWithValue(serviceRepo),
         ],
       );
@@ -2492,5 +3018,128 @@ void main() {
       expect(value.value, equals(const AuthSession.unauthenticated()));
       expect(notifier.lastKnownAccessToken, isNull);
     });
+  });
+
+  // =========================================================================
+  // CircularDependencyError on logout — regression guard (2026-06-18)
+  //
+  // THE BUG (debug/flutter-test only): logout() used to call
+  //   ref.invalidate(masterProfileProvider)   // + serviceRepository + servicesList
+  // from INSIDE authProvider. masterProfileProvider.build() does
+  //   ref.watch(authProvider)   (master_profile_notifier.dart:33)
+  // and serviceRepository → masterProfile, servicesList → serviceRepository all
+  // transitively reach authProvider too. Invalidating any of them from inside
+  // authProvider records an `authProvider → X` forward edge while the
+  // `X → authProvider` reverse edge already exists → a cycle. Riverpod's
+  // kDebugMode `_debugAssertCanDependOn` then throws CircularDependencyError,
+  // which escapes past `state = AsyncData(Unauthenticated)` and surfaces a
+  // false "logout failed". The assert is stripped in AOT/release, so the bug
+  // only ever reproduced under `flutter test` / debug — which is exactly why
+  // the OLD Test 5b/5c never caught it: they STUBBED the cyclic providers to
+  // break the `→ authProvider` edge, engineering the bug away.
+  //
+  // THE FIX: logout() removed the three cyclic ref.invalidate() calls entirely
+  // (the watchers clear automatically when auth flips to Unauthenticated) and
+  // reaches `state = AsyncData(Unauthenticated())` unconditionally after the
+  // storage wipe.
+  //
+  // HOW THIS TEST REPRODUCES THE BUG (unlike the old tests):
+  //   - It does NOT stub masterProfile / serviceRepository / servicesList.
+  //     Only the LEAF data deps are overridden (authRepository, secureStorage,
+  //     masterRepository) so the real notifiers build.
+  //   - It registers the cyclic edge by `container.listen(masterProfileProvider)`
+  //     (and servicesListProvider) BEFORE logout, so masterProfileProvider.build()
+  //     runs `ref.watch(authProvider)` and the `authProvider → masterProfile`
+  //     reverse edge is live in the graph.
+  //   - Against PRE-FIX code (the three ref.invalidate() calls present), logout()
+  //     would record the forward edge → CircularDependencyError thrown → this
+  //     test FAILS (logout() does not `complete`). Against the fixed code there
+  //     is no invalidate, so no forward edge, so logout() completes and settles
+  //     Unauthenticated. This is the would-fail-on-unfixed-code property the
+  //     debug-chain QA gate (Step 2.7 Rule 3) requires.
+  // =========================================================================
+  group('logout — no CircularDependencyError with the real cyclic graph', () {
+    test(
+      'logout() completes without throwing CircularDependencyError when '
+      'masterProfile/servicesList are the REAL production providers (the cyclic '
+      'edge to authProvider is live) and settles state to Unauthenticated',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => testTokens);
+        when(() => repo.me()).thenAnswer((_) async => testUser);
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        // Override ONLY the leaf data-layer deps. masterProfileProvider,
+        // serviceRepositoryProvider and servicesListProvider are LEFT REAL so
+        // each registers its transitive `ref.watch(authProvider)` — the exact
+        // reverse edge the old Test 5b/5c stubbed away to dodge the assert.
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith(
+              (_) => FakeMasterRepository(),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Authenticate first so the session is Authenticated.
+        await container.read(authProvider.future);
+
+        // Register the cyclic edges: subscribing makes masterProfileProvider and
+        // servicesListProvider build, running their `ref.watch(authProvider)` /
+        // transitive watches so the reverse edge `…→ authProvider` is recorded.
+        // Without these listens the providers are never built and the cycle is
+        // never closed — so these subscriptions are load-bearing for the repro.
+        final masterSub = container.listen(
+          masterProfileProvider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+        addTearDown(masterSub.close);
+        final servicesSub = container.listen(
+          servicesListProvider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+        addTearDown(servicesSub.close);
+
+        // Settle masterProfile so its `ref.watch(authProvider)` subscription is
+        // firmly established in the dependency graph before logout runs.
+        await container.read(masterProfileProvider.future);
+
+        // THE ASSERTION: against pre-fix code this throws CircularDependencyError
+        // (logout records authProvider → masterProfile while masterProfile →
+        // authProvider already exists). Against the fixed code it completes.
+        await expectLater(
+          container.read(authProvider.notifier).logout(),
+          completes,
+          reason:
+              'logout() must NOT throw CircularDependencyError — the fix removed '
+              'the cyclic ref.invalidate() calls; teardown is handled by the '
+              'auth-watch cascade. A reverted fix re-trips the debug assert here.',
+        );
+
+        // The state transition after the wipe must have been reached.
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncData<AuthSession>>());
+        expect(
+          value.value,
+          equals(const AuthSession.unauthenticated()),
+          reason:
+              'logout() must settle authProvider to Unauthenticated — a thrown '
+              'CircularDependencyError would have escaped before this transition.',
+        );
+
+        // Storage was wiped as part of the (now uninterrupted) logout path.
+        expect(await storage.readRefreshToken(), isNull);
+      },
+    );
   });
 }

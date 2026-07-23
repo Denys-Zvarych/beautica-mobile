@@ -32,9 +32,38 @@ final BuiltSet<ScheduleOverrideRequestKindEnum>
   _$scheduleOverrideRequestKindEnum_CUSTOM_HOURS,
 ]);
 
+const ScheduleOverrideRequestModeEnum
+    _$scheduleOverrideRequestModeEnum_INTERVAL =
+    const ScheduleOverrideRequestModeEnum._('INTERVAL');
+const ScheduleOverrideRequestModeEnum
+    _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES =
+    const ScheduleOverrideRequestModeEnum._('EXPLICIT_TIMES');
+
+ScheduleOverrideRequestModeEnum _$scheduleOverrideRequestModeEnumValueOf(
+    String name) {
+  switch (name) {
+    case 'INTERVAL':
+      return _$scheduleOverrideRequestModeEnum_INTERVAL;
+    case 'EXPLICIT_TIMES':
+      return _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES;
+    default:
+      throw ArgumentError(name);
+  }
+}
+
+final BuiltSet<ScheduleOverrideRequestModeEnum>
+    _$scheduleOverrideRequestModeEnumValues = BuiltSet<
+        ScheduleOverrideRequestModeEnum>(const <ScheduleOverrideRequestModeEnum>[
+  _$scheduleOverrideRequestModeEnum_INTERVAL,
+  _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES,
+]);
+
 Serializer<ScheduleOverrideRequestKindEnum>
     _$scheduleOverrideRequestKindEnumSerializer =
     _$ScheduleOverrideRequestKindEnumSerializer();
+Serializer<ScheduleOverrideRequestModeEnum>
+    _$scheduleOverrideRequestModeEnumSerializer =
+    _$ScheduleOverrideRequestModeEnumSerializer();
 
 class _$ScheduleOverrideRequestKindEnumSerializer
     implements PrimitiveSerializer<ScheduleOverrideRequestKindEnum> {
@@ -66,13 +95,47 @@ class _$ScheduleOverrideRequestKindEnumSerializer
           _fromWire[serialized] ?? (serialized is String ? serialized : ''));
 }
 
+class _$ScheduleOverrideRequestModeEnumSerializer
+    implements PrimitiveSerializer<ScheduleOverrideRequestModeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'INTERVAL': 'INTERVAL',
+    'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'INTERVAL': 'INTERVAL',
+    'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[ScheduleOverrideRequestModeEnum];
+  @override
+  final String wireName = 'ScheduleOverrideRequestModeEnum';
+
+  @override
+  Object serialize(
+          Serializers serializers, ScheduleOverrideRequestModeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  ScheduleOverrideRequestModeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      ScheduleOverrideRequestModeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
   @override
   final Date date;
   @override
   final ScheduleOverrideRequestKindEnum kind;
   @override
+  final ScheduleOverrideRequestModeEnum? mode;
+  @override
   final BuiltList<WorkIntervalDto>? intervals;
+  @override
+  final BuiltList<String>? times;
   @override
   final bool? kindConsistent;
 
@@ -83,7 +146,9 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
   _$ScheduleOverrideRequest._(
       {required this.date,
       required this.kind,
+      this.mode,
       this.intervals,
+      this.times,
       this.kindConsistent})
       : super._();
   @override
@@ -101,7 +166,9 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     return other is ScheduleOverrideRequest &&
         date == other.date &&
         kind == other.kind &&
+        mode == other.mode &&
         intervals == other.intervals &&
+        times == other.times &&
         kindConsistent == other.kindConsistent;
   }
 
@@ -110,7 +177,9 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     var _$hash = 0;
     _$hash = $jc(_$hash, date.hashCode);
     _$hash = $jc(_$hash, kind.hashCode);
+    _$hash = $jc(_$hash, mode.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
+    _$hash = $jc(_$hash, times.hashCode);
     _$hash = $jc(_$hash, kindConsistent.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -121,7 +190,9 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     return (newBuiltValueToStringHelper(r'ScheduleOverrideRequest')
           ..add('date', date)
           ..add('kind', kind)
+          ..add('mode', mode)
           ..add('intervals', intervals)
+          ..add('times', times)
           ..add('kindConsistent', kindConsistent))
         .toString();
   }
@@ -140,11 +211,19 @@ class ScheduleOverrideRequestBuilder
   ScheduleOverrideRequestKindEnum? get kind => _$this._kind;
   set kind(ScheduleOverrideRequestKindEnum? kind) => _$this._kind = kind;
 
+  ScheduleOverrideRequestModeEnum? _mode;
+  ScheduleOverrideRequestModeEnum? get mode => _$this._mode;
+  set mode(ScheduleOverrideRequestModeEnum? mode) => _$this._mode = mode;
+
   ListBuilder<WorkIntervalDto>? _intervals;
   ListBuilder<WorkIntervalDto> get intervals =>
       _$this._intervals ??= ListBuilder<WorkIntervalDto>();
   set intervals(ListBuilder<WorkIntervalDto>? intervals) =>
       _$this._intervals = intervals;
+
+  ListBuilder<String>? _times;
+  ListBuilder<String> get times => _$this._times ??= ListBuilder<String>();
+  set times(ListBuilder<String>? times) => _$this._times = times;
 
   bool? _kindConsistent;
   bool? get kindConsistent => _$this._kindConsistent;
@@ -160,7 +239,9 @@ class ScheduleOverrideRequestBuilder
     if ($v != null) {
       _date = $v.date;
       _kind = $v.kind;
+      _mode = $v.mode;
       _intervals = $v.intervals?.toBuilder();
+      _times = $v.times?.toBuilder();
       _kindConsistent = $v.kindConsistent;
       _$v = null;
     }
@@ -189,7 +270,9 @@ class ScheduleOverrideRequestBuilder
                 date, r'ScheduleOverrideRequest', 'date'),
             kind: BuiltValueNullFieldError.checkNotNull(
                 kind, r'ScheduleOverrideRequest', 'kind'),
+            mode: mode,
             intervals: _intervals?.build(),
+            times: _times?.build(),
             kindConsistent: kindConsistent,
           );
     } catch (_) {
@@ -197,6 +280,8 @@ class ScheduleOverrideRequestBuilder
       try {
         _$failedField = 'intervals';
         _intervals?.build();
+        _$failedField = 'times';
+        _times?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ScheduleOverrideRequest', _$failedField, e.toString());

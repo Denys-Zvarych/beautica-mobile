@@ -62,6 +62,10 @@ abstract final class MasterMapper {
       salonId: dto.salon?.id,
       phoneNumber: dto.phoneNumber,
       instagram: dto.instagram,
+      // Normalise empty string to null — the UI only tests for null/non-null.
+      professionalTitle: dto.professionalTitle?.isEmpty == true
+          ? null
+          : dto.professionalTitle,
       // Working hours are NOT populated from the (deprecated) bundled profile
       // field anymore — the calendar feature now reads them over the network
       // via the weekly-schedule API (getWeeklySchedules). The domain field is

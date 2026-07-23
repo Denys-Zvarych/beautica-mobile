@@ -45,5 +45,19 @@ final class FakeSecureStorage implements SecureStorage {
   }
 
   @override
+  Future<String?> readPendingLocality() async =>
+      _backing[StorageKeys.pendingLocality];
+
+  @override
+  Future<void> writePendingLocality(String json) async {
+    _backing[StorageKeys.pendingLocality] = json;
+  }
+
+  @override
+  Future<void> deletePendingLocality() async {
+    _backing.remove(StorageKeys.pendingLocality);
+  }
+
+  @override
   Future<void> deleteAll() async => _backing.clear();
 }

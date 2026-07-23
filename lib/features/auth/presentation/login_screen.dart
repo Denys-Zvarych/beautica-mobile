@@ -36,10 +36,10 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
-import '../domain/user_role.dart';
 import 'auth_notifier.dart';
 import 'auth_selectors.dart';
 import 'widgets/auth_scaffold.dart';
@@ -144,10 +144,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         // Signal the OS password manager to save the credential.
         TextInput.finishAutofillContext();
         final role = ref.read(currentUserProvider)?.role;
-        final destination = switch (role) {
-          UserRole.independentMaster => RouteNames.masterProfile,
-          _ => RouteNames.home,
-        };
+        // Phase 13.1 — resolve the landing path through the shared
+        // [roleHomePath] helper, the single source of truth shared with the
+        // authenticated-on-auth-route gate in auth_redirect.dart. CLIENT lands
+        // on the 5-tab client shell at /home. A null role (no current user)
+        // falls back to the home shell.
+        final destination = role == null ? RouteNames.home : roleHomePath(role);
         context.go(destination);
       },
       loading: () {

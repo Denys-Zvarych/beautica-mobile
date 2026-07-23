@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:beautica_mobile/core/theme/app_theme.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold.dart';
 
@@ -110,6 +111,64 @@ void main() {
       );
       expect(btn.onPressed, isNull);
     });
+
+    // Phase 2.17 fix P1-3 regression — the label Text is wrapped in a
+    // Flexible inside a `Row(mainAxisSize: MainAxisSize.min)`. A long label
+    // rendered inside a narrow horizontal constraint MUST ellipsize, not blow
+    // the Row past its bounds. Before the Flexible fix the bare Text reported
+    // its full intrinsic width into the min-sized Row, overflowing it and
+    // raising a "RenderFlex overflowed by N pixels" FlutterError on layout.
+    //
+    // This test pins that fix: it pumps the button into a deliberately narrow
+    // (120 px) box with an unusually long label and asserts that NO exception
+    // was thrown during layout. Remove the `Flexible` wrapper in the source and
+    // this test fails with a RenderFlex overflow exception captured by
+    // tester.takeException().
+    testWidgets(
+      'long label in a narrow constraint ellipsizes without RenderFlex overflow',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            Center(
+              child: SizedBox(
+                width: 120,
+                child: NeumorphicButton(
+                  key: const Key('btn_overflow'),
+                  // An icon forces a second Row child, leaving even less room
+                  // for the label and tightening the overflow scenario.
+                  icon: Icons.check_rounded,
+                  label:
+                      'Підтвердити та продовжити до наступного кроку реєстрації',
+                  onPressed: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // No RenderFlex overflow (or any other) exception was raised. Without
+        // the Flexible wrapper, takeException() returns a FlutterError here.
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'NeumorphicButton label must be wrapped in a Flexible so a long '
+              'label ellipsizes instead of overflowing the min-sized Row.',
+        );
+
+        // The button still renders, and the label Text uses ellipsis overflow.
+        expect(find.byKey(const Key('btn_overflow')), findsOneWidget);
+        final Text labelText = tester.widget<Text>(
+          find.text('Підтвердити та продовжити до наступного кроку реєстрації'),
+        );
+        expect(
+          labelText.overflow,
+          TextOverflow.ellipsis,
+          reason: 'The CTA label must ellipsize on overflow.',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -356,6 +415,187 @@ void main() {
       // extrudedCard has 2 box shadows — assert the count matches.
       expect(decoration.boxShadow, hasLength(2));
     });
+
+    // mobile-qa regression — `showBorder` (default false) opt-in hairline
+    // stroke. Every existing call site relies solely on the extruded shadow
+    // pair for depth and must be unaffected by the new param — pin the
+    // default (unset) path renders NO border at all.
+    testWidgets(
+      'showBorder: false (default) renders a null BoxDecoration.border',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const NeumorphicCard(
+              key: Key('card_no_border'),
+              child: SizedBox.shrink(),
+            ),
+          ),
+        );
+
+        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byKey(const Key('card_no_border')),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        final BoxDecoration decoration =
+            decoratedBox.decoration as BoxDecoration;
+        expect(
+          decoration.border,
+          isNull,
+          reason:
+              'NeumorphicCard must not draw any border unless showBorder is '
+              'explicitly opted into — every pre-existing call site depends '
+              'on this.',
+        );
+      },
+    );
+
+    // Sanity check performed while writing this test (not re-run per CI
+    // pass): before `showBorder` existed on NeumorphicCard, this assertion
+    // was unreachable — the constructor had no such named parameter at all,
+    // so this test would have failed to even compile. It now pins the
+    // opted-in rendering path.
+    testWidgets('showBorder: true renders Border.all(color: BrandColors.faint, '
+        'width: 1)', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const NeumorphicCard(
+            key: Key('card_with_border'),
+            showBorder: true,
+            child: SizedBox.shrink(),
+          ),
+        ),
+      );
+
+      final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: find.byKey(const Key('card_with_border')),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = decoratedBox.decoration as BoxDecoration;
+      expect(
+        decoration.border,
+        equals(Border.all(color: BrandColors.faint, width: 1)),
+        reason:
+            'showBorder: true must draw exactly a 1dp BrandColors.faint '
+            'stroke around the card.',
+      );
+    });
+
+    // mobile-qa regression — shadow-substitution fix. Before this fix,
+    // `showBorder: true` cards kept the default `extrudedCard`'s pair of
+    // ±8dp-offset shadows, whose untranslated corner sliver bled out past
+    // the card's own crisp border as a stray pale rectangle (see
+    // `VelvetShadows.borderedCard`'s doc in velvet_geometry.dart). Pins that
+    // a bordered card left at the DEFAULT `shadows` value now renders the
+    // single non-offset `borderedCard` shadow instead.
+    //
+    // Verified as a genuine regression guard: with the substitution's
+    // `identical(shadows, VelvetShadows.extrudedCard)` gate commented out of
+    // `NeumorphicCard.build()` (i.e. `effectiveShadows` always == `shadows`,
+    // the pre-fix behaviour), this test fails — `decoration.boxShadow` comes
+    // back as the 2-entry `extrudedCard` list instead of the 1-entry
+    // `borderedCard` list.
+    testWidgets('showBorder: true with default shadows substitutes '
+        'VelvetShadows.borderedCard for VelvetShadows.extrudedCard', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const NeumorphicCard(
+            key: Key('card_border_default_shadows'),
+            showBorder: true,
+            child: SizedBox.shrink(),
+          ),
+        ),
+      );
+
+      final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: find.byKey(const Key('card_border_default_shadows')),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = decoratedBox.decoration as BoxDecoration;
+
+      expect(
+        decoration.boxShadow,
+        equals(VelvetShadows.borderedCard),
+        reason:
+            'showBorder: true with the default shadows must substitute '
+            'the single non-offset borderedCard shadow — the '
+            "extrudedCard pair's corner sliver bleeds past a bordered "
+            'card\'s crisp edge.',
+      );
+      expect(
+        decoration.boxShadow,
+        isNot(equals(VelvetShadows.extrudedCard)),
+        reason:
+            'must NOT keep the default extrudedCard shadow pair once '
+            'showBorder is true — that is exactly the corner-bleed bug '
+            'this substitution fixes.',
+      );
+    });
+
+    // mobile-qa regression — the substitution's `identical()` gate must only
+    // fire for the DEFAULT `shadows` value. A caller that explicitly passes
+    // its own custom shadows list alongside `showBorder: true` must keep
+    // that exact list unchanged — proving the fix doesn't blanket-override
+    // every bordered card, only the ones that never customised `shadows`.
+    testWidgets(
+      'showBorder: true with an explicit custom shadows list keeps the '
+      "caller's shadows, not VelvetShadows.borderedCard",
+      (WidgetTester tester) async {
+        const List<BoxShadow> customShadows = <BoxShadow>[
+          BoxShadow(color: Colors.red, blurRadius: 4),
+        ];
+        await tester.pumpWidget(
+          _wrap(
+            const NeumorphicCard(
+              key: Key('card_border_custom_shadows'),
+              showBorder: true,
+              shadows: customShadows,
+              child: SizedBox.shrink(),
+            ),
+          ),
+        );
+
+        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byKey(const Key('card_border_custom_shadows')),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        final BoxDecoration decoration =
+            decoratedBox.decoration as BoxDecoration;
+
+        expect(
+          decoration.boxShadow,
+          equals(customShadows),
+          reason:
+              'an explicit custom `shadows` argument must always win — the '
+              'borderedCard substitution is gated on `identical(shadows, '
+              'VelvetShadows.extrudedCard)`, which must be false here.',
+        );
+        expect(
+          decoration.boxShadow,
+          isNot(equals(VelvetShadows.borderedCard)),
+          reason:
+              'an explicit shadows override must never be silently replaced '
+              'by borderedCard just because showBorder is also true.',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -508,6 +748,44 @@ void main() {
 
         await tester.tap(find.text('Надіслати знову'));
         expect(tapped, isTrue);
+      },
+    );
+
+    // Negative path — when no actionLabel (and no onAction) is supplied, the
+    // banner renders the icon + message only and omits the action affordance
+    // entirely. The action block is gated on `actionLabel != null && onAction
+    // != null`, so its keyed GestureDetector must be absent and the build must
+    // not throw.
+    testWidgets(
+      'omits the action affordance when actionLabel is not provided',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const AuthBanner(
+              key: Key('banner_no_action'),
+              icon: Icons.info_outline,
+              message: 'Підтвердіть свою електронну пошту',
+              color: BrandColors.accent,
+              // No actionLabel / onAction — action block must not render.
+            ),
+          ),
+        );
+
+        // Banner itself rendered with its icon + message, no exception thrown.
+        expect(find.byKey(const Key('banner_no_action')), findsOneWidget);
+        expect(find.byIcon(Icons.info_outline), findsOneWidget);
+        expect(find.text('Підтвердіть свою електронну пошту'), findsOneWidget);
+
+        // The action affordance carries the stable key 'auth_banner_action';
+        // it must be absent on the no-action path.
+        expect(
+          find.byKey(const ValueKey<String>('auth_banner_action')),
+          findsNothing,
+          reason:
+              'AuthBanner without actionLabel must not render the action '
+              'GestureDetector.',
+        );
+        expect(tester.takeException(), isNull);
       },
     );
   });

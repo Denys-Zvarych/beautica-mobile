@@ -96,6 +96,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   @override
   final String? instagram;
   @override
+  final String? professionalTitle;
+  @override
   final String? avatarUrl;
   @override
   final num? avgRating;
@@ -129,6 +131,7 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.locationNote,
       this.bio,
       this.instagram,
+      this.professionalTitle,
       this.avatarUrl,
       this.avgRating,
       this.reviewCount,
@@ -162,6 +165,7 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         locationNote == other.locationNote &&
         bio == other.bio &&
         instagram == other.instagram &&
+        professionalTitle == other.professionalTitle &&
         avatarUrl == other.avatarUrl &&
         avgRating == other.avgRating &&
         reviewCount == other.reviewCount &&
@@ -186,6 +190,7 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, bio.hashCode);
     _$hash = $jc(_$hash, instagram.hashCode);
+    _$hash = $jc(_$hash, professionalTitle.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
     _$hash = $jc(_$hash, reviewCount.hashCode);
@@ -212,6 +217,7 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('locationNote', locationNote)
           ..add('bio', bio)
           ..add('instagram', instagram)
+          ..add('professionalTitle', professionalTitle)
           ..add('avatarUrl', avatarUrl)
           ..add('avgRating', avgRating)
           ..add('reviewCount', reviewCount)
@@ -268,6 +274,11 @@ class MasterDetailResponseBuilder
   String? _instagram;
   String? get instagram => _$this._instagram;
   set instagram(String? instagram) => _$this._instagram = instagram;
+
+  String? _professionalTitle;
+  String? get professionalTitle => _$this._professionalTitle;
+  set professionalTitle(String? professionalTitle) =>
+      _$this._professionalTitle = professionalTitle;
 
   String? _avatarUrl;
   String? get avatarUrl => _$this._avatarUrl;
@@ -326,6 +337,7 @@ class MasterDetailResponseBuilder
       _locationNote = $v.locationNote;
       _bio = $v.bio;
       _instagram = $v.instagram;
+      _professionalTitle = $v.professionalTitle;
       _avatarUrl = $v.avatarUrl;
       _avgRating = $v.avgRating;
       _reviewCount = $v.reviewCount;
@@ -368,6 +380,7 @@ class MasterDetailResponseBuilder
             locationNote: locationNote,
             bio: bio,
             instagram: instagram,
+            professionalTitle: professionalTitle,
             avatarUrl: avatarUrl,
             avgRating: avgRating,
             reviewCount: reviewCount,

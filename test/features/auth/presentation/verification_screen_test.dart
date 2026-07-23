@@ -40,9 +40,12 @@
 // ---------------------------------------------------------------------------
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/storage/storage_keys.dart';
+import 'package:beautica_mobile/features/auth/state/pending_locality.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -2823,6 +2826,556 @@ void main() {
             'or the catch-all fallback (errUnknown) — never an empty string.',
       );
     });
+
+    // -----------------------------------------------------------------------
+    // Test 22 — DURABLE-BLOB RE-HYDRATION (reproduces the PRIMARY silent
+    //           data-loss bug).
+    //
+    // The bug: register Step-3 locality lived ONLY in the in-memory keepAlive
+    // RegisterDraft. When the app is backgrounded to read the emailed OTP (or
+    // the user reaches /verification via the login EMAIL_NOT_VERIFIED path,
+    // which never builds a draft), the draft is `null` at OTP time, so the
+    // post-OTP PATCH /users/me NEVER fired → the CLIENT's chosen city was lost
+    // with no error.
+    //
+    // This test reproduces exactly that state: the registerDraftProvider is at
+    // its initial `null` (post-kill relaunch — NO draft seeded) BUT a matching
+    // PendingLocality blob (same email as the screen) is pre-seeded in
+    // FakeSecureStorage. After a valid OTP the screen must re-hydrate from the
+    // blob and call UserRepository.updateLocality with the blob's cityId.
+    //
+    // PRE-FIX this assertion FAILS: updateLocality is called ZERO times (the
+    // draft==null branch returned early and the blob was never consulted).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '22. CLIENT, null draft + matching durable blob: verify success '
+      're-hydrates and PATCHes /users/me with the blob cityId (silent '
+      'data-loss regression guard)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final userRepo = _MockUserRepository();
+        when(
+          () => userRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        // Pre-seed the durable blob for THIS screen's email (matching email).
+        // The in-memory draft is left at its initial null — this is the
+        // post-kill / login-verify-entry state the bug lives in.
+        final storage = FakeSecureStorage();
+        const blob = PendingLocality(
+          email: _testEmail,
+          role: UserRole.client,
+          localityProvided: true,
+          cityId: 'city-blob-1',
+          districtId: 'district-blob-1',
+        );
+        await storage.writePendingLocality(jsonEncode(blob.toJson()));
+
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            userRepositoryProvider.overrideWith((_) => userRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Sanity: NO draft is seeded — registerDraftProvider stays null.
+        expect(container.read(registerDraftProvider), isNull);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pumpAndSettle();
+
+        // Must land on /home (via /done redirect) — the PATCH did not crash.
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'CLIENT with a re-hydrated blob must navigate to /done → /home '
+              'after a successful PATCH /users/me.',
+        );
+
+        // THE REGRESSION ASSERTION: the blob values flow through into the
+        // PATCH. Pre-fix this is called ZERO times (the data-loss bug).
+        verify(
+          () => userRepo.updateLocality(
+            cityId: 'city-blob-1',
+            districtId: 'district-blob-1',
+            street: '',
+            buildingNo: '',
+            locationNote: '',
+          ),
+        ).called(1);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 23 — GENUINE SKIP: CLIENT, null draft, NO blob.
+    //
+    // The other side of the de-silencing: when the in-memory draft is null AND
+    // there is no durable blob at all (true deep-link / different-device edge
+    // case, OR a genuine CLIENT skip whose blob recorded no city), the screen
+    // must NOT call updateLocality and must still navigate to /done.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '23. CLIENT, null draft + NO blob: updateLocality NOT called, still '
+      'navigates to /done',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final userRepo = _MockUserRepository();
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        // Empty storage — no blob seeded, no draft seeded.
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            userRepositoryProvider.overrideWith((_) => userRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        expect(container.read(registerDraftProvider), isNull);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation must still succeed — a missing blob is a no-op, not a block.
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'With no draft and no blob there is nothing to persist — the '
+              'screen must still verify and reach /done → /home.',
+        );
+
+        // No PATCH must have been attempted.
+        verifyNever(
+          () => userRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 24 — CROSS-ACCOUNT GUARD (locks HIGH-1: cross-account PII bleed).
+    //
+    // A blob stashed by user A (who abandoned registration before OTP) must
+    // NEVER be applied onto user B, who reaches /verification for a DIFFERENT
+    // email (e.g. via the login EMAIL_NOT_VERIFIED path). The screen consumes
+    // the blob ONLY when `pending.email == widget.email` (trim + lowercase);
+    // a non-matching blob is ignored AND best-effort cleared from storage.
+    //
+    // Setup: pre-seed a blob for email A (A's cityId + salonName + phone), pump
+    // the screen with widget.email = B, null draft. After OTP:
+    //   • NO PATCH / salon-create carrying A's data (verifyNever on BOTH the
+    //     user and salon repositories — A's role was SALON_OWNER).
+    //   • the stale blob is cleared from storage.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '24. blob for email A + screen for email B (null draft): A\'s data is '
+      'NOT applied and the stale blob is cleared (cross-account PII guard)',
+      (tester) async {
+        const emailA = 'attacker-a@example.com';
+        const emailB = 'victim-b@example.com';
+
+        final repo = FakeAuthRepository();
+        final userRepo = _MockUserRepository();
+        final salonRepo = _MockSalonRepository();
+
+        // The screen is for email B.
+        final router = _makeRouter(email: emailB);
+        addTearDown(router.dispose);
+
+        // Pre-seed a blob belonging to email A (SALON_OWNER, with A's city +
+        // salon contact data — the PII that must not bleed onto B).
+        final storage = FakeSecureStorage();
+        const blobA = PendingLocality(
+          email: emailA,
+          role: UserRole.salonOwner,
+          localityProvided: true,
+          cityId: 'city-A-secret',
+          districtId: 'district-A-secret',
+          salonName: 'A Salon',
+          phone: '+380990000000',
+        );
+        await storage.writePendingLocality(jsonEncode(blobA.toJson()));
+
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            userRepositoryProvider.overrideWith((_) => userRepo),
+            salonRepositoryProvider.overrideWith((_) => salonRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // No draft for B — the lost-draft / login-verify-entry state.
+        expect(container.read(registerDraftProvider), isNull);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pumpAndSettle();
+
+        // B still completes verification (no draft + ignored blob = no-op save).
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'Email B must still verify and reach /home — the mismatched blob '
+              'is ignored, not fatal.',
+        );
+
+        // CRITICAL: A's locality must NOT be PATCHed onto B's user row ...
+        verifyNever(
+          () => userRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        );
+        // ... and A's salon (with A's PII) must NOT be created under B's session.
+        verifyNever(() => salonRepo.create(dto: any(named: 'dto')));
+
+        // The stale cross-account blob must be cleared from storage so it does
+        // not linger and re-leak on a later screen.
+        expect(
+          await storage.readPendingLocality(),
+          isNull,
+          reason:
+              'A blob whose email does not match the verifying screen must be '
+              'cleared from secure storage (no stale cross-account PII at rest).',
+        );
+        // Defensive: the namespaced key is the one being read (rename guard).
+        expect(
+          StorageKeys.pendingLocality,
+          equals('BEAUTICA_PENDING_LOCALITY'),
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 25 — SALON_OWNER POST /salons FAILS with a generic ServerFailure:
+    //           the inline error banner renders, the user is NOT navigated
+    //           away from the verification screen, and the verify button is
+    //           re-enabled so they can retry.
+    //
+    // This is the missing ERROR-state guard for the SALON_OWNER salon-creation
+    // path (Tests 16 + 17 only cover the success path). OTP verification
+    // succeeds (FakeAuthRepository default), then _saveProviderProfile() calls
+    // SalonRepository.create which throws a typed Failure — the catch in
+    // _submit() must surface it via _setInlineError and keep the user on the
+    // screen (never silently land on /done → /home with an un-created salon).
+    //
+    // ServerFailure exercises the `error is Failure` branch of _setInlineError
+    // (the realistic outcome of any 5xx / transport error on POST /salons —
+    // see HttpSalonRepository._mapDioException).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '25. SALON_OWNER POST /salons ServerFailure: inline banner shown, stays on '
+      'verification screen (no /home), verify button re-enabled for retry',
+      (tester) async {
+        final repo = FakeAuthRepository(); // verifyEmail succeeds by default
+        final salonRepo = _MockSalonRepository();
+        // POST /salons rejected by the backend with a 5xx → ServerFailure.
+        when(
+          () => salonRepo.create(dto: any(named: 'dto')),
+        ).thenThrow(const ServerFailure(statusCode: 500));
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            salonRepositoryProvider.overrideWith((_) => salonRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed a complete SALON_OWNER draft so _saveProviderProfile reaches the
+        // SalonRepository.create call (city present → no missing-city short-circuit).
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.salonOwner);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Олена',
+          lastName: 'Мороз',
+          phone: '+380671234567',
+          salonName: 'Salon Lumière',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '12А',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Cannot pumpAndSettle: the resend cooldown timer (reset on the post-OTP
+        // save failure) fires setState every second and never settles.
+        await tester.pump(); // begin async (verifyEmail + create)
+        await tester.pump(); // microtasks (create throws → catch fires)
+        await tester.pump(const Duration(milliseconds: 50)); // animations
+
+        // create() was actually invoked (sanity — we tested the real path).
+        verify(() => salonRepo.create(dto: any(named: 'dto'))).called(1);
+
+        // The user must NOT have navigated away — no /home (and the verify
+        // submit button is still in the tree).
+        expect(
+          find.text('home'),
+          findsNothing,
+          reason:
+              'A failed POST /salons must keep the user on the verification '
+              'screen — never silently land on /done → /home with no salon created.',
+        );
+        expect(
+          find.byKey(const ValueKey<String>('verify_submit')),
+          findsOneWidget,
+        );
+
+        // The inline error banner must render with the generic server copy.
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'A ServerFailure from POST /salons must surface an AuthBanner via '
+              '_setInlineError (the `error is Failure` branch).',
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AuthBanner)),
+        );
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == l10n.errServer),
+          isTrue,
+          reason:
+              'ServerFailure.userMessage resolves to l10n.errServer — that copy '
+              'must appear in the inline banner. '
+              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+
+        // Retry must be possible: the OTP is still filled and the screen is no
+        // longer loading, so the verify button is re-enabled (onPressed non-null).
+        final btn = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btn.onPressed,
+          isNotNull,
+          reason:
+              'After a failed POST /salons the verify button must be re-enabled '
+              'so the user can retry the save (OTP already consumed).',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 26 — SALON_OWNER POST /salons FAILS with a ValidationFailure:
+    //           the server field-rejection message is surfaced inline and the
+    //           user stays on the verification screen.
+    //
+    // Distinct reachable branch of _setInlineError: `error is ValidationFailure`
+    // → buildFieldErrorBanner (empty here) → falls back to the server message.
+    // Backend rejects e.g. a duplicate salon name on POST /salons; the offending
+    // field lives on a previous register step, so the user must see why.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '26. SALON_OWNER POST /salons ValidationFailure: server field message shown '
+      'inline, stays on verification screen',
+      (tester) async {
+        const serverMsg = 'Назва салону вже зайнята';
+        final repo = FakeAuthRepository();
+        final salonRepo = _MockSalonRepository();
+        when(() => salonRepo.create(dto: any(named: 'dto'))).thenThrow(
+          const ValidationFailure(fieldErrors: {}, serverMessage: serverMsg),
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            salonRepositoryProvider.overrideWith((_) => salonRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.salonOwner);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Олена',
+          lastName: 'Мороз',
+          phone: '+380671234567',
+          salonName: 'Salon Lumière',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '12А',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks (create throws → catch fires)
+        await tester.pump(const Duration(milliseconds: 50)); // animations
+
+        verify(() => salonRepo.create(dto: any(named: 'dto'))).called(1);
+
+        // Stays on the verification screen — no navigation to /home.
+        expect(
+          find.text('home'),
+          findsNothing,
+          reason:
+              'A ValidationFailure on POST /salons must keep the user on the '
+              'verification screen, not navigate to /home.',
+        );
+
+        // The banner renders the server-supplied field message (empty fieldErrors
+        // → buildFieldErrorBanner returns null → serverMessage fallback).
+        expect(find.byType(AuthBanner), findsOneWidget);
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == serverMsg),
+          isTrue,
+          reason:
+              'The ValidationFailure.serverMessage ("$serverMsg") must surface '
+              'in the inline banner when no field-level errors are present. '
+              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+      },
+    );
   });
 }
 

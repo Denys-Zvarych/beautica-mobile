@@ -277,7 +277,7 @@ void main() {
     );
 
     testWidgets(
-      'active label TextStyle is italic Comfortaa w600 14 px camel '
+      'active label TextStyle is italic Comfortaa w600 11 px camel '
       '(locks the design-token contract; guards CormorantGaramond→Comfortaa fix)',
       (tester) async {
         await _pumpProgress(
@@ -290,7 +290,7 @@ void main() {
         );
         final style = labelText.style!;
         expect(style.fontStyle, FontStyle.italic);
-        expect(style.fontSize, 14);
+        expect(style.fontSize, 11);
         expect(style.fontWeight, FontWeight.w600);
         // Brand camel #B89A7A → 0xFFB89A7A.
         expect(style.color, const Color(0xFFB89A7A));
@@ -309,6 +309,15 @@ void main() {
               'GoogleFonts.cormorantGaramond(). Comfortaa is bundled under '
               'assets/fonts/ and resolves offline. CormorantGaramond is NOT '
               'bundled and throws when allowRuntimeFetching=false.',
+        );
+        // Explicit negative guard: a Comfortaa→CormorantGaramond swap would
+        // surface a 'Cormorant'-prefixed family. Fail loudly if it ever does.
+        expect(
+          style.fontFamily,
+          isNot(contains('Cormorant')),
+          reason:
+              'The active label must NOT use CormorantGaramond — it is not '
+              'bundled and crashes release APKs (allowRuntimeFetching=false).',
         );
       },
     );

@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -16,6 +17,13 @@ part 'salon_search_result.g.dart';
 /// * [cityLabel]
 /// * [districtLabel]
 /// * [avatarUrl]
+/// * [priceMin]
+/// * [priceMax]
+/// * [serviceNames]
+/// * [street]
+/// * [buildingNo]
+/// * [locationNote]
+/// * [matchedServiceNames]
 @BuiltValue()
 abstract class SalonSearchResult
     implements Built<SalonSearchResult, SalonSearchResultBuilder> {
@@ -33,6 +41,27 @@ abstract class SalonSearchResult
 
   @BuiltValueField(wireName: r'avatarUrl')
   String? get avatarUrl;
+
+  @BuiltValueField(wireName: r'priceMin')
+  num? get priceMin;
+
+  @BuiltValueField(wireName: r'priceMax')
+  num? get priceMax;
+
+  @BuiltValueField(wireName: r'serviceNames')
+  BuiltList<String>? get serviceNames;
+
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
+
+  @BuiltValueField(wireName: r'locationNote')
+  String? get locationNote;
+
+  @BuiltValueField(wireName: r'matchedServiceNames')
+  BuiltList<String>? get matchedServiceNames;
 
   SalonSearchResult._();
 
@@ -95,6 +124,55 @@ class _$SalonSearchResultSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.priceMin != null) {
+      yield r'priceMin';
+      yield serializers.serialize(
+        object.priceMin,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.priceMax != null) {
+      yield r'priceMax';
+      yield serializers.serialize(
+        object.priceMax,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.serviceNames != null) {
+      yield r'serviceNames';
+      yield serializers.serialize(
+        object.serviceNames,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
+    if (object.street != null) {
+      yield r'street';
+      yield serializers.serialize(
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.locationNote != null) {
+      yield r'locationNote';
+      yield serializers.serialize(
+        object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.matchedServiceNames != null) {
+      yield r'matchedServiceNames';
+      yield serializers.serialize(
+        object.matchedServiceNames,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
   }
 
   @override
@@ -154,6 +232,55 @@ class _$SalonSearchResultSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.avatarUrl = valueDes;
+          break;
+        case r'priceMin':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMin = valueDes;
+          break;
+        case r'priceMax':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMax = valueDes;
+          break;
+        case r'serviceNames':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.serviceNames.replace(valueDes);
+          break;
+        case r'street':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
+          break;
+        case r'locationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.locationNote = valueDes;
+          break;
+        case r'matchedServiceNames':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.matchedServiceNames.replace(valueDes);
           break;
         default:
           unhandled.add(key);

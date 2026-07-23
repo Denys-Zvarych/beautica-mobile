@@ -11,6 +11,7 @@ Name | Type | Description | Notes
 **id** | **String** |  | [optional] 
 **masterId** | **String** |  | [optional] 
 **clientDisplayName** | **String** |  | [optional] 
+**serviceName** | **String** |  | [optional] 
 **rating** | **int** |  | [optional] 
 **comment** | **String** |  | [optional] 
 **createdAt** | [**DateTime**](DateTime.md) |  | [optional] 

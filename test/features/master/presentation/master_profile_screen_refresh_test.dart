@@ -38,6 +38,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -100,6 +101,9 @@ class _CountingFakeMasterRepository implements MasterRepository {
   }
 
   @override
+  Future<Master> getMasterById(String masterId) async => _profile;
+
+  @override
   Future<void> updateMyProfile(MasterUpdate update) async {}
 
   @override
@@ -110,6 +114,18 @@ class _CountingFakeMasterRepository implements MasterRepository {
     required String buildingNo,
     String? locationNote,
   }) async {}
+
+  @override
+  Future<MasterReviewSummary> getMasterReviewSummary(String masterId) async =>
+      const MasterReviewSummary();
+
+  @override
+  Future<List<MasterReviewItem>> getMasterReviews({
+    required String masterId,
+    required MasterReviewSort sort,
+    int page = 0,
+    int size = kMasterReviewsPageSize,
+  }) async => const <MasterReviewItem>[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

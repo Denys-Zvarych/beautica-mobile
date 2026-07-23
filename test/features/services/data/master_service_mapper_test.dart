@@ -32,9 +32,12 @@
 //   ── Phase 16.3 — serviceTypeId create wiring + name pre-fill ──────────────
 //   ST-CREATE-SET.    toCreateRequest sets serviceTypeId on the request when the
 //                     input carries one.
-//   ST-CREATE-NULL.   toCreateRequest leaves serviceTypeId null when the input's
-//                     serviceTypeId is null (no regression to the existing create
-//                     path — the generated serializer omits the null wire field).
+//   ST-CREATE-NULL.   toCreateRequest THROWS ArgumentError when serviceTypeId is
+//                     null — service type is now MANDATORY on create (backend
+//                     @NotNull; DB NOT NULL). Fail-fast at the data boundary.
+//   ST-CREATE-EMPTY.  toCreateRequest THROWS ArgumentError when serviceTypeId is
+//                     the empty string (as invalid as null).
+//   ST-CREATE-RANGE-SET. RANGE create also forwards the mandatory serviceTypeId.
 //   ST-DTO-MSR.       fromDto reads serviceTypeId + serviceTypeNameUk from the
 //                     top-level MSR envelope (V67+ precedence).
 //   ST-DTO-FALLBACK.  fromDto falls back to the nested serviceDefinition for
@@ -61,10 +64,14 @@ import 'package:flutter_test/flutter_test.dart';
 // ---------------------------------------------------------------------------
 
 /// Builds a minimal FIXED [MasterServiceCreate].
+///
+/// [serviceTypeId] defaults to a valid id because service type is MANDATORY on
+/// create (mapper fail-fasts on null/empty). Pass `serviceTypeId: null`
+/// explicitly to exercise the required-type guard.
 MasterServiceCreate _createFixed({
   String? category = 'MANICURE',
   double price = 500.0,
-  String? serviceTypeId,
+  String? serviceTypeId = 'stype-1',
 }) => MasterServiceCreate(
   name: 'Test',
   durationMinutes: 30,
@@ -78,6 +85,7 @@ MasterServiceCreate _createFixed({
 MasterServiceCreate _createRange({
   double priceMin = 400.0,
   double priceMax = 700.0,
+  String? serviceTypeId = 'stype-1',
 }) => MasterServiceCreate(
   name: 'Test',
   durationMinutes: 30,
@@ -85,6 +93,7 @@ MasterServiceCreate _createRange({
   priceMin: priceMin,
   priceMax: priceMax,
   category: 'MANICURE',
+  serviceTypeId: serviceTypeId,
 );
 
 /// Builds a minimal [ServiceDefinitionResponse] with pricing fields.
@@ -107,7 +116,7 @@ ServiceDefinitionResponse buildDef({
           ..priceType = priceType
           ..priceMin = priceMin
           ..priceMax = priceMax
-          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} грн'
+          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} ₴'
           ..serviceTypeId = serviceTypeId
           ..serviceTypeNameUk = serviceTypeNameUk
           ..isActive = true)
@@ -399,6 +408,172 @@ void main() {
         );
       },
     );
+
+    // ── G-PARTIAL. Partial-update non-null guarantee (mobile-qa LOW) ─────────
+    // PATCH semantics: a MasterServiceUpdate that sets only a SUBSET of fields
+    // must produce a request that carries EXACTLY those fields and leaves every
+    // unset field null on the builder — the generated serializer then omits the
+    // null keys, so the backend treats absent keys as "no change". This is the
+    // single combined assertion the per-field G-tests above don't make: set a
+    // few fields, leave the rest null, and prove the present set equals the
+    // touched set with no leakage into untouched fields.
+
+    test('G-PARTIAL. toUpdateRequest carries only the non-null fields — '
+        'untouched fields stay null on the request', () {
+      // Touch exactly three fields (name, durationMinutes, category); leave
+      // everything else — description, serviceTypeId, buffer, and the whole
+      // price block — null.
+      final request = MasterServiceMapper.toUpdateRequest(
+        const MasterServiceUpdate(
+          name: 'Оновлена назва',
+          durationMinutes: 50,
+          category: 'HAIRCUT',
+        ),
+      );
+
+      // Present — exactly the three fields the patch set.
+      expect(request.name, equals('Оновлена назва'));
+      expect(request.baseDurationMinutes, equals(50));
+      expect(request.category, equals('HAIRCUT'));
+
+      // Absent — every field the patch did NOT touch must be null so the
+      // serializer drops it from the PATCH body (no accidental overwrite).
+      expect(
+        request.description,
+        isNull,
+        reason: 'description was not in the patch — must stay null',
+      );
+      expect(
+        request.serviceTypeId,
+        isNull,
+        reason: 'serviceTypeId was not in the patch — must stay null',
+      );
+      expect(
+        request.bufferMinutesAfter,
+        isNull,
+        reason: 'bufferMinutesAfter was not in the patch — must stay null',
+      );
+      expect(
+        request.priceType,
+        isNull,
+        reason: 'no price field in the patch — price block must be absent',
+      );
+      expect(request.price, isNull);
+      expect(request.priceMin, isNull);
+      expect(request.priceMax, isNull);
+    });
+
+    test('G-PARTIAL-PRICE-ONLY. a price-only patch carries the price block and '
+        'leaves all non-price fields null', () {
+      // The complementary subset: touch ONLY the FIXED price block. name,
+      // category, duration, buffer, serviceTypeId must all stay null.
+      final request = MasterServiceMapper.toUpdateRequest(
+        const MasterServiceUpdate(
+          priceType: ServicePriceType.fixed,
+          price: 650.0,
+        ),
+      );
+
+      expect(
+        request.priceType,
+        UpdateServiceDefinitionRequestPriceTypeEnum.FIXED,
+      );
+      expect(request.price, equals(650.0));
+
+      expect(request.name, isNull);
+      expect(request.category, isNull);
+      expect(request.baseDurationMinutes, isNull);
+      expect(request.bufferMinutesAfter, isNull);
+      expect(request.serviceTypeId, isNull);
+      // RANGE-only fields must remain null in FIXED mode.
+      expect(request.priceMin, isNull);
+      expect(request.priceMax, isNull);
+    });
+
+    // ── G-ERR. toUpdateRequest error branches (mobile-qa LOW) ────────────────
+    // Each branch below feeds an invalid value into a field the patch DOES set
+    // and asserts the mapper throws ArgumentError at the data boundary (before
+    // the request reaches the network layer). These guard the fail-fast
+    // validation in toUpdateRequest that the existing B4 tests only partially
+    // cover (B4 hit FIXED price:0 and the inverted RANGE; these add the
+    // duration, buffer, and the null/zero-floor branches).
+
+    test('G-ERR-DURATION. durationMinutes:0 throws ArgumentError', () {
+      expect(
+        () => MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(durationMinutes: 0),
+        ),
+        throwsA(
+          isA<ArgumentError>().having((e) => e.name, 'name', 'durationMinutes'),
+        ),
+        reason: 'durationMinutes must be >= 1 when present',
+      );
+    });
+
+    test('G-ERR-BUFFER. negative bufferMinutesAfter throws ArgumentError', () {
+      expect(
+        () => MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(bufferMinutesAfter: -5),
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.name,
+            'name',
+            'bufferMinutesAfter',
+          ),
+        ),
+        reason: 'bufferMinutesAfter must be >= 0 when present',
+      );
+    });
+
+    test(
+      'G-ERR-FIXED-NULL. FIXED priceType with null price throws ArgumentError',
+      () {
+        // priceType present (so the price block is validated) but price omitted
+        // — the mapper must reject it rather than emit a FIXED body with no
+        // amount. Complements B4-FIXED-ZERO (price:0) with the null case.
+        expect(
+          () => MasterServiceMapper.toUpdateRequest(
+            const MasterServiceUpdate(priceType: ServicePriceType.fixed),
+          ),
+          throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'price')),
+          reason: 'FIXED mode requires a non-null price > 0',
+        );
+      },
+    );
+
+    test('G-ERR-RANGE-MIN-ZERO. RANGE priceType with priceMin:0 throws '
+        'ArgumentError', () {
+      expect(
+        () => MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.range,
+            priceMin: 0,
+            priceMax: 500.0,
+          ),
+        ),
+        throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'priceMin')),
+        reason: 'RANGE mode requires priceMin > 0',
+      );
+    });
+
+    test('G-ERR-RANGE-MAX-NULL. RANGE priceType with null priceMax throws '
+        'ArgumentError', () {
+      // priceMin valid but priceMax omitted — the RANGE invariant
+      // (priceMax > priceMin) cannot hold with a null ceiling, so the mapper
+      // must reject. Complements B4-RANGE-INVERTED (max <= min) with the
+      // null-ceiling case.
+      expect(
+        () => MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.range,
+            priceMin: 400.0,
+          ),
+        ),
+        throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'priceMax')),
+        reason: 'RANGE mode requires a non-null priceMax > priceMin',
+      );
+    });
   });
 
   // ── I. serviceDefId plumbing + pricing ────────────────────────────────────
@@ -411,7 +586,7 @@ void main() {
                 ..serviceDefinition.replace(buildDef(id: 'def-777'))
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..isActive = true)
               .build();
 
@@ -430,13 +605,13 @@ void main() {
                     id: 'def-001',
                     priceType: ServiceDefinitionResponsePriceTypeEnum.FIXED,
                     priceMin: 750,
-                    priceDisplay: '750 грн',
+                    priceDisplay: '750 ₴',
                   ),
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 750
                 ..priceMax = null
-                ..priceDisplay = '750 грн'
+                ..priceDisplay = '750 ₴'
                 ..isActive = true)
               .build();
 
@@ -445,7 +620,7 @@ void main() {
       expect(service.priceType, ServicePriceType.fixed);
       expect(service.priceMin, equals(750.0));
       expect(service.priceMax, isNull);
-      expect(service.priceDisplay, equals('750 грн'));
+      expect(service.priceDisplay, equals('750 ₴'));
     });
 
     test('I-PRICE-RANGE. fromDto maps RANGE pricing correctly', () {
@@ -458,13 +633,13 @@ void main() {
                     priceType: ServiceDefinitionResponsePriceTypeEnum.RANGE,
                     priceMin: 500,
                     priceMax: 800,
-                    priceDisplay: 'від 500 до 800 грн',
+                    priceDisplay: 'від 500 до 800 ₴',
                   ),
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.RANGE
                 ..priceMin = 500
                 ..priceMax = 800
-                ..priceDisplay = 'від 500 до 800 грн'
+                ..priceDisplay = 'від 500 до 800 ₴'
                 ..isActive = true)
               .build();
 
@@ -473,7 +648,7 @@ void main() {
       expect(service.priceType, ServicePriceType.range);
       expect(service.priceMin, equals(500.0));
       expect(service.priceMax, equals(800.0));
-      expect(service.priceDisplay, equals('від 500 до 800 грн'));
+      expect(service.priceDisplay, equals('від 500 до 800 ₴'));
     });
 
     test(
@@ -484,7 +659,7 @@ void main() {
           name: 'Манікюр Оновлений',
           baseDurationMinutes: 75,
           priceMin: 600,
-          priceDisplay: '600 грн',
+          priceDisplay: '600 ₴',
         );
 
         final service = MasterServiceMapper.fromServiceDefinitionDto(
@@ -506,7 +681,7 @@ void main() {
         priceType: ServiceDefinitionResponsePriceTypeEnum.RANGE,
         priceMin: 400,
         priceMax: 700,
-        priceDisplay: 'від 400 до 700 грн',
+        priceDisplay: 'від 400 до 700 ₴',
       );
 
       final service = MasterServiceMapper.fromServiceDefinitionDto(
@@ -517,7 +692,7 @@ void main() {
       expect(service.priceType, ServicePriceType.range);
       expect(service.priceMin, equals(400.0));
       expect(service.priceMax, equals(700.0));
-      expect(service.priceDisplay, equals('від 400 до 700 грн'));
+      expect(service.priceDisplay, equals('від 400 до 700 ₴'));
     });
 
     // B5 (MEDIUM) — fromDto fail-safes for null priceType + null priceDisplay ─
@@ -541,7 +716,7 @@ void main() {
                   )
                   // priceType is intentionally left unset (null on the builder)
                   ..priceMin = 300
-                  ..priceDisplay = '300 грн'
+                  ..priceDisplay = '300 ₴'
                   ..isActive = true)
                 .build();
 
@@ -561,7 +736,7 @@ void main() {
         'resolves to empty string', () {
       // Build a DTO where priceDisplay is left unset at both levels.
       // We override buildDef's default by constructing manually so priceDisplay
-      // is genuinely null (not the generated default '300 грн').
+      // is genuinely null (not the generated default '300 ₴').
       final def =
           (ServiceDefinitionResponseBuilder()
                 ..id = 'def-null-pd'
@@ -611,7 +786,7 @@ void main() {
                 ..serviceDefinition.replace(buildDef(id: 'def-x'))
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..isActive = true)
               .build();
 
@@ -630,12 +805,61 @@ void main() {
                 ..serviceDefinition.replace(buildDef(id: 'def-x'))
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..isActive = true)
               .build();
 
       expect(
         () => MasterServiceMapper.fromDto(dto),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+  });
+
+  // ── J-SDR. fromServiceDefinitionDto broken-contract guard ─────────────────
+  //
+  // Symmetric counterpart to group J: the OTHER mapper entry point
+  // (fromServiceDefinitionDto, used by the PATCH /services/{id} update path)
+  // applies the same guard — a null/empty ServiceDefinitionResponse.id is a
+  // broken backend contract because the serviceDefId is required downstream for
+  // routing future mutations. These cases pin that observable failure so a
+  // refactor of the kDebugMode-gated log cannot silently turn the guard into a
+  // no-op. We assert the failure (and statusCode null for the null-id case),
+  // never any log text.
+  group('J-SDR. fromServiceDefinitionDto broken-contract guard', () {
+    test('J-3. null id throws ServerFailure(statusCode: null)', () {
+      // Built manually (not via buildDef, whose id param is non-null) so the
+      // id is genuinely unset/null on the builder.
+      final def =
+          (ServiceDefinitionResponseBuilder()
+                // id intentionally left unset (null on the builder)
+                ..name = 'Манікюр'
+                ..baseDurationMinutes = 60
+                ..priceType = ServiceDefinitionResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 ₴'
+                ..isActive = true)
+              .build();
+
+      expect(
+        () => MasterServiceMapper.fromServiceDefinitionDto(
+          def,
+          assignmentId: 'assignment-abc',
+        ),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', null),
+        ),
+      );
+    });
+
+    test('J-3b. empty-string id throws ServerFailure(statusCode: null)', () {
+      final def = buildDef(id: '');
+
+      expect(
+        () => MasterServiceMapper.fromServiceDefinitionDto(
+          def,
+          assignmentId: 'assignment-abc',
+        ),
         throwsA(isA<ServerFailure>()),
       );
     });
@@ -655,25 +879,48 @@ void main() {
       );
     });
 
-    test('ST-CREATE-NULL. leaves serviceTypeId null when input is null', () {
-      // The master skipped the (optional) picker. The generated serializer
-      // omits null builder fields, so this is the "omitted from the wire body"
-      // case — and proves the existing no-type create path is unchanged.
-      final request = MasterServiceMapper.toCreateRequest(_createFixed());
+    test('ST-CREATE-NULL. throws ArgumentError when serviceTypeId is null '
+        '(service type is now MANDATORY on create)', () {
+      // CONTRACT CHANGE: service type is mandatory on create (backend
+      // `@NotNull` on CreateServiceDefinitionRequest.serviceTypeId, DB column
+      // NOT NULL). The mapper fail-fasts at the data boundary rather than
+      // constructing a request that the generated built_value would reject.
       expect(
-        request.serviceTypeId,
-        isNull,
-        reason:
-            'no service type selected → serviceTypeId must stay null on the '
-            'request (omitted from the wire body — no regression)',
+        () => MasterServiceMapper.toCreateRequest(
+          _createFixed(serviceTypeId: null),
+        ),
+        throwsA(
+          isA<ArgumentError>().having((e) => e.name, 'name', 'serviceTypeId'),
+        ),
       );
-      // Sanity: the rest of the request is still well-formed.
-      expect(request.name, equals('Test'));
+    });
+
+    test(
+      'ST-CREATE-EMPTY. throws ArgumentError when serviceTypeId is empty',
+      () {
+        // An empty string is as invalid as null — the guard rejects both so a
+        // blank picker selection never reaches the backend as "".
+        expect(
+          () => MasterServiceMapper.toCreateRequest(
+            _createFixed(serviceTypeId: ''),
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      },
+    );
+
+    test('ST-CREATE-RANGE-SET. RANGE create also forwards the mandatory '
+        'serviceTypeId', () {
+      // Positive control on the RANGE branch — proves the mapper sets the id
+      // on both pricing modes, not just FIXED.
+      final request = MasterServiceMapper.toCreateRequest(
+        _createRange(serviceTypeId: 'type-range'),
+      );
+      expect(request.serviceTypeId, equals('type-range'));
       expect(
         request.priceType,
-        CreateServiceDefinitionRequestPriceTypeEnum.FIXED,
+        CreateServiceDefinitionRequestPriceTypeEnum.RANGE,
       );
-      expect(request.price, equals(500.0));
     });
   });
 
@@ -687,7 +934,7 @@ void main() {
                   ..serviceDefinition.replace(buildDef(id: 'def-st-msr'))
                   ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                   ..priceMin = 500
-                  ..priceDisplay = '500 грн'
+                  ..priceDisplay = '500 ₴'
                   ..serviceTypeId = 'type-msr'
                   ..serviceTypeNameUk = 'Класичний манікюр'
                   ..isActive = true)
@@ -716,7 +963,7 @@ void main() {
                   )
                   ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                   ..priceMin = 500
-                  ..priceDisplay = '500 грн'
+                  ..priceDisplay = '500 ₴'
                   // serviceTypeId / serviceTypeNameUk intentionally unset on MSR
                   ..isActive = true)
                 .build();
@@ -742,7 +989,7 @@ void main() {
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
-                ..priceDisplay = '500 грн'
+                ..priceDisplay = '500 ₴'
                 ..serviceTypeId = 'type-envelope'
                 ..serviceTypeNameUk = 'Envelope name'
                 ..isActive = true)
@@ -767,7 +1014,7 @@ void main() {
                   ..serviceDefinition.replace(buildDef(id: 'def-st-null'))
                   ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                   ..priceMin = 500
-                  ..priceDisplay = '500 грн'
+                  ..priceDisplay = '500 ₴'
                   ..isActive = true)
                 .build();
 
@@ -835,12 +1082,12 @@ void main() {
                     baseDurationMinutes: 45,
                     priceType: ServiceDefinitionResponsePriceTypeEnum.FIXED,
                     priceMin: 750,
-                    priceDisplay: '750 грн',
+                    priceDisplay: '750 ₴',
                   ),
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 750
-                ..priceDisplay = '750 грн'
+                ..priceDisplay = '750 ₴'
                 ..isActive = true)
               .build();
 
@@ -849,7 +1096,7 @@ void main() {
       // The service is bookable (active), fully priced, and time-bounded — the
       // exact opposite of a "draft awaiting a price".
       expect(service.isActive, isTrue);
-      expect(service.priceDisplay, equals('750 грн'));
+      expect(service.priceDisplay, equals('750 ₴'));
       expect(service.priceMin, equals(750.0));
       expect(service.durationMinutes, equals(45));
 
@@ -882,13 +1129,13 @@ void main() {
                     priceType: ServiceDefinitionResponsePriceTypeEnum.RANGE,
                     priceMin: 0,
                     priceMax: 500,
-                    priceDisplay: 'до 500 грн',
+                    priceDisplay: 'до 500 ₴',
                   ),
                 )
                 ..priceType = MasterServiceResponsePriceTypeEnum.RANGE
                 ..priceMin = 0
                 ..priceMax = 500
-                ..priceDisplay = 'до 500 грн'
+                ..priceDisplay = 'до 500 ₴'
                 ..isActive = true)
               .build();
 
@@ -898,7 +1145,7 @@ void main() {
       expect(service.priceType, ServicePriceType.range);
       expect(service.priceMin, equals(0.0));
       expect(service.priceMax, equals(500.0));
-      expect(service.priceDisplay, equals('до 500 грн'));
+      expect(service.priceDisplay, equals('до 500 ₴'));
     });
   });
 }

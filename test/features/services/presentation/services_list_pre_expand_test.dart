@@ -51,7 +51,7 @@ const _manicureService = MasterService(
   name: 'Манікюр',
   durationMinutes: 60,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
   category: 'MANICURE',
 );
 
@@ -61,7 +61,7 @@ const _browsService = MasterService(
   name: 'Корекція брів',
   durationMinutes: 30,
   priceMin: 300,
-  priceDisplay: '300 грн',
+  priceDisplay: '300 ₴',
   category: 'BROWS',
 );
 

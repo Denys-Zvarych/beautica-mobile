@@ -58,5 +58,54 @@ void main() {
       expect(second, equals(fixed));
       expect(first, equals(second));
     });
+
+    test('is keepAlive — state survives its last listener being removed '
+        '(single retained instance, not rebuilt)', () async {
+      // Directly proves the `@Riverpod(keepAlive: true)` contract that the
+      // rest of the suite relies on only indirectly. We override the create
+      // fn so it (a) counts how many times the provider is built and (b)
+      // hands back a *fresh* closure each build, making `identical` a sound
+      // rebuild detector. `overrideWith` swaps the body only — it preserves
+      // the provider's intrinsic keepAlive (non-autoDispose) nature, so this
+      // exercises the real disposal policy. For an autoDispose provider the
+      // element would be disposed once its last listener is removed and the
+      // next read would re-run the body (buildCount == 2, new instance).
+      var buildCount = 0;
+      final container = ProviderContainer(
+        overrides: [
+          clockProvider.overrideWith((ref) {
+            buildCount++;
+            final fixed = DateTime(2026, 6, 14, 12);
+            return () => fixed;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Materialise the provider through a transient listener.
+      final sub = container.listen(clockProvider, (_, _) {});
+      final first = container.read(clockProvider);
+      expect(buildCount, 1);
+
+      // Remove the only listener and let any scheduled disposal run.
+      sub.close();
+      await Future<void>.delayed(Duration.zero);
+
+      // keepAlive: the element was retained, so the body did NOT re-run and
+      // the very same instance is returned.
+      final second = container.read(clockProvider);
+      expect(
+        buildCount,
+        1,
+        reason:
+            'keepAlive provider must not rebuild after its last '
+            'listener is removed',
+      );
+      expect(
+        identical(first, second),
+        isTrue,
+        reason: 'keepAlive provider must return the same retained instance',
+      );
+    });
   });
 }

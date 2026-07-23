@@ -35,6 +35,20 @@ abstract interface class SecureStorage {
   /// Writes (or overwrites) the serialised user JSON.
   Future<void> writeUserJson(String json);
 
+  /// Reads the durable post-OTP locality slice JSON, or `null` if none exists.
+  ///
+  /// This is the registration locality stashed on Step 3 so that the
+  /// verification screen can persist it even when the in-memory draft was
+  /// discarded (app backgrounded for the OTP email / OS-killed). NEVER carries
+  /// the password or the OTP — only the locality slice + email + role.
+  Future<String?> readPendingLocality();
+
+  /// Writes (or overwrites) the durable post-OTP locality slice JSON.
+  Future<void> writePendingLocality(String json);
+
+  /// Deletes the durable post-OTP locality slice (called on `/done` arrival).
+  Future<void> deletePendingLocality();
+
   /// Deletes all keys managed by this storage (called on logout).
   Future<void> deleteAll();
 }
@@ -79,6 +93,20 @@ final class FlutterSecureStorageImpl implements SecureStorage {
   Future<void> writeUserJson(String json) =>
       _storage.write(key: StorageKeys.userJson, value: json);
 
+  @override
+  Future<String?> readPendingLocality() =>
+      _storage.read(key: StorageKeys.pendingLocality);
+
+  @override
+  Future<void> writePendingLocality(String json) =>
+      _storage.write(key: StorageKeys.pendingLocality, value: json);
+
+  @override
+  Future<void> deletePendingLocality() =>
+      _storage.delete(key: StorageKeys.pendingLocality);
+
+  // deleteAll() wipes every key managed by this storage — including
+  // [StorageKeys.pendingLocality] — so logout clears the locality slice too.
   @override
   Future<void> deleteAll() => _storage.deleteAll();
 }

@@ -100,15 +100,10 @@ class _WheelTimePickerState extends State<_WheelTimePicker> {
 
   /// Per-row digit style, hoisted so the wheel builder doesn't allocate a fresh
   /// [TextStyle] (via `copyWith`) per row per raster while spinning.
-  static final TextStyle _wheelDigitStyle = VelvetText.heading().copyWith(
-    fontSize: 24,
-    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-  );
+  static final TextStyle _wheelDigitStyle = VelvetText.schedWheelDigit;
 
   /// The fixed `:` separator style, hoisted to match house style.
-  static final TextStyle _separatorStyle = VelvetText.heading().copyWith(
-    fontSize: 26,
-  );
+  static final TextStyle _separatorStyle = VelvetText.headingLg;
 
   late final FixedExtentScrollController _hourController;
   late final FixedExtentScrollController _minuteController;

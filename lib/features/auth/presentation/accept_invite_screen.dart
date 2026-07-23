@@ -85,6 +85,36 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   /// Initialised in [didChangeDependencies] so AppLocalizations is available.
   List<PasswordRule>? _rules;
 
+  /// Cached read-only invite summary. The preview depends only on the invite
+  /// (email/role/expiry) and the active locale — none of which change while the
+  /// user is typing into the form fields. Caching the instance lets the element
+  /// layer skip its subtree on keystroke-driven [setState] rebuilds; it is
+  /// recreated only when one of its inputs actually changes (e.g. the expiry
+  /// countdown ticks down an hour or the locale switches).
+  _InvitePreview? _invitePreview;
+
+  _InvitePreview _previewFor(
+    AppLocalizations l10n,
+    String email,
+    UserRole role,
+    int expiresInHours,
+  ) {
+    final cached = _invitePreview;
+    if (cached != null &&
+        cached.email == email &&
+        cached.role == role &&
+        cached.expiresInHours == expiresInHours &&
+        identical(cached.l10n, l10n)) {
+      return cached;
+    }
+    return _invitePreview = _InvitePreview(
+      email: email,
+      role: role,
+      expiresInHours: expiresInHours,
+      l10n: l10n,
+    );
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -265,40 +295,48 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     final l10n = AppLocalizations.of(context);
     final inviteAsync = ref.watch(acceptInviteProvider(widget.token));
 
-    return inviteAsync.when(
-      loading: () => AuthScaffold(
-        showBack: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            const VelvetHeader(),
-            Text(l10n.inviteHeading, style: VelvetText.heading()),
-            const SizedBox(height: VelvetSpacing.lg),
-            const Center(child: CircularProgressIndicator()),
-          ],
+    // The screen-container key is present in ALL THREE async states
+    // (loading / error / data) so it mounts on the first frame, independent of
+    // the token-validation network call. The patrol native deep-link test
+    // asserts on this key the instant go_router mounts the screen — see
+    // integration_test/patrol/deep_link_patrol_test.dart.
+    return KeyedSubtree(
+      key: const ValueKey<String>('accept_invite_screen'),
+      child: inviteAsync.when(
+        loading: () => AuthScaffold(
+          showBack: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const VelvetHeader(),
+              Text(l10n.inviteHeading, style: VelvetText.heading()),
+              const SizedBox(height: VelvetSpacing.lg),
+              const Center(child: CircularProgressIndicator()),
+            ],
+          ),
         ),
-      ),
-      error: (e, _) => AuthScaffold(
-        showBack: true,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            const VelvetHeader(),
-            Text(l10n.inviteHeading, style: VelvetText.heading()),
-            const SizedBox(height: VelvetSpacing.lg),
-            AuthBanner(
-              icon: Icons.error_outline_rounded,
-              message: l10n.inviteInvalidError,
-              color: BrandColors.error,
-            ),
-          ],
+        error: (e, _) => AuthScaffold(
+          showBack: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const VelvetHeader(),
+              Text(l10n.inviteHeading, style: VelvetText.heading()),
+              const SizedBox(height: VelvetSpacing.lg),
+              AuthBanner(
+                icon: Icons.error_outline_rounded,
+                message: l10n.inviteInvalidError,
+                color: BrandColors.error,
+              ),
+            ],
+          ),
         ),
-      ),
-      data: (invite) => _buildForm(
-        l10n,
-        invite.email,
-        invite.role,
-        invite.expiresInHoursFrom(ref.watch(clockProvider)()),
+        data: (invite) => _buildForm(
+          l10n,
+          invite.email,
+          invite.role,
+          invite.expiresInHoursFrom(ref.watch(clockProvider)()),
+        ),
       ),
     );
   }
@@ -326,12 +364,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           const SizedBox(height: VelvetSpacing.sm),
           Text(l10n.inviteSubtitle, style: VelvetText.body()),
           const SizedBox(height: VelvetSpacing.lg),
-          _InvitePreview(
-            email: email,
-            role: role,
-            expiresInHours: expiresInHours,
-            l10n: l10n,
-          ),
+          _previewFor(l10n, email, role, expiresInHours),
           const SizedBox(height: VelvetSpacing.xl),
           NeumorphicTextField(
             key: const ValueKey<String>('invite_password'),

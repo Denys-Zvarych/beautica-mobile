@@ -89,12 +89,15 @@ class _$EffectiveDayResponse extends EffectiveDayResponse {
   final EffectiveDayResponseSource_Enum? source_;
   @override
   final BuiltList<WorkIntervalDto>? intervals;
+  @override
+  final BuiltList<String>? times;
 
   factory _$EffectiveDayResponse(
           [void Function(EffectiveDayResponseBuilder)? updates]) =>
       (EffectiveDayResponseBuilder()..update(updates))._build();
 
-  _$EffectiveDayResponse._({this.date, this.source_, this.intervals})
+  _$EffectiveDayResponse._(
+      {this.date, this.source_, this.intervals, this.times})
       : super._();
   @override
   EffectiveDayResponse rebuild(
@@ -111,7 +114,8 @@ class _$EffectiveDayResponse extends EffectiveDayResponse {
     return other is EffectiveDayResponse &&
         date == other.date &&
         source_ == other.source_ &&
-        intervals == other.intervals;
+        intervals == other.intervals &&
+        times == other.times;
   }
 
   @override
@@ -120,6 +124,7 @@ class _$EffectiveDayResponse extends EffectiveDayResponse {
     _$hash = $jc(_$hash, date.hashCode);
     _$hash = $jc(_$hash, source_.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
+    _$hash = $jc(_$hash, times.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -129,7 +134,8 @@ class _$EffectiveDayResponse extends EffectiveDayResponse {
     return (newBuiltValueToStringHelper(r'EffectiveDayResponse')
           ..add('date', date)
           ..add('source_', source_)
-          ..add('intervals', intervals))
+          ..add('intervals', intervals)
+          ..add('times', times))
         .toString();
   }
 }
@@ -153,6 +159,10 @@ class EffectiveDayResponseBuilder
   set intervals(ListBuilder<WorkIntervalDto>? intervals) =>
       _$this._intervals = intervals;
 
+  ListBuilder<String>? _times;
+  ListBuilder<String> get times => _$this._times ??= ListBuilder<String>();
+  set times(ListBuilder<String>? times) => _$this._times = times;
+
   EffectiveDayResponseBuilder() {
     EffectiveDayResponse._defaults(this);
   }
@@ -163,6 +173,7 @@ class EffectiveDayResponseBuilder
       _date = $v.date;
       _source_ = $v.source_;
       _intervals = $v.intervals?.toBuilder();
+      _times = $v.times?.toBuilder();
       _$v = null;
     }
     return this;
@@ -189,12 +200,15 @@ class EffectiveDayResponseBuilder
             date: date,
             source_: source_,
             intervals: _intervals?.build(),
+            times: _times?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'intervals';
         _intervals?.build();
+        _$failedField = 'times';
+        _times?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'EffectiveDayResponse', _$failedField, e.toString());

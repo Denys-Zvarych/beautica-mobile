@@ -125,12 +125,28 @@ apply_security_patches() {
 }
 
 # ── Build runner inside the generated package ──────────────────────────────────
+# Clear the build_runner incremental cache FIRST, before every regen (not just
+# on failure). Root cause of a live bug (2026-07-02): running codegen twice in
+# close succession left .dart_tool/build stale, so build_runner silently wrote
+# 0 outputs and two generated files (public_salon_response.g.dart missing
+# builder setters; serializers.g.dart missing several serializer registrations)
+# went uncommitted-stale — one broke the compile, the other would have caused a
+# silent runtime "Serializer not found" failure. A clean cache is the real
+# safety net here; see docs/mobile-phases/mobile-backlog.md (struck-through
+# LOW row) for the original prediction of this exact failure mode.
+#
+# NOTE: `--delete-conflicting-outputs` is a dead flag on the pinned
+# build_runner/build versions in api/pubspec.lock — passing it prints
+# "W These options have been removed and were ignored: --delete-conflicting-outputs"
+# and does nothing. Dropped here; the cache clear above is what actually
+# prevents stale/conflicting outputs now.
 run_build_runner() {
   local pkg_dir="$1"
   (
     cd "${pkg_dir}"
+    rm -rf .dart_tool/build
     dart pub get --no-example 2>&1 | tail -3
-    dart run build_runner build --delete-conflicting-outputs 2>&1 | tail -3
+    dart run build_runner build 2>&1 | tail -3
     dart format lib/ test/ 2>&1 | tail -1
   )
 }

@@ -101,4 +101,59 @@ abstract final class VelvetShadows {
       blurRadius: 12,
     ),
   ];
+
+  /// Subtle ambient shadow for a card that already carries a hairline
+  /// [NeumorphicCard.showBorder] stroke for definition.
+  ///
+  /// [extrudedCard]'s pair of ±8dp-offset shadows are each a rounded-rect the
+  /// exact size/radius of the card, just diagonally translated then blurred —
+  /// so a squarish sliver of the untranslated corner pokes out from behind
+  /// the card's own fill at the two far diagonal corners. That bleed exists
+  /// on every [extrudedCard] surface; it only became visually distracting
+  /// once a bordered card's crisp 1dp stroke gave the eye a sharp reference
+  /// edge to contrast it against. A single **non-offset** shadow has no such
+  /// gap — since it isn't translated, its rrect footprint exactly matches the
+  /// card's, so it only ever reads as a uniform soft halo around the edge.
+  /// The border stroke alone carries the "distinct shape" job; this shadow
+  /// just adds a faint hint of lift.
+  static final List<BoxShadow> borderedCard = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkCard.withValues(alpha: 0.45),
+      blurRadius: 10,
+    ),
+  ];
+
+  /// Subtle ambient shadow for a bordered *button* — the button-scaled sibling
+  /// of [borderedCard], following the same **non-offset** single-shadow recipe.
+  ///
+  /// Same rationale as [borderedCard]: because the shadow isn't translated, its
+  /// rrect footprint exactly matches the button, so no untranslated corner
+  /// sliver pokes out as a pale square on Impeller-GLES (the artifact that
+  /// [extrudedButton]'s ±6dp-offset `shadowLightStrong` pair produces). Uses the
+  /// button's own [BrandColors.shadowDarkButton] tone (matching [extrudedButton]
+  /// rather than the card shadow) at a tighter blur than [borderedCard]. Pairs
+  /// with a hairline border, as `CalendarButton`'s camel edge already provides.
+  static final List<BoxShadow> borderedButton = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkButton.withValues(alpha: 0.45),
+      blurRadius: 8,
+    ),
+  ];
 }
+
+// NOTE — a `cardDropShadow` recipe (a single OFFSET, fully-opaque
+// `shadowDarkCard` shadow) previously lived here and was consumed by
+// `MasterBookingCard`. It was REMOVED (not kept as a marked-unsafe constant)
+// after root-causing a black-rectangle-in-the-corners regression: the
+// Impeller-GLES corner-square artifact is triggered by ANY opaque shadow at a
+// non-zero `Offset` on a rounded `BoxDecoration` — hue is irrelevant. The
+// shadow's `shadowDarkCard` colour (`#C4B49E`) is not near-white, which is
+// exactly why the earlier "offset-opaque-*light*-shadow" guard (see
+// `impeller_circle_shadow_guard_test.dart`) missed it: that guard only
+// flagged near-white colours at an offset, not opacity+offset generally. The
+// guard's classifier is now hue-independent (any opaque colour + non-zero
+// offset is unsafe); do not reintroduce an offset recipe using a fully-opaque
+// `BrandColors.shadow*` token without re-verifying against the corrected
+// guard first. Use [VelvetShadows.borderedCard] / [borderedButton] instead —
+// both are non-offset AND alpha-attenuated (`.withValues(alpha: 0.45)`),
+// which is why they stay safe.

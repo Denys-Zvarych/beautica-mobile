@@ -12,9 +12,9 @@ class _$IndependentMasterUpdateRequest extends IndependentMasterUpdateRequest {
   @override
   final String? districtId;
   @override
-  final String? street;
+  final String street;
   @override
-  final String? buildingNo;
+  final String buildingNo;
   @override
   final String? locationNote;
 
@@ -25,8 +25,8 @@ class _$IndependentMasterUpdateRequest extends IndependentMasterUpdateRequest {
   _$IndependentMasterUpdateRequest._(
       {required this.cityId,
       this.districtId,
-      this.street,
-      this.buildingNo,
+      required this.street,
+      required this.buildingNo,
       this.locationNote})
       : super._();
   @override
@@ -135,8 +135,10 @@ class IndependentMasterUpdateRequestBuilder
           cityId: BuiltValueNullFieldError.checkNotNull(
               cityId, r'IndependentMasterUpdateRequest', 'cityId'),
           districtId: districtId,
-          street: street,
-          buildingNo: buildingNo,
+          street: BuiltValueNullFieldError.checkNotNull(
+              street, r'IndependentMasterUpdateRequest', 'street'),
+          buildingNo: BuiltValueNullFieldError.checkNotNull(
+              buildingNo, r'IndependentMasterUpdateRequest', 'buildingNo'),
           locationNote: locationNote,
         );
     replace(_$result);

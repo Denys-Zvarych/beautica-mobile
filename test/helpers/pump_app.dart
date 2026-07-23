@@ -34,6 +34,11 @@ extension PumpApp on WidgetTester {
     Locale locale = const Locale('uk'),
     double? width,
     double? textScaleFactor,
+    // Optional Riverpod failed-build retry policy for the ProviderScope. Default
+    // null = Riverpod's default exponential-backoff retry (unchanged behaviour).
+    // Pass `(_, _) => null` to DISABLE retry so an AsyncError stays put through
+    // pumpAndSettle (and leaves no pending backoff Timer at test end).
+    Duration? Function(int retryCount, Object error)? retry,
   }) async {
     installOverflowGuard();
     // Stress width: constrain the whole surface to [width] logical px (default
@@ -54,6 +59,7 @@ extension PumpApp on WidgetTester {
         // can pass a plain list without importing the internal Override type.
         // ignore: avoid_dynamic_calls
         overrides: overrides.cast(),
+        retry: retry,
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
@@ -70,11 +76,17 @@ extension PumpApp on WidgetTester {
     GoRouter router, {
     List<Object> overrides = const [],
     Locale locale = const Locale('uk'),
+    // Same knob as [pumpApp]'s `retry` — default null keeps Riverpod's
+    // default exponential-backoff retry. Pass `(_, _) => null` when a test
+    // asserts an EXACT failed-fetch call count (a retry firing mid-`await
+    // pumpAndSettle` would otherwise inflate the count non-deterministically).
+    Duration? Function(int retryCount, Object error)? retry,
   }) async {
     installOverflowGuard();
     await pumpWidget(
       ProviderScope(
         overrides: overrides.cast(),
+        retry: retry,
         child: MaterialApp.router(
           routerConfig: router,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -83,6 +95,92 @@ extension PumpApp on WidgetTester {
         ),
       ),
     );
+  }
+}
+
+/// Pump-until-condition helpers (2026-06-24 fixed-wait gate — see
+/// `scripts/forbid_fixed_wait.sh`). A hard-coded `pump(const Duration(...))`
+/// is a guess at how long some async/animated work takes: too short is flaky
+/// on a slow CI runner, too long slows the whole suite. These pump in small
+/// steps and stop the INSTANT the awaited condition is true, so the test
+/// waits exactly as long as the real work takes — no more, no less.
+extension PumpUntil on WidgetTester {
+  /// Pumps in [interval] steps until [finder] matches at least one widget, or
+  /// [timeout] of virtual time has elapsed — then asserts the finder matches
+  /// (surfacing a clear timeout failure instead of a silent false pass).
+  Future<void> pumpUntilFound(
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration interval = const Duration(milliseconds: 100),
+  }) async {
+    final int maxTicks = (timeout.inMicroseconds / interval.inMicroseconds)
+        .ceil();
+    for (int i = 0; i < maxTicks; i++) {
+      if (finder.evaluate().isNotEmpty) return;
+      await pump(interval);
+    }
+    expect(
+      finder,
+      findsWidgets,
+      reason: 'pumpUntilFound timed out after $timeout waiting for $finder',
+    );
+  }
+
+  /// Inverse of [pumpUntilFound] — pumps until [finder] matches nothing (e.g.
+  /// waiting out a SnackBar's own auto-dismiss timer instead of guessing its
+  /// duration).
+  Future<void> pumpUntilGone(
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration interval = const Duration(milliseconds: 100),
+  }) async {
+    final int maxTicks = (timeout.inMicroseconds / interval.inMicroseconds)
+        .ceil();
+    for (int i = 0; i < maxTicks; i++) {
+      if (finder.evaluate().isEmpty) return;
+      await pump(interval);
+    }
+    expect(
+      finder,
+      findsNothing,
+      reason:
+          'pumpUntilGone timed out after $timeout waiting for $finder '
+          'to disappear',
+    );
+  }
+}
+
+/// Taps a `booking-calendar-day-<day>` grid cell safely.
+///
+/// `MonthCalendar` lives inside a `SingleChildScrollView` on the booking
+/// slot-picker screens (see `slot_picker_screen.dart`). On the default
+/// 800×600 flutter_test surface, the surrounding chrome (top bar + master
+/// strip) can leave less viewport height than the 5-row grid needs, so a day
+/// in the last row or two of the month is scrolled out of view. A blind
+/// `tester.tap(find.byKey(...))` on such a cell doesn't throw — the finder
+/// still resolves and `tap()` still computes a center point — it just lands
+/// on whatever widget is actually visible at that offset (e.g. the bottom
+/// summary bar), silently swallowing the tap and cascading into a confusing
+/// downstream assertion failure. Real users simply scroll; this helper does
+/// the same via [WidgetTester.ensureVisible] before tapping. Any full-screen
+/// test that taps a `booking-calendar-day-*` key *expecting the tap to
+/// register* should go through this instead of a blind
+/// `tester.tap(find.byKey(...))`.
+///
+/// Does NOT apply to tests asserting a cell is inert (no `GestureDetector`,
+/// e.g. a disabled/out-of-range day) via `expect(fake.callCount, 0)`. Those
+/// must keep calling `tester.tap(cell, warnIfMissed: false)` directly. They
+/// are proving the *absence* of a handler, not working around scroll
+/// clipping — routing them through this helper would still pass
+/// `expect(callCount, 0)` whether the cell correctly has no handler or the
+/// tap was silently swallowed by scroll clipping, which is exactly the
+/// false-pass this helper exists to prevent for the enabled-cell case.
+extension TapCalendarDay on WidgetTester {
+  Future<void> tapCalendarDay(int day) async {
+    final Finder finder = find.byKey(Key('booking-calendar-day-$day'));
+    await ensureVisible(finder);
+    await pumpAndSettle();
+    await tap(finder);
   }
 }
 

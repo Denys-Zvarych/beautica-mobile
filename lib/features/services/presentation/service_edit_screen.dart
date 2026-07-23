@@ -7,7 +7,9 @@
 //
 // On successful save:
 //   1. Calls [ServiceRepository.update] via [serviceRepositoryProvider].
-//   2. Invalidates [servicesListProvider] so the list refreshes on pop.
+//   2. Invalidates BOTH cached catalogue views (the «Мої послуги» list and
+//      the «Мої записи» «Послуга» filter universe) via
+//      [invalidateMasterServiceCatalogues], so both refresh on pop.
 //   3. Pops the screen via [GoRouter.of(context).pop()].
 //
 // Concurrency note: Optimistic UI is intentionally NOT used here. Concurrent
@@ -29,7 +31,6 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/presentation/service_by_id_notifier.dart';
-import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/delete_service_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
@@ -40,6 +41,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
 // ---------------------------------------------------------------------------
 // File-private navigation helpers (used by both the state and the loaded body).
@@ -138,7 +140,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
       // Invalidate AFTER the delete await completes (and after pop, so
       // ServicesListScreen is active and listening when the re-fetch arrives).
       // ref outlives the frame.
-      ref.invalidate(servicesListProvider);
+      invalidateMasterServiceCatalogues(ref);
       ref.invalidate(masterProfileProvider);
     } catch (e) {
       if (kDebugMode) {
@@ -223,7 +225,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
           }
           // Invalidate AFTER pop so ServicesListScreen is active and
           // listening when the re-fetch arrives. ref outlives the frame.
-          ref.invalidate(servicesListProvider);
+          invalidateMasterServiceCatalogues(ref);
           ref.invalidate(masterProfileProvider);
         },
         onError: (Object e) {

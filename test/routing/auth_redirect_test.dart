@@ -53,8 +53,9 @@ const _fakeUser = User(
   lastName: 'User',
 );
 
-/// A CLIENT-role user for testing that non-INDEPENDENT_MASTER roles still
-/// land on [RouteNames.home] (the "coming soon" shell).
+/// A CLIENT-role user. Phase 13.1: CLIENT now lands on the 5-tab client shell
+/// at [RouteNames.clientHome]; the master gates still bounce CLIENT off every
+/// /master/*, /services and /schedule surface to [RouteNames.home].
 const _clientUser = User(
   id: 'u2',
   email: 'client@example.com',
@@ -128,18 +129,18 @@ void main() {
       );
     });
 
-    // Non-INDEPENDENT_MASTER (CLIENT) roles still land on /.
-    test('CLIENT role at /login is redirected to /', () {
+    // Phase 13.1 — CLIENT now lands on the 5-tab client shell at /home (was /).
+    test('CLIENT role at /login is redirected to /home', () {
       expect(
         authRedirectForLocation(_clientSession, RouteNames.login),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
-    test('CLIENT role at /splash is redirected to /', () {
+    test('CLIENT role at /splash is redirected to /home', () {
       expect(
         authRedirectForLocation(_clientSession, RouteNames.splash),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
@@ -239,6 +240,33 @@ void main() {
       );
     });
 
+    // Beautica OTP task Phase B5 — RouteNames.changePassword is a protected
+    // route like /settings (default behaviour: no allow-list entry needed).
+    // Unlike /reset-password, it is NEVER reachable unauthenticated — the
+    // authenticated settings change-password flow is its only entry point.
+    test('authenticated user at /settings/change-password stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.changePassword,
+        ),
+        isNull,
+      );
+    });
+
+    test(
+      'anonymous user at /settings/change-password is redirected to /login',
+      () {
+        expect(
+          authRedirectForLocation(
+            _unauthenticatedSession,
+            RouteNames.changePassword,
+          ),
+          equals(RouteNames.login),
+        );
+      },
+    );
+
     test('AsyncError<AuthSession> at / is redirected to /login', () {
       // An AsyncError has no value (value is null) → treated as unauthenticated.
       // The guard falls through session.value == null → !isAuthenticated → /login.
@@ -291,11 +319,12 @@ void main() {
       );
     });
 
-    // Phase 2.13 — the forgot-password flow (/forgot-password +
-    // /reset-password) is unauthenticated-only (auth_redirect.dart:78-89).
-    // /reset-password is reached via the emailed deep link with a `?token=`
-    // query param; matchedLocation strips the query string, so the guard sees
-    // the bare RouteNames.resetPassword path here.
+    // Phase 2.13 / Beautica OTP task Phase B — the forgot-password flow
+    // (/forgot-password + /reset-password/otp) is unauthenticated-only
+    // (auth_redirect.dart). /reset-password (the final "set new password"
+    // step) is DUAL-ACCESS — see the next test — because Phase B5 reuses the
+    // SAME ResetPasswordScreen for the authenticated settings
+    // change-password flow.
 
     test(
       'INDEPENDENT_MASTER at /forgot-password is redirected to /master/profile',
@@ -310,18 +339,49 @@ void main() {
       },
     );
 
-    test(
-      'INDEPENDENT_MASTER at /reset-password is redirected to /master/profile',
-      () {
-        expect(
-          authRedirectForLocation(
-            _authenticatedSession,
-            RouteNames.resetPassword,
-          ),
-          equals(RouteNames.masterProfile),
-        );
-      },
-    );
+    // mobile-qa gap fix — Beautica OTP task Phase B post-audit addition.
+    // RouteNames.resetOtpVerification sits in the SAME `isAtUnauthOnlyRoute`
+    // OR-clause as RouteNames.forgotPassword (auth_redirect.dart), but unlike
+    // its sibling it had no dedicated test — a typo dropping it from that
+    // clause (or referencing the wrong RouteNames constant) would silently
+    // let an authenticated user reach the OTP-entry screen and would only be
+    // caught if a future test happened to exercise it incidentally.
+    test('INDEPENDENT_MASTER at /reset-password/otp is redirected to '
+        '/master/profile', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.resetOtpVerification,
+        ),
+        equals(RouteNames.masterProfile),
+      );
+    });
+
+    test('anonymous user at /reset-password/otp stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.resetOtpVerification,
+        ),
+        isNull,
+      );
+    });
+
+    // Beautica OTP task Phase B5 — /reset-password is now DUAL-ACCESS: an
+    // authenticated user reaching it (the settings change-password flow) must
+    // NOT be bounced to /master/profile — mirrors /verification + /done's
+    // isAtPostRegisterRoute treatment. This intentionally REVERSES the old
+    // Phase 2.13 pin (an authenticated user used to always be bounced here,
+    // back when /reset-password was reachable ONLY via an emailed deep link).
+    test('authenticated user at /reset-password stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.resetPassword,
+        ),
+        isNull,
+      );
+    });
 
     test('anonymous user at /forgot-password stays (null)', () {
       expect(
@@ -378,8 +438,11 @@ void main() {
     });
 
     // Phase 5.2 — /services/* role gate (SEC MEDIUM-2).
-    // INDEPENDENT_MASTER may access /services; all other roles are redirected
-    // to / (the "coming soon" home shell).
+    // INDEPENDENT_MASTER may access /services. Phase 13.1: every other role is
+    // bounced through the shared [roleHomePath] helper, so a CLIENT lands on
+    // /home (the 5-tab client shell) — NOT / (the no-bottom-bar "coming soon"
+    // shell). The pre-Phase-13.1 expectation of / was the routing bug this
+    // regression block now pins shut.
 
     test('INDEPENDENT_MASTER at /services stays (null)', () {
       expect(
@@ -398,27 +461,27 @@ void main() {
       );
     });
 
-    test('CLIENT role at /services is redirected to /', () {
+    test('CLIENT role at /services is redirected to /home', () {
       expect(
         authRedirectForLocation(_clientSession, RouteNames.services),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
-    test('CLIENT role at /services/create is redirected to /', () {
+    test('CLIENT role at /services/create is redirected to /home', () {
       expect(
         authRedirectForLocation(_clientSession, RouteNames.serviceCreate),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
-    test('CLIENT role at /services/:id/edit is redirected to /', () {
+    test('CLIENT role at /services/:id/edit is redirected to /home', () {
       expect(
         authRedirectForLocation(
           _clientSession,
           RouteNames.serviceEdit('svc-001'),
         ),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
@@ -470,11 +533,243 @@ void main() {
       );
     });
 
-    test('CLIENT at /master/working-hours is redirected to /', () {
+    test('CLIENT at /master/working-hours is redirected to /home', () {
+      // Phase 13.1: the /master/* gate routes a CLIENT through roleHomePath →
+      // /home (client shell), not / — the cross-shell bounce-target bug.
       expect(
         authRedirectForLocation(_clientSession, RouteNames.workingHours),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
+    });
+
+    // Phase 15.6 — /schedule/* role gate (OQ-2 hardening regression).
+    //
+    // The schedule EDIT surfaces are INDEPENDENT_MASTER-only in MVP. The
+    // /schedule prefix guard in auth_redirect.dart:223-228 redirects EVERY
+    // authenticated role that is NOT INDEPENDENT_MASTER to RouteNames.home —
+    // closing the leak where a read-only role (SALON_MASTER) or any other role
+    // deep-linking/pushing straight to /schedule/weekly|day|copy could reach
+    // editable controls (those editor screens do NOT self-check the capability;
+    // only MasterScheduleScreen gates on scheduleEditableProvider). These tests
+    // pin the gate across the WHOLE /schedule subtree and every role so a
+    // refactor that widens access is caught immediately. The auth gate keeps
+    // precedence — an unauthenticated session still goes to /login regardless of
+    // path — so that is asserted too.
+    //
+    // Local role fixtures (the existing _clientSession + _authenticatedSession
+    // cover CLIENT and INDEPENDENT_MASTER; SALON_MASTER/OWNER/ADMIN are built
+    // inline to keep this block self-contained and the matrix explicit).
+    const salonMasterSession = AsyncData<AuthSession>(
+      AuthSession.authenticated(
+        user: User(
+          id: 'u-sm',
+          email: 'salonmaster@example.com',
+          role: UserRole.salonMaster,
+          firstName: 'Salon',
+          lastName: 'Master',
+        ),
+        accessToken: 'token',
+      ),
+    );
+    const salonOwnerSession = AsyncData<AuthSession>(
+      AuthSession.authenticated(
+        user: User(
+          id: 'u-so',
+          email: 'owner@example.com',
+          role: UserRole.salonOwner,
+          firstName: 'Salon',
+          lastName: 'Owner',
+        ),
+        accessToken: 'token',
+      ),
+    );
+    const salonAdminSession = AsyncData<AuthSession>(
+      AuthSession.authenticated(
+        user: User(
+          id: 'u-sa',
+          email: 'admin@example.com',
+          role: UserRole.salonAdmin,
+          firstName: 'Salon',
+          lastName: 'Admin',
+        ),
+        accessToken: 'token',
+      ),
+    );
+
+    // The full /schedule subtree under audit: the landing screen plus the three
+    // deep edit destinations that do NOT self-check the capability.
+    const scheduleRoutes = <String>[
+      RouteNames.masterSchedule, // /schedule
+      RouteNames.scheduleWeeklyEditor, // /schedule/weekly
+      RouteNames.scheduleDayOverride, // /schedule/day
+      RouteNames.schedulePropagate, // /schedule/copy
+    ];
+
+    group('/schedule role gate (Phase 15.6 OQ-2)', () {
+      for (final route in scheduleRoutes) {
+        test('INDEPENDENT_MASTER at $route is allowed (null)', () {
+          expect(
+            authRedirectForLocation(_authenticatedSession, route),
+            isNull,
+            reason: 'the schedule owner role must reach $route',
+          );
+        });
+
+        // Phase 13.1: a CLIENT bounced off any /schedule edit surface lands on
+        // /home (the client shell), not / — routed through roleHomePath. This
+        // is the cross-shell bounce-target regression; the salon roles below
+        // have no client shell and still resolve to /.
+        test('CLIENT at $route is redirected to /home', () {
+          expect(
+            authRedirectForLocation(_clientSession, route),
+            equals(RouteNames.clientHome),
+          );
+        });
+
+        test('SALON_MASTER at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(salonMasterSession, route),
+            equals(RouteNames.home),
+            reason:
+                'a read-only SALON_MASTER must NOT reach the schedule edit '
+                'surfaces (the exact OQ-2 leak this gate closes)',
+          );
+        });
+
+        test('SALON_OWNER at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(salonOwnerSession, route),
+            equals(RouteNames.home),
+          );
+        });
+
+        test('SALON_ADMIN at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(salonAdminSession, route),
+            equals(RouteNames.home),
+          );
+        });
+
+        // Auth gate precedence: an unauthenticated session is forwarded to
+        // /login BEFORE the role gate is even reached — deep-linking to a
+        // /schedule route while signed out must never expose the screen.
+        test('unauthenticated at $route is redirected to /login', () {
+          expect(
+            authRedirectForLocation(_unauthenticatedSession, route),
+            equals(RouteNames.login),
+          );
+        });
+      }
+    });
+
+    // Phase 13.1 — CLIENT 5-tab shell role gate. The inverse of the master
+    // gates: CLIENT reaches the five branches; every other role is bounced to
+    // its own landing (INDEPENDENT_MASTER → /master/profile, salon roles → /).
+    group('CLIENT shell role gate (Phase 13.1 + Phase 13.7)', () {
+      const clientRoutes = <String>[
+        RouteNames.clientHome,
+        RouteNames.clientFavorites,
+        RouteNames.clientSearch,
+        RouteNames.clientBookings,
+        RouteNames.clientPassport,
+        // Phase 13.7 (revised) — standalone CLIENT quick-link outside the shell
+        // branches. Must be gated identically to the five shell paths above so
+        // that a non-CLIENT role cannot reach /rating via direct navigation or
+        // a deep link.
+        RouteNames.myRating,
+      ];
+
+      for (final route in clientRoutes) {
+        test('CLIENT at $route is allowed (null)', () {
+          expect(
+            authRedirectForLocation(_clientSession, route),
+            isNull,
+            reason: 'the CLIENT role must reach its own shell branch $route',
+          );
+        });
+
+        test(
+          'INDEPENDENT_MASTER at $route is redirected to /master/profile',
+          () {
+            expect(
+              authRedirectForLocation(_authenticatedSession, route),
+              equals(RouteNames.masterProfile),
+              reason: 'a master must NOT land on the client shell',
+            );
+          },
+        );
+
+        test('SALON_OWNER at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(salonOwnerSession, route),
+            equals(RouteNames.home),
+          );
+        });
+
+        test('unauthenticated at $route is redirected to /login', () {
+          expect(
+            authRedirectForLocation(_unauthenticatedSession, route),
+            equals(RouteNames.login),
+          );
+        });
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // CLIENT cross-shell bounce contract (regression — Step 2.7 Rule 3).
+    //
+    // THE BUG: two sites hardcoded RouteNames.home ('/') as the bounce target
+    // for an authenticated user kicked off a foreign-shell route, instead of
+    // dispatching through the shared roleHomePath() helper. For a CLIENT that
+    // sent them to '/' — the no-bottom-bar "Скоро…" placeholder — instead of
+    // '/home' (RouteNames.clientHome), the real 5-tab ClientShell. The fix
+    // routed BOTH bounce sites (auth_redirect.dart + done_screen.dart) through
+    // roleHomePath.
+    //
+    // These cases pin the invariant directly: for a CLIENT, EVERY cross-shell
+    // bounce must resolve to clientHome ('/home'), never home ('/'). The
+    // /master/profile case is the exact repro the integration tier exercises
+    // (client_shell_flow_test.dart Test 3). The matrix above covers the gates
+    // individually; this block states the contract as one explicit assertion so
+    // a regression that reintroduces a hardcoded '/' is caught by name.
+    group('CLIENT cross-shell bounce always lands on clientHome (regression)', () {
+      // The repro case: a CLIENT deep-linking into the MASTER profile must be
+      // bounced to /home (the client shell), NEVER to / (the placeholder).
+      test('CLIENT at /master/profile → /home (clientHome), not / (home)', () {
+        final target = authRedirectForLocation(
+          _clientSession,
+          RouteNames.masterProfile,
+        );
+        expect(
+          target,
+          equals(RouteNames.clientHome),
+          reason:
+              'the master-profile bounce is the integration repro — a CLIENT '
+              'must land on the 5-tab client shell, not the no-bar placeholder',
+        );
+        expect(
+          target,
+          isNot(equals(RouteNames.home)),
+          reason: 'hardcoded RouteNames.home here is the exact bug under guard',
+        );
+      });
+
+      test('CLIENT at /services → /home (clientHome), not / (home)', () {
+        expect(
+          authRedirectForLocation(_clientSession, RouteNames.services),
+          allOf(equals(RouteNames.clientHome), isNot(equals(RouteNames.home))),
+        );
+      });
+
+      test('CLIENT at /schedule/weekly → /home (clientHome), not / (home)', () {
+        expect(
+          authRedirectForLocation(
+            _clientSession,
+            RouteNames.scheduleWeeklyEditor,
+          ),
+          allOf(equals(RouteNames.clientHome), isNot(equals(RouteNames.home))),
+        );
+      });
     });
   });
 
@@ -612,21 +907,24 @@ void main() {
       },
     );
 
-    testWidgets(
-      'INDEPENDENT_MASTER @ /reset-password → redirected to /master/profile',
-      (tester) async {
-        // The router strips the `?token=...` query string before matchedLocation,
-        // so navigating with a token still resolves to RouteNames.resetPassword.
-        await pumpRouterWith(
-          tester,
-          _authenticatedSession,
-          '${RouteNames.resetPassword}?token=x',
-        );
-        expect(find.text('master-profile'), findsOneWidget);
-        expect(find.text('reset-password'), findsNothing);
-        expect(find.text('home'), findsNothing);
-      },
-    );
+    // Beautica OTP task Phase B5 — /reset-password is DUAL-ACCESS: an
+    // authenticated user (the settings change-password flow) stays on the
+    // route rather than being bounced, reversing the old Phase 2.13 pin (see
+    // the plain-function test above for the full rationale). The old
+    // `?token=...` deep-link query param is retired — Phase B4 carries the
+    // reset ticket via in-app `extra` instead.
+    testWidgets('INDEPENDENT_MASTER @ /reset-password stays on the route', (
+      tester,
+    ) async {
+      await pumpRouterWith(
+        tester,
+        _authenticatedSession,
+        RouteNames.resetPassword,
+      );
+      expect(find.text('reset-password'), findsOneWidget);
+      expect(find.text('master-profile'), findsNothing);
+      expect(find.text('home'), findsNothing);
+    });
 
     testWidgets('anonymous @ /forgot-password stays on the route', (
       tester,
@@ -646,7 +944,7 @@ void main() {
       await pumpRouterWith(
         tester,
         _unauthenticatedSession,
-        '${RouteNames.resetPassword}?token=x',
+        RouteNames.resetPassword,
       );
       expect(find.text('reset-password'), findsOneWidget);
       expect(find.text('login'), findsNothing);

@@ -39,6 +39,11 @@ class _MockServiceCatalogControllerApi extends Mock
 const _masterId = 'master-abc';
 const _serviceId = 'svc-001';
 
+/// A valid service-type id. Service type is MANDATORY on create (backend
+/// `@NotNull` on `CreateServiceDefinitionRequest.serviceTypeId`), so every
+/// create fixture that is expected to reach the mapper/network must carry one.
+const _serviceTypeId = 'stype-777';
+
 /// The service-definition id used for update/deactivate (distinct from the
 /// assignment id [_serviceId]). The backend keys
 /// `PATCH/DELETE /api/v1/services/{serviceDefId}` on this id.
@@ -70,7 +75,7 @@ ServiceDefinitionResponse _buildDef({
           ..priceType = priceType
           ..priceMin = priceMin
           ..priceMax = priceMax
-          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} грн'
+          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} ₴'
           ..bufferMinutesAfter = bufferMinutesAfter
           ..isActive = isActive)
         .build();
@@ -173,7 +178,8 @@ void main() {
           ..baseDurationMinutes = 30
           ..priceType = CreateServiceDefinitionRequestPriceTypeEnum.FIXED
           ..price = 100
-          ..category = 'FALLBACK',
+          ..category = 'FALLBACK'
+          ..serviceTypeId = _serviceTypeId,
       ),
     );
     registerFallbackValue(
@@ -213,7 +219,7 @@ void main() {
           name: 'Манікюр',
           baseDurationMinutes: 60,
           priceMin: 500,
-          priceDisplay: '500 грн',
+          priceDisplay: '500 ₴',
         ),
         isActive: true,
       );
@@ -224,7 +230,7 @@ void main() {
           name: 'Педикюр',
           baseDurationMinutes: 90,
           priceMin: 700,
-          priceDisplay: '700 грн',
+          priceDisplay: '700 ₴',
         ),
         // effectivePrice is the floor for booking but priceMin is used for domain.
         effectivePrice: 650,
@@ -245,7 +251,7 @@ void main() {
       expect(first.name, 'Манікюр');
       expect(first.durationMinutes, 60);
       expect(first.priceMin, 500.0);
-      expect(first.priceDisplay, '500 грн');
+      expect(first.priceDisplay, '500 ₴');
       expect(first.isActive, isTrue);
 
       // Second item — priceMin = 700 (from serviceDefinition).
@@ -294,6 +300,205 @@ void main() {
     });
   });
 
+  // ── getMyService — list round-trip + filter + failure mapping ───────────────
+  //
+  // getMyService(id) has no single-resource endpoint: it calls listMyServices()
+  // and filters client-side on s.id == id, throwing NotFoundFailure on a miss.
+  // It therefore inherits listMyServices()'s _assertAuthenticated() guard and
+  // its DioException→Failure mapping.
+
+  group('getMyService', () {
+    test(
+      'returns the matching service when present in the owner list',
+      () async {
+        final wanted = _buildMasterServiceDto(
+          id: 'svc-002',
+          serviceDefinition: _buildDef(
+            id: 'def-002',
+            name: 'Педикюр',
+            baseDurationMinutes: 90,
+            priceMin: 700,
+            priceDisplay: '700 ₴',
+          ),
+        );
+        when(() => serviceApi.getMyServices()).thenAnswer(
+          (_) async =>
+              _listResponse([_buildMasterServiceDto(id: 'svc-001'), wanted]),
+        );
+
+        final result = await repository.getMyService('svc-002');
+
+        expect(result.id, 'svc-002');
+        expect(result.name, 'Педикюр');
+        expect(result.durationMinutes, 90);
+        expect(result.priceMin, 700.0);
+        // Confirms it goes through the owner list endpoint, not a single-GET.
+        verify(() => serviceApi.getMyServices()).called(1);
+      },
+    );
+
+    test(
+      'throws NotFoundFailure when the id is absent from the list',
+      () async {
+        when(() => serviceApi.getMyServices()).thenAnswer(
+          (_) async => _listResponse([_buildMasterServiceDto(id: 'svc-001')]),
+        );
+
+        await expectLater(
+          repository.getMyService('does-not-exist'),
+          throwsA(isA<NotFoundFailure>()),
+        );
+      },
+    );
+
+    test('throws NotFoundFailure when the owner list is empty', () async {
+      when(
+        () => serviceApi.getMyServices(),
+      ).thenAnswer((_) async => _listResponse([]));
+
+      await expectLater(
+        repository.getMyService('svc-001'),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+
+    test(
+      'propagates NetworkFailure from the underlying list call on connectionError',
+      () async {
+        when(() => serviceApi.getMyServices()).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: _listPath),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await expectLater(
+          repository.getMyService('svc-001'),
+          throwsA(isA<NetworkFailure>()),
+        );
+      },
+    );
+
+    test(
+      'throws UnauthorizedFailure (empty masterId) without any network call',
+      () async {
+        final unauthRepo = HttpServiceRepository(
+          serviceApi: serviceApi,
+          categoryApi: categoryApi,
+          catalogApi: catalogApi,
+          dio: Dio(),
+          masterId: '',
+        );
+
+        await expectLater(
+          unauthRepo.getMyService('svc-001'),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+  });
+
+  // ── badResponse status → Failure mapping (shared _mapDioException) ───────────
+  //
+  // listMyServices() routes any DioException through the shared _mapDioException.
+  // These pin the badResponse status→Failure contract that every list/get/
+  // update/deactivate path inherits: 400/422 → ValidationFailure, 404 →
+  // NotFoundFailure, 5xx (and any other badResponse) → ServerFailure.
+
+  group('badResponse status mapping', () {
+    DioException badResponse(int status) => DioException(
+      requestOptions: RequestOptions(path: _listPath),
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(path: _listPath),
+        statusCode: status,
+      ),
+      type: DioExceptionType.badResponse,
+    );
+
+    test('400 → ValidationFailure', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(400));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
+
+    test('422 → ValidationFailure', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(422));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
+
+    test('404 → NotFoundFailure', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(404));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+
+    test('500 → ServerFailure carrying the status code', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(500));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 500),
+        ),
+      );
+    });
+
+    test('503 → ServerFailure carrying the status code', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(503));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 503),
+        ),
+      );
+    });
+  });
+
+  // ── transport-type mapping: badCertificate → NetworkFailure ─────────────────
+  //
+  // A TLS / certificate-validation failure (DioExceptionType.badCertificate) is
+  // a transport-layer security problem, NOT a retryable 5xx. The shared
+  // _mapDioException classifies it alongside the connectivity failures
+  // (NetworkFailure) so the UI never invites a "try again" against an untrusted
+  // connection — it must NOT surface as a recoverable ServerFailure. listMyServices()
+  // routes every DioException through that shared mapper, so it pins the contract
+  // every list/get/update/deactivate path inherits.
+
+  group('badCertificate transport mapping', () {
+    DioException badCertificate() => DioException(
+      requestOptions: RequestOptions(path: _listPath),
+      type: DioExceptionType.badCertificate,
+    );
+
+    test('badCertificate → NetworkFailure (NOT ServerFailure)', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badCertificate());
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(
+          isA<NetworkFailure>().having(
+            (f) => f,
+            'is not a ServerFailure',
+            isNot(isA<ServerFailure>()),
+          ),
+        ),
+      );
+    });
+  });
+
   // ── 3. create — happy path ─────────────────────────────────────────────────
 
   group('create', () {
@@ -306,7 +511,7 @@ void main() {
             name: 'Брови',
             baseDurationMinutes: 45,
             priceMin: 350,
-            priceDisplay: '350 грн',
+            priceDisplay: '350 ₴',
           ),
         );
 
@@ -325,6 +530,7 @@ void main() {
           price: 350.0,
           description: 'Оформлення брів',
           category: 'BROWS',
+          serviceTypeId: _serviceTypeId,
         );
 
         final result = await repository.create(input);
@@ -353,6 +559,8 @@ void main() {
         expect(captured.price, 350.0);
         expect(captured.description, 'Оформлення брів');
         expect(captured.category, 'BROWS');
+        // Service type is mandatory on create — the mapper must forward it.
+        expect(captured.serviceTypeId, _serviceTypeId);
       },
     );
 
@@ -372,6 +580,9 @@ void main() {
               priceType: ServicePriceType.fixed,
               price: 0,
               category: 'MANICURE',
+              // Type present so the ArgumentError provably comes from price=0,
+              // not from the (earlier) mandatory-service-type guard.
+              serviceTypeId: _serviceTypeId,
             ),
           ),
           throwsA(isA<ArgumentError>()),
@@ -440,6 +651,9 @@ void main() {
             priceType: ServicePriceType.fixed,
             price: 100,
             category: 'MANICURE',
+            // Valid type so the mapper passes and the call reaches the network,
+            // exercising the pre-mapped-Failure re-throw path.
+            serviceTypeId: _serviceTypeId,
           ),
         ),
         throwsA(same(mapped)),
@@ -540,7 +754,7 @@ void main() {
           name: 'Манікюр Оновлений',
           baseDurationMinutes: 75,
           priceMin: 600,
-          priceDisplay: '600 грн',
+          priceDisplay: '600 ₴',
         );
 
         when(
@@ -610,6 +824,67 @@ void main() {
             assignmentId: _serviceId,
           ),
           throwsA(isA<ArgumentError>()),
+        );
+
+        verifyNever(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: any(named: 'serviceDefId'),
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'throws NetworkFailure when the PATCH hits a connectionError',
+      () async {
+        when(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: _serviceDefId,
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(
+              path: '/api/v1/services/$_serviceDefId',
+            ),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await expectLater(
+          repository.update(
+            _serviceDefId,
+            const MasterServiceUpdate(name: 'Нова назва'),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<NetworkFailure>()),
+        );
+      },
+    );
+
+    test(
+      'throws UnauthorizedFailure (empty masterId) without any network call',
+      () async {
+        final unauthRepo = HttpServiceRepository(
+          serviceApi: serviceApi,
+          categoryApi: categoryApi,
+          catalogApi: catalogApi,
+          dio: Dio(),
+          masterId: '',
+        );
+
+        await expectLater(
+          unauthRepo.update(
+            _serviceDefId,
+            const MasterServiceUpdate(name: 'Нова назва'),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<UnauthorizedFailure>()),
         );
 
         verifyNever(

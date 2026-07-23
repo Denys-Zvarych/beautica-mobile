@@ -39,6 +39,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
 import 'services_list_notifier.dart';
 
@@ -131,6 +132,11 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
     return Scaffold(
       backgroundColor: BrandColors.base,
       appBar: _ServicesAppBar(title: l10n.servicesTitle),
+      // Tile 0 ("Послуги") — this screen IS that destination. Hosted via
+      // Scaffold's own slot (not nested inside a body SafeArea) so it mounts
+      // identically to the other three master tab screens — see
+      // `VelvetBottomNavBar`'s doc comment and `ProfileScaffold.bottomNavBar`.
+      bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 0),
       floatingActionButton: asyncServices.maybeWhen(
         data: (list) => list.isEmpty
             ? null
@@ -605,9 +611,7 @@ class _CategorySectionState extends State<_CategorySection> {
   late bool _expanded;
 
   // P-M1 fix: hoisted to avoid per-build TextStyle allocation.
-  static final TextStyle _headerStyle = VelvetText.subheading().copyWith(
-    fontSize: 16,
-  );
+  static final TextStyle _headerStyle = VelvetText.subheading16;
 
   @override
   void initState() {
@@ -701,7 +705,7 @@ class _CategoryCountBadge extends StatelessWidget {
   final int count;
 
   // Hoisted to avoid per-build allocation.
-  static final TextStyle _style = VelvetText.pill().copyWith(fontSize: 12.5);
+  static final TextStyle _style = VelvetText.pillSm;
 
   @override
   Widget build(BuildContext context) {
@@ -798,17 +802,16 @@ class _ServiceCardState extends State<_ServiceCard>
     final MasterService s = widget.service;
     final durationLabel = DurationMinutes.format(s.durationMinutes);
     // Price label: FIXED renders the server-formatted priceDisplay
-    // ("750 грн"); RANGE is reformatted client-side to a hyphenated band
-    // ("200 - 600 грн") via [ServicePriceDisplay]. Falls back gracefully when
+    // ("750 ₴"); RANGE is reformatted client-side to a hyphenated band
+    // ("200 - 600 ₴") via [ServicePriceDisplay]. Falls back gracefully when
     // priceDisplay is empty (pre-V67 data / broken contract).
     final priceLabel = ServicePriceDisplay.format(s);
 
-    // Item 1: the PRIMARY card label is the platform service-type name
-    // (e.g. "Стрижка"), not the master's custom name. The custom name — now
-    // optional — is shown as a quiet secondary line ONLY when it is present AND
-    // differs from the service-type label (so we never echo the same text
-    // twice). When no service type is selected the custom name (or, if also
-    // empty, the empty string) takes the primary slot so a card is never blank.
+    // Card label rule: the master's OPTIONAL custom name REPLACES the platform
+    // service-type name. When a custom name is present we show ONLY it; when it
+    // is absent we fall back to the service-type name (e.g. "Стрижка"). The two
+    // names are never shown together. If both are empty the label is the empty
+    // string so a card is never blank / never crashes.
     //
     // M4 (contract correctness): serviceTypeNameUk is read straight off the
     // mapped MasterService; the mapper sources it from
@@ -818,68 +821,65 @@ class _ServiceCardState extends State<_ServiceCard>
     // NOT a dropped field.
     final String typeName = (s.serviceTypeNameUk ?? '').trim();
     final String customName = s.name.trim();
-    final String primaryLabel = typeName.isNotEmpty ? typeName : customName;
-    final String? secondaryLabel =
-        (typeName.isNotEmpty && customName.isNotEmpty && customName != typeName)
-        ? customName
-        : null;
+    final String primaryLabel = customName.isNotEmpty ? customName : typeName;
 
     // P-H1 fix: FadeTransition + SlideTransition replace Opacity +
     // Transform.translate. Both transitions are compositing-friendly and
     // do not force an extra GPU raster layer per card.
-    return FadeTransition(
-      opacity: _curve,
-      child: SlideTransition(
-        position: _slide,
-        child: Semantics(
-          button: true,
-          label:
-              '$primaryLabel. '
-              '${secondaryLabel != null ? '$secondaryLabel. ' : ''}'
-              '$durationLabel, $priceLabel. Редагувати',
-          // priceLabel renders from priceDisplay (server-formatted) so the
-          // accessibility label always matches what the user sees in the card.
-          child: GestureDetector(
-            onTapDown: (_) => setState(() => _pressed = true),
-            onTapCancel: () => setState(() => _pressed = false),
-            onTapUp: (_) {
-              setState(() => _pressed = false);
-              widget.onEdit();
-            },
-            child: AnimatedScale(
-              scale: _pressed ? 0.99 : 1.0,
-              duration: const Duration(milliseconds: 110),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                decoration: BoxDecoration(
-                  color: BrandColors.base,
-                  borderRadius: BorderRadius.circular(VelvetRadii.card),
-                  boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-                ),
-                // Compact dense row: tighter vertical padding (~halved height)
-                // versus the original VelvetSpacing.sm + 2 with a stacked pill
-                // Wrap below the title.
-                padding: const EdgeInsets.fromLTRB(
-                  VelvetSpacing.sm + 2,
-                  VelvetSpacing.sm,
-                  VelvetSpacing.sm + 2,
-                  VelvetSpacing.sm,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    _PhotoThumbnail(key: Key('thumb_${s.id}')),
-                    const SizedBox(width: VelvetSpacing.sm + 2),
-                    Expanded(
-                      child: _ServiceInfo(
-                        name: primaryLabel,
-                        secondaryName: secondaryLabel,
-                        durationLabel: durationLabel,
-                        priceLabel: priceLabel,
+    //
+    // PERF: RepaintBoundary isolates this card's staggered entrance repaints so
+    // the per-frame fade/slide does not invalidate sibling cards in the section.
+    return RepaintBoundary(
+      child: FadeTransition(
+        opacity: _curve,
+        child: SlideTransition(
+          position: _slide,
+          child: Semantics(
+            button: true,
+            label: '$primaryLabel. $durationLabel, $priceLabel. Редагувати',
+            // priceLabel renders from priceDisplay (server-formatted) so the
+            // accessibility label always matches what the user sees in the card.
+            child: GestureDetector(
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapCancel: () => setState(() => _pressed = false),
+              onTapUp: (_) {
+                setState(() => _pressed = false);
+                widget.onEdit();
+              },
+              child: AnimatedScale(
+                scale: _pressed ? 0.99 : 1.0,
+                duration: const Duration(milliseconds: 110),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  decoration: BoxDecoration(
+                    color: BrandColors.base,
+                    borderRadius: BorderRadius.circular(VelvetRadii.card),
+                    boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
+                  ),
+                  // Compact dense row: tighter vertical padding (~halved height)
+                  // versus the original VelvetSpacing.sm + 2 with a stacked pill
+                  // Wrap below the title.
+                  padding: const EdgeInsets.fromLTRB(
+                    VelvetSpacing.sm + 2,
+                    VelvetSpacing.sm,
+                    VelvetSpacing.sm + 2,
+                    VelvetSpacing.sm,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      _PhotoThumbnail(key: Key('thumb_${s.id}')),
+                      const SizedBox(width: VelvetSpacing.sm + 2),
+                      Expanded(
+                        child: _ServiceInfo(
+                          name: primaryLabel,
+                          durationLabel: durationLabel,
+                          priceLabel: priceLabel,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: VelvetSpacing.sm),
-                    const _EditButton(),
-                  ],
+                      const SizedBox(width: VelvetSpacing.sm),
+                      const _EditButton(),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -934,36 +934,20 @@ class _ServiceInfo extends StatelessWidget {
     required this.name,
     required this.durationLabel,
     required this.priceLabel,
-    this.secondaryName,
   });
 
-  /// Primary card label — the platform service-type name (Item 1), or the
-  /// custom name as a fallback when no service type is assigned.
+  /// Card label — the master's custom name when present, otherwise the platform
+  /// service-type name. The two names are never shown together.
   final String name;
-
-  /// Optional secondary label — the master's custom name, shown as a quiet
-  /// subtitle beneath [name] only when a custom name is present and differs
-  /// from the service-type label. Null suppresses the row entirely.
-  final String? secondaryName;
 
   final String durationLabel;
   final String priceLabel;
 
   // Hoisted to avoid per-build allocation (MEDIUM-3).
-  static final TextStyle _nameStyle = VelvetText.cardTitle().copyWith(
-    fontSize: 15,
-    height: 1.15,
-  );
-
-  // Secondary (custom name) style — quieter than the primary: smaller and
-  // muted, so the service-type name stays the dominant label.
-  static final TextStyle _secondaryStyle = VelvetText.pill().copyWith(
-    fontSize: 12.5,
-  );
+  static final TextStyle _nameStyle = VelvetText.svcCardName;
 
   @override
   Widget build(BuildContext context) {
-    final String? secondary = secondaryName;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -976,16 +960,6 @@ class _ServiceInfo extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        if (secondary != null) ...<Widget>[
-          const SizedBox(height: 1),
-          Text(
-            secondary,
-            key: const Key('service-card-custom-name'),
-            style: _secondaryStyle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
         const SizedBox(height: VelvetSpacing.xs),
         // Inline duration · price metadata line. The category is shown as the
         // section header the card lives under, not here.
@@ -1032,9 +1006,7 @@ class _MetaItem extends StatelessWidget {
   final String value;
 
   // Hoisted to avoid per-build allocation (MEDIUM-3).
-  static final TextStyle _valueStyle = VelvetText.pill().copyWith(
-    fontSize: 12.5,
-  );
+  static final TextStyle _valueStyle = VelvetText.pillSm;
 
   @override
   Widget build(BuildContext context) {
@@ -1334,7 +1306,7 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: VelvetSpacing.xl),
             Text(
               l10n.servicesEmpty,
-              style: VelvetText.heading().copyWith(fontSize: 22),
+              style: VelvetText.headingSm,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: VelvetSpacing.sm),

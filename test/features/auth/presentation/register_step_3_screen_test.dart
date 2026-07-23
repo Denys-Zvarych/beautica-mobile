@@ -39,7 +39,10 @@
 //   (C). location_on_outlined icon tile renders at top of Step 3.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/register_result.dart';
@@ -264,6 +267,16 @@ void main() {
       expect(find.byKey(const Key('locality_row_oblast')), findsOneWidget);
       expect(find.byKey(const Key('locality_row_city')), findsOneWidget);
       expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
+
+      // Role-aware sub-text must resolve via the CLIENT l10n branch
+      // (_subTextFor → step3SubtextClient), NOT a frozen literal. Guards both
+      // the copy itself and the role branch: a regression that swaps the CLIENT
+      // variant for the master/owner string, or freezes stale copy, fails here.
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      final subtext = tester.widget<Text>(
+        find.byKey(const Key('step3-subtext')),
+      );
+      expect(subtext.data, l10n.step3SubtextClient);
 
       // Phase 2.19 keys: CLIENT split CTA.
       expect(
@@ -1467,7 +1480,7 @@ void main() {
   );
 
   // ── Location icon tile (Phase 2.x icon standardisation) ───────────────────
-  testWidgets('location_on_outlined icon tile renders at top of Step 3 '
+  testWidgets('location-marker icon tile renders at top of Step 3 '
       '(VelvetTouch icon tile consistency — no VelvetHeader logo)', (
     tester,
   ) async {
@@ -1481,14 +1494,46 @@ void main() {
     await tester.pump(); // addPostFrameCallback flush
     await tester.pumpAndSettle();
 
-    final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
+    // The hero tile and the LocalityCascade pins share the same asset
+    // (locationMarker), so the asset alone is not a stable discriminator.
+    // Anchor on the hero's own Key('register-step3-location-hero') and assert
+    // the AppIcon rendered inside that 72×72 neumorphic Container — the hero
+    // glyph is the larger 30 px accent marker (matching steps 1 & 2), distinct
+    // from the cascade rows' 20 px pins.
+    final heroTile = find.byKey(const Key('register-step3-location-hero'));
     expect(
-      icons.any((i) => i.icon == Icons.location_on_outlined),
-      isTrue,
+      heroTile,
+      findsOneWidget,
       reason:
-          'RegisterStep3Screen must render Icons.location_on_outlined '
-          '(72×72 neumorphic icon tile) at the top of the screen.',
+          'RegisterStep3Screen must render the 72×72 neumorphic hero icon '
+          'tile keyed register-step3-location-hero at the top of the screen.',
     );
+
+    // The hero Container is a 72×72 box — the icon-tile style (not a
+    // VelvetHeader logo / not a full-width banner).
+    final heroBox = tester.widget<Container>(heroTile);
+    expect(heroBox.constraints?.maxHeight, 72);
+    expect(heroBox.constraints?.maxWidth, 72);
+
+    // …and its single child is the locationMarker AppIcon SVG.
+    final heroIcon = tester.widget<AppIcon>(
+      find.descendant(of: heroTile, matching: find.byType(AppIcon)),
+    );
+    expect(
+      heroIcon.asset,
+      BeauticaAssetIcons.locationMarker,
+      reason: 'Hero tile must render the locationMarker SVG glyph.',
+    );
+    expect(
+      heroIcon.size,
+      30,
+      reason:
+          'Hero glyph must render at the 30 px accent size (matching steps 1 '
+          '& 2 hero tiles), not a full-box or shrunk glyph.',
+    );
+
+    // No VelvetHeader logo on Step 3 — the icon tile replaces it.
+    expect(find.byType(VelvetHeader), findsNothing);
   });
 
   // ── fetchOblasts() throws during initState prefetch ───────────────────────

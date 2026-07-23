@@ -51,10 +51,12 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
+import '../domain/schedule_date_math.dart';
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
 import 'apply_schedule_sheet.dart';
 import 'weekly_schedule_notifier.dart';
+import 'widgets/discrete_times_editor.dart';
 import 'widgets/interval_editor.dart';
 
 /// Number of ISO days in a week.
@@ -78,19 +80,31 @@ enum _SaveGate {
   /// Save would surface the errors banner).
   hasErrors,
 
+  /// First-time create where the validity window («Графік діє з…») has NOT yet
+  /// been explicitly chosen → Save is disabled and the inline hint routes the
+  /// user to the «Період дії графіка» sheet. Prevents the editor from silently
+  /// persisting a `validFrom = today` the master never picked.
+  windowUnset,
+
   /// A save/delete is in flight → Save shows its loading state.
   saving,
 }
 
 /// The full-screen weekly-template editor.
 class WeeklyTemplateEditorScreen extends ConsumerStatefulWidget {
-  const WeeklyTemplateEditorScreen({super.key, DateTime? clock})
+  const WeeklyTemplateEditorScreen({super.key, DateTime Function()? clock})
     : _clock = clock;
 
-  /// Injectable "now" (M6 / wall-clock decoupling): a fresh create anchors its
-  /// `validFrom` on this date. Defaults to `DateTime.now()` in production; tests
-  /// pass a fixed clock so the saved window is run-day independent.
-  final DateTime? _clock;
+  /// Injectable LIVE "now" source (M6 / wall-clock decoupling): a fresh create
+  /// anchors — and, at submit, re-anchors — its `validFrom` on the value this
+  /// returns. It is a callback (not a frozen snapshot) so `_today` is recomputed
+  /// on every read: a midnight rollover between picking the validity window and
+  /// pressing Save yields a fresh "today", letting the submit-time clamp correct
+  /// a now-stale cached `validFrom` instead of POSTing yesterday's date (which
+  /// the backend rejects with a 400 `@FutureOrPresent`). Defaults to
+  /// `DateTime.now()` in production; tests pass a callback over a mutable clock
+  /// they can advance between pick and Save to exercise the regression.
+  final DateTime Function()? _clock;
 
   @override
   ConsumerState<WeeklyTemplateEditorScreen> createState() =>
@@ -103,12 +117,31 @@ class _WeeklyTemplateEditorScreenState
 
   /// One editable [DayHours] per ISO weekday (Mon..Sun), or `null` for a
   /// day-off. Seeded once from the server list, then edited locally until Save.
+  /// Used exclusively for the INTERVAL shape — interval window + breaks.
   List<DayHours?>? _days;
+
+  /// Per-weekday mode + discrete times (Phase 15.8). Parallel to [_days]:
+  /// entry `i` is `null` when day `i` is off (regardless of mode). When
+  /// non-null, [TemplateDay.mode] and [TemplateDay.times] carry the discrete
+  /// shape; [TemplateDay.intervals] is not authoritative here (that lives in
+  /// [_days]). Seeded alongside [_days].
+  List<TemplateDay?>? _templateDays;
 
   /// Last hours per day so toggling a day back on restores them rather than
   /// starting blank.
   late final List<DayHours> _stash = <DayHours>[
     for (int i = 0; i < _kDaysInWeek; i++) DayHours.defaultDay(),
+  ];
+
+  /// Stash for discrete times — parallel to [_stash] — so toggling a discrete
+  /// day off and back on restores the discrete times.
+  late final List<List<TimeOfDay>> _timesStash = <List<TimeOfDay>>[
+    for (int i = 0; i < _kDaysInWeek; i++) <TimeOfDay>[],
+  ];
+
+  /// Stash for mode — which mode was active when a day was toggled off.
+  late final List<WeekdayMode> _modeStash = <WeekdayMode>[
+    for (int i = 0; i < _kDaysInWeek; i++) WeekdayMode.interval,
   ];
 
   /// The server template the draft was seeded from (null when the master has no
@@ -117,12 +150,33 @@ class _WeeklyTemplateEditorScreenState
   WeeklySchedule? _serverTemplate;
 
   /// The persisted server state projected onto the seven ISO weekdays — the
-  /// dirty-diff source of truth. Equals seven empty lists when the master has
-  /// NO_SCHEDULE (`_serverTemplate == null`), or each persisted day's intervals
-  /// otherwise. Save is gated on the draft DIFFERING from this (Phase 6.2
-  /// pristine-load contract: Save stays disabled until the user actually edits,
-  /// never merely because data loaded). Indexed Mon..Sun.
+  /// dirty-diff source of truth for INTERVAL shape. Equals seven empty lists
+  /// when `_serverTemplate == null` (the NO_SCHEDULE / fresh-create case).
   List<List<WorkInterval>>? _baseline;
+
+  /// Persisted baseline for EXPLICIT_TIMES shape — discrete times per weekday.
+  /// Parallel to [_baseline]. Empty list means "was not EXPLICIT_TIMES" or
+  /// "was EXPLICIT_TIMES day-off".
+  List<List<TimeOfDay>>? _baselineTimes;
+
+  /// Persisted baseline mode per weekday (indexed Mon..Sun).
+  List<WeekdayMode>? _baselineModes;
+
+  /// FIRST-CREATE validity-window draft (`_serverTemplate == null` only). Holds
+  /// the window the master chose in the «Період дії графіка» sheet BEFORE the
+  /// editor's Save is pressed — the single commit point on first create. `null`
+  /// means "not chosen yet" → the create persists open-ended (`validFrom =
+  /// today`, `validTo = null`). Never read for an existing template, whose
+  /// window comes from `_serverTemplate`.
+  DateTimeRange? _draftWindow;
+
+  /// FIRST-CREATE submit-time error: set when Save is pressed on an otherwise
+  /// saveable first-create draft but no validity window has been chosen
+  /// ([_draftWindow] is null). Surfaced as an inline error under the active-
+  /// window card (matching the form's other field errors) — Save stays enabled
+  /// so the validation is enforced at submit, not by disabling the button.
+  /// Cleared the moment a window is picked.
+  bool _windowRequiredError = false;
 
   bool _saving = false;
 
@@ -147,7 +201,7 @@ class _WeeklyTemplateEditorScreenState
   }
 
   DateTime get _today {
-    final DateTime c = widget._clock ?? DateTime.now();
+    final DateTime c = widget._clock?.call() ?? DateTime.now();
     return DateTime(c.year, c.month, c.day);
   }
 
@@ -158,16 +212,51 @@ class _WeeklyTemplateEditorScreenState
         ? null
         : serverList.first;
     final List<DayHours?> seeded = List<DayHours?>.filled(_kDaysInWeek, null);
+    final List<TemplateDay?> seededTemplate = List<TemplateDay?>.filled(
+      _kDaysInWeek,
+      null,
+    );
     final List<List<WorkInterval>> baseline = <List<WorkInterval>>[
       for (int i = 0; i < _kDaysInWeek; i++) <WorkInterval>[],
+    ];
+    final List<List<TimeOfDay>> baselineTimes = <List<TimeOfDay>>[
+      for (int i = 0; i < _kDaysInWeek; i++) <TimeOfDay>[],
+    ];
+    final List<WeekdayMode> baselineModes = <WeekdayMode>[
+      for (int i = 0; i < _kDaysInWeek; i++) WeekdayMode.interval,
     ];
     if (template != null) {
       for (final TemplateDay d in template.days) {
         final int idx = d.dayOfWeek - 1;
         if (idx < 0 || idx >= _kDaysInWeek) continue;
-        baseline[idx] = d.cloneIntervals();
-        if (d.intervals.isNotEmpty) {
-          seeded[idx] = DayHours.fromIntervals(d.intervals);
+        baselineModes[idx] = d.mode;
+        if (d.mode == WeekdayMode.explicitTimes) {
+          // EXPLICIT_TIMES day — seed discrete shape.
+          baselineTimes[idx] = List<TimeOfDay>.of(d.times);
+          if (d.times.isNotEmpty) {
+            // Working explicit-times day: seed seeded slot so the card renders.
+            seeded[idx] = DayHours.defaultDay(); // placeholder; not used by UI
+            seededTemplate[idx] = TemplateDay(
+              dayOfWeek: d.dayOfWeek,
+              label: d.label,
+              intervals: <WorkInterval>[],
+              mode: WeekdayMode.explicitTimes,
+              times: List<TimeOfDay>.of(d.times),
+            );
+          }
+        } else {
+          // INTERVAL day — seed interval shape.
+          baseline[idx] = d.cloneIntervals();
+          if (d.intervals.isNotEmpty) {
+            seeded[idx] = DayHours.fromIntervals(d.intervals);
+            seededTemplate[idx] = TemplateDay(
+              dayOfWeek: d.dayOfWeek,
+              label: d.label,
+              intervals: d.cloneIntervals(),
+              mode: WeekdayMode.interval,
+              times: const <TimeOfDay>[],
+            );
+          }
         }
       }
     }
@@ -178,7 +267,10 @@ class _WeeklyTemplateEditorScreenState
       setState(() {
         _serverTemplate = template;
         _days = seeded;
+        _templateDays = seededTemplate;
         _baseline = baseline;
+        _baselineTimes = baselineTimes;
+        _baselineModes = baselineModes;
       });
       // Pristine load: Save stays disabled until a real edit (Phase 6.2).
       _saveGateNotifier.value = _saveGate;
@@ -195,33 +287,83 @@ class _WeeklyTemplateEditorScreenState
   }
 
   // ── Derived state ───────────────────────────────────────────────────────────
-  bool get _hasErrors =>
-      _days?.any((DayHours? d) => d != null && !dayHoursValid(d)) ?? false;
+
+  /// True when any WORKING day has a validation error.
+  ///
+  /// INTERVAL days: `dayHoursValid` (window + breaks).
+  /// EXPLICIT_TIMES days: `discreteTimesValid` (non-empty, 15-min aligned).
+  ///
+  /// Day-off entries (null slot) are never in error.
+  bool get _hasErrors {
+    final List<DayHours?>? days = _days;
+    final List<TemplateDay?>? tDays = _templateDays;
+    if (days == null) return false;
+    for (int i = 0; i < _kDaysInWeek; i++) {
+      if (days[i] == null) continue; // day-off: no error
+      final TemplateDay? td = tDays?[i];
+      if (td != null && td.mode == WeekdayMode.explicitTimes) {
+        // Working EXPLICIT_TIMES day — validate discrete times.
+        if (!discreteTimesValid(td.times)) return true;
+      } else {
+        // Working INTERVAL day — validate window + breaks.
+        if (!dayHoursValid(days[i]!)) return true;
+      }
+    }
+    return false;
+  }
 
   int get _openCount => _days?.where((DayHours? d) => d != null).length ?? 0;
 
-  /// True when the draft differs from the PERSISTED server state. Compares each
-  /// day's collapsed canonical interval list against [_baseline] — which is the
-  /// persisted template projected onto the seven weekdays, or seven empty lists
-  /// when `_serverTemplate == null` (the NO_SCHEDULE / fresh-create case). So:
-  ///   • a pristine load is NOT dirty (Phase 6.2 contract);
-  ///   • a fresh master toggling any day ON is dirty → Save enabled;
-  ///   • an all-off week with no template equals the persisted NO_SCHEDULE
-  ///     state → NOT dirty (legitimately nothing to persist);
-  ///   • an existing template's open day toggled OFF (or all days off → the
-  ///     DELETE path) IS dirty → Save enabled;
-  ///   • a no-op edit (toggle off then on with the same hours) is NOT dirty.
+  /// True when the draft differs from the PERSISTED server state. For INTERVAL
+  /// days, compares the collapsed canonical interval list against [_baseline].
+  /// For EXPLICIT_TIMES days, compares mode + sorted times against
+  /// [_baselineModes] / [_baselineTimes]. Phase 6.2 pristine-load contract
+  /// preserved: Save stays disabled until the user actually edits.
   bool get _isDirty {
     final List<DayHours?>? days = _days;
+    final List<TemplateDay?>? tDays = _templateDays;
     final List<List<WorkInterval>>? baseline = _baseline;
+    final List<List<TimeOfDay>>? baselineTimes = _baselineTimes;
+    final List<WeekdayMode>? baselineModes = _baselineModes;
     if (days == null || baseline == null) return false;
     for (int i = 0; i < _kDaysInWeek; i++) {
-      final List<WorkInterval> draftIntervals = days[i] == null
-          ? const <WorkInterval>[]
-          : days[i]!.toIntervals();
-      if (!_sameIntervals(draftIntervals, baseline[i])) return true;
+      final TemplateDay? td = tDays?[i];
+      final WeekdayMode draftMode = (days[i] != null && td != null)
+          ? td.mode
+          : WeekdayMode.interval;
+      final WeekdayMode persistedMode = baselineModes != null
+          ? baselineModes[i]
+          : WeekdayMode.interval;
+
+      // Mode changed → always dirty.
+      if (days[i] != null && draftMode != persistedMode) return true;
+
+      if (days[i] != null && draftMode == WeekdayMode.explicitTimes) {
+        // EXPLICIT_TIMES: compare sorted times.
+        final List<TimeOfDay> draftTimes = td != null
+            ? sortDedupeTimes(td.times)
+            : <TimeOfDay>[];
+        final List<TimeOfDay> persisted = baselineTimes != null
+            ? sortDedupeTimes(baselineTimes[i])
+            : <TimeOfDay>[];
+        if (!_sameTimes(draftTimes, persisted)) return true;
+      } else {
+        // INTERVAL: compare collapsed intervals.
+        final List<WorkInterval> draftIntervals = days[i] == null
+            ? const <WorkInterval>[]
+            : days[i]!.toIntervals();
+        if (!_sameIntervals(draftIntervals, baseline[i])) return true;
+      }
     }
     return false;
+  }
+
+  static bool _sameTimes(List<TimeOfDay> a, List<TimeOfDay> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].hour != b[i].hour || a[i].minute != b[i].minute) return false;
+    }
+    return true;
   }
 
   /// The current Save-button state and its reason. `saving` and `hasErrors`
@@ -232,6 +374,13 @@ class _WeeklyTemplateEditorScreenState
     if (_saving) return _SaveGate.saving;
     if (_hasErrors) return _SaveGate.hasErrors;
     if (!_isDirty) return _SaveGate.noChanges;
+    // FIRST-CREATE: a dirty draft with ≥1 valid working day is saveable even
+    // before the validity window is chosen — the editor's Save is the single
+    // commit point. The «Період дії графіка» sheet now only STAGES the window
+    // into `_draftWindow` (it no longer eagerly persists), so there is nothing
+    // to gate on: an unchosen window defaults to open-ended (`validFrom =
+    // today`, `validTo = null`) at build time. `_SaveGate.windowUnset` is
+    // retained for the informational hint only and is never returned here.
     return _SaveGate.saveable;
   }
 
@@ -251,21 +400,67 @@ class _WeeklyTemplateEditorScreenState
   }
 
   // ── Mutations ────────────────────────────────────────────────────────────────
-  /// Apply a day-on/off toggle to the host's canonical store + stash and return
-  /// the new slot value to the (stateful) `_DayCard`, which rebuilds only
-  /// itself. The host then recomputes the Save gate in isolation. No host
+  /// Apply a day-on/off toggle to the host's canonical stores + stashes and
+  /// return the new slot value to the (stateful) `_DayCard`, which rebuilds
+  /// only itself. The host then recomputes the Save gate in isolation. No host
   /// `setState` — the 6 untouched cards stay put.
-  DayHours? _toggleDay(int index, bool open) {
+  ///
+  /// Returns a record `(DayHours?, WeekdayMode, List<TimeOfDay>)` so the card
+  /// can restore both interval and discrete state from the stash.
+  ({DayHours? dayHours, WeekdayMode mode, List<TimeOfDay> times}) _toggleDay(
+    int index,
+    bool open,
+  ) {
     final List<DayHours?> days = _days!;
+    final List<TemplateDay?> tDays = _templateDays!;
     if (open) {
       days[index] = _stash[index].clone();
+      tDays[index] = TemplateDay(
+        dayOfWeek: index + 1,
+        label: tDays[index]?.label ?? '',
+        intervals: _stash[index].toIntervals(),
+        mode: _modeStash[index],
+        times: List<TimeOfDay>.of(_timesStash[index]),
+      );
     } else {
+      // Stash current state before clearing.
       final DayHours? current = days[index];
       if (current != null) _stash[index] = current.clone();
+      final TemplateDay? currentTd = tDays[index];
+      if (currentTd != null) {
+        _modeStash[index] = currentTd.mode;
+        _timesStash[index] = List<TimeOfDay>.of(currentTd.times);
+      }
       days[index] = null;
+      tDays[index] = null;
     }
     _onDayMutated();
-    return days[index];
+    final TemplateDay? td = tDays[index];
+    return (
+      dayHours: days[index],
+      mode: td?.mode ?? WeekdayMode.interval,
+      times: td?.times ?? const <TimeOfDay>[],
+    );
+  }
+
+  /// Called by `_DayCard` when the mode toggle is flipped. Updates the
+  /// [_templateDays] slot for this weekday and recomputes the Save gate.
+  void _onModeChanged(int index, WeekdayMode next) {
+    final List<TemplateDay?> tDays = _templateDays!;
+    final TemplateDay? td = tDays[index];
+    if (td == null) return; // day-off — should not be called
+    td.setMode(next);
+    _onDayMutated();
+  }
+
+  /// Called by `_DayCard` when discrete times are mutated. The card mutates its
+  /// own private `_times` copy (not the host's `TemplateDay`), so write the
+  /// edited list back into the authoritative [TemplateDay.times] before
+  /// recomputing the Save gate — otherwise the EXPLICIT_TIMES dirty check reads
+  /// stale (empty) times and the Save button never enables.
+  void _onTimesChanged(int index, List<TimeOfDay> times) {
+    _templateDays?[index]?.times = List<TimeOfDay>.of(times);
+    _onDayMutated();
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────────
@@ -287,6 +482,47 @@ class _WeeklyTemplateEditorScreenState
     final List<DayHours?> days = _days!;
     final WeeklySchedule? existing = _serverTemplate;
     final bool allOff = days.every((DayHours? d) => d == null);
+
+    // FIRST-CREATE submit-time validation: the validity window is now REQUIRED
+    // to create the first schedule. Enforced HERE (with an inline error under
+    // the active-window card), NOT by disabling Save — the button enables on
+    // ≥1 valid working day. When there is something to persist (`!allOff`) but
+    // no window was chosen (`_draftWindow == null`), surface the inline error
+    // and bail: do NOT persist, do NOT navigate, stay on the editor. The
+    // all-off branch never reaches here as saveable (it's a clean no-op), so it
+    // is excluded so an all-off draft never trips the window-required error.
+    if (existing == null && !allOff && _draftWindow == null) {
+      setState(() => _windowRequiredError = true);
+      return;
+    }
+
+    // FIRST-CREATE STALE-DATE RE-ANCHOR (M6): the staged validity window caches
+    // a `validFrom` captured when the «Період дії графіка» preset was picked. If
+    // the master crosses midnight between picking it and pressing Save, that
+    // cached start is now YESTERDAY and the backend's `@FutureOrPresent` guard
+    // rejects the create with a 400. Re-anchor the staged window to a freshly
+    // recomputed today (clamping its end so it never precedes the new start),
+    // make the shift VISIBLE — the active-window card now reads today + a
+    // snackbar explains it — and bail this press rather than silently shifting
+    // the window. The master confirms by pressing Save again, which now persists
+    // a present-or-future `validFrom`.
+    final DateTimeRange? draft = _draftWindow;
+    if (existing == null && draft != null) {
+      final DateTime today = _today;
+      if (ScheduleDateMath(today: today).isPast(draft.start)) {
+        final DateTime end = draft.end.isBefore(today) ? today : draft.end;
+        setState(() => _draftWindow = DateTimeRange(start: today, end: end));
+        _onDayMutated();
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(l10n.weeklyEditorWindowReanchored(_ddmm(today))),
+            ),
+          );
+        return;
+      }
+    }
 
     setState(() => _saving = true);
     _saveGateNotifier.value = _saveGate;
@@ -378,25 +614,80 @@ class _WeeklyTemplateEditorScreenState
   }
 
   /// Maps the 7 draft days onto a [WeeklySchedule], preserving the loaded
-  /// template's active window (open-ended from `today` for a fresh create).
+  /// template's active window. For each weekday the mode is taken from
+  /// [_templateDays]; EXPLICIT_TIMES days carry [TemplateDay.times]; INTERVAL
+  /// days carry the collapsed [DayHours.toIntervals()] list.
+  ///
+  /// Window sourcing:
+  ///   • EXISTING template — `validFrom`/`validTo` come from [existing],
+  ///     preserving the persisted window verbatim.
+  ///   • FIRST CREATE (`existing == null`) — the window is REQUIRED and comes
+  ///     from [_draftWindow] (`validFrom = start`, `validTo = end`). The
+  ///     submit-time guard in [_save] guarantees `_draftWindow != null` before
+  ///     this runs on the persist path, so the `_today` / `null` fallbacks here
+  ///     only ever apply to the throwaway `base` schedule built for the
+  ///     «Період дії графіка» sheet (where no window is chosen yet).
   WeeklySchedule _buildSchedule(
     List<DayHours?> days,
     WeeklySchedule? existing,
   ) {
+    final List<TemplateDay?> tDays =
+        _templateDays ?? List<TemplateDay?>.filled(_kDaysInWeek, null);
     final List<TemplateDay> templateDays = <TemplateDay>[
       for (int i = 0; i < _kDaysInWeek; i++)
-        TemplateDay(
-          dayOfWeek: i + 1,
-          label: _serverTemplate?.days[i].label ?? '',
-          intervals: days[i] == null
-              ? <WorkInterval>[]
-              : days[i]!.toIntervals(),
-        ),
+        () {
+          final TemplateDay? td = tDays[i];
+          if (days[i] == null) {
+            // Day off.
+            return TemplateDay(
+              dayOfWeek: i + 1,
+              label: _serverTemplate?.days[i].label ?? '',
+              intervals: <WorkInterval>[],
+              mode: td?.mode ?? WeekdayMode.interval,
+              times: const <TimeOfDay>[],
+            );
+          }
+          if (td != null && td.mode == WeekdayMode.explicitTimes) {
+            return TemplateDay(
+              dayOfWeek: i + 1,
+              label: _serverTemplate?.days[i].label ?? '',
+              intervals: <WorkInterval>[],
+              mode: WeekdayMode.explicitTimes,
+              times: List<TimeOfDay>.of(td.times),
+            );
+          }
+          return TemplateDay(
+            dayOfWeek: i + 1,
+            label: _serverTemplate?.days[i].label ?? '',
+            intervals: days[i]!.toIntervals(),
+            mode: WeekdayMode.interval,
+            times: const <TimeOfDay>[],
+          );
+        }(),
     ];
+    // SUBMIT-TIME CLAMP (M6): resolve `validFrom` against a FRESH today, never a
+    // value frozen at preset-pick time. First create draws it from the REQUIRED
+    // draft window; an existing template preserves its persisted start; the
+    // `_today` fallback only covers the throwaway sheet-base build. Whatever the
+    // source, a start that has fallen into the past (a draft cached before a
+    // midnight rollover, or a legacy window whose `validFrom` predates today) is
+    // clamped UP to today so the backend's `@FutureOrPresent` guard never 400s.
+    // `validTo` is then clamped so it never ends before the corrected start
+    // (a no-op for the current presets, but a guard against an inverted window).
+    final ScheduleDateMath dateMath = ScheduleDateMath(today: _today);
+    final DateTime candidateFrom =
+        existing?.validFrom ?? _draftWindow?.start ?? _today;
+    final DateTime validFrom = dateMath.isPast(candidateFrom)
+        ? dateMath.today
+        : candidateFrom;
+    DateTime? validTo = existing != null ? existing.validTo : _draftWindow?.end;
+    if (validTo != null && validTo.isBefore(validFrom)) {
+      validTo = validFrom;
+    }
     return WeeklySchedule(
       id: existing?.id,
-      validFrom: existing?.validFrom ?? _today,
-      validTo: existing?.validTo,
+      validFrom: validFrom,
+      validTo: validTo,
       days: templateDays,
     );
   }
@@ -447,14 +738,21 @@ class _WeeklyTemplateEditorScreenState
                   }
                   return _LoadedBody(
                     days: days,
+                    templateDays:
+                        _templateDays ??
+                        List<TemplateDay?>.filled(_kDaysInWeek, null),
                     openCountListenable: _openCountNotifier,
                     saveGateListenable: _saveGateNotifier,
                     saving: _saving,
                     activeWindow: _activeWindowLabel(l10n),
-                    isWindowSet: _serverTemplate != null,
+                    isWindowSet:
+                        _serverTemplate != null || _draftWindow != null,
+                    windowRequiredError: _windowRequiredError,
                     l10n: l10n,
                     onToggle: _toggleDay,
                     onMutated: _onDayMutated,
+                    onModeChanged: _onModeChanged,
+                    onTimesChanged: _onTimesChanged,
                     onSave: _save,
                     onTapWindow: _openApplyWindowSheet,
                   );
@@ -482,17 +780,46 @@ class _WeeklyTemplateEditorScreenState
     final List<DayHours?>? days = _days;
     if (days == null) return;
     final WeeklySchedule base = _buildSchedule(days, _serverTemplate);
-    final bool? applied = await showApplyScheduleSheet(
+    final Object? result = await showApplyScheduleSheet(
       context,
       baseSchedule: base,
       today: _today,
     );
-    if (!mounted || applied != true) return;
-    // Re-seed from the now-saved server list so the card + dirty-diff track the
-    // persisted window/template. Clear the local seed first so `_seed` re-runs.
+    if (!mounted) return;
+
+    // FIRST CREATE: the sheet returns the chosen window as a draft — it did NOT
+    // persist. Stage it locally and recompute the Save gate / card label; the
+    // editor's Save remains the single commit point. Do NOT re-seed from the
+    // server (there is nothing saved to re-seed from).
+    if (_serverTemplate == null) {
+      if (result is! DateTimeRange) return; // dismissed without choosing
+      setState(() {
+        _draftWindow = result;
+        // A window is now chosen — clear the submit-time required error.
+        _windowRequiredError = false;
+      });
+      _onDayMutated();
+      if (kDebugMode) {
+        log(
+          'apply-window: first-create draft staged '
+          '${result.start} → ${result.end}',
+          name: _tag,
+        );
+      }
+      return;
+    }
+
+    // EXISTING template: the sheet persisted the new window itself (returns
+    // `true`). Re-seed from the now-saved server list so the card + dirty-diff
+    // track the persisted window/template. Clear the local seed so `_seed`
+    // re-runs.
+    if (result != true) return;
     setState(() {
       _days = null;
+      _templateDays = null;
       _baseline = null;
+      _baselineTimes = null;
+      _baselineModes = null;
       _serverTemplate = null;
     });
     if (kDebugMode) {
@@ -502,13 +829,21 @@ class _WeeklyTemplateEditorScreenState
 
   /// The informational active-window line for the card.
   ///
-  /// When no window has ever been persisted (`_serverTemplate == null` —
-  /// first-time / NO_SCHEDULE), returns the placeholder prompt instead of
-  /// fabricating a date from `_today`, so the card reads as «not chosen yet».
+  /// EXISTING template: reflects the persisted `validFrom`/`validTo`.
+  /// FIRST CREATE (`_serverTemplate == null`): reflects the staged
+  /// [_draftWindow] (chosen-but-unsaved) when set; otherwise the placeholder
+  /// prompt, so the card reads as «not chosen yet» until the master picks one.
   String _activeWindowLabel(AppLocalizations l10n) {
     final WeeklySchedule? t = _serverTemplate;
     if (t == null) {
-      return l10n.weeklyEditorActiveWindowUnset;
+      final DateTimeRange? draft = _draftWindow;
+      if (draft == null) {
+        return l10n.weeklyEditorActiveWindowUnset;
+      }
+      return l10n.weeklyEditorActiveWindowRange(
+        _ddmm(draft.start),
+        _ddmm(draft.end),
+      );
     }
     final DateTime from = t.validFrom;
     final DateTime? to = t.validTo;
@@ -528,32 +863,33 @@ class _WeeklyTemplateEditorScreenState
 class _LoadedBody extends StatelessWidget {
   _LoadedBody({
     required this.days,
+    required this.templateDays,
     required this.openCountListenable,
     required this.saveGateListenable,
     required this.saving,
     required this.activeWindow,
     required this.isWindowSet,
+    required this.windowRequiredError,
     required this.l10n,
     required this.onToggle,
     required this.onMutated,
+    required this.onModeChanged,
+    required this.onTimesChanged,
     required this.onSave,
     required this.onTapWindow,
   });
 
   /// Filled active-window label style — committed value (Nunito 13/700, text).
-  static final TextStyle _windowSetStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
-  );
+  static final TextStyle _windowSetStyle = VelvetText.bodyStrong13;
 
   /// Unset active-window prompt style — reads as a placeholder, not a value
   /// (Nunito 13/600, placeholder color). See frontend-design judgment.
-  static final TextStyle _windowUnsetStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
-    fontWeight: FontWeight.w600,
-    color: BrandColors.placeholder,
-  );
+  static final TextStyle _windowUnsetStyle = VelvetText.schedWindowUnset;
 
   final List<DayHours?> days;
+
+  /// Parallel mode+times tracking per weekday (Phase 15.8).
+  final List<TemplateDay?> templateDays;
 
   /// Open-day count, listened to so only the summary chip rebuilds on a toggle.
   final ValueListenable<int> openCountListenable;
@@ -568,14 +904,32 @@ class _LoadedBody extends StatelessWidget {
   /// is the unset placeholder prompt and the card renders it as a placeholder
   /// (muted weight/color) rather than a committed value.
   final bool isWindowSet;
+
+  /// FIRST-CREATE submit-time error: when `true`, an inline error is rendered
+  /// under the active-window card prompting the user to choose the (now
+  /// required) validity period. Set when Save is pressed on an otherwise-
+  /// saveable first-create draft with no window chosen; Save itself stays
+  /// enabled (validation is enforced at submit, not by disabling the button).
+  final bool windowRequiredError;
   final AppLocalizations l10n;
 
-  /// Applies a day toggle in the host and returns the new slot value for the
-  /// (stateful) `_DayCard` to render.
-  final DayHours? Function(int index, bool open) onToggle;
+  /// Applies a day toggle in the host and returns the record of new slot values
+  /// (dayHours, mode, times) for the (stateful) `_DayCard` to render.
+  final ({DayHours? dayHours, WeekdayMode mode, List<TimeOfDay> times})
+  Function(int index, bool open)
+  onToggle;
 
   /// Notifies the host to recompute the Save gate after an in-place edit.
   final VoidCallback onMutated;
+
+  /// Called when the day's mode toggle is flipped.
+  final void Function(int index, WeekdayMode next) onModeChanged;
+
+  /// Called after discrete times are mutated by the `_DayCard`. Threads the
+  /// card's current times list up so the host can write it back into the
+  /// authoritative [TemplateDay.times] before recomputing the Save gate.
+  final void Function(int index, List<TimeOfDay> times) onTimesChanged;
+
   final Future<void> Function() onSave;
 
   /// Opens the «Період дії графіка» sheet to set the validity window.
@@ -584,6 +938,10 @@ class _LoadedBody extends StatelessWidget {
   /// `IntervalEditorStrings` is invariant for the screen's lifetime — resolve
   /// it once instead of rebuilding it on every `build`.
   late final IntervalEditorStrings _strings = _intervalStrings();
+
+  /// `DiscreteTimesEditorStrings` — resolved once alongside [_strings].
+  late final DiscreteTimesEditorStrings _discreteStrings =
+      _buildDiscreteStrings();
 
   static String _dayLabel(AppLocalizations l10n, int dow) => switch (dow) {
     1 => l10n.weekdayMon,
@@ -616,6 +974,19 @@ class _LoadedBody extends StatelessWidget {
     errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
   );
 
+  DiscreteTimesEditorStrings _buildDiscreteStrings() =>
+      DiscreteTimesEditorStrings(
+        addTimeLabel: l10n.discreteTimesAddTime,
+        windowSummary: l10n.scheduleDiscreteTimesWindowSummary,
+        removeTimeSemantic: l10n.discreteTimesRemoveSemantic,
+        timePickerTitle: l10n.discreteTimesPickerTitle,
+        timePickerConfirm: l10n.timePickerConfirm,
+        timePickerHoursSemantic: l10n.timePickerHoursSemantic,
+        timePickerMinutesSemantic: l10n.timePickerMinutesSemantic,
+        errEmpty: l10n.discreteTimesErrEmpty,
+        duplicateMessage: l10n.discreteTimesDuplicateMessage,
+      );
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -633,6 +1004,36 @@ class _LoadedBody extends StatelessWidget {
               _summaryChip(),
               const SizedBox(height: VelvetSpacing.sm + 2),
               _activeWindowCard(),
+              // Submit-time inline error when the (now required) validity window
+              // was not chosen — mirrors the form's other field errors
+              // (error-tinted feedback text). Save stays enabled; this is the
+              // only signal of the failed first-create attempt.
+              if (windowRequiredError) ...<Widget>[
+                const SizedBox(height: VelvetSpacing.sm),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: VelvetSpacing.sm,
+                  ),
+                  child: Row(
+                    key: const Key('error-validity-window'),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        size: 16,
+                        color: BrandColors.error,
+                      ),
+                      const SizedBox(width: VelvetSpacing.xs),
+                      Expanded(
+                        child: Text(
+                          l10n.scheduleValidityRangeRequired,
+                          style: VelvetText.feedback(BrandColors.error),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: VelvetSpacing.lg),
               for (int i = 0; i < _kDaysInWeek; i++) ...<Widget>[
                 _DayCard(
@@ -640,14 +1041,23 @@ class _LoadedBody extends StatelessWidget {
                   dayOfWeek: i + 1,
                   label: _dayLabel(l10n, i + 1),
                   initialDay: days[i],
+                  initialMode: templateDays[i]?.mode ?? WeekdayMode.interval,
+                  initialTimes: templateDays[i]?.times ?? const <TimeOfDay>[],
                   dayOffLabel: l10n.workingHoursClosedLabel,
                   dayOffRestLabel: l10n.weeklyEditorDayOffRest,
                   toggleSemanticLabel: l10n.weeklyEditorDayToggleSemantic(
                     _dayLabel(l10n, i + 1),
                   ),
+                  modeToggleSemantic: l10n.discreteTimesModeSemantic,
+                  segmentIntervalLabel: l10n.discreteTimesSegmentInterval,
+                  segmentExplicitLabel: l10n.discreteTimesSegmentExplicit,
                   strings: _strings,
+                  discreteStrings: _discreteStrings,
                   onToggle: (bool open) => onToggle(i, open),
                   onMutated: onMutated,
+                  onModeChanged: (WeekdayMode next) => onModeChanged(i, next),
+                  onTimesChanged: (List<TimeOfDay> times) =>
+                      onTimesChanged(i, times),
                 ),
                 if (i != _kDaysInWeek - 1)
                   const SizedBox(height: VelvetSpacing.md),
@@ -678,6 +1088,23 @@ class _LoadedBody extends StatelessWidget {
                       l10n.weeklyEditorNoChangesHint,
                       style: VelvetText.feedback(BrandColors.muted),
                       textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: VelvetSpacing.xs),
+                  ],
+                  // First-time create with working days but no chosen validity
+                  // window: explain why Save is disabled and route the tap to the
+                  // «Період дії графіка» sheet so the dead button becomes an
+                  // actionable affordance.
+                  if (gate == _SaveGate.windowUnset) ...<Widget>[
+                    GestureDetector(
+                      key: const Key('weekly-window-unset-hint'),
+                      onTap: onTapWindow,
+                      behavior: HitTestBehavior.opaque,
+                      child: Text(
+                        l10n.weeklyEditorWindowUnsetHint,
+                        style: VelvetText.feedback(BrandColors.accentDeep),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                     const SizedBox(height: VelvetSpacing.xs),
                   ],
@@ -788,12 +1215,20 @@ class _DayCard extends StatefulWidget {
     required this.dayOfWeek,
     required this.label,
     required this.initialDay,
+    required this.initialMode,
+    required this.initialTimes,
     required this.dayOffLabel,
     required this.dayOffRestLabel,
     required this.toggleSemanticLabel,
+    required this.modeToggleSemantic,
+    required this.segmentIntervalLabel,
+    required this.segmentExplicitLabel,
     required this.strings,
+    required this.discreteStrings,
     required this.onToggle,
     required this.onMutated,
+    required this.onModeChanged,
+    required this.onTimesChanged,
   });
 
   final int dayOfWeek;
@@ -803,48 +1238,138 @@ class _DayCard extends StatefulWidget {
   /// its own reference and mutates it in place; the host shares the SAME
   /// `DayHours` object via [_days], so the dirty-diff/save sees every edit.
   final DayHours? initialDay;
+
+  /// Seeded mode for this weekday (Phase 15.8).
+  final WeekdayMode initialMode;
+
+  /// Seeded discrete times for this weekday (Phase 15.8). Mutable in place by
+  /// [DiscreteTimesEditor] (this widget holds a local copy).
+  final List<TimeOfDay> initialTimes;
+
   final String dayOffLabel;
   final String dayOffRestLabel;
   final String toggleSemanticLabel;
+  final String modeToggleSemantic;
+  final String segmentIntervalLabel;
+  final String segmentExplicitLabel;
   final IntervalEditorStrings strings;
+  final DiscreteTimesEditorStrings discreteStrings;
 
-  /// Applies the toggle in the host and returns the new slot value (a clone of
-  /// the stash on open, `null` on close).
-  final DayHours? Function(bool open) onToggle;
+  /// Applies the toggle in the host and returns the record of new slot values
+  /// (dayHours, mode, times) for this card to render.
+  final ({DayHours? dayHours, WeekdayMode mode, List<TimeOfDay> times})
+  Function(bool open)
+  onToggle;
 
-  /// Notifies the host to recompute the Save gate after an in-place edit.
+  /// Notifies the host to recompute the Save gate after an in-place INTERVAL edit.
   final VoidCallback onMutated;
+
+  /// Called when the mode toggle is flipped — notifies the host + Save gate.
+  final void Function(WeekdayMode next) onModeChanged;
+
+  /// Called after discrete times are mutated — passes the card's current times
+  /// list up so the host can write it back, then notifies the Save gate.
+  final void Function(List<TimeOfDay> times) onTimesChanged;
 
   @override
   State<_DayCard> createState() => _DayCardState();
 }
 
 class _DayCardState extends State<_DayCard> {
-  /// This day's editable hours, shared by reference with the host's `_days`
-  /// slot. A toggle/interval edit mutates it and `setState`s THIS card only —
-  /// the other six days never re-run `build()`/`validateDayHours`.
+  /// This day's editable hours (INTERVAL shape), shared by reference with the
+  /// host's `_days` slot. Mutated in place by [IntervalEditor].
   late DayHours? _day = widget.initialDay;
+
+  /// Current mode — driven by the host's [_templateDays] and the local toggle.
+  late WeekdayMode _mode = widget.initialMode;
+
+  /// Discrete start times for EXPLICIT_TIMES mode — mutable in place.
+  late List<TimeOfDay> _times = List<TimeOfDay>.of(widget.initialTimes);
 
   @override
   void didUpdateWidget(_DayCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Re-seed after a host-level rebuild (e.g. a fresh load) so the card tracks
-    // the canonical slot rather than a stale local reference.
+    // Re-seed after a host-level rebuild (e.g. a fresh load after apply-window)
+    // so the card tracks the canonical state rather than stale local references.
     if (!identical(oldWidget.initialDay, widget.initialDay)) {
       _day = widget.initialDay;
+    }
+    if (oldWidget.initialMode != widget.initialMode) {
+      _mode = widget.initialMode;
+    }
+    if (!identical(oldWidget.initialTimes, widget.initialTimes)) {
+      _times = List<TimeOfDay>.of(widget.initialTimes);
     }
   }
 
   void _handleToggle(bool open) {
-    final DayHours? next = widget.onToggle(open);
-    setState(() => _day = next);
+    final result = widget.onToggle(open);
+    setState(() {
+      _day = result.dayHours;
+      _mode = result.mode;
+      _times = List<TimeOfDay>.of(result.times);
+    });
   }
 
   void _handleIntervalChanged() {
-    // The IntervalEditor mutated `_day` in place; rebuild this card only, then
-    // let the host recompute the Save gate.
+    // IntervalEditor mutated `_day` in place; rebuild this card only, then
+    // notify the host to recompute the Save gate.
     setState(() {});
     widget.onMutated();
+  }
+
+  void _handleModeChanged(WeekdayMode next) {
+    if (_mode == next) return;
+    setState(() => _mode = next);
+    widget.onModeChanged(next);
+  }
+
+  void _handleTimesChanged() {
+    // DiscreteTimesEditor mutated `_times` in place; rebuild this card only,
+    // then thread the current times up so the host writes them back into its
+    // authoritative TemplateDay before recomputing the Save gate.
+    setState(() {});
+    widget.onTimesChanged(_times);
+  }
+
+  // ── Mode toggle chip (mirrors _modeChip in DayHoursSheet) ─────────────────
+  Widget _modeChip({
+    required Key valueKey,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final Color tint = selected ? BrandColors.accentDeep : BrandColors.muted;
+    final Widget content = Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.md,
+        vertical: VelvetSpacing.sm + 2,
+      ),
+      child: Text(
+        label,
+        overflow: TextOverflow.ellipsis,
+        style: VelvetText.bodyStrong13.copyWith(color: tint),
+      ),
+    );
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: GestureDetector(
+        key: valueKey,
+        onTap: onTap,
+        child: selected
+            ? NeumorphicInset(radius: VelvetRadii.field, child: content)
+            : DecoratedBox(
+                decoration: BoxDecoration(
+                  color: BrandColors.base,
+                  borderRadius: BorderRadius.circular(VelvetRadii.field),
+                  boxShadow: VelvetShadows.extrudedSmall,
+                ),
+                child: content,
+              ),
+      ),
+    );
   }
 
   @override
@@ -859,6 +1384,7 @@ class _DayCardState extends State<_DayCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          // ── Day label + on/off toggle ──────────────────────────────────────
           Row(
             children: <Widget>[
               Expanded(
@@ -885,14 +1411,55 @@ class _DayCardState extends State<_DayCard> {
             ],
           ),
           const SizedBox(height: VelvetSpacing.md),
-          if (day != null)
-            IntervalEditor(
-              day: day,
-              onChanged: _handleIntervalChanged,
-              strings: widget.strings,
-              fieldKeyPrefix: 'weekly-day-${widget.dayOfWeek}',
-            )
-          else
+
+          // ── Working-day body ───────────────────────────────────────────────
+          if (active) ...<Widget>[
+            // Mode toggle (Інтервал / Окремі години) — only for working days.
+            Semantics(
+              label: widget.modeToggleSemantic,
+              child: Row(
+                key: Key('weekly-mode-toggle-${widget.dayOfWeek}'),
+                children: <Widget>[
+                  Expanded(
+                    child: _modeChip(
+                      valueKey: Key('weekly-mode-interval-${widget.dayOfWeek}'),
+                      label: widget.segmentIntervalLabel,
+                      selected: _mode == WeekdayMode.interval,
+                      onTap: () => _handleModeChanged(WeekdayMode.interval),
+                    ),
+                  ),
+                  const SizedBox(width: VelvetSpacing.sm + 2),
+                  Expanded(
+                    child: _modeChip(
+                      valueKey: Key('weekly-mode-explicit-${widget.dayOfWeek}'),
+                      label: widget.segmentExplicitLabel,
+                      selected: _mode == WeekdayMode.explicitTimes,
+                      onTap: () =>
+                          _handleModeChanged(WeekdayMode.explicitTimes),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: VelvetSpacing.md),
+
+            // Editor body — swaps on mode change.
+            if (_mode == WeekdayMode.interval)
+              IntervalEditor(
+                day: day,
+                onChanged: _handleIntervalChanged,
+                strings: widget.strings,
+                fieldKeyPrefix: 'weekly-day-${widget.dayOfWeek}',
+              )
+            else
+              DiscreteTimesEditor(
+                times: _times,
+                onChanged: _handleTimesChanged,
+                strings: widget.discreteStrings,
+                fieldKeyPrefix: 'weekly-day-${widget.dayOfWeek}',
+              ),
+          ] else ...<Widget>[
+            // Day-off placeholder row.
             Row(
               children: <Widget>[
                 const Icon(
@@ -907,6 +1474,7 @@ class _DayCardState extends State<_DayCard> {
                 ),
               ],
             ),
+          ],
         ],
       ),
     );

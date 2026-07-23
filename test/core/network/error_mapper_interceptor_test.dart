@@ -658,6 +658,186 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // Beautica OTP task Phase A3/B2 — verify-password-reset-otp typed errors.
+  // Mirrors the verify-email typed-code envelope, but maps to the DEDICATED
+  // PasswordResetOtpFailure (NOT VerificationFailure) so the password-reset
+  // OTP screen never shows email-verification-specific copy.
+  // ---------------------------------------------------------------------------
+
+  group('ErrorMapperInterceptor — verify-password-reset-otp typed errors', () {
+    test(
+      '400 with data.code = INVALID_CODE → PasswordResetOtpFailure(invalidCode)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            400,
+            path: '/api/v1/auth/verify-password-reset-otp',
+            body: {
+              'success': false,
+              'data': {'code': 'INVALID_CODE'},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<PasswordResetOtpFailure>());
+        expect(
+          (rejected.error as PasswordResetOtpFailure).code,
+          equals(PasswordResetOtpErrorCode.invalidCode),
+        );
+      },
+    );
+
+    test(
+      '400 with data.code = CODE_EXPIRED → PasswordResetOtpFailure(codeExpired)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            400,
+            path: '/api/v1/auth/verify-password-reset-otp',
+            body: {
+              'success': false,
+              'data': {'code': 'CODE_EXPIRED'},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<PasswordResetOtpFailure>());
+        expect(
+          (rejected.error as PasswordResetOtpFailure).code,
+          equals(PasswordResetOtpErrorCode.codeExpired),
+        );
+      },
+    );
+
+    test('400 with unknown wire code → falls back to invalidCode', () {
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          path: '/api/v1/auth/verify-password-reset-otp',
+          body: {
+            'success': false,
+            'data': {'code': 'SOME_FUTURE_CODE'},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<PasswordResetOtpFailure>());
+      expect(
+        (rejected.error as PasswordResetOtpFailure).code,
+        equals(PasswordResetOtpErrorCode.invalidCode),
+      );
+    });
+
+    test('400 on /auth/verify-password-reset-otp WITHOUT data.code key → '
+        'ValidationFailure fallback', () {
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          path: '/api/v1/auth/verify-password-reset-otp',
+          body: {
+            'success': false,
+            'errors': {'code': 'must not be blank'},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<ValidationFailure>());
+      expect(rejected.error, isNot(isA<PasswordResetOtpFailure>()));
+    });
+
+    test(
+      '400 with data.code on a DIFFERENT path → ValidationFailure, and NEVER '
+      'VerificationFailure (the two typed-code mappings must never cross-fire)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            400,
+            path: '/auth/login',
+            body: {
+              'success': false,
+              'data': {'code': 'INVALID_CODE'},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<ValidationFailure>());
+        expect(rejected.error, isNot(isA<PasswordResetOtpFailure>()));
+        expect(rejected.error, isNot(isA<VerificationFailure>()));
+      },
+    );
+
+    test('400 with data.code on /auth/verify-email → VerificationFailure, '
+        'NEVER PasswordResetOtpFailure (mappings do not cross-fire the other '
+        'way either)', () {
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          path: '/api/v1/auth/verify-email',
+          body: {
+            'success': false,
+            'data': {'code': 'INVALID_CODE'},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<VerificationFailure>());
+      expect(rejected.error, isNot(isA<PasswordResetOtpFailure>()));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Beautica OTP task Phase A3/B2 — authenticated change-password OTP resend
+  // cooldown. Mirrors resend-verification's 429 mapping but scoped to the
+  // authenticated `/users/me/change-password/request-otp` entry point.
+  // ---------------------------------------------------------------------------
+
+  group(
+    'ErrorMapperInterceptor — change-password/request-otp 429 throttle',
+    () {
+      test(
+        '429 with data.retryAfterSeconds = 42 → ResendThrottledFailure(42)',
+        () {
+          final rejected = _captureRejected(
+            _httpError(
+              429,
+              path: '/api/v1/users/me/change-password/request-otp',
+              body: {
+                'success': false,
+                'data': {'retryAfterSeconds': 42},
+              },
+            ),
+          );
+
+          expect(rejected.error, isA<ResendThrottledFailure>());
+          expect(
+            (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+            equals(42),
+          );
+        },
+      );
+
+      test(
+        '429 on a DIFFERENT path → UnknownFailure (throttle mapping is scoped '
+        'to /users/me/change-password/request-otp)',
+        () {
+          final rejected = _captureRejected(
+            _httpError(
+              429,
+              path: '/auth/login',
+              body: {
+                'success': false,
+                'data': {'retryAfterSeconds': 42},
+              },
+            ),
+          );
+
+          expect(rejected.error, isA<UnknownFailure>());
+        },
+      );
+    },
+  );
+
+  // ---------------------------------------------------------------------------
   // EMAIL_ALREADY_REGISTERED — backend dev mode (disclose-duplicate-
   // registration). Backend returns 409 with envelope:
   //   {success:false, data:{code:"EMAIL_ALREADY_REGISTERED"},

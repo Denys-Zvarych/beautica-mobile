@@ -95,6 +95,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
   final String? serviceTypeId;
   @override
   final String? serviceTypeNameUk;
+  @override
+  final String? serviceTypeSlug;
 
   factory _$MasterServiceResponse(
           [void Function(MasterServiceResponseBuilder)? updates]) =>
@@ -114,7 +116,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
       this.priceMax,
       this.priceDisplay,
       this.serviceTypeId,
-      this.serviceTypeNameUk})
+      this.serviceTypeNameUk,
+      this.serviceTypeSlug})
       : super._();
   @override
   MasterServiceResponse rebuild(
@@ -142,7 +145,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
         priceMax == other.priceMax &&
         priceDisplay == other.priceDisplay &&
         serviceTypeId == other.serviceTypeId &&
-        serviceTypeNameUk == other.serviceTypeNameUk;
+        serviceTypeNameUk == other.serviceTypeNameUk &&
+        serviceTypeSlug == other.serviceTypeSlug;
   }
 
   @override
@@ -162,6 +166,7 @@ class _$MasterServiceResponse extends MasterServiceResponse {
     _$hash = $jc(_$hash, priceDisplay.hashCode);
     _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jc(_$hash, serviceTypeNameUk.hashCode);
+    _$hash = $jc(_$hash, serviceTypeSlug.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -182,7 +187,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
           ..add('priceMax', priceMax)
           ..add('priceDisplay', priceDisplay)
           ..add('serviceTypeId', serviceTypeId)
-          ..add('serviceTypeNameUk', serviceTypeNameUk))
+          ..add('serviceTypeNameUk', serviceTypeNameUk)
+          ..add('serviceTypeSlug', serviceTypeSlug))
         .toString();
   }
 }
@@ -256,6 +262,11 @@ class MasterServiceResponseBuilder
   set serviceTypeNameUk(String? serviceTypeNameUk) =>
       _$this._serviceTypeNameUk = serviceTypeNameUk;
 
+  String? _serviceTypeSlug;
+  String? get serviceTypeSlug => _$this._serviceTypeSlug;
+  set serviceTypeSlug(String? serviceTypeSlug) =>
+      _$this._serviceTypeSlug = serviceTypeSlug;
+
   MasterServiceResponseBuilder() {
     MasterServiceResponse._defaults(this);
   }
@@ -277,6 +288,7 @@ class MasterServiceResponseBuilder
       _priceDisplay = $v.priceDisplay;
       _serviceTypeId = $v.serviceTypeId;
       _serviceTypeNameUk = $v.serviceTypeNameUk;
+      _serviceTypeSlug = $v.serviceTypeSlug;
       _$v = null;
     }
     return this;
@@ -314,6 +326,7 @@ class MasterServiceResponseBuilder
             priceDisplay: priceDisplay,
             serviceTypeId: serviceTypeId,
             serviceTypeNameUk: serviceTypeNameUk,
+            serviceTypeSlug: serviceTypeSlug,
           );
     } catch (_) {
       late String _$failedField;

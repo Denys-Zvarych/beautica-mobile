@@ -84,7 +84,7 @@ GoRouter _makeRouter() => GoRouter(
       builder: (context, state) => const DoneScreen(),
     ),
     GoRoute(
-      path: RouteNames.home,
+      path: RouteNames.clientHome,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home-route'))),
     ),
@@ -103,7 +103,7 @@ GoRouter _makeRouterWithMaster() => GoRouter(
       builder: (context, state) => const DoneScreen(),
     ),
     GoRoute(
-      path: RouteNames.home,
+      path: RouteNames.clientHome,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home-route'))),
     ),
@@ -979,6 +979,119 @@ void main() {
           findsNothing,
           reason:
               'independentMaster CTA must route to masterProfile, not /home',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test E — shows registerDoneDescSalonOwner when role is salonOwner
+    //
+    // DISCRIMINATING TEST. Before the switch-on-role change, salonOwner fell
+    // through to the shared registerDoneDesc (client copy). This test asserts
+    // the description now resolves to the NEW registerDoneDescSalonOwner key
+    // AND is NOT the shared registerDoneDesc — so it would FAIL against the
+    // pre-change behaviour (owner falling back to the client copy) and PASSES
+    // now that the salonOwner branch diverges.
+    // -----------------------------------------------------------------------
+    testWidgets('E. shows registerDoneDescSalonOwner description when role is '
+        'salonOwner (and NOT the shared registerDoneDesc client copy)', (
+      tester,
+    ) async {
+      const userSalonOwner = User(
+        id: 'u7',
+        email: 'owner2@salon.test',
+        role: UserRole.salonOwner,
+        firstName: 'Ірина',
+        lastName: 'Мороз',
+      );
+
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await _pumpDoneScreen(
+        tester,
+        authenticatedUser: userSalonOwner,
+        router: router,
+      );
+
+      final l10n = _l10n(tester);
+
+      final descWidget = tester.widget<Text>(
+        find.byKey(const Key('done-desc')),
+      );
+      expect(
+        descWidget.data,
+        equals(l10n.registerDoneDescSalonOwner),
+        reason:
+            'For UserRole.salonOwner the description must use the NEW '
+            'registerDoneDescSalonOwner key.',
+      );
+      // Proves the branch actually diverged from the client copy — this
+      // assertion fails if salonOwner falls back to registerDoneDesc
+      // (the pre-change behaviour).
+      expect(
+        descWidget.data,
+        isNot(equals(l10n.registerDoneDesc)),
+        reason:
+            'The shared client description (registerDoneDesc) must NOT '
+            'appear for a salonOwner — the salonOwner branch must diverge.',
+      );
+      // It must also NOT be the master copy.
+      expect(
+        descWidget.data,
+        isNot(equals(l10n.registerDoneDescMaster)),
+        reason:
+            'The master description (registerDoneDescMaster) must NOT '
+            'appear for a salonOwner.',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test F — salonAdmin keeps the shared registerDoneDesc (unchanged)
+    //
+    // Guards the "owner only, admin unchanged" product decision: SALON_ADMIN
+    // must keep the shared client-focused copy and must NOT pick up the new
+    // salonOwner key.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'F. shows the shared registerDoneDesc (NOT the salonOwner key) when '
+      'role is salonAdmin',
+      (tester) async {
+        const userSalonAdmin = User(
+          id: 'u8',
+          email: 'admin@salon.test',
+          role: UserRole.salonAdmin,
+          firstName: 'Тарас',
+          lastName: 'Кравець',
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: userSalonAdmin,
+          router: router,
+        );
+
+        final l10n = _l10n(tester);
+
+        final descWidget = tester.widget<Text>(
+          find.byKey(const Key('done-desc')),
+        );
+        expect(
+          descWidget.data,
+          equals(l10n.registerDoneDesc),
+          reason:
+              'For UserRole.salonAdmin the description must keep the shared '
+              'registerDoneDesc — the admin copy is unchanged.',
+        );
+        expect(
+          descWidget.data,
+          isNot(equals(l10n.registerDoneDescSalonOwner)),
+          reason:
+              'salonAdmin must NOT pick up the new registerDoneDescSalonOwner '
+              'key — the new copy is owner-only.',
         );
       },
     );

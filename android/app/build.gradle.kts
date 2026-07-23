@@ -43,7 +43,6 @@ android {
         // the Dart patrolTest(...) cases through native instrumentation. This
         // affects ONLY the androidTest variant — the app's production/debug APK
         // and the headless `flutter test integration_test/` path are untouched.
-        // clearPackageData wipes app data between native test cases for isolation.
         //
         // The AndroidX Test Orchestrator (testOptions below) is REQUIRED here:
         // patrol's PatrolAppService is single-test-per-process, and the
@@ -55,7 +54,37 @@ android {
         // orchestrator (`File ...txt contains a path separator`). De-slash any
         // route names in the test NAME (assertions on real routes are fine).
         testInstrumentationRunner = "pl.leancode.patrol.PatrolJUnitRunner"
-        testInstrumentationRunnerArguments["clearPackageData"] = "true"
+
+        // clearPackageData is DELIBERATELY false. Do not flip it back to true
+        // without reading this.
+        //
+        // It wipes app data before EVERY native test case — and that includes
+        // the package's App Link domain-verification state. The deep-link test
+        // then loses its approval and Android routes the URL to a browser
+        // instead of the app, which the logcat shows verbatim:
+        //
+        //   20:51:32  clearApplicationUserData com.beautica.beautica_mobile
+        //   20:51:40  openUrl(https://…/reset-password?token=…)
+        //   20:51:40  START … cmp=org.chromium.webview_shell/.WebViewBrowserActivity
+        //
+        // Worse than a plain failure: with the link opened in a browser the app
+        // is backgrounded, the Flutter engine stops producing frames, and the
+        // test's `pump()` blocks forever, so the job HANGS until the workflow's
+        // 900s timeout kills it. The background `pm set-app-links` loop in
+        // pr-validate.yml exists solely to fight this, and it loses.
+        //
+        // Turning it off costs nothing, because these tests never relied on it
+        // for isolation: PatrolHarness.boot injects a fresh FakeSecureStorage
+        // and FakeBackend per test and pumps a fresh app tree, so auth state and
+        // network state are already per-test by construction. Nothing in the
+        // patrol suite reads real device storage that a previous case wrote —
+        // the only case using real storage (deep_link) is also the one this
+        // breaks.
+        //
+        // Multi-test support does NOT depend on this flag. That comes from the
+        // AndroidX Test Orchestrator (testOptions below), which runs each case
+        // in a fresh PROCESS; clearPackageData is merely one of its options.
+        testInstrumentationRunnerArguments["clearPackageData"] = "false"
     }
 
     // Phase 17.5 — run each patrol native test in an isolated process via the
@@ -102,7 +131,20 @@ android {
             // Use the env-var-driven release config when credentials are present;
             // fall back to debug signing for local development (MEDIUM-1 fix).
             val releaseConfig = signingConfigs.findByName("release")
-            signingConfig = releaseConfig ?: signingConfigs.getByName("debug")
+            if (releaseConfig != null) {
+                signingConfig = releaseConfig
+            } else {
+                // No BEAUTICA_* signing env vars → no real release keystore.
+                // Assign the debug-key fallback at CONFIGURATION time (harmless:
+                // it only affects the artifact IF a release is actually built).
+                // The distribution guard itself is deferred to the EXECUTION phase
+                // (taskGraph.whenReady below) so it fires ONLY when a release
+                // artifact is genuinely being assembled — never for debug builds,
+                // unit tests, or `:app:help`, all of which still evaluate this
+                // release buildType block at config time (and would otherwise throw
+                // under CI=true, breaking non-release CI work).
+                signingConfig = signingConfigs.getByName("debug")
+            }
             // R8 shrinking and obfuscation enabled for release builds.
             // ProGuard rules in proguard-rules.pro protect the reflection-based
             // native plugins (flutter_secure_storage, screen_protector, etc.).
@@ -113,6 +155,62 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+}
+
+// Distribution guard (mobile-security backlog, build.gradle.kts:74) — EXECUTION phase.
+//
+// A "release" APK/AAB signed with the debug key must NEVER reach a store /
+// distribution. The check below runs in the EXECUTION phase via
+// taskGraph.whenReady so it ONLY triggers when the concrete task graph actually
+// includes a release-artifact task (assemble/bundle/package*Release). Debug
+// builds, unit tests, and `:app:help` configure cleanly even under CI=true,
+// because they never put a release-assembling task in the graph.
+//
+// We HARD-FAIL when ALL of these hold:
+//   1. A release artifact is being assembled (task-graph predicate below), AND
+//   2. The release signingConfig is ABSENT (debug-key fallback is in effect), AND
+//   3. A distribution signal is present:
+//        * CI env var set (`System.getenv("CI")`) — GitHub Actions and most CI
+//          providers export CI=true automatically.
+//        * BEAUTICA_REQUIRE_RELEASE_SIGNING=1 env var — explicit opt-in for
+//          store-bound builds outside CI.
+//        * -Prelease.signing.required Gradle property — explicit opt-in on the
+//          command line (`./gradlew assembleRelease -Prelease.signing.required`).
+// When (1) and (2) hold but NO distribution signal is present, we KEEP the
+// debug-key fallback so local `scripts/deploy_apk.sh release` smoke builds still
+// work — but emit a LOUD warning so a debug-signed "release" can never go
+// unnoticed.
+project.gradle.taskGraph.whenReady {
+    val assemblesRelease = allTasks.any { task ->
+        task.name.contains("Release") &&
+            (task.name.startsWith("assemble") ||
+                task.name.startsWith("bundle") ||
+                task.name.startsWith("package"))
+    }
+    val releaseSigningAbsent =
+        android.signingConfigs.findByName("release") == null
+    if (assemblesRelease && releaseSigningAbsent) {
+        val ciSignal = !System.getenv("CI").isNullOrBlank()
+        val envRequiresSigning =
+            System.getenv("BEAUTICA_REQUIRE_RELEASE_SIGNING") == "1"
+        val propRequiresSigning = project.hasProperty("release.signing.required")
+        if (ciSignal || envRequiresSigning || propRequiresSigning) {
+            throw GradleException(
+                "Release signing is REQUIRED for this build but the BEAUTICA_* " +
+                    "signing env vars are absent (BEAUTICA_KEYSTORE_PATH, " +
+                    "BEAUTICA_KEYSTORE_PASSWORD, BEAUTICA_KEY_ALIAS, " +
+                    "BEAUTICA_KEY_PASSWORD). Refusing to produce a debug-signed " +
+                    "release artifact for distribution. Set the signing env vars, " +
+                    "or drop the distribution signal (unset CI / " +
+                    "BEAUTICA_REQUIRE_RELEASE_SIGNING / -Prelease.signing.required) " +
+                    "for a local-only smoke build."
+            )
+        }
+        logger.warn(
+            "⚠️  RELEASE build is using the DEBUG signing key — NOT for " +
+                "distribution. Set BEAUTICA_* signing env vars for a real release."
+        )
     }
 }
 

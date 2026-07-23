@@ -204,13 +204,8 @@ class TimeWell extends StatelessWidget {
                 const SizedBox(width: VelvetSpacing.sm),
                 Text(
                   _formatTime(time),
-                  style: VelvetText.input().copyWith(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
+                  style: VelvetText.schedIntervalTime.copyWith(
                     color: accent ? BrandColors.accentDeep : BrandColors.text,
-                    fontFeatures: const <FontFeature>[
-                      FontFeature.tabularFigures(),
-                    ],
                   ),
                 ),
               ],
@@ -430,10 +425,7 @@ class IntervalEditor extends StatelessWidget {
                         color: BrandColors.accentDeep,
                       ),
                       const SizedBox(width: VelvetSpacing.sm),
-                      Text(
-                        strings.addBreak,
-                        style: VelvetText.link().copyWith(fontSize: 13),
-                      ),
+                      Text(strings.addBreak, style: VelvetText.link13),
                     ],
                   ),
                 ),

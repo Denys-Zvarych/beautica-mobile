@@ -196,6 +196,7 @@ abstract final class MasterServiceMapper {
     // selection round-trips regardless of which level the backend populated.
     final serviceTypeId = dto.serviceTypeId ?? def?.serviceTypeId;
     final serviceTypeNameUk = dto.serviceTypeNameUk ?? def?.serviceTypeNameUk;
+    final serviceTypeSlug = dto.serviceTypeSlug ?? def?.serviceTypeSlug;
 
     return MasterService(
       id: id,
@@ -205,6 +206,7 @@ abstract final class MasterServiceMapper {
       category: def?.category,
       serviceTypeId: serviceTypeId,
       serviceTypeNameUk: serviceTypeNameUk,
+      serviceTypeSlug: serviceTypeSlug,
       durationMinutes: duration,
       priceType: priceType,
       priceMin: priceMin,
@@ -261,6 +263,7 @@ abstract final class MasterServiceMapper {
       // Service type round-trips from the definition response (Phase 16.3).
       serviceTypeId: dto.serviceTypeId,
       serviceTypeNameUk: dto.serviceTypeNameUk,
+      serviceTypeSlug: dto.serviceTypeSlug,
       durationMinutes: dto.baseDurationMinutes ?? 0,
       priceType: priceType,
       priceMin: priceMin,
@@ -312,6 +315,21 @@ abstract final class MasterServiceMapper {
     if (category == null || category.isEmpty) {
       throw ArgumentError.value(category, 'category', 'category is required');
     }
+    // serviceTypeId is REQUIRED by the backend (`@NotNull` on
+    // CreateServiceDefinitionRequest.serviceTypeId) and NOT NULL at the DB
+    // level — the picker can no longer be skipped. The generated builder field
+    // is now non-nullable, so a missing value would otherwise surface as an
+    // opaque BuiltValueNullFieldError at .build() time; fail fast here with a
+    // clear ArgumentError instead. The form guards this client-side, so this is
+    // a defensive data-boundary check.
+    final serviceTypeId = input.serviceTypeId;
+    if (serviceTypeId == null || serviceTypeId.isEmpty) {
+      throw ArgumentError.value(
+        serviceTypeId,
+        'serviceTypeId',
+        'serviceTypeId is required',
+      );
+    }
 
     // Validate mode-conditional price fields.
     switch (input.priceType) {
@@ -353,12 +371,10 @@ abstract final class MasterServiceMapper {
       if (input.description != null) b.description = input.description;
       if (buffer != null) b.bufferMinutesAfter = buffer;
 
-      // Optional service type (Phase 16.3). Assign only when the master picked
-      // one — the generated serializer omits null builder fields, so the wire
-      // body carries `serviceTypeId` only when a type is selected. The backend
-      // cross-validates it against `category`; a mismatch returns a
-      // ValidationFailure keyed on `serviceTypeId`.
-      if (input.serviceTypeId != null) b.serviceTypeId = input.serviceTypeId;
+      // Mandatory service type (backend @NotNull). Always set — validated
+      // non-null above. The backend cross-validates it against `category`; a
+      // mismatch returns a ValidationFailure keyed on `serviceTypeId`.
+      b.serviceTypeId = serviceTypeId;
 
       // Set the mode-conditional price fields. The generated serializer omits
       // null builder fields from the wire body so the backend receives only the

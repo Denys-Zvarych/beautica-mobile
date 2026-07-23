@@ -13,9 +13,12 @@
 //   2. Empty duration (digitsOnly formatter blocks non-digits; leaving it empty
 //      after submit shows errRequired).
 //   3. Zero duration shows errDurationPositive.
-//   4. Duration > 480 shows errDurationMax (3-digit value 999 used; the
+//   4. Duration above the cap shows errDurationMax. The real cap is
+//      kDurationMaxMinutes = 480 (8 h), NOT the legacy 1440 — the originating
+//      bug let 1123 sail past the old 1440 cap and only failed server-side
+//      (see numeric_validators.dart). A 3-digit value 999 (> 480) is used; the
 //      LengthLimitingTextInputFormatter(3) on the duration field silently
-//      truncates a 4-digit entry, so values like 1441 become 144 and pass).
+//      truncates a 4-digit entry, so values like 1441 become 144 and pass.
 //   5. Negative price blocked by FilteringTextInputFormatter (digits-only;
 //      cannot type '-', so entering '-500' leaves the field as '500').
 //   6. Valid submit calls repository.create() with the correct payload.
@@ -37,6 +40,7 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_create_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -55,6 +59,19 @@ class _FakeMasterServiceCreate extends Fake implements MasterServiceCreate {}
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
+/// Records every route pop so a test can assert that [ServiceCreateScreen]
+/// popped itself (the screen's `_popScreen` falls back to `Navigator.maybePop`
+/// when there is no GoRouter ancestor — this observer captures that pop).
+class _PopObserver extends NavigatorObserver {
+  int popCount = 0;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    popCount++;
+    super.didPop(route, previousRoute);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -66,7 +83,7 @@ const _stubService = MasterService(
   name: 'Тест',
   durationMinutes: 30,
   priceMin: 100,
-  priceDisplay: '100 грн',
+  priceDisplay: '100 ₴',
 );
 
 /// Resolves the [AppLocalizations] from the pumped widget tree.
@@ -134,10 +151,44 @@ class _StubMasterProfileNotifier extends MasterProfile {
 // Provider overrides
 // ---------------------------------------------------------------------------
 
+/// The default approved-category list used by the form's category dropdown.
+/// approvedCategoriesProvider now fetches directly (not via the repository), so
+/// it must be overridden in-scope; this is the list the create tests rely on.
+const _defaultCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+  ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+];
+
+/// A service type for [category]. Service type is MANDATORY on create, so every
+/// happy-path submit must select one (for the currently-selected category).
+ServiceTypeOption _typeFor(String category) => ServiceTypeOption(
+  id: 'stype-${category.toLowerCase()}',
+  slug: '${category}_A',
+  nameUk: 'Тип $category',
+  categoryName: category,
+);
+
+/// Selects the mandatory service type for [category] via the form State. Call
+/// AFTER the category is selected (a category change clears an incompatible
+/// type). Provider list stays populated so the picker is consistent.
+Future<void> selectServiceType(WidgetTester tester, String category) async {
+  final dynamic state = tester.state(find.byType(ServiceForm));
+  state.onServiceTypeSelected(_typeFor(category));
+  await tester.pump();
+}
+
 /// Overrides [serviceRepositoryProvider] with [mock] in a [ProviderScope].
-List<Object> _overrides(_MockServiceRepository mock) {
+///
+/// [categories] feeds [approvedCategoriesProvider] directly — the form's
+/// category dropdown watches that provider, which fetches independently of the
+/// repository, so the override (not a repo stub) is what populates the chips.
+List<Object> _overrides(
+  _MockServiceRepository mock, {
+  List<ServiceCategoryOption> categories = _defaultCategories,
+}) {
   return <Object>[
     serviceRepositoryProvider.overrideWithValue(mock),
+    approvedCategoriesProvider.overrideWith((ref) async => categories),
     // Selecting a category mounts the second-level service-type dropdown →
     // serviceTypesProvider. Stub it to a calm empty list so no un-mocked fetch
     // fires in-tree (the dropdown then resolves to its empty state).
@@ -167,15 +218,10 @@ void main() {
     when(
       () => mockRepo.listMyServices(),
     ).thenAnswer((_) async => const <MasterService>[]);
-    // The category chip selector in ServiceForm watches approvedCategoriesProvider
-    // (which calls fetchApprovedCategories on the repository). Stub it so the
-    // form's category row resolves to the data state in these tests.
-    when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
+    // The category chip selector in ServiceForm watches approvedCategoriesProvider,
+    // which now fetches DIRECTLY (not through the repository). It is overridden in
+    // _overrides() with _defaultCategories so the form's category row resolves to
+    // the data state — no repository stub is needed for it.
   });
 
   // Convenience: pump the screen.
@@ -217,6 +263,58 @@ void main() {
     await tester.pump(); // settle initial build
   }
 
+  // Convenience: pump [ServiceCreateScreen] as a SECOND route pushed onto a
+  // Navigator, so the screen's `Navigator.maybePop` fallback (used when there
+  // is no GoRouter ancestor) has a route beneath it to pop back to. The
+  // returned [_PopObserver] records every pop, letting a test assert that the
+  // create screen popped itself on cancel / after a successful submit.
+  //
+  // A starter button on the first route pushes the create screen; we tap it,
+  // settle, and hand control back with the screen mounted.
+  Future<_PopObserver> pumpCreateInNavigator(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final observer = _PopObserver();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: _overrides(mockRepo).cast(),
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          navigatorObservers: <NavigatorObserver>[observer],
+          home: Builder(
+            builder: (BuildContext context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  key: const Key('open-create'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ServiceCreateScreen(),
+                    ),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // Push the create screen onto the stack.
+    await tester.tap(find.byKey(const Key('open-create')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ServiceCreateScreen), findsOneWidget);
+
+    return observer;
+  }
+
   // Convenience: scroll the submit button into view, then tap and settle.
   // ensureVisible is needed because the form may extend beyond the test viewport.
   // Phase 5.6: viewport is set to 1200px tall in pumpCreate so ensureVisible
@@ -256,6 +354,17 @@ void main() {
       '100',
     );
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
+    // Selecting the mandatory type auto-fills the empty name — RE-BLANK it to
+    // prove a blank name still submits (backend defaults it to the type name).
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      '',
+    );
+    await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
 
@@ -368,6 +477,7 @@ void main() {
       '100',
     );
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tapSubmit(tester);
 
     expect(find.text(l10n.errDurationMax), findsOneWidget);
@@ -437,6 +547,7 @@ void main() {
     // Category is required by the backend — select the stubbed MANICURE chip.
     await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
@@ -491,6 +602,7 @@ void main() {
       // category provider first, so the only CircularProgressIndicator below is
       // the CTA spinner).
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
 
       await tapSubmit(tester);
       await tester.pump();
@@ -584,6 +696,7 @@ void main() {
     );
     // Category is required — select the stubbed MANICURE chip.
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester
@@ -630,6 +743,7 @@ void main() {
       );
       // Category is required — select the stubbed MANICURE option.
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -672,6 +786,7 @@ void main() {
     // Category is required — select the stubbed MANICURE chip.
     await tester.pumpAndSettle();
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
@@ -698,6 +813,7 @@ void main() {
 
     // Tap the MANICURE chip.
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pumpAndSettle();
 
     // Fill the required text fields.
@@ -792,7 +908,9 @@ void main() {
 
     // Select HAIRCUT via the dropdown, then re-select it a second time.
     await selectCategoryOption(tester, 'HAIRCUT');
+    await selectServiceType(tester, 'HAIRCUT');
     await selectCategoryOption(tester, 'HAIRCUT');
+    await selectServiceType(tester, 'HAIRCUT');
 
     // The closed field shows the Ukrainian label (not the raw slug).
     expect(
@@ -839,6 +957,154 @@ void main() {
           'be the re-selected wire slug (toggle cycle is reversible)',
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // D. Cancel tap pops the screen WITHOUT calling repository.create().
+  //    The top-left close button routes through `_popScreen`, which falls back
+  //    to Navigator.maybePop here (no GoRouter ancestor). The _PopObserver must
+  //    record exactly one pop, the create screen must leave the tree, and no
+  //    create() call may fire.
+  // ---------------------------------------------------------------------------
+  testWidgets('D. tapping cancel pops the screen and does not call create', (
+    tester,
+  ) async {
+    final observer = await pumpCreateInNavigator(tester);
+
+    await tester.tap(find.byKey(const Key('btn-cancel-service-create')));
+    await tester.pumpAndSettle();
+
+    // The screen popped back to the launcher route.
+    expect(observer.popCount, 1);
+    expect(find.byType(ServiceCreateScreen), findsNothing);
+    // No save attempt was made.
+    verifyNever(() => mockRepo.create(any()));
+  });
+
+  // ---------------------------------------------------------------------------
+  // E. A successful create pops the screen (post-submit pop).
+  //    After repository.create() resolves, the onSubmit closure calls
+  //    `_popScreen`, which pops the create route. The _PopObserver records the
+  //    pop and the create screen leaves the tree, confirming the happy-path
+  //    navigation (the success SnackBar is asserted separately in test 11).
+  // ---------------------------------------------------------------------------
+  testWidgets('E. successful create pops the screen', (tester) async {
+    // Default stub: create() succeeds (set up in setUp).
+    final observer = await pumpCreateInNavigator(tester);
+
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Манікюр',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-duration')),
+        matching: find.byType(TextField),
+      ),
+      '60',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('pricing-fixed-amount')),
+        matching: find.byType(TextField),
+      ),
+      '500',
+    );
+    await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
+
+    // Baseline AFTER the category dropdown sheet has opened+closed (that sheet
+    // dismissal is itself a pop). The create-screen pop is the next one.
+    final int popsBeforeSubmit = observer.popCount;
+
+    await tapSubmit(tester);
+    await tester.pumpAndSettle();
+
+    // create() ran once and the screen popped itself off the stack — exactly
+    // one additional pop beyond the dropdown-sheet dismissal.
+    verify(() => mockRepo.create(any())).called(1);
+    expect(observer.popCount, popsBeforeSubmit + 1);
+    expect(find.byType(ServiceCreateScreen), findsNothing);
+  });
+
+  // ---------------------------------------------------------------------------
+  // F. Category toggle-cycle: select MANICURE → switch to HAIRCUT → switch back
+  //    to MANICURE. Each selection replaces the previous one via the dropdown's
+  //    `_onCategoryChanged` handler (the deselect leg). The cycle must end in the
+  //    re-selected state: the closed field shows the MANICURE label and the
+  //    submitted payload carries the MANICURE wire slug. This guards that
+  //    cycling A → B → A does not corrupt or strand the selection.
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'F. category toggle-cycle (select → switch → reselect) ends selected',
+    (tester) async {
+      await pumpCreate(tester);
+
+      // Select → switch (deselects MANICURE) → reselect MANICURE.
+      await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
+      await selectCategoryOption(tester, 'HAIRCUT');
+      await selectServiceType(tester, 'HAIRCUT');
+      await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
+
+      // The closed field reflects the final (re-selected) category's UK label,
+      // not the intermediate HAIRCUT label and not the raw slug.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('select-category-field')),
+          matching: find.text('Манікюр'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('select-category-field')),
+          matching: find.text('Стрижка'),
+        ),
+        findsNothing,
+      );
+
+      // Fill the remaining required fields and submit — the payload must carry
+      // the re-selected MANICURE slug.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        'Манікюр',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
+          matching: find.byType(TextField),
+        ),
+        '60',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('pricing-fixed-amount')),
+          matching: find.byType(TextField),
+        ),
+        '500',
+      );
+      await tapSubmit(tester);
+      await tester.pumpAndSettle();
+
+      final captured = verify(() => mockRepo.create(captureAny())).captured;
+      expect(captured.length, 1);
+      final input = captured.first as MasterServiceCreate;
+      expect(
+        input.category,
+        'MANICURE',
+        reason:
+            'after select MANICURE → switch HAIRCUT → reselect MANICURE, the '
+            'submitted category must be the final re-selected slug',
+      );
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // 12. masterProfileProvider is invalidated after successful create (gap 7).
@@ -901,6 +1167,7 @@ void main() {
     );
     // Category is required — select the stubbed MANICURE chip.
     await selectCategoryOption(tester, 'MANICURE');
+    await selectServiceType(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pump(); // let Riverpod fire the invalidation rebuild
@@ -965,6 +1232,7 @@ void main() {
       );
       // Select category via the dropdown.
       await selectCategoryOption(tester, 'MANICURE');
+      await selectServiceType(tester, 'MANICURE');
 
       await tapSubmit(tester);
       await tester.pumpAndSettle();

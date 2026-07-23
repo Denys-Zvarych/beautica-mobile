@@ -23,6 +23,17 @@
 # Enforced by CI grep: grep -rE "SharedPreferences|shared_preferences" lib/features/auth/ must return 0 matches.
 # See: mobile-security invariant, Phase 2.1.
 
+# 2026-06-18 — Riverpod cycle-bug safeguards (CI-side grep gates):
+#   - scripts/forbid_provider_self_invalidation.sh: no un-annotated cross-provider
+#     ref.invalidate()/ref.refresh() inside lib/**/*notifier*.dart (footgun:
+#     debug-only CircularDependencyError). Unblock a proven-safe call with a
+#     `// cycle-safe: <reason>` comment.
+#   - scripts/forbid_cycle_stub_in_tests.sh: notifier/integration tests must not
+#     stub the cycle-closing providers (masterProfile/servicesList/
+#     serviceRepository) — that hides the cycle. Unblock a justified stub with a
+#     `// cycle-stub-ok: <reason>` comment.
+# Both run in the pr-validate.yml `validate` job. Rationale: ARCHITECTURE-mobile.md § 14.3.
+
 include: package:flutter_lints/flutter.yaml
 
 analyzer:

@@ -54,7 +54,7 @@ const _editService = MasterService(
   durationMinutes: 60,
   priceType: ServicePriceType.fixed,
   priceMin: 500,
-  priceDisplay: '500 грн',
+  priceDisplay: '500 ₴',
 );
 
 // ---------------------------------------------------------------------------
@@ -78,14 +78,15 @@ void main() {
 
   late _MockServiceRepository repo;
 
+  // approvedCategoriesProvider is overridden directly below (it fetches via
+  // categoryRequestApi, not the repo).
+  const categories = <ServiceCategoryOption>[
+    ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+    ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+  ];
+
   setUp(() {
     repo = _MockServiceRepository();
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
   });
 
   /// Pumps a [ServiceForm] inside a fresh ProviderScope. [serviceTypes] feeds
@@ -106,6 +107,7 @@ void main() {
       ProviderScope(
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => categories),
           serviceTypesProvider.overrideWith(
             (ref, String categoryName) async => serviceTypes,
           ),
@@ -300,6 +302,17 @@ void main() {
         '500',
       );
       await selectCategoryOption(tester, 'MANICURE');
+      // Service type is mandatory on create — select one via the form State
+      // (its name auto-fill is overwritten by the explicit name below).
+      (tester.state(find.byType(ServiceForm)) as dynamic).onServiceTypeSelected(
+        const ServiceTypeOption(
+          id: 'stype-manicure',
+          slug: 'MANICURE_A',
+          nameUk: 'Класичний манікюр',
+          categoryName: 'MANICURE',
+        ),
+      );
+      await tester.pump();
       // Leading/trailing whitespace must be trimmed off the submitted name.
       await tester.enterText(_nameField, '  Спеціальний манікюр  ');
       await tapSubmit(tester);

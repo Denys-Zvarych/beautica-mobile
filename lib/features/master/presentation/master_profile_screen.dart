@@ -18,7 +18,10 @@
 //
 // Services section and stat tile use live [servicesListProvider] data (Phase 5).
 //
-// Navigation: back uses `context.pop()`; the top-right menu button
+// Navigation: this is the INDEPENDENT_MASTER's tab-root/home screen, reached
+// only via `context.go(...)` (redirect landing target + all 6 nav call sites)
+// — it is always first in its stack, so it renders no back affordance
+// (`showBack: false` below). The top-right menu button
 // (Key('btn-menu-master')) pushes RouteNames.masterMenu — the settings hub that
 // lists the per-section edit pages (personal / contacts / location / account).
 
@@ -32,27 +35,30 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
-import 'package:beautica_mobile/features/services/data/service_repository.dart';
-import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
-import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import 'package:beautica_mobile/core/theme/beautica_icons.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
 import 'master_profile_notifier.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
+import 'widgets/service_category_cards.dart';
 
 export 'master_profile_notifier.dart' show masterProfileProvider;
 
@@ -199,9 +205,15 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
 
     return ProfileScaffold(
       title: l10n.masterProfileTitle,
+      // Tab-root screen — always first in its Navigator stack (see the
+      // header comment above), so there is no route to pop back to. Without
+      // this, ProfileScaffold's `showBack` default of `true` would render a
+      // back chevron whose `onBack` calls `context.pop()` and throws
+      // `GoError('There is nothing to pop')`.
+      showBack: false,
       trailing: NeumorphicIconButton(
         key: const Key('btn-menu-master'),
-        icon: Icons.tune_rounded,
+        icon: BeauticaIcons.menuBurger,
         semanticLabel: l10n.settingsHubMenuButton,
         onTap: () => context.push(RouteNames.masterMenu),
       ),
@@ -211,7 +223,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       // Riverpod 3.x note: invalidate + await .future — never gate on value==null.
       onRefresh: () async {
         ref.invalidate(masterProfileProvider);
-        ref.invalidate(servicesListProvider);
+        invalidateMasterServiceCatalogues(ref);
         await Future.wait([
           ref.read(masterProfileProvider.future),
           ref.read(servicesListProvider.future),
@@ -303,9 +315,13 @@ class _ProfileBody extends StatelessWidget {
     Animation<Offset> slideAnim,
     Widget child,
   ) {
-    return FadeTransition(
-      opacity: fadeAnim,
-      child: SlideTransition(position: slideAnim, child: child),
+    // PERF: RepaintBoundary isolates each reveal section's per-frame fade/slide
+    // repaint so the entrance animation does not invalidate sibling sections.
+    return RepaintBoundary(
+      child: FadeTransition(
+        opacity: fadeAnim,
+        child: SlideTransition(position: slideAnim, child: child),
+      ),
     );
   }
 
@@ -353,10 +369,18 @@ class _ProfileBody extends StatelessWidget {
                         displayName,
                         key: const Key('master-profile-name'),
                         style: VelvetText.displayName(),
+                        maxLines: 2,
+                        softWrap: true,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: VelvetSpacing.xs + 2),
                       RoleChip(
-                        label: roleLabel,
+                        key: (master.professionalTitle?.isNotEmpty == true)
+                            ? const Key('master-profile-professional-title')
+                            : null,
+                        label: (master.professionalTitle?.isNotEmpty == true)
+                            ? master.professionalTitle!
+                            : roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
                       if (locationLine != null) ...[
@@ -365,8 +389,8 @@ class _ProfileBody extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
-                            const Icon(
-                              Icons.location_on_outlined,
+                            const AppIcon(
+                              BeauticaAssetIcons.locationMarker,
                               size: 13,
                               color: BrandColors.muted,
                             ),
@@ -427,13 +451,27 @@ class _ProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.star_rounded,
-                    value: master.reviewCount == 0
-                        ? '—'
-                        : master.avgRating.toStringAsFixed(1),
-                    caption: l10n.masterRatingLabel,
-                    valueKey: const Key('master-profile-rating-value'),
+                  // Tappable — mirrors the reviews tile below: pushes the
+                  // same «Мої відгуки» screen regardless of review count.
+                  child: GestureDetector(
+                    key: const Key('master-profile-rating-tile'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => context.push(RouteNames.masterReceivedReviews),
+                    child: StatTile(
+                      icon: Icons.star_rounded,
+                      iconWidget: RatingStar(
+                        rating: master.reviewCount == 0
+                            ? null
+                            : master.avgRating,
+                        size: 18,
+                        showLabel: false,
+                      ),
+                      value: master.reviewCount == 0
+                          ? '—'
+                          : master.avgRating.toStringAsFixed(1),
+                      caption: l10n.masterRatingLabel,
+                      valueKey: const Key('master-profile-rating-value'),
+                    ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -457,13 +495,22 @@ class _ProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.reviews_outlined,
-                    value: master.reviewCount == 0
-                        ? '—'
-                        : master.reviewCount.toString(),
-                    caption: l10n.masterStatsReviewsLabel,
-                    valueKey: const Key('master-profile-reviews-value'),
+                  // Phase 4.6 — the rating tile (above) and this reviews tile
+                  // are both tappable and push the master's own «Мої відгуки»
+                  // screen. The bookings/services tiles stay non-interactive;
+                  // StatTile itself is left untouched.
+                  child: GestureDetector(
+                    key: const Key('master-profile-reviews-tile'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => context.push(RouteNames.masterReceivedReviews),
+                    child: StatTile(
+                      icon: Icons.reviews_outlined,
+                      value: master.reviewCount == 0
+                          ? '—'
+                          : master.reviewCount.toString(),
+                      caption: l10n.masterStatsReviewsLabel,
+                      valueKey: const Key('master-profile-reviews-value'),
+                    ),
                   ),
                 ),
               ],
@@ -741,142 +788,54 @@ class _ProfileBody extends StatelessWidget {
 // _ProfileCategoriesSection — P-H2 memoized category grouping
 // ---------------------------------------------------------------------------
 
-/// Watches [servicesListProvider] and [approvedCategoriesProvider] and renders
-/// the section header + one [_ProfileCategoryCard] per non-empty category
-/// bucket.
-///
-/// Memoizes the bucket grouping and card list with identity-equality cache
-/// fields ([_cachedServices], [_cachedCategories], [_cachedGroups],
-/// [_cachedCards]). The heavy computation inside [_rebuild] is only triggered
-/// when at least one of the two watched lists changes by identity — matching
-/// the pattern used by [_LoadedBodyState._resolveGroups] in
-/// [services_list_screen.dart].
-class _ProfileCategoriesSection extends ConsumerStatefulWidget {
+/// Watches [servicesListProvider] and renders the section header + the
+/// shared [ServiceCategoryCardList] (interactive: true — tapping a card
+/// navigates to `/services?expandCategory=<slug>`, the owner's own service-
+/// management screen). Category-label resolution lives in
+/// [ServiceCategoryCardList] itself, via [approvedCategoriesProvider].
+class _ProfileCategoriesSection extends ConsumerWidget {
   const _ProfileCategoriesSection();
 
   @override
-  ConsumerState<_ProfileCategoriesSection> createState() =>
-      _ProfileCategoriesSectionState();
-}
-
-class _ProfileCategoriesSectionState
-    extends ConsumerState<_ProfileCategoriesSection> {
-  // Identity-equality cache fields — recompute only when references change.
-  List<MasterService>? _cachedServices;
-  List<ServiceCategoryOption>? _cachedCategories;
-
-  // Derived outputs — rebuilt only on cache miss.
-  Map<String, List<MasterService>>? _cachedGroups;
-  List<Widget>? _cachedCards;
-
-  void _rebuild(
-    List<MasterService> services,
-    List<ServiceCategoryOption>? categories,
-    AppLocalizations l10n,
-  ) {
-    if (_cachedGroups != null &&
-        identical(_cachedServices, services) &&
-        identical(_cachedCategories, categories)) {
-      // Cache hit — no recompute needed.
-      return;
-    }
-
-    // --- bucket grouping ---
-    final Map<String, List<MasterService>> buckets =
-        <String, List<MasterService>>{};
-    for (final MasterService s in services) {
-      final String key = (s.category ?? '').trim().toUpperCase();
-      (buckets[key] ??= <MasterService>[]).add(s);
-    }
-
-    // --- label resolver ---
-    String resolveLabel(String slug) {
-      if (slug.isEmpty) return l10n.serviceCategoryUncategorized;
-      if (categories != null) {
-        for (final ServiceCategoryOption opt in categories) {
-          if (categorySlugMatches(slug, opt.name)) return opt.displayName;
-        }
-      }
-      return humanizeCategorySlug(slug);
-    }
-
-    // --- card list ---
-    final List<Widget> cards = <Widget>[];
-    var first = true;
-    for (final MapEntry<String, List<MasterService>> entry in buckets.entries) {
-      if (!first) cards.add(const SizedBox(height: VelvetSpacing.sm));
-      first = false;
-      final String resolvedLabel = resolveLabel(entry.key);
-      cards.add(
-        _ProfileCategoryCard(
-          key: Key(
-            'profile-category-${entry.key.isEmpty ? '_none' : entry.key}',
-          ),
-          label: resolvedLabel,
-          count: entry.value.length,
-          // Pass the raw slug so the card's own live BuildContext drives
-          // navigation — never bake a BuildContext into a cached closure.
-          slug: entry.key.isEmpty ? null : entry.key,
-          semanticLabel: l10n.masterProfileCategorySemantics(
-            resolvedLabel,
-            entry.value.length,
-          ),
-        ),
-      );
-    }
-
-    // --- store results ---
-    _cachedServices = services;
-    _cachedCategories = categories;
-    _cachedGroups = buckets;
-    _cachedCards = cards;
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final servicesAsync = ref.watch(servicesListProvider);
-    final categoriesAsync = ref.watch(approvedCategoriesProvider);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-          child: Row(
-            children: <Widget>[
-              // Flexible so the section label ellipsizes instead of overflowing
-              // the header Row at 320 dp / textScale 1.3 (was a 12 px right
-              // overflow when both labels rendered at their natural width).
-              Flexible(
-                child: Text(
-                  l10n.masterProfileCategoriesLabel,
-                  style: VelvetText.sectionLabel(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+    // Section header — a single right-aligned "all services" link. The
+    // "Послуги" section title was removed per product decision; the link now
+    // sits flush to the right margin. Built on demand so it can be omitted
+    // entirely in the zero-services empty state, where the single
+    // "Додати послуги" CTA is the only call to action.
+    Widget buildHeader() => Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: <Widget>[
+          GestureDetector(
+            onTap: () => context.push(RouteNames.services),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(l10n.masterAllServices, style: VelvetText.link()),
+                const SizedBox(width: 2),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 12,
+                  color: BrandColors.accentDeep,
                 ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => context.push(RouteNames.services),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(l10n.masterAllServices, style: VelvetText.link()),
-                    const SizedBox(width: 2),
-                    const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 12,
-                      color: BrandColors.accentDeep,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        servicesAsync.when(
-          loading: () => const SkeletonShimmerScope(
+        ],
+      ),
+    );
+
+    return servicesAsync.when(
+      loading: () => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          buildHeader(),
+          const SkeletonShimmerScope(
             child: Column(
               children: <Widget>[
                 SkeletonBlock(
@@ -893,28 +852,50 @@ class _ProfileCategoriesSectionState
               ],
             ),
           ),
-          error: (_, _) => Padding(
+        ],
+      ),
+      error: (_, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          buildHeader(),
+          Padding(
             padding: const EdgeInsets.only(top: VelvetSpacing.xs),
             child: Text(l10n.errUnknown, style: VelvetText.feedbackMutedXs),
           ),
-          data: (List<MasterService> services) {
-            if (services.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.only(top: VelvetSpacing.xs),
-                child: Text(
-                  l10n.servicesEmpty,
-                  style: VelvetText.feedbackMutedXs,
-                ),
-              );
-            }
-            _rebuild(services, categoriesAsync.value, l10n);
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: _cachedCards!,
-            );
-          },
-        ),
-      ],
+        ],
+      ),
+      data: (List<MasterService> services) {
+        // Zero-services empty state: a single primary CTA that opens the
+        // first-time bulk service-setup flow — the SAME entry point the
+        // services-list empty state uses (RouteNames.serviceSetup). The
+        // section header and "all services" link are intentionally dropped
+        // here so the CTA stands alone.
+        if (services.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.only(top: VelvetSpacing.xs),
+            child: SizedBox(
+              width: double.infinity,
+              child: NeumorphicButton(
+                key: const Key('btn-master-add-services'),
+                label: l10n.masterAddServices,
+                icon: Icons.add_rounded,
+                onPressed: () => context.push(RouteNames.serviceSetup),
+              ),
+            ),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            buildHeader(),
+            ServiceCategoryCardList(
+              services: services,
+              keyPrefix: 'profile-category',
+              interactive: true,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -946,6 +927,8 @@ class _PortfolioPlaceholderTileState extends State<_PortfolioPlaceholderTile> {
     <Color>[Color(0xFFCFB090), Color(0xFF8A6840)],
     <Color>[Color(0xFFE0CAAC), Color(0xFFB89A7A)],
   ];
+
+  static final Color _glyphColor = BrandColors.white.withValues(alpha: 0.65);
 
   @override
   Widget build(BuildContext context) {
@@ -988,11 +971,7 @@ class _PortfolioPlaceholderTileState extends State<_PortfolioPlaceholderTile> {
                   ],
           ),
           child: Center(
-            child: Icon(
-              Icons.photo_outlined,
-              color: BrandColors.white.withValues(alpha: 0.65),
-              size: 22,
-            ),
+            child: Icon(Icons.photo_outlined, color: _glyphColor, size: 22),
           ),
         ),
       ),
@@ -1128,143 +1107,6 @@ class _ProfileSkeleton extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Profile category cards
-// ---------------------------------------------------------------------------
-
-/// A non-expandable raised neumorphic card representing a category under which
-/// the master has created services. Visually identical to [_CategorySection]'s
-/// header pillow on the services list screen: same tokens, same typography,
-/// same count badge — but without a disclosure chevron or collapsible body.
-///
-/// Tapping navigates to the services list with the matching category
-/// pre-expanded (`expandCategory` query parameter).
-class _ProfileCategoryCard extends StatefulWidget {
-  const _ProfileCategoryCard({
-    super.key,
-    required this.label,
-    required this.count,
-    required this.semanticLabel,
-    // Null means "uncategorized" — navigates to /services with no query param.
-    this.slug,
-  });
-
-  final String label;
-  final int count;
-  final String semanticLabel;
-
-  /// The raw category slug (upper-cased, e.g. `"MANICURE"`), or `null` for the
-  /// uncategorized bucket. Navigation is performed inside [_ProfileCategoryCardState]
-  /// using the card's own live [BuildContext] so cached widget instances never
-  /// hold a stale context closure from an earlier frame.
-  final String? slug;
-
-  @override
-  State<_ProfileCategoryCard> createState() => _ProfileCategoryCardState();
-}
-
-class _ProfileCategoryCardState extends State<_ProfileCategoryCard> {
-  bool _pressed = false;
-
-  // P-M4 fix: hoisted to avoid per-build TextStyle allocation.
-  static final TextStyle _cardStyle = VelvetText.subheading().copyWith(
-    fontSize: 16,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: widget.semanticLabel,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          // Navigation is built here — inside the card's own live BuildContext —
-          // so that cached widget instances never call context.push on a stale
-          // context from the frame _rebuild() last executed.
-          final String? slug = widget.slug;
-          context.push(
-            Uri(
-              path: RouteNames.services,
-              queryParameters: slug == null
-                  ? null
-                  : <String, String>{'expandCategory': slug},
-            ).toString(),
-          );
-        },
-        child: AnimatedScale(
-          scale: _pressed ? 0.99 : 1.0,
-          duration: const Duration(milliseconds: 110),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.sm + 2,
-            ),
-            decoration: BoxDecoration(
-              color: BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.card),
-              boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-            ),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    style: _cardStyle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: VelvetSpacing.sm),
-                _ProfileCategoryCountBadge(count: widget.count),
-                const SizedBox(width: VelvetSpacing.sm),
-                const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: BrandColors.accent,
-                  size: 16,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A small recessed count badge — local copy of [_CategoryCountBadge] from
-/// the services list screen, using identical tokens so both surfaces are
-/// pixel-identical without a cross-feature import.
-class _ProfileCategoryCountBadge extends StatelessWidget {
-  const _ProfileCategoryCountBadge({required this.count});
-
-  final int count;
-
-  // Hoisted to avoid per-build allocation — identical style to the services
-  // list screen's _CategoryCountBadge.
-  static final TextStyle _style = VelvetText.pill().copyWith(fontSize: 12.5);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.sm,
-        vertical: 2,
-      ),
-      decoration: BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: BorderRadius.circular(VelvetRadii.pill),
-        boxShadow: VelvetShadows.extrudedSmall,
-      ),
-      child: Text('$count', style: _style),
     );
   }
 }

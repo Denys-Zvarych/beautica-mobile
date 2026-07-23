@@ -47,12 +47,13 @@ const _created = <MasterService>[
     name: 'Манікюр',
     durationMinutes: 60,
     priceMin: 500,
-    priceDisplay: '500 грн',
+    priceDisplay: '500 ₴',
   ),
 ];
 
 ProviderContainer _makeContainer(_MockServiceRepository repo) {
   final container = ProviderContainer(
+    // cycle-stub-ok: the service-setup notifier under test watches serviceRepositoryProvider as its DIRECT leaf data dep — stubbing the repo overrides the leaf, not a cycle-closing edge. No auth/logout cascade is exercised here.
     overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
   );
   addTearDown(container.dispose);

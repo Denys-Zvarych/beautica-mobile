@@ -24,14 +24,21 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
+import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'master_mapper.dart';
+import 'master_review_mapper.dart';
 
 part 'master_repository.g.dart';
+
+/// Default page size for the master received-reviews list (Phase 4.5). Matches
+/// the salon reviews page size — first page only, no infinite scroll.
+const int kMasterReviewsPageSize = 20;
 
 /// Contract for the independent-master profile layer.
 ///
@@ -59,6 +66,15 @@ abstract interface class MasterRepository {
   /// Throws a typed [Failure] on any transport or server error.
   Future<Master> getMyProfile(String masterId);
 
+  /// Fetches the PUBLIC profile for an arbitrary [masterId].
+  ///
+  /// Wraps `GET /masters/{masterId}` via the generated [MasterControllerApi]'s
+  /// `getMasterDetail`. Unlike [getMyProfile] (which resolves the master from
+  /// the JWT principal), this reads any master by id and is safe to call from a
+  /// CLIENT session — it drives the client-facing public master profile
+  /// (Phase 13.5). Throws a typed [Failure] on any transport or server error.
+  Future<Master> getMasterById(String masterId);
+
   /// Persists the authenticated master's editable profile fields.
   ///
   /// Wraps `PATCH /independent-masters/me/profile`. All [update] fields are
@@ -73,6 +89,27 @@ abstract interface class MasterRepository {
   /// Throws a typed [Failure] on any transport or server error; throws
   /// [ValidationFailure] with [fieldErrors] when the backend returns HTTP 422.
   Future<void> updateMyProfile(MasterUpdate update);
+
+  /// Fetches the aggregate review summary (average + 5★→1★ distribution) for
+  /// [masterId].
+  ///
+  /// Wraps `GET /masters/{masterId}/reviews/summary`. For the authenticated
+  /// master's own reviews, pass the session user id (see Phase 4.5). Throws a
+  /// typed [Failure] on any transport or server error.
+  Future<MasterReviewSummary> getMasterReviewSummary(String masterId);
+
+  /// Fetches one page of [masterId]'s received reviews, server-sorted by
+  /// [sort].
+  ///
+  /// Wraps `GET /masters/{masterId}/reviews?sort=&page=&size=`. [page] is
+  /// zero-based; [size] caps the page. Throws a typed [Failure] on any
+  /// transport or server error.
+  Future<List<MasterReviewItem>> getMasterReviews({
+    required String masterId,
+    required MasterReviewSort sort,
+    int page = 0,
+    int size = kMasterReviewsPageSize,
+  });
 }
 
 /// HTTP implementation of [MasterRepository].
@@ -155,6 +192,41 @@ final class HttpMasterRepository implements MasterRepository {
   }
 
   @override
+  Future<Master> getMasterById(String masterId) async {
+    try {
+      // GET /masters/{masterId} — the public master-detail endpoint, keyed on
+      // the Master-row UUID (NOT the User UUID). Uses the generated
+      // [MasterControllerApi] so built_value deserialization handles the
+      // ApiResponse<MasterDetailResponse> envelope.
+      final res = await _masterApi.getMasterDetail(masterId: masterId);
+      final dto = res.data?.data;
+      if (dto == null) {
+        if (kDebugMode) {
+          log(
+            'getMasterById: ApiResponseMasterDetailResponse.data is null',
+            name: 'master.repository',
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return MasterMapper.fromDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMasterById failed: ${e.type} ${e.response?.statusCode}',
+          name: 'master.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
   Future<void> updateMyProfile(MasterUpdate update) async {
     // Trim all values before building the body so the backend never receives
     // untrimmed whitespace.
@@ -179,6 +251,8 @@ final class HttpMasterRepository implements MasterRepository {
       'lastName': update.lastName,
       'bio': update.bio.trim(), // '' clears server-side
       'instagram': update.instagram.trim(), // '' clears server-side
+      'professionalTitle': update.professionalTitle
+          .trim(), // '' clears server-side
     };
     final trimmedPhone = update.contactPhone.trim();
     if (trimmedPhone.isNotEmpty) body['phoneNumber'] = trimmedPhone;
@@ -190,6 +264,120 @@ final class HttpMasterRepository implements MasterRepository {
         data: body,
       ),
     );
+  }
+
+  @override
+  Future<MasterReviewSummary> getMasterReviewSummary(String masterId) async {
+    // Raw GET through the shared authenticated [Dio], decoded with the SAME
+    // [standardSerializers] the generated client uses — mirroring
+    // [HttpSalonRepository.getSalonReviews]'s decode path. A raw GET (rather
+    // than the generated `ReviewControllerApi.getMasterReviewSummary`) keeps
+    // this repository on the single injected Dio (no second client, no
+    // constructor churn) while still producing a generated built_value DTO.
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/v1/masters/${Uri.encodeComponent(masterId)}/reviews/summary',
+      );
+      final decoded = _deserialize<ApiResponseMasterReviewSummaryResponse>(
+        response.data,
+        const FullType(ApiResponseMasterReviewSummaryResponse),
+      );
+      final dto = decoded?.data;
+      if (dto == null) return const MasterReviewSummary();
+      return MasterReviewMapper.summaryFromDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMasterReviewSummary failed: ${e.type} ${e.response?.statusCode}',
+          name: 'master.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    } catch (e, st) {
+      // Total catch: a built_value deserialization error surfaces as a raw
+      // TypeError/Error — wrap it as a typed ServerFailure so NO raw error
+      // reaches the UI (mirrors [_runIdempotentPatch]'s guarantee). Only the
+      // runtimeType is logged — never PII / review comments.
+      if (kDebugMode) {
+        log(
+          'getMasterReviewSummary unexpected error: ${e.runtimeType}',
+          name: 'master.repository',
+          level: 1000,
+          stackTrace: st,
+        );
+      }
+      throw ServerFailure(cause: e);
+    }
+  }
+
+  @override
+  Future<List<MasterReviewItem>> getMasterReviews({
+    required String masterId,
+    required MasterReviewSort sort,
+    int page = 0,
+    int size = kMasterReviewsPageSize,
+  }) async {
+    // WIRE-FORMAT NOTE: the generated `ReviewControllerApi.getReviewsByMaster`
+    // takes a typed `Pageable` whose `encodeQueryParameter` JSON-encodes the
+    // whole object into a single `pageable=` value — Spring expects FLAT
+    // `page`/`size` keys (the same bug documented in
+    // `HttpSalonRepository.getSalonReviews`). So bypass it: issue a raw GET with
+    // flat query params and deserialize with the shared serializers.
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/v1/masters/${Uri.encodeComponent(masterId)}/reviews',
+        queryParameters: <String, dynamic>{
+          'sort': sort.wireValue,
+          'page': page,
+          'size': size,
+        },
+      );
+      final decoded = _deserialize<ApiResponsePageResponseReviewResponse>(
+        response.data,
+        const FullType(ApiResponsePageResponseReviewResponse),
+      );
+      final content = decoded?.data?.data ?? const <ReviewResponse>[];
+      return MasterReviewMapper.reviewsFromDtoList(content);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMasterReviews failed: ${e.type} ${e.response?.statusCode}',
+          name: 'master.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    } catch (e, st) {
+      // Total catch: a built_value deserialization error surfaces as a raw
+      // TypeError/Error — wrap it as a typed ServerFailure so NO raw error
+      // reaches the UI (mirrors [_runIdempotentPatch]'s guarantee). Only the
+      // runtimeType is logged — never PII / review comments.
+      if (kDebugMode) {
+        log(
+          'getMasterReviews unexpected error: ${e.runtimeType}',
+          name: 'master.repository',
+          level: 1000,
+          stackTrace: st,
+        );
+      }
+      throw ServerFailure(cause: e);
+    }
+  }
+
+  /// Deserializes a raw JSON [data] map via the SAME [standardSerializers] the
+  /// generated client uses. Returns `null` when [data] is null (an empty body);
+  /// any deserialization failure propagates to the caller's `catch` as a
+  /// [ServerFailure] (this helper deliberately does not swallow errors).
+  T? _deserialize<T>(Object? data, FullType type) {
+    if (data == null) return null;
+    return standardSerializers.deserialize(data, specifiedType: type) as T?;
   }
 
   /// Runs an idempotent PATCH upsert with a total catch and a bounded

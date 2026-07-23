@@ -11,7 +11,7 @@
 // waits use `pumpAndSettle` (M6). The picker is pumped inside a GoRouter so its
 // `context.pop(range)` resolves (M2/M6 compliant, hermetic — no providers).
 
-import 'package:beautica_mobile/features/schedule/presentation/period_range_picker.dart';
+import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -37,6 +37,20 @@ const _strings = PeriodRangePickerStrings(
   saveLabel: 'Зберегти',
   backSemantic: 'Назад',
   weekdayShort: <String>['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'],
+  monthNames: <String>[
+    'Січень',
+    'Лютий',
+    'Березень',
+    'Квітень',
+    'Травень',
+    'Червень',
+    'Липень',
+    'Серпень',
+    'Вересень',
+    'Жовтень',
+    'Листопад',
+    'Грудень',
+  ],
 );
 
 void main() {

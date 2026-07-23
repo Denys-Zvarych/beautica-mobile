@@ -52,6 +52,11 @@ class _FakeMasterServiceCreate extends Fake implements MasterServiceCreate {}
 
 /// Loaded service used to drive the edit-mode form (also exercises the dirty
 /// marker + range-mode pricing wells — the densest horizontal layout).
+///
+/// `priceDisplay` mirrors the raw server-formatted string
+/// (beautica-backend's `PriceDisplayFormatter` now emits " ₴", matching the
+/// mobile client's own formatters); RANGE mode never renders this field (it
+/// rebuilds the label from priceMin/priceMax), so it is not asserted here.
 const _kRangeService = MasterService(
   id: 'svc-stress',
   serviceDefId: 'def-stress',
@@ -60,7 +65,7 @@ const _kRangeService = MasterService(
   priceType: ServicePriceType.range,
   priceMin: 500,
   priceMax: 800,
-  priceDisplay: '500–800 грн',
+  priceDisplay: '500–800 ₴',
   category: 'MANICURE',
 );
 

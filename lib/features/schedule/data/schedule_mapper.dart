@@ -75,6 +75,22 @@ abstract final class ScheduleMapper {
       '${t.hour.toString().padLeft(2, '0')}:'
       '${t.minute.toString().padLeft(2, '0')}:00';
 
+  // ── Discrete times: BuiltList<String> ⇄ List<TimeOfDay> (Phase 15.7) ─────────
+
+  /// Reads the wire `times` list (`HH:mm[:ss]` strings) into a sorted, de-duped
+  /// [TimeOfDay] list. A null / absent wire list → an empty list. Defensive
+  /// sort+dedupe matches the EXPLICIT_TIMES contract (the backend may not
+  /// guarantee order, and a duplicate slot start is meaningless).
+  static List<TimeOfDay> _timesFromWire(BuiltList<String>? wire) =>
+      wire == null || wire.isEmpty
+      ? <TimeOfDay>[]
+      : sortDedupeTimes(wire.map(parseTime));
+
+  /// Serialises a discrete [TimeOfDay] list to the wire `HH:mm:00` string list,
+  /// sorted + de-duped so the request is canonical.
+  static BuiltList<String> _timesToWire(List<TimeOfDay> times) =>
+      BuiltList<String>(sortDedupeTimes(times).map(formatTimeWire));
+
   // ── WorkInterval ⇄ WorkIntervalDto ───────────────────────────────────────────
 
   static WorkInterval intervalFromDto(WorkIntervalDto dto) => WorkInterval(
@@ -128,9 +144,9 @@ abstract final class ScheduleMapper {
     WeeklyScheduleResponse dto, {
     String? id,
   }) {
-    // Seed every ISO day with a day-off (empty intervals).
-    final byDay = <int, List<WorkInterval>>{
-      for (var day = 1; day <= _kDaysInWeek; day++) day: <WorkInterval>[],
+    // Seed every ISO day with a day-off (INTERVAL mode, empty intervals).
+    final byDay = <int, _DayShape>{
+      for (var day = 1; day <= _kDaysInWeek; day++) day: const _DayShape.off(),
     };
 
     final days = dto.days;
@@ -141,7 +157,9 @@ abstract final class ScheduleMapper {
           // Broken contract row — cannot be placed in the week; skip it.
           continue;
         }
-        byDay[dow] = _intervalsFromDtos(dayDto.intervals);
+        byDay[dow] = _weeklyModeIsExplicit(dayDto.mode)
+            ? _DayShape.explicit(_timesFromWire(dayDto.times))
+            : _DayShape.interval(_intervalsFromDtos(dayDto.intervals));
       }
     }
 
@@ -154,7 +172,9 @@ abstract final class ScheduleMapper {
           TemplateDay(
             dayOfWeek: day,
             label: _kWeekdayLabels[day - 1],
-            intervals: byDay[day]!,
+            mode: byDay[day]!.mode,
+            intervals: byDay[day]!.intervals,
+            times: byDay[day]!.times,
           ),
       ],
     );
@@ -162,10 +182,16 @@ abstract final class ScheduleMapper {
 
   // ── WeeklySchedule → WeeklyScheduleRequest ───────────────────────────────────
 
-  /// Builds the request payload for create / update. Sends one day per weekday;
-  /// an empty-intervals [TemplateDay] is a day-off, serialised as an empty
-  /// `intervals` list (NOT omitted — the backend treats an explicit empty list
-  /// as "this weekday is off"). `validFrom` / `validTo` are date-only.
+  /// Builds the request payload for create / update. Sends one day per weekday.
+  ///
+  /// Contract (Phase 15.8, backend `WeeklyScheduleDayRequest.isModeConsistent`):
+  ///   • EXPLICIT_TIMES days MUST carry ≥1 discrete time and no intervals.
+  ///   • A day-off is the canonical INTERVAL day with an empty `intervals` list
+  ///     (NOT omitted — the backend treats an explicit empty list as "off").
+  /// An `explicitTimes` [TemplateDay] with zero times is therefore NOT a valid
+  /// EXPLICIT_TIMES day (it would 400 on `days[i].modeConsistent`); it is an
+  /// empty discrete day == day-off, so we serialise it as INTERVAL-empty.
+  /// `validFrom` / `validTo` are date-only.
   static WeeklyScheduleRequest weeklyScheduleToRequest(
     WeeklySchedule schedule,
   ) {
@@ -177,11 +203,22 @@ abstract final class ScheduleMapper {
             : dateToWire(schedule.validTo!)
         ..days = ListBuilder<WeeklyScheduleDayRequest>(
           schedule.days.map(
-            (d) => WeeklyScheduleDayRequest(
-              (db) => db
-                ..dayOfWeek = d.dayOfWeek
-                ..intervals = _intervalsToDtos(d.intervals).toBuilder(),
-            ),
+            (d) => WeeklyScheduleDayRequest((db) {
+              db.dayOfWeek = d.dayOfWeek;
+              if (d.mode == WeekdayMode.explicitTimes && d.times.isNotEmpty) {
+                // EXPLICIT_TIMES: a real discrete working day — send the (≥1)
+                // discrete times, no intervals.
+                db
+                  ..mode = WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES
+                  ..times = _timesToWire(d.times).toBuilder();
+              } else {
+                // INTERVAL (default) — also the day-off / empty-discrete-day
+                // encoding: send intervals (an empty list == this weekday off).
+                db
+                  ..mode = WeeklyScheduleDayRequestModeEnum.INTERVAL
+                  ..intervals = _intervalsToDtos(d.intervals).toBuilder();
+              }
+            }),
           ),
         ),
     );
@@ -197,6 +234,14 @@ abstract final class ScheduleMapper {
     if (isDayOff) {
       return ScheduleOverride.dayOff(start: date, end: date);
     }
+    // CUSTOM_HOURS — either continuous intervals or discrete times.
+    if (_overrideModeIsExplicit(dto.mode)) {
+      return ScheduleOverride.explicitTimes(
+        start: date,
+        end: date,
+        times: _timesFromWire(dto.times),
+      );
+    }
     return ScheduleOverride.custom(
       start: date,
       end: date,
@@ -211,29 +256,54 @@ abstract final class ScheduleMapper {
     ScheduleOverride override,
     DateTime date,
   ) {
-    final isDayOff = override.kind == OverrideKind.dayOff;
+    // Contract (Phase 15.9, backend `ScheduleOverrideRequest.isKindConsistent`):
+    //   • DAY_OFF carries neither intervals nor times.
+    //   • CUSTOM_HOURS carries EITHER a non-empty intervals list (INTERVAL) OR a
+    //     non-empty times list (EXPLICIT_TIMES), never both, never empty.
+    // A CUSTOM_HOURS override that resolves to zero working slots (empty times
+    // in EXPLICIT_TIMES mode, or empty intervals in INTERVAL mode) is NOT a
+    // valid CUSTOM_HOURS payload — it would 400 on `kindConsistent`. Such an
+    // override means "no hours that date", which is the DAY_OFF encoding, so we
+    // collapse it to DAY_OFF.
+    final isExplicit = override.mode == WeekdayMode.explicitTimes;
+    final hasWork = isExplicit
+        ? override.times.isNotEmpty
+        : override.intervals.isNotEmpty;
+    final isDayOff = override.kind == OverrideKind.dayOff || !hasWork;
     return ScheduleOverrideRequest((b) {
       b
         ..date = dateToWire(date)
         ..kind = isDayOff
             ? ScheduleOverrideRequestKindEnum.DAY_OFF
             : ScheduleOverrideRequestKindEnum.CUSTOM_HOURS;
-      // DAY_OFF carries only its kind (no intervals, no reason/note — the
-      // backend dropped those fields). CUSTOM_HOURS carries the intervals.
-      if (!isDayOff) {
-        b.intervals = _intervalsToDtos(override.intervals).toBuilder();
+      // DAY_OFF carries only its kind (no intervals/times, no reason/note — the
+      // backend dropped those fields). CUSTOM_HOURS carries either the discrete
+      // times (EXPLICIT_TIMES) or the intervals (INTERVAL), never both.
+      if (isDayOff) return;
+      if (isExplicit) {
+        b
+          ..mode = ScheduleOverrideRequestModeEnum.EXPLICIT_TIMES
+          ..times = _timesToWire(override.times).toBuilder();
+      } else {
+        b
+          ..mode = ScheduleOverrideRequestModeEnum.INTERVAL
+          ..intervals = _intervalsToDtos(override.intervals).toBuilder();
       }
     });
   }
 
   // ── EffectiveDayResponse → EffectiveDay ───────────────────────────────────────
 
-  static EffectiveDay effectiveDayFromResponse(EffectiveDayResponse dto) =>
-      EffectiveDay(
-        date: _dateFromWire(dto.date),
-        source: _sourceFromResponse(dto.source_),
-        intervals: _intervalsFromDtos(dto.intervals),
-      );
+  static EffectiveDay effectiveDayFromResponse(
+    EffectiveDayResponse dto,
+  ) => EffectiveDay(
+    date: _dateFromWire(dto.date),
+    source: _sourceFromResponse(dto.source_),
+    intervals: _intervalsFromDtos(dto.intervals),
+    // EffectiveDayResponse carries no `mode`; a non-empty `times` list is
+    // itself the EXPLICIT_TIMES signal (see [EffectiveDay.isExplicitTimes]).
+    times: _timesFromWire(dto.times),
+  );
 
   // ── Enum translation (DTO *_Enum ⇄ domain) ────────────────────────────────────
 
@@ -253,4 +323,35 @@ abstract final class ScheduleMapper {
     // safe "no published hours" reading.
     return EffectiveSource.noSchedule;
   }
+
+  /// True when a weekly-day wire `mode` is EXPLICIT_TIMES. A null / unknown mode
+  /// falls back to INTERVAL — the legacy shape, safe for any pre-15.7 row.
+  static bool _weeklyModeIsExplicit(WeeklyScheduleDayResponseModeEnum? mode) =>
+      mode == WeeklyScheduleDayResponseModeEnum.EXPLICIT_TIMES;
+
+  /// True when an override wire `mode` is EXPLICIT_TIMES. Null / unknown →
+  /// INTERVAL (legacy custom-hours shape).
+  static bool _overrideModeIsExplicit(ScheduleOverrideResponseModeEnum? mode) =>
+      mode == ScheduleOverrideResponseModeEnum.EXPLICIT_TIMES;
+}
+
+/// Internal carrier for a resolved weekly-day shape during gap-fill so the
+/// dense 7-entry build can read mode + the applicable list uniformly.
+class _DayShape {
+  const _DayShape.off()
+    : mode = WeekdayMode.interval,
+      intervals = const <WorkInterval>[],
+      times = const <TimeOfDay>[];
+
+  const _DayShape.interval(this.intervals)
+    : mode = WeekdayMode.interval,
+      times = const <TimeOfDay>[];
+
+  const _DayShape.explicit(this.times)
+    : mode = WeekdayMode.explicitTimes,
+      intervals = const <WorkInterval>[];
+
+  final WeekdayMode mode;
+  final List<WorkInterval> intervals;
+  final List<TimeOfDay> times;
 }

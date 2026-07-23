@@ -3,7 +3,9 @@
 // Renders the [ServiceForm] in an [EditScaffold]-style layout (fixed top bar,
 // scrollable body, pinned CTA footer). On successful submit:
 //   1. Calls [ServiceRepository.create] via [serviceRepositoryProvider].
-//   2. Invalidates [servicesListProvider] so the list refreshes on pop.
+//   2. Invalidates BOTH cached catalogue views (the «Мої послуги» list and
+//      the «Мої записи» «Послуга» filter universe) via
+//      [invalidateMasterServiceCatalogues], so both refresh on pop.
 //   3. Pops the screen via [context.pop] (go_router, raw navigator avoided).
 //
 // The [ServiceForm] handles its own loading state and propagates exceptions —
@@ -21,7 +23,6 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
-import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -30,6 +31,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
 /// Service create screen (INDEPENDENT_MASTER).
 ///
@@ -148,7 +150,7 @@ class _ServiceCreateScreenState extends ConsumerState<ServiceCreateScreen> {
                           // active and listening when the re-fetch arrives.
                           // ref remains valid because this ConsumerWidget's
                           // ref outlives the navigation frame.
-                          ref.invalidate(servicesListProvider);
+                          invalidateMasterServiceCatalogues(ref);
                           ref.invalidate(masterProfileProvider);
                         } on ValidationFailure {
                           // Per-field backend errors are mapped inline by

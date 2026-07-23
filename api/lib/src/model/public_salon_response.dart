@@ -17,8 +17,16 @@ part 'public_salon_response.g.dart';
 /// * [city]
 /// * [region]
 /// * [address]
+/// * [cityId]
+/// * [districtId]
+/// * [street]
+/// * [buildingNo]
+/// * [locationNote]
 /// * [instagramUrl]
 /// * [avatarUrl]
+/// * [coverImageUrl]
+/// * [avgRating]
+/// * [reviewCount]
 @BuiltValue()
 abstract class PublicSalonResponse
     implements Built<PublicSalonResponse, PublicSalonResponseBuilder> {
@@ -40,11 +48,35 @@ abstract class PublicSalonResponse
   @BuiltValueField(wireName: r'address')
   String? get address;
 
+  @BuiltValueField(wireName: r'cityId')
+  String? get cityId;
+
+  @BuiltValueField(wireName: r'districtId')
+  String? get districtId;
+
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
+
+  @BuiltValueField(wireName: r'locationNote')
+  String? get locationNote;
+
   @BuiltValueField(wireName: r'instagramUrl')
   String? get instagramUrl;
 
   @BuiltValueField(wireName: r'avatarUrl')
   String? get avatarUrl;
+
+  @BuiltValueField(wireName: r'coverImageUrl')
+  String? get coverImageUrl;
+
+  @BuiltValueField(wireName: r'avgRating')
+  num? get avgRating;
+
+  @BuiltValueField(wireName: r'reviewCount')
+  int? get reviewCount;
 
   PublicSalonResponse._();
 
@@ -117,6 +149,41 @@ class _$PublicSalonResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.cityId != null) {
+      yield r'cityId';
+      yield serializers.serialize(
+        object.cityId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.districtId != null) {
+      yield r'districtId';
+      yield serializers.serialize(
+        object.districtId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.street != null) {
+      yield r'street';
+      yield serializers.serialize(
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.locationNote != null) {
+      yield r'locationNote';
+      yield serializers.serialize(
+        object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.instagramUrl != null) {
       yield r'instagramUrl';
       yield serializers.serialize(
@@ -129,6 +196,27 @@ class _$PublicSalonResponseSerializer
       yield serializers.serialize(
         object.avatarUrl,
         specifiedType: const FullType(String),
+      );
+    }
+    if (object.coverImageUrl != null) {
+      yield r'coverImageUrl';
+      yield serializers.serialize(
+        object.coverImageUrl,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.avgRating != null) {
+      yield r'avgRating';
+      yield serializers.serialize(
+        object.avgRating,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.reviewCount != null) {
+      yield r'reviewCount';
+      yield serializers.serialize(
+        object.reviewCount,
+        specifiedType: const FullType(int),
       );
     }
   }
@@ -198,6 +286,41 @@ class _$PublicSalonResponseSerializer
           ) as String;
           result.address = valueDes;
           break;
+        case r'cityId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.cityId = valueDes;
+          break;
+        case r'districtId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.districtId = valueDes;
+          break;
+        case r'street':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
+          break;
+        case r'locationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.locationNote = valueDes;
+          break;
         case r'instagramUrl':
           final valueDes = serializers.deserialize(
             value,
@@ -211,6 +334,27 @@ class _$PublicSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.avatarUrl = valueDes;
+          break;
+        case r'coverImageUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.coverImageUrl = valueDes;
+          break;
+        case r'avgRating':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.avgRating = valueDes;
+          break;
+        case r'reviewCount':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.reviewCount = valueDes;
           break;
         default:
           unhandled.add(key);

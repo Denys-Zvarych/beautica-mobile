@@ -37,18 +37,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // RC2 — reads current location from the router instance rather than via
-  // GoRouter.of(context), which fails at the MaterialApp context level.
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   // ── Test 1 — Create a service (FIXED pricing) ─────────────────────────────
 
   testWidgets(
@@ -71,12 +59,12 @@ void main() {
       // with an infinite animation in the tree.
       // 20 × 100ms = 2000ms — enough for GoRouter transition (300ms) + async
       // provider resolution (DioAdapter fires in next microtask).
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
       router.go(RouteNames.serviceCreate);
       for (int i = 0; i < 20; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      expectLocation(router, RouteNames.serviceCreate);
+      AppHarness.expectLocation(router, RouteNames.serviceCreate);
 
       // ── Fill the service form (FIXED pricing) ─────────────────────────────
       // ServiceForm field keys (from service_form.dart + pricing_field.dart):
@@ -107,7 +95,7 @@ void main() {
       );
       await tester.pump();
 
-      // Fill fixed price (required): 400 грн.
+      // Fill fixed price (required): 400 ₴.
       await tester.enterText(
         find.descendant(
           of: find.byKey(const Key('pricing-fixed-amount')),
@@ -148,6 +136,36 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
 
+      // ── Select a service type (MANDATORY on create) ──────────────────────
+      // Service type is now required on create (backend @NotNull); without a
+      // selection the client blocks submit with an inline error. The second-
+      // level picker (key 'select-service-type-field') mounts once a category
+      // is chosen and lists the fake backend's NAILS types. Pick the classic
+      // manicure type (row key 'chip-service-type-type-nails-classic').
+      final Finder serviceTypeField = find.byKey(
+        const Key('select-service-type-field'),
+      );
+      await tester.ensureVisible(serviceTypeField);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(serviceTypeField);
+      // Sheet entrance animation ~300ms.
+      for (int i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final Finder classicTypeChip = find.byKey(
+        const Key('chip-service-type-type-nails-classic'),
+      );
+      expect(
+        classicTypeChip,
+        findsOneWidget,
+        reason: 'NAILS service-type chip must appear in the picker sheet',
+      );
+      await tester.tap(classicTypeChip);
+      // Sheet exit animation ~300ms.
+      for (int i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
       // Scroll the submit button into view and tap.
       // ensureVisible handles nested scrollables better than scrollUntilVisible.
       // Use bounded pumps after tap — the form submit triggers an async HTTP
@@ -163,7 +181,7 @@ void main() {
       }
 
       // After successful create the screen pops back to /services.
-      expectLocation(router, RouteNames.services);
+      AppHarness.expectLocation(router, RouteNames.services);
       expect(
         fb.createServiceCalls,
         greaterThanOrEqualTo(1),
@@ -209,7 +227,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       // The route path uses the assignment id (MasterService.id).
-      expectLocation(router, '/services/assign-2/edit');
+      AppHarness.expectLocation(router, '/services/assign-2/edit');
 
       // Assert the form wrapper is rendered.
       expect(

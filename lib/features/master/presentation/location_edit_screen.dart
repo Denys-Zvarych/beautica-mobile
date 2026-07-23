@@ -43,6 +43,8 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/validators/building_validator.dart';
+import 'package:beautica_mobile/shared/validators/street_validator.dart';
 
 import 'master_profile_notifier.dart';
 import 'widgets/section_scaffold.dart';
@@ -82,6 +84,14 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
   String? _errStreet;
   String? _errBuildingNo;
   String? _errLocationNote;
+
+  // PERF (P2): drives the Save button's enabled state in isolation. Text
+  // keystrokes update this notifier (via [_onFormChanged]) instead of
+  // setState-ing the whole form and its reveal animation wrappers. Cascade
+  // selection changes still go through setState (they are infrequent and also
+  // mutate other UI), and the footer's builder recomputes [_isDirty] freshly on
+  // both paths.
+  final ValueNotifier<bool> _dirty = ValueNotifier<bool>(false);
 
   // Aligned to the backend address DTO.
   static const int _streetMax = 255;
@@ -201,13 +211,15 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
         }
       }
     } catch (e, st) {
-      log(
-        'Locality pre-population failed — cascade will be empty',
-        name: 'feature.master.edit.location',
-        level: 800,
-        error: e,
-        stackTrace: st,
-      );
+      if (kDebugMode) {
+        log(
+          'Locality pre-population failed — cascade will be empty',
+          name: 'feature.master.edit.location',
+          level: 800,
+          error: e,
+          stackTrace: st,
+        );
+      }
     }
 
     if (!mounted) return;
@@ -236,14 +248,19 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     _anim3.dispose();
     _animFooter.dispose();
     _controller.dispose();
+    _dirty.dispose();
     super.dispose();
   }
 
   List<TextEditingController> get _editableControllers =>
       <TextEditingController>[_street, _buildingNo, _locationNote];
 
+  // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
+  // (locality cascade + address fields + animation wrappers) is not rebuilt on
+  // every address keystroke. The footer's ValueListenableBuilder rebuilds just
+  // the Save button when the flag flips.
   void _onFormChanged() {
-    if (mounted) setState(() {});
+    _dirty.value = _isDirty;
   }
 
   bool get _isDirty =>
@@ -273,9 +290,14 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     }
   }
 
-  /// Returns true when the location section is valid. The required-address rule
-  /// only kicks in when the user is actively editing the address (the section is
-  /// dirty, or street/buildingNo non-empty).
+  /// Returns true when the location section is valid.
+  ///
+  /// Street and building number are UNCONDITIONALLY required (mirrors the
+  /// backend's `@NotBlank` contract on the provider location endpoints — the
+  /// Phase 10.6 reversal), as is the locality (city, plus district when the
+  /// city subdivides). Only [locationNote] is optional. The required-address
+  /// rule no longer hides behind an "editing the address" gate — a master can
+  /// never persist a locality with an empty street/building.
   bool _validateLocation() {
     final l10n = AppLocalizations.of(context);
 
@@ -297,38 +319,18 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     }
 
     final citySelected = _selectedCity != null;
-    final streetFilled = _street.text.trim().isNotEmpty;
-    final buildingFilled = _buildingNo.text.trim().isNotEmpty;
-
-    final locationDirty =
-        _selectedOblast?.id != _origOblastId ||
-        _selectedCity?.id != _origCityId ||
-        _selectedDistrict?.id != _origDistrictId ||
-        _street.text.trim() != _origStreet ||
-        _buildingNo.text.trim() != _origBuildingNo ||
-        _locationNote.text.trim() != _origLocationNote;
-
-    final editingAddress = streetFilled || buildingFilled || locationDirty;
-    if (!editingAddress) {
-      setState(() {
-        _errCity = null;
-        _errDistrict = null;
-        _errStreet = null;
-        _errBuildingNo = null;
-        _errLocationNote = null;
-      });
-      return true;
-    }
+    final cityHasDistricts = _selectedCity?.hasDistricts ?? false;
 
     final String? errCity = !citySelected ? l10n.errRequired : null;
-    final String? errStreet = !streetFilled ? l10n.errRequired : null;
-    final String? errBuildingNo = !buildingFilled ? l10n.errRequired : null;
-
-    final cityHasDistricts = _selectedCity?.hasDistricts ?? false;
     final String? errDistrict =
         (citySelected && cityHasDistricts && _selectedDistrict == null)
         ? l10n.errRequired
         : null;
+    // Reuse the shared provider validators — the same ones RegisterStep3Screen
+    // uses (registration is the canonical always-required behaviour). They emit
+    // errStreetRequired / errBuildingRequired (and the too-long variants).
+    final String? errStreet = validateStreet(_street.text, l10n);
+    final String? errBuildingNo = validateBuilding(_buildingNo.text, l10n);
 
     setState(() {
       _errCity = errCity;
@@ -337,12 +339,8 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       _errBuildingNo = errBuildingNo;
     });
 
-    final streetLen = _street.text.trim().length;
-    final buildingLen = _buildingNo.text.trim().length;
     final noteLen = _locationNote.text.trim().length;
-    if (streetLen > _streetMax ||
-        buildingLen > _buildingNoMax ||
-        noteLen > _locationNoteMax) {
+    if (noteLen > _locationNoteMax) {
       return false;
     }
 
@@ -377,13 +375,11 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
 
     final selectedCity = _selectedCity;
     if (selectedCity == null) {
-      // Nothing to persist (no city chosen, no address entered). Treat as a
-      // no-op save and pop — mirrors the monolithic form's touched guard.
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.masterProfile);
-      }
+      // Defensive: unreachable once _validateLocation() returns true, since the
+      // city is now unconditionally required (it sets _errCity and returns
+      // false when no city is chosen). We must NOT fall through to a "no-op
+      // save + navigate" here — that was the escape hatch that let an
+      // empty-street/building locality slip past. Stay on the form.
       return;
     }
 
@@ -410,11 +406,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
           content: Text(AppLocalizations.of(context).savedSnackbar),
         ),
       );
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.masterProfile);
-      }
+      context.go(RouteNames.masterProfile);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -487,12 +479,18 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       },
       footer: _reveal(
         _animFooter,
-        NeumorphicButton(
-          key: const Key('btn-save-location'),
-          label: l10n.masterSaveButton,
-          icon: Icons.check_rounded,
-          loading: _saving,
-          onPressed: (!_saving && _isDirty) ? _save : null,
+        ValueListenableBuilder<bool>(
+          valueListenable: _dirty,
+          // Recompute [_isDirty] freshly: text keystrokes flip [_dirty] (this
+          // rebuilds the builder), and cascade selections setState the parent
+          // (which also rebuilds the builder) — both paths land here.
+          builder: (context, _, _) => NeumorphicButton(
+            key: const Key('btn-save-location'),
+            label: l10n.masterSaveButton,
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: (!_saving && _isDirty) ? _save : null,
+          ),
         ),
       ),
       body: Column(
@@ -509,7 +507,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
                     bottom: VelvetSpacing.lg,
                   ),
                   child: Text(
-                    l10n.locationSubheading,
+                    l10n.masterLocationSubheading,
                     style: VelvetText.body(),
                   ),
                 ),

@@ -4,6 +4,62 @@
   "@appTitle": {
     "description": "Application name shown in the OS task switcher and on the splash screen."
   },
+  "clientNavHome": "Головна",
+  "@clientNavHome": {
+    "description": "Client bottom-nav tab label for the home/landing tab (index 0)."
+  },
+  "clientNavFavorites": "Улюблені",
+  "@clientNavFavorites": {
+    "description": "Client bottom-nav tab label for the saved masters/salons tab (index 1)."
+  },
+  "clientNavSearch": "Пошук",
+  "@clientNavSearch": {
+    "description": "Client bottom-nav accessibility label for the elevated center search disc (index 2). The disc is icon-only — this string is used only for the Semantics label, not a visible caption."
+  },
+  "clientNavBookings": "Записи",
+  "@clientNavBookings": {
+    "description": "Client bottom-nav tab label for the user's bookings tab (index 3)."
+  },
+  "clientComingSoon": "Скоро…",
+  "@clientComingSoon": {
+    "description": "Placeholder chip label on client shell branch screens whose real content lands in a later phase."
+  },
+  "clientPlaceholderHomeTitle": "Головна",
+  "@clientPlaceholderHomeTitle": {
+    "description": "Title on the placeholder Home (Головна) client branch screen (real screen lands in Phase 13.7)."
+  },
+  "clientPlaceholderHomeBlurb": "Стартова сторінка клієнта — підбірки майстрів і салонів поряд.",
+  "@clientPlaceholderHomeBlurb": {
+    "description": "Supporting blurb on the placeholder Home client branch screen."
+  },
+  "clientPlaceholderFavoritesTitle": "Улюблені",
+  "@clientPlaceholderFavoritesTitle": {
+    "description": "Title on the placeholder Favorites (Улюблені) client branch screen (real screen lands in Phase 13.11)."
+  },
+  "clientPlaceholderFavoritesBlurb": "Збережені майстри та салони, до яких ви повертаєтесь.",
+  "@clientPlaceholderFavoritesBlurb": {
+    "description": "Supporting blurb on the placeholder Favorites client branch screen."
+  },
+  "clientPlaceholderSearchTitle": "Пошук",
+  "@clientPlaceholderSearchTitle": {
+    "description": "Title on the placeholder Search (Пошук) client branch screen (real screen lands in Phase 13.3)."
+  },
+  "clientPlaceholderSearchBlurb": "Знайдіть послугу, майстра чи салон за містом і категорією.",
+  "@clientPlaceholderSearchBlurb": {
+    "description": "Supporting blurb on the placeholder Search client branch screen."
+  },
+  "clientPlaceholderBookingsTitle": "Записи",
+  "@clientPlaceholderBookingsTitle": {
+    "description": "Title on the placeholder Bookings (Записи) client branch screen (real screen lands in Phase 14.3)."
+  },
+  "clientPlaceholderBookingsBlurb": "Ваші майбутні та минулі записи на послуги.",
+  "@clientPlaceholderBookingsBlurb": {
+    "description": "Supporting blurb on the placeholder Bookings client branch screen."
+  },
+  "clientPlaceholderPassportBlurb": "Ваш бьюті-профіль: історія процедур, уподобання та відгуки.",
+  "@clientPlaceholderPassportBlurb": {
+    "description": "Supporting blurb on the placeholder BEAUTY PASSPORT client branch screen (real screen lands in Phase 13.8). The 'BEAUTY PASSPORT' title itself is an untranslated brand constant and is NOT an l10n key."
+  },
   "loadingLabel": "Завантаження…",
   "@loadingLabel": {
     "description": "Generic 'Loading…' label shown next to a CircularProgressIndicator while async data resolves."
@@ -45,6 +101,36 @@
   "errUnknown": "Щось пішло не так. Спробуйте ще раз.",
   "@errUnknown": {
     "description": "Fallback error message for unexpected failures."
+  },
+  "errConflict": "Цей час уже зайнято. Оберіть інший.",
+  "@errConflict": {
+    "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
+  },
+  "bookingErrClientConflict": "У вас вже є запис на цей час: {serviceName}, {masterName}, {window}",
+  "@bookingErrClientConflict": {
+    "description": "Error message shown when a booking create/reschedule returns HTTP 409 with data.code == CLIENT_BOOKING_CONFLICT — the client already has an overlapping booking of their own (ClientBookingConflictFailure).",
+    "placeholders": {
+      "serviceName": {
+        "type": "String",
+        "example": "Манікюр класичний"
+      },
+      "masterName": {
+        "type": "String",
+        "example": "Олена Коваль"
+      },
+      "window": {
+        "type": "String",
+        "example": "вт, 15 лип · 14:00–15:30"
+      }
+    }
+  },
+  "bookingErrRateLimited": "Забагато спроб бронювання. Зачекайте кілька секунд і спробуйте ще раз.",
+  "@bookingErrRateLimited": {
+    "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
+  },
+  "bookingErrorAlreadyElapsed": "Час цього запису вже минув.",
+  "@bookingErrorAlreadyElapsed": {
+    "description": "Error message shown when PATCH /bookings/{id}/reschedule or /cancel returns HTTP 409 with data.code == BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's slot is already past the server clock, so it can no longer be rescheduled or cancelled. Surfaced via BookingAlreadyElapsedFailure.userMessage on a stale-screen / clock-rollback tap."
   },
   "errEmailAlreadyRegistered": "Ця електронна адреса вже зареєстрована. Увійдіть до облікового запису.",
   "@errEmailAlreadyRegistered": {
@@ -640,6 +726,10 @@
   "@registerDoneDescMaster": {
     "description": "Description body copy on the done screen for INDEPENDENT_MASTER and SALON_MASTER roles — replaces the client-focused registerDoneDesc."
   },
+  "registerDoneDescSalonOwner": "Тепер Ви можете оформити свій профіль, додати майстрів та послуги салону. Активно розвивати свій бізнес, а ми створимо для цього усі необхідні умови.",
+  "@registerDoneDescSalonOwner": {
+    "description": "Description body copy on the done screen for the SALON_OWNER role — replaces the client-focused registerDoneDesc. CLIENT and SALON_ADMIN keep registerDoneDesc; masters keep registerDoneDescMaster."
+  },
   "registerDoneChipRoleClient": "Клієнт",
   "@registerDoneChipRoleClient": {
     "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
@@ -806,7 +896,7 @@
   "@step3HeadlineOwnerLine2": {
     "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, SALON_OWNER variant (sign-up-step-3-address.html .headline em — 'салону')."
   },
-  "step3SubtextClient": "Покажемо майстрів поряд із вами. Можна пропустити та обрати пізніше.",
+  "step3SubtextClient": "Оберіть місто в якому бажаєте знайти для себе майстра і ми покажемо майстрів поруч. Можна пропустити та обрати пізніше.",
   "@step3SubtextClient": {
     "description": "Muted sub-text below the Step 3 headline for the CLIENT role variant (sign-up-step-3-address.html .sub-text — client variant)."
   },
@@ -1032,6 +1122,58 @@
   "@resetErrTokenInvalid": {
     "description": "userMessage for ResetTokenInvalidFailure (generic backend 400 for invalid/used/expired reset token)."
   },
+
+  "resetOtpHeadline": "Підтвердіть код",
+  "@resetOtpHeadline": {
+    "description": "Headline on the generalized password-reset OTP screen (ResetOtpVerificationScreen), reused verbatim by both the forgot-password flow and the settings change-password flow."
+  },
+  "resetOtpCardDesc": "Ми надіслали 6-значний код на",
+  "@resetOtpCardDesc": {
+    "description": "Card description before the masked email address on the password-reset OTP screen."
+  },
+  "resetOtpConfirmBtn": "Підтвердити",
+  "@resetOtpConfirmBtn": {
+    "description": "CTA button label on the password-reset OTP screen."
+  },
+  "resetOtpResendPrompt": "Не отримали код?",
+  "@resetOtpResendPrompt": {
+    "description": "Leading prompt in the resend row on the password-reset OTP screen."
+  },
+  "resetOtpResendTimer": "Надіслати знову ({time})",
+  "@resetOtpResendTimer": {
+    "description": "Countdown timer text shown while the resend cooldown is active on the password-reset OTP screen.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "30 с"
+      }
+    }
+  },
+  "resetOtpResendBtn": "Надіслати знову",
+  "@resetOtpResendBtn": {
+    "description": "Resend code link shown when the countdown reaches zero on the password-reset OTP screen."
+  },
+  "resetOtpSemantics": "Код підтвердження, 6 цифр",
+  "@resetOtpSemantics": {
+    "description": "Accessibility label for the OTP entry as a whole on the password-reset OTP screen."
+  },
+  "resetOtpErrInvalidCode": "Невірний код. Перевірте та спробуйте ще раз.",
+  "@resetOtpErrInvalidCode": {
+    "description": "userMessage for PasswordResetOtpFailure.invalidCode (POST /auth/verify-password-reset-otp returns INVALID_CODE)."
+  },
+  "resetOtpErrCodeExpired": "Термін дії коду минув. Надішліть код повторно.",
+  "@resetOtpErrCodeExpired": {
+    "description": "userMessage for PasswordResetOtpFailure.codeExpired (POST /auth/verify-password-reset-otp returns CODE_EXPIRED)."
+  },
+  "changePasswordRowLabel": "Змінити пароль",
+  "@changePasswordRowLabel": {
+    "description": "Settings row label that opens the authenticated change-password OTP flow (account settings screen)."
+  },
+  "changePasswordForcedLogoutMessage": "Пароль змінено. Увійдіть знову.",
+  "@changePasswordForcedLogoutMessage": {
+    "description": "Snackbar shown after a successful password change FROM THE SETTINGS FLOW, right before the proactive logout + redirect to /login (the backend revokes the caller's own refresh token on any password reset)."
+  },
+
   "inviteHeading": "Вас запрошено",
   "@inviteHeading": {
     "description": "Main heading on the accept-invite screen."
@@ -1233,6 +1375,10 @@
   "@phonePrivacyNote": {
     "description": "Privacy helper note rendered below the phone field (lock icon + text) on the master edit screen (Phase 4.3)."
   },
+  "clientPhonePrivacyNote": "Майстри не бачитимуть Ваш номер — він використовується для внутрішнього зв'язку",
+  "@clientPhonePrivacyNote": {
+    "description": "Privacy helper note below the phone field on the CLIENT contacts edit screen — masters do not see the client's number."
+  },
   "changePhotoCaption": "Змінити фото",
   "@changePhotoCaption": {
     "description": "Muted caption below the avatar editor ring on the master edit screen (Phase 4.3)."
@@ -1332,7 +1478,7 @@
   "@errPriceDecimals": {
     "description": "Validation error when a price field is non-numeric or has more than 2 decimal places (hardened 2026-06-03)."
   },
-  "errPriceMax": "Ціна не може перевищувати 99 999 999.99 грн",
+  "errPriceMax": "Ціна не може перевищувати 99 999 999.99 ₴",
   "@errPriceMax": {
     "description": "Validation error when a price field exceeds the backend maximum of 99999999.99 (hardened 2026-06-03)."
   },
@@ -1367,6 +1513,10 @@
   "pricingAmountLabel": "Сума",
   "@pricingAmountLabel": {
     "description": "Field label for the fixed price amount field (Phase 5.6 flexible pricing)."
+  },
+  "pricingCurrencySuffix": "₴",
+  "@pricingCurrencySuffix": {
+    "description": "Inline currency suffix (UAH) shown inside the FIXED/RANGE price input fields of PricingField (Phase 5.6 flexible pricing)."
   },
   "pricingFromLabel": "Від",
   "@pricingFromLabel": {
@@ -1442,6 +1592,10 @@
   "@serviceTypeLabel": {
     "description": "Section label above the second-level service-type chip selector row on the service create/edit form (shown only once a category is selected)."
   },
+  "serviceTypeRequired": "Оберіть тип послуги",
+  "@serviceTypeRequired": {
+    "description": "Validation error shown on the service CREATE form when no service type is selected. The service type is mandatory on create (backend CreateServiceDefinitionRequest.serviceTypeId is @NotNull, DB column is NOT NULL). Mirrors the category-required microcopy pattern."
+  },
   "serviceTypeEmpty": "Немає типів послуг для цієї категорії",
   "@serviceTypeEmpty": {
     "description": "Calm passive hint shown on the service-type chip row when the selected category has no service types to choose from. Not an error."
@@ -1477,6 +1631,10 @@
   "serviceTypeLoadError": "Не вдалося завантажити типи послуг",
   "@serviceTypeLoadError": {
     "description": "Error text shown inside the service-type dropdown (menu and closed field) when the service-type list fails to load or times out. Accompanied by a retry affordance."
+  },
+  "serviceTypeCategoryMismatch": "Обраний тип не належить до цієї категорії. Оберіть тип ще раз.",
+  "@serviceTypeCategoryMismatch": {
+    "description": "Inline error under the service-type field when the backend rejects a save (HTTP 400) because a category change orphaned the previously-selected service type. Prompts the master to re-pick a type that belongs to the new category."
   },
   "serviceTypeLoading": "Завантаження…",
   "@serviceTypeLoading": {
@@ -1667,9 +1825,14 @@
     "description": "Field label above the location-note input on the master edit screen."
   },
 
-  "masterProfileCategoriesLabel": "Категорії послуг",
+  "masterProfileCategoriesLabel": "Послуги",
   "@masterProfileCategoriesLabel": {
-    "description": "Section label above the category cards on the master profile screen."
+    "description": "Section header above the category cards on the master profile (home) screen."
+  },
+
+  "masterAddServices": "Додати послуги",
+  "@masterAddServices": {
+    "description": "Primary CTA shown in the master profile services section when the master has no services yet; opens the first-time bulk service-setup flow."
   },
 
   "masterProfileCategorySemantics": "Категорія {category}, {count} послуг. Перейти до списку",
@@ -2006,7 +2169,7 @@
       "to": { "type": "String" }
     }
   },
-  "weeklyEditorActiveWindowHint": "Тижневий графік діє протягом цього періоду. Окремі дні можна змінити пізніше.",
+  "weeklyEditorActiveWindowHint": "Ваш графік автоматично діятиме на період, який Ви оберете. За потреби - Ви зможете вносити зміни.",
   "@weeklyEditorActiveWindowHint": {
     "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
   },
@@ -2021,6 +2184,25 @@
   "weeklyEditorNoChangesHint": "Немає змін для збереження",
   "@weeklyEditorNoChangesHint": {
     "description": "Hint shown above the Save button on the weekly-template editor when the draft matches the saved schedule (a clean no-op), explaining why Save is disabled. Covers the all-days-off, no-existing-template case so a day-off selection never looks broken."
+  },
+  "weeklyEditorWindowUnsetHint": "Спочатку оберіть період «Графік діє з…»",
+  "@weeklyEditorWindowUnsetHint": {
+    "description": "Hint shown above the Save button on the weekly-template editor for a first-time create when the validity window («Графік діє з…») has not yet been explicitly chosen. Explains why Save is disabled and invites the user to tap the active-window card to pick the effective-from period before the first schedule can be saved."
+  },
+  "scheduleValidityRangeRequired": "Оберіть період дії графіка",
+  "@scheduleValidityRangeRequired": {
+    "description": "Submit-time inline error under the active-window card on the weekly-template editor when the user presses Save on a first-time create without choosing the (required) validity period. Save stays enabled; this error is the signal of the failed attempt."
+  },
+  "weeklyEditorWindowReanchored": "Період графіка оновлено: діє з {from}",
+  "@weeklyEditorWindowReanchored": {
+    "description": "Snackbar shown on the weekly-template editor when the staged validity-window start (picked earlier) has fallen into the past — e.g. the master crossed midnight between picking the period and pressing Save. The window is re-anchored to today so the backend's future-or-present guard never rejects the create; {from} is the corrected DD.MM start date. Save is left for the master to confirm rather than silently shifting the window.",
+    "placeholders": {
+      "from": { "type": "String" }
+    }
+  },
+  "schedulePastDayBlocked": "Ця дата вже минула. Оберіть сьогодні або пізніший день.",
+  "@schedulePastDayBlocked": {
+    "description": "Snackbar shown when the master tries to save a per-date override for a day that has become past (e.g. midnight rolled over while the override sheet was open). The save is blocked so a past date never reaches the backend."
   },
   "weeklyEditorDayToggleSemantic": "{day} — робочий день",
   "@weeklyEditorDayToggleSemantic": {
@@ -2289,6 +2471,10 @@
   "@serviceSetupPriceRequired": {
     "description": "Inline per-field hint shown under the fixed-price input when an included row's price is empty or invalid on save."
   },
+  "serviceSetupDurationMax": "Тривалість не може перевищувати 480 хв (8 год)",
+  "@serviceSetupDurationMax": {
+    "description": "Validation message shown on a service-setup row whose duration exceeds the 480-minute (8-hour) maximum — used both by the client-side guard and when the backend returns a durationMinutes max-constraint error."
+  },
   "serviceSetupDurationLabel": "Тривалість",
   "@serviceSetupDurationLabel": {
     "description": "Label for the per-row duration (minutes) field on the service-setup screen."
@@ -2364,9 +2550,13 @@
   "@locationTitle": {
     "description": "Top-bar title of the location edit page."
   },
-  "locationSubheading": "Де вас знайти клієнтам",
+  "locationSubheading": "Оберіть свою локацію, щоб ми могли показувати Вам майстрів у цьому місті",
   "@locationSubheading": {
     "description": "Subheading on the location edit page."
+  },
+  "masterLocationSubheading": "Вкажіть Ваше розташування, щоб клієнтам було зручно Вас знайти у пошуку",
+  "@masterLocationSubheading": {
+    "description": "Subheading on the independent master location edit page, explaining that the location is used for client search."
   },
   "accountTitle": "Акаунт",
   "@accountTitle": {
@@ -2395,5 +2585,2115 @@
   "accountNotificationsSubtitle": "Push про нові записи та зміни",
   "@accountNotificationsSubtitle": {
     "description": "Account page notifications toggle row subtitle."
+  },
+
+  "discreteTimesSegmentInterval": "Інтервал",
+  "@discreteTimesSegmentInterval": {
+    "description": "Label for the 'interval' segment of the weekday mode toggle in the weekly editor and day-override sheet (Phase 15.8)."
+  },
+  "discreteTimesSegmentExplicit": "Окремі години",
+  "@discreteTimesSegmentExplicit": {
+    "description": "Label for the 'explicit times' segment of the weekday mode toggle in the weekly editor and day-override sheet (Phase 15.8)."
+  },
+  "discreteTimesModeSemantic": "Тип годин",
+  "@discreteTimesModeSemantic": {
+    "description": "Accessibility group label for the interval / explicit-times mode toggle in the weekly editor day card (Phase 15.8)."
+  },
+  "discreteTimesAddTime": "Додати час",
+  "@discreteTimesAddTime": {
+    "description": "Action button label that opens the wheel time picker to add a discrete bookable start time (Phase 15.8)."
+  },
+  "discreteTimesPickerTitle": "Час запису",
+  "@discreteTimesPickerTitle": {
+    "description": "Title shown at the top of the wheel time picker sheet when adding a discrete start time (Phase 15.8)."
+  },
+  "discreteTimesWindowLabel": "Вікно:",
+  "@discreteTimesWindowLabel": {
+    "description": "Prefix label shown before the derived min–max window range when at least one discrete time is present (Phase 15.8). Example: 'Вікно:  09:00 – 15:00'."
+  },
+  "discreteTimesRemoveSemantic": "Видалити час {time}",
+  "@discreteTimesRemoveSemantic": {
+    "description": "Accessibility label for the remove (✕) button on a discrete-time chip. {time} is the formatted 'HH:MM' time being removed (Phase 15.8).",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "discreteTimesErrEmpty": "Додайте хоча б один час для робочого дня",
+  "@discreteTimesErrEmpty": {
+    "description": "Inline validation error shown when a working EXPLICIT_TIMES day has zero discrete times — blocks the Save action (Phase 15.8)."
+  },
+  "discreteTimesDuplicateMessage": "Цей час вже додано",
+  "@discreteTimesDuplicateMessage": {
+    "description": "Transient inline info message shown for ~2.5 s when the user picks a time that already exists in the discrete list. Nothing is mutated (Phase 15.8)."
+  },
+  "scheduleDiscreteTimesTitle": "Час прийому",
+  "@scheduleDiscreteTimesTitle": {
+    "description": "Heading shown above the read-only discrete start-time chips for an EXPLICIT_TIMES day on the master calendar (Phase 15.9)."
+  },
+  "scheduleDiscreteTimesSemantic": "Час прийому: {times}",
+  "@scheduleDiscreteTimesSemantic": {
+    "description": "Accessibility label collapsing the read-only discrete start-time chips into one announcement for an EXPLICIT_TIMES day (Phase 15.9). {times} is the comma-separated list of HH:MM times.",
+    "placeholders": {
+      "times": {
+        "type": "String"
+      }
+    }
+  },
+  "scheduleDiscreteTimesWindowSummary": "Запис можливий в години: {times}",
+  "@scheduleDiscreteTimesWindowSummary": {
+    "description": "Summary line for an EXPLICIT_TIMES day enumerating the discrete bookable start times instead of a misleading min–max window. Used on both the schedule editor and the read-only day panel. {times} is the comma-separated list of HH:MM times.",
+    "placeholders": {
+      "times": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHubHelp": "Допомога / Напишіть нам",
+  "@settingsHubHelp": {
+    "description": "Label for the Help / Contact-us row in the master settings hub; navigates to the support-contact screen."
+  },
+  "contactSupportTitle": "Напишіть нам",
+  "@contactSupportTitle": {
+    "description": "App-bar title of the support / contact-us screen."
+  },
+  "contactSupportBack": "Назад",
+  "@contactSupportBack": {
+    "description": "Accessibility label for the back button on the support-contact screen."
+  },
+  "contactSupportIntroTitle": "Чим можемо допомогти?",
+  "@contactSupportIntroTitle": {
+    "description": "Heading of the intro card on the support-contact screen."
+  },
+  "contactSupportIntroBody": "Опишіть питання або запит — наша команда відповість на вашу електронну пошту.",
+  "@contactSupportIntroBody": {
+    "description": "Body text of the intro card on the support-contact screen."
+  },
+  "contactSupportSubjectLabel": "Тема (необов’язково)",
+  "@contactSupportSubjectLabel": {
+    "description": "Label for the optional subject field on the support-contact screen."
+  },
+  "contactSupportSubjectHint": "Коротко про що звернення",
+  "@contactSupportSubjectHint": {
+    "description": "Placeholder hint for the optional subject field on the support-contact screen."
+  },
+  "contactSupportMessageLabel": "Повідомлення",
+  "@contactSupportMessageLabel": {
+    "description": "Label for the required message field on the support-contact screen."
+  },
+  "contactSupportMessageHint": "Опишіть проблему або запит якомога детальніше — що ви робили, що очікували й що сталося.",
+  "@contactSupportMessageHint": {
+    "description": "Placeholder hint for the required message field on the support-contact screen."
+  },
+  "contactSupportMessageHelper": "Від {min} символів",
+  "@contactSupportMessageHelper": {
+    "description": "Helper text under the message field stating the minimum character count.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "contactSupportAttachmentsLabel": "Вкладення",
+  "@contactSupportAttachmentsLabel": {
+    "description": "Label above the attachment tray on the support-contact screen."
+  },
+  "contactSupportAttachmentsHint": "До {max} файлів · JPEG, PNG, WEBP або PDF · разом до 5 МБ",
+  "@contactSupportAttachmentsHint": {
+    "description": "Caption under the attachment tray describing the file count, allowed types, and total size limit.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "contactSupportAddAttachment": "Додати файл",
+  "@contactSupportAddAttachment": {
+    "description": "Title of the add-attachment tile and its accessibility label."
+  },
+  "contactSupportAddAttachmentSubtitle": "Фото проблеми або документ",
+  "@contactSupportAddAttachmentSubtitle": {
+    "description": "Subtitle of the add-attachment tile when more files can be added."
+  },
+  "contactSupportAttachmentsLimitReached": "Досягнуто ліміт у 5 файлів",
+  "@contactSupportAttachmentsLimitReached": {
+    "description": "Subtitle of the add-attachment tile when the 5-file limit has been reached (tile disabled)."
+  },
+  "contactSupportRemoveAttachment": "Видалити {name}",
+  "@contactSupportRemoveAttachment": {
+    "description": "Accessibility label for the remove control on an attachment chip.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "скрін.png"
+      }
+    }
+  },
+  "contactSupportKindImage": "Зображення",
+  "@contactSupportKindImage": {
+    "description": "Type label shown on an image attachment chip."
+  },
+  "contactSupportKindPdf": "PDF",
+  "@contactSupportKindPdf": {
+    "description": "Type label shown on a PDF attachment chip."
+  },
+  "contactSupportSizeMeterUsed": "{used} / 5 МБ використано",
+  "@contactSupportSizeMeterUsed": {
+    "description": "Caption under the attachment size meter showing used vs total budget.",
+    "placeholders": {
+      "used": {
+        "type": "String",
+        "example": "1.3 МБ"
+      }
+    }
+  },
+  "contactSupportSizeMeterOver": "Перевищено ліміт 5 МБ — приберіть один файл",
+  "@contactSupportSizeMeterOver": {
+    "description": "Caption under the attachment size meter when the 5 MB total budget is exceeded."
+  },
+  "contactSupportSend": "Надіслати",
+  "@contactSupportSend": {
+    "description": "Primary CTA label on the support-contact screen."
+  },
+  "contactSupportDone": "Готово",
+  "@contactSupportDone": {
+    "description": "CTA label on the support-contact success card that dismisses the screen."
+  },
+  "contactSupportSuccessTitle": "Дякуємо!",
+  "@contactSupportSuccessTitle": {
+    "description": "Headline of the support-contact success card."
+  },
+  "contactSupportSuccessBody": "Ми отримали ваше звернення й відповімо на",
+  "@contactSupportSuccessBody": {
+    "description": "Body of the success card, preceding the user's email address."
+  },
+  "contactSupportSuccessBodyNoEmail": "Ми отримали ваше звернення й невдовзі відповімо вам.",
+  "@contactSupportSuccessBodyNoEmail": {
+    "description": "Body of the success card when no reply email is available to display."
+  },
+  "contactSupportErrMessageEmpty": "Опишіть, будь ласка, ваше питання",
+  "@contactSupportErrMessageEmpty": {
+    "description": "Inline error under the message field when it is empty on submit."
+  },
+  "contactSupportErrMessageTooShort": "Замало символів — мінімум {min}",
+  "@contactSupportErrMessageTooShort": {
+    "description": "Inline error under the message field when it is below the minimum length.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "contactSupportErrTooManyFiles": "Можна додати щонайбільше {max} файлів",
+  "@contactSupportErrTooManyFiles": {
+    "description": "Error shown when the user tries to add more than the maximum number of attachments.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "contactSupportErrFileTooBig": "Файл завеликий — максимум 5 МБ на файл",
+  "@contactSupportErrFileTooBig": {
+    "description": "Error shown when a single picked attachment exceeds the 5 MB per-file limit."
+  },
+  "contactSupportErrTotalTooBig": "Вкладення завеликі — разом до 5 МБ",
+  "@contactSupportErrTotalTooBig": {
+    "description": "Error shown when the combined attachment size exceeds the 5 MB total limit (also mapped from a 413 response)."
+  },
+  "contactSupportErrWrongType": "Непідтримуваний тип файлу — лише JPEG, PNG, WEBP або PDF",
+  "@contactSupportErrWrongType": {
+    "description": "Error shown when a picked file is not an allowed type."
+  },
+  "contactSupportErrPickFailed": "Не вдалося обрати файл. Спробуйте ще раз.",
+  "@contactSupportErrPickFailed": {
+    "description": "Error shown when the file picker fails or returns no data."
+  },
+  "contactSupportErrUnavailable": "Підтримка тимчасово недоступна. Спробуйте, будь ласка, пізніше.",
+  "@contactSupportErrUnavailable": {
+    "description": "Error shown when the backend support channel is not configured (503)."
+  },
+
+  "homeHubChangePhotoLabel": "Змінити фото",
+  "@homeHubChangePhotoLabel": {
+    "description": "Accessibility label for the camera badge on the client avatar in the Home Hub."
+  },
+  "homeHubLocationPlaceholder": "Місто не вказано",
+  "@homeHubLocationPlaceholder": {
+    "description": "Placeholder shown in the profile block when the client has no city set."
+  },
+  "homeHubPhonePlaceholder": "Телефон не вказано",
+  "@homeHubPhonePlaceholder": {
+    "description": "Placeholder shown in the profile block when the client has no phone set."
+  },
+  "homeHubPassportSubtitle": "Твій б'юті-паспорт у Beautica",
+  "@homeHubPassportSubtitle": {
+    "description": "Subtitle under the BEAUTY PASSPORT tile in the stat pills row."
+  },
+  "homeHubMyRating": "Мій рейтинг",
+  "@homeHubMyRating": {
+    "description": "Label for the rating stat tile in the Home Hub stat-pills row. Shows the client's aggregate two-sided rating (★ n.n) or an em-dash when no rating yet."
+  },
+  "homeHubQuickSearch": "Пошук\nмайстрів",
+  "@homeHubQuickSearch": {
+    "description": "Quick-link tile label for master search."
+  },
+  "homeHubQuickFavorites": "Улюблені\nмайстри",
+  "@homeHubQuickFavorites": {
+    "description": "Quick-link tile label for favourite masters."
+  },
+  "homeHubQuickBookings": "Мої\nзаписи",
+  "@homeHubQuickBookings": {
+    "description": "Quick-link tile label for my bookings."
+  },
+  "homeHubNextAppointmentTitle": "Найближчий запис",
+  "@homeHubNextAppointmentTitle": {
+    "description": "Section title for the next upcoming appointment card."
+  },
+  "homeHubNoUpcomingAppointments": "Немає майбутніх записів.",
+  "@homeHubNoUpcomingAppointments": {
+    "description": "Empty-state message in the next appointment card."
+  },
+  "homeHubFindMaster": "Знайти майстра",
+  "@homeHubFindMaster": {
+    "description": "CTA button in the next appointment empty state."
+  },
+  "homeHubRescheduleAppointment": "Перенести",
+  "@homeHubRescheduleAppointment": {
+    "description": "Button label to reschedule the next appointment."
+  },
+  "homeHubCancelAppointment": "Скасувати",
+  "@homeHubCancelAppointment": {
+    "description": "Button label to cancel the next appointment."
+  },
+  "homeHubAddToGoogleCalendar": "Google Календар",
+  "@homeHubAddToGoogleCalendar": {
+    "description": "Accessibility label for the Google Calendar button in the next appointment card."
+  },
+  "homeHubAddToAppleCalendar": "Apple Календар",
+  "@homeHubAddToAppleCalendar": {
+    "description": "Accessibility label for the Apple Calendar button in the next appointment card."
+  },
+  "homeHubFavoriteMastersTitle": "Улюблені майстри",
+  "@homeHubFavoriteMastersTitle": {
+    "description": "Section title for the favourite masters rail."
+  },
+  "homeHubFavoriteMastersSeeAll": "Всі ({count})",
+  "@homeHubFavoriteMastersSeeAll": {
+    "description": "See-all link label for the favourite masters section.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "6"
+      }
+    }
+  },
+  "homeHubFavoriteMastersEmpty": "Ще немає улюблених майстрів.\nТоркніться серця в профілі майстра, щоб зберегти.",
+  "@homeHubFavoriteMastersEmpty": {
+    "description": "Empty-state message in the favourite masters rail."
+  },
+  "homeHubUnlikeMasterLabel": "Прибрати з улюблених",
+  "@homeHubUnlikeMasterLabel": {
+    "description": "Accessibility label for the unlike (heart) button on a favourite master mini-card."
+  },
+  "homeHubTimelineSeeAll": "Вся історія",
+  "@homeHubTimelineSeeAll": {
+    "description": "See-all link label for the BEAUTY TIMELINE section."
+  },
+  "homeHubTimelineEmpty": "Тут зʼявиться історія ваших процедур.",
+  "@homeHubTimelineEmpty": {
+    "description": "Empty-state message in the BEAUTY TIMELINE rail."
+  },
+  "homeHubNotificationsLabel": "Сповіщення",
+  "@homeHubNotificationsLabel": {
+    "description": "Accessibility label for the notification bell button in the Home Hub top bar."
+  },
+  "homeHubMenuLabel": "Меню",
+  "@homeHubMenuLabel": {
+    "description": "Accessibility label for the burger menu button in the Home Hub top bar."
+  },
+  "homeHubProfileLoadError": "Не вдалося завантажити профіль.",
+  "@homeHubProfileLoadError": {
+    "description": "Error message shown in the profile section when profile loading fails."
+  },
+  "homeHubNextApptLoadError": "Не вдалося завантажити найближчий запис.",
+  "@homeHubNextApptLoadError": {
+    "description": "Error message shown in the next appointment section when loading fails."
+  },
+  "homeHubFavoritesLoadError": "Не вдалося завантажити улюблених майстрів.",
+  "@homeHubFavoritesLoadError": {
+    "description": "Error message shown in the favourite masters section when loading fails."
+  },
+  "homeHubTimelineLoadError": "Не вдалося завантажити часову шкалу.",
+  "@homeHubTimelineLoadError": {
+    "description": "Error message shown in the BEAUTY TIMELINE section when loading fails."
+  },
+  "myRatingTitle": "МІЙ РЕЙТИНГ",
+  "@myRatingTitle": {
+    "description": "AppBar title for the My Rating screen (all-caps brand style). Shows the client's aggregate two-sided rating."
+  },
+  "myRatingEmpty": "У вас ще немає рейтингу. Він зʼявиться після завершених записів.",
+  "@myRatingEmpty": {
+    "description": "Empty state message on the My Rating screen when no rating has been assigned yet."
+  },
+  "myRatingExplanation": "Ваш рейтинг формується на основі оцінок майстрів і салонів після завершених процедур.",
+  "@myRatingExplanation": {
+    "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
+  },
+  "passportColumnProcedures": "Улюблені процедури",
+  "@passportColumnProcedures": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
+  },
+  "passportColumnDistricts": "Улюблені райони",
+  "@passportColumnDistricts": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's second column (auto-derived top-3 most-visited districts)."
+  },
+  "passportColumnBudget": "Бюджет",
+  "@passportColumnBudget": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
+  },
+  "passportBudgetCeiling": "до {max} ₴",
+  "@passportBudgetCeiling": {
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "passportBudgetUnknown": "—",
+  "@passportBudgetUnknown": {
+    "description": "Budget value chip placeholder on the BEAUTY PASSPORT card when there is no spend history yet."
+  },
+  "passportReviewsLeft": "{count, plural, =0{Жодного відгуку залишено} =1{1 відгук залишено} few{{count} відгуки залишено} many{{count} відгуків залишено} other{{count} відгуків залишено}}",
+  "@passportReviewsLeft": {
+    "description": "Footer standing line on the BEAUTY PASSPORT card — how many reviews the client has left.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "passportMemberSince": "Користувач з {year}",
+  "@passportMemberSince": {
+    "description": "Footer subtitle on the BEAUTY PASSPORT card — the year the client joined Beautica.",
+    "placeholders": {
+      "year": {
+        "type": "String",
+        "example": "2024"
+      }
+    }
+  },
+  "passportEmptyTitle": "Твій паспорт ще порожній",
+  "@passportEmptyTitle": {
+    "description": "Heading of the empty BEAUTY PASSPORT state, shown when the client has no completed bookings yet."
+  },
+  "passportEmptyBody": "Запишись на першу процедуру — і Beautica почне збирати твої улюблені послуги, райони та бюджет.",
+  "@passportEmptyBody": {
+    "description": "Body copy of the empty BEAUTY PASSPORT state inviting the client to book their first service."
+  },
+  "passportEmptyCta": "Знайти майстра",
+  "@passportEmptyCta": {
+    "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
+  },
+  "searchTitle": "Пошук",
+  "@searchTitle": {
+    "description": "Title of the CLIENT Пошук (Search) filters screen — the elevated center bottom-nav tab."
+  },
+  "searchFieldHint": "Пошук майстра або послуги",
+  "@searchFieldHint": {
+    "description": "Placeholder text in the free-text search field on the Пошук screen."
+  },
+  "searchCityLabel": "Місто",
+  "@searchCityLabel": {
+    "description": "Label above the city-select row on the Пошук screen."
+  },
+  "searchCityPlaceholder": "Оберіть місто",
+  "@searchCityPlaceholder": {
+    "description": "Placeholder shown in the city-select row before a city is chosen."
+  },
+  "searchRegionLabel": "Регіон",
+  "@searchRegionLabel": {
+    "description": "Label above the region (oblast) select row on the Пошук screen."
+  },
+  "searchRegionPlaceholder": "Оберіть регіон",
+  "@searchRegionPlaceholder": {
+    "description": "Placeholder shown in the region-select row before a region is chosen."
+  },
+  "searchCityDisabledHint": "Спочатку оберіть регіон",
+  "@searchCityDisabledHint": {
+    "description": "Helper line under the disabled city row prompting the user to pick a region first."
+  },
+  "searchCityRequiredHint": "Оберіть місто, щоб продовжити",
+  "@searchCityRequiredHint": {
+    "description": "Helper line under the city row when a region is chosen but no city yet; the search CTA is disabled until a city is picked (region alone is not a searchable scope)."
+  },
+  "searchDistrictLabel": "Район",
+  "@searchDistrictLabel": {
+    "description": "Label above the optional district select row on the Пошук screen."
+  },
+  "searchDistrictPlaceholder": "Оберіть район (необов'язково)",
+  "@searchDistrictPlaceholder": {
+    "description": "Placeholder shown in the district-select row before a district is chosen; signals the field is optional."
+  },
+  "searchDistrictDisabledHint": "Спочатку оберіть місто",
+  "@searchDistrictDisabledHint": {
+    "description": "Helper line under the disabled district row prompting the user to pick a city first."
+  },
+  "searchDistrictNoneHint": "У цьому місті немає районів",
+  "@searchDistrictNoneHint": {
+    "description": "Helper line under the disabled district row when the chosen city has no districts."
+  },
+  "searchServiceTypeLabel": "Вид послуги",
+  "@searchServiceTypeLabel": {
+    "description": "Label above the service-type tile grid on the Пошук screen."
+  },
+  "searchCategoryLabel": "Категорія",
+  "@searchCategoryLabel": {
+    "description": "Section label above the horizontal category rail on the Пошук screen (Variant A)."
+  },
+  "searchServicesDrawerLabel": "Послуги · {category}",
+  "@searchServicesDrawerLabel": {
+    "description": "Label above the service-chip drawer, showing the selected category's services.",
+    "placeholders": {
+      "category": {
+        "type": "String",
+        "example": "Волосся"
+      }
+    }
+  },
+  "searchServicesSelectedCount": "Обрано {count}",
+  "@searchServicesSelectedCount": {
+    "description": "Badge beside the service-chip drawer label showing how many services are currently selected.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "searchServicesFilterChip": "{count, plural, =1{{count} послуга} few{{count} послуги} many{{count} послуг} other{{count} послуги}}",
+  "@searchServicesFilterChip": {
+    "description": "Applied-filter chip on the results screen summarising how many per-service filters are active (the slugs have no display label there, so a count is shown).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "searchCategoriesLoadError": "Не вдалося завантажити категорії",
+  "@searchCategoriesLoadError": {
+    "description": "Inline error shown when the service-category list fails to load in the Пошук grid."
+  },
+  "searchServicesLoadError": "Не вдалося завантажити послуги",
+  "@searchServicesLoadError": {
+    "description": "Inline error shown when the per-category service list fails to load in the Пошук service-chip drawer."
+  },
+  "searchCategoriesEmpty": "Категорії поки недоступні",
+  "@searchCategoriesEmpty": {
+    "description": "Shown in place of the service-type grid when the backend returns no approved categories."
+  },
+  "searchPriceLabel": "Вартість послуги",
+  "@searchPriceLabel": {
+    "description": "Label above the price slider on the Пошук screen."
+  },
+  "searchPriceUpTo": "до {price} ₴",
+  "@searchPriceUpTo": {
+    "description": "Live readout of the selected price ceiling on the Пошук slider.",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchPriceAny": "будь-яка",
+  "@searchPriceAny": {
+    "description": "Price readout when the slider is at the ceiling — no upper price bound."
+  },
+  "searchPriceMin": "0 ₴",
+  "@searchPriceMin": {
+    "description": "Left end label under the price slider (minimum)."
+  },
+  "searchPriceMax": "20000+ ₴",
+  "@searchPriceMax": {
+    "description": "Right end label under the price slider (ceiling and above)."
+  },
+  "searchPriceFrom": "від {price} ₴",
+  "@searchPriceFrom": {
+    "description": "Price readout fragment for the lower bound when only a minimum is set (no upper bound).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "300"
+      }
+    }
+  },
+  "searchPriceRange": "від {min} до {max} ₴",
+  "@searchPriceRange": {
+    "description": "Price readout when both a minimum and a maximum bound are set.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "300"
+      },
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchPriceMinFieldLabel": "Від",
+  "@searchPriceMinFieldLabel": {
+    "description": "Caption above the minimum-price numeric input field."
+  },
+  "searchPriceMaxFieldLabel": "До",
+  "@searchPriceMaxFieldLabel": {
+    "description": "Caption above the maximum-price numeric input field."
+  },
+  "searchPriceMinFieldHint": "0",
+  "@searchPriceMinFieldHint": {
+    "description": "Placeholder hint inside the minimum-price numeric input field (no lower bound)."
+  },
+  "searchPriceMaxFieldHint": "20000",
+  "@searchPriceMaxFieldHint": {
+    "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
+  },
+  "searchPriceCurrencySuffix": "₴",
+  "@searchPriceCurrencySuffix": {
+    "description": "Inline currency suffix (UAH) shown inside the min/max price input fields."
+  },
+  "searchCtaShowMasters": "Показати майстрів",
+  "@searchCtaShowMasters": {
+    "description": "Primary CTA on the Пошук screen — runs the search and opens the results screen."
+  },
+  "searchClearFilters": "Скинути фільтри",
+  "@searchClearFilters": {
+    "description": "Secondary reset action on the Пошук screen — clears category, service, price and query filters back to the prefilled baseline while keeping the location prefilled from the client's saved profile. Shown only when at least one clearable filter is active."
+  },
+  "searchResultsTitle": "Результати",
+  "@searchResultsTitle": {
+    "description": "App-bar title of the discovery results screen."
+  },
+  "searchResultsComingSoon": "Список майстрів з'явиться тут найближчим часом.",
+  "@searchResultsComingSoon": {
+    "description": "Placeholder copy on the discovery results screen until the real paged list ships."
+  },
+  "searchResultsBack": "Назад",
+  "@searchResultsBack": {
+    "description": "Accessibility label for the back button on the discovery results screen (returns to the filters screen)."
+  },
+  "searchResultsOpenFilters": "Змінити фільтри",
+  "@searchResultsOpenFilters": {
+    "description": "Accessibility label for the filter icon in the results screen top bar — re-opens the search filter controls."
+  },
+  "searchResultsActiveFilters": "{count, plural, =1{{count} активний фільтр} few{{count} активні фільтри} many{{count} активних фільтрів} other{{count} активних фільтри}}",
+  "@searchResultsActiveFilters": {
+    "description": "Accessibility label announcing how many filter facets are currently active, read next to the «(N)» badge on the results top-bar filter icon.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "searchResultsEmptyTitle": "Нічого не знайдено",
+  "@searchResultsEmptyTitle": {
+    "description": "Title of the empty state on the discovery results screen when no master or salon matches the filters."
+  },
+  "searchResultsEditFilters": "Змінити фільтри",
+  "@searchResultsEditFilters": {
+    "description": "Button on the empty results state that re-opens the search filter controls."
+  },
+  "searchResultPriceRange": "{min}–{max} ₴",
+  "@searchResultPriceRange": {
+    "description": "Price range shown on a salon result card (lower–upper bound).",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "400"
+      },
+      "max": {
+        "type": "int",
+        "example": "1200"
+      }
+    }
+  },
+  "searchResultPriceExact": "{price} ₴",
+  "@searchResultPriceExact": {
+    "description": "Single fixed price on a result card — shown WITHOUT the «від» prefix when the lower and upper price bounds are equal (one fixed price).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchResultReviewCount": "{count, plural, =1{({count} відгук)} few{({count} відгуки)} many{({count} відгуків)} other{({count} відгуків)}}",
+  "@searchResultReviewCount": {
+    "description": "Parenthesised review count beside a master card's star rating.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "searchResultNoReviews": "Без відгуків",
+  "@searchResultNoReviews": {
+    "description": "Shown in place of the star rating on a master card that has no reviews yet."
+  },
+  "searchResultMasterFallbackName": "Майстер",
+  "@searchResultMasterFallbackName": {
+    "description": "Fallback name on a master result card when the backend sends neither first nor last name."
+  },
+  "searchResultSalonFallbackName": "Салон",
+  "@searchResultSalonFallbackName": {
+    "description": "Fallback name on a salon result card when the backend sends no salon name."
+  },
+  "searchResultClearFilter": "Прибрати фільтр {label}",
+  "@searchResultClearFilter": {
+    "description": "Accessibility label for the «×» on an applied-filter chip (clears that filter).",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Львів"
+      }
+    }
+  },
+  "favoriteAddLabel": "Додати в обране",
+  "@favoriteAddLabel": {
+    "description": "Accessibility label for the favourite heart when the item is NOT yet favourited (tapping adds it)."
+  },
+  "favoriteRemoveLabel": "Прибрати з обраного",
+  "@favoriteRemoveLabel": {
+    "description": "Accessibility label for the favourite heart when the item IS favourited (tapping removes it)."
+  },
+  "searchSortButtonLabel": "Сортування",
+  "@searchSortButtonLabel": {
+    "description": "Accessibility label for the sort button in the results top bar (opens the sort options sheet)."
+  },
+  "searchSortSheetTitle": "Сортування",
+  "@searchSortSheetTitle": {
+    "description": "Title of the bottom sheet listing the result sort options."
+  },
+  "searchSortRatingDesc": "За рейтингом",
+  "@searchSortRatingDesc": {
+    "description": "Sort option: highest average rating first (the default ordering)."
+  },
+  "searchSortPriceAsc": "Спочатку дешевші",
+  "@searchSortPriceAsc": {
+    "description": "Sort option: cheapest effective price first."
+  },
+  "searchSortPriceDesc": "Спочатку дорожчі",
+  "@searchSortPriceDesc": {
+    "description": "Sort option: most expensive effective price first."
+  },
+  "searchSortReviewsDesc": "За кількістю відгуків",
+  "@searchSortReviewsDesc": {
+    "description": "Sort option: most-reviewed first."
+  },
+  "searchSortOptionSelected": "{label}, обрано",
+  "@searchSortOptionSelected": {
+    "description": "Accessibility label appended to the currently-selected sort row.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "За рейтингом"
+      }
+    }
+  },
+  "searchResultServices": "{names}",
+  "@searchResultServices": {
+    "description": "Joined preview of a master's top service names on the result card (e.g. «Манікюр · Педикюр»). Already joined by the widget; passed through for an a11y-friendly key.",
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "Манікюр · Педикюр"
+      }
+    }
+  },
+  "publicMasterProfileTitle": "Профіль майстра",
+  "@publicMasterProfileTitle": {
+    "description": "App-bar title on the CLIENT-facing public master profile (Phase 13.5)."
+  },
+  "publicMasterReviewsTitle": "Відгуки майстра",
+  "@publicMasterReviewsTitle": {
+    "description": "App-bar title on the CLIENT-facing public master reviews screen, reached from the public profile's reviews stat tile."
+  },
+  "publicMasterBioLabel": "Про майстра",
+  "@publicMasterBioLabel": {
+    "description": "Section label above the bio on the public master profile (about the master, not self)."
+  },
+  "publicMasterExperienceLabel": "Досвід",
+  "@publicMasterExperienceLabel": {
+    "description": "Caption of the experience/tenure stat tile on the public master profile."
+  },
+  "publicMasterProfileCategorySemantics": "Категорія {category}, {count} послуг",
+  "@publicMasterProfileCategorySemantics": {
+    "description": "Accessibility label for a read-only service-category card on the CLIENT-facing public master profile: announces the category name and how many services it contains. Unlike masterProfileCategorySemantics this card is not tappable, so the label omits any navigation phrase.",
+    "placeholders": {
+      "category": { "type": "String" },
+      "count": { "type": "int" }
+    }
+  },
+  "publicMasterBookingSectionLabel": "Послуги та ціни",
+  "@publicMasterBookingSectionLabel": {
+    "description": "Title of the pinned booking shelf on the public master profile."
+  },
+  "publicMasterBookingEmptyPrompt": "Оберіть послугу",
+  "@publicMasterBookingEmptyPrompt": {
+    "description": "Empty-state prompt inside the booking shelf before any service is chosen."
+  },
+  "publicMasterBookingCta": "Записатись до майстра",
+  "@publicMasterBookingCta": {
+    "description": "Primary CTA in the booking shelf empty state; opens the Phase 14.1 booking flow."
+  },
+  "bookingNewPlaceholderTitle": "Бронювання",
+  "@bookingNewPlaceholderTitle": {
+    "description": "Title of the Phase 14.1 booking-confirmation placeholder screen (/booking/confirm, replaced by the real screen in Phase 14.2)."
+  },
+  "bookingNewPlaceholderBlurb": "Онлайн-запис до майстра скоро буде доступний.",
+  "@bookingNewPlaceholderBlurb": {
+    "description": "Body copy of the Phase 14.1 booking-confirmation placeholder screen."
+  },
+  "bookingServiceSelectTitle": "Оберіть послуги",
+  "@bookingServiceSelectTitle": {
+    "description": "Top-bar title of the booking Step 1 service-selection screen."
+  },
+  "bookingServiceSelectIntro": "Оберіть послуги на які бажаєте записатись.",
+  "@bookingServiceSelectIntro": {
+    "description": "One-line intro under the top bar on the booking Step 1 service-selection screen."
+  },
+  "bookingMasterStripLabel": "Запис до майстра",
+  "@bookingMasterStripLabel": {
+    "description": "Small caption line above the master's name on the booking-flow MasterStrip context card."
+  },
+  "bookingMasterStripSemantics": "Запис до майстра: {name}, {role}",
+  "@bookingMasterStripSemantics": {
+    "description": "Accessibility label for the booking-flow MasterStrip context card.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "role": { "type": "String" }
+    }
+  },
+  "bookingCategoryExpandedState": "розгорнуто",
+  "@bookingCategoryExpandedState": {
+    "description": "Accessibility state word appended to a booking service-category header's label when its section is expanded."
+  },
+  "bookingCategoryCollapsedState": "згорнуто",
+  "@bookingCategoryCollapsedState": {
+    "description": "Accessibility state word appended to a booking service-category header's label when its section is collapsed."
+  },
+  "bookingServiceTileSemantics": "{name}, {duration}, {price}",
+  "@bookingServiceTileSemantics": {
+    "description": "Accessibility label for a selectable service row / summary entry on the booking service-selection and slot-picker screens.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "duration": { "type": "String" },
+      "price": { "type": "String" }
+    }
+  },
+  "bookingServiceTileSemanticsNoPrice": "{name}, {duration}",
+  "@bookingServiceTileSemanticsNoPrice": {
+    "description": "Price-less variant of bookingServiceTileSemantics. Used on «Деталі запису» for a cancelled / declined / missed booking, where the price is suppressed visually (Booking.showsPrice == false) and so must not be announced either — the accessibility tree must state exactly what the visual tree states.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "duration": { "type": "String" }
+    }
+  },
+  "bookingTotalLabel": "Разом",
+  "@bookingTotalLabel": {
+    "description": "Label of the pinned total-price row on the booking summary shelf."
+  },
+  "bookingEmptySelectionPrompt": "Оберіть хоча б одну послугу",
+  "@bookingEmptySelectionPrompt": {
+    "description": "Muted prompt shown on the booking summary shelf before any service is selected."
+  },
+  "bookingSummaryExpandLabel": "Показати обрані послуги",
+  "@bookingSummaryExpandLabel": {
+    "description": "Accessibility label for the booking summary shelf's expand/collapse toggle when the itemized selected-service list is currently hidden."
+  },
+  "bookingSummaryCollapseLabel": "Приховати обрані послуги",
+  "@bookingSummaryCollapseLabel": {
+    "description": "Accessibility label for the booking summary shelf's expand/collapse toggle when the itemized selected-service list is currently shown."
+  },
+  "bookingNextCta": "Далі",
+  "@bookingNextCta": {
+    "description": "Primary CTA on the booking service-selection and date-picker screens; advances to the next booking step."
+  },
+  "bookingConfirmCta": "Підтвердити",
+  "@bookingConfirmCta": {
+    "description": "Primary CTA on the booking time-picker screen; advances to the booking-confirmation step."
+  },
+  "bookingChosenWindowLabel": "Запис:",
+  "@bookingChosenWindowLabel": {
+    "description": "Prefix label before the chosen appointment window on the booking time-picker summary shelf."
+  },
+  "bookingChosenWindowSemantics": "Обраний час запису: {label}",
+  "@bookingChosenWindowSemantics": {
+    "description": "Accessibility label for the chosen appointment-window block once a slot is selected.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "bookingRemoveServiceSemantics": "Прибрати «{serviceName}» зі списку",
+  "@bookingRemoveServiceSemantics": {
+    "description": "Accessibility label for the per-item remove ('x') control on an itemized selected-service entry in the booking summary shelf.",
+    "placeholders": {
+      "serviceName": { "type": "String" }
+    }
+  },
+  "bookingDateScreenTitle": "Оберіть дату",
+  "@bookingDateScreenTitle": {
+    "description": "Top-bar title of the booking Step 2a date-picker screen."
+  },
+  "bookingCalendarPrevMonth": "Попередній місяць",
+  "@bookingCalendarPrevMonth": {
+    "description": "Accessibility label for the calendar's previous-month paging chevron."
+  },
+  "bookingCalendarNextMonth": "Наступний місяць",
+  "@bookingCalendarNextMonth": {
+    "description": "Accessibility label for the calendar's next-month paging chevron."
+  },
+  "bookingDayAvailableState": "є вільні слоти",
+  "@bookingDayAvailableState": {
+    "description": "Accessibility state word for a tappable (available) calendar day cell."
+  },
+  "bookingDayUnavailableState": "немає вільних слотів",
+  "@bookingDayUnavailableState": {
+    "description": "Accessibility state word for an untappable (unavailable) calendar day cell; also shown as the time screen's fallback message when the slots fetch itself fails."
+  },
+  "bookingNoSlotsTitle": "Немає вільного часу",
+  "@bookingNoSlotsTitle": {
+    "description": "Empty-state heading on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
+  },
+  "bookingNoSlotsMessage": "На цю дату всі години вже заброньовано. Оберіть іншу дату.",
+  "@bookingNoSlotsMessage": {
+    "description": "Empty-state body copy on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
+  },
+  "bookingSelectedState": "обрано",
+  "@bookingSelectedState": {
+    "description": "Accessibility state word shared by the selected calendar day cell and the selected time-slot chip."
+  },
+  "bookingSlotAvailableState": "доступно",
+  "@bookingSlotAvailableState": {
+    "description": "Accessibility state word for an available (unselected) time-slot chip."
+  },
+  "bookingSlotUnavailableState": "недоступно",
+  "@bookingSlotUnavailableState": {
+    "description": "Accessibility state word for an unavailable (untappable) time-slot chip."
+  },
+  "bookingTimeScreenTitle": "Оберіть час",
+  "@bookingTimeScreenTitle": {
+    "description": "Top-bar title of the booking Step 2b time-picker screen."
+  },
+  "bookingTimeScreenBackSemantics": "Назад до вибору дати",
+  "@bookingTimeScreenBackSemantics": {
+    "description": "Accessibility label for the time-picker screen's back button (returns to the date screen)."
+  },
+  "bookingFreeTimeHeading": "Вільний час",
+  "@bookingFreeTimeHeading": {
+    "description": "Section heading above the Ранок/День/Вечір time-slot clusters."
+  },
+  "bookingMorningLabel": "Ранок",
+  "@bookingMorningLabel": {
+    "description": "Sub-label for the morning time-slot cluster."
+  },
+  "bookingAfternoonLabel": "День",
+  "@bookingAfternoonLabel": {
+    "description": "Sub-label for the afternoon time-slot cluster."
+  },
+  "bookingEveningLabel": "Вечір",
+  "@bookingEveningLabel": {
+    "description": "Sub-label for the evening time-slot cluster."
+  },
+  "bookingChangeDateCta": "Змінити",
+  "@bookingChangeDateCta": {
+    "description": "Compact link on the time screen's day-header chip; returns to the date screen."
+  },
+  "bookingDayHeaderSemantics": "Обрана дата: {label}. Запис до майстра: {masterName}, {masterRole}",
+  "@bookingDayHeaderSemantics": {
+    "description": "Accessibility label for the time screen's day-header chip.",
+    "placeholders": {
+      "label": { "type": "String" },
+      "masterName": { "type": "String" },
+      "masterRole": { "type": "String" }
+    }
+  },
+  "bookingConfirmScreenTitle": "Підтвердження",
+  "@bookingConfirmScreenTitle": {
+    "description": "Title of the booking confirmation screen's top bar (Phase 14.2)."
+  },
+  "bookingConfirmBackSemantics": "Скасувати запис",
+  "@bookingConfirmBackSemantics": {
+    "description": "Accessibility label for the booking confirmation screen's back button — cancels the booking flow without submitting."
+  },
+  "bookingAddressLabel": "Адреса",
+  "@bookingAddressLabel": {
+    "description": "Label above the master's address on the booking confirm/success summary card."
+  },
+  "bookingAddressUnknown": "Адресу не вказано",
+  "@bookingAddressUnknown": {
+    "description": "Fallback value shown in place of the address when the master has not entered a street or city."
+  },
+  "bookingDateLabel": "Дата",
+  "@bookingDateLabel": {
+    "description": "Label above the appointment date on the booking confirm/success summary card."
+  },
+  "bookingTimeLabel": "Час",
+  "@bookingTimeLabel": {
+    "description": "Label above the appointment time window on the booking confirm/success summary card."
+  },
+  "bookingServiceLabel": "Послуга",
+  "@bookingServiceLabel": {
+    "description": "Singular label above a single service name — used by the client-booking-conflict dialog's clashing-booking recap."
+  },
+  "bookingMasterLabel": "Майстер",
+  "@bookingMasterLabel": {
+    "description": "Label above a master's display name — used by the client-booking-conflict dialog's clashing-booking recap."
+  },
+  "bookingConflictClientTitle": "У вас вже є запис на цей час",
+  "@bookingConflictClientTitle": {
+    "description": "Title of the modal shown when POST /bookings or PATCH /bookings/{id}/reschedule returns a CLIENT_BOOKING_CONFLICT 409 (ClientBookingConflictFailure)."
+  },
+  "bookingConflictClientSubtitle": "Оберіть інший час, щоб уникнути накладання із записом, який уже заплановано.",
+  "@bookingConflictClientSubtitle": {
+    "description": "Subline under the client-booking-conflict dialog's title, explaining the recommended next step."
+  },
+  "bookingConflictClientPrimaryCta": "Обрати інший час",
+  "@bookingConflictClientPrimaryCta": {
+    "description": "Primary CTA on the client-booking-conflict dialog — dismisses the dialog and signals the confirm screen to navigate back to slot selection."
+  },
+  "bookingConflictClientSecondaryCta": "Залишитись тут",
+  "@bookingConflictClientSecondaryCta": {
+    "description": "Secondary/dismiss CTA on the client-booking-conflict dialog — closes the dialog without navigating, leaving the confirm screen's selection intact."
+  },
+  "bookingServicesRecapLabel": "Послуги",
+  "@bookingServicesRecapLabel": {
+    "description": "Section label above the per-service list on the booking confirm/success summary card."
+  },
+  "bookingTotalSemantics": "Разом {duration} {price}",
+  "@bookingTotalSemantics": {
+    "description": "Accessibility label for the bold «Разом» total row on the booking confirm/success summary card.",
+    "placeholders": {
+      "duration": { "type": "String" },
+      "price": { "type": "String" }
+    }
+  },
+  "bookingTotalSemanticsNoPrice": "Разом {duration}",
+  "@bookingTotalSemanticsNoPrice": {
+    "description": "Price-less variant of bookingTotalSemantics. Used on «Деталі запису» for a cancelled / declined / missed booking, where the «Разом» band is suppressed visually (Booking.showsPrice == false) and so must not be announced either — the accessibility tree must state exactly what the visual tree states.",
+    "placeholders": {
+      "duration": { "type": "String" }
+    }
+  },
+  "bookingCommentLabel": "Коментар для майстра",
+  "@bookingCommentLabel": {
+    "description": "Label above the optional comment field on the booking confirmation screen."
+  },
+  "bookingCommentHint": "Необов'язково",
+  "@bookingCommentHint": {
+    "description": "Hint text inside the empty booking-confirmation comment field."
+  },
+  "bookingSubmitCta": "Записатись",
+  "@bookingSubmitCta": {
+    "description": "Primary CTA on the booking confirmation screen; submits the POST /bookings request."
+  },
+  "bookingSubmitCtaLoading": "Надсилаємо…",
+  "@bookingSubmitCtaLoading": {
+    "description": "Booking confirmation CTA label shown while the POST /bookings request is in flight."
+  },
+  "bookingSummaryMasterSemantics": "Запис до майстра: {name}, {role}. Рейтинг {rating}, {reviews}",
+  "@bookingSummaryMasterSemantics": {
+    "description": "Accessibility label for the master header row on the booking confirmation summary card.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "role": { "type": "String" },
+      "rating": { "type": "String" },
+      "reviews": { "type": "String" }
+    }
+  },
+  "bookingSuccessTitle": "Записано!",
+  "@bookingSuccessTitle": {
+    "description": "Headline on the booking success screen shown after POST /bookings succeeds."
+  },
+  "bookingSuccessSubline": "Майстер підтвердить ваш запис найближчим часом.\nСповіщення надійде, щойно він відповість.",
+  "@bookingSuccessSubline": {
+    "description": "Reassuring subline under the booking success screen's headline."
+  },
+  "bookingSuccessAddCalendarCta": "Додати в календар",
+  "@bookingSuccessAddCalendarCta": {
+    "description": "Tertiary link on the booking success screen; adds the appointment to the device calendar."
+  },
+  "bookingAddCalendarSemantics": "Додати запис у календар",
+  "@bookingAddCalendarSemantics": {
+    "description": "Accessibility label for the «Деталі запису» (booking detail) screen's header «Додати в календар» icon button. Not used by the booking success screen, whose exports are per-appointment and use bookingAddCalendarServiceSemantics instead."
+  },
+  "bookingAddCalendarServiceSemantics": "Додати «{service}» у календар",
+  "@bookingAddCalendarServiceSemantics": {
+    "description": "Accessibility label for a per-appointment «Додати в календар» button on the booking success screen, where several buttons coexist and each must announce which service it adds.",
+    "placeholders": {
+      "service": { "type": "String" }
+    }
+  },
+  "bookingCalendarEventTitle": "{service} · {provider}",
+  "@bookingCalendarEventTitle": {
+    "description": "Title of the OS calendar event created by «Додати в календар» — the booked service and the provider (salon or master) name.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "provider": { "type": "String" }
+    }
+  },
+  "bookingAddToCalendarError": "Не вдалося відкрити календар",
+  "@bookingAddToCalendarError": {
+    "description": "SnackBar shown when «Додати в календар» cannot open a calendar app (no calendar installed or a platform error)."
+  },
+  "bookingCalendarNoteService": "Послуга:",
+  "@bookingCalendarNoteService": {
+    "description": "Label prefixing the service name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteMaster": "Майстер:",
+  "@bookingCalendarNoteMaster": {
+    "description": "Label prefixing an independent master's name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteSalon": "Салон:",
+  "@bookingCalendarNoteSalon": {
+    "description": "Label prefixing a salon's name in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteProvider": "Виконавець:",
+  "@bookingCalendarNoteProvider": {
+    "description": "Neutral provider label in the OS calendar event's structured-facts note block when salon-vs-master is not distinguishable."
+  },
+  "bookingCalendarNoteDateTime": "Дата й час:",
+  "@bookingCalendarNoteDateTime": {
+    "description": "Label prefixing the appointment date and time in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteAddress": "Адреса:",
+  "@bookingCalendarNoteAddress": {
+    "description": "Label prefixing the address in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNotePrice": "Ціна:",
+  "@bookingCalendarNotePrice": {
+    "description": "Label prefixing the price in the OS calendar event's structured-facts note block."
+  },
+  "bookingCalendarNoteStatus": "Статус:",
+  "@bookingCalendarNoteStatus": {
+    "description": "Label prefixing the booking status in the OS calendar event's structured-facts note block."
+  },
+  "bookingSuccessHomeCta": "На головну",
+  "@bookingSuccessHomeCta": {
+    "description": "Sole onward action on the booking success screen; navigates to the client home."
+  },
+  "bookingWhenLabel": "Коли",
+  "@bookingWhenLabel": {
+    "description": "Combined date+time label on the cancel-booking dialog's recap row."
+  },
+  "bookingSalonLabel": "Салон",
+  "@bookingSalonLabel": {
+    "description": "Label for the salon-name row shown on the salon booking confirm, success, and detail summary cards."
+  },
+  "bookingArrivalNoteSemantics": "Як знайти: {text}",
+  "@bookingArrivalNoteSemantics": {
+    "description": "Accessibility label for the provider's arrival-hint line on the booking detail address block.",
+    "placeholders": {
+      "text": { "type": "String" }
+    }
+  },
+  "bookingStatusConfirmed": "Підтверджено",
+  "@bookingStatusConfirmed": {
+    "description": "Booking status badge label — CONFIRMED."
+  },
+  "bookingStatusCompleted": "Виконано",
+  "@bookingStatusCompleted": {
+    "description": "Booking status badge label — COMPLETED."
+  },
+  "bookingStatusNotCompleted": "Візит не відбувся",
+  "@bookingStatusNotCompleted": {
+    "description": "Booking status badge label — NOT_COMPLETED (no-show)."
+  },
+  "bookingStatusCancelled": "Скасовано",
+  "@bookingStatusCancelled": {
+    "description": "Booking status badge label — CANCELLED and DECLINED share one neutral label (the who-cancelled distinction was dropped by product decision 2026-07-15)."
+  },
+  "bookingStatusUnknown": "Статус уточнюється",
+  "@bookingStatusUnknown": {
+    "description": "Booking status badge label — BookingStatus.unknown, a wire status this app build does not recognise. Deliberately says nothing about the appointment's state rather than guessing; the row stays visible and tappable but offers no actions."
+  },
+  "bookingStatusSemantics": "Статус: {label}",
+  "@bookingStatusSemantics": {
+    "description": "Accessibility label for the booking status badge / hero medallion.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "bookingCardSemantics": "{service}, {master}, {date}, {time}. {status}. Відкрити деталі запису",
+  "@bookingCardSemantics": {
+    "description": "Accessibility label for a whole My Bookings card — the card's sole tap target.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "master": { "type": "String" },
+      "date": { "type": "String" },
+      "time": { "type": "String" },
+      "status": { "type": "String" }
+    }
+  },
+  "bookingNoteHeadingYourWishes": "Ваші побажання",
+  "@bookingNoteHeadingYourWishes": {
+    "description": "Heading over the client's own booking-time note on the booking detail screen."
+  },
+  "bookingNoteHeadingYourReason": "Ваша причина",
+  "@bookingNoteHeadingYourReason": {
+    "description": "Heading over the client's own cancellation note on the booking detail screen."
+  },
+  "bookingNoteHeadingProviderComment": "Коментар {genitive}",
+  "@bookingNoteHeadingProviderComment": {
+    "description": "Heading over the provider's note (decline reason or no-show account) on the booking detail screen — {genitive} is «салону» or «майстра».",
+    "placeholders": {
+      "genitive": { "type": "String" }
+    }
+  },
+  "bookingNoteHeadingClientWishes": "Побажання клієнта",
+  "@bookingNoteHeadingClientWishes": {
+    "description": "Heading over the client's booking-time note as the PROVIDER sees it on the booking detail screen — the client's words arriving, not the reader's own."
+  },
+  "bookingNoteHeadingClientReason": "Причина клієнта",
+  "@bookingNoteHeadingClientReason": {
+    "description": "Heading over the client's cancellation note as the PROVIDER sees it on the booking detail screen."
+  },
+  "bookingNoteHeadingYourComment": "Ваш коментар",
+  "@bookingNoteHeadingYourComment": {
+    "description": "Heading over the provider's own note (decline reason or no-show account) as the PROVIDER sees it on the booking detail screen."
+  },
+  "bookingNoteShowMore": "Показати більше",
+  "@bookingNoteShowMore": {
+    "description": "Expand toggle for a clamped booking note."
+  },
+  "bookingNoteShowLess": "Згорнути",
+  "@bookingNoteShowLess": {
+    "description": "Collapse toggle for an expanded booking note."
+  },
+  "bookingNoteSemantics": "{heading}: {text}",
+  "@bookingNoteSemantics": {
+    "description": "Accessibility label for a booking note block (sent or received).",
+    "placeholders": {
+      "heading": { "type": "String" },
+      "text": { "type": "String" }
+    }
+  },
+  "myBookingsTabUpcoming": "Майбутні",
+  "@myBookingsTabUpcoming": {
+    "description": "My Bookings tab label — upcoming (CONFIRMED) bookings."
+  },
+  "myBookingsTabPast": "Минулі",
+  "@myBookingsTabPast": {
+    "description": "My Bookings tab label — past (COMPLETED / NOT_COMPLETED) bookings."
+  },
+  "myBookingsTabCancelled": "Скасовані",
+  "@myBookingsTabCancelled": {
+    "description": "My Bookings tab label — cancelled (CANCELLED / DECLINED) bookings."
+  },
+  "myBookingsEmptyTitle": "Записів поки немає",
+  "@myBookingsEmptyTitle": {
+    "description": "Empty-state title on a My Bookings tab with no rows."
+  },
+  "myBookingsEmptyCta": "Знайти майстра",
+  "@myBookingsEmptyCta": {
+    "description": "Empty-state CTA on a My Bookings tab; navigates to search."
+  },
+  "myBookingsLoadingSemantics": "Завантаження записів",
+  "@myBookingsLoadingSemantics": {
+    "description": "Accessibility live-region label for the My Bookings loading skeleton."
+  },
+  "cancelBookingDialogTitle": "Скасувати запис?",
+  "@cancelBookingDialogTitle": {
+    "description": "Title of the cancel-booking confirmation dialog."
+  },
+  "cancelBookingDialogSubtitle": "Цю дію не можна відмінити.",
+  "@cancelBookingDialogSubtitle": {
+    "description": "Subtitle of the cancel-booking confirmation dialog."
+  },
+  "cancelBookingNoteLabel": "Чому скасовуєте? (необов'язково)",
+  "@cancelBookingNoteLabel": {
+    "description": "Label above the optional cancellation-note field."
+  },
+  "cancelBookingNoteHint": "Напр.: захворіла, перенесла поїздку…",
+  "@cancelBookingNoteHint": {
+    "description": "Placeholder hint text inside the cancellation-note field."
+  },
+  "cancelBookingNoteCounter": "{current} / {max}",
+  "@cancelBookingNoteCounter": {
+    "description": "Live character counter under the cancellation-note field.",
+    "placeholders": {
+      "current": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "cancelBookingConfirmCta": "Так, скасувати",
+  "@cancelBookingConfirmCta": {
+    "description": "Destructive confirm button on the cancel-booking dialog."
+  },
+  "cancelBookingKeepCta": "Не скасовувати",
+  "@cancelBookingKeepCta": {
+    "description": "Safe back-out button on the cancel-booking dialog."
+  },
+  "bookingDetailBackSemantics": "Назад до списку записів",
+  "@bookingDetailBackSemantics": {
+    "description": "Accessibility label for the booking detail screen's back button."
+  },
+  "bookingDetailSublineConfirmed": "Нагадаємо про запис напередодні.",
+  "@bookingDetailSublineConfirmed": {
+    "description": "Booking detail subline — CONFIRMED."
+  },
+  "bookingDetailSublineCompleted": "Візит відбувся. Дякуємо, що обрали Beautica.",
+  "@bookingDetailSublineCompleted": {
+    "description": "Booking detail subline — COMPLETED."
+  },
+  "bookingDetailSublineNotCompleted": "Цей візит не відбувся. Нижче — коментар {genitive}.",
+  "@bookingDetailSublineNotCompleted": {
+    "description": "Booking detail subline — NOT_COMPLETED; {genitive} is «салону» or «майстра».",
+    "placeholders": {
+      "genitive": { "type": "String" }
+    }
+  },
+  "bookingDetailSublineCancelled": "Ви скасували цей запис. Записатись знову можна будь-коли.",
+  "@bookingDetailSublineCancelled": {
+    "description": "Booking detail subline — CANCELLED."
+  },
+  "bookingDetailSublineDeclinedSalon": "Салон скасував цей запис. Причину вказано нижче.",
+  "@bookingDetailSublineDeclinedSalon": {
+    "description": "Booking detail subline — DECLINED at a salon booking."
+  },
+  "bookingDetailSublineDeclinedMaster": "Майстер скасував цей запис. Причину вказано нижче.",
+  "@bookingDetailSublineDeclinedMaster": {
+    "description": "Booking detail subline — DECLINED at an independent-master booking."
+  },
+  "bookingDetailRescheduleCta": "Перенести",
+  "@bookingDetailRescheduleCta": {
+    "description": "Primary pinned action on a CONFIRMED booking's detail screen."
+  },
+  "bookingDetailCancelCta": "Скасувати запис",
+  "@bookingDetailCancelCta": {
+    "description": "Secondary pinned action on a CONFIRMED booking's detail screen; opens the cancel dialog."
+  },
+  "bookingDetailRebookCta": "Записатись знову",
+  "@bookingDetailRebookCta": {
+    "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
+  },
+  "bookingDetailReviewCta": "Залишити відгук про майстра",
+  "@bookingDetailReviewCta": {
+    "description": "Pinned action on a COMPLETED booking's detail screen, shown only when canReview is true; opens the leave-review screen (Phase 14.6)."
+  },
+  "reviewScreenTitle": "ВІДГУК ПРО МАЙСТРА",
+  "@reviewScreenTitle": {
+    "description": "Top-bar title of the leave-review screen (Phase 14.6)."
+  },
+  "reviewBackSemantics": "Назад",
+  "@reviewBackSemantics": {
+    "description": "Accessibility label for the back button on the leave-review screen."
+  },
+  "reviewRatingSection": "ВАША ОЦІНКА",
+  "@reviewRatingSection": {
+    "description": "Section eyebrow above the required star-rating input on the leave-review screen."
+  },
+  "reviewRatingRequiredTag": "обов’язково",
+  "@reviewRatingRequiredTag": {
+    "description": "Small 'required' tag beside the rating section eyebrow on the leave-review screen."
+  },
+  "reviewCommentSection": "ВАШ ВІДГУК",
+  "@reviewCommentSection": {
+    "description": "Section eyebrow above the optional comment field on the leave-review screen."
+  },
+  "reviewCommentOptionalTag": "за бажанням",
+  "@reviewCommentOptionalTag": {
+    "description": "Small 'optional' tag beside the comment section eyebrow on the leave-review screen."
+  },
+  "reviewRatingPrompt": "Торкніться зірки, щоб оцінити",
+  "@reviewRatingPrompt": {
+    "description": "Prompt shown under the stars before any rating is selected on the leave-review screen."
+  },
+  "reviewStarsSemantics": "Оцінка від 1 до 5 зірок",
+  "@reviewStarsSemantics": {
+    "description": "Accessibility label for the 5-star rating input on the leave-review screen."
+  },
+  "reviewRatingLabel1": "Погано",
+  "@reviewRatingLabel1": {
+    "description": "Descriptive label for a 1-star rating on the leave-review screen."
+  },
+  "reviewRatingLabel2": "Так собі",
+  "@reviewRatingLabel2": {
+    "description": "Descriptive label for a 2-star rating on the leave-review screen."
+  },
+  "reviewRatingLabel3": "Нормально",
+  "@reviewRatingLabel3": {
+    "description": "Descriptive label for a 3-star rating on the leave-review screen."
+  },
+  "reviewRatingLabel4": "Добре",
+  "@reviewRatingLabel4": {
+    "description": "Descriptive label for a 4-star rating on the leave-review screen."
+  },
+  "reviewRatingLabel5": "Чудово",
+  "@reviewRatingLabel5": {
+    "description": "Descriptive label for a 5-star rating on the leave-review screen."
+  },
+  "reviewCommentHint": "Розкажіть про свій досвід…",
+  "@reviewCommentHint": {
+    "description": "Placeholder text inside the optional comment field on the leave-review screen."
+  },
+  "reviewSubmitCta": "Залишити відгук",
+  "@reviewSubmitCta": {
+    "description": "Primary submit button on the leave-review screen; disabled until a star is selected."
+  },
+  "reviewSubmitSuccess": "Дякуємо за відгук!",
+  "@reviewSubmitSuccess": {
+    "description": "Snackbar shown after a review is successfully submitted on the leave-review screen."
+  },
+  "reviewUnavailableTitle": "Цей запис недоступний для відгуку",
+  "@reviewUnavailableTitle": {
+    "description": "Title of the info state shown when the booking is not reviewable (e.g. already reviewed) on the leave-review screen."
+  },
+  "reviewUnavailableBody": "Відгук можна залишити лише про завершений запис — і лише один раз. Можливо, ви вже його залишили.",
+  "@reviewUnavailableBody": {
+    "description": "Body copy of the not-reviewable info state on the leave-review screen."
+  },
+  "reviewUnavailableCta": "До моїх записів",
+  "@reviewUnavailableCta": {
+    "description": "Button in the not-reviewable info state that returns to the bookings list."
+  },
+  "reviewErrAlreadyReviewed": "Ви вже залишили відгук про цей запис.",
+  "@reviewErrAlreadyReviewed": {
+    "description": "Error message when POST /reviews returns 409 because a review already exists for the booking."
+  },
+  "reviewErrNotAllowed": "Цей запис недоступний для відгуку.",
+  "@reviewErrNotAllowed": {
+    "description": "Error message when POST /reviews is rejected (403 not owner / 4xx booking not completed) on the leave-review screen."
+  },
+  "reviewMasterRoleIndependent": "Незалежний майстер",
+  "@reviewMasterRoleIndependent": {
+    "description": "Fallback role subtitle on the master feedback card when the master has no professional title and is not salon-employed."
+  },
+  "bookingRescheduleSubmitCta": "Перенести запис",
+  "@bookingRescheduleSubmitCta": {
+    "description": "Primary CTA on the booking confirm screen when the flow is a reschedule (moving an existing booking) rather than a new booking."
+  },
+  "bookingRescheduleSuccessTitle": "Запис перенесено!",
+  "@bookingRescheduleSuccessTitle": {
+    "description": "Title on the booking success screen after a successful reschedule."
+  },
+  "bookingRescheduleSuccessSubline": "Ваш запис перенесено на новий час.\nСповіщення надіслано майстрові.",
+  "@bookingRescheduleSuccessSubline": {
+    "description": "Subline on the booking success screen after a successful reschedule."
+  },
+  "bookingRescheduleUnavailable": "Цей запис не можна перенести.",
+  "@bookingRescheduleUnavailable": {
+    "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
+  },
+  "salonProfileBackLabel": "Назад",
+  "@salonProfileBackLabel": {
+    "description": "Accessibility label for the back control floating over the salon profile cover photo."
+  },
+  "salonCoverSemanticLabel": "Обкладинка салону",
+  "@salonCoverSemanticLabel": {
+    "description": "Accessibility label for the salon profile's cover photo image."
+  },
+  "salonCoverEditPillLabel": "Обкладинка",
+  "@salonCoverEditPillLabel": {
+    "description": "Small pill on the cover photo signalling it is the salon's uploadable cover slot."
+  },
+  "salonLogoSemanticLabel": "Логотип салону",
+  "@salonLogoSemanticLabel": {
+    "description": "Accessibility label for the salon logo monogram on the hero card."
+  },
+  "salonTabAbout": "Про салон",
+  "@salonTabAbout": {
+    "description": "Public salon profile tab label — the salon's blurb."
+  },
+  "salonTabMasters": "Майстри",
+  "@salonTabMasters": {
+    "description": "Public salon profile tab label — the salon's masters rail."
+  },
+  "salonTabServices": "Послуги",
+  "@salonTabServices": {
+    "description": "Public salon profile tab label — the salon's service catalogue."
+  },
+  "salonTabReviews": "Відгуки",
+  "@salonTabReviews": {
+    "description": "Public salon profile tab label — the salon's reviews."
+  },
+  "salonMastersEmpty": "У салоні поки немає майстрів",
+  "@salonMastersEmpty": {
+    "description": "Empty state on the \"Майстри\" tab when the salon has no masters yet."
+  },
+  "salonMastersShowAll": "Показати всіх майстрів",
+  "@salonMastersShowAll": {
+    "description": "Reveal affordance below the masters grid on the \"Майстри\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
+  },
+  "salonMasterFilterChipLabel": "Послуга: {serviceName}",
+  "@salonMasterFilterChipLabel": {
+    "description": "Active-filter chip above the \"Майстри\" grid when a service was picked in the \"Послуги\" tab — the grid then shows only masters who perform this service.",
+    "placeholders": {
+      "serviceName": { "type": "String" }
+    }
+  },
+  "salonMasterFilterClearLabel": "Скинути фільтр послуги",
+  "@salonMasterFilterClearLabel": {
+    "description": "Accessibility label for the ✕ button on the active-service-filter chip; tapping it clears the filter and shows every master again."
+  },
+  "salonMastersForServiceEmpty": "Немає майстрів для цієї послуги",
+  "@salonMastersForServiceEmpty": {
+    "description": "Empty state on the \"Майстри\" tab when a service filter is active but no master in the salon performs the selected service."
+  },
+  "salonServiceFilterSelectHint": "Показати майстрів, які надають цю послугу",
+  "@salonServiceFilterSelectHint": {
+    "description": "Accessibility hint on a selectable service row in the \"Послуги\" tab — tapping it filters the masters grid to those who perform this service."
+  },
+  "salonServiceFilterClearHint": "Скинути вибір послуги",
+  "@salonServiceFilterClearHint": {
+    "description": "Accessibility hint on the currently-selected service row — tapping it clears the service filter."
+  },
+  "salonPortfolioShowAll": "Показати всі фото",
+  "@salonPortfolioShowAll": {
+    "description": "Accessibility label for the trailing '+N' reveal tile appended to the salon portfolio photo rail on the \"Про салон\" tab when the gallery exceeds the initially-rendered batch (kSalonPortfolioInitialCount); tapping it expands the rail to show the rest."
+  },
+  "salonAboutEmpty": "Опис салону поки не додано",
+  "@salonAboutEmpty": {
+    "description": "Empty state on the \"Про салон\" tab when the salon has no description yet."
+  },
+  "salonServicesEmpty": "У салоні поки немає послуг",
+  "@salonServicesEmpty": {
+    "description": "Empty state on the \"Послуги\" tab when the salon has no active services yet."
+  },
+  "salonReviewsEmpty": "У салону ще немає відгуків",
+  "@salonReviewsEmpty": {
+    "description": "Empty state on the \"Відгуки\" tab when the salon has no reviews yet."
+  },
+  "salonBookingCta": "Записатись на послугу",
+  "@salonBookingCta": {
+    "description": "Pinned bottom CTA on the public salon profile."
+  },
+  "salonMasterCardSemanticLabel": "{name}, {role}, рейтинг {rating}",
+  "@salonMasterCardSemanticLabel": {
+    "description": "Accessibility label for one master card in the salon's masters rail.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "role": {
+        "type": "String",
+        "example": "Незалежний майстер"
+      },
+      "rating": {
+        "type": "String",
+        "example": "4.9"
+      }
+    }
+  },
+  "salonReviewCountLabel": "{count, plural, =0{0 відгуків} =1{1 відгук} few{{count} відгуки} many{{count} відгуків} other{{count} відгуків}}",
+  "@salonReviewCountLabel": {
+    "description": "Standalone review-count line under the salon's average rating (no parentheses, unlike searchResultReviewCount).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "salonReviewSortNewest": "Спочатку нові",
+  "@salonReviewSortNewest": {
+    "description": "Salon reviews sort option — newest first."
+  },
+  "salonReviewSortOldest": "Спочатку старі",
+  "@salonReviewSortOldest": {
+    "description": "Salon reviews sort option — oldest first."
+  },
+  "salonReviewSortHighest": "Найвищий рейтинг",
+  "@salonReviewSortHighest": {
+    "description": "Salon reviews sort option — highest rating first."
+  },
+  "salonReviewSortLowest": "Найнижчий рейтинг",
+  "@salonReviewSortLowest": {
+    "description": "Salon reviews sort option — lowest rating first."
+  },
+  "salonReviewSortButtonLabel": "Сортування",
+  "@salonReviewSortButtonLabel": {
+    "description": "Accessibility label for the salon reviews sort icon button."
+  },
+  "salonReviewSortSheetTitle": "Сортування",
+  "@salonReviewSortSheetTitle": {
+    "description": "Title of the salon reviews sort-options bottom sheet."
+  },
+  "masterReviewsTitle": "Мої відгуки",
+  "@masterReviewsTitle": {
+    "description": "App-bar title of the independent-master received-reviews screen."
+  },
+  "masterReviewsEmpty": "Ще немає відгуків",
+  "@masterReviewsEmpty": {
+    "description": "Empty state on the master received-reviews screen when the master has no reviews yet."
+  },
+  "masterReviewCountLabel": "{count, plural, =0{0 відгуків} =1{1 відгук} few{{count} відгуки} many{{count} відгуків} other{{count} відгуків}}",
+  "@masterReviewCountLabel": {
+    "description": "Standalone review-count line under the master's average rating.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "masterReviewSortNewest": "Спочатку нові",
+  "@masterReviewSortNewest": {
+    "description": "Master reviews sort option — newest first."
+  },
+  "masterReviewSortOldest": "Спочатку старі",
+  "@masterReviewSortOldest": {
+    "description": "Master reviews sort option — oldest first."
+  },
+  "masterReviewSortHighest": "Найвищий рейтинг",
+  "@masterReviewSortHighest": {
+    "description": "Master reviews sort option — highest rating first."
+  },
+  "masterReviewSortLowest": "Найнижчий рейтинг",
+  "@masterReviewSortLowest": {
+    "description": "Master reviews sort option — lowest rating first."
+  },
+  "masterReviewSortButtonLabel": "Сортування",
+  "@masterReviewSortButtonLabel": {
+    "description": "Accessibility label for the master reviews sort icon button."
+  },
+  "masterReviewSortSheetTitle": "Сортування",
+  "@masterReviewSortSheetTitle": {
+    "description": "Title of the master reviews sort-options bottom sheet."
+  },
+  "salonServiceCategoryExpanded": "розгорнуто",
+  "@salonServiceCategoryExpanded": {
+    "description": "Accessibility state word appended to a salon service category header when expanded."
+  },
+  "salonServiceCategoryCollapsed": "згорнуто",
+  "@salonServiceCategoryCollapsed": {
+    "description": "Accessibility state word appended to a salon service category header when collapsed."
+  },
+  "salonServiceCategoryHeaderSemanticLabel": "{label}, {count} послуг, {state}",
+  "@salonServiceCategoryHeaderSemanticLabel": {
+    "description": "Accessibility label for a salon service category disclosure header.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Манікюр"
+      },
+      "count": {
+        "type": "int",
+        "example": "3"
+      },
+      "state": {
+        "type": "String",
+        "example": "розгорнуто"
+      }
+    }
+  },
+  "relativeDateToday": "Сьогодні",
+  "@relativeDateToday": {
+    "description": "Relative-date label for a timestamp from earlier today."
+  },
+  "relativeDateYesterday": "Вчора",
+  "@relativeDateYesterday": {
+    "description": "Relative-date label for a timestamp from yesterday."
+  },
+  "relativeDateDaysAgo": "{count, plural, =1{1 день тому} few{{count} дні тому} many{{count} днів тому} other{{count} днів тому}}",
+  "@relativeDateDaysAgo": {
+    "description": "Relative-date label for a timestamp 2-6 days ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "relativeDateWeeksAgo": "{count, plural, =1{тиждень тому} few{{count} тижні тому} many{{count} тижнів тому} other{{count} тижнів тому}}",
+  "@relativeDateWeeksAgo": {
+    "description": "Relative-date label for a timestamp 1-4 weeks ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "relativeDateMonthsAgo": "{count, plural, =1{місяць тому} few{{count} місяці тому} many{{count} місяців тому} other{{count} місяців тому}}",
+  "@relativeDateMonthsAgo": {
+    "description": "Relative-date label for a timestamp 1-11 months ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "relativeDateYearsAgo": "{count, plural, =1{рік тому} few{{count} роки тому} many{{count} років тому} other{{count} років тому}}",
+  "@relativeDateYearsAgo": {
+    "description": "Relative-date label for a timestamp 1+ years ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "salonBookingStepLabel": "Крок {current} з {total}",
+  "@salonBookingStepLabel": {
+    "description": "Step-indicator pill on every screen of the salon booking flow (services → masters → time → confirmation).",
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "4"
+      }
+    }
+  },
+  "salonBookingServicesTitle": "Послуги",
+  "@salonBookingServicesTitle": {
+    "description": "Top bar title on the salon booking flow's service-selection screen (step 1 of 4)."
+  },
+  "salonBookingServicesIntro": "Оберіть послуги — можна кілька, з різних категорій, або всі.",
+  "@salonBookingServicesIntro": {
+    "description": "Intro line under the top bar on the salon booking service-selection screen."
+  },
+  "salonBookingMastersTitle": "Майстри",
+  "@salonBookingMastersTitle": {
+    "description": "Top bar title on the salon booking flow's master-assignment screen (step 2 of 4)."
+  },
+  "salonBookingMastersIntro": "Оберіть майстрів, які виконають обрані послуги. Послуги кожного майстра стануть окремим записом — час оберете далі.",
+  "@salonBookingMastersIntro": {
+    "description": "Intro line under the top bar on the salon booking master-assignment screen."
+  },
+  "salonBookingMastersSectionLabel": "Доступні майстри",
+  "@salonBookingMastersSectionLabel": {
+    "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."
+  },
+  "salonBookingMastersSectionHint": "для обраних послуг",
+  "@salonBookingMastersSectionHint": {
+    "description": "Muted trailing hint next to salonBookingMastersSectionLabel."
+  },
+  "salonMasterCoversLabel": "Виконує: {services}",
+  "@salonMasterCoversLabel": {
+    "description": "Camel sub-line on a master pick row naming which of the client's selected services that master covers.",
+    "placeholders": {
+      "services": {
+        "type": "String",
+        "example": "Манікюр · Педикюр"
+      }
+    }
+  },
+  "salonMasterPickRowSemantics": "{name}, {role}, рейтинг {rating}, виконує {covered}",
+  "@salonMasterPickRowSemantics": {
+    "description": "Accessibility label for one eligible-master row on the salon booking master-assignment screen.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "role": {
+        "type": "String",
+        "example": "Незалежний майстер"
+      },
+      "rating": {
+        "type": "String",
+        "example": "4.9"
+      },
+      "covered": {
+        "type": "String",
+        "example": "Манікюр · Педикюр"
+      }
+    }
+  },
+  "salonBookingGroupingTitle": "Записи за майстрами",
+  "@salonBookingGroupingTitle": {
+    "description": "Card title of the live per-master grouped preview on the salon booking master-assignment screen."
+  },
+  "salonBookingGroupingSubtitle": "Окремий запис у кожного майстра · час оберете далі",
+  "@salonBookingGroupingSubtitle": {
+    "description": "Subtitle under salonBookingGroupingTitle."
+  },
+  "salonBookingGroupingEmptyPrompt": "Оберіть майстрів — послуги згрупуються тут за майстром",
+  "@salonBookingGroupingEmptyPrompt": {
+    "description": "Prompt shown in the per-master grouped preview before any master is picked."
+  },
+  "salonBookingResolverHint": "Розподіліть послуги між майстрами",
+  "@salonBookingResolverHint": {
+    "description": "Heading above the contested-service resolver rows (services more than one picked master can perform)."
+  },
+  "salonBookingChooseMasterHint": "оберіть майстра",
+  "@salonBookingChooseMasterHint": {
+    "description": "Inline hint on an unresolved contested-service resolver row."
+  },
+  "salonBookingUncoveredSemantics": "Оберіть майстра, який виконує {service}",
+  "@salonBookingUncoveredSemantics": {
+    "description": "Accessibility label for a selected service no picked master can perform yet.",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Педикюр"
+      }
+    }
+  },
+  "salonBookingRecordCount": "{count, plural, =0{0 записів} =1{1 запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
+  "@salonBookingRecordCount": {
+    "description": "Appointment-count chip in the per-master grouped preview header.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "salonBookingAllAssignedHint": "Далі оберете час для кожного майстра.",
+  "@salonBookingAllAssignedHint": {
+    "description": "Footer hint on the salon booking master-assignment screen once every selected service has an assigned master."
+  },
+  "salonBookingPartialAssignedHint": "Кілька майстрів — кілька записів в одному салоні.",
+  "@salonBookingPartialAssignedHint": {
+    "description": "Footer hint on the salon booking master-assignment screen while assignment is still incomplete."
+  },
+  "salonBookingAssignedProgress": "{assigned} з {total} призначено",
+  "@salonBookingAssignedProgress": {
+    "description": "Progress line in the pinned assign-confirm bar.",
+    "placeholders": {
+      "assigned": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "salonBookingAllAssignedLabel": "Усе призначено",
+  "@salonBookingAllAssignedLabel": {
+    "description": "Progress line in the pinned assign-confirm bar once every service is assigned."
+  },
+  "salonBookingComingSoonTitle": "Час запису",
+  "@salonBookingComingSoonTitle": {
+    "description": "Top bar title of the salon booking flow's step-4 placeholder screen."
+  },
+  "salonBookingComingSoonMessage": "Вибір часу для салонів з'явиться найближчим часом",
+  "@salonBookingComingSoonMessage": {
+    "description": "Body copy of the salon booking flow's step-4 (confirmation) placeholder screen — step 4 is unscoped."
+  },
+  "salonBookingComingSoonBackCta": "До профілю салону",
+  "@salonBookingComingSoonBackCta": {
+    "description": "CTA on the salon booking coming-soon placeholder that returns to the salon's public profile."
+  },
+  "salonBookingTimeTitle": "Час",
+  "@salonBookingTimeTitle": {
+    "description": "Top bar title of the salon booking flow's step-3 per-master date/time picker screen."
+  },
+  "salonBookingTimeBackSemantics": "Назад до вибору майстрів",
+  "@salonBookingTimeBackSemantics": {
+    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen, when the active slide is still on its date/calendar phase (back exits to master selection)."
+  },
+  "salonBookingTimeBackToCalendarSemantics": "Назад до вибору дати",
+  "@salonBookingTimeBackToCalendarSemantics": {
+    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen, when the active slide is in its time-slot phase (back returns to that master's calendar, not master selection)."
+  },
+  "salonBookingConfirmTitle": "Підтвердження",
+  "@salonBookingConfirmTitle": {
+    "description": "Top bar title of the salon booking flow's step-4 confirmation screen."
+  },
+  "salonBookingRetryCta": "Повторити",
+  "@salonBookingRetryCta": {
+    "description": "Submit-button label on the salon confirmation screen after a partial failure — retries only the appointments that failed."
+  },
+  "salonBookingPartialFailureMessage": "Деякі записи не вдалося створити. Спробуйте ще раз.",
+  "@salonBookingPartialFailureMessage": {
+    "description": "SnackBar shown when some (not all) of the salon's per-master bookings failed to submit."
+  },
+  "salonBookingBackBlockedMessage": "Частину записів уже створено. Завершіть решту через «Повторити».",
+  "@salonBookingBackBlockedMessage": {
+    "description": "SnackBar shown when the user tries to leave the salon confirmation screen after at least one appointment already succeeded; back is blocked so the remaining failed ones must be finished via Retry (which reuses idempotency keys)."
+  },
+  "salonBookingAppointmentSubmitting": "Надсилаємо…",
+  "@salonBookingAppointmentSubmitting": {
+    "description": "Per-appointment status line on the salon confirmation screen while that master's booking is being submitted."
+  },
+  "salonBookingAppointmentSucceeded": "Заплановано",
+  "@salonBookingAppointmentSucceeded": {
+    "description": "Per-appointment status line on the salon confirmation screen once that master's booking succeeded."
+  },
+  "salonBookingSuccessTitle": "Записано!",
+  "@salonBookingSuccessTitle": {
+    "description": "Headline on the salon booking success screen after every per-master booking succeeded."
+  },
+  "salonBookingSuccessSubline": "Майстри підтвердять ваші записи найближчим часом.\nСповіщення надійде, щойно вони відповідять.",
+  "@salonBookingSuccessSubline": {
+    "description": "Reassuring subline under the salon booking success headline."
+  },
+  "salonSchedulePagerSemantics": "Майстер {current} з {count}. {done} заплановано.",
+  "@salonSchedulePagerSemantics": {
+    "description": "Accessibility label for the salon booking time screen's master-pager row (arrows + dots + counter).",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" },
+      "done": { "type": "int", "example": "1" }
+    }
+  },
+  "salonSchedulePagerCounterLabel": "Майстер {current} з {count}",
+  "@salonSchedulePagerCounterLabel": {
+    "description": "Visible counter text under the pager dots on the salon booking time screen.",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "salonSchedulePagerPrevSemantics": "Попередній майстер",
+  "@salonSchedulePagerPrevSemantics": {
+    "description": "Accessibility label for the salon booking time screen's ‹ previous-master arrow."
+  },
+  "salonSchedulePagerNextSemantics": "Наступний майстер",
+  "@salonSchedulePagerNextSemantics": {
+    "description": "Accessibility label for the salon booking time screen's › next-master arrow."
+  },
+  "salonSchedulePagerDotLabel": "Майстер {index}",
+  "@salonSchedulePagerDotLabel": {
+    "description": "Accessibility label for an unscheduled master's pager dot on the salon booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "salonSchedulePagerDotDoneLabel": "Майстер {index}, заплановано",
+  "@salonSchedulePagerDotDoneLabel": {
+    "description": "Accessibility label for an already-scheduled master's pager dot on the salon booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "salonScheduleDateIntro": "Оберіть зручну дату для цього майстра — далі підберемо вільний час.",
+  "@salonScheduleDateIntro": {
+    "description": "Intro line above the calendar on each master's slide of the salon booking time screen."
+  },
+  "bookingServiceTimeTitle": "Час",
+  "@bookingServiceTimeTitle": {
+    "description": "Top-bar title of the independent-master per-service booking time screen (a PageView, one slide per selected service)."
+  },
+  "bookingServiceTimeBackSemantics": "Назад до вибору послуг",
+  "@bookingServiceTimeBackSemantics": {
+    "description": "Accessibility label for the independent-master per-service booking time screen's back arrow while on the date phase (returns to service selection)."
+  },
+  "bookingServiceScheduleDateIntro": "Оберіть зручну дату для цієї послуги — далі підберемо вільний час.",
+  "@bookingServiceScheduleDateIntro": {
+    "description": "Intro line above the calendar on each service's slide of the independent-master per-service booking time screen."
+  },
+  "bookingSiblingBlockedTitle": "Час зайнято іншою послугою",
+  "@bookingSiblingBlockedTitle": {
+    "description": "Empty-state heading on the independent-master time screen when every slot on the chosen date overlaps another service the client already scheduled for the same day."
+  },
+  "bookingSiblingBlockedMessage": "Усі години на цю дату перетинаються з іншою вашою послугою. Оберіть інший час або дату.",
+  "@bookingSiblingBlockedMessage": {
+    "description": "Empty-state body copy on the independent-master time screen when every slot on the chosen date is taken by the client's own other scheduled service."
+  },
+  "bookingServicePagerSemantics": "Послуга {current} з {count}. {done} заплановано.",
+  "@bookingServicePagerSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's service-pager row (arrows + dots + counter).",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" },
+      "done": { "type": "int", "example": "1" }
+    }
+  },
+  "bookingServicePagerCounterLabel": "Послуга {current} з {count}",
+  "@bookingServicePagerCounterLabel": {
+    "description": "Visible counter text under the pager dots on the independent-master booking time screen.",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "bookingServicePagerPrevSemantics": "Попередня послуга",
+  "@bookingServicePagerPrevSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's previous-service arrow."
+  },
+  "bookingServicePagerNextSemantics": "Наступна послуга",
+  "@bookingServicePagerNextSemantics": {
+    "description": "Accessibility label for the independent-master booking time screen's next-service arrow."
+  },
+  "bookingServicePagerDotLabel": "Послуга {index}",
+  "@bookingServicePagerDotLabel": {
+    "description": "Accessibility label for an unscheduled service's pager dot on the independent-master booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "bookingServicePagerDotDoneLabel": "Послуга {index}, заплановано",
+  "@bookingServicePagerDotDoneLabel": {
+    "description": "Accessibility label for an already-scheduled service's pager dot on the independent-master booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "bookingServiceOverlapError": "Ці послуги перетинаються в часі. Оберіть інший час для однієї з них.",
+  "@bookingServiceOverlapError": {
+    "description": "Snackbar/error shown when two of the client's selected services are scheduled at overlapping times in the independent-master booking flow (pre-empts the backend CLIENT_BOOKING_CONFLICT 409)."
+  },
+  "salonScheduleWindowPrompt": "Оберіть час",
+  "@salonScheduleWindowPrompt": {
+    "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."
+  },
+  "salonScheduleProgress": "{scheduled} з {total} заплановано",
+  "@salonScheduleProgress": {
+    "description": "Progress line in the salon booking time screen's pinned confirm bar.",
+    "placeholders": {
+      "scheduled": { "type": "int", "example": "1" },
+      "total": { "type": "int", "example": "3" }
+    }
+  },
+  "salonScheduleAllScheduledLabel": "Усе заплановано",
+  "@salonScheduleAllScheduledLabel": {
+    "description": "Progress line in the salon booking time screen's pinned confirm bar once every master is scheduled."
+  },
+  "salonScheduleProgressSemantics": "{scheduled} з {total} майстрів заплановано",
+  "@salonScheduleProgressSemantics": {
+    "description": "Accessibility label for the progress rail in the salon booking time screen's pinned confirm bar.",
+    "placeholders": {
+      "scheduled": { "type": "int", "example": "1" },
+      "total": { "type": "int", "example": "3" }
+    }
+  },
+
+  "professionalTitleLabel": "Професійне звання",
+  "@professionalTitleLabel": {
+    "description": "Field label above the professional title input on the master edit screen."
+  },
+  "professionalTitleHint": "напр. «Майстер манікюру»",
+  "@professionalTitleHint": {
+    "description": "Hint text inside the professional title field on the master edit screen."
+  },
+  "professionalTitleMaxLength": "Не більше 100 символів",
+  "@professionalTitleMaxLength": {
+    "description": "Helper / counter note below the professional title field on the master edit screen."
+  },
+  "bookingDetailGuestClient": "Гість",
+  "@bookingDetailGuestClient": {
+    "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
+  },
+  "bookingDetailGuestBookingLabel": "Запис за посиланням",
+  "@bookingDetailGuestBookingLabel": {
+    "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
+  },
+  "masterBookingsTitle": "Мої записи",
+  "@masterBookingsTitle": {
+    "description": "Screen title of the independent master's own booking list (Phase 7.6). Distinct from the CLIENT «Мої записи» screen, whose strings live under the myBookings* namespace."
+  },
+  "masterBookingsCount": "{count, plural, one{{count} запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
+  "@masterBookingsCount": {
+    "description": "Count sub-heading above the master's booking timeline. Reflects the server's totalElements for the selected day — the whole filtered result set for that day.",
+    "placeholders": {
+      "count": { "type": "int", "example": "12" }
+    }
+  },
+  "masterBookingsDaySemantics": "{weekday} {day}",
+  "@masterBookingsDaySemantics": {
+    "description": "Accessibility label for one day cell in the master's booking day rail. {weekday} is the short Ukrainian weekday (e.g. 'Пн'); {day} is the day-of-month number.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Пн" },
+      "day": { "type": "int", "example": "14" }
+    }
+  },
+  "masterBookingCardSemantics": "{client}, {service}",
+  "@masterBookingCardSemantics": {
+    "description": "Accessibility label for one booking card in the master's list — the client who booked and the service they booked.",
+    "placeholders": {
+      "client": { "type": "String", "example": "Марія Іванюк" },
+      "service": { "type": "String", "example": "Манікюр з покриттям" }
+    }
+  },
+  "masterBookingsEmptyTitle": "Поки немає записів",
+  "@masterBookingsEmptyTitle": {
+    "description": "True-empty state title on the master's booking list — the master has no bookings at all and no filter is active."
+  },
+  "masterBookingsEmptyBody": "Майбутні та минулі записи зʼявляться тут.",
+  "@masterBookingsEmptyBody": {
+    "description": "True-empty state body on the master's booking list."
+  },
+  "masterBookingsNoResultsTitle": "Немає записів за цим фільтром",
+  "@masterBookingsNoResultsTitle": {
+    "description": "Filter-empty state title on the master's booking list — bookings exist, but none match the active day/period/status/service."
+  },
+  "masterBookingsNoResultsBody": "Спробуйте інший день, період чи фільтр — або поверніться до всіх записів.",
+  "@masterBookingsNoResultsBody": {
+    "description": "Filter-empty state body on the master's booking list."
+  },
+  "masterBookingsClearFilters": "Скинути фільтри",
+  "@masterBookingsClearFilters": {
+    "description": "The escape hatch on the master's filter-empty state — clears every filter so the master is never stranded on a blank list."
+  },
+  "bookingFilterSheetTitle": "Фільтри",
+  "@bookingFilterSheetTitle": {
+    "description": "Title of the filter bottom sheet on the master's «Мої записи» screen."
+  },
+  "bookingFilterButtonLabel": "Фільтри записів",
+  "@bookingFilterButtonLabel": {
+    "description": "Accessibility label for the filter button in the master's booking-list header."
+  },
+  "bookingFilterSectionStatus": "Статус",
+  "@bookingFilterSectionStatus": {
+    "description": "Filter-sheet section heading for the multi-select status rows."
+  },
+  "bookingFilterSectionService": "Послуга",
+  "@bookingFilterSectionService": {
+    "description": "Filter-sheet section heading for the multi-select service rows."
+  },
+  "bookingFilterReset": "Скинути фільтри",
+  "@bookingFilterReset": {
+    "description": "Link that clears every filter in the sheet's draft state, without applying. Verbatim from the approved design."
+  },
+  "bookingFilterResetSemantics": "Скинути всі фільтри",
+  "@bookingFilterResetSemantics": {
+    "description": "Accessibility label for the filter sheet's reset link."
+  },
+  "bookingFilterApply": "Застосувати",
+  "@bookingFilterApply": {
+    "description": "The filter sheet's confirm affordance — the only control that writes the draft onto the query. Verbatim from the approved design."
+  },
+  "bookingFilterApplySemantics": "Застосувати фільтри",
+  "@bookingFilterApplySemantics": {
+    "description": "Accessibility label for the filter sheet's apply button."
+  },
+  "bookingFilterActiveCount": "{count, plural, one{{count} фільтр} few{{count} фільтри} many{{count} фільтрів} other{{count} фільтрів}}",
+  "@bookingFilterActiveCount": {
+    "description": "Announced as the filter button's accessibility value when filters are active — the count of ACTIVE FILTER GROUPS (date / status / service), not the number of selected values.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "masterBookingsTimelineHourRulerSemantics": "Часова шкала запису",
+  "@masterBookingsTimelineHourRulerSemantics": {
+    "description": "Accessibility label for the master's «Мої записи» timeline hour ruler (Phase 7.10 TimelineHourRuler) — the column of hour marks beside the day's booking grid."
+  },
+  "masterBookingsTruncatedNotice": "Забагато записів за цей день — показано не всі. Зверніться до підтримки.",
+  "@masterBookingsTruncatedNotice": {
+    "description": "Persistent notice on the master's «Мої записи» timeline when BookingsDayState.isTruncated — the day reports more bookings than fit in one page (locked decision 2026-07-18: no multi-page loop, surface the overflow instead of silently dropping bookings). Genuinely reachable, not defensive: the backend enforces no minimum service duration, so a day CAN exceed the backend's 100-row page."
+  },
+  "bookingsDiscoveryBackSemantics": "Назад",
+  "@bookingsDiscoveryBackSemantics": {
+    "description": "Accessibility label for the shared BookingsDiscoveryView header's back arrow (Phase 7.11), shown only when a host passes a non-null onBack (never on the master's own bottom-nav-tab-root screen, which passes null)."
+  },
+  "masterBookingsAddSemantics": "Додати запис",
+  "@masterBookingsAddSemantics": {
+    "description": "Accessibility label for the master bookings header's '+' add-booking button (design-parity finding #6)."
+  },
+  "masterBookingsAddComingSoon": "Створення запису вручну з'явиться найближчим часом",
+  "@masterBookingsAddComingSoon": {
+    "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
   }
 }

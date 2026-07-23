@@ -45,6 +45,7 @@ import 'dart:ui' as ui;
 
 import 'package:alchemist/alchemist.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -70,6 +71,14 @@ const Map<String, List<String>> _bundledFonts = {
 
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // (0) Load the IANA timezone database process-globally so every booking/slot
+  // formatter (`shared/formatters/booking_date_labels.dart`) can convert to the
+  // pinned Europe/Kyiv wall-clock. `tz.getLocation` throws if the database is
+  // not initialised, so without this the formatters would throw in any test
+  // that renders a booking time. Idempotent + host-independent: the pinned zone
+  // means a UTC CI runner and a Kyiv dev box render identical times.
+  initBeauticaTimeZones();
 
   // (1) Never fetch fonts over the network during tests — deterministic + offline.
   GoogleFonts.config.allowRuntimeFetching = false;

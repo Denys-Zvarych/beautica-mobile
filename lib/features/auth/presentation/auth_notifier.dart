@@ -40,15 +40,22 @@ import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
+// Deliberate, narrow exception to "auth never imports another feature"
+// (mobile-security HIGH, 2026-07-19): the day-timeline cache's bounded
+// `keepAlive()` pool cannot be reached by the ordinary `ref.watch(authProvider)`
+// cascade every OTHER per-user cache uses to self-clear — see
+// `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for the
+// full defence-in-depth reasoning. This is a plain method call, not
+// `ref.invalidate(...)`, and `dayKeepAliveLruProvider` does not watch
+// `authProvider` back, so it cannot reopen the CircularDependencyError the
+// NOTE further down in [logout] warns about.
+import '../../booking/application/bookings_day_notifier.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
 import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
-import '../../master/presentation/master_profile_notifier.dart';
-import '../../services/data/service_repository.dart';
-import '../../services/presentation/services_list_notifier.dart';
 
 part 'auth_notifier.g.dart';
 
@@ -448,7 +455,14 @@ class AuthNotifier extends _$AuthNotifier {
       try {
         fullUser = await repo.me();
       } catch (_) {
+        // Failure-path hygiene: the verify succeeded but the profile load
+        // failed, so this session never settles to Authenticated. Clear BOTH
+        // in-memory token caches so a half-built session leaves no token for
+        // the interceptor to replay, then let the outer catch surface the
+        // failure as AsyncError (mirrors build()'s failure path). Without this,
+        // a real repo.me() failure would leave the UI in a stale state.
         coldStartAccessToken = null;
+        _lastKnownAccessToken = null;
         rethrow;
       }
       // CRITICAL: set the Authenticated state BEFORE clearing coldStartAccessToken.
@@ -562,8 +576,83 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
-  /// Confirms a password reset with the single-use [token] and [newPassword]
-  /// (backend Phase 11.3).
+  /// Requests a password-reset OTP for the AUTHENTICATED caller (backend
+  /// Phase A3 — the "change password from settings" entry point).
+  ///
+  /// Does NOT mutate [state] — the request only triggers a backend
+  /// side-effect (emailing an OTP). The calling screen wraps this in
+  /// `try/catch` so it can render [ResendThrottledFailure] (429) inline —
+  /// unlike [requestPasswordReset], this authenticated entry point DOES
+  /// surface the per-account resend cooldown as a 429.
+  ///
+  /// Throws whatever [AuthRepository.requestChangePasswordOtp] throws.
+  Future<void> requestChangePasswordOtp() async {
+    try {
+      await ref.read(authRepositoryProvider).requestChangePasswordOtp();
+      if (kDebugMode) {
+        log(
+          'requestChangePasswordOtp dispatched',
+          name: 'auth.reset',
+          level: 800,
+        );
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'requestChangePasswordOtp failed',
+          name: 'auth.reset',
+          level: 900,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Verifies the 6-digit [code] emailed to [email] and returns the
+  /// single-use reset ticket to submit to [confirmPasswordReset] (backend
+  /// Phase A3). Used by BOTH the forgot-password flow (unauthenticated) and
+  /// the authenticated settings change-password flow.
+  ///
+  /// Does NOT mutate [state] — this is a pure request/response call with no
+  /// session side-effect (unlike [verifyEmail], which authenticates the
+  /// caller as a side-effect). The calling screen wraps this in `try/catch`
+  /// so it can render [PasswordResetOtpFailure] (wrong/expired code) inline.
+  ///
+  /// Throws whatever [AuthRepository.verifyPasswordResetOtp] throws.
+  Future<String> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  }) async {
+    try {
+      final ticket = await ref
+          .read(authRepositoryProvider)
+          .verifyPasswordResetOtp(email: email, code: code);
+      if (kDebugMode) {
+        log(
+          'verifyPasswordResetOtp success for ${maskEmail(email)}',
+          name: 'auth.reset',
+          level: 800,
+        );
+      }
+      return ticket;
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'verifyPasswordResetOtp failed for ${maskEmail(email)}',
+          name: 'auth.reset',
+          level: 900,
+          error: e is Failure ? e.runtimeType.toString() : 'non-Failure error',
+          stackTrace: st,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Confirms a password reset with the single-use [resetTicket] (minted by
+  /// [verifyPasswordResetOtp]) and [newPassword] (backend Phase 11.3 / A3).
   ///
   /// Does NOT mutate [state] and does NOT auto-login — by design the backend
   /// issues no session on reset and the caller routes the user to the login
@@ -573,13 +662,16 @@ class AuthNotifier extends _$AuthNotifier {
   ///
   /// Throws whatever [AuthRepository.confirmPasswordReset] throws.
   Future<void> confirmPasswordReset({
-    required String token,
+    required String resetTicket,
     required String newPassword,
   }) async {
     try {
       await ref
           .read(authRepositoryProvider)
-          .confirmPasswordReset(token: token, newPassword: newPassword);
+          .confirmPasswordReset(
+            resetTicket: resetTicket,
+            newPassword: newPassword,
+          );
       if (kDebugMode) {
         log('confirmPasswordReset success', name: 'auth.reset', level: 800);
       }
@@ -590,7 +682,7 @@ class AuthNotifier extends _$AuthNotifier {
           name: 'auth.reset',
           level: 900,
           // Sanitised — never pass the raw exception (its toString may carry
-          // the token / new password from the request body).
+          // the reset ticket / new password from the request body).
           error: e is Failure ? e.runtimeType.toString() : 'non-Failure error',
           stackTrace: st,
         );
@@ -654,6 +746,63 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
+  /// Re-fetches the user profile from `GET /users/me` and re-settles the
+  /// [Authenticated] session with the fresh [User], preserving the current
+  /// access token.
+  ///
+  /// Called by the client profile-edit save flows after a successful
+  /// `PATCH /users/me` so that every consumer deriving from [authProvider]
+  /// (e.g. the home-hub profile card via `clientProfile`, and the edit-seed
+  /// providers) re-derives from the updated session User instead of the stale
+  /// snapshot captured at the last [repo.me] call. Without this, the saved
+  /// name / city / phone would only appear after an app restart (cold start).
+  ///
+  /// Only acts when the settled state is [Authenticated] — there is nothing to
+  /// refresh while loading / unauthenticated.
+  ///
+  /// The access token is taken from the settled session and re-applied to the
+  /// new [Authenticated] state, with [_lastKnownAccessToken] kept in lock-step
+  /// exactly as [setAccessToken] does, so the interceptor's session-lifetime
+  /// fallback never replays a stale token.
+  ///
+  /// A transient [repo.me] failure is tolerated: it is logged (kDebugMode) and
+  /// the prior [Authenticated] session is left intact — a refresh hiccup must
+  /// never tear down a valid session.
+  Future<void> refreshUser() async {
+    final s = state.value;
+    if (s is! Authenticated) return;
+    // Preserve the current settled session's access token across the refresh.
+    final accessToken = s.accessToken;
+    try {
+      final freshUser = await ref.read(authRepositoryProvider).me();
+      // Keep the interceptor's session-lifetime fallback in lock-step with the
+      // preserved token (mirrors setAccessToken) so a mid-rebuild window never
+      // replays a stale one.
+      _lastKnownAccessToken = accessToken;
+      state = AsyncData(
+        AuthSession.authenticated(user: freshUser, accessToken: accessToken),
+      );
+      if (kDebugMode) {
+        log(
+          'refreshUser: session user refreshed for ${freshUser.id}',
+          name: 'auth',
+          level: 800,
+        );
+      }
+    } catch (e) {
+      // Tolerated — leave the prior Authenticated session in place so a
+      // transient /users/me failure does not blow away a valid session.
+      if (kDebugMode) {
+        log(
+          'refreshUser failed (tolerated, session preserved): '
+          '${e is Failure ? e.runtimeType.toString() : 'non-Failure error'}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    }
+  }
+
   /// Clears the session and wipes all tokens from secure storage.
   ///
   /// Makes a best-effort server-side revocation call via the repository before
@@ -687,30 +836,50 @@ class AuthNotifier extends _$AuthNotifier {
       }
     }
     await ref.read(secureStorageProvider).deleteAll();
+    // Security (mobile-security MEDIUM) — force-clear the screen-protection
+    // reference count and tear down FLAG_SECURE / the iOS app-switcher blur.
+    // Without this, a logout triggered while a PII screen's dialog is still
+    // showing above a live `screenProtectionProvider` acquirer (e.g.
+    // `RefreshInterceptor` force-logs-out on a failed token refresh while
+    // `ClientBookingConflictDialog` is open over `BookingConfirmScreen`)
+    // would leave protection latched on past the auth boundary — see
+    // `ScreenProtectionManager.reset()`'s doc comment.
+    ref.read(screenProtectionProvider).reset();
     // Security (Phase 2.16 HIGH-1) — clear any in-flight registration draft
     // so the password fields it holds in memory do not linger past the user's
     // explicit logout. The draft survives across nav (keepAlive) so without
     // this it would persist until the process is killed.
     ref.read(registerDraftProvider.notifier).reset();
-    // Fix 6 (SEC MEDIUM-1): invalidate the cached master profile so that stale
-    // AsyncData<Master> (holding name/city/bio PII) does not linger in the
-    // Riverpod container after logout. Mirrors the registerDraftProvider.reset()
-    // pattern above.
-    ref.invalidate(masterProfileProvider);
-    // serviceRepositoryProvider is keepAlive and holds the master-row UUID;
-    // invalidate it so the next login gets a fresh repository with the correct ID.
-    ref.invalidate(serviceRepositoryProvider);
-    // keepAlive service list holds the previous user's data — clear on logout.
-    ref.invalidate(servicesListProvider);
+    // Security (mobile-security HIGH, 2026-07-19) — sweep the day-timeline's
+    // bounded keepAlive cache's OWN bookkeeping. `BookingsDayNotifier.build`'s
+    // `authProvider`-id watch (triggered by the state assignment below)
+    // already reclaims every member's PII on its own the instant the
+    // identity changes — actively watched or not: Riverpod's
+    // `invalidateSelf()` unconditionally severs every `KeepAliveLink` an
+    // element holds and queues either its disposal (no active listener) or a
+    // rebuild (an active one) for the very next event-loop turn — never left
+    // lazily pending on some future read. This call exists because that
+    // severing does NOT touch [DayKeepAliveLru]'s own `_links` map: without
+    // it, a logged-out query's slot keeps pointing at an already-severed
+    // link — a "zombie" entry silently wasting the LRU's bounded budget —
+    // until a future cache touch happens to overwrite it. See
+    // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
+    // the full reasoning, including the Riverpod internals this depends on.
+    ref.read(dayKeepAliveLruProvider).clear();
     // Wipe the interceptor's session-lifetime token fallback so no request can
     // carry a stale Bearer token after an explicit logout.
     _lastKnownAccessToken = null;
     coldStartAccessToken = null;
-    // SEC (LOW hygiene): force-clear the app-wide screenshot guard so a PII
-    // screen that was never disposed (e.g. logout triggered from a dialog above
-    // a live acquirer) cannot leave native protection latched across the auth
-    // boundary. Resets the ref count to zero and tears down native protection.
-    ref.read(screenProtectionProvider).reset();
+    // NOTE — do NOT `ref.invalidate(...)` the master profile / service repository
+    // / services list here. Each of those providers transitively
+    // `ref.watch(authProvider)` (masterProfileProvider directly; serviceRepository
+    // and servicesList through it), so invalidating them from INSIDE this notifier
+    // records a back-edge that closes a dependency cycle — Riverpod's
+    // CircularDependencyError assert (debug/test only) then throws and escapes the
+    // state transition below, surfacing a false "logout failed". The cascade
+    // already handles teardown: when state flips to Unauthenticated below, those
+    // watchers rebuild and clear their stale PII automatically. The manual
+    // invalidation was both redundant and the cause of the cycle.
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

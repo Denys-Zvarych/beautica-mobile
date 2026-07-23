@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hand-authored in-repo: the UNREAD-state bell. Same bell silhouette/geometry as
+  notification_plain.svg (the exact same path data) PLUS a baked-in notification
+  dot at the top-right corner, matching where the old code-drawn overlay dot sat.
+
+  This is a TWO-TONE asset on purpose:
+    - bell fill  = #6E5743  (BrandColors.textSecondary — identical to the colour
+                    AppIcon flattens notification_plain.svg to at the call site,
+                    so idle <-> unread only changes the dot, never the bell)
+    - dot ring   = #E6DDD0  (BrandColors.base — separates the dot from the bell)
+    - dot fill   = #E2552F  (warm vermilion red-orange "unread" indicator;
+                    frontend-design pick — reads clearly against the light base
+                    and breaks from the brown bell, unlike the old muted #6A4A28)
+
+  Because it is multi-colour, it MUST render WITHOUT AppIcon's srcIn ColorFilter
+  (which would repaint the red dot to the bell colour). BellButton renders it via
+  AppIcon(..., multicolor: true) — see lib/core/icons/app_icon.dart. Not derived
+  from any Flaticon download, so no Flaticon re-download release-gate applies.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" id="Unread" viewBox="0 0 24 24" width="512" height="512"><path fill="#6E5743" d="M21.973,15.214l-1.86-7.973C19.247,3.526,15.918,1,12,1S4.753,3.526,3.887,7.241l-1.86,7.973c-.205,.879,0,1.792,.563,2.503,.563,.711,1.405,1.119,2.311,1.119h2.099c.464,2.279,2.484,4,4.899,4s4.435-1.721,4.899-4h2.099c.906,0,1.748-.408,2.311-1.119,.563-.711,.768-1.624,.563-2.503Zm-9.973,6.786c-1.302,0-2.402-.839-2.816-2h5.631c-.414,1.161-1.514,2-2.816,2Zm7.838-5.521c-.183,.231-.456,.364-.749,.364H4.911c-.293,0-.566-.133-.749-.364-.183-.231-.249-.527-.183-.812l1.86-7.973c.658-2.821,3.187-4.694,6.161-4.694s5.503,1.873,6.161,4.694l1.86,7.973c.066,.285,0,.581-.183,.812Z"/><circle cx="19" cy="5" r="4.4" fill="#E6DDD0"/><circle cx="19" cy="5" r="3" fill="#E2552F"/></svg>

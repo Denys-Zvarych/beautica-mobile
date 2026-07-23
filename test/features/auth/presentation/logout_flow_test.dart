@@ -27,6 +27,7 @@
 //      draft (covers MEDIUM-security-1).
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
@@ -236,6 +237,13 @@ void main() {
             ),
           ),
         );
+        await tester.pumpAndSettle();
+
+        // Scroll the logout row into view before tapping — on the default
+        // 800x600 test surface the terminal row sits below the fold, so a raw
+        // tap lands off-screen and the dialog never opens (flake repair; mirrors
+        // settings_hub_screen_test.dart).
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
 
         // Tap the logout row — this opens the confirmation dialog.
@@ -581,6 +589,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Scroll the logout row into view first (flake repair — see Test 4).
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+
         // Tap the logout row — opens the confirmation dialog.
         await tester.tap(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle(); // dialog animates in
@@ -594,6 +606,101 @@ void main() {
 
         // Repository logout must NOT have been called.
         expect(repo.logoutCallCount, equals(0));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 6 — destructive styling: the confirm button renders in
+    // BrandColors.error while the cancel button stays neutral.
+    //
+    // Pins the styling change in logout_action.dart: the confirm button's
+    // label uses VelvetText.link().copyWith(color: BrandColors.error). If the
+    // .copyWith(color:) were reverted, the confirm Text would fall back to the
+    // link style's default (BrandColors.accentDeep, #6A4A28) and the first
+    // assertion below would fail.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'logout confirm button renders destructive red text; cancel stays neutral',
+      (tester) async {
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        final repo = FakeAuthRepository()
+          ..refreshResult = _testTokens
+          ..meResult = _testUser;
+
+        final router = GoRouter(
+          initialLocation: RouteNames.masterMenu,
+          redirect: (context, state) => null,
+          routes: [
+            GoRoute(
+              path: RouteNames.masterMenu,
+              builder: (context, state) => const SettingsHubScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (context, state) =>
+                  const Scaffold(body: Center(child: Text('login'))),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              secureStorageProvider.overrideWith((_) => storage),
+              authRepositoryProvider.overrideWith((_) => repo),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Scroll the logout row into view first (flake repair — see Test 4).
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+
+        // Open the confirmation dialog.
+        await tester.tap(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle(); // dialog animates in
+
+        // The confirm button's label must render in the destructive error color.
+        final confirmText = tester.widget<Text>(
+          find.descendant(
+            of: find.byKey(const Key('btn-logout-confirm')),
+            matching: find.byType(Text),
+          ),
+        );
+        expect(
+          confirmText.style?.color,
+          equals(BrandColors.error),
+          reason:
+              'the destructive logout confirm button must render in '
+              'BrandColors.error; reverting the .copyWith(color:) would leave '
+              'it at the link style default (accentDeep).',
+        );
+
+        // The cancel button stays neutral — must NOT be the error color, so the
+        // test pins the destructive-vs-neutral distinction.
+        final cancelText = tester.widget<Text>(
+          find.descendant(
+            of: find.byKey(const Key('btn-logout-cancel')),
+            matching: find.byType(Text),
+          ),
+        );
+        expect(
+          cancelText.style?.color,
+          isNot(equals(BrandColors.error)),
+          reason:
+              'the cancel button is non-destructive and must stay neutral, '
+              'never the error color.',
+        );
       },
     );
   });

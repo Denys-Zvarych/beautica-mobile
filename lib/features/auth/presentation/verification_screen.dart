@@ -22,7 +22,6 @@ import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -40,9 +39,13 @@ import '../../master/data/master_repository.dart';
 import '../../salon/data/salon_repository.dart';
 import '../../user/data/user_repository.dart';
 import '../domain/user_role.dart';
+import '../state/pending_locality.dart';
+import '../state/pending_locality_store.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
 import 'widgets/auth_scaffold.dart';
+import 'widgets/otp_code_field.dart';
+import 'widgets/otp_resend_row.dart';
 
 // ---------------------------------------------------------------------------
 // Cooldown duration after a successful resend (seconds).
@@ -108,13 +111,14 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   String get _otp => _codeController.text;
   bool get _isOtpComplete => _otp.length == 6;
 
-  // ── Cooldown timer — owned by _ResendRow; parent holds a key to reset it ──
+  // ── Cooldown timer — owned by OtpResendRow; parent holds a key to reset it ──
   //
   // Fix 2B: when _saveProviderProfile() fails after the OTP is already consumed
   // the user must be able to request a new code immediately (their OTP is gone).
   // Calling _resendRowKey.currentState?.resetCooldown() from _submit's catch
   // drives the countdown back to 0 without any cross-widget setState coupling.
-  final GlobalKey<_ResendRowState> _resendRowKey = GlobalKey<_ResendRowState>();
+  final GlobalKey<OtpResendRowState> _resendRowKey =
+      GlobalKey<OtpResendRowState>();
 
   // ── Error / flow state ───────────────────────────────────────────────────
 
@@ -218,62 +222,79 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   /// Rethrows the typed [Failure] on error so [_submit]'s catch surfaces it as
   /// a real inline message (Defect 8 — never silent).
   Future<void> _saveProviderProfile(AppLocalizations l10n) async {
-    final draft = ref.read(registerDraftProvider);
-    // No draft → deep-link edge case (e.g. user tapped the email link on a
-    // different device). Nothing to persist; the backend already has whatever
-    // was submitted at registration time.
-    if (draft == null) return;
+    // Resolve the locality slice. Prefer the in-memory draft, but fall back to
+    // the durable blob that Step 3 stashed in secure storage — the draft is
+    // routinely lost while the user backgrounds the app to read the OTP email
+    // (or is OS-killed under memory pressure), in which case the keepAlive
+    // provider is back to its initial `null`. Without this fallback the locality
+    // PATCH silently never runs (the original silent-data-loss defect).
+    final _ResolvedLocality? locality = await _resolveLocality();
 
-    final cityId = draft.cityId;
+    // No draft AND no durable blob → genuine deep-link edge case (e.g. user
+    // tapped the email link on a different device). Nothing to persist.
+    if (locality == null) return;
+
+    final cityId = locality.cityId;
     final bool isCityMissing = cityId == null || cityId.isEmpty;
 
     if (isCityMissing) {
-      // Fix 3: provider roles (INDEPENDENT_MASTER, SALON_OWNER) require a city
-      // because the Step 3 address wizard is mandatory for them and the PATCH /
-      // POST call cannot succeed without it. If cityId is null here the draft
-      // state was lost — surface a typed failure so the user can go back to
-      // Step 3 and re-enter, instead of silently creating a verified account
-      // with no location in the database.
-      //
-      // CLIENT is intentionally excluded: clients may skip Step 3, so a null
-      // cityId for a CLIENT is a valid "skipped" state, not an error.
-      switch (draft.role) {
+      switch (locality.role) {
         case UserRole.independentMaster:
         case UserRole.salonOwner:
+          // Provider roles require a city — the Step 3 address wizard is
+          // mandatory for them and the PATCH / POST cannot succeed without it.
+          // A missing city here means the state was lost AND the durable blob
+          // could not supply it — surface a typed failure so the user can go
+          // back to Step 3, instead of silently creating a located-less account.
           throw const ProviderMissingCityFailure();
         case UserRole.client:
+          // De-silence the lost-draft case: if the user provably chose a city
+          // (the blob recorded localityProvided == true) but we still cannot
+          // resolve it, the durable blob was unexpectedly missing/corrupt. Do
+          // NOT block /done, but log it (debug-only, ids only) so the loss is
+          // not invisible. A genuine CLIENT skip (localityProvided == false)
+          // stays a silent no-op — the legitimate path.
+          if (locality.localityProvided && kDebugMode) {
+            log(
+              'CLIENT chose a city on Step 3 but locality could not be '
+              'persisted (durable blob missing/corrupt); skipping PATCH',
+              name: 'auth.verification',
+              level: 900,
+            );
+          }
+          return;
         case UserRole.salonAdmin:
         case UserRole.salonMaster:
-          // Clients may skip; invite-flow roles never run Step 3.
+          // Invite-flow roles never run Step 3.
           return;
       }
     }
 
-    final districtId = draft.districtId;
+    final districtId = locality.districtId;
 
-    switch (draft.role) {
+    switch (locality.role) {
       case UserRole.independentMaster:
         await ref
             .read(masterRepositoryProvider)
             .updateLocality(
               cityId: cityId,
               districtId: districtId,
-              street: draft.street,
-              buildingNo: draft.buildingNo,
-              locationNote: draft.locationNote,
+              street: locality.street,
+              buildingNo: locality.buildingNo,
+              locationNote: locality.locationNote,
             );
       case UserRole.salonOwner:
         await ref
             .read(salonRepositoryProvider)
             .create(
               dto: SalonCreateDto(
-                name: draft.salonName,
+                name: locality.salonName,
                 cityId: cityId,
                 districtId: districtId,
-                street: draft.street,
-                buildingNo: draft.buildingNo,
-                locationNote: draft.locationNote,
-                phone: draft.phone,
+                street: locality.street,
+                buildingNo: locality.buildingNo,
+                locationNote: locality.locationNote,
+                phone: locality.phone,
               ),
             );
       case UserRole.client:
@@ -286,9 +307,9 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
             .updateLocality(
               cityId: cityId,
               districtId: districtId,
-              street: draft.street,
-              buildingNo: draft.buildingNo,
-              locationNote: draft.locationNote,
+              street: locality.street,
+              buildingNo: locality.buildingNo,
+              locationNote: locality.locationNote,
             );
       case UserRole.salonAdmin:
       case UserRole.salonMaster:
@@ -297,7 +318,98 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     }
   }
 
-  /// Callback passed to [_ResendRow]. Returns the cooldown seconds the row
+  /// Resolves the locality slice to persist, preferring the in-memory draft and
+  /// falling back to the durable [PendingLocality] blob keyed by [widget.email].
+  ///
+  /// Returns `null` only when BOTH the draft and the durable blob are absent
+  /// (true deep-link edge case). When the draft exists but is missing a city,
+  /// the durable blob is consulted so a partially-lost draft can still recover
+  /// the city the user chose.
+  Future<_ResolvedLocality?> _resolveLocality() async {
+    final draft = ref.read(registerDraftProvider);
+    final bool draftHasCity =
+        draft != null && draft.cityId != null && draft.cityId!.isNotEmpty;
+
+    // Fast path — the draft survived and carries a city.
+    if (draftHasCity) {
+      return _ResolvedLocality(
+        role: draft.role,
+        localityProvided: true,
+        cityId: draft.cityId,
+        districtId: draft.districtId,
+        street: draft.street,
+        buildingNo: draft.buildingNo,
+        locationNote: draft.locationNote,
+        salonName: draft.salonName,
+        phone: draft.phone,
+      );
+    }
+
+    // Either the draft is gone, or it lost its city — consult the durable blob.
+    // The blob is documented as email-keyed: only consume it when its email
+    // matches the address currently being verified, compared trimmed +
+    // case-insensitively. This closes the cross-account PII bleed where a blob
+    // stashed by user A (abandoned before OTP) would otherwise be applied onto
+    // user B, who reached /verification via the login EMAIL_NOT_VERIFIED path.
+    final PendingLocality? pending = await _readPendingLocality();
+    final bool pendingMatchesEmail =
+        pending != null &&
+        pending.email.trim().toLowerCase() == widget.email.trim().toLowerCase();
+    if (pendingMatchesEmail) {
+      return _ResolvedLocality(
+        role: pending.role,
+        localityProvided: pending.localityProvided,
+        cityId: pending.cityId,
+        districtId: pending.districtId,
+        street: pending.street,
+        buildingNo: pending.buildingNo,
+        locationNote: pending.locationNote,
+        salonName: pending.salonName,
+        phone: pending.phone,
+      );
+    }
+
+    // A blob exists but belongs to a DIFFERENT email — best-effort clear it so
+    // stale cross-account PII does not linger in secure storage. We never apply
+    // it to this account.
+    if (pending != null) {
+      unawaited(ref.read(pendingLocalityStoreProvider).clear());
+    }
+
+    // No blob — fall back to whatever the draft holds (may be a genuine CLIENT
+    // skip with no city), or null when there is no draft at all.
+    if (draft == null) return null;
+    return _ResolvedLocality(
+      role: draft.role,
+      // No durable blob recorded a city → treat as a genuine skip, not a loss.
+      localityProvided: false,
+      cityId: draft.cityId,
+      districtId: draft.districtId,
+      street: draft.street,
+      buildingNo: draft.buildingNo,
+      locationNote: draft.locationNote,
+      salonName: draft.salonName,
+      phone: draft.phone,
+    );
+  }
+
+  /// Reads the durable blob, tolerating storage failures (returns `null`).
+  Future<PendingLocality?> _readPendingLocality() async {
+    try {
+      return await ref.read(pendingLocalityStoreProvider).read();
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Failed to read pending locality (tolerated): ${e.runtimeType}',
+          name: 'auth.verification',
+          level: 900,
+        );
+      }
+      return null;
+    }
+  }
+
+  /// Callback passed to [OtpResendRow]. Returns the cooldown seconds the row
   /// should display, or null to leave the row's cooldown unchanged (generic
   /// error — allow immediate retry).
   ///
@@ -484,18 +596,25 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           // ── OTP field — rebuild scoped to controller value ─────────────────
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: _codeController,
-            builder: (context, value, child) => _OtpField(
+            builder: (context, value, child) => OtpCodeField(
               controller: _codeController,
               focusNode: _codeFocus,
               length: _kOtpLength,
+              fieldKey: const ValueKey<String>('verify_code_input'),
+              semanticsLabel: 'Код підтвердження, $_kOtpLength цифр',
             ),
           ),
           const SizedBox(height: VelvetSpacing.xl),
           // ── Resend row — owns its own cooldown timer (Fix B / MEDIUM-2) ────
-          _ResendRow(
+          OtpResendRow(
             key: _resendRowKey,
             onResend: _resend,
             initialCooldown: _kResendCooldownSeconds,
+            resendKey: const ValueKey<String>('verify_resend'),
+            promptText: l10n.verificationResendPrompt,
+            resendLabel: l10n.verificationResendBtn,
+            resendTimerLabel: (int seconds) =>
+                l10n.verificationResendTimer('$seconds с'),
           ),
           // ── Inline error banner ───────────────────────────────────────────
           // [_inlineErrorActionLabel] and [_inlineErrorAction] are non-null when
@@ -518,257 +637,34 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// OTP field — six neumorphic cells driven by a single hidden numeric input.
-// The active cell renders with a camel border ring (focused); inactive filled
-// cells are extruded-small; empty cells are extruded-small with no digit.
-//
-// Transcribed verbatim from
-//   docs/signup-designs/VelvetTouchDesign/lib/screens/verify_email_screen.dart
-// with VelvetColors → BrandColors substitution (same hex values).
+// Resolved locality — the effective slice to persist after OTP, sourced from
+// either the in-memory draft or the durable [PendingLocality] blob.
 // ---------------------------------------------------------------------------
 
-// Fix A (MEDIUM-1): onChanged removed — the parent ValueListenableBuilder
-// drives cell rebuilds; no per-keystroke setState on the parent screen.
-class _OtpField extends StatelessWidget {
-  const _OtpField({
-    required this.controller,
-    required this.focusNode,
-    required this.length,
+final class _ResolvedLocality {
+  const _ResolvedLocality({
+    required this.role,
+    required this.localityProvided,
+    required this.cityId,
+    required this.districtId,
+    required this.street,
+    required this.buildingNo,
+    required this.locationNote,
+    required this.salonName,
+    required this.phone,
   });
 
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final int length;
+  final UserRole role;
 
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: 'Код підтвердження, $length цифр',
-      textField: true,
-      child: GestureDetector(
-        onTap: focusNode.requestFocus,
-        child: Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            // Hidden input that owns the actual text + system keyboard.
-            // The Opacity(opacity: 0) wrapper is intentional — it keeps the
-            // TextField in the widget tree (keyboard accessibility / focus
-            // management / autofill) while rendering it invisible. Do not
-            // replace with Offstage, which removes the widget from layout.
-            Opacity(
-              opacity: 0,
-              child: SizedBox(
-                height: 1,
-                width: 1,
-                child: TextField(
-                  key: const ValueKey<String>('verify_code_input'),
-                  controller: controller,
-                  focusNode: focusNode,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  maxLength: length,
-                  showCursor: false,
-                  // Prevent IME from training on OTP digits (MASVS-PLATFORM).
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  enableIMEPersonalizedLearning: false,
-                  inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(length),
-                  ],
-                  decoration: const InputDecoration(counterText: ''),
-                ),
-              ),
-            ),
-            // Visible cells — driven by the hidden controller's text.
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                for (int i = 0; i < length; i++) ...<Widget>[
-                  Flexible(
-                    child: _OtpCell(
-                      digit: i < controller.text.length
-                          ? controller.text[i]
-                          : '',
-                      active: i == controller.text.length && focusNode.hasFocus,
-                    ),
-                  ),
-                  if (i != length - 1)
-                    const SizedBox(width: VelvetSpacing.sm + 2),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+  /// `true` when the user provably chose a city on Step 3 (de-silences the
+  /// lost-draft case for CLIENT). `false` for a genuine CLIENT skip.
+  final bool localityProvided;
 
-// ---------------------------------------------------------------------------
-// Single OTP cell — neumorphic extruded tile that shows one digit.
-// Active (cursor position): camel border, no shadow.
-// Filled: extruded-small shadow, accent-colored digit.
-// Empty: extruded-small shadow, no digit.
-// ---------------------------------------------------------------------------
-
-class _OtpCell extends StatelessWidget {
-  const _OtpCell({required this.digit, required this.active});
-
-  final String digit;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      height: 50,
-      constraints: const BoxConstraints(maxWidth: 41),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: BorderRadius.circular(VelvetRadii.field),
-        boxShadow: active ? const <BoxShadow>[] : VelvetShadows.extrudedSmall,
-        border: active ? Border.all(color: BrandColors.accent, width: 2) : null,
-      ),
-      child: Text(digit, style: VelvetText.otpDigit),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Resend row — Fix B (MEDIUM-2).
-//
-// Owns the cooldown Timer so that every tick calls setState only on this small
-// subtree, not on the entire _VerificationScreenState.
-//
-// [onResend] is the callback supplied by the parent. It returns the cooldown
-// seconds the row should display after the request, or null on a generic error
-// (no cooldown — allow immediate retry).
-// ---------------------------------------------------------------------------
-
-class _ResendRow extends StatefulWidget {
-  const _ResendRow({
-    super.key,
-    required this.onResend,
-    this.initialCooldown = 0,
-  });
-
-  /// Called when the user taps the resend link. Returns cooldown seconds to
-  /// display (30 for success, server value for throttle, null for generic
-  /// error / no cooldown).
-  final Future<int?> Function() onResend;
-
-  /// Cooldown (in seconds) to start immediately on mount.
-  ///
-  /// Pass [_kResendCooldownSeconds] when the screen loads right after
-  /// registration so the button is disabled for the same window as the
-  /// backend's initial server-side cooldown, preventing a spurious throttle
-  /// on a first-tap that arrives while the server window has only a few
-  /// seconds left.
-  final int initialCooldown;
-
-  @override
-  State<_ResendRow> createState() => _ResendRowState();
-}
-
-class _ResendRowState extends State<_ResendRow> {
-  int _cooldown = 0;
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.initialCooldown > 0) {
-      _startCooldown(widget.initialCooldown);
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  void _startCooldown(int seconds) {
-    _timer?.cancel();
-    setState(() => _cooldown = seconds);
-    _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      if (_cooldown <= 1) {
-        // Cancel before the setState to ensure no further ticks can fire.
-        t.cancel();
-        setState(() => _cooldown = 0);
-      } else {
-        setState(() => _cooldown--);
-      }
-    });
-  }
-
-  /// Immediately cancels the running cooldown and resets the counter to zero.
-  ///
-  /// Called by the parent [_VerificationScreenState] via [GlobalKey] when the
-  /// post-OTP profile save fails (Fix 2B): the OTP is consumed and the user
-  /// must be able to request a new code without waiting out the 30-second window.
-  void resetCooldown() {
-    _timer?.cancel();
-    if (!mounted) return;
-    setState(() => _cooldown = 0);
-  }
-
-  Future<void> _handleTap() async {
-    // Fire-and-forget haptic so the tap always gives tactile feedback.
-    // unawaited() because we don't gate any logic on completion and awaiting
-    // a platform channel in widget tests blocks the async chain permanently.
-    unawaited(HapticFeedback.lightImpact());
-
-    if (_cooldown > 0) return;
-    // Optimistic update — start the countdown immediately so the button
-    // disables and the user gets instant visual feedback rather than seeing
-    // "0 с" (no countdown) while the network request is in-flight.
-    _startCooldown(_kResendCooldownSeconds);
-    final int? serverSeconds = await widget.onResend();
-    if (!mounted) return;
-    if (serverSeconds == null) {
-      // null = generic error OR server cooldown exceeded the UX ceiling (10 min).
-      // Either way: cancel the optimistic countdown and let the user retry
-      // immediately. The inline error banner already carries the appropriate
-      // static message ("Спробуйте пізніше" for ceiling-exceeded cases).
-      _timer?.cancel();
-      setState(() => _cooldown = 0);
-    } else if (serverSeconds != _kResendCooldownSeconds) {
-      // Server returned a different cooldown (e.g. throttle retry-after).
-      _startCooldown(serverSeconds);
-    }
-    // serverSeconds == _kResendCooldownSeconds: timer already running — no change.
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: <Widget>[
-        Text(l10n.verificationResendPrompt, style: VelvetText.body()),
-        const SizedBox(width: VelvetSpacing.xs),
-        GestureDetector(
-          key: const ValueKey<String>('verify_resend'),
-          onTap: _cooldown > 0 ? null : _handleTap,
-          child: Text(
-            _cooldown > 0
-                ? l10n.verificationResendTimer('$_cooldown с')
-                : l10n.verificationResendBtn,
-            // Batch-2 A3: use pre-cached styles — no per-tick copyWith allocation.
-            // Active branch reuses the base _linkStyle (already accentDeep).
-            style: _cooldown > 0
-                ? VelvetText.resendCooldown
-                : VelvetText.link(),
-          ),
-        ),
-      ],
-    );
-  }
+  final String? cityId;
+  final String? districtId;
+  final String street;
+  final String buildingNo;
+  final String locationNote;
+  final String salonName;
+  final String phone;
 }

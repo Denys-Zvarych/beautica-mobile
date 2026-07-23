@@ -24,6 +24,14 @@ class _$UserProfileResponse extends UserProfileResponse {
   @override
   final String? districtId;
   @override
+  final String? oblastId;
+  @override
+  final String? cityName;
+  @override
+  final String? oblastName;
+  @override
+  final String? districtName;
+  @override
   final String? street;
   @override
   final String? buildingNo;
@@ -33,6 +41,8 @@ class _$UserProfileResponse extends UserProfileResponse {
   final String? bio;
   @override
   final String? instagram;
+  @override
+  final String? professionalTitle;
   @override
   final bool? isActive;
   @override
@@ -53,11 +63,16 @@ class _$UserProfileResponse extends UserProfileResponse {
       this.phoneNumber,
       this.cityId,
       this.districtId,
+      this.oblastId,
+      this.cityName,
+      this.oblastName,
+      this.districtName,
       this.street,
       this.buildingNo,
       this.locationNote,
       this.bio,
       this.instagram,
+      this.professionalTitle,
       this.isActive,
       this.emailVerified,
       this.salonId})
@@ -83,11 +98,16 @@ class _$UserProfileResponse extends UserProfileResponse {
         phoneNumber == other.phoneNumber &&
         cityId == other.cityId &&
         districtId == other.districtId &&
+        oblastId == other.oblastId &&
+        cityName == other.cityName &&
+        oblastName == other.oblastName &&
+        districtName == other.districtName &&
         street == other.street &&
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
         bio == other.bio &&
         instagram == other.instagram &&
+        professionalTitle == other.professionalTitle &&
         isActive == other.isActive &&
         emailVerified == other.emailVerified &&
         salonId == other.salonId;
@@ -104,11 +124,16 @@ class _$UserProfileResponse extends UserProfileResponse {
     _$hash = $jc(_$hash, phoneNumber.hashCode);
     _$hash = $jc(_$hash, cityId.hashCode);
     _$hash = $jc(_$hash, districtId.hashCode);
+    _$hash = $jc(_$hash, oblastId.hashCode);
+    _$hash = $jc(_$hash, cityName.hashCode);
+    _$hash = $jc(_$hash, oblastName.hashCode);
+    _$hash = $jc(_$hash, districtName.hashCode);
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, bio.hashCode);
     _$hash = $jc(_$hash, instagram.hashCode);
+    _$hash = $jc(_$hash, professionalTitle.hashCode);
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, emailVerified.hashCode);
     _$hash = $jc(_$hash, salonId.hashCode);
@@ -127,11 +152,16 @@ class _$UserProfileResponse extends UserProfileResponse {
           ..add('phoneNumber', phoneNumber)
           ..add('cityId', cityId)
           ..add('districtId', districtId)
+          ..add('oblastId', oblastId)
+          ..add('cityName', cityName)
+          ..add('oblastName', oblastName)
+          ..add('districtName', districtName)
           ..add('street', street)
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
           ..add('bio', bio)
           ..add('instagram', instagram)
+          ..add('professionalTitle', professionalTitle)
           ..add('isActive', isActive)
           ..add('emailVerified', emailVerified)
           ..add('salonId', salonId))
@@ -175,6 +205,22 @@ class UserProfileResponseBuilder
   String? get districtId => _$this._districtId;
   set districtId(String? districtId) => _$this._districtId = districtId;
 
+  String? _oblastId;
+  String? get oblastId => _$this._oblastId;
+  set oblastId(String? oblastId) => _$this._oblastId = oblastId;
+
+  String? _cityName;
+  String? get cityName => _$this._cityName;
+  set cityName(String? cityName) => _$this._cityName = cityName;
+
+  String? _oblastName;
+  String? get oblastName => _$this._oblastName;
+  set oblastName(String? oblastName) => _$this._oblastName = oblastName;
+
+  String? _districtName;
+  String? get districtName => _$this._districtName;
+  set districtName(String? districtName) => _$this._districtName = districtName;
+
   String? _street;
   String? get street => _$this._street;
   set street(String? street) => _$this._street = street;
@@ -194,6 +240,11 @@ class UserProfileResponseBuilder
   String? _instagram;
   String? get instagram => _$this._instagram;
   set instagram(String? instagram) => _$this._instagram = instagram;
+
+  String? _professionalTitle;
+  String? get professionalTitle => _$this._professionalTitle;
+  set professionalTitle(String? professionalTitle) =>
+      _$this._professionalTitle = professionalTitle;
 
   bool? _isActive;
   bool? get isActive => _$this._isActive;
@@ -223,11 +274,16 @@ class UserProfileResponseBuilder
       _phoneNumber = $v.phoneNumber;
       _cityId = $v.cityId;
       _districtId = $v.districtId;
+      _oblastId = $v.oblastId;
+      _cityName = $v.cityName;
+      _oblastName = $v.oblastName;
+      _districtName = $v.districtName;
       _street = $v.street;
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
       _bio = $v.bio;
       _instagram = $v.instagram;
+      _professionalTitle = $v.professionalTitle;
       _isActive = $v.isActive;
       _emailVerified = $v.emailVerified;
       _salonId = $v.salonId;
@@ -260,11 +316,16 @@ class UserProfileResponseBuilder
           phoneNumber: phoneNumber,
           cityId: cityId,
           districtId: districtId,
+          oblastId: oblastId,
+          cityName: cityName,
+          oblastName: oblastName,
+          districtName: districtName,
           street: street,
           buildingNo: buildingNo,
           locationNote: locationNote,
           bio: bio,
           instagram: instagram,
+          professionalTitle: professionalTitle,
           isActive: isActive,
           emailVerified: emailVerified,
           salonId: salonId,

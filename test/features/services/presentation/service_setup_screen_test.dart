@@ -68,6 +68,15 @@ const _typeCut = ServiceTypeOption(
   nameUk: 'Стрижка',
   categoryName: 'HAIR',
 );
+// A THIRD manicure type — used by the submitted-index-mapping regression so an
+// EXCLUDED on-screen row can sit between/before included ones, making the
+// submitted index provably differ from the on-screen index.
+const _typeArt = ServiceTypeOption(
+  id: 'type-art',
+  slug: 'ART',
+  nameUk: 'Художній розпис',
+  categoryName: 'MANICURE',
+);
 
 const _createdService = <MasterService>[
   MasterService(
@@ -76,7 +85,7 @@ const _createdService = <MasterService>[
     name: 'Класичний манікюр',
     durationMinutes: 60,
     priceMin: 500,
-    priceDisplay: '500 грн',
+    priceDisplay: '500 ₴',
   ),
 ];
 
@@ -169,6 +178,12 @@ Future<void> _toggleRowOn(WidgetTester tester, String typeId) async {
         matching: find.byType(GestureDetector),
       )
       .last;
+  // Fully reveal the switch before tapping. With the reduced type scale the
+  // list is more compact, so a prior `scrollUntilVisible` can leave the row's
+  // switch (bottom-right of the card) only partially on-screen, making its
+  // center un-hittable. `ensureVisible` is a no-op when already fully visible.
+  await tester.ensureVisible(switchFinder);
+  await tester.pumpAndSettle();
   await tester.tap(switchFinder);
   await tester.pumpAndSettle();
 }
@@ -225,6 +240,42 @@ bool _rowHasErrorRim(WidgetTester tester, String typeId) {
   if (border is! Border) return false;
   return border.top.color.a != 0;
 }
+
+/// Enters a duration + a fixed price into a row's expanded fields, scoping both
+/// entries to the row's own card (all included rows share the same
+/// `pricing-fixed-amount` key, so the entry MUST be scoped or it collides).
+Future<void> _fillRowFixed(
+  WidgetTester tester,
+  String typeId, {
+  required String duration,
+  required String price,
+}) async {
+  await tester.enterText(
+    find
+        .descendant(
+          of: find.byKey(Key('setup_row_$typeId')),
+          matching: find.byType(TextField),
+        )
+        .first,
+    duration,
+  );
+  await tester.enterText(
+    find.descendant(
+      of: find.byKey(Key('setup_row_$typeId')),
+      matching: find.byKey(const Key('pricing-fixed-amount')),
+    ),
+    price,
+  );
+  await tester.pumpAndSettle();
+}
+
+/// A finder for the text `message` rendered INSIDE a specific row's card — so a
+/// server/inline error can be asserted to land on the RIGHT row (and be absent
+/// from the others) regardless of where else the same string renders.
+Finder _textInRow(String typeId, String message) => find.descendant(
+  of: find.byKey(Key('setup_row_$typeId')),
+  matching: find.text(message),
+);
 
 /// True when `finder`'s render box is laid out AND vertically overlaps the
 /// scroll viewport (the [Scrollable]'s on-screen rect — the true fold). Used to
@@ -529,7 +580,7 @@ void main() {
   // ── Bug 1 regression — narrow-width layout (no RenderFlex overflow) ────────
   //
   // The compact duration+price line used to overflow horizontally on narrow
-  // phones — worst in RANGE mode (two numeric fields + two "грн" suffixes
+  // phones — worst in RANGE mode (two numeric fields + two "₴" suffixes
   // beside the duration). pricing_field.dart now stacks duration above price
   // below 360dp, and range min/max stack below 220dp. These tests pump the
   // screen at 320 / 360 / 412 dp, include + expand a row in each pricing mode,
@@ -763,10 +814,13 @@ void main() {
       (tester) async {
         // A short surface so the two manicure rows cannot both fit — the second
         // (type-gel) row sits below the fold once we scroll back to the top.
+        // Height calibrated to the reduced type scale (post ~-3sp font pass);
+        // the two rows are more compact, so the surface is trimmed to keep the
+        // second row off-screen at the top scroll offset.
         await _pump(
           tester,
           h,
-          surfaceSize: const Size(360, 480),
+          surfaceSize: const Size(360, 440),
           overrides: h.overrides(
             categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
             typesBySlug: <String, List<ServiceTypeOption>>{
@@ -1289,6 +1343,342 @@ void main() {
               'close button must navigate to services via go() when the '
               'back stack is empty (deep-link / direct-entry path)',
         );
+      },
+    );
+  });
+
+  // ── HIGH regression — per-field 400 lands inline on the offending SUBMITTED
+  //   row instead of the generic «Перевірте дані» snackbar.
+  //
+  // The user-reported bug: a bulk-save 400 carrying per-field errors
+  // (`errors: {"items[1].durationMinutes": "…"}`) surfaced the GENERIC
+  // `errValidation` snackbar and flagged NO row, so the master could not tell
+  // WHICH service the backend rejected. The fix:
+  //   • service_setup_screen.dart — `_assemble()` captures `_submittedRows`
+  //     (INCLUDED rows, in submitted order); `_save()` parses each
+  //     `items[<i>].<field>` key, maps `i → _submittedRows[i]`, stamps
+  //     `serverDurationError` (localized `serviceSetupDurationMax`) /
+  //     `serverPriceError`, scrolls to the first flagged row, and only shows the
+  //     generic snackbar when NO key maps;
+  //   • service_setup_widgets.dart — the row card coalesces the server error into
+  //     its inline field slot + red rim, and clears it on field edit.
+  //
+  // These tests FAIL against the old behaviour (generic snackbar, no row
+  // flagged) and PASS now.
+
+  group('per-field 400 maps to the offending submitted row (HIGH regression)', () {
+    Future<void> expandManicure(WidgetTester tester) async {
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'server items[1].durationMinutes flags the 2nd SUBMITTED row inline '
+      '(serviceSetupDurationMax + red rim), leaves the 1st clean, and does NOT '
+      'show the generic errValidation snackbar',
+      (tester) async {
+        when(() => h.repo.bulkCreate(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{
+              'items[1].durationMinutes':
+                  'Duration must be at most 480 minutes (8 hours)',
+            },
+          ),
+        );
+
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 1800),
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+            },
+          ),
+        );
+        await expandManicure(tester);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // Include BOTH rows with valid duration + price so a 2-item payload
+        // assembles in submitted order [type-classic, type-gel].
+        await _toggleRowOn(tester, 'type-classic');
+        await _toggleRowOn(tester, 'type-gel');
+        await _fillRowFixed(
+          tester,
+          'type-classic',
+          duration: '60',
+          price: '500',
+        );
+        await _fillRowFixed(tester, 'type-gel', duration: '90', price: '700');
+
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        // The payload WAS submitted (both rows valid) — the 400 came from the
+        // network, not the client guard.
+        verify(() => h.repo.bulkCreate(any())).called(1);
+
+        // items[1] → the 2nd SUBMITTED row (type-gel): the inline duration
+        // message + the card's red error rim.
+        expect(
+          _textInRow('type-gel', l10n.serviceSetupDurationMax),
+          findsOneWidget,
+          reason:
+              'the backend items[1] error must land inline on the 2nd submitted '
+              'row (type-gel) as the localized duration-max message',
+        );
+        expect(_rowHasErrorRim(tester, 'type-gel'), isTrue);
+
+        // The 1st submitted row (type-classic) is untouched.
+        expect(
+          _textInRow('type-classic', l10n.serviceSetupDurationMax),
+          findsNothing,
+        );
+        expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+
+        // The generic validation snackbar must NOT fire — the OLD behaviour did
+        // exactly this (and flagged no row).
+        expect(
+          find.text(l10n.errValidation),
+          findsNothing,
+          reason:
+              'a per-field 400 that maps to a row must be shown inline, NOT via '
+              'the generic errValidation snackbar (the regressed behaviour)',
+        );
+      },
+    );
+
+    testWidgets(
+      'the index is into the SUBMITTED list, not the on-screen list — an '
+      'EXCLUDED row is skipped so items[1] maps past it to the correct row',
+      (tester) async {
+        // Rows on screen: [classic (EXCLUDED), gel (incl), art (incl)].
+        // Submitted order (only included, in order): [gel, art].
+        //   items[0] → gel   (on-screen index 1)
+        //   items[1] → art   (on-screen index 2)   ← the error target
+        // A NAIVE on-screen index would wrongly resolve items[1] → gel, so
+        // asserting the error lands on `art` (and NOT `gel`) proves the mapping
+        // walks the submitted list, not the visible one.
+        when(() => h.repo.bulkCreate(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{
+              'items[1].durationMinutes':
+                  'Duration must be at most 480 minutes (8 hours)',
+            },
+          ),
+        );
+
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 2200),
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel, _typeArt],
+            },
+          ),
+        );
+        await expandManicure(tester);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // Include gel + art (leave classic EXCLUDED), both valid.
+        await _toggleRowOn(tester, 'type-gel');
+        await _toggleRowOn(tester, 'type-art');
+        await _fillRowFixed(tester, 'type-gel', duration: '60', price: '500');
+        await _fillRowFixed(tester, 'type-art', duration: '90', price: '700');
+
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        verify(() => h.repo.bulkCreate(any())).called(1);
+
+        // items[1] → `art` (submitted index 1), NOT the on-screen index-1 `gel`.
+        expect(
+          _textInRow('type-art', l10n.serviceSetupDurationMax),
+          findsOneWidget,
+          reason:
+              'items[1] must map to the 2nd SUBMITTED row (art), not the 2nd '
+              'on-screen row (gel) — the excluded classic row is not submitted',
+        );
+        expect(_rowHasErrorRim(tester, 'type-art'), isTrue);
+
+        // gel (submitted index 0) + classic (excluded) must be clean.
+        expect(
+          _textInRow('type-gel', l10n.serviceSetupDurationMax),
+          findsNothing,
+        );
+        expect(_rowHasErrorRim(tester, 'type-gel'), isFalse);
+        expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+      },
+    );
+
+    testWidgets(
+      'client-side > 480 guard flags the row (durationTooLong / '
+      'serviceSetupDurationMax) BEFORE the network — bulkCreate is never called',
+      (tester) async {
+        // No bulkCreate stub — the client guard must short-circuit before any
+        // network call, so the repository is never touched.
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+        await expandManicure(tester);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        await _toggleRowOn(tester, 'type-classic');
+        // 500 > 480 → the client mirror of the backend @Max(480) guard fires.
+        await _fillRowFixed(
+          tester,
+          'type-classic',
+          duration: '500',
+          price: '500',
+        );
+
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        // The duration-max copy is rendered on the row (header flag + inline
+        // duration hint both use serviceSetupDurationMax for durationTooLong).
+        expect(
+          _textInRow('type-classic', l10n.serviceSetupDurationMax),
+          findsWidgets,
+          reason:
+              'the > 480 client guard must surface serviceSetupDurationMax on '
+              'the row before any network round-trip',
+        );
+        expect(_rowHasErrorRim(tester, 'type-classic'), isTrue);
+
+        // Proven pre-submit: the repository was NEVER called (count stays 0).
+        verifyNever(() => h.repo.bulkCreate(any()));
+      },
+    );
+
+    testWidgets(
+      'a 400 whose field key does NOT match items[i].field falls back to the '
+      'generic errValidation snackbar and flags no row',
+      (tester) async {
+        when(() => h.repo.bulkCreate(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{'somethingUnknown': 'x'},
+          ),
+        );
+
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+        await expandManicure(tester);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        await _toggleRowOn(tester, 'type-classic');
+        await _fillRowFixed(
+          tester,
+          'type-classic',
+          duration: '60',
+          price: '500',
+        );
+
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        verify(() => h.repo.bulkCreate(any())).called(1);
+
+        // Unmappable key → the generic snackbar is preserved (fallback intact).
+        expect(find.text(l10n.errValidation), findsOneWidget);
+        // No row flag / rim — nothing mapped to a row.
+        expect(
+          _textInRow('type-classic', l10n.serviceSetupDurationMax),
+          findsNothing,
+        );
+        expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+      },
+    );
+
+    testWidgets(
+      'editing the flagged row\'s duration clears the mapped-back server error '
+      '(inline message + red rim both disappear)',
+      (tester) async {
+        when(() => h.repo.bulkCreate(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{
+              'items[1].durationMinutes':
+                  'Duration must be at most 480 minutes (8 hours)',
+            },
+          ),
+        );
+
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 1800),
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+            },
+          ),
+        );
+        await expandManicure(tester);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        await _toggleRowOn(tester, 'type-classic');
+        await _toggleRowOn(tester, 'type-gel');
+        await _fillRowFixed(
+          tester,
+          'type-classic',
+          duration: '60',
+          price: '500',
+        );
+        await _fillRowFixed(tester, 'type-gel', duration: '90', price: '700');
+
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        // Precondition: the server error is on type-gel.
+        expect(
+          _textInRow('type-gel', l10n.serviceSetupDurationMax),
+          findsOneWidget,
+        );
+        expect(_rowHasErrorRim(tester, 'type-gel'), isTrue);
+
+        // Editing the flagged row's duration clears the mapped-back error.
+        await tester.enterText(
+          find
+              .descendant(
+                of: find.byKey(const Key('setup_row_type-gel')),
+                matching: find.byType(TextField),
+              )
+              .first,
+          '75',
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          _textInRow('type-gel', l10n.serviceSetupDurationMax),
+          findsNothing,
+          reason: 'the server duration error must clear as the master edits it',
+        );
+        expect(_rowHasErrorRim(tester, 'type-gel'), isFalse);
       },
     );
   });

@@ -69,5 +69,14 @@
 		<true/>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
+		<!-- add_2_calendar (Додати в календар): its iOS path uses only EventKit
+		     (EKEventEditViewController), which requires this usage-description
+		     string to present the "new event" editor. It never touches the
+		     Contacts framework, so no NSContactsUsageDescription is declared —
+		     an unused Contacts purpose string broadens the privacy footprint and
+		     is a common App Store rejection reason. iOS isn't shipping yet, but
+		     the key is declared here so we don't re-touch the plist when it does. -->
+		<key>NSCalendarsUsageDescription</key>
+		<string>Beautica додає ваш запис до календаря, щоб ви не пропустили візит.</string>
 	</dict>
 </plist>

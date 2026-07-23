@@ -21,6 +21,7 @@ part 'booking_response.g.dart';
 /// * [startsAt]
 /// * [endsAt]
 /// * [priceAtBooking]
+/// * [priceMaxAtBooking] - The range ceiling agreed AT BOOKING TIME, present ONLY when the master left this service's price as a genuine RANGE (no priceOverride) when the booking was made. Null means a single price — render priceAtBooking alone. The client must never re-derive this from priceType/priceOverride; the decision is made server-side, once.
 /// * [durationMinutesAtBooking]
 /// * [createdAt]
 @BuiltValue()
@@ -43,7 +44,7 @@ abstract class BookingResponse
 
   @BuiltValueField(wireName: r'status')
   BookingResponseStatusEnum? get status;
-  // enum statusEnum {  PENDING,  CONFIRMED,  DECLINED,  COMPLETED,  NOT_COMPLETED,  CANCELLED,  };
+  // enum statusEnum {  CONFIRMED,  DECLINED,  COMPLETED,  NOT_COMPLETED,  CANCELLED,  };
 
   @BuiltValueField(wireName: r'startsAt')
   DateTime? get startsAt;
@@ -53,6 +54,10 @@ abstract class BookingResponse
 
   @BuiltValueField(wireName: r'priceAtBooking')
   num? get priceAtBooking;
+
+  /// The range ceiling agreed AT BOOKING TIME, present ONLY when the master left this service's price as a genuine RANGE (no priceOverride) when the booking was made. Null means a single price — render priceAtBooking alone. The client must never re-derive this from priceType/priceOverride; the decision is made server-side, once.
+  @BuiltValueField(wireName: r'priceMaxAtBooking')
+  num? get priceMaxAtBooking;
 
   @BuiltValueField(wireName: r'durationMinutesAtBooking')
   int? get durationMinutesAtBooking;
@@ -147,6 +152,13 @@ class _$BookingResponseSerializer
       yield serializers.serialize(
         object.priceAtBooking,
         specifiedType: const FullType(num),
+      );
+    }
+    if (object.priceMaxAtBooking != null) {
+      yield r'priceMaxAtBooking';
+      yield serializers.serialize(
+        object.priceMaxAtBooking,
+        specifiedType: const FullType.nullable(num),
       );
     }
     if (object.durationMinutesAtBooking != null) {
@@ -251,6 +263,14 @@ class _$BookingResponseSerializer
           ) as num;
           result.priceAtBooking = valueDes;
           break;
+        case r'priceMaxAtBooking':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(num),
+          ) as num?;
+          if (valueDes == null) continue;
+          result.priceMaxAtBooking = valueDes;
+          break;
         case r'durationMinutesAtBooking':
           final valueDes = serializers.deserialize(
             value,
@@ -295,9 +315,6 @@ class _$BookingResponseSerializer
 }
 
 class BookingResponseStatusEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'PENDING')
-  static const BookingResponseStatusEnum PENDING =
-      _$bookingResponseStatusEnum_PENDING;
   @BuiltValueEnumConst(wireName: r'CONFIRMED')
   static const BookingResponseStatusEnum CONFIRMED =
       _$bookingResponseStatusEnum_CONFIRMED;

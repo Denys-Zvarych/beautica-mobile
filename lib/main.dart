@@ -4,13 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'core/config/app_config.dart';
+import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
+import 'shared/time/time_zones.dart';
 
 /// Beautica mobile entry point.
 ///
@@ -55,6 +58,14 @@ Future<void> main() async {
   // The dioProvider also calls this guard, but that fires lazily; this call
   // ensures the guard runs unconditionally on every startup path.
   AppConfig.assertSecureUrl();
+
+  // Load the IANA timezone database and pin the Beautica market zone
+  // (Europe/Kyiv) BEFORE any booking/slot formatter runs. Booking instants are
+  // canonical UTC; every wall-clock the user sees is converted to Kyiv
+  // (DST-aware) via shared/time/time_zones.dart. Synchronous + cheap; must
+  // complete before the first frame so the slot picker never reads the zone
+  // uninitialised.
+  initBeauticaTimeZones();
 
   // Splash timing is recorded in SplashScreen.initState — see
   // lib/features/auth/presentation/splash_screen.dart. The gate must measure
@@ -102,6 +113,15 @@ Future<void> main() async {
   ); // pill / field accent / form caption
   await GoogleFonts.pendingFonts();
 
+  // L3 (mobile-perf, MP11 pattern): warm the flutter_svg cache for the
+  // shared notification bell so its first paint (Головна AND the Beauty
+  // Passport top bar) does NOT decode + rasterise the SVG on the UI thread.
+  // SvgPicture keys its PictureCache on the asset path, so a pre-seeded entry
+  // is a guaranteed hit on the first real render. Fire-and-forget: a miss
+  // simply falls back to a one-time on-render decode, so this never blocks
+  // startup — hence no `await`.
+  unawaited(_warmSharedSvgs());
+
   // MEDIUM-3 (mobile-security 2026-05-27): pre-load ISRG Root X1 cert for
   // Dio IOHttpClientAdapter cert-pinning. Must complete before runApp so
   // the SecurityContext is cached before any provider reads dioProvider.
@@ -128,6 +148,22 @@ Future<void> main() async {
   );
 }
 
+/// Pre-seeds the flutter_svg [PictureCache] for the SVGs shared across the
+/// first screens a CLIENT lands on, so their first paint is a cache hit rather
+/// than an on-the-UI-thread decode. Currently just the notification bell
+/// ([BeauticaAssetIcons.notificationPlain]) reused by Головна and the Beauty
+/// Passport top bar (L3). Add further high-traffic SVGs here as needed.
+Future<void> _warmSharedSvgs() async {
+  const List<String> assets = <String>[BeauticaAssetIcons.notificationPlain];
+  for (final String asset in assets) {
+    final SvgAssetLoader loader = SvgAssetLoader(asset);
+    await svg.cache.putIfAbsent(
+      loader.cacheKey(null),
+      () => loader.loadBytes(null),
+    );
+  }
+}
+
 class BeauticaApp extends ConsumerWidget {
   const BeauticaApp({super.key});
 
@@ -149,6 +185,21 @@ class BeauticaApp extends ConsumerWidget {
       supportedLocales: AppLocalizations.supportedLocales,
       // Forced UA until LocaleNotifier ships (post-MVP).
       locale: const Locale('uk', 'UA'),
+      // Overflow-hardening: clamp the OS accessibility font scale app-wide.
+      // Unbounded system font scaling (up to 2.0+ on some devices) overflows
+      // the fixed-height home rails and other dense layouts. Bounding it at
+      // 1.3 keeps accessibility headroom while staying within the design's
+      // tolerance. Applied at the MaterialApp.router builder so it wraps every
+      // route. No existing builder was present, so this introduces one.
+      builder: (BuildContext context, Widget? child) {
+        final MediaQueryData mq = MediaQuery.of(context);
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       // Phase 1.4 — go_router, managed by Riverpod, replaces the home: param.
       routerConfig: router,
     );

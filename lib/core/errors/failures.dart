@@ -14,6 +14,7 @@
 // inside the notifier itself (see flutter skill § Forbidden Patterns).
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 
 /// Base class for all domain-level failures.
@@ -296,6 +297,66 @@ final class ProviderMissingCityFailure extends Failure {
       AppLocalizations.of(ctx).verificationErrProviderMissingCity;
 }
 
+/// Typed error codes returned by `POST /auth/verify-password-reset-otp`
+/// (backend Phase A3) when the submitted OTP is rejected.
+///
+/// The backend deliberately reuses the SAME generic shapes as
+/// `POST /auth/verify-email` (`{success:false, data:{code:"..."}}`) for
+/// invalid, expired, exhausted, and locked-account states — no oracle. There
+/// is no `ALREADY_VERIFIED` equivalent here (a password-reset OTP has no
+/// "already verified" state), so this is a smaller enum than
+/// [VerificationErrorCode] rather than a reuse of it — reusing it would let
+/// [VerificationFailure.userMessage] surface email-verification-specific copy
+/// ("Цей акаунт вже підтверджено...") in a password-reset context.
+enum PasswordResetOtpErrorCode {
+  /// Wrong OTP digits — also returned when the code was already consumed or
+  /// the account cannot be resolved (the backend reuses this code to prevent
+  /// enumeration).
+  invalidCode,
+
+  /// OTP older than the TTL.
+  codeExpired;
+
+  /// Decodes the backend wire string into [PasswordResetOtpErrorCode].
+  ///
+  /// Unknown values fall back to [invalidCode] so the user still sees a
+  /// reasonable error message instead of crashing on an unrecognised future
+  /// server enum.
+  static PasswordResetOtpErrorCode fromWire(String? wire) {
+    switch (wire) {
+      case 'CODE_EXPIRED':
+        return PasswordResetOtpErrorCode.codeExpired;
+      case 'INVALID_CODE':
+      default:
+        return PasswordResetOtpErrorCode.invalidCode;
+    }
+  }
+}
+
+/// Emitted when `POST /auth/verify-password-reset-otp` returns 400 with a
+/// typed `data.code` error envelope (backend Phase A3).
+///
+/// [code] is one of the [PasswordResetOtpErrorCode] variants and lets the
+/// password-reset OTP screen surface the exact UA copy for each case (wrong
+/// code vs. expired code) without re-parsing the response body.
+final class PasswordResetOtpFailure extends Failure {
+  const PasswordResetOtpFailure({required this.code, super.cause});
+
+  /// The typed error code returned by the backend.
+  final PasswordResetOtpErrorCode code;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    switch (code) {
+      case PasswordResetOtpErrorCode.invalidCode:
+        return l10n.resetOtpErrInvalidCode;
+      case PasswordResetOtpErrorCode.codeExpired:
+        return l10n.resetOtpErrCodeExpired;
+    }
+  }
+}
+
 /// Emitted when `POST /auth/reset-password` returns the backend's generic
 /// 400 for an invalid, used, or expired reset token (backend Phase 11.3).
 ///
@@ -342,6 +403,37 @@ final class CategoryRequestThrottledFailure extends Failure {
       AppLocalizations.of(ctx).categoryRequestErrThrottled;
 }
 
+/// Emitted when `POST /api/v1/support/contact` returns **503 Service
+/// Unavailable** because the support channel is not configured on the backend
+/// (e.g. the support inbox / forwarding address is unset).
+///
+/// Distinct from [ServerFailure] so the contact screen can show a specific
+/// "support is temporarily unavailable, try later" message rather than the
+/// generic server-error copy.
+final class SupportChannelUnavailableFailure extends Failure {
+  const SupportChannelUnavailableFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).contactSupportErrUnavailable;
+}
+
+/// Emitted when `POST /api/v1/support/contact` returns **413 Payload Too
+/// Large** because the combined attachment size exceeded the 5 MB envelope the
+/// backend enforces at the transport layer.
+///
+/// The client mirrors this limit (see [SupportLimits]) so a well-behaved client
+/// never reaches the server with an over-budget payload — but a 413 is mapped
+/// here as a backstop so the user still gets the right "attachments too large"
+/// message instead of a generic server error.
+final class SupportAttachmentTooLargeFailure extends Failure {
+  const SupportAttachmentTooLargeFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).contactSupportErrTotalTooBig;
+}
+
 /// Emitted when `POST /api/v1/independent-masters/me/services/bulk` returns
 /// **409 Conflict** because the master already has at least one active service.
 ///
@@ -357,4 +449,184 @@ final class MasterAlreadyHasServicesFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).serviceSetupErrAlreadyHasServices;
+}
+
+/// Emitted when a booking write returns HTTP **409 Conflict** because the
+/// requested slot is no longer available.
+///
+/// Two call sites (Phase 14.0):
+///   - `POST /bookings` — another client booked the same slot first (or the
+///     master's schedule changed) between the client fetching available slots
+///     and submitting the request.
+///   - `PATCH /bookings/{id}/reschedule` — the requested new slot is taken, or
+///     the booking is no longer in a reschedulable state (server-side race).
+///
+/// Generic on purpose — unlike [MasterAlreadyHasServicesFailure] or
+/// [EmailAlreadyRegisteredFailure], this is not tied to one specific write; the
+/// booking repository re-maps the interceptor's default
+/// `ServerFailure(statusCode: 409)` to this type by checking
+/// `e.response?.statusCode == 409` BEFORE deferring to `e.error is Failure`
+/// (see `HttpBookingRepository._mapBookingWriteException`, mirroring the
+/// `MasterAlreadyHasServicesFailure` precedent in `service_repository.dart`).
+final class ConflictFailure extends Failure {
+  const ConflictFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errConflict;
+}
+
+/// Emitted when a booking WRITE (create/reschedule) returns HTTP **409** with
+/// the typed `data.code == "CLIENT_BOOKING_CONFLICT"` envelope (backend
+/// commit f95d8fd): the authenticated CLIENT already has a PENDING/CONFIRMED
+/// booking — with ANY master or salon, not just the one being booked — whose
+/// `[startsAt, endsAt)` window overlaps the requested slot.
+///
+/// Distinct from the generic [ConflictFailure] (the MASTER's slot is taken by
+/// someone else) — here the CLIENT would be double-booking themselves. Carries
+/// enough of the clashing booking to name it in the UI: [conflictingBookingId],
+/// [serviceName], [masterName], [startsAt], [endsAt].
+///
+/// Expected backend envelope:
+/// ```json
+/// {
+///   "success": false,
+///   "data": {
+///     "code": "CLIENT_BOOKING_CONFLICT",
+///     "conflictingBookingId": "3f2a1c1e-…",
+///     "serviceName": "Манікюр класичний",
+///     "masterName": "Олена Коваль",
+///     "startsAt": "2026-07-15T14:00:00+03:00",
+///     "endsAt": "2026-07-15T15:30:00+03:00"
+///   },
+///   "message": "Client already has an overlapping booking"
+/// }
+/// ```
+/// The server-supplied top-level `message` is intentionally NEVER shown (it is
+/// untranslated, internal English copy) — [userMessage] composes its own
+/// Ukrainian sentence from the typed fields via [formatBookingWindow], the SAME
+/// shared formatter the booking confirm/success screens already use for the
+/// "Час" row, so the window reads identically everywhere in the app (never a
+/// raw ISO string).
+///
+/// Decoded by `HttpBookingRepository._mapBookingWriteException` — checked
+/// BEFORE the generic 409 → [ConflictFailure] fallback (mirrors the
+/// `EMAIL_ALREADY_REGISTERED` / `CategoryAlreadyExistsFailure` precedent: the
+/// status-code branch runs before deferring to any [Failure] the interceptor
+/// may already have attached).
+final class ClientBookingConflictFailure extends Failure {
+  const ClientBookingConflictFailure({
+    required this.conflictingBookingId,
+    required this.serviceName,
+    required this.masterName,
+    required this.startsAt,
+    required this.endsAt,
+    super.cause,
+  });
+
+  /// Id of the client's own PENDING/CONFIRMED booking that clashes with the
+  /// requested slot. Not navigated to anywhere yet — kept typed (rather than
+  /// discarded) as the natural extension point for a future "View booking"
+  /// deep link from the conflict dialog.
+  final String conflictingBookingId;
+
+  /// The clashing booking's service name, exactly as returned by the backend
+  /// (an untranslated catalogue/user value, not an l10n key).
+  final String serviceName;
+
+  /// The clashing booking's master (or salon-master) display name.
+  final String masterName;
+
+  /// The clashing booking's window start.
+  final DateTime startsAt;
+
+  /// The clashing booking's window end.
+  final DateTime endsAt;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    return l10n.bookingErrClientConflict(
+      serviceName,
+      masterName,
+      formatBookingWindow(startsAt, endsAt),
+    );
+  }
+}
+
+/// Emitted when `PATCH /bookings/{id}/reschedule` or `PATCH /bookings/{id}/cancel`
+/// returns HTTP **409** with the typed `data.code == "BOOKING_ALREADY_ELAPSED"`
+/// envelope (backend commit 952e441): the booking's `endsAt` is already before
+/// the SERVER clock, so it can no longer be rescheduled or cancelled — the visit
+/// window has passed.
+///
+/// The guard is SERVER-authoritative: a client device-clock rollback cannot
+/// bypass it. The mobile UI already flips an elapsed CONFIRMED booking to
+/// read-only (see `BookingDisplayX.isPast`), so this failure is the defensive
+/// backstop for a stale screen or a rolled-back clock that let the tap through
+/// anyway — the screen catches it, shows [userMessage], and refetches the
+/// booking so it re-renders read-only.
+///
+/// Decoded by `HttpBookingRepository` (both the write mapper
+/// `_mapBookingWriteException` for reschedule and the cancel mapper) — the
+/// `data.code` check runs BEFORE the generic 409 → [ConflictFailure] /
+/// [ClientBookingConflictFailure] fallbacks, mirroring the
+/// `CLIENT_BOOKING_CONFLICT` precedent.
+final class BookingAlreadyElapsedFailure extends Failure {
+  const BookingAlreadyElapsedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrorAlreadyElapsed;
+}
+
+/// Emitted when `POST /bookings` or `PATCH /bookings/{id}/reschedule` returns
+/// HTTP **429** — the per-user booking-write rate limit (5 requests / 10 s,
+/// backend commit f95d8fd) is exhausted.
+///
+/// Decoded by `HttpBookingRepository._mapBookingWriteException` — checked
+/// BEFORE deferring to any [Failure] the interceptor already attached (the
+/// interceptor has no booking-specific 429 case and would otherwise surface an
+/// [UnknownFailure]), mirroring the `CategoryRequestThrottledFailure`
+/// precedent in `service_repository.dart`.
+final class BookingRateLimitedFailure extends Failure {
+  const BookingRateLimitedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrRateLimited;
+}
+
+/// Emitted when `POST /reviews` returns HTTP **409 Conflict** because the
+/// authenticated client has ALREADY left a review for this booking (Phase
+/// 14.6). The booking's server-computed `canReview` flag normally hides the
+/// entry point, so this is the backstop for a stale screen or a stale
+/// `/bookings/{id}/review` deep link opened after a review was already left.
+///
+/// Decoded by `HttpBookingRepository._mapReviewException` — the 409 status
+/// check runs before deferring to any [Failure] the interceptor may have
+/// attached (mirrors the `MasterAlreadyHasServicesFailure` precedent).
+final class ReviewAlreadyExistsFailure extends Failure {
+  const ReviewAlreadyExistsFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).reviewErrAlreadyReviewed;
+}
+
+/// Emitted when `POST /reviews` is rejected because the booking is not
+/// reviewable by this client (Phase 14.6): HTTP **403** (the booking is not
+/// owned by the authenticated client) or a **4xx** (e.g. the booking is not in
+/// the `COMPLETED` state the backend requires). Both collapse to one friendly
+/// "this booking can't be reviewed" message — the client never needs to
+/// distinguish the two, and the `canReview` gate already prevents the happy
+/// path from reaching either.
+///
+/// Decoded by `HttpBookingRepository._mapReviewException` before deferring to
+/// the shared `_mapDioException`.
+final class ReviewNotAllowedFailure extends Failure {
+  const ReviewNotAllowedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).reviewErrNotAllowed;
 }

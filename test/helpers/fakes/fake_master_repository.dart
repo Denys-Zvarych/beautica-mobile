@@ -9,6 +9,7 @@
 
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 
 /// In-memory [MasterRepository] implementation for tests.
@@ -33,6 +34,9 @@ final class FakeMasterRepository implements MasterRepository {
   Future<Master> getMyProfile(String masterId) async => _profile;
 
   @override
+  Future<Master> getMasterById(String masterId) async => _profile;
+
+  @override
   Future<void> updateLocality({
     required String cityId,
     String? districtId,
@@ -44,4 +48,16 @@ final class FakeMasterRepository implements MasterRepository {
   @override
   Future<void> updateMyProfile(MasterUpdate update) async =>
       throw UnimplementedError('updateMyProfile not stubbed');
+
+  @override
+  Future<MasterReviewSummary> getMasterReviewSummary(String masterId) async =>
+      const MasterReviewSummary();
+
+  @override
+  Future<List<MasterReviewItem>> getMasterReviews({
+    required String masterId,
+    required MasterReviewSort sort,
+    int page = 0,
+    int size = kMasterReviewsPageSize,
+  }) async => const <MasterReviewItem>[];
 }

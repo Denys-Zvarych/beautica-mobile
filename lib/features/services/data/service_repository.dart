@@ -65,6 +65,17 @@ abstract interface class ServiceRepository {
   /// requested [id] is absent from the list.
   Future<MasterService> getMyService(String id);
 
+  /// Returns the active services for an arbitrary [masterId] (public browse).
+  ///
+  /// Wraps the PUBLIC `GET /api/v1/masters/{masterId}/services` endpoint (drafts
+  /// are filtered out server-side). Unlike [listMyServices] this takes the
+  /// target master as a parameter and does NOT require the caller to be that
+  /// master, so it is safe to call from a CLIENT session — it drives the
+  /// services stat tile and the read-only service-categories section on the
+  /// client-facing public master profile (Phase 13.5).
+  /// Returns an empty list when the master has no active services.
+  Future<List<MasterService>> getMasterServices(String masterId);
+
   /// Creates a new service for the authenticated master.
   ///
   /// Wraps `POST /api/v1/independent-masters/me/services`. Returns the
@@ -288,6 +299,42 @@ final class HttpServiceRepository implements ServiceRepository {
       throw const NotFoundFailure();
     }
     return match;
+  }
+
+  @override
+  Future<List<MasterService>> getMasterServices(String masterId) async {
+    // No [_assertAuthenticated] gate: this hits the PUBLIC endpoint keyed on the
+    // [masterId] PATH parameter (not the JWT principal), so it must work even
+    // when [_masterId] is empty (the CLIENT-safe provider passes '').
+    try {
+      final res = await _serviceApi.getMasterServices(masterId: masterId);
+      final list = res.data?.data;
+      if (list == null) {
+        if (kDebugMode) {
+          log(
+            'getMasterServices($masterId): '
+            'ApiResponseListMasterServiceResponse.data is null',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        return const [];
+      }
+      return list.map(MasterServiceMapper.fromDto).toList(growable: false);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMasterServices($masterId) failed: '
+          '${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
   }
 
   @override
@@ -717,8 +764,18 @@ final class HttpServiceRepository implements ServiceRepository {
         }
         if (statusCode == 404) return NotFoundFailure(cause: e);
         return ServerFailure(statusCode: statusCode, cause: e);
-      case DioExceptionType.cancel:
+      // A TLS / certificate-validation failure is a transport-layer security
+      // problem, NOT a transient 5xx. Classifying it as a [ServerFailure] would
+      // make a man-in-the-middle / broken-trust-chain error indistinguishable
+      // from a retryable backend hiccup — the UI would invite the user to
+      // "try again" against a connection that should not be trusted. Map it
+      // alongside the connectivity failures ([NetworkFailure]) so it surfaces as
+      // a connection problem and never looks like a recoverable server error.
+      // (This only changes error CLASSIFICATION; certificate validation itself
+      // is unchanged — it stays enforced by the Dio/HttpClient trust chain.)
       case DioExceptionType.badCertificate:
+        return NetworkFailure(cause: e);
+      case DioExceptionType.cancel:
       case DioExceptionType.unknown:
         return ServerFailure(statusCode: statusCode, cause: e);
     }
@@ -761,6 +818,29 @@ ServiceRepository serviceRepository(Ref ref) {
     masterId: masterId,
   );
 }
+
+/// Provides a CLIENT-safe [ServiceRepository] for PUBLIC reads only.
+///
+/// Used by the public master profile (Phase 13.5) to fetch the target master's
+/// active services (stat tile count + the read-only service-categories
+/// section) via [ServiceRepository.getMasterServices]. Unlike
+/// [serviceRepositoryProvider] it does NOT `ref.watch(masterProfileProvider)`:
+/// a CLIENT has no master profile, and dragging that master-only provider in
+/// would fire `GET /api/v1/masters/me` (403 for a CLIENT) and trigger Riverpod's
+/// retry storm — the same footgun the [approvedCategories] provider avoids by
+/// sourcing the API directly. The [_masterId] readiness guard is passed empty
+/// (`''`) on purpose: only [getMasterServices] (which hits the public,
+/// path-parameterised endpoint and never calls `_assertAuthenticated`) is used
+/// through this handle; the owner-only methods would correctly throw
+/// [UnauthorizedFailure].
+@Riverpod(keepAlive: true)
+ServiceRepository publicServiceRepository(Ref ref) => HttpServiceRepository(
+  serviceApi: ref.watch(serviceApiProvider),
+  categoryApi: ref.watch(categoryRequestApiProvider),
+  catalogApi: ref.watch(serviceCatalogApiProvider),
+  dio: ref.watch(dioProvider),
+  masterId: '',
+);
 
 /// Provides the generated [ServiceControllerApi] singleton.
 ///
@@ -814,7 +894,20 @@ ServiceCatalogControllerApi serviceCatalogApi(Ref ref) =>
 /// On error, the picker row shows a compact retry affordance that calls
 /// `ref.invalidate(approvedCategoriesProvider)` — the rest of the form stays
 /// usable (category is optional).
+/// Sourced directly from [categoryRequestApiProvider] (which depends only on
+/// [dioProvider], NOT on the master-only [masterProfileProvider]) so that
+/// CLIENT-side callers — e.g. the discovery search `_ServiceTypeGrid` — never
+/// transitively drag in `GET /api/v1/masters/me` (a master-only endpoint that
+/// 403s for a CLIENT and then gets retried ~4× by Riverpod's backoff). The
+/// returned list mirrors [ServiceRepository.fetchApprovedCategories] exactly
+/// (same `MasterServiceMapper.fromApprovedCategoryList` mapping + null/empty
+/// handling), so master-side callers are unaffected.
 @Riverpod(keepAlive: true)
-Future<List<ServiceCategoryOption>> approvedCategories(Ref ref) {
-  return ref.watch(serviceRepositoryProvider).fetchApprovedCategories();
+Future<List<ServiceCategoryOption>> approvedCategories(Ref ref) async {
+  final res = await ref.watch(categoryRequestApiProvider).listApproved();
+  final list = res.data?.data;
+  if (list == null) {
+    return const [];
+  }
+  return MasterServiceMapper.fromApprovedCategoryList(list);
 }

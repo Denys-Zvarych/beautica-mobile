@@ -14,8 +14,8 @@
 # screen_protector — MethodChannel handler for FLAG_SECURE (MASVS-PLATFORM MS6)
 # Protects auth screens from OS-level screenshot/recording. R8 must not strip
 # the MethodChannel implementation or preventScreenshotOn/Off become silent no-ops.
--keep class io.etchells.screenprotector.** { *; }
--keepclassmembers class io.etchells.screenprotector.** { *; }
+-keep class com.prongbang.screen_protector.** { *; }
+-keepclassmembers class com.prongbang.screen_protector.** { *; }
 
 # Dio — keep response type adapters
 -keep class retrofit2.** { *; }

@@ -11,12 +11,13 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**cancelBooking**](BookingControllerApi.md#cancelbooking) | **PATCH** /api/v1/bookings/{bookingId}/cancel | 
 [**completeBooking**](BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
-[**confirmBooking**](BookingControllerApi.md#confirmbooking) | **PATCH** /api/v1/bookings/{bookingId}/confirm | 
 [**createBooking**](BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [**declineBooking**](BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[**listMyBookedDays**](BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [**listMyBookings**](BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
 [**notCompleteBooking**](BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
+[**rescheduleBooking**](BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
 
 
 # **cancelBooking**
@@ -77,46 +78,6 @@ try {
     api.completeBooking(bookingId);
 } catch on DioException (e) {
     print('Exception when calling BookingControllerApi->completeBooking: $e\n');
-}
-```
-
-### Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **bookingId** | **String**|  | 
-
-### Return type
-
-void (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: Not defined
- - **Accept**: Not defined
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **confirmBooking**
-> confirmBooking(bookingId)
-
-
-
-### Example
-```dart
-import 'package:beautica_api/api.dart';
-
-final api = BeauticaApi().getBookingControllerApi();
-final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-
-try {
-    api.confirmBooking(bookingId);
-} catch on DioException (e) {
-    print('Exception when calling BookingControllerApi->confirmBooking: $e\n');
 }
 ```
 
@@ -267,8 +228,51 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
+# **listMyBookedDays**
+> ApiResponseListLocalDate listMyBookedDays(from, to)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getBookingControllerApi();
+final Date from = 2013-10-20; // Date | Range start (inclusive), local Europe/Kyiv day. Required.
+final Date to = 2013-10-20; // Date | Range end (inclusive), local Europe/Kyiv day. Required.
+
+try {
+    final response = api.listMyBookedDays(from, to);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling BookingControllerApi->listMyBookedDays: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **from** | **Date**| Range start (inclusive), local Europe/Kyiv day. Required. | 
+ **to** | **Date**| Range end (inclusive), local Europe/Kyiv day. Required. | 
+
+### Return type
+
+[**ApiResponseListLocalDate**](ApiResponseListLocalDate.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
 # **listMyBookings**
-> ApiResponsePageResponseBookingResponse listMyBookings(pageable, status)
+> ApiResponsePageResponseBookingDetailResponse listMyBookings(pageable, status, from, to, serviceId)
 
 
 
@@ -278,10 +282,13 @@ import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getBookingControllerApi();
 final Pageable pageable = ; // Pageable | 
-final String status = status_example; // String | 
+final BuiltList<String> status = ; // BuiltList<String> | Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate.
+final Date from = 2013-10-20; // Date | Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window.
+final Date to = 2013-10-20; // Date | Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
+final BuiltList<String> serviceId = ; // BuiltList<String> | Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate.
 
 try {
-    final response = api.listMyBookings(pageable, status);
+    final response = api.listMyBookings(pageable, status, from, to, serviceId);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling BookingControllerApi->listMyBookings: $e\n');
@@ -293,11 +300,14 @@ try {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **pageable** | [**Pageable**](.md)|  | 
- **status** | **String**|  | [optional] 
+ **status** | [**BuiltList&lt;String&gt;**](String.md)| Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. | [optional] 
+ **from** | **Date**| Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window. | [optional] 
+ **to** | **Date**| Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window. | [optional] 
+ **serviceId** | [**BuiltList&lt;String&gt;**](String.md)| Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate. | [optional] 
 
 ### Return type
 
-[**ApiResponsePageResponseBookingResponse**](ApiResponsePageResponseBookingResponse.md)
+[**ApiResponsePageResponseBookingDetailResponse**](ApiResponsePageResponseBookingDetailResponse.md)
 
 ### Authorization
 
@@ -349,6 +359,49 @@ No authorization required
 
  - **Content-Type**: application/json
  - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **rescheduleBooking**
+> ApiResponseBookingDetailResponse rescheduleBooking(bookingId, rescheduleBookingRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getBookingControllerApi();
+final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final RescheduleBookingRequest rescheduleBookingRequest = ; // RescheduleBookingRequest | 
+
+try {
+    final response = api.rescheduleBooking(bookingId, rescheduleBookingRequest);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling BookingControllerApi->rescheduleBooking: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **bookingId** | **String**|  | 
+ **rescheduleBookingRequest** | [**RescheduleBookingRequest**](RescheduleBookingRequest.md)|  | 
+
+### Return type
+
+[**ApiResponseBookingDetailResponse**](ApiResponseBookingDetailResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

@@ -7,17 +7,20 @@
 // real `ACTION_VIEW` intent via `$.platform.mobile.openUrl(...)` and assert the
 // app's go_router resolves it to the matching screen.
 //
-// WHY /reset-password
-// -------------------
-// The reset-password App Link is already declared in AndroidManifest.xml
-// (autoVerify intent-filter, host = production Railway domain,
-// pathPrefix = /reset-password) for the Phase 2.13 forgot-password flow. It is
-// the only deep-link target that is:
+// WHY /invite/accept
+// ------------------
+// The invite-accept App Link is the ONLY approved App Link surface declared in
+// AndroidManifest.xml (autoVerify intent-filter, host = production Railway
+// domain, pathPrefix = /invite/accept). It is the only deep-link target that
+// is:
 //   • reachable WITHOUT an authenticated session — authRedirect treats
-//     /reset-password as an `isAtUnauthOnlyRoute`, so a cold-start (no stored
+//     /invite/accept as an `isAtUnauthOnlyRoute`, so a cold-start (no stored
 //     token) user is NOT bounced to /login; the screen renders as-is.
-//   • backend-free on render — the screen only POSTs when the user submits, so
-//     no live backend is needed to assert the destination mounts.
+//   • backend-free on MOUNT — the screen-container key renders on the first
+//     frame, independent of the token-validation network call. A fake token
+//     lands on loading→error and never reaches the `data` form, which is
+//     exactly why we assert the screen-container key ('accept_invite_screen'),
+//     not the form key.
 // That makes it a fully deterministic, runnable native deep-link assertion
 // today — no Firebase, no backend, no auth fixtures.
 //
@@ -36,17 +39,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
 
+import '../../test/helpers/pump_app.dart';
+
 // The App Link host is locked to the production Railway domain in
-// AndroidManifest.xml's autoVerify intent-filter. A `token` query param is
-// required by ResetPasswordScreen; any non-empty value renders the form (the
-// token is only validated server-side on submit).
-const String _kResetPasswordDeepLink =
+// AndroidManifest.xml's autoVerify intent-filter (pathPrefix /invite/accept). A
+// `token` query param is carried through to the accept-invite screen; a fake
+// value never validates (it settles loading→error), but the screen-container
+// key mounts on the first frame regardless — which is what this test asserts.
+const String _kInviteAcceptDeepLink =
     'https://beautica-backend-production.up.railway.app'
-    '/reset-password?token=patrol-e2e-smoke-token';
+    '/invite/accept?token=patrol-e2e-smoke-token';
 
 void main() {
   patrolTest(
-    'deep link to reset-password route opens the reset-password screen',
+    'deep link to invite-accept route opens the accept-invite screen',
     ($) async {
       // Launch the REAL app tree. Under patrol native instrumentation the
       // platform channels main() touches (FlutterNativeSplash, SystemChrome,
@@ -55,34 +61,60 @@ void main() {
       await $.pumpWidgetAndSettle(const ProviderScope(child: BeauticaApp()));
 
       // Cold start with no stored token settles to /login (the unauthenticated
-      // home). Sanity-check we are NOT already on reset-password so the
+      // home). Sanity-check we are NOT already on accept-invite so the
       // assertion after openUrl proves the deep link did the navigation.
       expect(
-        find.byKey(const ValueKey<String>('reset_submit')),
+        find.byKey(const ValueKey<String>('accept_invite_screen')),
         findsNothing,
-        reason: 'Precondition: reset-password screen must not be shown yet',
+        reason: 'Precondition: accept-invite screen must not be shown yet',
       );
 
       // Fire the OS-level App Link intent. Android routes it to MainActivity
-      // (singleTop) → Flutter deep-link handler → go_router /reset-password.
+      // (singleTop) → Flutter deep-link handler → go_router /invite/accept.
       // `$.platform.mobile.openUrl` is the non-deprecated successor to the old
       // `$.native.openUrl` (NativeAutomator is being phased out in patrol 4.x).
-      await $.platform.mobile.openUrl(_kResetPasswordDeepLink);
+      await $.platform.mobile.openUrl(_kInviteAcceptDeepLink);
 
-      // Let the intent propagate into the Flutter engine and the router settle.
-      await $.pumpAndSettle();
-
-      // Destination assertion: the reset-password form is now mounted. Keys are
-      // locale-invariant (no Ukrainian find.text), per the integration-test
-      // navigation policy.
-      expect(
-        find.byKey(const ValueKey<String>('reset_submit')),
-        findsOneWidget,
-        reason: 'Deep link must land on the reset-password screen',
+      // POLL — do NOT use pumpAndSettle here. `openUrl` returns as soon as the
+      // intent is FIRED; Android then has to deliver it to MainActivity, hand
+      // it to the Flutter engine, and let go_router rebuild. pumpAndSettle
+      // settles the CURRENT tree, which is already idle, so it returns almost
+      // immediately and the assertion runs before the link has landed. That is
+      // exactly how this test failed on 2026-07-22: `openUrl` reported ✅ and
+      // the whole test was over in 2s with the screen key not found.
+      //
+      // pumpUntilFound polls in 100ms steps and returns the instant the widget
+      // appears, so a healthy run costs only the real round-trip.
+      //
+      // KNOW THIS FAILURE MODE: if App Link approval is lost, the URL opens in
+      // a BROWSER instead of the app. The app is then backgrounded, the Flutter
+      // engine stops producing frames, and `pump()` BLOCKS FOREVER waiting for
+      // one — so this does not fail after the timeout below, it HANGS. The
+      // timeout is only checked between pumps, and control never returns from
+      // the pump. Observed 2026-07-22 when the workflow's re-approval loop had
+      // been slowed from 1s to 5s: the loop lost the race against patrol's
+      // reinstall, and the job sat until the 900s `timeout` in pr-validate.yml
+      // killed it. If this test ever hangs again, check that loop's cadence
+      // FIRST — it is load-bearing for this test specifically.
+      //
+      // We poll the SCREEN-CONTAINER key ('accept_invite_screen'), which the
+      // KeyedSubtree in AcceptInviteScreen.build() renders on the loading frame
+      // — NOT the 'invite_accept' form key, which only appears in the `data`
+      // state a fake token never reaches. The mount-key IS the whole gate; no
+      // secondary wait on the invalid-invite banner (that would reintroduce a
+      // network-completion dependency).
+      await $.tester.pumpUntilFound(
+        find.byKey(const ValueKey<String>('accept_invite_screen')),
+        timeout: const Duration(seconds: 30),
       );
+
+      // Destination assertion: the accept-invite screen container is now
+      // mounted. Keys are locale-invariant (no Ukrainian find.text), per the
+      // integration-test navigation policy.
       expect(
-        find.byKey(const ValueKey<String>('reset_password')),
+        find.byKey(const ValueKey<String>('accept_invite_screen')),
         findsOneWidget,
+        reason: 'Deep link must land on the accept-invite screen',
       );
     },
   );

@@ -68,7 +68,7 @@ Map<String, dynamic> _masterDetailEnvelope() => <String, dynamic>{
     'firstName': 'Оля',
     'lastName': 'Коваль',
     'bio': 'Майстер манікюру',
-    'phoneNumber': '+380501234567',
+    'phoneNumber': '+380501111111',
     'instagram': '@beauty_ua',
     'city': 'Київ',
     'cityId': 'city-99',
@@ -140,8 +140,9 @@ void main() {
             firstName: 'Аня',
             lastName: 'Коваль',
             bio: 'Топ майстер',
-            contactPhone: '+380501234567',
+            contactPhone: '+380501111111',
             instagram: '@beauty_ua',
+            professionalTitle: '',
           ),
         );
 
@@ -157,7 +158,7 @@ void main() {
           isTrue,
           reason: 'backend field is "phoneNumber", not "contactPhone"',
         );
-        expect(sentBody!['phoneNumber'], '+380501234567');
+        expect(sentBody!['phoneNumber'], '+380501111111');
         expect(
           sentBody!.containsKey('contactPhone'),
           isFalse,
@@ -194,6 +195,7 @@ void main() {
             bio: '',
             contactPhone: '',
             instagram: '',
+            professionalTitle: '',
           ),
         );
 
@@ -227,10 +229,109 @@ void main() {
             bio: '',
             contactPhone: '',
             instagram: '',
+            professionalTitle: '',
           ),
         ),
         completes,
       );
+    });
+
+    // ── professionalTitle on the wire (feat/provider-professional-title) ──────
+    //
+    // Guards that professionalTitle is (a) always present in the PATCH body
+    // and (b) trimmed and forwarded correctly, using the REAL Dio transport path
+    // (not a mocktail stub). This tests the actual serialisation boundary between
+    // the Dart client and the Spring backend contract.
+
+    test('sends professionalTitle on the wire when set — key present, value '
+        'forwarded exactly', () async {
+      Map<String, dynamic>? sentBody;
+
+      adapter.onRoute(
+        _profilePath,
+        (server) => server.reply(200, _okVoidEnvelope),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentBody = options.data as Map<String, dynamic>?;
+            handler.next(options);
+          },
+        ),
+      );
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '',
+          professionalTitle: 'Майстер манікюру',
+        ),
+      );
+
+      expect(sentBody, isNotNull);
+      expect(
+        sentBody!.containsKey('professionalTitle'),
+        isTrue,
+        reason:
+            'professionalTitle key must be present on the wire — the backend '
+            'clear-on-empty contract requires the key to always be sent',
+      );
+      expect(
+        sentBody!['professionalTitle'],
+        'Майстер манікюру',
+        reason: 'non-empty professionalTitle must be forwarded verbatim',
+      );
+    });
+
+    test('sends professionalTitle as empty string on the wire when cleared — key '
+        'present, value is \'\'', () async {
+      Map<String, dynamic>? sentBody;
+
+      adapter.onRoute(
+        _profilePath,
+        (server) => server.reply(200, _okVoidEnvelope),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentBody = options.data as Map<String, dynamic>?;
+            handler.next(options);
+          },
+        ),
+      );
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '',
+          professionalTitle: '',
+        ),
+      );
+
+      expect(sentBody, isNotNull);
+      expect(
+        sentBody!.containsKey('professionalTitle'),
+        isTrue,
+        reason:
+            'professionalTitle key must be present even when cleared — omitting '
+            'it would leave the stale server value intact (same bug that once '
+            'broke bio/instagram clearing)',
+      );
+      expect(sentBody!['professionalTitle'], '');
     });
   });
 
@@ -329,7 +430,7 @@ void main() {
       expect(master.firstName, 'Оля');
       expect(master.lastName, 'Коваль');
       expect(master.bio, 'Майстер манікюру');
-      expect(master.phoneNumber, '+380501234567');
+      expect(master.phoneNumber, '+380501111111');
       expect(master.instagram, '@beauty_ua');
       expect(master.city, 'Київ');
       expect(master.cityId, 'city-99');

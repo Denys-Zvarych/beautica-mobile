@@ -91,8 +91,12 @@ ProviderContainer _makeContainer() {
 /// Returns `null` if not found.
 GoRoute? _findRoute(List<RouteBase> routes, String path) {
   for (final route in routes) {
-    if (route is GoRoute && route.path == path) {
-      return route;
+    if (route is GoRoute) {
+      if (route.path == path) return route;
+      // Recurse into a GoRoute's own nested sub-routes (e.g. /search → results)
+      // — the registered path of a nested route is its RELATIVE segment.
+      final found = _findRoute(route.routes, path);
+      if (found != null) return found;
     }
     // Recurse into ShellRoute / StatefulShellRoute sub-routes.
     if (route is ShellRoute) {
@@ -330,6 +334,294 @@ void main() {
           );
         });
       });
+
+      // SB-7 — /verification. Reached via `context.push` from the login
+      // screen's EMAIL_NOT_VERIFIED banner action, so it needs `builder:`
+      // (MaterialPage) for the left-edge swipe-back gesture — same
+      // mobile-debugger fix as /salons/:salonId and /masters/:masterId.
+      // register_step_3_screen.dart also reaches this route via `context.go`,
+      // which replaces the whole stack regardless of page type, so that call
+      // site is unaffected by this contract.
+      test(
+        'SB-7: RouteNames.verification (/verification) uses builder: not pageBuilder:',
+        () {
+          final route = _findRoute(
+            router.configuration.routes,
+            RouteNames.verification,
+          );
+          expect(
+            route,
+            isNotNull,
+            reason:
+                'RouteNames.verification (${RouteNames.verification}) must be '
+                'registered in appRouter',
+          );
+          expect(
+            route!.builder,
+            isNotNull,
+            reason:
+                '/verification must use builder: so go_router wraps it in a '
+                'MaterialPage — the only page type that honors the theme\'s '
+                'CupertinoPageTransitionsBuilder and installs the swipe-back '
+                'gesture when pushed from the login screen\'s unverified banner',
+          );
+          expect(
+            route.pageBuilder,
+            isNull,
+            reason:
+                '/verification must NOT use pageBuilder: — a CustomTransitionPage '
+                'returned by _instantPage() overrides the theme builder and '
+                'suppresses the swipe-back gesture',
+          );
+        },
+      );
+
+      // SB-8 — /register-role. Reached via `context.push` from the login
+      // screen's "Зареєструватись" link, so it needs `builder:` (MaterialPage)
+      // for the left-edge swipe-back gesture — same mobile-debugger fix as
+      // /salons/:salonId and /masters/:masterId. `context.go(RouteNames.registerRole)`
+      // elsewhere (back-links inside the register wizard) is unaffected by this
+      // contract, since `.go` replaces the stack regardless of page type.
+      test(
+        'SB-8: RouteNames.registerRole (/register-role) uses builder: not pageBuilder:',
+        () {
+          final route = _findRoute(
+            router.configuration.routes,
+            RouteNames.registerRole,
+          );
+          expect(
+            route,
+            isNotNull,
+            reason:
+                'RouteNames.registerRole (${RouteNames.registerRole}) must be '
+                'registered in appRouter',
+          );
+          expect(
+            route!.builder,
+            isNotNull,
+            reason:
+                '/register-role must use builder: so go_router wraps it in a '
+                'MaterialPage — the only page type that honors the theme\'s '
+                'CupertinoPageTransitionsBuilder and installs the swipe-back '
+                'gesture when pushed from the login screen\'s registration link',
+          );
+          expect(
+            route.pageBuilder,
+            isNull,
+            reason:
+                '/register-role must NOT use pageBuilder: — a CustomTransitionPage '
+                'returned by _instantPage() overrides the theme builder and '
+                'suppresses the swipe-back gesture',
+          );
+        },
+      );
+
+      // SB-9 — /forgot-password. Reached via `context.push` from the login
+      // screen's "Забули пароль?" link, so it needs `builder:` (MaterialPage)
+      // for the left-edge swipe-back gesture — same mobile-debugger fix as
+      // /salons/:salonId and /masters/:masterId.
+      test(
+        'SB-9: RouteNames.forgotPassword (/forgot-password) uses builder: not pageBuilder:',
+        () {
+          final route = _findRoute(
+            router.configuration.routes,
+            RouteNames.forgotPassword,
+          );
+          expect(
+            route,
+            isNotNull,
+            reason:
+                'RouteNames.forgotPassword (${RouteNames.forgotPassword}) must be '
+                'registered in appRouter',
+          );
+          expect(
+            route!.builder,
+            isNotNull,
+            reason:
+                '/forgot-password must use builder: so go_router wraps it in a '
+                'MaterialPage — the only page type that honors the theme\'s '
+                'CupertinoPageTransitionsBuilder and installs the swipe-back '
+                'gesture when pushed from the login screen\'s "Забули пароль?" link',
+          );
+          expect(
+            route.pageBuilder,
+            isNull,
+            reason:
+                '/forgot-password must NOT use pageBuilder: — a CustomTransitionPage '
+                'returned by _instantPage() overrides the theme builder and '
+                'suppresses the swipe-back gesture',
+          );
+        },
+      );
+
+      // SB-10 — /schedule. The profile bottom-nav "Календар" tile reaches this
+      // route via `context.push`, so it needs `builder:` (MaterialPage) for the
+      // left-edge swipe-back gesture — same mobile-debugger fix as
+      // /salons/:salonId and /masters/:masterId. `context.go(RouteNames.masterSchedule)`
+      // elsewhere (the weekly editor's save/cancel returns) is unaffected by
+      // this contract, since `.go` replaces the stack regardless of page type.
+      test(
+        'SB-10: RouteNames.masterSchedule (/schedule) uses builder: not pageBuilder:',
+        () {
+          final route = _findRoute(
+            router.configuration.routes,
+            RouteNames.masterSchedule,
+          );
+          expect(
+            route,
+            isNotNull,
+            reason:
+                'RouteNames.masterSchedule (${RouteNames.masterSchedule}) must '
+                'be registered in appRouter',
+          );
+          expect(
+            route!.builder,
+            isNotNull,
+            reason:
+                '/schedule must use builder: so go_router wraps it in a '
+                'MaterialPage — the only page type that honors the theme\'s '
+                'CupertinoPageTransitionsBuilder and installs the swipe-back '
+                'gesture when pushed from the profile bottom-nav "Календар" tile',
+          );
+          expect(
+            route.pageBuilder,
+            isNull,
+            reason:
+                '/schedule must NOT use pageBuilder: — a CustomTransitionPage '
+                'returned by _instantPage() overrides the theme builder and '
+                'suppresses the swipe-back gesture',
+          );
+        },
+      );
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // CLIENT pushed pages — must use `builder:` (MaterialPage) so the theme's
+  // CupertinoPageTransitionsBuilder installs the left-edge swipe-back gesture.
+  //
+  // R4 (back-navigation fix, debugger-flagged gap): the original group only
+  // guarded the MASTER pushed routes. Every CLIENT route that is `context.push`-
+  // ed onto a branch navigator (settings hub + its three section edit pages, the
+  // search-results list, the support form, the rating screen, and the shared
+  // settings screen) relies on the SAME builder:/MaterialPage contract for its
+  // edge swipe-back. A future copy-paste reverting any of them to
+  // `pageBuilder: _instantPage(...)` would silently kill swipe-back on that
+  // drill-down — exactly the regression this group catches. The five CLIENT
+  // tab-ROOTS are deliberately `_instantPage` (covered by the separate
+  // instant-roots group below); they are not in this set.
+  // -------------------------------------------------------------------------
+  group(
+    'app_router CLIENT pushed pages use builder: (MaterialPage) — swipe-back enabled',
+    () {
+      late GoRouter router;
+
+      setUp(() {
+        router = _makeContainer().read(appRouterProvider);
+      });
+
+      // clientSearchResults is registered as the RELATIVE nested path 'results'
+      // under /search (RouteNames.clientSearch), so it is located by that
+      // segment, not by the absolute RouteNames.clientSearchResults string.
+      const String clientSearchResultsRelative = 'results';
+
+      const Map<String, String> clientPushedRoutes = <String, String>{
+        'clientMenu (/client/menu)': RouteNames.clientMenu,
+        'clientEditPersonal (/client/edit/personal)':
+            RouteNames.clientEditPersonal,
+        'clientEditContacts (/client/edit/contacts)':
+            RouteNames.clientEditContacts,
+        'clientEditLocation (/client/edit/location)':
+            RouteNames.clientEditLocation,
+        'clientSearchResults (/search/results, nested path \'results\')':
+            clientSearchResultsRelative,
+        'contactSupport (/support/contact)': RouteNames.contactSupport,
+        'myRating (/rating)': RouteNames.myRating,
+        'settings (/settings)': RouteNames.settings,
+      };
+
+      clientPushedRoutes.forEach((String label, String path) {
+        test('CB-1: RouteNames.$label uses builder: not pageBuilder:', () {
+          final route = _findRoute(router.configuration.routes, path);
+          expect(
+            route,
+            isNotNull,
+            reason: 'RouteNames.$label ($path) must be registered in appRouter',
+          );
+          expect(
+            route!.builder,
+            isNotNull,
+            reason:
+                '$path is a CLIENT pushed page — it must use builder: so '
+                'go_router wraps it in a MaterialPage, the only page type that '
+                'honors the theme\'s CupertinoPageTransitionsBuilder and '
+                'installs the left-edge swipe-back gesture on push.',
+          );
+          expect(
+            route.pageBuilder,
+            isNull,
+            reason:
+                '$path must NOT use pageBuilder: — a CustomTransitionPage '
+                'returned by _instantPage() overrides the theme builder and '
+                'silently suppresses the swipe-back gesture on this CLIENT '
+                'drill-down (the R4 regression this guard exists to catch).',
+          );
+        });
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // CLIENT tab-ROOTS — must use `pageBuilder:` (_instantPage). These are the
+  // five StatefulShellRoute branch roots; they are switched via goBranch (never
+  // pushed), so there is nothing to pop and no swipe-back is expected. They
+  // intentionally use the zero-duration _instantPage (instant forward paint +
+  // the secondaryAnimation parallax reveal). If a branch root is converted to
+  // builder:, it gains an unwanted slide-in on every tab hop. This group pins
+  // the tab-root vs pushed-page distinction (R4).
+  // -------------------------------------------------------------------------
+  group(
+    'app_router CLIENT tab-roots use pageBuilder: (_instantPage) — branch hops, no gesture',
+    () {
+      late GoRouter router;
+
+      setUp(() {
+        router = _makeContainer().read(appRouterProvider);
+      });
+
+      const Map<String, String> clientTabRoots = <String, String>{
+        'clientHome (/home)': RouteNames.clientHome,
+        'clientFavorites (/favorites)': RouteNames.clientFavorites,
+        'clientSearch (/search)': RouteNames.clientSearch,
+        'clientBookings (/bookings)': RouteNames.clientBookings,
+        'clientPassport (/passport)': RouteNames.clientPassport,
+      };
+
+      clientTabRoots.forEach((String label, String path) {
+        test('CT-1: RouteNames.$label uses pageBuilder: not builder:', () {
+          final route = _findRoute(router.configuration.routes, path);
+          expect(
+            route,
+            isNotNull,
+            reason: 'RouteNames.$label ($path) must be registered in appRouter',
+          );
+          expect(
+            route!.pageBuilder,
+            isNotNull,
+            reason:
+                '$path is a CLIENT tab-root — it must stay on pageBuilder: '
+                '(_instantPage): branch roots are switched via goBranch, so they '
+                'want the zero-duration instant paint, not a MaterialPage slide.',
+          );
+          expect(
+            route.builder,
+            isNull,
+            reason:
+                '$path must NOT use builder: — converting a branch root to a '
+                'MaterialPage adds an unwanted slide-in on every tab hop.',
+          );
+        });
+      });
     },
   );
 
@@ -386,38 +678,13 @@ void main() {
         },
       );
 
-      // IA-2 — /verification
-      test(
-        'IA-2: RouteNames.verification (/verification) uses pageBuilder: not builder:',
-        () {
-          final route = _findRoute(
-            router.configuration.routes,
-            RouteNames.verification,
-          );
-          expect(
-            route,
-            isNotNull,
-            reason:
-                'RouteNames.verification (${RouteNames.verification}) must be '
-                'registered in appRouter',
-          );
-          expect(
-            route!.pageBuilder,
-            isNotNull,
-            reason:
-                '/verification is an auth-flow route that intentionally uses '
-                '_instantPage (zero-duration CustomTransitionPage).',
-          );
-          expect(
-            route.builder,
-            isNull,
-            reason:
-                '/verification must NOT use builder: — it must stay as an '
-                'instant pageBuilder: route',
-          );
-        },
-      );
-
+      // IA-2 — /verification was RETIRED from this group by the mobile-debugger
+      // swipe-back fix: the login screen's EMAIL_NOT_VERIFIED banner action
+      // reaches /verification via `context.push` (not just the register-step-3
+      // `context.go` this group's premise assumed), so it now needs `builder:`
+      // for the left-edge swipe-back gesture. See SB-7 in the poppable-routes
+      // group above for its replacement assertion.
+      //
       // IA-3 — /splash
       test(
         'IA-3: RouteNames.splash (/splash) uses pageBuilder: not builder:',

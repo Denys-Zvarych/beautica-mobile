@@ -129,6 +129,60 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'ConflictFailure.userMessage returns errConflict (Phase 14.0 — booking '
+      'slot-taken / not-reschedulable)',
+      (tester) async {
+        final l10n = await _pumpAndGetL10n(tester);
+        final msg = await _resolveMessage(tester, const ConflictFailure());
+        expect(
+          msg,
+          equals(l10n.errConflict),
+          reason:
+              'ConflictFailure.userMessage must return the errConflict l10n '
+              'key so createBooking/rescheduleBooking 409s show the '
+              '"slot no longer available" copy, not a generic server error.',
+        );
+      },
+    );
+
+    // Beautica OTP task Phase A3/B2 — PasswordResetOtpFailure.
+    testWidgets(
+      'PasswordResetOtpFailure.invalidCode returns resetOtpErrInvalidCode',
+      (tester) async {
+        final l10n = await _pumpAndGetL10n(tester);
+        final msg = await _resolveMessage(
+          tester,
+          const PasswordResetOtpFailure(
+            code: PasswordResetOtpErrorCode.invalidCode,
+          ),
+        );
+        expect(
+          msg,
+          equals(l10n.resetOtpErrInvalidCode),
+          reason:
+              'PasswordResetOtpFailure.invalidCode must return the '
+              'resetOtpErrInvalidCode l10n key — NEVER the email-verification '
+              '"already verified" copy from VerificationFailure, which does '
+              'not apply to a password reset.',
+        );
+      },
+    );
+
+    testWidgets(
+      'PasswordResetOtpFailure.codeExpired returns resetOtpErrCodeExpired',
+      (tester) async {
+        final l10n = await _pumpAndGetL10n(tester);
+        final msg = await _resolveMessage(
+          tester,
+          const PasswordResetOtpFailure(
+            code: PasswordResetOtpErrorCode.codeExpired,
+          ),
+        );
+        expect(msg, equals(l10n.resetOtpErrCodeExpired));
+      },
+    );
   });
 
   group('ValidationFailure — fieldErrors storage', () {
@@ -197,6 +251,12 @@ void main() {
     test('ServerFailure statusCode is nullable', () {
       const failure = ServerFailure();
       expect(failure.statusCode, isNull);
+    });
+
+    test('cause is preserved on ConflictFailure', () {
+      final underlying = Exception('409 slot conflict');
+      final failure = ConflictFailure(cause: underlying);
+      expect(failure.cause, same(underlying));
     });
   });
 }

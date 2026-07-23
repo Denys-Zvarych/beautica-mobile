@@ -39,6 +39,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -65,6 +67,17 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/pump_app.dart';
+
+// ---------------------------------------------------------------------------
+// Finders
+// ---------------------------------------------------------------------------
+
+/// Locale/asset-invariant finder for the location-line pin, now rendered as an
+/// [AppIcon] SVG (`BeauticaAssetIcons.locationMarker`) rather than a Material
+/// `Icons.location_on_outlined`.
+final Finder _locationIcon = find.byWidgetPredicate(
+  (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
+);
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -218,6 +231,7 @@ List<Object> _buildOverrides({
   required AsyncValue<Master> masterState,
   required _MockMasterRepository repo,
   required _MockServiceRepository serviceRepo,
+  List<ServiceCategoryOption> categories = const <ServiceCategoryOption>[],
 }) {
   return <Object>[
     authProvider.overrideWith(() => _StubAuthNotifier(_stubUser)),
@@ -226,6 +240,11 @@ List<Object> _buildOverrides({
     ),
     masterRepositoryProvider.overrideWithValue(repo),
     serviceRepositoryProvider.overrideWithValue(serviceRepo),
+    // The profile's services section watches approvedCategoriesProvider (which
+    // now sources categories straight from categoryRequestApiProvider, not the
+    // repository). Override it directly so the section resolves with no pending
+    // Timer / real API hit.
+    approvedCategoriesProvider.overrideWith((ref) async => categories),
   ];
 }
 
@@ -593,16 +612,39 @@ void main() {
 
       // Instagram tile renders '—' until Phase 13 wires real contact fields;
       // phone tile now reads from master.phoneNumber.
-      // findWidgets (plural) because both tiles display the same dash.
-      final dashFinder = find.text('—');
-      expect(dashFinder, findsWidgets);
+      //
+      // TIGHTENED (2026-07-22 vacuous-assertion audit): was
+      // `expect(find.text('—'), findsWidgets)`, which passes on 1 dash as
+      // readily as on 2 — so a dropped contact tile (exactly the regression
+      // this test names) could not fail it.
+      //
+      // Tightening it to `findsNWidgets(2)` went RED at 3: the screen also
+      // renders '—' in the Bookings STAT tile (master_profile_screen.dart:447),
+      // which this test never meant to count. That is a finder-scope defect,
+      // not a screen defect — an unanchored `find.text` was standing in for
+      // "the two contact tiles". Each tile is now asserted through its OWN key,
+      // so the assertion is both exact and immune to unrelated dashes
+      // appearing elsewhere on the screen.
+      for (final String tileKey in const <String>[
+        'master-contact-phone',
+        'master-contact-instagram',
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byKey(Key(tileKey)),
+            matching: find.text('—'),
+          ),
+          findsOneWidget,
+          reason: '$tileKey must render the dash placeholder',
+        );
+      }
     });
 
     testWidgets('phone ContactTile shows real value when phoneNumber is set', (
       tester,
     ) async {
       final masterWithPhone = _stubMaster.copyWith(
-        phoneNumber: '+380501234567',
+        phoneNumber: '+380501111111',
       );
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -617,7 +659,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('master-contact-phone')),
-          matching: find.text('+380501234567'),
+          matching: find.text('+380501111111'),
         ),
         findsOneWidget,
       );
@@ -735,8 +777,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Location icon must be present (location_on_outlined is in the Row).
-      expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
+      // Location icon must be present (the locationMarker AppIcon is in the Row).
+      expect(_locationIcon, findsOneWidget);
       // The combined address text must equal just the city.
       expect(find.text('Київ'), findsOneWidget);
     });
@@ -831,7 +873,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
+      expect(_locationIcon, findsOneWidget);
     });
   });
 
@@ -852,7 +894,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // No location row should appear — the conditional is `if (locationLine != null)`.
-      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+      expect(_locationIcon, findsNothing);
     });
 
     testWidgets('note row absent when city and street are null', (
@@ -870,7 +912,7 @@ void main() {
 
       // Master name must still render — only the location row is suppressed.
       expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
-      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+      expect(_locationIcon, findsNothing);
     });
   });
 
@@ -907,7 +949,12 @@ void main() {
       // The services section renders two SkeletonBlock rows while loading.
       // The profile skeleton (AsyncLoading for master) also emits SkeletonBlocks
       // but here master is AsyncData so only the services skeleton contributes.
-      expect(find.byType(SkeletonBlock), findsWidgets);
+      //
+      // TIGHTENED (2026-07-22 vacuous-assertion audit): was `findsWidgets`,
+      // which cannot distinguish the documented two-row skeleton from one row
+      // — or from the profile skeleton leaking in and contributing extras,
+      // which is the very thing the comment above claims does not happen.
+      expect(find.byType(SkeletonBlock), findsNWidgets(2));
     });
 
     // ── B. Error state — errUnknown text rendered ───────────────────────────
@@ -936,30 +983,72 @@ void main() {
       expect(find.text(l10n.errUnknown), findsOneWidget);
     });
 
-    // ── C. Empty state — servicesEmpty text rendered ────────────────────────
+    // ── C. Empty state — "Додати послуги" CTA replaces the old empty text ────
+    //
+    // The zero-services empty branch of [_ProfileCategoriesSection] no longer
+    // renders the old «Послуг ще немає» body text or the «Усі послуги» header
+    // link. It now renders a single primary CTA (Key('btn-master-add-services'))
+    // labelled l10n.masterAddServices that opens the bulk service-setup flow.
+    // This is the DISCRIMINATING replacement for the previously-stale
+    // `servicesEmpty` assertion: it fails if the empty branch reverts to the
+    // old header + text, and it fails if the CTA is dropped.
 
-    testWidgets('C. services empty state shows servicesEmpty text', (
-      tester,
-    ) async {
-      when(
-        () => mockServiceRepo.listMyServices(),
-      ).thenAnswer((_) async => const <MasterService>[]);
+    testWidgets(
+      'C. services empty state shows the masterAddServices CTA and drops the '
+      'old empty text + all-services link',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => const <MasterService>[]);
 
-      await tester.pumpApp(
-        const MasterProfileScreen(),
-        overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(_stubMaster),
-          repo: repo,
-          serviceRepo: mockServiceRepo,
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(MasterProfileScreen)),
-      );
-      expect(find.text(l10n.servicesEmpty), findsOneWidget);
-    });
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+
+        // NEW affordance — the single primary CTA is present and labelled.
+        expect(
+          find.byKey(const Key('btn-master-add-services')),
+          findsOneWidget,
+          reason:
+              'the zero-services empty state must render the add-services CTA',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('btn-master-add-services')),
+            matching: find.text(l10n.masterAddServices),
+          ),
+          findsOneWidget,
+          reason:
+              'the CTA must show the masterAddServices label «Додати послуги»',
+        );
+
+        // OLD affordances — must be gone from the empty state.
+        expect(
+          find.text(l10n.servicesEmpty),
+          findsNothing,
+          reason:
+              'the old «Послуг ще немає» empty body must no longer render in '
+              'the zero-services empty state',
+        );
+        expect(
+          find.text(l10n.masterAllServices),
+          findsNothing,
+          reason:
+              'the «Усі послуги» header link is dropped in the empty state — '
+              'the CTA stands alone',
+        );
+      },
+    );
 
     // ── D. Data state — category card rendered + count stat tile ──────────
     //
@@ -979,16 +1068,13 @@ void main() {
           name: 'Манікюр',
           durationMinutes: 30,
           priceMin: 500,
-          priceDisplay: '500 грн',
+          priceDisplay: '500 ₴',
           // no category → _none bucket
         ),
       ];
       when(
         () => mockServiceRepo.listMyServices(),
       ).thenAnswer((_) async => stubServices);
-      when(
-        () => mockServiceRepo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
 
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -1020,6 +1106,199 @@ void main() {
         countText.data,
         '1',
         reason: 'Services stat tile must show the live service count',
+      );
+    });
+  });
+
+  // ── 13a. Empty-state CTA navigation — pushes serviceSetup ─────────────────
+  //
+  // The zero-services CTA (Key('btn-master-add-services')) must push
+  // RouteNames.serviceSetup ('/services/setup') — the SAME entry point the
+  // services-list empty state uses (services_list_screen.dart onCreate →
+  // _openAndRefresh(RouteNames.serviceSetup)). Pump inside a 2-route GoRouter
+  // and assert (a) the setup route content is reached, (b) the router location
+  // is exactly RouteNames.serviceSetup, and (c) canPop() is true — proving the
+  // call used context.push (not context.go) so the swipe-back gesture works.
+
+  group('empty-state CTA pushes serviceSetup', () {
+    testWidgets(
+      'tapping btn-master-add-services navigates to RouteNames.serviceSetup '
+      'and leaves the back stack poppable (canPop true)',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => const <MasterService>[]);
+
+        // Tall surface so the categories section (section 5, near the bottom of
+        // the SingleChildScrollView) is laid out and the CTA is hittable
+        // without fighting the default 800×600 viewport fold.
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        // Observer records the pushed route name so the destination can be
+        // pinned by route string. NOTE: go_router's currentConfiguration.uri
+        // does NOT update after an imperative context.push (it keeps the base
+        // location — see the group-13b note), so the pushed route is asserted
+        // via the observer + the rendered stub, not via the router uri.
+        final pushedRoutes = <String>[];
+        final router = GoRouter(
+          initialLocation: RouteNames.masterProfile,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterProfile,
+              builder: (_, _) => const MasterProfileScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.serviceSetup,
+              builder: (_, _) =>
+                  const Scaffold(body: Text('service-setup-stub')),
+            ),
+          ],
+          observers: <NavigatorObserver>[_ProfilePushObserver(pushedRoutes)],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final cta = find.byKey(const Key('btn-master-add-services'));
+        expect(cta, findsOneWidget);
+        await tester.ensureVisible(cta);
+        await tester.pumpAndSettle();
+
+        await tester.tap(cta);
+        await tester.pumpAndSettle();
+
+        // (a) The setup route content is visible — navigation reached it.
+        expect(
+          find.text('service-setup-stub'),
+          findsOneWidget,
+          reason:
+              'tapping the CTA must navigate to the serviceSetup route '
+              '(${RouteNames.serviceSetup})',
+        );
+        // (b) The observer captured a push to exactly RouteNames.serviceSetup —
+        // pins the destination the services-list empty state also opens.
+        expect(
+          pushedRoutes,
+          contains(contains(RouteNames.serviceSetup)),
+          reason:
+              'CTA must push /services/setup (RouteNames.serviceSetup), the '
+              'same route the services-list empty state opens',
+        );
+        // (c) canPop() must be true — proves context.push (not go); the profile
+        // stays on the back stack so left-edge swipe-back can return to it.
+        expect(
+          router.canPop(),
+          isTrue,
+          reason:
+              'the CTA must use context.push so the profile remains on the '
+              'back stack; if this fails the call reverted to context.go which '
+              'replaces the stack and breaks swipe-back',
+        );
+      },
+    );
+  });
+
+  // ── 13c. Section header — title removed, «Усі послуги» link right-aligned ──
+  //
+  // The standalone «Послуги» section-title (`masterProfileCategoriesLabel`) was
+  // removed from the categories header; the header now renders ONLY the
+  // right-aligned «Усі послуги» link. With services present the header renders;
+  // assert the link is shown, the section-title is gone, and the pre-rename
+  // «Категорії послуг» wording is gone from the whole screen.
+  //
+  // Discriminating count guard: `masterProfileCategoriesLabel` and the services
+  // stat-tile caption `masterServicesLabel` share the same «Послуги» value.
+  // With the header title removed, the stat-tile caption is the ONLY «Послуги»
+  // on screen → findsOneWidget. If the section-title regresses (re-added to the
+  // header), this becomes findsNWidgets(2) and fails.
+
+  group('services section header title removed + link right-aligned', () {
+    testWidgets('non-empty state drops the «Послуги» section-title, keeps the '
+        '«Усі послуги» link, and never shows the old «Категорії послуг»', (
+      tester,
+    ) async {
+      when(() => mockServiceRepo.listMyServices()).thenAnswer(
+        (_) async => const <MasterService>[
+          MasterService(
+            id: 'svc-1',
+            serviceDefId: 'def-1',
+            name: 'Манікюр',
+            durationMinutes: 30,
+            priceMin: 500,
+            priceDisplay: '500 ₴',
+            category: 'MANICURE',
+          ),
+        ],
+      );
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+          categories: const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+
+      // The right-aligned «Усі послуги» link is the sole header affordance in
+      // the has-services state — it must render.
+      expect(
+        find.text(l10n.masterAllServices),
+        findsOneWidget,
+        reason:
+            'the categories header must render the «Усі послуги» link in the '
+            'has-services state',
+      );
+      // The standalone «Послуги» section-title was removed from the header.
+      // Structural guard (value «Послуги» collides with the stat-tile caption
+      // and the nav-bar tile, so a screen-wide count is not discriminating):
+      // scope to the header Row — the nearest Row ancestor of the «Усі послуги»
+      // link — and assert it contains no «Послуги» section-title sibling. A
+      // regression that re-adds the title into the header Row fails here.
+      final Finder headerLinkTap = find
+          .ancestor(
+            of: find.text(l10n.masterAllServices),
+            matching: find.byType(GestureDetector),
+          )
+          .first;
+      final Finder headerRow = find
+          .ancestor(of: headerLinkTap, matching: find.byType(Row))
+          .first;
+      expect(
+        find.descendant(
+          of: headerRow,
+          matching: find.text(l10n.masterProfileCategoriesLabel),
+        ),
+        findsNothing,
+        reason:
+            'the «Послуги» section-title must be gone from the categories '
+            'header Row; only the right-aligned link may render there',
+      );
+      // The OLD wording must be gone from the entire screen.
+      expect(
+        find.text('Категорії послуг'),
+        findsNothing,
+        reason:
+            'the pre-rename «Категорії послуг» header must no longer appear '
+            'anywhere on the profile screen',
       );
     });
   });
@@ -1204,7 +1483,7 @@ void main() {
             name: 'Манікюр',
             durationMinutes: 30,
             priceMin: 500,
-            priceDisplay: '500 грн',
+            priceDisplay: '500 ₴',
             category: 'MANICURE',
           ),
           MasterService(
@@ -1213,24 +1492,21 @@ void main() {
             name: 'Брови',
             durationMinutes: 30,
             priceMin: 300,
-            priceDisplay: '300 грн',
+            priceDisplay: '300 ₴',
             category: 'BROWS',
           ),
         ],
       );
-      when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-        ],
-      );
-
       await tester.pumpApp(
         const MasterProfileScreen(),
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
           serviceRepo: mockServiceRepo,
+          categories: const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -1262,24 +1538,21 @@ void main() {
               name: 'Манікюр',
               durationMinutes: 30,
               priceMin: 500,
-              priceDisplay: '500 грн',
+              priceDisplay: '500 ₴',
               category: 'MANICURE',
             ),
           ],
         );
-        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-          ],
-        );
-
         await tester.pumpApp(
           const MasterProfileScreen(),
           overrides: _buildOverrides(
             masterState: const AsyncData<Master>(_stubMaster),
             repo: repo,
             serviceRepo: mockServiceRepo,
+            categories: const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+              ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+            ],
           ),
         );
         await tester.pumpAndSettle();
@@ -1310,15 +1583,11 @@ void main() {
               name: 'Без категорії',
               durationMinutes: 20,
               priceMin: 100,
-              priceDisplay: '100 грн',
+              priceDisplay: '100 ₴',
               // no category → empty string → _none bucket
             ),
           ],
         );
-        when(
-          () => mockServiceRepo.fetchApprovedCategories(),
-        ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
-
         await tester.pumpApp(
           const MasterProfileScreen(),
           overrides: _buildOverrides(
@@ -1355,17 +1624,11 @@ void main() {
               name: 'Манікюр',
               durationMinutes: 30,
               priceMin: 500,
-              priceDisplay: '500 грн',
+              priceDisplay: '500 ₴',
               category: 'MANICURE',
             ),
           ],
         );
-        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-          ],
-        );
-
         final pushedRoutes = <String>[];
         final router = buildRouter(pushedRoutes: pushedRoutes);
 
@@ -1383,6 +1646,9 @@ void main() {
             masterState: const AsyncData<Master>(_stubMaster),
             repo: repo,
             serviceRepo: mockServiceRepo,
+            categories: const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+            ],
           ),
         );
         // Settle all microtasks (master data, services data, categories data)
@@ -1614,6 +1880,156 @@ void main() {
       },
     );
   });
+
+  // ── professionalTitle rendering (feat/provider-professional-title) ─────────
+
+  group('professionalTitle rendering', () {
+    testWidgets(
+      'renders the professionalTitle below the master name when set',
+      (tester) async {
+        const masterWithTitle = Master(
+          id: 'user-1',
+          firstName: 'Тест',
+          lastName: 'Майстер',
+          professionalTitle: 'Майстер манікюру',
+          avgRating: 4.8,
+          reviewCount: 10,
+          type: MasterType.independentMaster,
+        );
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(masterWithTitle),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-profile-professional-title')),
+          findsOneWidget,
+          reason:
+              'the professional-title widget must be present in the tree when '
+              'Master.professionalTitle is non-null and non-empty',
+        );
+        expect(find.text('Майстер манікюру'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'does NOT render the professional-title widget when professionalTitle '
+      'is null',
+      (tester) async {
+        // _stubMaster has no professionalTitle (null by default).
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-profile-professional-title')),
+          findsNothing,
+          reason:
+              'the professional-title widget must be absent when '
+              'Master.professionalTitle is null',
+        );
+        // The name row must still be present.
+        expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
+      },
+    );
+  });
+
+  // ── 16. RoleChip label-switching ──────────────────────────────────────────
+  //
+  // The chip is now unconditional. When professionalTitle is set it carries the
+  // 'master-profile-professional-title' key and shows the title as its label;
+  // when null/empty the key is absent and the chip shows the master-type role
+  // label instead. These tests pin both branches of that contract.
+
+  group(
+    'RoleChip visibility — label switches between professionalTitle and role label',
+    () {
+      testWidgets(
+        'shows professionalTitle text inside RoleChip when professionalTitle is set',
+        (tester) async {
+          const masterWithTitle = Master(
+            id: 'user-1',
+            firstName: 'Тест',
+            lastName: 'Майстер',
+            professionalTitle: 'Стиліст',
+            avgRating: 4.8,
+            reviewCount: 10,
+            type: MasterType.independentMaster,
+          );
+
+          await tester.pumpApp(
+            const MasterProfileScreen(),
+            overrides: _buildOverrides(
+              masterState: const AsyncData<Master>(masterWithTitle),
+              repo: repo,
+              serviceRepo: mockServiceRepo,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          // The chip carries the professional-title key when professionalTitle is set.
+          expect(
+            find.byKey(const Key('master-profile-professional-title')),
+            findsOneWidget,
+          );
+          // The chip is always present (unconditional).
+          expect(find.byType(RoleChip), findsOneWidget);
+          // The title text is rendered inside the chip, not as a standalone Text.
+          expect(
+            find.descendant(
+              of: find.byType(RoleChip),
+              matching: find.text('Стиліст'),
+            ),
+            findsOneWidget,
+            reason:
+                'professionalTitle text must be shown inside RoleChip as its label, '
+                'not as a separate Text widget outside the chip',
+          );
+        },
+      );
+
+      testWidgets('shows the RoleChip when professionalTitle is null', (
+        tester,
+      ) async {
+        // _stubMaster has no professionalTitle (null) — RoleChip shows the role label.
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The title key is null when showing the role label — so absent from the tree.
+        expect(
+          find.byKey(const Key('master-profile-professional-title')),
+          findsNothing,
+        );
+        // The RoleChip is always present (unconditional).
+        expect(
+          find.byType(RoleChip),
+          findsOneWidget,
+          reason:
+              'RoleChip is always rendered — when professionalTitle is null it shows '
+              'the master-type role label instead',
+        );
+      });
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

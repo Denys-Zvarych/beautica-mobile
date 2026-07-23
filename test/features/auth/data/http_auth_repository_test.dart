@@ -229,8 +229,15 @@ void main() {
     registerFallbackValue(
       ResetPasswordRequest(
         (b) => b
-          ..token = 'tok'
+          ..resetTicket = 'tok'
           ..newPassword = 'pw',
+      ),
+    );
+    registerFallbackValue(
+      VerifyPasswordResetOtpRequest(
+        (b) => b
+          ..email = 'a@a.com'
+          ..code = '000000',
       ),
     );
     registerFallbackValue(
@@ -779,7 +786,7 @@ void main() {
         password: 'P@ssw0rd!',
         firstName: 'Іванна',
         lastName: 'Коваль',
-        phoneNumber: '+380501234567',
+        phoneNumber: '+380501111111',
       );
 
       expect(user.id, 'usr-1');
@@ -879,7 +886,7 @@ void main() {
 
       await expectLater(
         repository.confirmPasswordReset(
-          token: 'valid-reset-token',
+          resetTicket: 'valid-reset-ticket',
           newPassword: 'N3wP@ssw0rd!',
         ),
         completes,
@@ -887,11 +894,48 @@ void main() {
     });
 
     test(
+      'forwards resetTicket + newPassword to ResetPasswordRequest (arg-match)',
+      () async {
+        // M4 strict arg-match: the happy-path tests above use any(named: ...),
+        // so they would pass even if the wrong ticket / password reached the
+        // wire. Capture the actual request and pin both fields — a regression
+        // that swaps the args (or drops one) silently breaks account recovery.
+        final res = Response<ApiResponseVoid>(
+          data: ApiResponseVoid((b) => b..success = true),
+          statusCode: 200,
+          requestOptions: _fakeOptions('/auth/reset-password'),
+        );
+        when(
+          () => mockAuthApi.resetPassword(
+            resetPasswordRequest: any(named: 'resetPasswordRequest'),
+          ),
+        ).thenAnswer((_) async => res);
+
+        await repository.confirmPasswordReset(
+          resetTicket: 'reset-ticket-xyz',
+          newPassword: 'N3wP@ssw0rd!',
+        );
+
+        final captured =
+            verify(
+                  () => mockAuthApi.resetPassword(
+                    resetPasswordRequest: captureAny(
+                      named: 'resetPasswordRequest',
+                    ),
+                  ),
+                ).captured.single
+                as ResetPasswordRequest;
+        expect(captured.resetTicket, 'reset-ticket-xyz');
+        expect(captured.newPassword, 'N3wP@ssw0rd!');
+      },
+    );
+
+    test(
       'ValidationFailure (400) → remapped to ResetTokenInvalidFailure',
       () async {
         const failure = ValidationFailure(
           fieldErrors: {},
-          cause: 'invalid or expired token',
+          cause: 'invalid or expired ticket',
         );
         when(
           () => mockAuthApi.resetPassword(
@@ -901,7 +945,7 @@ void main() {
 
         await expectLater(
           () => repository.confirmPasswordReset(
-            token: 'used-or-expired-token',
+            resetTicket: 'used-or-expired-ticket',
             newPassword: 'N3wP@ssw0rd!',
           ),
           throwsA(isA<ResetTokenInvalidFailure>()),
@@ -919,7 +963,10 @@ void main() {
       ).thenThrow(_dioWithFailure(failure, statusCode: 503));
 
       await expectLater(
-        () => repository.confirmPasswordReset(token: 'tok', newPassword: 'pw'),
+        () => repository.confirmPasswordReset(
+          resetTicket: 'tok',
+          newPassword: 'pw',
+        ),
         throwsA(isA<NetworkFailure>()),
       );
     });
@@ -934,8 +981,10 @@ void main() {
         ).thenThrow(_rawDioException());
 
         await expectLater(
-          () =>
-              repository.confirmPasswordReset(token: 'tok', newPassword: 'pw'),
+          () => repository.confirmPasswordReset(
+            resetTicket: 'tok',
+            newPassword: 'pw',
+          ),
           throwsA(isA<UnknownFailure>()),
         );
       },
@@ -971,6 +1020,39 @@ void main() {
       );
     });
 
+    test(
+      'forwards the supplied email to ForgotPasswordRequest (arg-match)',
+      () async {
+        // The finding calls for asserting the email is forwarded correctly. The
+        // happy-path test above only asserts completion with any(named: ...) —
+        // it would pass even if the email were dropped or mangled. Capture the
+        // request and pin the exact wire value.
+        final res = Response<ApiResponseVoid>(
+          data: ApiResponseVoid((b) => b..success = true),
+          statusCode: 200,
+          requestOptions: _fakeOptions('/auth/forgot-password'),
+        );
+        when(
+          () => mockAuthApi.forgotPassword(
+            forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
+          ),
+        ).thenAnswer((_) async => res);
+
+        await repository.requestPasswordReset('known@beautica.test');
+
+        final captured =
+            verify(
+                  () => mockAuthApi.forgotPassword(
+                    forgotPasswordRequest: captureAny(
+                      named: 'forgotPasswordRequest',
+                    ),
+                  ),
+                ).captured.single
+                as ForgotPasswordRequest;
+        expect(captured.email, 'known@beautica.test');
+      },
+    );
+
     test('DioException → re-throws mapped Failure (repo does NOT swallow; '
         'anti-enumeration is enforced backend-side, not here)', () async {
       const failure = NetworkFailure();
@@ -997,6 +1079,175 @@ void main() {
 
         await expectLater(
           () => repository.requestPasswordReset('x@beautica.test'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 11b — requestChangePasswordOtp (Beautica OTP task Phase A3 / B2)
+  //
+  // Authenticated entry point — no request body. Happy path completes; a
+  // DioException surfaces as the mapped Failure (e.g. ResendThrottledFailure
+  // on a 429, mapped by ErrorMapperInterceptor and not this repository).
+  // -------------------------------------------------------------------------
+
+  group('requestChangePasswordOtp', () {
+    test('success (200) → completes without throwing', () async {
+      final res = Response<ApiResponseVoid>(
+        data: ApiResponseVoid((b) => b..success = true),
+        statusCode: 200,
+        requestOptions: _fakeOptions('/users/me/change-password/request-otp'),
+      );
+      when(
+        () => mockUserApi.requestChangePasswordOtp(),
+      ).thenAnswer((_) async => res);
+
+      await expectLater(repository.requestChangePasswordOtp(), completes);
+    });
+
+    test('ResendThrottledFailure (429) → re-thrown unchanged', () async {
+      const failure = ResendThrottledFailure(retryAfterSeconds: 42);
+      when(
+        () => mockUserApi.requestChangePasswordOtp(),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 429));
+
+      await expectLater(
+        () => repository.requestChangePasswordOtp(),
+        throwsA(isA<ResendThrottledFailure>()),
+      );
+    });
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockUserApi.requestChangePasswordOtp(),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () => repository.requestChangePasswordOtp(),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 11c — verifyPasswordResetOtp (Beautica OTP task Phase A3 / B2)
+  //
+  // Success returns the resetTicket string from the envelope. A typed 400
+  // (data.code) is mapped by ErrorMapperInterceptor to PasswordResetOtpFailure
+  // — this repository just re-throws whatever the interceptor attached.
+  // -------------------------------------------------------------------------
+
+  group('verifyPasswordResetOtp', () {
+    Response<ApiResponseVerifyPasswordResetOtpResponse> okResponse({
+      String resetTicket = 'raw-reset-ticket',
+    }) {
+      final dto = VerifyPasswordResetOtpResponse(
+        (b) => b..resetTicket = resetTicket,
+      );
+      final envelope = ApiResponseVerifyPasswordResetOtpResponse(
+        (b) => b
+          ..success = true
+          ..data = dto.toBuilder(),
+      );
+      return Response(
+        data: envelope,
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/verify-password-reset-otp'),
+      );
+    }
+
+    test('success (200) → returns resetTicket from the envelope', () async {
+      when(
+        () => mockAuthApi.verifyPasswordResetOtp(
+          verifyPasswordResetOtpRequest: any(
+            named: 'verifyPasswordResetOtpRequest',
+          ),
+        ),
+      ).thenAnswer((_) async => okResponse(resetTicket: 'ticket-abc-123'));
+
+      final ticket = await repository.verifyPasswordResetOtp(
+        email: 'anya@example.com',
+        code: '123456',
+      );
+
+      expect(ticket, 'ticket-abc-123');
+    });
+
+    test(
+      'forwards email + code to VerifyPasswordResetOtpRequest (arg-match)',
+      () async {
+        when(
+          () => mockAuthApi.verifyPasswordResetOtp(
+            verifyPasswordResetOtpRequest: any(
+              named: 'verifyPasswordResetOtpRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => okResponse());
+
+        await repository.verifyPasswordResetOtp(
+          email: 'anya@example.com',
+          code: '654321',
+        );
+
+        final captured =
+            verify(
+                  () => mockAuthApi.verifyPasswordResetOtp(
+                    verifyPasswordResetOtpRequest: captureAny(
+                      named: 'verifyPasswordResetOtpRequest',
+                    ),
+                  ),
+                ).captured.single
+                as VerifyPasswordResetOtpRequest;
+        expect(captured.email, 'anya@example.com');
+        expect(captured.code, '654321');
+      },
+    );
+
+    test(
+      'PasswordResetOtpFailure (400, typed) → re-thrown unchanged',
+      () async {
+        const failure = PasswordResetOtpFailure(
+          code: PasswordResetOtpErrorCode.invalidCode,
+        );
+        when(
+          () => mockAuthApi.verifyPasswordResetOtp(
+            verifyPasswordResetOtpRequest: any(
+              named: 'verifyPasswordResetOtpRequest',
+            ),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
+
+        await expectLater(
+          () => repository.verifyPasswordResetOtp(
+            email: 'anya@example.com',
+            code: '000000',
+          ),
+          throwsA(isA<PasswordResetOtpFailure>()),
+        );
+      },
+    );
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.verifyPasswordResetOtp(
+            verifyPasswordResetOtpRequest: any(
+              named: 'verifyPasswordResetOtpRequest',
+            ),
+          ),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () => repository.verifyPasswordResetOtp(
+            email: 'anya@example.com',
+            code: '000000',
+          ),
           throwsA(isA<UnknownFailure>()),
         );
       },

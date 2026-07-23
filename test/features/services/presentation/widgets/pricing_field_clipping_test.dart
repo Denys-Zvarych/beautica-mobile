@@ -1,7 +1,7 @@
-// Regression guard — price-field clipping / "грн"-suffix occlusion (Step 2.7
-// Rule 3).
+// Regression guard — price-field clipping / currency-suffix occlusion
+// (Step 2.7 Rule 3).
 //
-// Original bug (v1): typed price digits read as hidden "under" the "грн"
+// Original bug (v1): typed price digits read as hidden "under" the currency
 // suffix. Two distinct defects in [_PricingInputField]:
 //
 //   1. VERTICAL CLIP — the input Row was wrapped in a HARD-height SizedBox
@@ -11,22 +11,23 @@
 //      EditableText is clipped top/bottom. Fix: ConstrainedBox(minHeight: …)
 //      so the box GROWS to the natural line height.
 //
-//   2. HORIZONTAL CROWDING — the field→"грн" gap was VelvetSpacing.sm (8dp),
+//   2. HORIZONTAL CROWDING — the field→suffix gap was VelvetSpacing.sm (8dp),
 //      tightened to VelvetSpacing.xs (4dp) for the 3-column RANGE layout.
 //
 // The one-line layout change (Phase 5.6 / 2026-06-13) introduced a third
 // behaviour that this file now guards:
 //
 //   3. HIDE-SUFFIX-WHEN-ACTIVE — price fields (FIXED, RANGE min/max) set
-//      hideSuffixWhenActive=true so "грн" hides while the field is focused OR
-//      has text, preventing digit/suffix overlap on narrow screens. The duration
-//      well always keeps its "хв" suffix (hideSuffixWhenActive=false).
+//      hideSuffixWhenActive=true so the currency suffix hides while the field
+//      is focused OR has text, preventing digit/suffix overlap on narrow
+//      screens. The duration well always keeps its "хв" suffix
+//      (hideSuffixWhenActive=false).
 //
 // Test plan (what this file asserts):
 //   A. SUFFIX VISIBILITY CONTRACT
-//      A1. Price field empty+unfocused → "грн" present (findsOneWidget).
-//      A2. Price field empty+unfocused no-overlap: input does not overrun "грн".
-//      A3. Price field with content → "грн" absent (findsNothing).
+//      A1. Price field empty+unfocused → currency suffix present (findsOneWidget).
+//      A2. Price field empty+unfocused no-overlap: input does not overrun the suffix.
+//      A3. Price field with content → currency suffix absent (findsNothing).
 //      A4. Duration well with content → "хв" always present (findsOneWidget).
 //   B. VERTICAL GROWTH (original bug guard, large text scale)
 //      B1. Well grows past VelvetSizes.field under 2.5× text scale (no clip).
@@ -36,7 +37,9 @@
 //      C2. Min/max wells do not overlap each other horizontally.
 //
 // Deterministic: no backend, no Dio, fixed-width box, default test font.
-// Currency tokens ("грн", "хв") are asserted directly — they ARE the contract.
+// Currency/duration tokens are asserted directly — they ARE the contract.
+// The currency token is resolved from l10n (`pricingCurrencySuffix`) rather
+// than hardcoded, so a future symbol change doesn't re-break this file.
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
@@ -62,8 +65,12 @@ const double _kInputFontSize = 16.0;
 /// Inner min-height the well's input Row is constrained to.
 const double _kInnerMinHeight = VelvetSizes.field - 2 * (VelvetSpacing.sm + 2);
 
-/// "грн" — the price suffix token that hides when the field is active/non-empty.
-const String _kPriceSuffix = 'грн';
+/// The price suffix token that hides when the field is active/non-empty.
+/// Resolved from l10n (`pricingCurrencySuffix`, "₴") rather than hardcoded —
+/// the single source of truth for the symbol PricingField renders.
+final String _kPriceSuffix = lookupAppLocalizations(
+  const Locale('uk'),
+).pricingCurrencySuffix;
 
 /// "хв" — the duration suffix token that is ALWAYS visible.
 const String _kDurationSuffix = 'хв';
@@ -169,8 +176,9 @@ Finder _textUnder(Key wellKey, String text) =>
 void main() {
   // ==========================================================================
   // A. SUFFIX VISIBILITY CONTRACT
-  //    hideSuffixWhenActive=true (price fields): "грн" hides with content.
-  //    hideSuffixWhenActive=false (duration well): "хв" is always visible.
+  //    hideSuffixWhenActive=true (price fields): currency suffix hides with
+  //    content. hideSuffixWhenActive=false (duration well): "хв" is always
+  //    visible.
   // ==========================================================================
   group('PricingField — suffix visibility contract (hideSuffixWhenActive)', () {
     // Map of well labels → (mode, wellKey) for the three price wells.
@@ -194,26 +202,28 @@ void main() {
       final ServicePriceType mode = entry.value.mode;
       final Key well = entry.value.well;
 
-      // A1: empty + unfocused → "грн" present.
-      testWidgets('A1 $label: empty+unfocused field — "грн" is PRESENT', (
-        tester,
-      ) async {
-        // No primeValue → controllers start empty → suffix is visible.
-        await _pump(tester, mode: mode, width: 360);
-
-        expect(
-          find.text(_kPriceSuffix),
-          findsWidgets,
-          reason:
-              '$label: "грн" must be visible when the price field is '
-              'empty and unfocused',
-        );
-        expect(tester.takeException(), isNull);
-      });
-
-      // A2: empty + unfocused → "грн" not overlapping the input.
+      // A1: empty + unfocused → currency suffix present.
       testWidgets(
-        'A2 $label: empty+unfocused field — "грн" does not overlap input',
+        'A1 $label: empty+unfocused field — currency suffix is PRESENT',
+        (tester) async {
+          // No primeValue → controllers start empty → suffix is visible.
+          await _pump(tester, mode: mode, width: 360);
+
+          expect(
+            find.text(_kPriceSuffix),
+            findsWidgets,
+            reason:
+                '$label: the currency suffix must be visible when the price '
+                'field is empty and unfocused',
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+
+      // A2: empty + unfocused → currency suffix not overlapping the input.
+      testWidgets(
+        'A2 $label: empty+unfocused field — currency suffix does not overlap '
+        'input',
         (tester) async {
           await _pump(tester, mode: mode, width: 360);
 
@@ -228,8 +238,8 @@ void main() {
             input.right,
             lessThanOrEqualTo(suffix.left + _kEps),
             reason:
-                '$label: the EditableText must not overrun the "грн" suffix '
-                'when the field is empty and unfocused',
+                '$label: the EditableText must not overrun the currency '
+                'suffix when the field is empty and unfocused',
           );
 
           // The tightened gap (VelvetSpacing.xs, 4 dp) must be present.
@@ -245,8 +255,8 @@ void main() {
         },
       );
 
-      // A3: field with content → "грн" is ABSENT (hideSuffixWhenActive=true).
-      testWidgets('A3 $label: field with content — "грн" is ABSENT', (
+      // A3: field with content → currency suffix is ABSENT (hideSuffixWhenActive=true).
+      testWidgets('A3 $label: field with content — currency suffix is ABSENT', (
         tester,
       ) async {
         // primeValuePrice → controllers start non-empty → suffix hides.
@@ -256,8 +266,8 @@ void main() {
           _textUnder(well, _kPriceSuffix),
           findsNothing,
           reason:
-              '$label: "грн" must be HIDDEN when the price field has content '
-              '(hideSuffixWhenActive=true)',
+              '$label: the currency suffix must be HIDDEN when the price '
+              'field has content (hideSuffixWhenActive=true)',
         );
         expect(tester.takeException(), isNull);
       });
@@ -459,7 +469,7 @@ void main() {
     //   row width ≈ 328 dp; dash column ≈ 2×xs + text ≈ 16 dp.
     //   3 equal Expanded wells → each ≈ (328 − 8 gap − 16 dash) / 3 ≈ 101 dp.
     //   digit area = wellWidth − 2×wellHPad(sm=8) − affixGap(xs=4) − suffix.
-    //   "грн" suffix width ≈ 28 dp → digit area ≈ 101 − 16 − 4 − 28 ≈ 53 dp.
+    //   currency suffix width ≈ 28 dp → digit area ≈ 101 − 16 − 4 − 28 ≈ 53 dp.
     //   The guard uses 40 dp as a conservative floor (well above "8000" ~36 dp).
     const double kMinDigitArea = 40.0;
 
@@ -475,7 +485,7 @@ void main() {
       (tester) async {
         // Prime the min/max controllers with a typical value so the suffix
         // hides (hideSuffixWhenActive=true) and only the digit area is active.
-        // This is the exact scenario the user reported as "5... грн".
+        // This is the exact scenario the user reported as "5... <suffix>".
         await _pump(
           tester,
           mode: ServicePriceType.range,
@@ -564,7 +574,7 @@ void main() {
               'non-compact RANGE affixGap must be VelvetSpacing.xs (4 dp). '
               'Measured gap: ${measuredGap}dp. '
               'Regression: if gap >= sm(8) the affix crowded the digit area '
-              'and caused the "5... грн" truncation.',
+              'and caused the "5... <suffix>" truncation.',
         );
 
         expect(tester.takeException(), isNull);

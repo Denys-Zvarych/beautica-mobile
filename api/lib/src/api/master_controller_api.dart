@@ -11,11 +11,13 @@ import 'package:dio/dio.dart';
 import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_list_effective_day_response.dart';
+import 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 import 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
 import 'package:beautica_api/src/model/api_response_list_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_master_public_profile_response.dart';
+import 'package:beautica_api/src/model/api_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_schedule_override_response.dart';
@@ -24,6 +26,7 @@ import 'package:beautica_api/src/model/api_response_weekly_schedule_response.dar
 import 'package:beautica_api/src/model/date.dart';
 import 'package:beautica_api/src/model/master_profile_update_request.dart';
 import 'package:beautica_api/src/model/pageable.dart';
+import 'package:beautica_api/src/model/rotate_master_request.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/weekly_schedule_request.dart';
 import 'package:beautica_api/src/model/working_hours_request.dart';
@@ -1059,6 +1062,202 @@ class MasterControllerApi {
     }
 
     return Response<ApiResponseListWeeklyScheduleResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// getWorkingDays
+  ///
+  ///
+  /// Parameters:
+  /// * [masterId]
+  /// * [from]
+  /// * [to]
+  /// * [serviceId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseListMasterWorkingDayResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseListMasterWorkingDayResponse>> getWorkingDays({
+    required String masterId,
+    required Date from,
+    required Date to,
+    String? serviceId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/masters/{masterId}/working-days'.replaceAll(
+        '{' r'masterId' '}',
+        encodeQueryParameter(_serializers, masterId, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      r'from': encodeQueryParameter(_serializers, from, const FullType(Date)),
+      r'to': encodeQueryParameter(_serializers, to, const FullType(Date)),
+      if (serviceId != null)
+        r'serviceId': encodeQueryParameter(
+            _serializers, serviceId, const FullType(String)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseListMasterWorkingDayResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponseListMasterWorkingDayResponse),
+            ) as ApiResponseListMasterWorkingDayResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseListMasterWorkingDayResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// rotateMasterSalon
+  ///
+  ///
+  /// Parameters:
+  /// * [masterId]
+  /// * [rotateMasterRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseMasterSummaryResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseMasterSummaryResponse>> rotateMasterSalon({
+    required String masterId,
+    required RotateMasterRequest rotateMasterRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/masters/{masterId}/salon'.replaceAll(
+        '{' r'masterId' '}',
+        encodeQueryParameter(_serializers, masterId, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(RotateMasterRequest);
+      _bodyData =
+          _serializers.serialize(rotateMasterRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseMasterSummaryResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(ApiResponseMasterSummaryResponse),
+            ) as ApiResponseMasterSummaryResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseMasterSummaryResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

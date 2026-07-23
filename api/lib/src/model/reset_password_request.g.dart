@@ -8,7 +8,7 @@ part of 'reset_password_request.dart';
 
 class _$ResetPasswordRequest extends ResetPasswordRequest {
   @override
-  final String token;
+  final String resetTicket;
   @override
   final String newPassword;
 
@@ -16,7 +16,8 @@ class _$ResetPasswordRequest extends ResetPasswordRequest {
           [void Function(ResetPasswordRequestBuilder)? updates]) =>
       (ResetPasswordRequestBuilder()..update(updates))._build();
 
-  _$ResetPasswordRequest._({required this.token, required this.newPassword})
+  _$ResetPasswordRequest._(
+      {required this.resetTicket, required this.newPassword})
       : super._();
   @override
   ResetPasswordRequest rebuild(
@@ -31,14 +32,14 @@ class _$ResetPasswordRequest extends ResetPasswordRequest {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is ResetPasswordRequest &&
-        token == other.token &&
+        resetTicket == other.resetTicket &&
         newPassword == other.newPassword;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, token.hashCode);
+    _$hash = $jc(_$hash, resetTicket.hashCode);
     _$hash = $jc(_$hash, newPassword.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -47,7 +48,7 @@ class _$ResetPasswordRequest extends ResetPasswordRequest {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'ResetPasswordRequest')
-          ..add('token', token)
+          ..add('resetTicket', resetTicket)
           ..add('newPassword', newPassword))
         .toString();
   }
@@ -57,9 +58,9 @@ class ResetPasswordRequestBuilder
     implements Builder<ResetPasswordRequest, ResetPasswordRequestBuilder> {
   _$ResetPasswordRequest? _$v;
 
-  String? _token;
-  String? get token => _$this._token;
-  set token(String? token) => _$this._token = token;
+  String? _resetTicket;
+  String? get resetTicket => _$this._resetTicket;
+  set resetTicket(String? resetTicket) => _$this._resetTicket = resetTicket;
 
   String? _newPassword;
   String? get newPassword => _$this._newPassword;
@@ -72,7 +73,7 @@ class ResetPasswordRequestBuilder
   ResetPasswordRequestBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _token = $v.token;
+      _resetTicket = $v.resetTicket;
       _newPassword = $v.newPassword;
       _$v = null;
     }
@@ -95,8 +96,8 @@ class ResetPasswordRequestBuilder
   _$ResetPasswordRequest _build() {
     final _$result = _$v ??
         _$ResetPasswordRequest._(
-          token: BuiltValueNullFieldError.checkNotNull(
-              token, r'ResetPasswordRequest', 'token'),
+          resetTicket: BuiltValueNullFieldError.checkNotNull(
+              resetTicket, r'ResetPasswordRequest', 'resetTicket'),
           newPassword: BuiltValueNullFieldError.checkNotNull(
               newPassword, r'ResetPasswordRequest', 'newPassword'),
         );

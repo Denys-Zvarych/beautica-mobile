@@ -16,7 +16,9 @@ part 'schedule_override_response.g.dart';
 /// Properties:
 /// * [date]
 /// * [kind]
+/// * [mode]
 /// * [intervals]
+/// * [times]
 @BuiltValue()
 abstract class ScheduleOverrideResponse
     implements
@@ -28,8 +30,15 @@ abstract class ScheduleOverrideResponse
   ScheduleOverrideResponseKindEnum? get kind;
   // enum kindEnum {  DAY_OFF,  CUSTOM_HOURS,  };
 
+  @BuiltValueField(wireName: r'mode')
+  ScheduleOverrideResponseModeEnum? get mode;
+  // enum modeEnum {  INTERVAL,  EXPLICIT_TIMES,  };
+
   @BuiltValueField(wireName: r'intervals')
   BuiltList<WorkIntervalDto>? get intervals;
+
+  @BuiltValueField(wireName: r'times')
+  BuiltList<String>? get times;
 
   ScheduleOverrideResponse._();
 
@@ -75,11 +84,25 @@ class _$ScheduleOverrideResponseSerializer
         specifiedType: const FullType(ScheduleOverrideResponseKindEnum),
       );
     }
+    if (object.mode != null) {
+      yield r'mode';
+      yield serializers.serialize(
+        object.mode,
+        specifiedType: const FullType(ScheduleOverrideResponseModeEnum),
+      );
+    }
     if (object.intervals != null) {
       yield r'intervals';
       yield serializers.serialize(
         object.intervals,
         specifiedType: const FullType(BuiltList, [FullType(WorkIntervalDto)]),
+      );
+    }
+    if (object.times != null) {
+      yield r'times';
+      yield serializers.serialize(
+        object.times,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
   }
@@ -121,6 +144,13 @@ class _$ScheduleOverrideResponseSerializer
           ) as ScheduleOverrideResponseKindEnum;
           result.kind = valueDes;
           break;
+        case r'mode':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(ScheduleOverrideResponseModeEnum),
+          ) as ScheduleOverrideResponseModeEnum;
+          result.mode = valueDes;
+          break;
         case r'intervals':
           final valueDes = serializers.deserialize(
             value,
@@ -128,6 +158,13 @@ class _$ScheduleOverrideResponseSerializer
                 const FullType(BuiltList, [FullType(WorkIntervalDto)]),
           ) as BuiltList<WorkIntervalDto>;
           result.intervals.replace(valueDes);
+          break;
+        case r'times':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.times.replace(valueDes);
           break;
         default:
           unhandled.add(key);
@@ -175,4 +212,23 @@ class ScheduleOverrideResponseKindEnum extends EnumClass {
       _$scheduleOverrideResponseKindEnumValues;
   static ScheduleOverrideResponseKindEnum valueOf(String name) =>
       _$scheduleOverrideResponseKindEnumValueOf(name);
+}
+
+class ScheduleOverrideResponseModeEnum extends EnumClass {
+  @BuiltValueEnumConst(wireName: r'INTERVAL')
+  static const ScheduleOverrideResponseModeEnum INTERVAL =
+      _$scheduleOverrideResponseModeEnum_INTERVAL;
+  @BuiltValueEnumConst(wireName: r'EXPLICIT_TIMES')
+  static const ScheduleOverrideResponseModeEnum EXPLICIT_TIMES =
+      _$scheduleOverrideResponseModeEnum_EXPLICIT_TIMES;
+
+  static Serializer<ScheduleOverrideResponseModeEnum> get serializer =>
+      _$scheduleOverrideResponseModeEnumSerializer;
+
+  const ScheduleOverrideResponseModeEnum._(String name) : super(name);
+
+  static BuiltSet<ScheduleOverrideResponseModeEnum> get values =>
+      _$scheduleOverrideResponseModeEnumValues;
+  static ScheduleOverrideResponseModeEnum valueOf(String name) =>
+      _$scheduleOverrideResponseModeEnumValueOf(name);
 }

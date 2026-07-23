@@ -10,13 +10,16 @@ import 'package:dio/dio.dart';
 
 import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_invite_response.dart';
+import 'package:beautica_api/src/model/api_response_list_bookable_master_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_public_salon_response.dart';
+import 'package:beautica_api/src/model/api_response_salon_admin_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_response.dart';
 import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/invite_request.dart';
 import 'package:beautica_api/src/model/pageable.dart';
+import 'package:beautica_api/src/model/rotate_admin_request.dart';
 import 'package:beautica_api/src/model/update_salon_request.dart';
 
 class SalonControllerApi {
@@ -170,6 +173,94 @@ class SalonControllerApi {
     );
 
     return _response;
+  }
+
+  /// getBookableMasters
+  ///
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [serviceDefId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseListBookableMasterResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseListBookableMasterResponse>> getBookableMasters({
+    required String salonId,
+    required String serviceDefId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/salons/{salonId}/services/{serviceDefId}/masters'
+        .replaceAll(
+            '{' r'salonId' '}',
+            encodeQueryParameter(_serializers, salonId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'serviceDefId' '}',
+            encodeQueryParameter(
+                    _serializers, serviceDefId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseListBookableMasterResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponseListBookableMasterResponse),
+            ) as ApiResponseListBookableMasterResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseListBookableMasterResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
   }
 
   /// getMastersBySalon
@@ -503,6 +594,171 @@ class SalonControllerApi {
     }
 
     return Response<ApiResponseInviteResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// removeAdmin
+  ///
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [userId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future]
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<void>> removeAdmin({
+    required String salonId,
+    required String userId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/salons/{salonId}/admins/{userId}'
+        .replaceAll(
+            '{' r'salonId' '}',
+            encodeQueryParameter(_serializers, salonId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'userId' '}',
+            encodeQueryParameter(_serializers, userId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    return _response;
+  }
+
+  /// rotateAdmin
+  ///
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [userId]
+  /// * [rotateAdminRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseSalonAdminResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseSalonAdminResponse>> rotateAdmin({
+    required String salonId,
+    required String userId,
+    required RotateAdminRequest rotateAdminRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/salons/{salonId}/admins/{userId}/salon'
+        .replaceAll(
+            '{' r'salonId' '}',
+            encodeQueryParameter(_serializers, salonId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'userId' '}',
+            encodeQueryParameter(_serializers, userId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(RotateAdminRequest);
+      _bodyData =
+          _serializers.serialize(rotateAdminRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseSalonAdminResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(ApiResponseSalonAdminResponse),
+            ) as ApiResponseSalonAdminResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseSalonAdminResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

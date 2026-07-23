@@ -38,6 +38,46 @@ void main() {
     });
   });
 
+  // ── M6 — the boundary the validFrom submit-time clamp keys off ──────────────
+  //
+  // The weekly-editor's stale-`validFrom` fix decides whether to clamp a
+  // candidate `validFrom` UP to today via `ScheduleDateMath.isPast(candidate)`
+  // (`_buildSchedule`) and whether to re-anchor a staged first-create window via
+  // the same predicate (`_save`). That clamp is correct ONLY if the boundary is
+  // exact: `today` itself must NOT be past (else a present validFrom would be
+  // needlessly bumped — or, worse, a guard built on `<=` would loop), while
+  // `today − 1` MUST be past (else a midnight-rollover'd window POSTs yesterday
+  // and the backend 400s on @FutureOrPresent). This pins exactly that boundary.
+  group('ScheduleDateMath.isPast — validFrom clamp boundary (M6)', () {
+    test('today is NOT past; today − 1 IS past; today + 1 is NOT past', () {
+      final math = _at(2026, 6, 10);
+      // today − 1 → past → the clamp/re-anchor fires (the rollover'd window).
+      expect(
+        math.isPast(DateTime(2026, 6, 9)),
+        isTrue,
+        reason: 'yesterday must be past so a now-stale validFrom is clamped',
+      );
+      // today → NOT past → a present validFrom is left untouched (no needless
+      // bump, no `<=` off-by-one).
+      expect(
+        math.isPast(DateTime(2026, 6, 10)),
+        isFalse,
+        reason: 'today must NOT be past — a present validFrom passes through',
+      );
+      // today + 1 → NOT past → a future validFrom is left untouched.
+      expect(math.isPast(DateTime(2026, 6, 11)), isFalse);
+    });
+
+    test('isPast strips the time component — a later wall-clock time on the '
+        'same calendar day as today is still NOT past', () {
+      // The clamp anchors on a date-only "today"; a candidate carrying a time
+      // component on today's date must not be misclassified as past/future.
+      final math = ScheduleDateMath(today: DateTime(2026, 6, 10, 23, 59));
+      expect(math.isPast(DateTime(2026, 6, 10, 0, 1)), isFalse);
+      expect(math.isPast(DateTime(2026, 6, 9, 23, 59)), isTrue);
+    });
+  });
+
   group('ScheduleDateMath.wholeCurrentMonth', () {
     test('clamps start to today when today is after the first of month', () {
       final range = _at(2024, 5, 21).wholeCurrentMonth();

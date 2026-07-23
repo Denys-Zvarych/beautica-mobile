@@ -33,6 +33,7 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
@@ -105,7 +106,10 @@ class OverridesNotifier extends _$OverridesNotifier {
   /// schedule fetch automatically. A thrown [Failure] becomes an [AsyncError];
   /// the previously-resolved override list is left intact on failure.
   Future<void> putOverride(ScheduleOverride override) =>
-      _mutate('putOverride', () => _repo.putOverride(override));
+      _mutate('putOverride', () {
+        _assertExplicitTimesValid(override);
+        return _repo.putOverride(override);
+      });
 
   /// Applies one override across every date of a multi-day span — expanding the
   /// span into one PUT per calendar date (the repository stays 1 row = 1 date).
@@ -118,6 +122,9 @@ class OverridesNotifier extends _$OverridesNotifier {
   /// date(s); the post-op reload then reflects whatever actually persisted.
   Future<void> putSpan(ScheduleOverride span) {
     return _mutate('putSpan', () async {
+      // Phase 15.7 — validate the span's discrete shape ONCE up-front (every
+      // expanded per-date PUT shares it), before any network call.
+      _assertExplicitTimesValid(span);
       // Build the date-only list, re-truncating each step so a DST boundary
       // (where `+24h` can land at 23:00 / 01:00 of the wrong day) cannot skip
       // or duplicate a calendar date.
@@ -134,16 +141,25 @@ class OverridesNotifier extends _$OverridesNotifier {
         throw const ValidationFailure(fieldErrors: <String, String>{});
       }
 
-      ScheduleOverride perDayFor(DateTime date) =>
-          span.kind == OverrideKind.dayOff
-          ? ScheduleOverride.dayOff(start: date, end: date)
-          : ScheduleOverride.custom(
-              start: date,
-              end: date,
-              intervals: span.intervals
-                  .map((w) => w.clone())
-                  .toList(growable: false),
-            );
+      ScheduleOverride perDayFor(DateTime date) {
+        if (span.kind == OverrideKind.dayOff) {
+          return ScheduleOverride.dayOff(start: date, end: date);
+        }
+        if (span.mode == WeekdayMode.explicitTimes) {
+          return ScheduleOverride.explicitTimes(
+            start: date,
+            end: date,
+            times: List<TimeOfDay>.of(span.times),
+          );
+        }
+        return ScheduleOverride.custom(
+          start: date,
+          end: date,
+          intervals: span.intervals
+              .map((w) => w.clone())
+              .toList(growable: false),
+        );
+      }
 
       final failedDates = <DateTime>[];
       for (var i = 0; i < dates.length; i += _kPutSpanChunkSize) {
@@ -181,6 +197,20 @@ class OverridesNotifier extends _$OverridesNotifier {
   /// the reload propagates to a fresh effective-schedule fetch automatically.
   Future<void> clearOverride(DateTime date) =>
       _mutate('clearOverride', () => _repo.clearOverride(date));
+
+  /// Throws [ValidationFailure] when [override] is an EXPLICIT_TIMES custom
+  /// override whose discrete times are empty / misaligned — a working custom
+  /// override must carry ≥1 aligned time. A DAY_OFF or an INTERVAL custom
+  /// override is left to the existing (interval) validation path and passes.
+  void _assertExplicitTimesValid(ScheduleOverride override) {
+    if (override.kind != OverrideKind.custom ||
+        override.mode != WeekdayMode.explicitTimes) {
+      return;
+    }
+    if (!discreteTimesValid(override.times)) {
+      throw const ValidationFailure(fieldErrors: <String, String>{});
+    }
+  }
 
   /// Runs a mutation and reloads the range on success. Wraps everything in
   /// [AsyncValue.guard] so a [Failure] surfaces as [AsyncError] without leaking

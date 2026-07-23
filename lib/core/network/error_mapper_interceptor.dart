@@ -106,6 +106,33 @@ final class ErrorMapperInterceptor extends Interceptor {
         );
       }
 
+      // Backend Phase A3 — verify-password-reset-otp typed errors. The
+      // backend deliberately reuses the same generic 400 shape as
+      // /auth/verify-email ({success:false, data:{code:"..."}}) for invalid /
+      // expired / exhausted / locked-account states — no oracle. Surface as
+      // a dedicated PasswordResetOtpFailure (NOT VerificationFailure) so the
+      // password-reset OTP screen never shows email-verification-specific
+      // copy ("account already verified") in this context.
+      if (statusCode == 400 &&
+          path.endsWith('/auth/verify-password-reset-otp')) {
+        final code = _extractPasswordResetOtpCode(err);
+        if (code != null) {
+          return PasswordResetOtpFailure(code: code, cause: err);
+        }
+      }
+
+      // Backend Phase A3 — authenticated change-password OTP resend cooldown.
+      // Unlike /auth/forgot-password (anti-enumeration — no 429 surfaced),
+      // this authenticated entry point DOES throw the same
+      // ResendThrottledException shape as /auth/resend-verification.
+      if (statusCode == 429 &&
+          path.endsWith('/users/me/change-password/request-otp')) {
+        return ResendThrottledFailure(
+          retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
+          cause: err,
+        );
+      }
+
       if (statusCode == 401) {
         // MEDIUM-2 (mobile-security 2026-05-24): decode the EMAIL_NOT_VERIFIED
         // sub-code into a typed field so login_screen.dart can branch on
@@ -227,6 +254,37 @@ final class ErrorMapperInterceptor extends Interceptor {
       if (kDebugMode) {
         log(
           'Failed to parse verify-email code from response: $e',
+          name: 'network.error',
+          level: 900,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Extracts the typed `data.code` string from the verify-password-reset-otp
+  /// envelope and decodes it into a [PasswordResetOtpErrorCode].
+  ///
+  /// Returns `null` if the body is not a `{data:{code:String}}` shape — in
+  /// that case the caller falls through to the generic ValidationFailure
+  /// mapping (so genuinely-malformed responses still surface as 400 errors
+  /// instead of swallowing the typed-code branch).
+  PasswordResetOtpErrorCode? _extractPasswordResetOtpCode(DioException err) {
+    try {
+      final body = err.response?.data;
+      if (body is Map<String, dynamic>) {
+        final data = body['data'];
+        if (data is Map<String, dynamic>) {
+          final code = data['code'];
+          if (code is String && code.isNotEmpty) {
+            return PasswordResetOtpErrorCode.fromWire(code);
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Failed to parse verify-password-reset-otp code from response: $e',
           name: 'network.error',
           level: 900,
         );
