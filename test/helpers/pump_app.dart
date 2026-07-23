@@ -150,6 +150,40 @@ extension PumpUntil on WidgetTester {
   }
 }
 
+/// Taps a `booking-calendar-day-<day>` grid cell safely.
+///
+/// `MonthCalendar` lives inside a `SingleChildScrollView` on the booking
+/// slot-picker screens (see `slot_picker_screen.dart`). On the default
+/// 800×600 flutter_test surface, the surrounding chrome (top bar + master
+/// strip) can leave less viewport height than the 5-row grid needs, so a day
+/// in the last row or two of the month is scrolled out of view. A blind
+/// `tester.tap(find.byKey(...))` on such a cell doesn't throw — the finder
+/// still resolves and `tap()` still computes a center point — it just lands
+/// on whatever widget is actually visible at that offset (e.g. the bottom
+/// summary bar), silently swallowing the tap and cascading into a confusing
+/// downstream assertion failure. Real users simply scroll; this helper does
+/// the same via [WidgetTester.ensureVisible] before tapping. Any full-screen
+/// test that taps a `booking-calendar-day-*` key *expecting the tap to
+/// register* should go through this instead of a blind
+/// `tester.tap(find.byKey(...))`.
+///
+/// Does NOT apply to tests asserting a cell is inert (no `GestureDetector`,
+/// e.g. a disabled/out-of-range day) via `expect(fake.callCount, 0)`. Those
+/// must keep calling `tester.tap(cell, warnIfMissed: false)` directly. They
+/// are proving the *absence* of a handler, not working around scroll
+/// clipping — routing them through this helper would still pass
+/// `expect(callCount, 0)` whether the cell correctly has no handler or the
+/// tap was silently swallowed by scroll clipping, which is exactly the
+/// false-pass this helper exists to prevent for the enabled-cell case.
+extension TapCalendarDay on WidgetTester {
+  Future<void> tapCalendarDay(int day) async {
+    final Finder finder = find.byKey(Key('booking-calendar-day-$day'));
+    await ensureVisible(finder);
+    await pumpAndSettle();
+    await tap(finder);
+  }
+}
+
 /// Applies the [PumpApp.pumpApp] `textScaleFactor` knob.
 ///
 /// When [textScaleFactor] is given, overrides the ambient [MediaQuery] text

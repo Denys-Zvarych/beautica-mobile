@@ -67,16 +67,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router at $expected, got $current',
-    );
-  }
-
   testWidgets(
     'CLIENT with >20 upcoming bookings sees the SOONEST first (Bug B), and '
     'Минулі pages a >40-item two-status dataset to exhaustion with no drop '
@@ -138,7 +128,7 @@ void main() {
       // Open the Записи branch (bottom-nav tile 3).
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.clientBookings);
+      AppHarness.expectLocation(router, RouteNames.clientBookings);
       expect(find.byType(MyBookingsScreen), findsOneWidget);
 
       final ProviderContainer container = ProviderScope.containerOf(

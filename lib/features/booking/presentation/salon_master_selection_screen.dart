@@ -56,7 +56,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -1627,13 +1627,7 @@ class _AssignConfirmBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final (double minSum, double maxSum, int minutes) = _totals(selected);
-    final String price = minSum == maxSum
-        ? '${minSum.toStringAsFixed(0)} ₴'
-        : '${minSum.toStringAsFixed(0)}–${maxSum.toStringAsFixed(0)} ₴';
-    final String? duration = minutes > 0
-        ? DurationMinutes.format(minutes)
-        : null;
+    final (String price, String? duration) = _totals(selected);
 
     return Container(
       decoration: const BoxDecoration(
@@ -1717,21 +1711,33 @@ class _AssignConfirmBar extends StatelessWidget {
   }
 
   /// Sums typed price/duration fields directly — no display-string parsing
-  /// (see this screen's file header for why).
-  (double, double, int) _totals(List<SalonCatalogService> services) {
-    double minSum = 0;
-    double maxSum = 0;
-    int minutes = 0;
-    for (final SalonCatalogService s in services) {
-      final double lo = s.priceMin ?? 0;
-      final double hi = s.priceType == ServicePriceType.range
-          ? (s.priceMax ?? lo)
-          : lo;
-      minSum += lo;
-      maxSum += hi;
-      minutes += s.durationMinutes ?? 0;
-    }
-    return (minSum, maxSum, minutes);
+  /// (see this screen's file header for why) — and builds the label through
+  /// the shared, per-term-gated [formatBookingTotalsFromTerms].
+  ///
+  /// This bar used to hand-build `'$minSum–$maxSum ₴'` itself, outside the
+  /// `booking_price_labels.dart` family's [isRenderablePrice] gate.
+  /// [SalonCatalogService.priceMin]/[priceMax] are unclamped wire doubles
+  /// (`salon_mapper.dart` passes the decoded value straight through, and
+  /// `jsonDecode('1e400')` yields `double.infinity` without throwing), so this
+  /// confirm bar rendered «Infinity ₴», «-0 ₴» and «1e+30 ₴» — all verified.
+  /// It never crashed the way `BookingRecap`'s `int` coercion did, precisely
+  /// because it coerced nothing; it just quietly stated a fictional price on
+  /// the screen where the client commits to it.
+  (String, String?) _totals(List<SalonCatalogService> services) {
+    final ({String priceLabel, String? durationLabel}) totals =
+        formatBookingTotalsFromTerms(
+          services.map((SalonCatalogService s) {
+            final double lo = s.priceMin ?? 0;
+            return (
+              min: lo,
+              max: s.priceType == ServicePriceType.range
+                  ? (s.priceMax ?? lo)
+                  : lo,
+              minutes: s.durationMinutes ?? 0,
+            );
+          }),
+        );
+    return (totals.priceLabel, totals.durationLabel);
   }
 }
 

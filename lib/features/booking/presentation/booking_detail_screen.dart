@@ -33,8 +33,9 @@
 // scaffold's `headerTrailing` slot), NOT the pinned footer — it copies the
 // appointment somewhere else, it does not act ON the booking, so it does not
 // belong in the primary/destructive action hierarchy. (Before, it sat in the
-// scroll body as a full-width `CalendarButton` pill in `belowRecap`; that pill
-// still serves both success screens + the home hub.) NOT_COMPLETED gets no
+// scroll body as a full-width `CalendarButton` pill in a page-level slot below
+// the recap; that slot is gone — the success screens now hang a compact
+// `CalendarButton` off each appointment card instead.) NOT_COMPLETED gets no
 // rebook shortcut: offering one under the provider's own account of a no-show
 // would read as the app brokering a reconciliation the client never asked for.
 //
@@ -64,16 +65,17 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
-import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
+import '../application/booking_viewer_role.dart';
 import '../application/my_bookings_notifier.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
 import '../domain/booking_status.dart';
 import '../domain/booking_tab.dart';
+import 'widgets/booking_counterparty_header.dart';
 import 'widgets/booking_notes.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_status_badge.dart';
@@ -189,9 +191,10 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           '${formatFullDate(booking.startAt)}, '
           '${formatTimeRange(booking.startAt, booking.durationMinutes)}',
       address: booking.addressLine,
-      price: booking.showsPrice
-          ? '${booking.price.toStringAsFixed(0)} ${ServicePriceDisplay.suffix}'
-          : null,
+      // Exactly the string the recap card renders on-screen — both go through
+      // `BookingDisplayX.priceLabel`, so a RANGE booking exports «300–500 ₴»
+      // rather than a floor the client never agreed to on its own.
+      price: booking.showsPrice ? booking.priceLabel : null,
       status: BookingStatusVisual.of(booking, l10n).label,
     );
     return addBookingToCalendar(
@@ -230,6 +233,11 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // navigation loads its seeding GETs (before it pushes the slot picker).
     final bool rescheduleLoading = ref.watch(bookingRescheduleInFlightProvider);
 
+    // Phase 7.2 — which side of this booking is looking. Derived from the
+    // session, never from a constructor flag (locked decision D5); see
+    // `booking_viewer_role.dart` for why a widget parameter would be unsafe.
+    final BookingViewerRole viewer = ref.watch(bookingViewerRoleProvider);
+
     return async.when(
       loading: () => const _DetailLoading(),
       error: (Object e, StackTrace _) => _DetailError(
@@ -238,6 +246,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       ),
       data: (Booking booking) => _DetailBody(
         booking: booking,
+        viewer: viewer,
         rescheduleLoading: rescheduleLoading,
         onReschedule: () => _onReschedule(context, booking),
         onCancel: () => _confirmCancel(context, booking),
@@ -254,6 +263,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
 class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.booking,
+    required this.viewer,
     required this.rescheduleLoading,
     required this.onReschedule,
     required this.onCancel,
@@ -263,6 +273,7 @@ class _DetailBody extends StatelessWidget {
   });
 
   final Booking booking;
+  final BookingViewerRole viewer;
   final bool rescheduleLoading;
   final VoidCallback onReschedule;
   final VoidCallback onCancel;
@@ -304,7 +315,23 @@ class _DetailBody extends StatelessWidget {
       // not in the primary/destructive action hierarchy below. Also dropped
       // once the slot has ELAPSED (`isPast`): adding a past event to a calendar
       // is pointless, and an elapsed CONFIRMED booking is read-only anyway.
-      headerTrailing: booking.canAddToCalendar && !booking.isPast
+      //
+      // SEC — CLIENT-SIDE ONLY, deliberately (`!viewer.isProvider`).
+      // `canAddToCalendar` is a STATUS predicate; it says nothing about who is
+      // looking. Without this role gate the provider view offered the export
+      // too, and `_onAddToCalendar` composed the event from
+      // `salonName ?? masterName` + `addressLine` — i.e. the master's OWN name
+      // and OWN address, which is semantically wrong for a provider. The real
+      // hazard is the trajectory, not today's payload: the natural repair is to
+      // substitute the CLIENT's name into the title/description, and that would
+      // be a new write of client PII into the device calendar — a store that
+      // syncs to Google/iCloud outside this app's protection boundary, beyond
+      // the `ScreenProtectionManager` and the no-free-text rule below.
+      // A provider-side calendar export, if ever wanted, needs its OWN explicit
+      // allowlist decision about what may leave the app — it must not be
+      // inherited from the client-side one.
+      headerTrailing:
+          !viewer.isProvider && booking.canAddToCalendar && !booking.isPast
           ? _CalendarIconButton(onTap: onAddToCalendar)
           : null,
       showHero: showStatusHero,
@@ -315,7 +342,13 @@ class _DetailBody extends StatelessWidget {
       actions: _actions(l10n),
       recapCards: <Widget>[
         BookingSummaryCards(
-          masterCard: MasterStripFromBooking(booking: booking),
+          // Branch point 1 of 2 (locked decision D5) — the counterparty. A
+          // client sees the master; a provider sees the client. Everything
+          // else on this screen is shared verbatim.
+          masterCard: BookingCounterpartyHeader(
+            booking: booking,
+            viewer: viewer,
+          ),
           salonName: booking.salonName,
           addressLine: addressValue,
           addressDetail: addressDetail,
@@ -333,7 +366,9 @@ class _DetailBody extends StatelessWidget {
           // `BookingRecap.single`'s doc.
           singleSelection: BookingSelection(
             name: booking.serviceName,
-            price: '${booking.price.toStringAsFixed(0)} ₴',
+            // «300 ₴», or «300–500 ₴» when the master left this service as a
+            // genuine RANGE at booking time — see `BookingDisplayX.priceLabel`.
+            price: booking.priceLabel,
             duration: booking.durationLabel,
           ),
           dense: true,
@@ -348,7 +383,13 @@ class _DetailBody extends StatelessWidget {
         // ── Every note this booking carries, in the order they were
         //    written. The ONLY surface that renders note text — the card
         //    shows none.
-        if (BookingNotes.has(booking, l10n)) BookingNotes(booking: booking),
+        // `viewer` is threaded through (mobile-security LOW, 2026-07-22) —
+        // without it the master read the CLIENT's brief under «Ваші
+        // побажання» and their OWN comment inside the recessed inbound well.
+        // See `booking_notes.dart`'s "The headings are VIEWER-relative"
+        // section; this is a framing fix, NOT a visibility one.
+        if (BookingNotes.has(booking, l10n, viewer: viewer))
+          BookingNotes(booking: booking, viewer: viewer),
       ],
     );
   }
@@ -359,14 +400,13 @@ class _DetailBody extends StatelessWidget {
   /// tells the client they failed to show up.
   String? _subline(Booking b, AppLocalizations l10n) {
     switch (b.status) {
-      case BookingStatus.pending:
       case BookingStatus.confirmed:
         // The reminder ("Нагадаємо про запис напередодні.") is an
         // upcoming-only affordance. An ELAPSED CONFIRMED booking is already
         // read-only (Reschedule/Cancel/Add-to-calendar all hidden, «Записатись
         // знову» shown), so drop the reminder too — reminding about a visit
         // whose time has passed is meaningless.
-        if (b.status == BookingStatus.confirmed && b.isPast) {
+        if (b.isPast) {
           return null;
         }
         return l10n.bookingDetailSublineConfirmed;
@@ -380,20 +420,44 @@ class _DetailBody extends StatelessWidget {
         return b.atSalon
             ? l10n.bookingDetailSublineDeclinedSalon
             : l10n.bookingDetailSublineDeclinedMaster;
+      // No subline. Every other branch here is the app narrating what the
+      // status MEANS; for a status this build does not recognise there is
+      // nothing truthful to narrate, and the badge already says so.
+      case BookingStatus.unknown:
+        return null;
     }
   }
 
   /// The pinned footer. An empty list renders no footer at all.
+  ///
+  /// Branch point 2 of 2 (locked decision D5). The provider footer —
+  /// «Завершити» / «Не відбулось» / «Скасувати» — is **Phase 7.3**; this phase
+  /// renders the slot EMPTY for a provider viewer.
+  ///
+  /// Empty, deliberately, rather than disabled placeholder buttons: a row of
+  /// greyed-out CTAs reads as a broken screen to anyone testing this phase,
+  /// and `BookingSuccessScaffold` already renders no footer at all for an
+  /// empty list, so the page is clean and shippable standalone.
+  ///
+  /// The client action set below is NOT merely hidden from a provider — every
+  /// one of its entries is a CLIENT capability (reschedule and cancel are the
+  /// client's own; «Записатись знову» would have the master book themselves;
+  /// «Залишити відгук» is the client reviewing the master, and `canReview` is
+  /// server-computed for the booking's client, not its provider). Falling
+  /// through to it would offer the master four actions that are wrong for
+  /// them and two the backend would reject.
   List<Widget> _actions(AppLocalizations l10n) {
+    if (viewer.isProvider) {
+      return const <Widget>[];
+    }
     switch (booking.status) {
-      case BookingStatus.pending:
       case BookingStatus.confirmed:
         // An ELAPSED CONFIRMED booking is READ-ONLY: its slot is already in the
         // past, so Reschedule + Cancel no longer apply (the backend 409s both
         // with BOOKING_ALREADY_ELAPSED — the server clock is authoritative).
         // Route it into the SAME «Записатись знову» affordance the terminal
         // states use, rather than showing actions that can only fail.
-        if (booking.status == BookingStatus.confirmed && booking.isPast) {
+        if (booking.isPast) {
           return _rebookActions(l10n);
         }
         return <Widget>[
@@ -451,6 +515,14 @@ class _DetailBody extends StatelessWidget {
       // Deliberately nothing — see the file header.
       case BookingStatus.notCompleted:
         return const <Widget>[];
+
+      // An unrecognised status grants NOTHING that acts on this booking — no
+      // reschedule, no cancel (security S1). «Записатись знову» is the one
+      // safe offer: it starts a brand-new booking flow and touches this record
+      // not at all. Add-to-calendar is already excluded upstream via
+      // `canAddToCalendar`.
+      case BookingStatus.unknown:
+        return _rebookActions(l10n);
     }
   }
 

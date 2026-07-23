@@ -69,17 +69,6 @@ void main() {
   // pins the app to uk_UA). We must NOT see the logout-failure SnackBar.
   final AppLocalizationsUk l10n = AppLocalizationsUk();
 
-  // ── Helper: assert the router landed on [expected] ───────────────────────
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router to be at $expected, got $current',
-    );
-  }
-
   /// Logs in as CLIENT, lands on /client/home, opens the burger, and settles on
   /// the /client/menu settings hub. Returns the live router for location asserts.
   Future<GoRouter> openClientHub(
@@ -102,14 +91,14 @@ void main() {
     // fixed-wait-ok: integration test, real async (auth+redirect); bounded pumpAndSettle is the recommended real-async settle.
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
-    expectLocation(router, RouteNames.clientHome);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
 
     // Open the home-hub burger → pushes /client/menu.
     await tester.tap(find.byKey(const Key('btn-menu-client')));
     // fixed-wait-ok: integration test, real async (route push); bounded pumpAndSettle is the recommended real-async settle.
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
-    expectLocation(router, RouteNames.clientMenu);
+    AppHarness.expectLocation(router, RouteNames.clientMenu);
     expect(
       find.byType(ClientSettingsHubScreen),
       findsOneWidget,
@@ -160,7 +149,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Still on the hub — a cancelled logout must NOT navigate.
-      expectLocation(router, RouteNames.clientMenu);
+      AppHarness.expectLocation(router, RouteNames.clientMenu);
       expect(
         find.byType(ClientSettingsHubScreen),
         findsOneWidget,
@@ -218,7 +207,7 @@ void main() {
 
       // 1) Landed on /login. If logout() had thrown, context.go(login) would
       //    not run and we'd still be on /client/menu.
-      expectLocation(router, RouteNames.login);
+      AppHarness.expectLocation(router, RouteNames.login);
       expect(
         find.byKey(const ValueKey<String>('login_email')),
         findsOneWidget,
@@ -278,7 +267,7 @@ void main() {
       // fixed-wait-ok: integration test, real async (logout teardown+redirect); bounded pumpAndSettle is the recommended real-async settle.
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      expectLocation(router, RouteNames.login);
+      AppHarness.expectLocation(router, RouteNames.login);
       expect(
         await storage.readRefreshToken(),
         isNull,
@@ -294,7 +283,7 @@ void main() {
 
       // 1) The guard redirected the deep-link back to /login — the protected
       //    passport screen must NOT have rendered.
-      expectLocation(router, RouteNames.login);
+      AppHarness.expectLocation(router, RouteNames.login);
       expect(
         find.byKey(const ValueKey<String>('login_email')),
         findsOneWidget,

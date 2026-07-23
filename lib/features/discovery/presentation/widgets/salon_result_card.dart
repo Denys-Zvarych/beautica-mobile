@@ -8,8 +8,10 @@
 //   • `SalonSearchResult` carries NO avgRating field → the ★ rating row is
 //     OMITTED entirely (never invent a value).
 //   • Price range follows decision 5: render `priceMin`–`priceMax`; collapse to
-//     a single «від N ₴» when the two are equal; hide the price line when both
-//     are null.
+//     a single exact «N ₴» (no prefix) when the two are equal; render the
+//     open end of the surviving DIRECTION when only one bound is known
+//     («від N ₴» for a floor, «до N ₴» for a ceiling — never substituted for
+//     each other); hide the price line when both are null.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +23,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 
 import '../../../booking/application/pending_service_preselection_provider.dart';
 import '../../../favorites/domain/favorite_target.dart';
@@ -158,19 +161,43 @@ class SalonResultCard extends ConsumerWidget {
     );
   }
 
-  /// Decision 5 price rendering. The «від» prefix shows ONLY when the two
+  /// Decision 5 price rendering. An open-ended prefix shows ONLY when the two
   /// bounds differ; an equal (or single) bound renders one fixed price with no
-  /// «від»:
+  /// prefix:
   ///   both null      → null (hide the line)
-  ///   equal bounds   → exact fixed price «N ₴» (NO «від»)
-  ///   one bound only → «від N ₴» (open-ended on the other side)
+  ///   equal bounds   → exact fixed price «N ₴» (NO prefix)
+  ///   floor only     → «від N ₴» (open-ended ABOVE the known floor)
+  ///   ceiling only   → «до N ₴»  (open-ended BELOW the known ceiling)
   ///   min < max      → «N–M ₴» range
+  ///
+  /// The two single-bound directions are NOT interchangeable, and picking the
+  /// wrong one is a false claim rather than a cosmetic slip. «від N ₴» asserts
+  /// N is the salon's CHEAPEST service; «до N ₴» asserts N is its dearest. A
+  /// missing floor with a known ceiling must therefore render «до», never
+  /// «від» — the latter would quote the ceiling as the minimum, inflating the
+  /// advertised entry price (a salon with `priceMax` 800 would read «від
+  /// 800 ₴»). Each label states only the bound it actually has.
+  ///
+  /// Both bounds arrive off the wire as unclamped doubles (`search_mapper.dart`
+  /// passes the decoded values straight through) and the ARB placeholders here
+  /// are `"type": "int"`, so each is coerced through [renderableWholePrice]
+  /// rather than a bare `.round()` — see that function for why the bare call
+  /// THROWS out of this `build()` on `Infinity`/`NaN` and saturates to
+  /// «9223372036854775807 ₴» on a merely-large figure.
+  ///
+  /// An unrenderable bound is treated as ABSENT, which needs no new branch —
+  /// "this bound is not known" is already first-class here: one unrenderable
+  /// bound leaves the open-ended label of the DIRECTION that survived, and two
+  /// land in the `both null` case that omits the price line entirely.
+  /// Deliberately NOT [priceUnavailableLabel]: this card has an established,
+  /// honest "no price known" state and shows no «—» anywhere else.
   static String? _priceLabel(AppLocalizations l10n, double? min, double? max) {
-    final int? lo = min?.round();
-    final int? hi = max?.round();
-    if (lo == null && hi == null) return null;
-    // Only one bound known → genuinely open-ended → keep the «від» prefix.
-    if (lo == null) return l10n.searchPriceFrom(hi!);
+    final int? lo = renderableWholePrice(min);
+    final int? hi = renderableWholePrice(max);
+    // Only one bound known → genuinely open-ended → prefix it in the direction
+    // that bound actually constrains. Never substitute the other bound: a
+    // ceiling quoted as «від» would state an inflated, false minimum.
+    if (lo == null) return hi == null ? null : l10n.searchPriceUpTo(hi);
     if (hi == null) return l10n.searchPriceFrom(lo);
     // Both known: equal ⇒ single fixed price (no «від»); else a range.
     if (hi == lo) return l10n.searchResultPriceExact(lo);

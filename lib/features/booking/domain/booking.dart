@@ -40,6 +40,40 @@ abstract class Booking with _$Booking {
     /// Null for an `INDEPENDENT_MASTER` booking; set for a salon-employed
     /// master's booking.
     String? salonName,
+
+    // ── The COUNTERPARTY as the PROVIDER sees it (Phase 7.2) ──────────────
+    //
+    // Added for the provider-view «Деталі запису». A client viewer never reads
+    // these (they are the counterparty to themselves); a master viewer renders
+    // them in place of the master strip.
+    //
+    /// The registered client's account id. **Null on a guest/LINK booking** —
+    /// `client_id IS NULL` is the entire LINK flow, not an edge case (backend
+    /// V89 `chk_bookings_guest_fields`). Present only so a caller can tell a
+    /// registered client from a guest; never render it.
+    String? clientId,
+
+    /// The client's first name.
+    ///
+    /// ## The guest fallback already happened — SERVER-side
+    ///
+    /// On a guest/LINK booking the backend's `BookingDetailResponse` fills
+    /// this from the booking's OTP-verified `guestName`, so the wire carries a
+    /// usable name either way and the mobile side needs no `guestName`
+    /// fallback of its own. (The Phase 7.2 phase doc asks for a client-side
+    /// `guestName`/`guestSurname` fallback — those fields are not on this DTO
+    /// at all, precisely because the server already resolved them. Do not add
+    /// one; there is nothing to fall back TO.)
+    ///
+    /// Still nullable: an old row can carry neither. Render
+    /// [BookingDisplayX.clientName], which degrades to a localized «Гість»
+    /// rather than an empty strip.
+    String? clientFirstName,
+
+    /// The client's surname. Independently nullable — the backend's
+    /// `guestSurname` column is optional, so a guest booking legitimately
+    /// carries a first name and no surname.
+    String? clientLastName,
     required String serviceId,
     required String serviceName,
     String? categoryName,
@@ -48,7 +82,25 @@ abstract class Booking with _$Booking {
     String? street,
     String? buildingNo,
     required int durationMinutes,
+
+    /// The price agreed AT BOOKING TIME (`priceAtBooking` on the wire), never
+    /// re-read from the live catalogue. When [priceMax] is non-null this is the
+    /// band's FLOOR; otherwise it is the whole price.
     required double price,
+
+    /// The band's CEILING, agreed at booking time (`priceMaxAtBooking`).
+    ///
+    /// **Null means SINGLE PRICE — render [price] alone.** It is not a missing
+    /// value and not an error state: the backend populates it only when the
+    /// master genuinely left this service as a `RANGE` (no `priceOverride`) at
+    /// the moment the booking was made, and freezes it there.
+    ///
+    /// The client must NEVER re-derive a band from `priceType`/`priceOverride`
+    /// or the service's current catalogue state — those describe the service
+    /// today, not what was agreed then. Render via
+    /// `BookingDisplayX.priceLabel` (→ `formatBookingPrice`), which is the one
+    /// place the floor/band choice is made.
+    double? priceMax,
     required DateTime startAt,
     required DateTime endAt,
     required BookingStatus status,

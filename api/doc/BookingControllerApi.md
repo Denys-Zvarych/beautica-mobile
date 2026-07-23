@@ -14,6 +14,7 @@ Method | HTTP request | Description
 [**createBooking**](BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [**declineBooking**](BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[**listMyBookedDays**](BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [**listMyBookings**](BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
 [**notCompleteBooking**](BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
 [**rescheduleBooking**](BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
@@ -227,8 +228,51 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
+# **listMyBookedDays**
+> ApiResponseListLocalDate listMyBookedDays(from, to)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getBookingControllerApi();
+final Date from = 2013-10-20; // Date | Range start (inclusive), local Europe/Kyiv day. Required.
+final Date to = 2013-10-20; // Date | Range end (inclusive), local Europe/Kyiv day. Required.
+
+try {
+    final response = api.listMyBookedDays(from, to);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling BookingControllerApi->listMyBookedDays: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **from** | **Date**| Range start (inclusive), local Europe/Kyiv day. Required. | 
+ **to** | **Date**| Range end (inclusive), local Europe/Kyiv day. Required. | 
+
+### Return type
+
+[**ApiResponseListLocalDate**](ApiResponseListLocalDate.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
 # **listMyBookings**
-> ApiResponsePageResponseBookingDetailResponse listMyBookings(pageable, status)
+> ApiResponsePageResponseBookingDetailResponse listMyBookings(pageable, status, from, to, serviceId)
 
 
 
@@ -238,10 +282,13 @@ import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getBookingControllerApi();
 final Pageable pageable = ; // Pageable | 
-final String status = status_example; // String | 
+final BuiltList<String> status = ; // BuiltList<String> | Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate.
+final Date from = 2013-10-20; // Date | Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window.
+final Date to = 2013-10-20; // Date | Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
+final BuiltList<String> serviceId = ; // BuiltList<String> | Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate.
 
 try {
-    final response = api.listMyBookings(pageable, status);
+    final response = api.listMyBookings(pageable, status, from, to, serviceId);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling BookingControllerApi->listMyBookings: $e\n');
@@ -253,7 +300,10 @@ try {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **pageable** | [**Pageable**](.md)|  | 
- **status** | **String**|  | [optional] 
+ **status** | [**BuiltList&lt;String&gt;**](String.md)| Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. | [optional] 
+ **from** | **Date**| Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window. | [optional] 
+ **to** | **Date**| Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window. | [optional] 
+ **serviceId** | [**BuiltList&lt;String&gt;**](String.md)| Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate. | [optional] 
 
 ### Return type
 

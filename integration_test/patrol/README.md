@@ -9,7 +9,7 @@ intents, permission dialogs, notifications, and WebViews via `$.native.*`.
 | File | Kind | Runnable today? |
 |---|---|---|
 | `auth_login_patrol_test.dart` | Ported template (fake backend) | Yes — porting reference for converting an `integration_test` flow to a patrol binding |
-| `deep_link_patrol_test.dart` | Native: deep link → `/reset-password` | Yes — real `ACTION_VIEW` App Link intent |
+| `deep_link_patrol_test.dart` | Native: deep link → `/invite/accept` | Yes — real `ACTION_VIEW` App Link intent |
 | `deep_link_patrol_test.dart` (FCM cases) | Native: FCM tap-through + notification permission | **No — skip-marked**; Firebase push is deferred (`FIREBASE_ENABLED=false`). Enable when Phase 8.x FCM lands |
 | `support/patrol_harness.dart` | Boot helper (fake backend) for the template | — |
 

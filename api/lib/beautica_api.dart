@@ -51,6 +51,7 @@ export 'package:beautica_api/src/model/api_response_list_catalog_category_respon
 export 'package:beautica_api/src/model/api_response_list_city_district_response.dart';
 export 'package:beautica_api/src/model/api_response_list_city_response.dart';
 export 'package:beautica_api/src/model/api_response_list_effective_day_response.dart';
+export 'package:beautica_api/src/model/api_response_list_local_date.dart';
 export 'package:beautica_api/src/model/api_response_list_master_service_response.dart';
 export 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 export 'package:beautica_api/src/model/api_response_list_oblast_response.dart';

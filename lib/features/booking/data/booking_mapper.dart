@@ -14,13 +14,20 @@
 //     [BookingDetailResponse.endsAt] — a null value on any of these means the
 //     backend contract is broken (a booking with no id/status/time makes no
 //     sense downstream) and surfaces as [ServerFailure]. All other nullable
-//     fields fall back to a safe default ('' / 0 / 0.0 / false).
-//   - An unrecognised [BookingDetailResponse.status] wire value (rejected by
-//     [BookingStatus.fromWire]'s `ArgumentError`) surfaces as [UnknownFailure]
-//     — mirrors `HttpAuthRepository.validateInvite`'s `UserRole.fromWire`
-//     handling. Both this case and the missing-field case above are [Failure]
-//     subclasses, so [fromDtoList]'s `on Failure { continue; }` loop drops
-//     just the one broken row instead of blanking the whole page.
+//     fields fall back to a safe default ('' / 0 / 0.0 / false), EXCEPT
+//     `priceMaxAtBooking`, whose null is a real signal ("single price") and is
+//     carried through as `Booking.priceMax == null` — see that field's doc.
+//   - An unrecognised [BookingDetailResponse.status] wire value is NOT an
+//     error: [BookingStatus.fromWire] logs and decodes it to
+//     [BookingStatus.unknown], so the row is KEPT and rendered. It is NOT
+//     decoded to [BookingStatus.confirmed] — `confirmed` is the one status
+//     that grants capabilities (`canAddToCalendar`, cancel/decline actions),
+//     so falling back to it would let a status this build does not understand
+//     unlock write access. [unknown] keeps the booking visible while granting
+//     nothing. See [BookingStatus.fromWire]'s doc.
+//   - [fromDtoList]'s `on Failure { continue; }` loop therefore guards only
+//     the missing-field case above — one broken row is dropped instead of
+//     blanking the whole page.
 //
 // DEVIATION (BookingSlot.available): see the file header of
 // `domain/booking_slot.dart` — `AvailableSlotResponse` carries no availability
@@ -46,8 +53,9 @@ abstract final class BookingMapper {
   /// Maps a [BookingDetailResponse] DTO to the domain [Booking] model.
   ///
   /// Throws [ServerFailure] (statusCode `null`) when [dto.id], [dto.status],
-  /// [dto.startsAt], or [dto.endsAt] is absent, or [UnknownFailure] when
-  /// [dto.status] is an unrecognised wire value — see the file header.
+  /// [dto.startsAt], or [dto.endsAt] is absent. An unrecognised [dto.status]
+  /// wire value does NOT throw — it decodes to [BookingStatus.unknown] and the
+  /// booking is returned — see the file header.
   static Booking fromDto(BookingDetailResponse dto) {
     final id = dto.id;
     final statusDto = dto.status;
@@ -69,23 +77,26 @@ abstract final class BookingMapper {
       throw const ServerFailure(statusCode: null);
     }
 
-    final BookingStatus status;
-    try {
-      status = BookingStatus.fromWire(statusDto.name);
-    } on ArgumentError {
-      // A future/unrecognised backend status value must not crash the whole
-      // "my bookings" page — rethrow as a [Failure] so [fromDtoList]'s
-      // `on Failure { continue; }` loop drops just this one row. Mirrors
-      // `HttpAuthRepository.validateInvite`'s `UserRole.fromWire` handling.
-      if (kDebugMode) {
-        log(
-          'BookingDetailResponse.status unrecognised: ${statusDto.name}',
-          name: 'feature.booking.mapper',
-          level: 1000,
-        );
-      }
-      throw const UnknownFailure(cause: 'unknown booking status');
-    }
+    // Phase 7.1: [BookingStatus.fromWire] does not throw on an unrecognised
+    // wire value — it logs and decodes to [BookingStatus.unknown], so the row
+    // is KEPT but NON-ACTIONABLE (previously this method rethrew as a Failure
+    // and [fromDtoList]'s loop dropped the booking entirely, so a status this
+    // build predates made the record silently vanish from «Мої записи»).
+    //
+    // The fallback is [BookingStatus.unknown], NOT [BookingStatus.confirmed] —
+    // do not "simplify" it back. `confirmed` is the capability-granting status:
+    // `canAddToCalendar`, the cancel/decline footer actions and the price row
+    // all key off it, so decoding an unrecognised status as `confirmed` would
+    // fail OPEN and let a booking whose real state this build cannot interpret
+    // be written to the device calendar and acted on. `unknown` grants none of
+    // those while still keeping the row visible — keep-and-deny, not
+    // keep-and-allow. See [BookingStatus.fromWire]'s doc.
+    //
+    // The former `on ArgumentError` catch here was therefore unreachable and
+    // has been removed rather than left as dead reassurance. The resilience
+    // loop below still guards every OTHER mapping failure (missing id /
+    // startsAt / endsAt → ServerFailure).
+    final BookingStatus status = BookingStatus.fromWire(statusDto.name);
 
     return Booking(
       id: id,
@@ -95,6 +106,14 @@ abstract final class BookingMapper {
       masterAvatarUrl: dto.masterAvatarUrl,
       masterType: dto.masterType?.name ?? '',
       salonName: dto.salonName,
+      // Phase 7.2 — the counterparty as the PROVIDER sees it. `clientId` is
+      // legitimately null on a guest/LINK booking; `clientFirstName`/
+      // `clientLastName` are NOT defaulted to '' here (unlike the master
+      // fields above) because `BookingDisplayX.clientName` distinguishes
+      // "absent" from "empty" to pick its «Гість» fallback.
+      clientId: dto.clientId?.toString(),
+      clientFirstName: dto.clientFirstName,
+      clientLastName: dto.clientLastName,
       serviceId: dto.masterServiceId ?? '',
       serviceName: dto.serviceName ?? '',
       categoryName: dto.categoryName,
@@ -104,6 +123,13 @@ abstract final class BookingMapper {
       buildingNo: dto.buildingNo,
       durationMinutes: dto.durationMinutesAtBooking ?? 0,
       price: dto.priceAtBooking?.toDouble() ?? 0.0,
+      // NOT coalesced — unlike every other nullable field above, a null
+      // ceiling is MEANINGFUL: it is the backend saying "this booking has a
+      // single price". Defaulting it to 0.0 (or to `priceAtBooking`) would
+      // erase that distinction; `Booking.priceMax` stays nullable all the way
+      // to `formatBookingPrice`, which is the one place the floor-vs-band
+      // choice is made. See `Booking.priceMax`'s doc.
+      priceMax: dto.priceMaxAtBooking?.toDouble(),
       startAt: startsAt,
       endAt: endsAt,
       status: status,

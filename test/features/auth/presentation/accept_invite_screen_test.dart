@@ -918,4 +918,147 @@ void main() {
       },
     );
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // REGRESSION: 'accept_invite_screen' mount-key (patrol CI-hang guard)
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // Headless pre-push mirror of the CI-only native patrol test
+  // (integration_test/patrol/deep_link_patrol_test.dart). Patrol cannot run on
+  // the dev VM (no emulator), so this widget/router tier is the pre-push guard.
+  //
+  // THE BUG (fixed on feat/master-my-bookings-data-layer): the native deep-link
+  // patrol test fired /reset-password, which NO manifest intent-filter matches →
+  // Android opened it in the browser → the app backgrounded → the Flutter engine
+  // stopped producing frames → `pumpUntilFound` hung for the full 900s CI
+  // timeout. The fix retargets the patrol test to /invite/accept (the ONLY
+  // approved App Link) and wraps AcceptInviteScreen.build() in a
+  // KeyedSubtree(key: ValueKey('accept_invite_screen')) so the screen-container
+  // key mounts on the FIRST FRAME in every async state — independent of the
+  // token-validation network call.
+  //
+  // The load-bearing property that prevents the hang is: the mount-key renders
+  // in the LOADING state, before (and without) any network completion. A fake
+  // token settles loading→error and never reaches the `data` form, so the
+  // patrol test asserts the CONTAINER key, not the form 'invite_accept' key.
+  // These tests pin exactly that property at the Dart level.
+  group('accept_invite_screen mount-key (patrol CI-hang regression)', () {
+    const ValueKey<String> mountKey = ValueKey<String>('accept_invite_screen');
+
+    // ── LOADING: key mounts on the first frame with NO network dependency ────
+    // This is THE anti-regression assertion. The provider is left in a pending
+    // (never-completing) future — the network never resolves — yet the
+    // screen-container key must already be present. This is the exact property
+    // that keeps the patrol `pumpUntilFound` from hanging: the key it polls is
+    // available the instant go_router mounts the screen, no round-trip required.
+    testWidgets(
+      'R1. LOADING (pending future, no network) → accept_invite_screen key '
+      'present on first frame',
+      (WidgetTester tester) async {
+        await _pumpLoading(tester);
+
+        expect(
+          find.byKey(mountKey),
+          findsOneWidget,
+          reason:
+              'The mount-key MUST render on the loading frame, before any '
+              'network completion — this is the property that prevents the '
+              'patrol pumpUntilFound CI hang.',
+        );
+        // Proves we are genuinely in the loading state (not data): spinner
+        // present, form CTA absent.
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('invite_accept')),
+          findsNothing,
+        );
+      },
+    );
+
+    // ── ERROR: a fake/invalid token keeps the screen mounted (never data) ────
+    testWidgets(
+      'R2. ERROR (invalid token → AsyncError) → accept_invite_screen key still '
+      'present; never reaches the data form',
+      (WidgetTester tester) async {
+        await _pumpError(tester);
+
+        expect(
+          find.byKey(mountKey),
+          findsOneWidget,
+          reason:
+              'A fake token settles loading→error but the screen-container key '
+              'must stay mounted; the patrol test targets this key precisely '
+              'because a fake token never reaches the data form.',
+        );
+        // Error branch rendered, not the data form.
+        expect(find.byType(AuthBanner), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('invite_accept')),
+          findsNothing,
+        );
+      },
+    );
+
+    // ── PRECONDITION: key absent on a non-/invite/accept route ───────────────
+    // Mirrors the patrol precondition (cold start settles to /login → the key
+    // is findsNothing before the deep link fires). Guards against the key
+    // leaking onto unrelated routes, which would make the patrol precondition
+    // and destination assertions indistinguishable.
+    testWidgets(
+      'R3. PRECONDITION: on /login cold start the accept_invite_screen key is '
+      'absent',
+      (WidgetTester tester) async {
+        final FakeAuthRepository repo = FakeAuthRepository();
+        final FakeSecureStorage storage = FakeSecureStorage();
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.login,
+          redirect: (BuildContext context, GoRouterState state) => null,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.acceptInvite,
+              builder: (BuildContext context, GoRouterState state) =>
+                  AcceptInviteScreen(
+                    token: state.uri.queryParameters['token'] ?? '',
+                  ),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (BuildContext context, GoRouterState state) =>
+                  const Scaffold(body: Center(child: Text('login'))),
+            ),
+            GoRoute(
+              path: RouteNames.home,
+              builder: (BuildContext context, GoRouterState state) =>
+                  const Scaffold(body: Center(child: Text('home'))),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWithValue(storage),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(mountKey),
+          findsNothing,
+          reason:
+              'Before the deep link fires (cold start on /login) the '
+              'accept_invite_screen key must be absent — this is the patrol '
+              'precondition that makes the post-openUrl assertion meaningful.',
+        );
+      },
+    );
+  });
 }

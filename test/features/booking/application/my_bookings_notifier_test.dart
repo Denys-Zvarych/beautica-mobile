@@ -5,7 +5,7 @@
 // `sort` param) — mobile-debugger findings A + B. Each tab now issues exactly
 // ONE `getMyBookings` call carrying its whole status set + the tab's sort
 // direction; there is no more client-side fan-out/merge/re-sort to pin, so
-// this suite instead pins: the exact `statuses`/`ascending` args per tab
+// this suite instead pins: the exact `statuses`/`sort` args per tab
 // (single call, not one-per-status), that the server response is used
 // as-is (no re-sort), pagination cursor advance, and the existing
 // load-more/refresh/error guards.
@@ -25,11 +25,13 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -93,7 +95,7 @@ ProviderContainer _container(_MockBookingRepository repo) {
 }
 
 /// Stubs the ONE `getMyBookings` call [tab] issues at [page] to answer with
-/// [response]. `ascending` is derived from the tab (Майбутні only).
+/// [response]. `sort` is derived from the tab (Майбутні only).
 void _stubTab(
   _MockBookingRepository repo,
   BookingTab tab, {
@@ -103,7 +105,9 @@ void _stubTab(
   when(
     () => repo.getMyBookings(
       statuses: tab.statuses,
-      ascending: tab == BookingTab.upcoming,
+      sort: tab == BookingTab.upcoming
+          ? BookingSort.oldest
+          : BookingSort.newest,
       page: page,
       size: any(named: 'size'),
     ),
@@ -113,7 +117,7 @@ void _stubTab(
 void main() {
   group('build — single request per tab (backend Phase 26.1)', () {
     test(
-      'Майбутні sends statuses={CONFIRMED}, ascending: true, in ONE call',
+      'Майбутні sends statuses={CONFIRMED}, sort: BookingSort.oldest, in ONE call',
       (() async {
         final repo = _MockBookingRepository();
         _stubTab(
@@ -138,7 +142,7 @@ void main() {
         verify(
           () => repo.getMyBookings(
             statuses: const <BookingStatus>{BookingStatus.confirmed},
-            ascending: true,
+            sort: BookingSort.oldest,
             page: 0,
             size: any(named: 'size'),
           ),
@@ -182,7 +186,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          ascending: any(named: 'ascending'),
+          sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -226,7 +230,7 @@ void main() {
               BookingStatus.cancelled,
               BookingStatus.declined,
             },
-            ascending: false,
+            sort: BookingSort.newest,
             page: 0,
             size: any(named: 'size'),
           ),
@@ -271,49 +275,173 @@ void main() {
     );
   });
 
-  group('sort direction argument per tab', () {
-    test('Майбутні requests ascending: true (soonest-first)', () async {
+  // ── The Phase 7.8 regression guard ──────────────────────────────────────
+  //
+  // Sorting was retired as a USER-FACING feature (no sheet, no button, no
+  // screen state). `BookingSort` survives precisely because these three tabs
+  // need a specific order to read correctly, and that ordering has NO UI — so
+  // nothing else in the app would notice if it silently flipped.
+  //
+  // That is what makes this the load-bearing test: delete the enum, drop the
+  // repository's `sort` param, or "simplify" the ternary in
+  // `MyBookingsNotifier`, and the shipped client's lists scramble with no
+  // compile error and no other failing test.
+  //
+  // Asserts the WIRE VALUE, not just the enum member. Verifying
+  // `BookingSort.oldest` alone would stay green if someone swapped that
+  // member's `wireValue` to `'startsAt,desc'` — the tab would then be exactly
+  // backwards while the assertion still passed.
+  group('sort direction argument per tab (Phase 7.8 regression guard)', () {
+    // MUTATION: swapped the ternary in `MyBookingsNotifier._fetchFirstPage` to
+    // send `newest` for upcoming → the Майбутні case failed. Restored.
+    //
+    // MUTATION: swapped `BookingSort.oldest`'s wireValue to `'startsAt,desc'`
+    // → the Майбутні case failed on the wireValue assertion while the enum
+    // assertion still passed — which is exactly the hole this group closes.
+    // Restored.
+    for (final (BookingTab tab, BookingSort expected, String wire, String why)
+        in <(BookingTab, BookingSort, String, String)>[
+          (
+            BookingTab.upcoming,
+            BookingSort.oldest,
+            'startsAt,asc',
+            'Майбутні is a "what is next" list — soonest MUST be on top',
+          ),
+          (
+            BookingTab.past,
+            BookingSort.newest,
+            'startsAt,desc',
+            'Минулі is history — most recent on top',
+          ),
+          (
+            BookingTab.cancelled,
+            BookingSort.newest,
+            'startsAt,desc',
+            'Скасовані is history too — most recent on top',
+          ),
+        ]) {
+      test('${tab.name} requests $expected ($wire)', () async {
+        final repo = _MockBookingRepository();
+        _stubTab(repo, tab, page: 0, response: _page(const <Booking>[]));
+        final c = _container(repo);
+
+        await c.read(myBookingsProvider(tab).future);
+
+        final BookingSort? sent =
+            verify(
+                  () => repo.getMyBookings(
+                    statuses: any(named: 'statuses'),
+                    sort: captureAny(named: 'sort'),
+                    page: 0,
+                    size: any(named: 'size'),
+                  ),
+                ).captured.single
+                as BookingSort?;
+
+        expect(sent, expected, reason: why);
+        expect(
+          sent?.wireValue,
+          wire,
+          reason:
+              'the wire value is what actually orders the list — $why. A '
+              'wireValue swap on the enum member would pass the assertion '
+              'above and still ship the tab backwards.',
+        );
+      });
+    }
+
+    // The ternary is duplicated: `_fetchFirstPage` (page 0) and `loadMore`
+    // (page N+1) each pick the sort independently. The cases above only drive
+    // page 0, so they pin the FIRST copy and say nothing about the second.
+    //
+    // The `loadMore` group below does exercise a real append — but on the
+    // CANCELLED tab, whose expected sort is `newest`. Changing `loadMore`'s
+    // ternary to send `newest` unconditionally is therefore invisible to it:
+    // verified by mutation, that edit left the entire file green (18/18).
+    // Upcoming is the only tab where the ternary's two branches differ, so it
+    // is the only tab whose append can prove the second copy is still there.
+    //
+    // The bug that hole allows is not academic: page 0 of Майбутні would
+    // arrive soonest-first and page 1 would arrive most-recent-first, appended
+    // verbatim (the notifier never re-sorts, by design). The list reads
+    // correctly until the user scrolls, then silently inverts mid-list.
+    //
+    // MUTATION: replaced `loadMore`'s ternary with a bare
+    // `sort: BookingSort.newest` → this test failed on the captured sort while
+    // all 18 pre-existing tests still passed. Restored.
+    test('loadMore on Майбутні re-sends oldest — the page-N+1 ternary is a '
+        'SECOND copy, not covered by the page-0 cases above', () async {
       final repo = _MockBookingRepository();
       _stubTab(
         repo,
         BookingTab.upcoming,
         page: 0,
-        response: _page(const <Booking>[]),
+        response: _page(
+          <Booking>[
+            _booking(
+              id: 'u0',
+              status: BookingStatus.confirmed,
+              startAt: DateTime.utc(2026, 8, 1),
+            ),
+          ],
+          page: 0,
+          totalPages: 2,
+        ),
+      );
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 1,
+        response: _page(
+          <Booking>[
+            _booking(
+              id: 'u1',
+              status: BookingStatus.confirmed,
+              startAt: DateTime.utc(2026, 8, 2),
+            ),
+          ],
+          page: 1,
+          totalPages: 2,
+        ),
       );
       final c = _container(repo);
 
       await c.read(myBookingsProvider(BookingTab.upcoming).future);
+      await c.read(myBookingsProvider(BookingTab.upcoming).notifier).loadMore();
 
-      verify(
-        () => repo.getMyBookings(
-          statuses: any(named: 'statuses'),
-          ascending: true,
-          page: 0,
-          size: any(named: 'size'),
-        ),
-      ).called(1);
-    });
-
-    test('Минулі requests ascending: false (most-recent-first)', () async {
-      final repo = _MockBookingRepository();
-      _stubTab(
-        repo,
-        BookingTab.past,
-        page: 0,
-        response: _page(const <Booking>[]),
+      // The append must actually have happened — otherwise a sort mismatch
+      // that made the page-1 stub miss would leave the list at one item and
+      // the capture below would have nothing to disagree with.
+      expect(
+        c
+            .read(myBookingsProvider(BookingTab.upcoming))
+            .value!
+            .items
+            .map((Booking b) => b.id),
+        <String>['u0', 'u1'],
+        reason: 'page 1 did not append — check the page-1 stub matched',
       );
-      final c = _container(repo);
 
-      await c.read(myBookingsProvider(BookingTab.past).future);
+      final BookingSort? sentForPageOne =
+          verify(
+                () => repo.getMyBookings(
+                  statuses: any(named: 'statuses'),
+                  sort: captureAny(named: 'sort'),
+                  page: 1,
+                  size: any(named: 'size'),
+                ),
+              ).captured.single
+              as BookingSort?;
 
-      verify(
-        () => repo.getMyBookings(
-          statuses: any(named: 'statuses'),
-          ascending: false,
-          page: 0,
-          size: any(named: 'size'),
-        ),
-      ).called(1);
+      expect(sentForPageOne, BookingSort.oldest);
+      expect(
+        sentForPageOne?.wireValue,
+        'startsAt,asc',
+        reason:
+            'page 1 of Майбутні must continue the soonest-first ordering page '
+            '0 established. loadMore appends VERBATIM with no client re-sort, '
+            'so a descending page 1 inverts the list from the fold down.',
+      );
     });
   });
 
@@ -373,7 +501,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
-          ascending: false,
+          sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
         ),
@@ -403,7 +531,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          ascending: any(named: 'ascending'),
+          sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -438,7 +566,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
-          ascending: false,
+          sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
         ),
@@ -486,7 +614,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
-          ascending: false,
+          sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
         ),
@@ -522,7 +650,7 @@ void main() {
         when(
           () => repo.getMyBookings(
             statuses: BookingTab.upcoming.statuses,
-            ascending: true,
+            sort: BookingSort.oldest,
             page: 1,
             size: any(named: 'size'),
           ),
@@ -571,11 +699,116 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
         ),
       ).called(2);
+    });
+
+    test('a failing refresh surfaces the mapped Failure AND releases the '
+        '_refreshing guard — a subsequent refresh still issues a request '
+        '(the guard is not a one-shot latch tripped by the throw)', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'c1',
+            status: BookingStatus.confirmed,
+            // Fixed PAST literal — see the `c2` fixture below for why.
+            startAt: DateTime.utc(2000, 1, 1),
+          ),
+        ]),
+      );
+      final c = _container(repo);
+
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
+
+      // Re-stub page 0 to throw a MAPPED Failure (not a bare Exception) for
+      // the refresh call — AsyncValue.guard converts it into an AsyncError.
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+
+      final notifier = c.read(myBookingsProvider(BookingTab.upcoming).notifier);
+      await notifier.refresh();
+
+      final AsyncValue<MyBookingsState> afterFailure = c.read(
+        myBookingsProvider(BookingTab.upcoming),
+      );
+      expect(afterFailure.hasError, isTrue);
+      expect(afterFailure.error, isA<NetworkFailure>());
+
+      // EMPIRICALLY VERIFIED (not guessed): Riverpod 3's notifier `state`
+      // setter runs every assignment through `copyWithPrevious`
+      // (`riverpod`'s `element.dart`), so the resulting AsyncError STILL
+      // carries the pre-refresh `MyBookingsState` as `.value` — this is
+      // NOT an AsyncData, `hasError` is true, but `hasValue`/`.value` are
+      // also populated from the last successful fetch. The previously
+      // rendered list is therefore preserved (a screen reading `.value`
+      // off the error keeps showing 'c1' rather than going blank), and it
+      // is NOT stuck mid-load: `isLoadingMore` on that carried-forward
+      // value is false.
+      expect(afterFailure.hasValue, isTrue);
+      expect(
+        afterFailure.value!.items.map((Booking b) => b.id),
+        <String>['c1'],
+        reason:
+            'the previous page must survive as the AsyncError\'s carried '
+            '.value, not be wiped',
+      );
+      expect(
+        afterFailure.value!.isLoadingMore,
+        isFalse,
+        reason: 'no spinner may be left stuck on after a failed refresh',
+      );
+
+      // The guard released: re-stub a SUCCESSFUL page 0 and refresh again
+      // — a second request must actually be issued, proving `_refreshing`
+      // was reset in the `finally` block despite the throw.
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'c2',
+            status: BookingStatus.confirmed,
+            // Fixed PAST literal (not `futureBookingStart()`): this test
+            // only checks that the id/page changed after the second
+            // refresh, not any `isPast`/`isUpcoming` affordance — see
+            // `scripts/forbid_stale_future_date_fixture.sh`'s documented
+            // exemption for a literal that can never become "upcoming".
+            startAt: DateTime.utc(2000, 1, 2),
+          ),
+        ]),
+      );
+      await notifier.refresh();
+
+      final AsyncValue<MyBookingsState> afterSecondRefresh = c.read(
+        myBookingsProvider(BookingTab.upcoming),
+      );
+      expect(afterSecondRefresh.hasError, isFalse);
+      expect(afterSecondRefresh.value!.items.map((Booking b) => b.id), <String>[
+        'c2',
+      ]);
+      // 1 initial build + 1 failed refresh + 1 successful refresh = 3.
+      verify(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(3);
     });
   });
 
@@ -699,7 +932,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          ascending: any(named: 'ascending'),
+          sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
         ),
@@ -713,6 +946,116 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(c.read(myBookingsProvider(BookingTab.upcoming)).hasError, isTrue);
+    });
+
+    test('propagates a MAPPED repository Failure as an AsyncError carrying '
+        'that exact type — not just hasError', () async {
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+      final c = _container(repo);
+
+      c.listen(myBookingsProvider(BookingTab.upcoming), (_, _) {});
+      c.read(myBookingsProvider(BookingTab.upcoming));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final AsyncValue<MyBookingsState> state = c.read(
+        myBookingsProvider(BookingTab.upcoming),
+      );
+      expect(state.hasError, isTrue);
+      expect(state.error, isA<NetworkFailure>());
+    });
+  });
+
+  // ==========================================================================
+  // Perf P1 — refresh() coalescing (the same pre-existing gap fixed on
+  // MasterBookingsNotifier). `loadMore` guards re-entry via `isLoadingMore`;
+  // `refresh` had no guard, so a pull-to-refresh gesture storm fired
+  // concurrent page-0 requests and the last to RESOLVE won — which is not the
+  // last to be SENT, so a stale response could overwrite a fresher one.
+  //
+  // This is the ONLY behavioural change to the shipped client notifier.
+  // ==========================================================================
+  group('refresh — coalesces concurrent calls (perf P1)', () {
+    test('three rapid refreshes issue ONE page-0 request, not three', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(const <Booking>[]),
+      );
+
+      final c = _container(repo);
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
+
+      // Re-stub page 0 behind a gate so the first refresh stays in flight
+      // while the next two are issued.
+      final Completer<PageResponse<Booking>> gate =
+          Completer<PageResponse<Booking>>();
+      int refreshCalls = 0;
+      when(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).thenAnswer((_) {
+        refreshCalls++;
+        return gate.future;
+      });
+
+      final notifier = c.read(myBookingsProvider(BookingTab.upcoming).notifier);
+      final List<Future<void>> gestures = <Future<void>>[
+        notifier.refresh(),
+        notifier.refresh(),
+        notifier.refresh(),
+      ];
+
+      gate.complete(_page(const <Booking>[]));
+      await Future.wait(gestures);
+
+      expect(
+        refreshCalls,
+        1,
+        reason: 'the 2nd and 3rd gestures must be dropped, not stacked',
+      );
+    });
+
+    test('the guard RELEASES — two SEQUENTIAL refreshes both fetch (it is a '
+        'coalesce, not a latch)', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(const <Booking>[]),
+      );
+
+      final c = _container(repo);
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
+
+      final notifier = c.read(myBookingsProvider(BookingTab.upcoming).notifier);
+      await notifier.refresh();
+      await notifier.refresh();
+
+      // build() + two refreshes. A guard left set (outside a `finally`, or
+      // after a throw) would stop at 1 and kill pull-to-refresh for good.
+      verify(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(3);
     });
   });
 }

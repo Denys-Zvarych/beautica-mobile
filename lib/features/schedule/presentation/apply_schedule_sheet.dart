@@ -46,11 +46,12 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/month_names.dart';
+import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 
 import '../domain/schedule_date_math.dart';
 import '../domain/schedule_model.dart' show formatDay;
 import '../domain/weekly_schedule.dart';
-import 'period_range_picker.dart';
 import 'weekly_schedule_notifier.dart';
 
 /// Opens the «Період дії графіка» sheet. The result depends on whether the
@@ -198,6 +199,7 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
           l10n.weekdayShortSat,
           l10n.weekdayShortSun,
         ],
+        monthNames: monthNamesNominative,
       ),
     );
     if (!mounted || picked == null) return;

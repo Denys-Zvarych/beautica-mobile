@@ -39,6 +39,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
 import 'services_list_notifier.dart';
 
@@ -131,6 +132,11 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
     return Scaffold(
       backgroundColor: BrandColors.base,
       appBar: _ServicesAppBar(title: l10n.servicesTitle),
+      // Tile 0 ("Послуги") — this screen IS that destination. Hosted via
+      // Scaffold's own slot (not nested inside a body SafeArea) so it mounts
+      // identically to the other three master tab screens — see
+      // `VelvetBottomNavBar`'s doc comment and `ProfileScaffold.bottomNavBar`.
+      bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 0),
       floatingActionButton: asyncServices.maybeWhen(
         data: (list) => list.isEmpty
             ? null

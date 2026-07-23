@@ -43,6 +43,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/pricing_f
 import 'package:beautica_mobile/features/services/presentation/widgets/searchable_select_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
 import 'package:flutter/material.dart';
@@ -166,6 +167,59 @@ class ServiceForm extends StatefulWidget {
   @override
   State<ServiceForm> createState() => _ServiceFormState();
 }
+
+/// The whole-hryvnia seed text for one price [TextEditingController] on the
+/// EDIT flow, or `''` when the stored figure cannot be stated honestly.
+///
+/// ## Why the gate
+///
+/// Every figure passes [renderableWholePrice] — the shared, int-coercing price
+/// gate in `shared/formatters/booking_price_labels.dart`, the same one the two
+/// discovery search cards use — before it is stringified. The bound is NOT
+/// re-derived here; there is one predicate for the whole app.
+///
+/// This used to be a bare `initial!.priceMin.toInt().toString()`, and
+/// `double.toInt()` fails the identical two ways `double.round()` does:
+///
+///   * it THROWS `UnsupportedError: Infinity or NaN toInt` on a non-finite
+///     value, and
+///   * it silently SATURATES to `9223372036854775807` at/above 2^63 — so `1e20`
+///     and `1e30` both seed that fabricated figure while passing
+///     `isRenderablePrice`, whose ceiling is calibrated for
+///     `toStringAsFixed(0)` (1e21), not for int coercion.
+///
+/// Both are reachable from the wire: `MasterServiceMapper` passes the decoded
+/// `num` straight through as `.toDouble()`, unclamped and by documented design
+/// (`master_service_mapper.dart`), and `jsonDecode('1e400')` yields
+/// `double.infinity` WITHOUT throwing. The throw is the worse mode on THIS
+/// surface — it happens inside `initState()`, so the master's own service-edit
+/// screen would fail to build at all rather than merely misprint a number.
+///
+/// ## Why the fallback is EMPTY, not a placeholder
+///
+/// This seeds an editable controller, not a read-only label. Anything printed
+/// here is a value the master can save back verbatim, so the usual
+/// [priceUnavailableLabel] («—») and a `0` fallback are both worse than nothing:
+/// `0` would silently overwrite the server's real price with a fabricated one,
+/// and «—» would sit in a numeric field looking like data.
+///
+/// Empty is the one seed the form already REFUSES to submit — `_pricingValid`
+/// requires a non-blank amount that clears `validatePriceAmount`, so an
+/// unstatable stored price blocks Save behind the ordinary "вкажіть ціну"
+/// required error until the master retypes a clean figure, and the save then
+/// writes exactly what they typed. Display and save therefore never disagree:
+/// what is shown (nothing) is what would be sent (nothing — submit is blocked).
+///
+/// The BASELINE is seeded from this same helper, so the form opens un-dirty and
+/// the master's first keystroke is what marks it dirty.
+///
+/// Rounding (`renderableWholePrice` uses `round()`) also brings the seed into
+/// line with the read-only `ServicePriceDisplay`, which renders the same stored
+/// figure with `toStringAsFixed(0)`: a stored `300.99` now pre-fills `301` as
+/// the service card already displayed it, instead of the old `toInt()`
+/// truncation's `300`.
+String _priceSeed(double? value) =>
+    renderableWholePrice(value)?.toString() ?? '';
 
 class _ServiceFormState extends State<ServiceForm> {
   static const _tag = 'feature.services.form';
@@ -307,21 +361,16 @@ class _ServiceFormState extends State<ServiceForm> {
     _baselinePricingMode = initial?.priceType ?? ServicePriceType.fixed;
 
     // Seed pricing baseline from the loaded service.
-    // priceMin is the canonical floor for both modes; display as integer.
-    _baselinePriceFixed =
-        (initial?.priceType == ServicePriceType.fixed &&
-            initial?.priceMin != null)
-        ? initial!.priceMin.toInt().toString()
+    // priceMin is the canonical floor for both modes; display as whole ₴ via
+    // [_priceSeed], which routes every figure through the SHARED price gate.
+    _baselinePriceFixed = initial?.priceType == ServicePriceType.fixed
+        ? _priceSeed(initial?.priceMin)
         : '';
-    _baselinePriceMin =
-        (initial?.priceType == ServicePriceType.range &&
-            initial?.priceMin != null)
-        ? initial!.priceMin.toInt().toString()
+    _baselinePriceMin = initial?.priceType == ServicePriceType.range
+        ? _priceSeed(initial?.priceMin)
         : '';
-    _baselinePriceMax =
-        (initial?.priceType == ServicePriceType.range &&
-            initial?.priceMax != null)
-        ? initial!.priceMax!.toInt().toString()
+    _baselinePriceMax = initial?.priceType == ServicePriceType.range
+        ? _priceSeed(initial?.priceMax)
         : '';
 
     _selectedCategory = initial?.category;

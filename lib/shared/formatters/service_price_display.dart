@@ -10,6 +10,7 @@
 // Pure Dart — no Flutter imports.
 
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 
 /// Builds the price label shown on a service card / detail row.
 ///
@@ -20,6 +21,24 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 ///   `"<priceMin> - <priceMax> ₴"` (e.g. `"200 - 600 ₴"`), ignoring the
 ///   server's "від … до …" phrasing. Falls back to the FIXED behaviour when
 ///   [MasterService.priceMax] is somehow null.
+///
+/// ## Client-BUILT figures pass [isRenderablePrice] first
+///
+/// The two amounts this helper stringifies itself arrive off the wire as JSON
+/// numbers, and `jsonDecode` admits `Infinity` (`1e400`), `-0.0` and values
+/// past `toStringAsFixed`'s exponent threshold without throwing — each of
+/// which `toStringAsFixed(0)` renders as «Infinity»/«-0»/«1e+21». That is not
+/// a contained UI blemish here: `booking_success_screen.dart` passes this
+/// label straight into `buildCalendarDescription`, so the string LEAVES the
+/// app into a device calendar event via `add_2_calendar`. Same guard, same
+/// absent-not-stringified semantics as `formatBookingPrice`: an unrenderable
+/// ceiling collapses to the FIXED path, an unrenderable floor with no server
+/// string to fall back to yields [priceUnavailableLabel] and NO «₴» suffix.
+///
+/// The server's own [MasterService.priceDisplay] is passed through unchanged
+/// and deliberately NOT sanitised — it crosses no trust boundary the service
+/// name, master name and address on that same calendar description do not
+/// already cross.
 abstract final class ServicePriceDisplay {
   /// Currency suffix appended to client-built labels ("₴"). Public so callers
   /// (and tests) reference this single source of truth instead of hardcoding
@@ -28,17 +47,20 @@ abstract final class ServicePriceDisplay {
   static const String suffix = '₴';
 
   static String format(MasterService service) {
+    final double min = service.priceMin;
     if (service.priceType == ServicePriceType.range) {
       final double? max = service.priceMax;
-      if (max != null) {
-        return '${_amount(service.priceMin)} - ${_amount(max)} $suffix';
+      if (max != null && isRenderablePrice(min) && isRenderablePrice(max)) {
+        return '${_amount(min)} - ${_amount(max)} $suffix';
       }
     }
     if (service.priceDisplay.isNotEmpty) return service.priceDisplay;
-    return '${_amount(service.priceMin)} $suffix';
+    if (!isRenderablePrice(min)) return priceUnavailableLabel;
+    return '${_amount(min)} $suffix';
   }
 
   /// Formats a whole-UAH amount without decimals (all service prices are whole
-  /// hryvnia in the domain).
+  /// hryvnia in the domain). Callers MUST have cleared [value] through
+  /// [isRenderablePrice] first — see the class doc.
   static String _amount(double value) => value.toStringAsFixed(0);
 }

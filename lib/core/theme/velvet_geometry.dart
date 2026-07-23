@@ -140,3 +140,20 @@ abstract final class VelvetShadows {
     ),
   ];
 }
+
+// NOTE — a `cardDropShadow` recipe (a single OFFSET, fully-opaque
+// `shadowDarkCard` shadow) previously lived here and was consumed by
+// `MasterBookingCard`. It was REMOVED (not kept as a marked-unsafe constant)
+// after root-causing a black-rectangle-in-the-corners regression: the
+// Impeller-GLES corner-square artifact is triggered by ANY opaque shadow at a
+// non-zero `Offset` on a rounded `BoxDecoration` — hue is irrelevant. The
+// shadow's `shadowDarkCard` colour (`#C4B49E`) is not near-white, which is
+// exactly why the earlier "offset-opaque-*light*-shadow" guard (see
+// `impeller_circle_shadow_guard_test.dart`) missed it: that guard only
+// flagged near-white colours at an offset, not opacity+offset generally. The
+// guard's classifier is now hue-independent (any opaque colour + non-zero
+// offset is unsafe); do not reintroduce an offset recipe using a fully-opaque
+// `BrandColors.shadow*` token without re-verifying against the corrected
+// guard first. Use [VelvetShadows.borderedCard] / [borderedButton] instead —
+// both are non-offset AND alpha-attenuated (`.withValues(alpha: 0.45)`),
+// which is why they stay safe.

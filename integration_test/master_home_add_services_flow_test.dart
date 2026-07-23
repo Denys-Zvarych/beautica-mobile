@@ -39,16 +39,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   testWidgets(
     'INDEPENDENT_MASTER with zero services sees the add-services CTA and '
     'tapping it opens the service-setup flow',
@@ -62,7 +52,7 @@ void main() {
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
       // Landed on the master home.
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
 
       // The zero-services empty-state CTA must be present. Scroll it into view
       // (it sits in section 5, below the fold on a phone viewport).

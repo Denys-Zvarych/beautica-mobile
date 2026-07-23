@@ -146,10 +146,6 @@ void main() {
           );
         },
       );
-
-      test('PENDING suppresses the price (not confirmed/completed)', () {
-        expect(_booking(status: BookingStatus.pending).showsPrice, isFalse);
-      });
     },
   );
 
@@ -162,11 +158,13 @@ void main() {
     });
 
     for (final BookingStatus s in <BookingStatus>[
-      BookingStatus.pending,
       BookingStatus.completed,
       BookingStatus.cancelled,
       BookingStatus.declined,
       BookingStatus.notCompleted,
+      // S1 (Phase 7.1): the member the security fix exists for — an
+      // unrecognised wire status must NOT unlock the calendar write.
+      BookingStatus.unknown,
     ]) {
       test('$s cannot add to calendar', () {
         expect(_booking(status: s).canAddToCalendar, isFalse);

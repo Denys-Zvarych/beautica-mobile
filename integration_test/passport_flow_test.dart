@@ -53,16 +53,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   testWidgets(
     'CLIENT taps the passport tab → the real PassportScreen renders its empty '
     'variant (placeholder backend)',
@@ -72,7 +62,7 @@ void main() {
 
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // Hop to the BEAUTY PASSPORT tab (flanking tile index 4).
       await tester.tap(find.byKey(const Key('client-nav-tile-4')));
@@ -80,7 +70,7 @@ void main() {
 
       // Router moved to /passport, and the REAL PassportScreen is mounted —
       // a single ClientShell + bottom nav survive (goBranch, not push).
-      expectLocation(router, RouteNames.clientPassport);
+      AppHarness.expectLocation(router, RouteNames.clientPassport);
       expect(
         find.byType(ClientShell),
         findsOneWidget,
@@ -125,13 +115,13 @@ void main() {
 
       await tester.tap(find.byKey(const Key('client-nav-tile-4')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientPassport);
+      AppHarness.expectLocation(router, RouteNames.clientPassport);
 
       // Tapping «Знайти майстра» routes to the discovery (search) tab.
       await tester.tap(find.byKey(const Key('passport_find_master_button')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(
         find.byType(ClientShell),
         findsOneWidget,

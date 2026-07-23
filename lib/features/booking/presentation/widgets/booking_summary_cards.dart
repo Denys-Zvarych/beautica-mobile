@@ -91,6 +91,7 @@ class BookingSummaryCards extends StatelessWidget {
     this.showBorder = false,
     this.compactText = false,
     this.showPrice = true,
+    this.trailingAction,
   });
 
   /// Builds the cards from the independent flow's [Master] / [MasterService]
@@ -309,6 +310,23 @@ class BookingSummaryCards extends StatelessWidget {
   /// cancelled / declined / missed booking.
   final bool showPrice;
 
+  /// An optional action rendered as the details card's LAST block, below the
+  /// price recap and behind its own [SectionRule] — the booking-success
+  /// screen's per-appointment «Додати в календар» pill.
+  ///
+  /// It lives INSIDE the card on purpose. This card's whole grammar is
+  /// "hairline rules separate the blocks of ONE appointment's facts", so an
+  /// action placed in that rhythm is unmistakably scoped to THAT appointment
+  /// — the entire point when a multi-service success recap stacks N of these
+  /// cards and each carries its own calendar export. Floated BELOW the card
+  /// instead, on the bare taupe base, it would read as a page-level control
+  /// again, which is exactly the ambiguity the old single page-level pill
+  /// below the recap had.
+  ///
+  /// `null` (every other call site — both confirm screens, the salon success
+  /// screen, «Деталі запису») renders nothing at all: no rule, no gap.
+  final Widget? trailingAction;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -380,6 +398,10 @@ class BookingSummaryCards extends StatelessWidget {
                       compactText: compactText,
                       showPrice: showPrice,
                     ),
+              if (trailingAction != null) ...<Widget>[
+                SectionRule(dense: dense),
+                trailingAction!,
+              ],
             ],
           ),
         ),

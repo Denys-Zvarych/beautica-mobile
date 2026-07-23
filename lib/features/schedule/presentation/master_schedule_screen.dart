@@ -33,6 +33,7 @@ import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../domain/schedule_model.dart';
@@ -364,6 +365,14 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
 
     return Scaffold(
       backgroundColor: BrandColors.base,
+      // Tile 2 ("Графік") — this screen IS that destination. Hosted via
+      // Scaffold's own slot (not nested inside the body SafeArea below) so it
+      // mounts identically to the other three master tab screens — see
+      // `VelvetBottomNavBar`'s doc comment and `ProfileScaffold.bottomNavBar`.
+      // `Scaffold` zeroes the bottom `MediaQuery` padding it hands to `body`
+      // whenever `bottomNavigationBar` is non-null, so the outer `SafeArea`
+      // below consumes nothing extra here — no double-counted inset.
+      bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 2),
       body: SafeArea(
         child: Column(
           children: <Widget>[

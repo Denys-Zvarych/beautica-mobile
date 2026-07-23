@@ -612,9 +612,32 @@ void main() {
 
       // Instagram tile renders '—' until Phase 13 wires real contact fields;
       // phone tile now reads from master.phoneNumber.
-      // findWidgets (plural) because both tiles display the same dash.
-      final dashFinder = find.text('—');
-      expect(dashFinder, findsWidgets);
+      //
+      // TIGHTENED (2026-07-22 vacuous-assertion audit): was
+      // `expect(find.text('—'), findsWidgets)`, which passes on 1 dash as
+      // readily as on 2 — so a dropped contact tile (exactly the regression
+      // this test names) could not fail it.
+      //
+      // Tightening it to `findsNWidgets(2)` went RED at 3: the screen also
+      // renders '—' in the Bookings STAT tile (master_profile_screen.dart:447),
+      // which this test never meant to count. That is a finder-scope defect,
+      // not a screen defect — an unanchored `find.text` was standing in for
+      // "the two contact tiles". Each tile is now asserted through its OWN key,
+      // so the assertion is both exact and immune to unrelated dashes
+      // appearing elsewhere on the screen.
+      for (final String tileKey in const <String>[
+        'master-contact-phone',
+        'master-contact-instagram',
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byKey(Key(tileKey)),
+            matching: find.text('—'),
+          ),
+          findsOneWidget,
+          reason: '$tileKey must render the dash placeholder',
+        );
+      }
     });
 
     testWidgets('phone ContactTile shows real value when phoneNumber is set', (
@@ -926,7 +949,12 @@ void main() {
       // The services section renders two SkeletonBlock rows while loading.
       // The profile skeleton (AsyncLoading for master) also emits SkeletonBlocks
       // but here master is AsyncData so only the services skeleton contributes.
-      expect(find.byType(SkeletonBlock), findsWidgets);
+      //
+      // TIGHTENED (2026-07-22 vacuous-assertion audit): was `findsWidgets`,
+      // which cannot distinguish the documented two-row skeleton from one row
+      // — or from the profile skeleton leaking in and contributing extras,
+      // which is the very thing the comment above claims does not happen.
+      expect(find.byType(SkeletonBlock), findsNWidgets(2));
     });
 
     // ── B. Error state — errUnknown text rendered ───────────────────────────

@@ -53,6 +53,11 @@
 /// appointment that never happened (or whose bill is genuinely ambiguous, on
 /// a no-show) asserts a debt the app has no standing to assert.
 ///
+/// The figure itself is [BookingDisplayX.priceLabel], which reads «650 ₴» for
+/// a single price and «300–500 ₴» when the master left the service as a
+/// genuine RANGE at booking time. The band is gated by the SAME `showsPrice`
+/// rule — nothing about the two-number form changes when money is shown.
+///
 /// ## ⚠ The price anchor is a NON-flex child
 ///
 /// The service name is the row's Expanded child; the price is laid out
@@ -123,6 +128,29 @@ const double _stubTopOffset = 29;
 /// CAP, not a column width — the price sizes to its content and sits flush
 /// against the body's right edge, so it shares an x with the time above it
 /// whatever its length.
+///
+/// Re-verified when the frozen RANGE band («300–500 ₴», see
+/// [BookingDisplayX.priceLabel]) started reaching this anchor: measured in
+/// [VelvetText.bookingCardPrice] (Nunito 10/w800), the longest band this card
+/// can realistically draw — «12500–25000 ₴» — is 76.96dp, and a plain «650 ₴»
+/// is ~27dp, so 96 still clears the widest case with ~19dp of headroom and no
+/// live booking scales down. That band is now PINNED, not merely documented:
+/// `booking_surfaces_overflow_test.dart`'s "§ 1d" block renders it across the
+/// 9-cell width x scale matrix and re-measures the 1.0x headroom, because
+/// every other fixture in that file passes a single `price` with no
+/// `priceMax` and so never drew a band at all.
+/// It is a cap, not a floor: the `FittedBox` below
+/// shrinks rather than clips, so even a pathological figure stays whole and
+/// the row can never overflow. Do NOT lower it below ~80 — that would start
+/// scaling real bands.
+///
+/// `master_booking_card.dart`'s `_PriceTag._maxTextWidth` is also 96, but that
+/// is a COINCIDENCE of two independent measurements, NOT a shared knob: that
+/// card renders the price in `VelvetText.pill` (Nunito 11/w800), where the same
+/// «12500–25000 ₴» band measures 83.77dp and leaves only ~12dp of headroom. The
+/// caps match in dp; the thresholds in GLYPHS do not, and a future type-scale
+/// bump would trip that card ~7dp of band-width before this one. Re-measure
+/// each card separately — see that constant's doc for the full comparison.
 const double _priceMaxWidth = 96;
 
 class _BookingCardState extends State<BookingCard> {
@@ -155,10 +183,13 @@ class _BookingCardState extends State<BookingCard> {
   List<BoxShadow>? get _shadows {
     if (_pressed) return null;
     return switch (_b.status) {
-      BookingStatus.pending ||
       BookingStatus.confirmed => VelvetShadows.extrudedCard,
       BookingStatus.completed ||
-      BookingStatus.notCompleted => VelvetShadows.extrudedSmall,
+      BookingStatus.notCompleted ||
+      // An unrecognised status sits in the middle stratum: present and
+      // tappable, but not claiming CONFIRMED's proud lift (which is the
+      // depth cue for "this is happening").
+      BookingStatus.unknown => VelvetShadows.extrudedSmall,
       BookingStatus.cancelled || BookingStatus.declined => _deadShadows,
     };
   }
@@ -276,7 +307,7 @@ class _BookingCardState extends State<BookingCard> {
           bookingId: _b.id,
           icon: _categoryIconFor(_b.categoryName),
           text: _b.serviceName,
-          price: _b.showsPrice ? _formatPrice(_b.price) : null,
+          price: _b.showsPrice ? _b.priceLabel : null,
           dimmed: _isDead,
         ),
         const SizedBox(height: VelvetSpacing.xs),
@@ -378,10 +409,6 @@ class _BookingCardState extends State<BookingCard> {
     );
   }
 }
-
-/// «650 ₴» — the price locked in at booking time, never re-derived from a
-/// live catalogue rate. See [Booking.price]'s doc.
-String _formatPrice(double price) => '${price.toStringAsFixed(0)} ₴';
 
 /// Maps a booking's category name to its glyph. A private, card-local switch
 /// (mirrors the approved preview) — there is no shared `categoryIconFor`
@@ -630,8 +657,10 @@ class _ServiceLine extends StatelessWidget {
   final IconData icon;
   final String text;
 
-  /// The price locked in at booking, or `null` when money is not a true
-  /// statement (cancelled / declined / no-show). Null builds nothing.
+  /// The already-formatted price locked in at booking — «650 ₴» or the band
+  /// «300–500 ₴» (see [BookingDisplayX.priceLabel]) — or `null` when money is
+  /// not a true statement (cancelled / declined / no-show). Null builds
+  /// nothing.
   final String? price;
   final bool dimmed;
 

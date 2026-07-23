@@ -69,6 +69,13 @@ void main() {
     // decoration (widget-consolidation refactor) — the RRect workaround now
     // lives here for EVERY booking-flow avatar, so it must be guarded here.
     'lib/features/booking/presentation/widgets/master_avatar_badge.dart',
+    // Phase 7.6/7.2 — the master's booking card and the provider-view
+    // counterparty strip both draw a circular client monogram avatar. Both
+    // are deliberately shadow-FREE (a hairline accent border defines them
+    // instead); guarded so a future edit cannot "add a little depth" and
+    // reintroduce the corner artifact.
+    'lib/features/booking/presentation/widgets/master_booking_card.dart',
+    'lib/features/booking/presentation/widgets/booking_counterparty_header.dart',
   ];
 
   // The SECOND Impeller-GLES artifact, same backend, different trigger: a
@@ -326,7 +333,7 @@ void main() {
   });
 
   // ===========================================================================
-  // Chain B regression — the OFFSET opaque-near-white shadow RECIPE class.
+  // Chain B regression — the OFFSET opaque-shadow RECIPE class (hue-independent).
   //
   // WHY THE PRE-EXISTING "carries a fill color" GUARD IS NECESSARY-BUT-NOT-
   // SUFFICIENT FOR THIS BUG
@@ -345,24 +352,46 @@ void main() {
   // taupe `base`. The fix swapped both surfaces onto the NON-offset
   // `borderedCard` / `borderedButton` recipes.
   //
+  // BLACK-RECTANGLE FOLLOW-UP (2026-07-20): this guard's classifier originally
+  // only flagged an offset shadow if its color was additionally NEAR-WHITE —
+  // on the theory that the artifact was specifically a "white wedge". That was
+  // wrong. `MasterBookingCard` shipped a `cardDropShadow` recipe (an offset,
+  // fully-opaque `shadowDarkCard` — taupe, NOT near-white) and rendered a
+  // BLACK rectangle in its corners, because the trigger is opacity + offset on
+  // a rounded decoration, full stop — hue is irrelevant. The classifier below
+  // is now hue-independent: it flags ANY opaque shadow color (not
+  // alpha-attenuated) paired with a non-zero `Offset`.
+  //
   // The NECESSARY-AND-SUFFICIENT invariant for THIS artifact class: these two
-  // widgets must not consume ANY shadow recipe that pairs an opaque near-white
-  // color with a non-zero `Offset`. The check below classifies every
-  // `VelvetShadows` recipe from source and forbids the two widgets from
-  // referencing an unsafe one (while proving each still consumes a real, safe
-  // one so the guard is never vacuous).
+  // widgets must not consume ANY shadow recipe that pairs an opaque color with
+  // a non-zero `Offset`. The check below classifies every `VelvetShadows`
+  // recipe from source and forbids the two widgets from referencing an unsafe
+  // one (while proving each still consumes a real, safe one so the guard is
+  // never vacuous).
   //
   // WHY SOURCE-STRUCTURAL, NOT A GOLDEN: exactly as with the circle+shadow
   // guard above, the artifact is Impeller-GLES-only. A Skia/golden render draws
   // the offset opaque shadow CORRECTLY, so a render/golden test cannot
   // reproduce or catch it. Reading raw source is the only reliable guard.
   // ===========================================================================
-  group('Impeller-GLES offset-opaque-light-shadow recipe guard', () {
+  group('Impeller-GLES offset-opaque-shadow recipe guard', () {
     const String tokensFile = 'lib/core/theme/velvet_geometry.dart';
-    // The two rounded booking surfaces the fix moved off the offset recipes.
+    // The rounded booking surfaces the fix moved off the offset recipes, plus
+    // the Phase 7.6 surfaces that were built on the bordered recipes from the
+    // start (the master's booking card) — listed so they can never silently
+    // regress TO an extruded (or otherwise offset-opaque) recipe.
+    //
+    // Phase 7.16 dropped `bookings_day_rail.dart` from this list: its
+    // `_CalendarButton` (the surface that used to earn it a place here, via
+    // `VelvetShadows.borderedButton`) was retired outright — day selection is
+    // by scrolling the rail alone — and the file references no
+    // `VelvetShadows` recipe at all any more. Keeping it listed would have
+    // made this guard pass VACUOUSLY (see the "not vacuous" check below,
+    // which is exactly what caught this when the button was removed).
     const List<String> surfaceFiles = <String>[
       'lib/features/booking/presentation/widgets/master_strip_shell.dart',
       'lib/features/booking/presentation/widgets/calendar_button.dart',
+      'lib/features/booking/presentation/widgets/master_booking_card.dart',
     ];
 
     Map<String, String> recipes() => _shadowRecipes(_readStripped(tokensFile));
@@ -371,25 +400,34 @@ void main() {
         if (_recipeIsUnsafe(e.value)) e.key,
     };
 
-    test('the offset near-white recipes are classified UNSAFE and the '
-        'non-offset bordered recipes SAFE (classifier sanity)', () {
-      final Map<String, String> all = recipes();
-      final Set<String> unsafe = unsafeRecipes();
+    test(
+      'the offset opaque recipes are classified UNSAFE and the '
+      'non-offset / attenuated bordered recipes SAFE (classifier sanity)',
+      () {
+        final Map<String, String> all = recipes();
+        final Set<String> unsafe = unsafeRecipes();
 
-      // The known offenders — an offset `shadowLightStrong` pair — must be
-      // flagged; the two non-offset repair recipes must NOT be.
-      expect(all.keys, containsAll(<String>['extrudedCard', 'extrudedButton']));
-      expect(all.keys, containsAll(<String>['borderedCard', 'borderedButton']));
-      expect(
-        unsafe,
-        containsAll(<String>['extrudedCard', 'extrudedButton']),
-        reason:
-            'the extruded* recipes pair a near-white opaque shadow with a '
-            'diagonal Offset — the exact white-corner-square trigger',
-      );
-      expect(unsafe.contains('borderedCard'), isFalse);
-      expect(unsafe.contains('borderedButton'), isFalse);
-    });
+        // The known offenders — an offset opaque shadow, near-white or not —
+        // must be flagged; the two non-offset repair recipes must NOT be.
+        expect(
+          all.keys,
+          containsAll(<String>['extrudedCard', 'extrudedButton']),
+        );
+        expect(
+          all.keys,
+          containsAll(<String>['borderedCard', 'borderedButton']),
+        );
+        expect(
+          unsafe,
+          containsAll(<String>['extrudedCard', 'extrudedButton']),
+          reason:
+              'the extruded* recipes pair an opaque shadow with a diagonal '
+              'Offset — the exact corner-square trigger',
+        );
+        expect(unsafe.contains('borderedCard'), isFalse);
+        expect(unsafe.contains('borderedButton'), isFalse);
+      },
+    );
 
     test('the two rounded booking surfaces consume ONLY non-offset (safe) '
         'shadow recipes — never an extruded offset-opaque-light recipe', () {
@@ -423,14 +461,16 @@ void main() {
         isEmpty,
         reason:
             'A rounded booking surface consumes a VelvetShadows recipe that '
-            'pairs an opaque near-white color (`shadowLightStrong`) with a '
-            'non-zero Offset — the pattern Impeller-GLES rasterizes as an '
-            'opaque white corner square. Use the NON-offset `borderedCard` / '
-            '`borderedButton` recipe instead (a single, non-translated soft '
-            'shadow whose rrect footprint matches the surface, paired with a '
-            'hairline border). NOTE: a top-level `color:` fill is NOT enough — '
-            'the shipped bug HAD a fill; the offset opaque shadow is the '
-            'offender. Offending surface(s): ${offenders.join(' | ')}.',
+            'pairs an OPAQUE shadow color (any hue — near-white or otherwise) '
+            'with a non-zero Offset — the pattern Impeller-GLES rasterizes as '
+            'an opaque corner square (white or black depending on the '
+            'shadow\'s own color). Use the NON-offset `borderedCard` / '
+            '`borderedButton` recipe instead (a single, non-translated, '
+            'alpha-attenuated soft shadow whose rrect footprint matches the '
+            'surface, paired with a hairline border). NOTE: a top-level '
+            '`color:` fill is NOT enough — the shipped bugs HAD a fill; the '
+            'offset opaque shadow is the offender. '
+            'Offending surface(s): ${offenders.join(' | ')}.',
       );
     });
 
@@ -477,15 +517,48 @@ void main() {
       expect(_recipeIsUnsafe(_stripCommentsAndStrings(ok)), isFalse);
     });
 
-    test('classifier does NOT flag the opaque taupe dark shadow at an offset '
-        '(shadowDarkCard is not near-white)', () {
-      const String ok = '''
+    test('classifier FLAGS the opaque taupe dark shadow at an offset — '
+        'regression pin for the black-rectangle bug (shadowDarkCard is not '
+        'near-white, but opacity + offset alone is unsafe; hue is '
+        'irrelevant)', () {
+      // This is exactly the shape of the removed `cardDropShadow` recipe
+      // that shipped a black rectangle in MasterBookingCard's corners. The
+      // classifier used to assert isFalse here — that was the gap that let
+      // it through. Never flip this back to isFalse.
+      const String bad = '''
         <BoxShadow>[
           BoxShadow(color: BrandColors.shadowDarkCard, offset: Offset(8, 8), blurRadius: 18),
         ]
       ''';
-      expect(_recipeIsUnsafe(_stripCommentsAndStrings(ok)), isFalse);
+      expect(_recipeIsUnsafe(_stripCommentsAndStrings(bad)), isTrue);
     });
+
+    test(
+      'classifier scope pin: an alpha-attenuated shadow at a non-zero offset '
+      'is OUTSIDE this guard\'s opaque+offset rule (not a safety claim)',
+      () {
+        // This guard's invariant is deliberately narrow: opaque color +
+        // non-zero offset. An attenuated color at a non-zero offset falls
+        // outside that rule and is NOT flagged here — but that is NOT the
+        // same as this guard asserting the combination is safe on real
+        // hardware. `borderedCard`/`borderedButton` are proven safe because
+        // they are BOTH attenuated AND non-offset; nobody has empirically
+        // verified an attenuated-but-offset recipe on this device class, so
+        // do not read this test as license to ship one. This pin only
+        // documents the classifier's literal boundary so a future edit to
+        // `_isOpaqueShadowColor`/`_recipeIsUnsafe` doesn't silently widen or
+        // narrow it by accident.
+        const String outsideScope = '''
+        <BoxShadow>[
+          BoxShadow(color: BrandColors.shadowDarkCard.withValues(alpha: 0.45), offset: Offset(8, 8), blurRadius: 18),
+        ]
+      ''';
+        expect(
+          _recipeIsUnsafe(_stripCommentsAndStrings(outsideScope)),
+          isFalse,
+        );
+      },
+    );
   });
 }
 
@@ -701,21 +774,29 @@ Set<String> _referencedRecipes(String code) => RegExp(
   r'VelvetShadows\.(\w+)',
 ).allMatches(code).map((RegExpMatch m) => m.group(1)!).toSet();
 
-/// True when [shadow] (one BoxShadow's args) declares an opaque near-white
-/// color — either the named `shadowLightStrong` token or a raw alpha-`0xFF`
-/// hex whose R, G and B are all ≥ 0xF0.
-bool _opaqueNearWhite(String shadow) {
-  if (RegExp(r'shadowLightStrong').hasMatch(shadow)) return true;
-  for (final RegExpMatch m in RegExp(
-    r'0x(FF)([0-9A-Fa-f]{6})',
-  ).allMatches(shadow)) {
-    final String rgb = m.group(2)!;
-    final int r = int.parse(rgb.substring(0, 2), radix: 16);
-    final int g = int.parse(rgb.substring(2, 4), radix: 16);
-    final int b = int.parse(rgb.substring(4, 6), radix: 16);
-    if (r >= 0xF0 && g >= 0xF0 && b >= 0xF0) return true;
+/// True when [shadow] (one BoxShadow's args) declares an OPAQUE color —
+/// i.e. NOT attenuated via `.withValues(alpha: <1.0)` / `.withOpacity(<1.0)`.
+///
+/// This used to require the color additionally be near-white (the named
+/// `shadowLightStrong` token, or a raw alpha-`0xFF` hex with R/G/B all
+/// ≥ 0xF0) — that hue restriction is exactly what let the black-rectangle
+/// regression (`cardDropShadow`: an offset, fully-opaque `shadowDarkCard`
+/// shadow — taupe, not near-white) sail past this guard. The Impeller-GLES
+/// corner-square artifact is triggered by an opaque shadow's untranslated
+/// rrect footprint poking past a rounded corner at a diagonal offset; the
+/// shadow's HUE has no bearing on that geometry. Every `BrandColors.shadow*`
+/// token, and Flutter's own `BoxShadow` default color, are fully opaque
+/// (`Color(0xFFxxxxxx)` / `0xFF000000`) — so a shadow is opaque unless it is
+/// explicitly attenuated via `.withValues(alpha: <1.0)` / `.withOpacity(<1.0)`.
+bool _isOpaqueShadowColor(String shadow) {
+  final RegExpMatch? attenuation = RegExp(
+    r'\.with(?:Values\s*\(\s*alpha\s*:|Opacity\s*\()\s*([\d.]+)',
+  ).firstMatch(shadow);
+  if (attenuation != null) {
+    final double? alpha = double.tryParse(attenuation.group(1)!);
+    if (alpha != null && alpha < 1.0) return false;
   }
-  return false;
+  return true;
 }
 
 /// True when [shadow] declares an `Offset(x, y)` with a non-zero component. A
@@ -736,13 +817,16 @@ bool _hasNonZeroOffset(String shadow) {
   return false;
 }
 
-/// A recipe body is UNSAFE when ANY BoxShadow in it pairs an opaque near-white
-/// color with a non-zero `Offset` — the exact Impeller-GLES white-corner-square
-/// trigger. The dark, offset shadows (taupe `shadowDarkCard`/`shadowDarkButton`)
-/// are NOT near-white, so an offset dark shadow alone is safe.
+/// A recipe body is UNSAFE when ANY BoxShadow in it pairs an OPAQUE color
+/// (see [_isOpaqueShadowColor]) with a non-zero `Offset` — the exact
+/// Impeller-GLES corner-square trigger, regardless of hue. An offset shadow
+/// is only safe once its color is alpha-attenuated (e.g.
+/// `.withValues(alpha: 0.45)`); a non-offset shadow is safe at any opacity.
 bool _recipeIsUnsafe(String body) {
   for (final String shadow in _ctorArgs(body, 'BoxShadow')) {
-    if (_opaqueNearWhite(shadow) && _hasNonZeroOffset(shadow)) return true;
+    if (_isOpaqueShadowColor(shadow) && _hasNonZeroOffset(shadow)) {
+      return true;
+    }
   }
   return false;
 }

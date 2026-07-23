@@ -37,18 +37,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // RC2 — reads current location from the router instance rather than via
-  // GoRouter.of(context), which fails at the MaterialApp context level.
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   // ── Test 1 — Create a service (FIXED pricing) ─────────────────────────────
 
   testWidgets(
@@ -71,12 +59,12 @@ void main() {
       // with an infinite animation in the tree.
       // 20 × 100ms = 2000ms — enough for GoRouter transition (300ms) + async
       // provider resolution (DioAdapter fires in next microtask).
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
       router.go(RouteNames.serviceCreate);
       for (int i = 0; i < 20; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      expectLocation(router, RouteNames.serviceCreate);
+      AppHarness.expectLocation(router, RouteNames.serviceCreate);
 
       // ── Fill the service form (FIXED pricing) ─────────────────────────────
       // ServiceForm field keys (from service_form.dart + pricing_field.dart):
@@ -193,7 +181,7 @@ void main() {
       }
 
       // After successful create the screen pops back to /services.
-      expectLocation(router, RouteNames.services);
+      AppHarness.expectLocation(router, RouteNames.services);
       expect(
         fb.createServiceCalls,
         greaterThanOrEqualTo(1),
@@ -239,7 +227,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       // The route path uses the assignment id (MasterService.id).
-      expectLocation(router, '/services/assign-2/edit');
+      AppHarness.expectLocation(router, '/services/assign-2/edit');
 
       // Assert the form wrapper is rendered.
       expect(

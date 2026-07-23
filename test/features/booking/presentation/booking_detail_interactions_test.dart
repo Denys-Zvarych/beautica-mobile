@@ -45,6 +45,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 // The add_2_calendar plugin's platform boundary — intercepted so tapping
@@ -73,8 +74,13 @@ Booking _booking({
   String? providerComment,
   String? clientComment,
   String? clientCancellationNote,
+  // The frozen RANGE ceiling (`priceMaxAtBooking`). Default null = the
+  // single-price booking every other case in this file drives; a non-null
+  // value makes `BookingDisplayX.priceLabel` a band, which is what the
+  // calendar-egress group below exports.
+  double? priceMax,
 }) {
-  final DateTime start = DateTime.utc(2026, 7, 20, 15);
+  final DateTime start = futureBookingStart();
   return Booking(
     id: id,
     masterId: 'm1',
@@ -92,6 +98,7 @@ Booking _booking({
     buildingNo: '12',
     durationMinutes: 90,
     price: 650,
+    priceMax: priceMax,
     startAt: start,
     endAt: start.add(const Duration(minutes: 90)),
     status: status,
@@ -530,6 +537,123 @@ void main() {
       );
       expect(calls, isEmpty);
     });
+
+    // ───────────────────────────────────────────────────────────────────────
+    // CALENDAR EGRESS UNDER A FROZEN BAND (frozen-price-band pass, gap 2)
+    //
+    // `_onAddToCalendar` composes the OS-calendar description with
+    // `price: booking.showsPrice ? booking.priceLabel : null`. This string is
+    // the ONE money figure in the whole feature that LEAVES the app — it is
+    // handed to `add_2_calendar`, which writes it into another vendor's data
+    // store where the app can never correct it. Everything else the band
+    // touches is a pixel we redraw on the next build.
+    //
+    // The group above already asserts the description carries a
+    // «Ціна:» LABEL — but never its VALUE, so a regression that exported the
+    // floor «650 ₴» while the screen showed «650–900 ₴» passed it untouched.
+    // The two tests below close both halves of that: the positive export, and
+    // the total absence of egress on every status where money is not owed.
+    // ───────────────────────────────────────────────────────────────────────
+
+    testWidgets(
+      'a CONFIRMED RANGE booking exports the frozen BAND on the calendar price '
+      'line — not the floor the client never agreed to on its own',
+      (tester) async {
+        // price 650 / priceMax 900 → `BookingDisplayX.priceLabel` = «650–900 ₴».
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          priceMax: 900,
+        );
+        await _pumpDetail(tester, booking);
+        final AppLocalizations l10n = _l10n(tester);
+
+        // Precondition: the screen itself is showing the band, so the export
+        // assertion below is about the EGRESS path, not about the model.
+        expect(booking.priceMax, 900);
+        expect(booking.priceLabel, '650–900 ₴');
+
+        final Finder calendar = find.byKey(
+          const Key('booking-detail-add-calendar'),
+        );
+        await tester.ensureVisible(calendar);
+        await tester.pumpAndSettle();
+        await tester.tap(calendar);
+        await tester.pumpAndSettle();
+
+        final Map<Object?, Object?> args =
+            calls.single.arguments as Map<Object?, Object?>;
+        final String desc = args['desc'] as String;
+
+        // The price line is located by its l10n label (never a raw literal)
+        // and its VALUE is asserted whole — the band, exactly as rendered.
+        final String priceLine = desc
+            .split('\n')
+            .firstWhere(
+              (String line) => line.startsWith(l10n.bookingCalendarNotePrice),
+              orElse: () => '',
+            );
+        expect(
+          priceLine,
+          '${l10n.bookingCalendarNotePrice} 650–900 ₴',
+          reason: 'the exported price line must read the frozen band',
+        );
+
+        // And nowhere in the payload does the floor stand alone. «650 ₴» is
+        // NOT a substring of «650–900 ₴», so this genuinely fails if the
+        // export regresses to `booking.price` while the screen shows the band.
+        final String payload = args.values.map((Object? v) => '$v').join('|');
+        expect(
+          payload.contains('650 ₴'),
+          isFalse,
+          reason:
+              'exporting the floor alone is exactly the bug the frozen '
+              'band fixes, and a calendar entry cannot be corrected later',
+        );
+      },
+    );
+
+    for (final BookingStatus status in <BookingStatus>[
+      BookingStatus.completed,
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+      BookingStatus.notCompleted,
+      BookingStatus.unknown,
+    ]) {
+      testWidgets(
+        'a ${status.name} booking WITH a band contributes no calendar egress '
+        'at all — no trigger, no platform call, no price line',
+        (tester) async {
+          // `Booking.canAddToCalendar` is an ALLOWLIST (`== confirmed`), so a
+          // non-confirmed booking never reaches `_onAddToCalendar` and its
+          // `showsPrice ? priceLabel : null` ternary at all. That makes "no
+          // price line" a STRUCTURAL guarantee rather than a formatting one,
+          // and this is the assertion that pins it: the strongest form of "no
+          // price reaches the calendar" is "nothing does".
+          //
+          // Written as a loop over EVERY non-confirmed status (the previous
+          // coverage was COMPLETED alone) precisely because the allowlist is
+          // the security-load-bearing shape — a denylist refactor would let
+          // `unknown`, the status this build cannot even identify, through.
+          await _pumpDetail(tester, _booking(status: status, priceMax: 900));
+
+          expect(
+            find.byKey(const Key('booking-detail-add-calendar')),
+            findsNothing,
+            reason: 'the header trigger is CONFIRMED-only',
+          );
+          expect(
+            find.byType(CalendarButton),
+            findsNothing,
+            reason: 'nor may the retired body pill reappear as a second door',
+          );
+          expect(
+            calls,
+            isEmpty,
+            reason: 'no add2Cal platform call may have fired',
+          );
+        },
+      );
+    }
   });
 
   // -------------------------------------------------------------------------

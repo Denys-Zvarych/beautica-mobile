@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 
 /// Beautica brand palette — VelvetTouch design system (2026-05-23).
@@ -72,4 +74,90 @@ abstract final class BrandColors {
 
   /// Material 3 seed — used for [ColorScheme.fromSeed].
   static const Color seed = accentDeep;
+}
+
+/// A small, fixed palette of two-colour gradients for client-avatar circles
+/// (`MasterBookingCard`'s `_ClientAvatar`, transcribed from the design's
+/// `_ClientAvatar` at `booking_widgets.dart:295-331`). Every pair is drawn
+/// from hues already in [BrandColors] so a client's avatar can never drift
+/// outside the locked VelvetTouch palette — see [forKey] for how a client
+/// maps onto one.
+abstract final class ClientAvatarGradients {
+  static const List<List<Color>> _palette = <List<Color>>[
+    <Color>[BrandColors.accentLogo, BrandColors.accentDeep],
+    <Color>[BrandColors.accent, BrandColors.accentLatte],
+    <Color>[BrandColors.placeholder, BrandColors.textSecondary],
+    <Color>[BrandColors.faint, BrandColors.muted],
+    <Color>[BrandColors.accentLatte, BrandColors.text],
+    <Color>[BrandColors.accent, BrandColors.accentDeep],
+  ];
+
+  /// mobile-perf MEDIUM-2 (Phase 7.10 timeline audit): memoizes [forKey]'s
+  /// rolling-hash walk. `MasterBookingCard` now calls [forKey] once per card
+  /// lifetime (see its `_MasterBookingCardState._avatarGradient`), but this
+  /// cache stays as a second line of defence for any other caller that
+  /// re-resolves the same client key across many rebuilds (e.g. a scrolling
+  /// list that doesn't hold a stable `State`) — bounded by [_kMaxCachedKeys],
+  /// never by rebuild count.
+  ///
+  /// Ceiling on distinct memoized keys (mobile-perf LOW-6, 2026-07-20): the
+  /// map above previously grew for the whole process lifetime, one entry per
+  /// distinct client key any caller ever resolved — in practice small (a
+  /// master's own client roster) but with no enforced bound. High enough that
+  /// a realistic session's client list never evicts a genuinely revisited
+  /// key. A `LinkedHashMap` iterates in insertion order, so [forKey] below
+  /// always evicts the OLDEST entry once the cap is exceeded — a simpler
+  /// cap-and-evict than `DayKeepAliveLru`'s (`bookings_day_notifier.dart`)
+  /// `KeepAliveLink` bookkeeping, which this doesn't need: nothing here holds
+  /// a Riverpod disposal handle, only a plain memory ceiling.
+  static const int _kMaxCachedKeys = 500;
+
+  /// Test-only mirror of [_kMaxCachedKeys] — lets the eviction regression
+  /// test assert against the real cap instead of a second hard-coded copy of
+  /// the number that could silently drift out of sync with it.
+  @visibleForTesting
+  static const int debugMaxCachedKeys = _kMaxCachedKeys;
+
+  /// Test-only window onto [_kMaxCachedKeys] — the eviction regression test
+  /// (`client_avatar_gradients_test.dart`) needs to assert the cache actually
+  /// stays bounded, which is unobservable from outside this library any
+  /// other way: [_palette] entries are themselves fixed `const` object
+  /// references, so evicting and recomputing a key yields an
+  /// `identical`-equal result either way — the cap can silently regress to
+  /// "unbounded" without any value-level assertion ever failing.
+  @visibleForTesting
+  static int get debugCacheLength => _cache.length;
+
+  static final LinkedHashMap<String, List<Color>> _cache =
+      LinkedHashMap<String, List<Color>>();
+
+  /// Deterministically maps [key] — a stable client identity, e.g.
+  /// `booking.clientId`, falling back to the client's display name (or, for a
+  /// nameless guest booking, the booking id) when no account id exists — onto
+  /// one of [_palette]'s gradients. Same key, same gradient, every time.
+  ///
+  /// Hashed with a plain polynomial rolling hash over [key]'s UTF-16 code
+  /// units rather than Dart's own `String.hashCode`: the language spec does
+  /// NOT guarantee `hashCode` is stable across process runs, so relying on it
+  /// here would risk a client's avatar gradient silently changing between app
+  /// opens — defeating the whole point of a deterministic mapping. The
+  /// `& 0x7fffffff` mask keeps every intermediate value a non-negative
+  /// fixed-width int on every compile target (VM, JS, Wasm).
+  static List<Color> forKey(String key) {
+    final List<Color>? cached = _cache[key];
+    if (cached != null) return cached;
+    int hash = 0;
+    for (final int unit in key.codeUnits) {
+      hash = (hash * 31 + unit) & 0x7fffffff;
+    }
+    final List<Color> resolved = _palette[hash % _palette.length];
+    // Bound the cache (mobile-perf LOW-6) before inserting the new entry —
+    // `LinkedHashMap.keys.first` is the OLDEST insertion once every hit above
+    // already short-circuited without touching insertion order.
+    if (_cache.length >= _kMaxCachedKeys) {
+      _cache.remove(_cache.keys.first);
+    }
+    _cache[key] = resolved;
+    return resolved;
+  }
 }

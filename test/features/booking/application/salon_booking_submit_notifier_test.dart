@@ -19,12 +19,15 @@
 // `_FakeBookingRepository` precedent in `booking_confirm_test.dart`) — no
 // mocktail, no real Dio. Every container is disposed via `addTearDown` (M1).
 
+import 'package:dio/dio.dart';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/application/salon_booking_submit_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
@@ -67,10 +70,21 @@ class _RecordingBookingRepository implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
+    BookingSort? sort,
     required int page,
     int size = kBookingsPageSize,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
   }) => throw UnimplementedError();
 
   @override
@@ -110,7 +124,7 @@ Booking _bookingFor(CreateBookingRequest req) => Booking(
   price: 500,
   startAt: req.startAt,
   endAt: req.startAt.add(const Duration(minutes: 60)),
-  status: BookingStatus.pending,
+  status: BookingStatus.confirmed,
   canReview: false,
 );
 
@@ -360,6 +374,102 @@ void main() {
         expect(result.failureFor('m1'), isA<UnknownFailure>());
       },
     );
+
+    // FAILURE-PATH STATE INVARIANTS (mobile-qa gap-fix — the MEDIUM this file
+    // was flagged for).
+    //
+    // The tests above pin WHICH failure lands on WHICH appointment, but the
+    // two flags the confirm screen actually drives its controls from were only
+    // ever asserted on the all-succeed path. Both matter more on the failure
+    // path than on the happy one: `inFlight` gates the CTA spinner and
+    // `attempted` swaps «Записатись» for the retry affordance. If `inFlight`
+    // failed to clear after a failed pass the screen would be left spinning
+    // forever on a booking that did NOT happen — with the back gesture also
+    // blocked once anything succeeded (`hasSucceeded`) — i.e. a hard dead end
+    // on the app's money screen, invisible to every existing assertion here
+    // because they all only ever look at a pass where nothing failed.
+    test('after an ALL-FAILED pass the retry affordance is reachable: '
+        'inFlight has cleared and attempted has flipped', () async {
+      final _RecordingBookingRepository repo = _RecordingBookingRepository(
+        failFor: <String, Object>{
+          'm1': const NetworkFailure(),
+          'm2': const NetworkFailure(),
+        },
+      );
+      final ProviderContainer c = _container(repo);
+
+      final SalonBookingSubmitState result = await c
+          .read(salonBookingSubmitProvider.notifier)
+          .submit(<SalonBookingAppointment>[_appt('m1'), _appt('m2')]);
+
+      expect(result.hasFailures, isTrue);
+      expect(
+        result.inFlight,
+        isFalse,
+        reason:
+            'a failed pass must release the CTA spinner — otherwise the '
+            'confirm screen spins forever on a booking that never happened',
+      );
+      expect(
+        result.attempted,
+        isTrue,
+        reason: 'attempted is what swaps the CTA into its retry copy',
+      );
+      // The live provider state (what the screen actually watches) agrees
+      // with the returned snapshot.
+      final SalonBookingSubmitState live = c.read(salonBookingSubmitProvider);
+      expect(live.inFlight, isFalse);
+      expect(live.attempted, isTrue);
+    });
+
+    // A retry that SUCCEEDS must retract the previous failure, not merely
+    // overwrite the status beside it: `statusByMaster` and `failureByMaster`
+    // are two maps that can disagree, and the confirm screen reads BOTH — the
+    // status drives the row's icon, the failure drives its error line. The
+    // existing retry test asserts `allSucceeded`, which reads `statusByMaster`
+    // alone, so a stale `ConflictFailure` left behind in `failureByMaster`
+    // would go unnoticed there while the screen renders m2's 409 underneath a
+    // booking that is now genuinely confirmed.
+    //
+    // MUTATION NOTE (verified, so the next reader doesn't repeat the
+    // experiment): the retraction is currently defended TWICE — the pre-loop
+    // reset `failures.remove(id)` in `submit`, and `_mark`'s
+    // `failures.remove(masterId)` on the success branch. Deleting EITHER one
+    // alone leaves this test green; deleting both turns it red. So this pins
+    // the observable invariant, not a specific line, which is the right level:
+    // a future refactor that collapses those two sites into one is exactly
+    // when the invariant is easiest to drop, and that is when this fires.
+    test('a successful retry RETRACTS the earlier failure — the master\'s '
+        'stale Failure is removed, not just its status overwritten', () async {
+      final _RecordingBookingRepository repo = _RecordingBookingRepository(
+        failFor: <String, Object>{'m2': const ConflictFailure()},
+      );
+      final ProviderContainer c = _container(repo);
+      final SalonBookingSubmit notifier = c.read(
+        salonBookingSubmitProvider.notifier,
+      );
+      final List<SalonBookingAppointment> appts = <SalonBookingAppointment>[
+        _appt('m1'),
+        _appt('m2'),
+      ];
+
+      final SalonBookingSubmitState first = await notifier.submit(appts);
+      expect(first.failureFor('m2'), isA<ConflictFailure>());
+
+      repo.stopFailing('m2');
+      final SalonBookingSubmitState retry = await notifier.submit(appts);
+
+      expect(retry.statusFor('m2'), SalonAppointmentSubmitStatus.succeeded);
+      expect(
+        retry.failureFor('m2'),
+        isNull,
+        reason:
+            'the 409 is no longer true — leaving it in failureByMaster paints '
+            'an error on a confirmed appointment',
+      );
+      expect(retry.hasFailures, isFalse);
+      expect(c.read(salonBookingSubmitProvider).failureFor('m2'), isNull);
+    });
   });
 
   // ---------------------------------------------------------------------------

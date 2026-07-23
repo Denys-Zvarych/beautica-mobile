@@ -45,6 +45,7 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/formatters/booking_price_labels.dart';
 import '../../home/application/home_hub_notifier.dart';
 import '../../home/domain/home_hub_models.dart';
 import '../../home/presentation/widgets/hub_widgets.dart';
@@ -272,9 +273,21 @@ class _PopulatedPassport extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final BudgetBand? budget = passport.budget;
-    final String budgetValue = budget == null
+    // `BudgetBand.max` is a backend-derived double and `passportBudgetCeiling`
+    // takes an `"type": "int"` placeholder, so it goes through the same
+    // [renderableWholePrice] gate as the discovery search cards rather than a
+    // bare `.round()`: that call THROWS `UnsupportedError` on `Infinity`/`NaN`
+    // — inside `build()`, so a malformed payload would replace the passport
+    // hero with an error widget — and silently SATURATES to
+    // «9223372036854775807 ₴» above 2^63. Dormant today (the repository still
+    // returns `PassportMapper.placeholder()` with a null budget); it arms when
+    // backend 19.5 replaces that placeholder, which the mapper's `TODO(19.5)`
+    // would not prompt anyone to harden. Unstatable ⇒ the existing
+    // "budget not known" label, never a fabricated figure.
+    final int? budgetCeiling = renderableWholePrice(budget?.max);
+    final String budgetValue = budgetCeiling == null
         ? l10n.passportBudgetUnknown
-        : l10n.passportBudgetCeiling(budget.max.round());
+        : l10n.passportBudgetCeiling(budgetCeiling);
     final String memberSince =
         passport.memberSinceYear?.toString() ?? DateTime.now().year.toString();
     return PassportCard(

@@ -17,16 +17,80 @@
 //
 // Cert-pinning architecture (MEDIUM-3):
 //   [initCertPinning] is called from main() before runApp(). It loads the
-//   ISRG Root X1 PEM from the Flutter asset bundle and constructs a
-//   [SecurityContext] that trusts ONLY that root. The context is cached in
-//   [_cachedSecurityContext]. When [dioProvider] builds the Dio instance it
-//   reads the cached context and wires [IOHttpClientAdapter] so every TLS
-//   connection is verified against the pinned root.
+//   pinned root PEMs ([_pinnedRootCertAssets]) from the Flutter asset bundle
+//   and constructs a [SecurityContext] that trusts ONLY those roots. The
+//   context is cached in [_cachedSecurityContext]. When [dioProvider] builds
+//   the Dio instance it reads the cached context and wires
+//   [IOHttpClientAdapter] so every TLS connection is verified against them.
 //
 //   This approach keeps [dioProvider] synchronous (no call-site API change)
 //   while guaranteeing the pin is in effect before the first network call.
-//   On Android this supplements network_security_config.xml (belt-and-suspenders).
+//   On Android this supplements network_security_config.xml (belt-and-suspenders)
+//   and MUST list the same certificates as that file's <trust-anchors>.
 //   On iOS this is the only pin (no OS-level equivalent to Android's config).
+//
+// ---------------------------------------------------------------------------
+// WHY THIS PINS ROOTS AND NOT AN INTERMEDIATE  (mobile-security MEDIUM #6,
+// assessed 2026-07-22 — read before "tightening" this to a leaf/intermediate)
+// ---------------------------------------------------------------------------
+// The weakness is real and acknowledged: a root anchor is satisfied by ANY
+// certificate Let's Encrypt issues for the host, so an attacker who can pass
+// LE domain validation (DNS or BGP hijack) defeats it. The reason it is not
+// tightened is that a tighter pin cannot be made both correct and operable
+// here. Three independent blockers, each sufficient on its own:
+//
+// 1. dart:io CANNOT express an SPKI pin set. [SecurityContext] takes trust
+//    ANCHORS, not pins. The only other hook, [HttpClient.badCertificateCallback],
+//    fires ONLY after validation has already failed (it relaxes, it cannot add
+//    a check) and receives just the LEAF [X509Certificate]. That class exposes
+//    only der/pem/sha1/subject/issuer/startValidity/endValidity — there is no
+//    publicKey, no subjectPublicKeyInfo, no sha256 and no chain accessor
+//    (verified by compile probe, 2026-07-22). So the intermediate's SPKI is
+//    simply not reachable from Dart. Android's <pin-set> COULD express it,
+//    which means an intermediate pin would be enforced on Android only — the
+//    two enforcement points could not agree, which is exactly the "false sense
+//    of security" the finding warns about, plus a brick risk on both.
+//
+// 2. We do not own the certificate. The host is served by Railway's PLATFORM
+//    WILDCARD `CN=*.up.railway.app` — one shared cert for all Railway
+//    customers. Issuer selection is Railway's operational choice, changed
+//    without notice to us and with no contract or announcement channel. A
+//    pinned intermediate set is a bet on a third party's private CA decisions.
+//
+// 3. There is no rotation process to hang a pin set on. No remote config, no
+//    forced-update gate, no store presence yet, and nobody subscribed to LE /
+//    Railway CA-rotation notices. A pin set is only as safe as the process
+//    that refreshes it before it expires; that process does not exist. Adding
+//    the pin without it converts a theoretical MITM risk into a certain
+//    total-outage-in-90-days risk.
+//
+// If pinning is ever tightened, ALL of these must be resolved first — see the
+// Pre-release checklist row in docs/mobile-phases/mobile-backlog.md.
+//
+// ---------------------------------------------------------------------------
+// WHY TWO ROOTS  (this is the part that was actually broken)
+// ---------------------------------------------------------------------------
+// Live chain, captured 2026-07-22:
+//
+//     leaf *.up.railway.app
+//       <- Let's Encrypt YE1   (intermediate, exp 2028-09-02)
+//       <- ISRG Root YE        (intermediate, exp 2032-09-02)
+//       <- ISRG Root X2        (CROSS-SIGNED BY ISRG Root X1)
+//
+// The chain roots at X2, NOT X1. Pinning X1 alone validated it only because
+// Railway/LE still serve the X1 cross-sign of X2 as the final chain element —
+// a server-side choice, not ours. Dropping it is the expected direction (X2 is
+// natively trusted on modern OSes, so chains get shortened), and the moment it
+// happens an X1-only anchor FAILS CLOSED: every shipped build loses all
+// connectivity, unfixable without an emergency store release.
+//
+// Verified with `openssl verify -no-CApath -no-CAstore` against the live chain:
+//   X1 only,  cross-sign removed -> "unable to get local issuer certificate"
+//   X1 + X2,  cross-sign removed -> OK
+//   X1 + X2,  chain as served     -> OK
+//
+// Trusting both roots is STRICTLY WIDENING — it accepts everything the X1-only
+// anchor accepted plus the shortened chain — so it cannot regress connectivity.
 
 import 'dart:developer';
 import 'dart:io';
@@ -49,18 +113,33 @@ part 'dio_provider.g.dart';
 // Cert-pinning initialisation — called once from main() before runApp().
 // ---------------------------------------------------------------------------
 
-/// Cached [SecurityContext] built from the pinned ISRG Root X1 PEM.
+/// The pinned trust anchors, in chain-validation preference order.
+///
+/// Both are required — see the "WHY TWO ROOTS" analysis in the file header.
+/// These MUST stay byte-identical to the `@raw/` copies referenced by
+/// `android/app/src/main/res/xml/network_security_config.xml`; the two
+/// enforcement points are only meaningful if they agree.
+const List<String> _pinnedRootCertAssets = <String>[
+  'assets/certs/isrg_root_x1.pem',
+  'assets/certs/isrg_root_x2.pem',
+];
+
+/// Cached [SecurityContext] built from [_pinnedRootCertAssets].
 ///
 /// `null` until [initCertPinning] completes. If [initCertPinning] fails in
 /// a non-debug build the exception propagates and prevents app startup,
 /// ensuring the app never runs without pinning in production.
 SecurityContext? _cachedSecurityContext;
 
-/// Loads the ISRG Root X1 PEM from the Flutter asset bundle and caches a
-/// [SecurityContext] that trusts only that root.
+/// Loads the pinned root PEMs from the Flutter asset bundle and caches a
+/// [SecurityContext] that trusts only those roots.
 ///
 /// MUST be awaited before [runApp]. The cached context is read by
 /// [dioProvider] when it constructs the [IOHttpClientAdapter].
+///
+/// Every asset in [_pinnedRootCertAssets] must load — a partially-populated
+/// anchor set is treated as a failure rather than silently shipping a weaker
+/// pin than intended.
 ///
 /// In debug builds a cert-loading failure is logged and the app continues
 /// with system-trust fallback (acceptable for local dev against non-pinned
@@ -68,17 +147,22 @@ SecurityContext? _cachedSecurityContext;
 /// the correct behaviour.
 Future<void> initCertPinning() async {
   try {
-    final pemBytes = await rootBundle.load('assets/certs/isrg_root_x1.pem');
-    _cachedSecurityContext = SecurityContext(withTrustedRoots: false)
-      ..setTrustedCertificatesBytes(pemBytes.buffer.asUint8List());
+    final SecurityContext context = SecurityContext(withTrustedRoots: false);
+    for (final String asset in _pinnedRootCertAssets) {
+      final ByteData pemBytes = await rootBundle.load(asset);
+      context.setTrustedCertificatesBytes(pemBytes.buffer.asUint8List());
+    }
+    _cachedSecurityContext = context;
     log(
-      'Cert-pinning initialised (ISRG Root X1)',
+      'Cert-pinning initialised with ${_pinnedRootCertAssets.length} trust '
+      'anchors: ${_pinnedRootCertAssets.join(', ')}',
       name: 'network.cert',
       level: 800,
     );
   } catch (e, st) {
     log(
-      'Cert-pinning setup failed',
+      'Cert-pinning setup failed — anchors requested: '
+      '${_pinnedRootCertAssets.join(', ')}',
       name: 'network.cert',
       level: 1000,
       error: e,
@@ -91,6 +175,37 @@ Future<void> initCertPinning() async {
     // Debug mode: fall back to system trust so local dev against non-pinned
     // backends still works.
   }
+}
+
+/// Logs a rejected server certificate, then REJECTS it.
+///
+/// [HttpClient.badCertificateCallback] fires only after chain validation has
+/// already failed against [_cachedSecurityContext] — i.e. exactly on a pin
+/// miss. Returning `false` preserves fail-closed behaviour (this never accepts
+/// anything the pin rejected); the callback exists purely so the failure is
+/// LOUD and DIAGNOSABLE.
+///
+/// Without it a pin miss surfaces only as a generic [DioException] →
+/// `NetworkFailure`, indistinguishable from "no internet" — which is how a
+/// CA-rotation outage would otherwise be misdiagnosed for days. The leaf's
+/// issuer is the single most useful datum when that happens: an unexpected
+/// issuer CN means the chain moved and [_pinnedRootCertAssets] is stale.
+///
+/// Only the leaf is available here — dart:io exposes no chain accessor — so
+/// this cannot itself perform intermediate pinning (see the file header).
+bool _logRejectedCertificate(X509Certificate cert, String host, int port) {
+  log(
+    'TLS PIN MISS — certificate for $host:$port rejected by the pinned trust '
+    'anchors. subject=${cert.subject.trim()} issuer=${cert.issuer.trim()} '
+    'validity=${cert.startValidity.toIso8601String()}..'
+    '${cert.endValidity.toIso8601String()}. If the issuer changed, the CA '
+    'chain rotated and _pinnedRootCertAssets (plus the matching @raw/ copies '
+    'in network_security_config.xml) must be updated and a release shipped.',
+    name: 'network.cert',
+    level: 1000,
+  );
+  // NEVER accept. This is a diagnostic hook, not a bypass.
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +257,11 @@ Dio dio(Ref ref) {
   final sc = _cachedSecurityContext;
   if (sc != null) {
     d.httpClientAdapter = IOHttpClientAdapter(
-      createHttpClient: () => HttpClient(context: sc),
+      createHttpClient: () => HttpClient(context: sc)
+        // Diagnostic only — always returns false. See
+        // [_logRejectedCertificate]; a pin miss must be identifiable in
+        // logs rather than blending into generic network failures.
+        ..badCertificateCallback = _logRejectedCertificate,
     );
   }
 

@@ -8,8 +8,38 @@
     a <domain-config> block below.
 
     Production domain: HTTPS-only, cleartext blocked.
-    Trust anchors: ISRG Root X1 (Let's Encrypt) — stable until 2035.
-    Rotate to ISRG Root X2 before ISRG Root X1 retires.
+
+    Trust anchors: ISRG Root X1 (to 2035) AND ISRG Root X2 (to 2040).
+
+    WHY BOTH ROOTS (do not drop either) — verified against the live chain
+    2026-07-22. beautica-backend-production.up.railway.app is served by
+    Railway's PLATFORM WILDCARD `CN=*.up.railway.app`, and today's chain is:
+
+        leaf *.up.railway.app
+          <- Let's Encrypt YE1        (intermediate, exp 2028-09-02)
+          <- ISRG Root YE             (intermediate, exp 2032-09-02)
+          <- ISRG Root X2             (CROSS-SIGNED BY ISRG Root X1)
+
+    The chain therefore roots at X2, not X1. An X1-only anchor validates it
+    ONLY because Railway/LE still ship the X1 cross-sign of X2 as the last
+    chain element. That is a server-side chain-construction choice we do not
+    control; the moment it is dropped (X2 is natively trusted on modern
+    Android, so shortening the chain is the expected direction) an X1-only
+    anchor FAILS CLOSED and every shipped build loses all connectivity.
+    Verified with `openssl verify -no-CApath -no-CAstore`: X1-only against a
+    chain with the cross-sign removed => "unable to get local issuer
+    certificate"; X1+X2 => OK, both with and without the cross-sign.
+
+    Listing both roots is strictly widening — it can only accept chains an
+    X1-only anchor already accepted, plus the shortened one. This MUST stay in
+    lockstep with lib/core/network/dio_provider.dart's SecurityContext, which
+    loads the same two PEMs from assets/certs/ (same bytes as res/raw here).
+
+    NOT AN SPKI PIN, DELIBERATELY. See the "why root and not intermediate"
+    analysis in dio_provider.dart — Android's <pin-set> could express an
+    intermediate pin, but dart:io's SecurityContext structurally cannot, so a
+    pin-set here would be enforced on Android only and give a false sense of
+    security on iOS while adding a brick risk on both.
 -->
 <network-security-config>
     <!-- Production: HTTPS only, no user CAs -->
@@ -19,12 +49,17 @@
         </trust-anchors>
     </base-config>
 
-    <!-- Production Railway domain: HTTPS only, pinned to ISRG Root X1 -->
+    <!-- Production Railway domain: HTTPS only, anchored to the two ISRG roots -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">beautica-backend-production.up.railway.app</domain>
         <trust-anchors>
-            <!-- ISRG Root X1 — stable Let's Encrypt root; rotate to X2 when X1 retires (2035) -->
+            <!-- ISRG Root X1 — RSA root, expires 2035-06-04. Currently the anchor
+                 the served chain reaches via the X1 cross-sign of X2. -->
             <certificates src="@raw/isrg_root_x1" />
+            <!-- ISRG Root X2 — ECDSA root, expires 2040-09-17, SELF-SIGNED copy.
+                 The true root of today's chain. Required so the app keeps working
+                 if the X1 cross-sign is ever dropped from the served chain. -->
+            <certificates src="@raw/isrg_root_x2" />
         </trust-anchors>
     </domain-config>
 

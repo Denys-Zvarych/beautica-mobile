@@ -49,16 +49,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router at $expected, got $current',
-    );
-  }
-
   AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
       AppLocalizations.of(tester.element(find.byType(screen)));
 
@@ -80,7 +70,7 @@ void main() {
       // ── 1. Open the Записи branch (bottom-nav tile 3). ────────────────────
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.clientBookings);
+      AppHarness.expectLocation(router, RouteNames.clientBookings);
       expect(find.byType(MyBookingsScreen), findsOneWidget);
 
       // ── 2. Switch to Минулі — the COMPLETED booking lives there. ──────────
@@ -107,7 +97,7 @@ void main() {
       // ── 3. Open «Деталі запису» → the leave-review CTA is offered. ────────
       await tester.tap(find.byType(BookingCard));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      AppHarness.expectLocation(router, RouteNames.bookingDetail('booking-1'));
       expect(find.byType(BookingDetailScreen), findsOneWidget);
       expect(
         find.byKey(const Key('booking-detail-leave-review')),

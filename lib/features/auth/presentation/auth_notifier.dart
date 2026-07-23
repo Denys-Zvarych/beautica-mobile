@@ -40,6 +40,16 @@ import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
+// Deliberate, narrow exception to "auth never imports another feature"
+// (mobile-security HIGH, 2026-07-19): the day-timeline cache's bounded
+// `keepAlive()` pool cannot be reached by the ordinary `ref.watch(authProvider)`
+// cascade every OTHER per-user cache uses to self-clear — see
+// `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for the
+// full defence-in-depth reasoning. This is a plain method call, not
+// `ref.invalidate(...)`, and `dayKeepAliveLruProvider` does not watch
+// `authProvider` back, so it cannot reopen the CircularDependencyError the
+// NOTE further down in [logout] warns about.
+import '../../booking/application/bookings_day_notifier.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
 import '../domain/register_result.dart';
@@ -840,6 +850,22 @@ class AuthNotifier extends _$AuthNotifier {
     // explicit logout. The draft survives across nav (keepAlive) so without
     // this it would persist until the process is killed.
     ref.read(registerDraftProvider.notifier).reset();
+    // Security (mobile-security HIGH, 2026-07-19) — sweep the day-timeline's
+    // bounded keepAlive cache's OWN bookkeeping. `BookingsDayNotifier.build`'s
+    // `authProvider`-id watch (triggered by the state assignment below)
+    // already reclaims every member's PII on its own the instant the
+    // identity changes — actively watched or not: Riverpod's
+    // `invalidateSelf()` unconditionally severs every `KeepAliveLink` an
+    // element holds and queues either its disposal (no active listener) or a
+    // rebuild (an active one) for the very next event-loop turn — never left
+    // lazily pending on some future read. This call exists because that
+    // severing does NOT touch [DayKeepAliveLru]'s own `_links` map: without
+    // it, a logged-out query's slot keeps pointing at an already-severed
+    // link — a "zombie" entry silently wasting the LRU's bounded budget —
+    // until a future cache touch happens to overwrite it. See
+    // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
+    // the full reasoning, including the Riverpod internals this depends on.
+    ref.read(dayKeepAliveLruProvider).clear();
     // Wipe the interceptor's session-lifetime token fallback so no request can
     // carry a stale Bearer token after an explicit logout.
     _lastKnownAccessToken = null;

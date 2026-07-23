@@ -49,11 +49,36 @@
 // slot is picked — the one end-to-end place the time-step shelf is exercised
 // (Tests 1–2 deliberately push past this screen).
 //
-// No native surface is involved (no OS permission dialog, deep link,
-// FCM/local notification, WebView, or biometric) — pure Dart/Riverpod state
-// driving a pure Flutter widget tree, so no companion Patrol test is added.
+// Test 1 additionally covers the PER-APPOINTMENT «Додати в календар» export
+// (the calendar rework: one page-level pill → N card-scoped buttons). The
+// widget suite `test/.../booking_success_calendar_test.dart` pumps
+// `BookingSuccessScreen` with HAND-BUILT `BookingSuccessArgs`, so the one
+// thing it cannot prove is the wiring that produces those args: which
+// `MasterService` the confirm screen resolved for appointment i, and which
+// `startAt` it carried over. Here card i's exported Event window is checked
+// against the REAL `GET /masters/master-aaa/services` catalogue — `pub-assign-1`
+// is 90 min, `pub-assign-2` is 60 min — so an off-by-one in the
+// resolved→success mapping (the exact defect the rework fixed) shows up as the
+// wrong duration, not merely the wrong label.
+//
+// PATROL — REASONED EXEMPTION, not a deferral. The export is a platform-channel
+// call, but the app-side contract ENDS at the `Event` payload handed to
+// `add_2_calendar`: on Android it is an implicit ACTION_INSERT intent, which
+// needs no runtime permission (nothing for `$.native.*` to grant or dismiss)
+// and hands off to whatever calendar app the device happens to have. A CI
+// emulator image may have none at all — the honest outcome there is
+// ActivityNotFoundException, which is already pinned at the helper tier
+// (`add_to_calendar_test.dart`) and at the screen tier (the failure/guard-release
+// cases). A Patrol test could therefore only assert "some third-party activity
+// appeared", which is neither deterministic nor a statement about this app. The
+// payload — the only part we own and the only part that can regress — is pinned
+// exactly by the channel interception below. No other native surface is
+// involved in this flow (no permission dialog, deep link, FCM/local
+// notification, WebView, or biometric).
 
 import 'dart:async';
+
+import 'package:dio/dio.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
@@ -64,22 +89,31 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_time_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+
+/// The `add_2_calendar` plugin's platform boundary — intercepted so the
+/// per-appointment export never launches a real OS calendar activity on the
+/// emulator (same seam `client_my_bookings_cancel_flow_test.dart` and
+/// `booking_price_band_flow_test.dart` already use).
+const MethodChannel _kCalendarChannel = MethodChannel('add_2_calendar');
 
 /// Records every `createBooking` call and, for each serviceId in
 /// [failOnceWith], throws its mapped [Failure] on THAT service's FIRST call
@@ -128,10 +162,21 @@ class _FakeBookingRepository implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
+    BookingSort? sort,
     required int page,
     int size = kBookingsPageSize,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
   }) => throw UnimplementedError();
 
   @override
@@ -158,16 +203,6 @@ void main() {
 
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
-
-  void expectLocation(GoRouter router, String expected) {
-    final String current =
-        router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
 
   // The seeded `master-aaa` fixture's own two PUBLIC service ids
   // (`FakeBackend._publicMasterServices` — the SAME `GET
@@ -279,7 +314,7 @@ void main() {
       );
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingConfirm);
+      AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
       expect(
         fb.getPublicMasterCalls,
@@ -302,7 +337,7 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingSuccess);
+      AppHarness.expectShellLocation(router, RouteNames.bookingSuccess);
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
 
@@ -339,6 +374,96 @@ void main() {
         find.byKey(const ValueKey<String>('booking-success-appt-$serviceB-1')),
         findsOneWidget,
       );
+
+      // ── 4. PER-APPOINTMENT CALENDAR EXPORT (Step 2.7 Rule 3b) ────────────
+      // The OS INSERT sheet takes ONE event per invocation, so the retired
+      // page-level pill could only ever seed the first of N. Every card now
+      // carries its own button — and the fact under test HERE (unreachable
+      // from the widget suite, which hand-builds `BookingSuccessArgs`) is that
+      // the confirm screen carried the RIGHT resolved service and start into
+      // card i. `pub-assign-1` is 90 min and `pub-assign-2` is 60 min in the
+      // real `GET /masters/master-aaa/services` response, so a mapping that
+      // slipped by one card would export the wrong WINDOW, not just the wrong
+      // label.
+      final List<MethodCall> calendarCalls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_kCalendarChannel, (MethodCall call) async {
+            calendarCalls.add(call);
+            return true;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(_kCalendarChannel, null),
+      );
+
+      expect(
+        find.byType(CalendarButton),
+        findsNWidgets(2),
+        reason: 'one export per confirmed appointment, never one for the page',
+      );
+
+      Future<Map<Object?, Object?>> exportCard(String serviceId, int i) async {
+        calendarCalls.clear();
+        final Finder button = find.byKey(
+          ValueKey<String>('booking-success-add-calendar-$serviceId-$i'),
+        );
+        expect(button, findsOneWidget);
+        await tester.ensureVisible(button);
+        await AppHarness.settle(tester);
+        await tester.tap(button);
+        await AppHarness.settle(tester);
+        expect(calendarCalls, hasLength(1));
+        expect(calendarCalls.single.method, 'add2Cal');
+        return calendarCalls.single.arguments as Map<Object?, Object?>;
+      }
+
+      final Map<Object?, Object?> exportA = await exportCard(serviceA, 0);
+      final Map<Object?, Object?> exportB = await exportCard(serviceB, 1);
+
+      // Each card exports ITS OWN start — the very instants submitted above.
+      expect(exportA['startDate'], startA.millisecondsSinceEpoch);
+      expect(exportB['startDate'], startB.millisecondsSinceEpoch);
+
+      // …and ITS OWN duration, resolved out of the real catalogue response
+      // (90 min vs 60 min). Asserted as a delta so the check reads as
+      // "this card's service", not "this hard-coded instant".
+      const int msPerMinute = 60 * 1000;
+      expect(
+        (exportA['endDate']! as int) - (exportA['startDate']! as int),
+        90 * msPerMinute,
+        reason: 'pub-assign-1 is 90 min in GET /masters/master-aaa/services',
+      );
+      expect(
+        (exportB['endDate']! as int) - (exportB['startDate']! as int),
+        60 * msPerMinute,
+        reason:
+            'pub-assign-2 is 60 min — a first-card fallback would export 90',
+      );
+
+      // Distinct services, one shared master address (the recap's address card
+      // is page-level; only the appointment differs card to card).
+      expect(exportA['title'], isNot(exportB['title']));
+      expect(exportA['location'], isNotNull);
+      expect(exportB['location'], exportA['location']);
+
+      // The structured description follows the same appointment as the window.
+      final AppLocalizations successL10n = AppLocalizations.of(
+        tester.element(find.byType(BookingSuccessScreen)),
+      );
+      String serviceLine(Map<Object?, Object?> args) =>
+          (args['desc']! as String)
+              .split('\n')
+              .firstWhere(
+                (String line) =>
+                    line.startsWith(successL10n.bookingCalendarNoteService),
+                orElse: () => '',
+              );
+      expect(serviceLine(exportA), isNotEmpty);
+      expect(
+        serviceLine(exportB),
+        isNot(serviceLine(exportA)),
+        reason: 'card B must describe card B\'s service',
+      );
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
@@ -359,12 +484,20 @@ void main() {
     'stable key) and reaches success',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
+      // These are the ALREADY-EXISTING clashing booking's instants inside a 409
+      // payload, not a fixture that must read as "upcoming". They reach only
+      // `ClientBookingConflictFailure.userMessage` → `formatBookingWindow`,
+      // which is a pure absolute formatter with no `now()` in it, and no
+      // assertion in this flow reads the rendered date. A fixed instant is
+      // therefore strictly more deterministic here.
       final ClientBookingConflictFailure conflict =
           ClientBookingConflictFailure(
             conflictingBookingId: 'other-booking-1',
             serviceName: 'Педикюр апаратний',
             masterName: 'Ірина Шевченко',
+            // future-date-ok: clashing booking's own window, see note above.
             startsAt: DateTime.utc(2026, 7, 16, 14),
+            // future-date-ok: clashing booking's own window, see note above.
             endsAt: DateTime.utc(2026, 7, 16, 15, 30),
           );
       // Only service B's FIRST call fails; service A always succeeds.
@@ -390,7 +523,7 @@ void main() {
       );
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingConfirm);
+      AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
 
       // ── First submit → service A succeeds, service B 409s ────────────────
@@ -398,7 +531,7 @@ void main() {
       await AppHarness.settle(tester);
 
       // STAYS on the confirm screen — no navigation, no crash, no dialog.
-      expectLocation(router, RouteNames.bookingConfirm);
+      AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
       expect(find.byType(BookingSuccessScreen), findsNothing);
       // The retired conflict dialog must NEVER appear (this is the exact
@@ -436,7 +569,7 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingSuccess);
+      AppHarness.expectShellLocation(router, RouteNames.bookingSuccess);
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
 
@@ -502,7 +635,7 @@ void main() {
       );
       await AppHarness.settle(tester);
 
-      expectLocation(router, RouteNames.bookingSlotsTime);
+      AppHarness.expectShellLocation(router, RouteNames.bookingSlotsTime);
       expect(find.byType(BookingTimeScreen), findsOneWidget);
 
       // Scopes a finder to ONE service's slide (both are kept-alive-mounted by

@@ -58,16 +58,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   /// Reads the SearchFilters the results screen received via `extra`.
   SearchFilters? receivedFilters(WidgetTester tester) {
     final SearchResultsScreen results = tester.widget<SearchResultsScreen>(
@@ -106,14 +96,14 @@ void main() {
       // ── Log in as CLIENT → land on the client shell at /home ──────────────
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       expect(find.byType(ClientShell), findsOneWidget);
 
       // ── Tap the elevated center «Пошук» disc → real ClientSearchScreen ────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(
         find.byKey(const Key('client-branch-search')),
         findsOneWidget,
@@ -199,7 +189,7 @@ void main() {
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
       expect(
         find.byKey(const Key('client-search-results')),
         findsOneWidget,
@@ -277,7 +267,7 @@ void main() {
       // ── Reach the search screen ─────────────────────────────────────────────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       // ── Gating: tapping City BEFORE a Region opens NO picker sheet ──────────
       await tester.tap(find.byKey(const Key('search_city_value')));
@@ -318,7 +308,7 @@ void main() {
         reason:
             'a blocked region-only CTA tap must not push the results screen',
       );
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       // ── Now pick the City → the gate releases, CTA enables ──────────────────
       await tester.tap(find.byKey(const Key('search_city_value')));
@@ -341,7 +331,7 @@ void main() {
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
       // The region→city pick reached the wire as location.cityId on BOTH
@@ -389,7 +379,7 @@ void main() {
     await tester.tap(find.byKey(const Key('search_show_masters_cta')));
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
-    expectLocation(router, RouteNames.clientSearchResults);
+    AppHarness.expectLocation(router, RouteNames.clientSearchResults);
     expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
     // ── Page 0 fetched BOTH endpoints and rendered the merged cards ─────────
@@ -407,11 +397,24 @@ void main() {
     // The seeded page-0 master + salon both rendered (key = backend id).
     expect(find.byKey(const Key('favorite_master_master-aaa')), findsOneWidget);
     expect(find.byKey(const Key('favorite_salon_salon-xyz')), findsOneWidget);
-    // Master price «від N ₴» + salon price RANGE are the documented gaps.
-    // This string is CLIENT-rendered from l10n (`searchPriceFrom`), NOT a raw
-    // backend `priceDisplay` — it always carries the mobile client's own
+    // Master price. `master-aaa` seeds a floor (450) and NO ceiling, so the
+    // card takes MasterResultCard._priceLabel's `hi == null` branch and renders
+    // the EXACT price — «450 ₴», with NO «від» prefix (b550428 dropped the
+    // prefix for a fixed master price). The SALON card still prefixes an
+    // open-ended floor via `searchPriceFrom`, which is why the two cards read
+    // differently — that asymmetry is intentional, not a gap.
+    //
+    // This string is CLIENT-rendered from l10n (`searchResultPriceExact`), NOT
+    // a raw backend `priceDisplay` — it always carries the mobile client's own
     // current currency glyph («₴»), independent of the backend's formatting.
-    expect(find.text('від 450 ₴'), findsOneWidget);
+    // Resolved off the PUMPED TREE rather than hard-coded: this flow runs only
+    // on CI's emulator job, so a literal that drifts from the ARB can rot
+    // unnoticed for weeks (it did — the old «від 450 ₴» literal outlived the
+    // b550428 render change by a long way).
+    final AppLocalizations l10n = AppLocalizations.of(
+      tester.element(find.byType(SearchResultsScreen)),
+    );
+    expect(find.text(l10n.searchResultPriceExact(450)), findsOneWidget);
 
     // ── Tap the master heart → optimistic flip → POST /favorites ────────────
     expect(fb.addFavoriteCalls, 0);
@@ -487,7 +490,7 @@ void main() {
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
       // Item 2 — the free-text query reached the wire on both endpoints with the
@@ -548,7 +551,7 @@ void main() {
     // ── Reach the search screen ─────────────────────────────────────────────
     await tester.tap(find.byKey(const Key('client-nav-search-center')));
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expectLocation(router, RouteNames.clientSearch);
+    AppHarness.expectLocation(router, RouteNames.clientSearch);
 
     // ── Pick «Київ» through the REAL three-field region→city cascade ────────
     await pickRegionThenCity(tester);
@@ -562,7 +565,7 @@ void main() {
     await tester.tap(find.byKey(const Key('search_show_masters_cta')));
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
-    expectLocation(router, RouteNames.clientSearchResults);
+    AppHarness.expectLocation(router, RouteNames.clientSearchResults);
     expect(find.byKey(const Key('client-search-results')), findsOneWidget);
     expect(fb.searchMastersCalls, greaterThanOrEqualTo(1));
     expect(fb.searchSalonsCalls, greaterThanOrEqualTo(1));
@@ -623,7 +626,7 @@ void main() {
       // ── Reach the search screen ─────────────────────────────────────────────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       // ── Pick «Київська» → «Київ» through the REAL three-field cascade ───────
       await pickRegionThenCity(tester);
@@ -637,7 +640,7 @@ void main() {
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
       expect(find.byKey(const Key('results_list')), findsOneWidget);
 
@@ -692,14 +695,22 @@ void main() {
       // street + note, and the card renders BOTH the locality line (line 1) and
       // the full street·note line (line 2) together. Region/oblast is NOT in the
       // contract, so no oblast text ever appears.
+      // formatLocality() joins the raw districtLabel/cityLabel with a
+      // hard-coded ', ' and never touches AppLocalizations, so this renders
+      // identically under EN — it is backend fixture data, not UI copy.
       expect(
+        // i18n-finder-ok: locale-invariant backend data (see comment above)
         find.text('Печерський, Київ'),
         findsOneWidget,
         reason:
             'the two-line layout keeps the «district, city» locality line even '
             'when an auth-gated street line is also shown.',
       );
+      // The mapper's _formatAddressLine() joins raw street/buildingNo/
+      // locationNote with a hard-coded ', ' + ' · ' and never touches
+      // AppLocalizations — backend fixture data, not UI copy.
       expect(
+        // i18n-finder-ok: locale-invariant backend data (see comment above)
         find.text('вул. Хрещатик, 12 · 2 поверх'),
         findsOneWidget,
         reason:
@@ -756,7 +767,7 @@ void main() {
       // ── Reach the search screen ─────────────────────────────────────────────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       // Before selecting a category the service drawer + count badge are absent.
       expect(find.byType(ServiceChipDrawer), findsNothing);
@@ -805,7 +816,7 @@ void main() {
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
       // ── WIRE ASSERTION — BOTH selected slugs reached BOTH endpoints ─────────
@@ -871,7 +882,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       // ── Select NAILS + a NAILS service chip ─────────────────────────────────
       await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
@@ -911,7 +922,7 @@ void main() {
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
       // The stale CLASSIC_MANICURE slug never reached the request — the param is
@@ -971,12 +982,12 @@ void main() {
 
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // ── Open the search tab → the prefill fires from initState ──────────────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(find.byKey(const Key('client-branch-search')), findsOneWidget);
 
       // ── PREFILL ASSERTION — the saved locality is rendered on FIRST open ────
@@ -1037,11 +1048,11 @@ void main() {
       // re-seeded back to «Київ».
       await tester.tap(find.byKey(const Key('client-nav-tile-0')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       expect(
         cityRowText().data,
@@ -1111,12 +1122,12 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // ── 1. Open Пошук → the prefill shows the ORIGINAL saved city ──────────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(
         tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
         'Київ',
@@ -1126,15 +1137,15 @@ void main() {
       // ── 2. Home → burger → settings hub → Location edit ────────────────────
       await tester.tap(find.byKey(const Key('client-nav-tile-0')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       await tester.tap(find.byKey(const Key('btn-menu-client')));
       await tester.pumpAndSettle(const Duration(seconds: 2));
-      expectLocation(router, RouteNames.clientMenu);
+      AppHarness.expectLocation(router, RouteNames.clientMenu);
 
       await tester.tap(find.byKey(const Key('row-location')));
       await tester.pumpAndSettle(const Duration(seconds: 2));
-      expectLocation(router, RouteNames.clientEditLocation);
+      AppHarness.expectLocation(router, RouteNames.clientEditLocation);
 
       // ── 3. Change the CITY to Львів (same region) → Save ───────────────────
       await tester.tap(find.byKey(const Key('locality_row_city')));
@@ -1149,7 +1160,7 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-save-location')));
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       expect(
         fb.clientCityId,
         'city-lviv',
@@ -1164,7 +1175,7 @@ void main() {
       // graph from scratch).
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       expect(
         tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
@@ -1217,12 +1228,12 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
 
       // ── Open Пошук → the prefill renders the saved city on first open ───────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
-      expectLocation(router, RouteNames.clientSearch);
+      AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       expect(
         tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,

@@ -63,6 +63,9 @@ import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
 import 'client_my_bookings_pagination_sort_flow_test.dart'
     as client_my_bookings_pagination_sort;
+import 'booking_price_band_flow_test.dart' as booking_price_band;
+import 'booking_unknown_status_readonly_flow_test.dart'
+    as booking_unknown_status_readonly;
 import 'client_elapsed_booking_readonly_flow_test.dart'
     as client_elapsed_booking_readonly;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
@@ -81,6 +84,7 @@ import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
+import 'master_bookings_flow_test.dart' as master_bookings;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_received_reviews_flow_test.dart' as master_received_reviews;
 import 'passport_flow_test.dart' as passport;
@@ -130,10 +134,27 @@ void main() {
     'client_my_bookings_pagination_sort_flow',
     client_my_bookings_pagination_sort.main,
   );
+  // Frozen RANGE price band end-to-end (Step 2.7 Rule 3b, mobile-qa) — a wire
+  // `priceMaxAtBooking` surviving deserialization → BookingMapper →
+  // Booking.priceMax → priceLabel onto the CLIENT list card, «Деталі запису»
+  // and the add-to-calendar export, plus the MASTER timeline card and the
+  // "null ceiling is a single price, not a missing value" case. Registered in
+  // PART 1 beside the other bookings flows (the split is a process split, not
+  // a semantic one) even though its second test drives the master surface.
+  group('booking_price_band_flow', booking_price_band.main);
   // Elapsed CONFIRMED booking → read-only detail (Step 2.7 Rule 3b) — same
   // harness/detail as the cancel flow, but the seed window is pushed into the
   // past so reschedule + cancel + add-to-calendar drop away and only
   // «Записатись знову» is offered.
+  // Unrecognised backend status → read-only, powerless detail (Step 2.7
+  // Rule 3b, security S1) — the `BookingStatus.unknown` decode contract driven
+  // from the WIRE, which no widget test can reach: the row must survive the
+  // mapper (it used to be silently DROPPED) and must grant nothing (it used to
+  // fall back to CONFIRMED, unlocking the local add-to-calendar write).
+  group(
+    'booking_unknown_status_readonly_flow',
+    booking_unknown_status_readonly.main,
+  );
   group(
     'client_elapsed_booking_readonly_flow',
     client_elapsed_booking_readonly.main,
@@ -167,6 +188,9 @@ void main() {
   group('logout_flow', logout.main);
   // Master-home zero-services «Додати послуги» CTA → /services/setup
   // (Step 2.7 Rule 3b — master home → service-setup journey).
+  // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
+  // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
+  group('master_bookings_flow', master_bookings.main);
   group('master_home_add_services_flow', master_home_add_services.main);
   group('master_received_reviews_flow', master_received_reviews.main);
   group('passport_flow', passport.main);

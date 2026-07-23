@@ -30,16 +30,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   testWidgets(
     'full forgot-password journey: email → OTP → new password → login',
     (tester) async {
@@ -56,7 +46,7 @@ void main() {
       // ── Step 1 — tap "Forgot password?" → /forgot-password ───────────────
       await tester.tap(find.byKey(const ValueKey<String>('login_forgot')));
       await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.forgotPassword);
+      AppHarness.expectLocation(router, RouteNames.forgotPassword);
 
       // ── Step 2 — submit email → POST /auth/forgot-password ───────────────
       await tester.enterText(
@@ -71,7 +61,7 @@ void main() {
       expect(fb.lastForgotPasswordEmail, equals(_kEmail));
 
       // ── Step 3 — navigated to the OTP screen ─────────────────────────────
-      expectLocation(router, RouteNames.resetOtpVerification);
+      AppHarness.expectLocation(router, RouteNames.resetOtpVerification);
       expect(
         find.byKey(const ValueKey<String>('reset_otp_code_input')),
         findsOneWidget,
@@ -91,7 +81,7 @@ void main() {
       expect(fb.lastVerifyPasswordResetOtpCode, equals('123456'));
 
       // ── Step 5 — navigated to the set-new-password screen ────────────────
-      expectLocation(router, RouteNames.resetPassword);
+      AppHarness.expectLocation(router, RouteNames.resetPassword);
       expect(
         find.byKey(const ValueKey<String>('reset_password')),
         findsOneWidget,
@@ -129,7 +119,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('reset_back_login')));
       await tester.pumpAndSettle();
 
-      expectLocation(router, RouteNames.login);
+      AppHarness.expectLocation(router, RouteNames.login);
     },
   );
 }

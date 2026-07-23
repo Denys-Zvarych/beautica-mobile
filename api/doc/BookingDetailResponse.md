@@ -17,6 +17,7 @@ Name | Type | Description | Notes
 **startsAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **endsAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **priceAtBooking** | **num** |  | [optional] 
+**priceMaxAtBooking** | **num** | The range ceiling agreed AT BOOKING TIME, present ONLY when the master left this service's price as a genuine RANGE (no priceOverride) when the booking was made. Null means a single price — render priceAtBooking alone. The client must never re-derive this from priceType/priceOverride; the decision is made server-side, once. | [optional] 
 **durationMinutesAtBooking** | **int** |  | [optional] 
 **createdAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **clientFirstName** | **String** |  | [optional] 

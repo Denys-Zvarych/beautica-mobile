@@ -44,16 +44,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router at $expected, got $current',
-    );
-  }
-
   AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
       AppLocalizations.of(tester.element(find.byType(screen)));
 
@@ -79,7 +69,7 @@ void main() {
       // Open the Записи branch (bottom-nav tile 3).
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.clientBookings);
+      AppHarness.expectLocation(router, RouteNames.clientBookings);
       expect(find.byType(MyBookingsScreen), findsOneWidget);
 
       // The CONFIRMED booking is present in Майбутні (elapsed ≠ a status move).
@@ -92,7 +82,7 @@ void main() {
       // Open «Деталі запису».
       await tester.tap(find.byType(BookingCard));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      AppHarness.expectLocation(router, RouteNames.bookingDetail('booking-1'));
       expect(find.byType(BookingDetailScreen), findsOneWidget);
 
       // READ-ONLY: the three CONFIRMED affordances are all suppressed because

@@ -3400,6 +3400,14 @@
       "price": { "type": "String" }
     }
   },
+  "bookingServiceTileSemanticsNoPrice": "{name}, {duration}",
+  "@bookingServiceTileSemanticsNoPrice": {
+    "description": "Price-less variant of bookingServiceTileSemantics. Used on «Деталі запису» for a cancelled / declined / missed booking, where the price is suppressed visually (Booking.showsPrice == false) and so must not be announced either — the accessibility tree must state exactly what the visual tree states.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "duration": { "type": "String" }
+    }
+  },
   "bookingTotalLabel": "Разом",
   "@bookingTotalLabel": {
     "description": "Label of the pinned total-price row on the booking summary shelf."
@@ -3579,6 +3587,13 @@
       "price": { "type": "String" }
     }
   },
+  "bookingTotalSemanticsNoPrice": "Разом {duration}",
+  "@bookingTotalSemanticsNoPrice": {
+    "description": "Price-less variant of bookingTotalSemantics. Used on «Деталі запису» for a cancelled / declined / missed booking, where the «Разом» band is suppressed visually (Booking.showsPrice == false) and so must not be announced either — the accessibility tree must state exactly what the visual tree states.",
+    "placeholders": {
+      "duration": { "type": "String" }
+    }
+  },
   "bookingCommentLabel": "Коментар для майстра",
   "@bookingCommentLabel": {
     "description": "Label above the optional comment field on the booking confirmation screen."
@@ -3619,7 +3634,14 @@
   },
   "bookingAddCalendarSemantics": "Додати запис у календар",
   "@bookingAddCalendarSemantics": {
-    "description": "Accessibility label for the booking success screen's «Додати в календар» link."
+    "description": "Accessibility label for the «Деталі запису» (booking detail) screen's header «Додати в календар» icon button. Not used by the booking success screen, whose exports are per-appointment and use bookingAddCalendarServiceSemantics instead."
+  },
+  "bookingAddCalendarServiceSemantics": "Додати «{service}» у календар",
+  "@bookingAddCalendarServiceSemantics": {
+    "description": "Accessibility label for a per-appointment «Додати в календар» button on the booking success screen, where several buttons coexist and each must announce which service it adds.",
+    "placeholders": {
+      "service": { "type": "String" }
+    }
   },
   "bookingCalendarEventTitle": "{service} · {provider}",
   "@bookingCalendarEventTitle": {
@@ -3700,6 +3722,10 @@
   "@bookingStatusCancelled": {
     "description": "Booking status badge label — CANCELLED and DECLINED share one neutral label (the who-cancelled distinction was dropped by product decision 2026-07-15)."
   },
+  "bookingStatusUnknown": "Статус уточнюється",
+  "@bookingStatusUnknown": {
+    "description": "Booking status badge label — BookingStatus.unknown, a wire status this app build does not recognise. Deliberately says nothing about the appointment's state rather than guessing; the row stays visible and tappable but offers no actions."
+  },
   "bookingStatusSemantics": "Статус: {label}",
   "@bookingStatusSemantics": {
     "description": "Accessibility label for the booking status badge / hero medallion.",
@@ -3732,6 +3758,18 @@
     "placeholders": {
       "genitive": { "type": "String" }
     }
+  },
+  "bookingNoteHeadingClientWishes": "Побажання клієнта",
+  "@bookingNoteHeadingClientWishes": {
+    "description": "Heading over the client's booking-time note as the PROVIDER sees it on the booking detail screen — the client's words arriving, not the reader's own."
+  },
+  "bookingNoteHeadingClientReason": "Причина клієнта",
+  "@bookingNoteHeadingClientReason": {
+    "description": "Heading over the client's cancellation note as the PROVIDER sees it on the booking detail screen."
+  },
+  "bookingNoteHeadingYourComment": "Ваш коментар",
+  "@bookingNoteHeadingYourComment": {
+    "description": "Heading over the provider's own note (decline reason or no-show account) as the PROVIDER sees it on the booking detail screen."
   },
   "bookingNoteShowMore": "Показати більше",
   "@bookingNoteShowMore": {
@@ -4541,5 +4579,121 @@
   "professionalTitleMaxLength": "Не більше 100 символів",
   "@professionalTitleMaxLength": {
     "description": "Helper / counter note below the professional title field on the master edit screen."
+  },
+  "bookingDetailGuestClient": "Гість",
+  "@bookingDetailGuestClient": {
+    "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
+  },
+  "bookingDetailGuestBookingLabel": "Запис за посиланням",
+  "@bookingDetailGuestBookingLabel": {
+    "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
+  },
+  "masterBookingsTitle": "Мої записи",
+  "@masterBookingsTitle": {
+    "description": "Screen title of the independent master's own booking list (Phase 7.6). Distinct from the CLIENT «Мої записи» screen, whose strings live under the myBookings* namespace."
+  },
+  "masterBookingsCount": "{count, plural, one{{count} запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
+  "@masterBookingsCount": {
+    "description": "Count sub-heading above the master's booking timeline. Reflects the server's totalElements for the selected day — the whole filtered result set for that day.",
+    "placeholders": {
+      "count": { "type": "int", "example": "12" }
+    }
+  },
+  "masterBookingsDaySemantics": "{weekday} {day}",
+  "@masterBookingsDaySemantics": {
+    "description": "Accessibility label for one day cell in the master's booking day rail. {weekday} is the short Ukrainian weekday (e.g. 'Пн'); {day} is the day-of-month number.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Пн" },
+      "day": { "type": "int", "example": "14" }
+    }
+  },
+  "masterBookingCardSemantics": "{client}, {service}",
+  "@masterBookingCardSemantics": {
+    "description": "Accessibility label for one booking card in the master's list — the client who booked and the service they booked.",
+    "placeholders": {
+      "client": { "type": "String", "example": "Марія Іванюк" },
+      "service": { "type": "String", "example": "Манікюр з покриттям" }
+    }
+  },
+  "masterBookingsEmptyTitle": "Поки немає записів",
+  "@masterBookingsEmptyTitle": {
+    "description": "True-empty state title on the master's booking list — the master has no bookings at all and no filter is active."
+  },
+  "masterBookingsEmptyBody": "Майбутні та минулі записи зʼявляться тут.",
+  "@masterBookingsEmptyBody": {
+    "description": "True-empty state body on the master's booking list."
+  },
+  "masterBookingsNoResultsTitle": "Немає записів за цим фільтром",
+  "@masterBookingsNoResultsTitle": {
+    "description": "Filter-empty state title on the master's booking list — bookings exist, but none match the active day/period/status/service."
+  },
+  "masterBookingsNoResultsBody": "Спробуйте інший день, період чи фільтр — або поверніться до всіх записів.",
+  "@masterBookingsNoResultsBody": {
+    "description": "Filter-empty state body on the master's booking list."
+  },
+  "masterBookingsClearFilters": "Скинути фільтри",
+  "@masterBookingsClearFilters": {
+    "description": "The escape hatch on the master's filter-empty state — clears every filter so the master is never stranded on a blank list."
+  },
+  "bookingFilterSheetTitle": "Фільтри",
+  "@bookingFilterSheetTitle": {
+    "description": "Title of the filter bottom sheet on the master's «Мої записи» screen."
+  },
+  "bookingFilterButtonLabel": "Фільтри записів",
+  "@bookingFilterButtonLabel": {
+    "description": "Accessibility label for the filter button in the master's booking-list header."
+  },
+  "bookingFilterSectionStatus": "Статус",
+  "@bookingFilterSectionStatus": {
+    "description": "Filter-sheet section heading for the multi-select status rows."
+  },
+  "bookingFilterSectionService": "Послуга",
+  "@bookingFilterSectionService": {
+    "description": "Filter-sheet section heading for the multi-select service rows."
+  },
+  "bookingFilterReset": "Скинути фільтри",
+  "@bookingFilterReset": {
+    "description": "Link that clears every filter in the sheet's draft state, without applying. Verbatim from the approved design."
+  },
+  "bookingFilterResetSemantics": "Скинути всі фільтри",
+  "@bookingFilterResetSemantics": {
+    "description": "Accessibility label for the filter sheet's reset link."
+  },
+  "bookingFilterApply": "Застосувати",
+  "@bookingFilterApply": {
+    "description": "The filter sheet's confirm affordance — the only control that writes the draft onto the query. Verbatim from the approved design."
+  },
+  "bookingFilterApplySemantics": "Застосувати фільтри",
+  "@bookingFilterApplySemantics": {
+    "description": "Accessibility label for the filter sheet's apply button."
+  },
+  "bookingFilterActiveCount": "{count, plural, one{{count} фільтр} few{{count} фільтри} many{{count} фільтрів} other{{count} фільтрів}}",
+  "@bookingFilterActiveCount": {
+    "description": "Announced as the filter button's accessibility value when filters are active — the count of ACTIVE FILTER GROUPS (date / status / service), not the number of selected values.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "masterBookingsTimelineHourRulerSemantics": "Часова шкала запису",
+  "@masterBookingsTimelineHourRulerSemantics": {
+    "description": "Accessibility label for the master's «Мої записи» timeline hour ruler (Phase 7.10 TimelineHourRuler) — the column of hour marks beside the day's booking grid."
+  },
+  "masterBookingsTruncatedNotice": "Забагато записів за цей день — показано не всі. Зверніться до підтримки.",
+  "@masterBookingsTruncatedNotice": {
+    "description": "Persistent notice on the master's «Мої записи» timeline when BookingsDayState.isTruncated — the day reports more bookings than fit in one page (locked decision 2026-07-18: no multi-page loop, surface the overflow instead of silently dropping bookings). Genuinely reachable, not defensive: the backend enforces no minimum service duration, so a day CAN exceed the backend's 100-row page."
+  },
+  "bookingsDiscoveryBackSemantics": "Назад",
+  "@bookingsDiscoveryBackSemantics": {
+    "description": "Accessibility label for the shared BookingsDiscoveryView header's back arrow (Phase 7.11), shown only when a host passes a non-null onBack (never on the master's own bottom-nav-tab-root screen, which passes null)."
+  },
+  "masterBookingsAddSemantics": "Додати запис",
+  "@masterBookingsAddSemantics": {
+    "description": "Accessibility label for the master bookings header's '+' add-booking button (design-parity finding #6)."
+  },
+  "masterBookingsAddComingSoon": "Створення запису вручну з'явиться найближчим часом",
+  "@masterBookingsAddComingSoon": {
+    "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
   }
 }

@@ -55,16 +55,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   /// Boots an INDEPENDENT_MASTER on the empty Master-Schedule screen and PUSHES
   /// the weekly editor (push — so the editor's top-bar back `context.pop()`s
   /// back to the schedule screen, mirroring the real `_openTemplateEditor`
@@ -76,7 +66,7 @@ void main() {
 
     router.go(RouteNames.masterSchedule);
     await tester.pumpAndSettle(const Duration(seconds: 2));
-    expectLocation(router, RouteNames.masterSchedule);
+    AppHarness.expectLocation(router, RouteNames.masterSchedule);
 
     // Navigate to the editor via `go` (the canonical handle for this suite —
     // `push` does not stack reliably in the headless flutter-tester canvas). The
@@ -86,7 +76,7 @@ void main() {
     // Save" that lands on the schedule screen.
     router.go(RouteNames.scheduleWeeklyEditor);
     await tester.pumpAndSettle(const Duration(seconds: 2));
-    expectLocation(router, RouteNames.scheduleWeeklyEditor);
+    AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
     return router;
   }
 
@@ -165,7 +155,7 @@ void main() {
 
       // Leave via the top-bar BACK without pressing Save.
       await tapTopBarBack(tester);
-      expectLocation(router, RouteNames.masterSchedule);
+      AppHarness.expectLocation(router, RouteNames.masterSchedule);
 
       // (i) ZERO upserts fired — nothing was created.
       expect(
@@ -276,7 +266,7 @@ void main() {
 
     // The editor popped back to the schedule screen, which now renders the
     // ACTIVE calendar (the template card is present, not the empty body).
-    expectLocation(router, RouteNames.masterSchedule);
+    AppHarness.expectLocation(router, RouteNames.masterSchedule);
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(
       find.byKey(const Key('schedule-weekly-card')),
@@ -323,7 +313,7 @@ void main() {
     // The error renders under the period card near the top of the ListView;
     // enabling a day can scroll it out of the (lazy) viewport, so scroll the
     // period card back into view before asserting the error built.
-    expectLocation(router, RouteNames.scheduleWeeklyEditor);
+    AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
     await tester.scrollUntilVisible(
       find.byKey(const Key('weekly-active-window-card')),
       -120,
@@ -338,7 +328,7 @@ void main() {
 
     // (iii) Going back leaves the schedule screen empty — nothing materialised.
     await tapTopBarBack(tester);
-    expectLocation(router, RouteNames.masterSchedule);
+    AppHarness.expectLocation(router, RouteNames.masterSchedule);
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(
       find.byType(NoScheduleBanner),

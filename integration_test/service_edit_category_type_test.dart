@@ -48,16 +48,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   // Bounded pump — ServiceEditScreen contains a category picker whose loading
   // state shows an infinite CircularProgressIndicator (pumpAndSettle never
   // settles), plus a 1000ms entrance animation. 20 × 100ms = 2000ms covers both.
@@ -122,7 +112,7 @@ void main() {
       // Open the type-bearing service (NAILS + type belonging to NAILS).
       router.go(RouteNames.serviceEdit('assign-typed'));
       await pumpBounded(tester);
-      expectLocation(router, '/services/assign-typed/edit');
+      AppHarness.expectLocation(router, '/services/assign-typed/edit');
 
       // The loaded NAILS type labels the closed field on load.
       expect(
@@ -192,7 +182,7 @@ void main() {
             'the PATCH must carry the re-picked BROWS type, not the stale id',
       );
       // Successful save pops back to /services.
-      expectLocation(router, RouteNames.services);
+      AppHarness.expectLocation(router, RouteNames.services);
     },
     timeout: const Timeout(Duration(seconds: 40)),
   );
@@ -211,7 +201,7 @@ void main() {
       // returns the fieldless 400 mismatch envelope.
       router.go(RouteNames.serviceEdit('assign-mismatch'));
       await pumpBounded(tester);
-      expectLocation(router, '/services/assign-mismatch/edit');
+      AppHarness.expectLocation(router, '/services/assign-mismatch/edit');
 
       final AppLocalizations l10n = l10nFor(tester);
 
@@ -258,7 +248,7 @@ void main() {
       // The PATCH was attempted (the backend rejected it), and we stayed on the
       // edit screen so the master can fix the selection.
       expect(fb.patchServiceCalls, greaterThanOrEqualTo(1));
-      expectLocation(router, '/services/assign-mismatch/edit');
+      AppHarness.expectLocation(router, '/services/assign-mismatch/edit');
     },
     timeout: const Timeout(Duration(seconds: 40)),
   );

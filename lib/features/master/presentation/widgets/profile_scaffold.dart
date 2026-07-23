@@ -50,9 +50,25 @@ class ProfileScaffold extends StatelessWidget {
   /// Whether to show the back button in the top-left. Defaults to `true`.
   final bool showBack;
 
-  /// Optional bottom navigation bar rendered below the scrollable body,
-  /// outside the scroll area. Pass [VelvetBottomNavBar] here for the master
-  /// profile shell. When null, no bottom bar is rendered.
+  /// Optional bottom navigation bar. Pass [VelvetBottomNavBar] here for the
+  /// master profile shell. When null, no bottom bar is rendered.
+  ///
+  /// Hosted via the inner [Scaffold]'s own `bottomNavigationBar` slot — NOT
+  /// as the last child of the body [Column] — so it mounts identically to
+  /// every other master "tab" screen (`ServicesListScreen`,
+  /// `MasterBookingsScreen`, `MasterScheduleScreen`), all of which pass
+  /// [VelvetBottomNavBar] to their own `Scaffold.bottomNavigationBar`. This
+  /// matters for more than tidiness: `Scaffold` only zeroes the bottom
+  /// [MediaQuery] padding it hands to `body` when `bottomNavigationBar` is
+  /// non-null (see `Scaffold.build`'s `removeBottomPadding` wiring), so the
+  /// bar's own internal `SafeArea(top: false)` is the ONE place the device's
+  /// real bottom inset gets consumed. Nesting the bar inside the body's own
+  /// outer `SafeArea` instead (the previous shape here) let that outer
+  /// `SafeArea` strip the inset before the bar ever saw it, so this screen
+  /// rendered a shorter, differently-positioned bar than the ones hosted via
+  /// `bottomNavigationBar` directly — invisible at the default zero-inset
+  /// `MediaQueryData` widget tests run under, but a visible seam-jump on any
+  /// real device with a gesture-nav home indicator.
   final Widget? bottomNavBar;
 
   /// When non-null, the scrollable body is wrapped in an [AppRefreshIndicator].
@@ -77,13 +93,12 @@ class ProfileScaffold extends StatelessWidget {
             // from being rasterized again during animation frames driven by the
             // entrance stagger — only the scrollable body layer is repainted.
             Expanded(child: RepaintBoundary(child: _buildScrollable(child))),
-            // Bottom navigation bar — rendered outside the scroll area so it
-            // always sits at the bottom of the screen. Null-safe: omitted when
-            // [bottomNavBar] is not provided.
-            ?bottomNavBar,
           ],
         ),
       ),
+      // Scaffold's own slot — see the [bottomNavBar] doc comment for why this
+      // must NOT be a trailing child of the body's Column/SafeArea above.
+      bottomNavigationBar: bottomNavBar,
     );
   }
 

@@ -32,6 +32,7 @@ import 'package:beautica_api/src/model/api_response_list_catalog_category_respon
 import 'package:beautica_api/src/model/api_response_list_city_district_response.dart';
 import 'package:beautica_api/src/model/api_response_list_city_response.dart';
 import 'package:beautica_api/src/model/api_response_list_effective_day_response.dart';
+import 'package:beautica_api/src/model/api_response_list_local_date.dart';
 import 'package:beautica_api/src/model/api_response_list_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
@@ -221,6 +222,7 @@ part 'serializers.g.dart';
   ApiResponseListCityDistrictResponse,
   ApiResponseListCityResponse,
   ApiResponseListEffectiveDayResponse,
+  ApiResponseListLocalDate,
   ApiResponseListMasterServiceResponse,
   ApiResponseListMasterWorkingDayResponse,
   ApiResponseListOblastResponse,
@@ -397,6 +399,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(WorkingHoursRequest)]),
         () => ListBuilder<WorkingHoursRequest>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(String)]),
+        () => ListBuilder<String>(),
       )
       ..add(const OneOfSerializer())
       ..add(const AnyOfSerializer())

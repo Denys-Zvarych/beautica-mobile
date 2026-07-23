@@ -233,6 +233,37 @@ abstract final class RouteNames {
   // Phase 4.2 — Master profile (read-only).
   static const String masterProfile = '/master/profile';
 
+  /// Phase 7.6 — the independent master's «Мої записи», the destination of the
+  /// master bottom-nav tab at index 1 (which had no route until this phase).
+  ///
+  /// ## Deliberately NOT [clientBookings] (`/bookings`)
+  ///
+  /// `/bookings` is the CLIENT «Мої записи» (Phase 14.3). It lives inside the
+  /// client `StatefulShellRoute` branch and is gated CLIENT-only by
+  /// `authRedirect`'s prefix rules — sending a master there would put them
+  /// inside the client shell (client bottom nav, client guard) looking at a
+  /// list built from the client's own query. The two screens share a NAME and
+  /// nothing else: different provider, different query object, different card,
+  /// different perspective.
+  static const String masterBookings = '/master/bookings';
+
+  /// Phase 7.2 — the provider view of one booking, pushed from a
+  /// [masterBookings] card tap.
+  ///
+  /// A CHILD of [masterBookings], so it pushes onto the master's own stack and
+  /// pops back to the still-scrolled list. It resolves to the SAME
+  /// `BookingDetailScreen` as [bookingDetail] — one screen, role-branched
+  /// (locked decision D5) — but it must keep its own path for the same
+  /// shell/guard reason [masterBookings] does.
+  ///
+  /// Navigate with `context.push`. Note the go_router gotcha: a pushed route
+  /// yields an `ImperativeRouteMatch` that go_router drops from
+  /// `currentConfiguration.fullPath`, so this path reads as its PARENT
+  /// (`/master/bookings`) to any nav-detection logic — inspect
+  /// `leaf.matches.fullPath` instead.
+  static String masterBookingDetail(String bookingId) =>
+      '$masterBookings/${Uri.encodeComponent(bookingId)}';
+
   // Master profile settings hub (INDEPENDENT_MASTER). Pushed from the profile
   // screen's top-right menu icon. Lists edit sections, each pushing its own
   // dedicated page; the terminal logout row raises the logout confirm dialog.

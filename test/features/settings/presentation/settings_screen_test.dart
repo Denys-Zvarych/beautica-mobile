@@ -134,16 +134,53 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // WHAT CHANGED (2026-07-22 vacuous-assertion audit)
+      // -------------------------------------------------
+      // This test used to read `row.initialValue` BEFORE the tap and then
+      // assert only that the switch widget still existed AFTER it.
+      // `initialValue` is a constructor parameter, not live state — it cannot
+      // change — so the whole test passed with a completely no-op `onChanged`.
+      // A test named "flips its local state" verified no flip at all.
+      //
+      // The switch is `_NeumorphicSwitch` (private, so unreachable by type) and
+      // is NOT a Material `Switch`, so there is no `Switch.value` to read. The
+      // live state IS exposed as the `Semantics(toggled: _on)` wrapper on
+      // SettingsToggleRow — the same signal a screen reader consumes — so the
+      // assertion reads that, before and after.
+      //
+      // MUTATION-VERIFIED: replacing `_NeumorphicSwitch.onChanged` with a no-op
+      // in lib/features/master/presentation/widgets/settings_row.dart turns
+      // this test red. Restored immediately; not committed.
+      // Disposed inline at the end of the body, NOT via addTearDown —
+      // flutter_test's end-of-test semantics-handle verification runs BEFORE
+      // tearDown callbacks and would fail the test.
+      final SemanticsHandle handle = tester.ensureSemantics();
+
       final toggle = find.byKey(const Key('row-notifications'));
       expect(toggle, findsOneWidget);
-      // Initial state is ON (semantics toggled true).
-      SettingsToggleRow row = tester.widget(toggle);
-      expect(row.initialValue, isTrue);
 
-      // Tap the switch and confirm it does not throw / rebuild cleanly.
+      // Initial state is ON.
+      expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+
       await tester.tap(find.byKey(const Key('switch-notifications')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('switch-notifications')), findsOneWidget);
+
+      // The observable toggle state must actually have flipped.
+      expect(
+        tester.getSemantics(toggle),
+        isSemantics(isToggled: false),
+        reason:
+            'tapping switch-notifications must flip the row\'s toggled state; '
+            'a no-op onChanged must not pass this test',
+      );
+
+      // And back again — pins that the flip is a real toggle, not a one-way
+      // latch that happens to satisfy the assertion above.
+      await tester.tap(find.byKey(const Key('switch-notifications')));
+      await tester.pumpAndSettle();
+      expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+
+      handle.dispose();
     });
 
     // Beautica OTP task Phase B5 -----------------------------------------------

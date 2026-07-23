@@ -54,16 +54,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   testWidgets(
     'CLIENT opens a salon profile → Послуги → taps a service → the Майстри tab '
     'narrows to only the performing master (real coverage fan-out) → clearing '
@@ -82,7 +72,7 @@ void main() {
         // fixed-wait-ok: settles the route-push + parallel masters-rail reads.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
-        expectLocation(router, '/salons/salon-xyz');
+        AppHarness.expectLocation(router, '/salons/salon-xyz');
         expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
         expect(find.byKey(const Key('salon-profile-name')), findsOneWidget);
 

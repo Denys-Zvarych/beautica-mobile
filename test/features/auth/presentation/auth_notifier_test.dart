@@ -41,6 +41,7 @@ import 'package:beautica_mobile/features/auth/domain/register_result.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -53,6 +54,13 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 class MockAuthRepository extends Mock implements AuthRepository {}
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
+
+/// Spy [DayKeepAliveLru] for the session-boundary-PII logout test below —
+/// records whether [clear] was actually invoked by the REAL
+/// `AuthNotifier.logout()` rather than exercising the real LRU's own
+/// eviction bookkeeping (already covered by `bookings_day_notifier_test
+/// .dart`).
+class _SpyDayKeepAliveLru extends Mock implements DayKeepAliveLru {}
 
 /// Spy [SecureStorage] for the M5 logout-wipe group.
 ///
@@ -499,6 +507,90 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 5a3 — mobile-qa gap-fix (session-boundary PII, mobile-security
+    // HIGH, 2026-07-19): logout() must call `dayKeepAliveLruProvider.clear()`
+    // — the defence-in-depth half of the fix (layer (b)).
+    //
+    // `bookings_day_notifier_test.dart`'s own session-boundary group already
+    // covers `BookingsDayNotifier.build`'s `authProvider`-id watch (layer
+    // (a)) and exercises `DayKeepAliveLru.clear()` directly (layer (b)) —
+    // but that second test calls `clear()` on the container itself, which
+    // its own comment admits is only "the exact call `AuthNotifier.logout`
+    // makes," not a call THROUGH `logout()`. Nothing in the suite pinned the
+    // real wiring at `auth_notifier.dart:863`'s
+    // `ref.read(dayKeepAliveLruProvider).clear()` call site — a refactor
+    // dropping it would go undetected.
+    //
+    // WHY THIS IS AN INTERACTION TEST, NOT AN OUTCOME TEST — an important
+    // finding from building this test, recorded so nobody "fixes" it back to
+    // an outcome assertion later:
+    //
+    // The obvious design would build a real `bookingsDayProvider(query)`
+    // member, close its active listener so it's pinned ONLY by the bounded
+    // keepAlive cache, call the REAL `logout()`, and then assert via
+    // `container.exists(bookingsDayProvider(query))` that the member is
+    // gone — WITHOUT ever re-reading it (a re-read would let layer (a)'s own
+    // lazy-rebuild-on-read cascade explain a pass on its own).
+    //
+    // That design was built and mutation-tested — and it does NOT isolate
+    // layer (b). Reading Riverpod 3.2.1's own source
+    // (`package:riverpod/src/core/element.dart`) shows `invalidateSelf()` —
+    // the exact call layer (a)'s `authProvider.select` watch triggers when
+    // the id changes — UNCONDITIONALLY calls `runOnDispose()` (which clears
+    // ANY held `KeepAliveLink`s on that element, regardless of who created
+    // them) followed immediately by `mayNeedDispose()` (which schedules
+    // disposal once there are zero links AND zero active listeners). For a
+    // member with no active listener, this means layer (a) ALONE already
+    // tears down the keepAlive link and schedules disposal, synchronously,
+    // the moment the session flips — before layer (b)'s `clear()` call
+    // would even run. Deleting the `clear()` call at `auth_notifier.dart:863`
+    // and re-running the `exists()`-based version of this test left it GREEN
+    // — it did not discriminate (a) from (b) at all, exactly the trap this
+    // audit was asked to check for.
+    //
+    // So instead of asserting an outcome that (a) can produce on its own,
+    // this test verifies the INTERACTION directly: `dayKeepAliveLruProvider`
+    // is overridden with a spy, `logout()` is called for real, and the
+    // assertion is simply that `.clear()` was invoked on it. This pins the
+    // `auth_notifier.dart:863` call site itself, independent of whatever
+    // Riverpod's internal disposal timing happens to do — the one thing an
+    // outcome-based test in this framework version cannot do.
+    test("logout() calls dayKeepAliveLruProvider.clear() — the auth-notifier "
+        'side of the session-boundary PII fix (mobile-security HIGH, '
+        '2026-07-19)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final lruSpy = _SpyDayKeepAliveLru();
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+      when(() => lruSpy.clear()).thenReturn(null);
+
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          dayKeepAliveLruProvider.overrideWithValue(lruSpy),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Cold start settles to Authenticated (matches the M5 groups above).
+      await container.read(authProvider.future);
+
+      verifyNever(() => lruSpy.clear());
+
+      // The REAL logout() — not a hand-rolled equivalent.
+      await container.read(authProvider.notifier).logout();
+
+      verify(() => lruSpy.clear()).called(1);
+    });
 
     // -----------------------------------------------------------------------
     // Test 5b — Logout cascades teardown to servicesListProvider (keepAlive)

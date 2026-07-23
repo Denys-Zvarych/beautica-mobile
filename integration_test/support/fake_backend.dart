@@ -82,7 +82,44 @@ import 'package:http_mock_adapter/http_mock_adapter.dart';
 ///
 /// Inject this into the harness via:
 ///   `clockProvider.overrideWithValue(() => kFixedNow)`
+///
+// This literal IS the injected clock, not a booking fixture. It is fixed BY
+// DESIGN — every E2E flow's date arithmetic is deterministic precisely because
+// "now" does not move. It never reaches `BookingDisplayX.isPast` (which
+// deliberately reads the real device clock, not `clockProvider`), so it cannot
+// become a stale-upcoming time bomb. Making it now-relative would destroy the
+// determinism it exists to provide.
+// future-date-ok: the injected fixed clock itself — see the note above.
 final DateTime kFixedNow = DateTime.utc(2026, 6, 14, 12, 0, 0);
+
+/// The REAL device clock, captured once per process, as the anchor for every
+/// "upcoming booking" fixture instant.
+///
+/// [kFixedNow] cannot serve that role: it is injected through `clockProvider`,
+/// which the app's own presentation logic honours, but `BookingDisplayX.isPast`
+/// deliberately compares `endAt` against `DateTime.now()` — the DEVICE instant,
+/// not the injected one, because it is a presentation-only "has this slot
+/// already passed" signal. So a fixture that must read as UPCOMING has to be in
+/// the future of the REAL clock. Captured once so `bookingStartsAt` and
+/// `bookingEndsAt` cannot drift apart across two separate `now()` reads.
+/// TIME-OF-DAY IS PINNED, ONLY THE DATE ROLLS. The anchor is 15:00 UTC on a
+/// future DATE — the exact wall-clock the retired `'2026-07-20T15:00:00Z'`
+/// literal used, so nothing downstream changes except that the date can no
+/// longer expire. A bare `DateTime.now()` anchor would have made the fixture's
+/// time-of-day depend on when the suite happens to run, and a late-evening run
+/// would push the 90-minute booking across midnight — quietly breaking the
+/// day-scoped `from == to` assertions in `master_bookings_flow_test.dart`,
+/// which is a worse failure mode than the bomb it replaces.
+final DateTime _kFixtureDay = () {
+  final DateTime now = DateTime.now().toUtc();
+  return DateTime.utc(now.year, now.month, now.day, 15);
+}();
+
+/// An ISO-8601 UTC instant [offset] past [_kFixtureDay] — the now-relative
+/// replacement for hand-rolled absolute future literals. See
+/// [FakeBackend.bookingStartsAt] for the incident this prevents.
+String _futureInstant(Duration offset) =>
+    _kFixtureDay.add(offset).toIso8601String();
 
 // ---------------------------------------------------------------------------
 // Fixture personas (stable across the full test suite)
@@ -1712,8 +1749,48 @@ final class FakeBackend {
   /// moves the booking to a new time and a subsequent detail / My-Bookings
   /// re-fetch reflects it. The 90-minute span mirrors the booked service
   /// (`pub-assign-1`, `effectiveDurationMinutes: 90`).
-  String bookingStartsAt = '2026-07-20T15:00:00Z';
-  String bookingEndsAt = '2026-07-20T16:30:00Z';
+  ///
+  /// ⚠ NOW-RELATIVE ON PURPOSE — DO NOT PIN THESE BACK TO AN ABSOLUTE LITERAL.
+  /// They used to read `'2026-07-20T15:00:00Z'`, i.e. the SAME expired instant
+  /// that caused the 2026-07-20 booking-detail incident
+  /// (`scripts/forbid_stale_future_date_fixture.sh` was written for it, but it
+  /// only scans `test/features/booking/` — `integration_test/` was outside its
+  /// reach, so this copy of the bomb survived and went off silently on
+  /// 2026-07-20). `BookingDisplayX.isPast` compares against the REAL device
+  /// clock (`DateTime.now()`), NOT the harness's `clockProvider` override, so
+  /// once that instant passed, the seeded CONFIRMED booking started reading as
+  /// ELAPSED: «Деталі запису» drops add-to-calendar, «Перенести» and
+  /// «Скасувати запис» and offers «Записатись знову» instead. Every flow
+  /// asserting a CONFIRMED affordance therefore fails on a DATE rather than on
+  /// a code change.
+  ///
+  /// Anchored a week out from `DateTime.now()` instead — the same fix
+  /// `test/helpers/booking_fixture_dates.dart`'s `futureBookingStart()` applies
+  /// on the widget tier. A flow that needs an ELAPSED booking still overrides
+  /// both fields explicitly (see `client_elapsed_booking_readonly_flow_test`),
+  /// and every consumer derives its expected date from these fields rather
+  /// than re-typing one, so nothing is coupled to the literal.
+  String bookingStartsAt = _futureInstant(const Duration(days: 7));
+  String bookingEndsAt = _futureInstant(const Duration(days: 7, minutes: 90));
+
+  /// The seeded booking's frozen price pair, exactly as the backend emits it:
+  /// `priceAtBooking` is the floor, `priceMaxAtBooking` the RANGE ceiling.
+  ///
+  /// [bookingPriceMax] defaults to `null`, which is NOT a missing value — the
+  /// backend sets the ceiling only when the master genuinely left the service
+  /// as a `RANGE` at booking time, so null means "this booking has one price"
+  /// and every other flow in the suite keeps rendering «650 ₴» exactly as
+  /// before. A flow that wants the band seeds both (see
+  /// `booking_price_band_flow_test.dart`).
+  ///
+  /// NOTE: the `priceMaxAtBooking` key is now ALWAYS emitted, with an explicit
+  /// `null` when unset — that is what the real endpoint puts on the wire, and
+  /// the generated deserializer's `if (valueDes == null) continue;` treats an
+  /// explicit null and an absent key identically. Emitting it unconditionally
+  /// means the suite exercises the real payload shape rather than a
+  /// pre-contract one.
+  num bookingPrice = 650;
+  num? bookingPriceMax;
 
   /// `PATCH /bookings/{id}/cancel` call count + the last comment sent.
   int cancelBookingCalls = 0;
@@ -1733,12 +1810,26 @@ final class FakeBackend {
   int getBookingDetailCalls = 0;
   int getMyBookingsCalls = 0;
 
+  /// `GET /bookings/me/booked-days` call count (Phase 7.6 day rail).
+  int bookedDaysCalls = 0;
+
   /// The FULL raw query map (page/size/sort/status, as Dio actually sent it —
   /// ints stay ints, the repeated `status` stays a `List<String>`) of the
   /// MOST RECENT `GET /bookings/me` call. Mobile-qa pagination/sort flow
   /// (Step 2.7 Rule 3b) — lets a test pin the exact `sort=startsAt,<asc|desc>`
   /// wire value per tab at the HTTP boundary, not just the mapped domain
   /// argument the unit suite already covers.
+  ///
+  /// Populated UNCONDITIONALLY by the `/bookings/me` route callback itself —
+  /// on EVERY hit, whether or not [seedManyBookingsDataset] was ever called.
+  /// It used to be assigned only inside [_slicedBookingsPageEnvelope] (the
+  /// opt-in dataset branch), so any flow that never seeds a dataset — e.g.
+  /// `master_bookings_flow_test.dart` — left this `null` forever even though
+  /// the request genuinely reached the fake and the screen rendered real
+  /// data from [_bookingsPageEnvelope]. A `last*Query` telemetry field that
+  /// only populates on one opt-in code path is a silent-null footgun: do NOT
+  /// move this assignment back into a status-specific branch — keep it at
+  /// the top of the shared route callback, before any dispatch.
   Map<String, dynamic>? lastMyBookingsQuery;
 
   /// The enriched `BookingDetailResponse` body for the seeded booking, built
@@ -1752,6 +1843,14 @@ final class FakeBackend {
     'masterAvatarUrl': null,
     'masterType': 'INDEPENDENT_MASTER',
     'salonName': null,
+    // Phase 7.2 — the counterparty as the PROVIDER sees it. Seeded from the
+    // same [clientFirstName]/[clientLastName] the `/users/me` handler serves,
+    // so the master's booking detail shows the client whose session the client
+    // flows drive; a divergence here would let the provider-view flow pass
+    // against a name no other surface uses.
+    'clientId': 'client-1',
+    'clientFirstName': clientFirstName,
+    'clientLastName': clientLastName,
     // The booked service's id MUST match one of `master-aaa`'s PUBLIC
     // catalogue services (`_publicMasterServices`) so the reschedule helper
     // (`startBookingReschedule`) can resolve the booked `MasterService` by id
@@ -1765,7 +1864,8 @@ final class FakeBackend {
     'street': 'вул. Хрещатик',
     'buildingNo': '12',
     'durationMinutesAtBooking': 90,
-    'priceAtBooking': 650,
+    'priceAtBooking': bookingPrice,
+    'priceMaxAtBooking': bookingPriceMax,
     'startsAt': bookingStartsAt,
     'endsAt': bookingEndsAt,
     'status': bookingStatus,
@@ -1780,8 +1880,20 @@ final class FakeBackend {
   /// The `ApiResponse<PageResponse<BookingDetailResponse>>` envelope for the
   /// seeded booking, returned ONLY for the status matching its current
   /// [bookingStatus]; every other status filter returns an empty page.
-  Map<String, dynamic> _bookingsPageEnvelope(String? statusFilter) {
-    final bool matches = statusFilter == null || statusFilter == bookingStatus;
+  ///
+  /// [statusFilter] is the parsed repeated-`status` param, NOT a raw scalar —
+  /// see [_bookingStatusesFrom]. It must stay list-shaped: `getMyBookings`
+  /// sends its `Set<BookingStatus>` with Dio's `ListFormat.multi`, so
+  /// `queryParameters['status']` arrives as a `List` even for a single value.
+  /// This branch used to read it as `query['status'] as String?`, which THREW
+  /// a `TypeError` inside the route callback for every request the client
+  /// actually makes — the failure surfaced as a repeatedly-retried empty list
+  /// rather than as an error, so it read like "no bookings" instead of like a
+  /// broken fake. The dataset branch ([_slicedBookingsPageEnvelope]) already
+  /// parsed it correctly; only this one did not.
+  Map<String, dynamic> _bookingsPageEnvelope(List<String>? statusFilter) {
+    final bool matches =
+        statusFilter == null || statusFilter.contains(bookingStatus);
     final List<Map<String, dynamic>> rows = matches
         ? <Map<String, dynamic>>[_seededBookingJson()]
         : <Map<String, dynamic>>[];
@@ -1849,7 +1961,10 @@ final class FakeBackend {
     'street': 'вул. Хрещатик',
     'buildingNo': '12',
     'durationMinutesAtBooking': duration.inMinutes,
-    'priceAtBooking': 650,
+    'priceAtBooking': bookingPrice,
+    // Same contract as [_seededBookingJson]: always present, null unless the
+    // flow seeded a genuine RANGE.
+    'priceMaxAtBooking': bookingPriceMax,
     'startsAt': startsAt.toIso8601String(),
     'endsAt': startsAt.add(duration).toIso8601String(),
     'status': status,
@@ -1902,11 +2017,10 @@ final class FakeBackend {
   /// `sort` is ABSENT, mirroring the real endpoint's actual default (the
   /// precise gap Bug B exploited: no `sort` sent → server default
   /// `startsAt,DESC` → farthest-future page 0) — then slices out
-  /// `[page*size, page*size+size)`. Also records [lastMyBookingsQuery] for
-  /// tests that want to pin the exact wire query.
+  /// `[page*size, page*size+size)`. [lastMyBookingsQuery] is recorded by the
+  /// caller (the shared `/bookings/me` route callback), not here — see that
+  /// field's doc comment for why it must stay unconditional.
   Map<String, dynamic> _slicedBookingsPageEnvelope(Map<String, dynamic> query) {
-    lastMyBookingsQuery = Map<String, dynamic>.from(query);
-
     final List<Map<String, dynamic>> dataset = _bookingsDataset!;
     final List<String>? statuses = _bookingStatusesFrom(query);
     final String sort = (query['sort'] as String?) ?? 'startsAt,desc';
@@ -3132,6 +3246,29 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.delete),
     );
 
+    // GET /api/v1/bookings/me/booked-days?from=&to= — the dot set behind the
+    // master's «Мої записи» day rail (backend Phase 26.5). Registered BEFORE
+    // `/api/v1/bookings/me` deliberately: DioAdapter matches on the path, and
+    // the longer path must get first refusal.
+    //
+    // Returns the seeded booking's own day, so the rail auto-centres on real
+    // content rather than on `today − 180`. `bookedDaysCalls` lets a flow prove
+    // the rail is fed by this FILTER-INDEPENDENT endpoint and not by the
+    // (filtered) list — the invariant `master_bookings_screen_test.dart` pins
+    // at the widget tier.
+    _adapter.onRoute(
+      '/api/v1/bookings/me/booked-days',
+      (server) => server.replyCallback(200, (_) {
+        bookedDaysCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String>[bookingStartsAt.substring(0, 10)],
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // GET /api/v1/bookings/me?status=&sort=&page=&size= — the client's «МОЇ
     // ЗАПИСИ» list. DioAdapter matches path-only, so the single handler
     // dispatches on whether a full [_bookingsDataset] has been seeded: when
@@ -3139,18 +3276,24 @@ final class FakeBackend {
     // served by the REAL (statuses, sort, page) slice in
     // [_slicedBookingsPageEnvelope]; otherwise (every other flow using this
     // fake) it falls back to the original single-seeded-`booking-1` behaviour
-    // keyed off the current status.
+    // keyed off the current status. [lastMyBookingsQuery] is recorded here,
+    // UNCONDITIONALLY, before the dataset dispatch — see that field's doc
+    // comment for why it must never move back behind the dataset check.
     _adapter.onRoute(
       '/api/v1/bookings/me',
       (server) => server.replyCallback(200, (req) {
         getMyBookingsCalls++;
+        lastMyBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
         if (_bookingsDataset != null) {
           return _slicedBookingsPageEnvelope(
             Map<String, dynamic>.from(req.queryParameters),
           );
         }
-        final String? status = req.queryParameters['status'] as String?;
-        return _bookingsPageEnvelope(status);
+        // Parsed with the SAME list-aware reader the dataset branch uses — a
+        // bare `as String?` cast throws here (see [_bookingsPageEnvelope]).
+        return _bookingsPageEnvelope(
+          _bookingStatusesFrom(Map<String, dynamic>.from(req.queryParameters)),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );

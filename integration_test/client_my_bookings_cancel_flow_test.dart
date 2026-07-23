@@ -57,16 +57,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router at $expected, got $current',
-    );
-  }
-
   AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
       AppLocalizations.of(tester.element(find.byType(screen)));
 
@@ -85,7 +75,12 @@ void main() {
       // ── 1. Open the Записи branch (bottom-nav tile 3). ────────────────────
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.clientBookings);
+      // Branch SWITCH (not a push) — the shell's own match list moves, so the
+      // router location is genuinely readable here. Goes through
+      // `AppHarness.expectLocation` rather than a local reader so the
+      // ImperativeRouteMatch unwrapping stays in one place
+      // (`scripts/forbid_naive_router_location.sh` gates the naive form).
+      AppHarness.expectLocation(router, RouteNames.clientBookings);
       expect(find.byType(MyBookingsScreen), findsOneWidget);
 
       // ── 2. Auto-confirm: the booking is visible immediately in Майбутні. ──
@@ -119,7 +114,24 @@ void main() {
       // ── 3. Open «Деталі запису». ──────────────────────────────────────────
       await tester.tap(find.byType(BookingCard));
       await AppHarness.settle(tester);
-      expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      // NAVIGATION IS ASSERTED BY SCREEN, NOT BY ROUTE STRING — deliberately,
+      // and this used to be the opposite. «Деталі запису» is pushed with
+      // `context.push` from INSIDE the client `StatefulShellRoute` branch, so
+      // the push lands on that branch's own nested Navigator: go_router
+      // excludes `ImperativeRouteMatch` entries from `RouteMatchList.uri` /
+      // `.fullPath`, and `currentConfiguration.matches` still holds exactly one
+      // top-level entry — the branch root «/bookings». The assertion that stood
+      // here (`…currentConfiguration.uri` startsWith «/bookings/booking-1»)
+      // therefore CANNOT hold while the detail screen is genuinely mounted; it
+      // was measured reporting «/bookings». `AppHarness.location` does not
+      // rescue it either — that helper unwraps a TOP-LEVEL
+      // ImperativeRouteMatch, and there is none here.
+      //
+      // The mounted screen is the fact this step actually needs, so assert it
+      // directly (same treatment, same reason, as
+      // `booking_price_band_flow_test.dart`). The route STRING for this push is
+      // owned by the widget tier, which can observe the pushed leaf via
+      // `leaf.matches.fullPath`.
       expect(find.byType(BookingDetailScreen), findsOneWidget);
 
       // Feature B — the bottom nav is SUPPRESSED on the booking-detail route

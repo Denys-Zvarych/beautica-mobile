@@ -18,6 +18,7 @@ import 'package:beautica_api/beautica_api.dart'
     show CreateBookingRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:built_collection/built_collection.dart';
@@ -925,6 +926,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<Map<String, dynamic>>(
@@ -935,8 +937,8 @@ void main() {
       );
 
       final page = await repository.getMyBookings(
-        statuses: const <BookingStatus>{BookingStatus.pending},
-        ascending: false,
+        statuses: const <BookingStatus>{BookingStatus.confirmed},
+        sort: BookingSort.newest,
         page: 0,
       );
 
@@ -952,14 +954,56 @@ void main() {
                 () => dio.get<Map<String, dynamic>>(
                   _myBookingsPath,
                   queryParameters: captureAny(named: 'queryParameters'),
+                  cancelToken: any(named: 'cancelToken'),
                 ),
               ).captured.single
               as Map<String, dynamic>;
       expect(captured['page'], 0);
       expect(captured['size'], kBookingsPageSize);
-      expect(captured['status'], <String>['PENDING']);
+      expect(captured['status'], <String>['CONFIRMED']);
       expect(captured['sort'], 'startsAt,desc');
     });
+
+    test(
+      'mobile-perf MEDIUM-3 (2026-07-20): a supplied cancelToken reaches the '
+      'underlying dio.get call UNCHANGED — an abandoned rail-scrub request '
+      'must actually be abortable, not silently dropped on the floor',
+      () async {
+        final envelope = _serializeMyBookingsEnvelope(const []);
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        final CancelToken token = CancelToken();
+        await repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          sort: BookingSort.newest,
+          page: 0,
+          cancelToken: token,
+        );
+
+        final captured =
+            verify(
+                  () => dio.get<Map<String, dynamic>>(
+                    _myBookingsPath,
+                    queryParameters: any(named: 'queryParameters'),
+                    cancelToken: captureAny(named: 'cancelToken'),
+                  ),
+                ).captured.single
+                as CancelToken?;
+        expect(captured, same(token));
+      },
+    );
 
     test(
       'multiple statuses are sent as a repeated status list, not a single '
@@ -970,6 +1014,7 @@ void main() {
           () => dio.get<Map<String, dynamic>>(
             _myBookingsPath,
             queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
           ),
         ).thenAnswer(
           (_) async => Response<Map<String, dynamic>>(
@@ -984,7 +1029,7 @@ void main() {
             BookingStatus.completed,
             BookingStatus.notCompleted,
           },
-          ascending: false,
+          sort: BookingSort.newest,
           page: 0,
         );
 
@@ -993,6 +1038,7 @@ void main() {
                   () => dio.get<Map<String, dynamic>>(
                     _myBookingsPath,
                     queryParameters: captureAny(named: 'queryParameters'),
+                    cancelToken: any(named: 'cancelToken'),
                   ),
                 ).captured.single
                 as Map<String, dynamic>;
@@ -1004,13 +1050,14 @@ void main() {
     );
 
     test(
-      'ascending true renders sort=startsAt,asc (Майбутні — soonest-first)',
+      'BookingSort.oldest renders sort=startsAt,asc (Майбутні — soonest-first)',
       (() async {
         final envelope = _serializeMyBookingsEnvelope(const []);
         when(
           () => dio.get<Map<String, dynamic>>(
             _myBookingsPath,
             queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
           ),
         ).thenAnswer(
           (_) async => Response<Map<String, dynamic>>(
@@ -1022,7 +1069,7 @@ void main() {
 
         await repository.getMyBookings(
           statuses: const <BookingStatus>{BookingStatus.confirmed},
-          ascending: true,
+          sort: BookingSort.oldest,
           page: 0,
         );
 
@@ -1031,6 +1078,7 @@ void main() {
                   () => dio.get<Map<String, dynamic>>(
                     _myBookingsPath,
                     queryParameters: captureAny(named: 'queryParameters'),
+                    cancelToken: any(named: 'cancelToken'),
                   ),
                 ).captured.single
                 as Map<String, dynamic>;
@@ -1044,6 +1092,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<Map<String, dynamic>>(
@@ -1055,7 +1104,7 @@ void main() {
 
       final page = await repository.getMyBookings(
         statuses: const <BookingStatus>{},
-        ascending: false,
+        sort: BookingSort.newest,
         page: 0,
       );
       expect(page.items, isEmpty);
@@ -1065,6 +1114,7 @@ void main() {
                 () => dio.get<Map<String, dynamic>>(
                   _myBookingsPath,
                   queryParameters: captureAny(named: 'queryParameters'),
+                  cancelToken: any(named: 'cancelToken'),
                 ),
               ).captured.single
               as Map<String, dynamic>;
@@ -1078,13 +1128,14 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenThrow(_dioConnectionError(_myBookingsPath));
 
       await expectLater(
         repository.getMyBookings(
           statuses: const <BookingStatus>{},
-          ascending: false,
+          sort: BookingSort.newest,
           page: 0,
         ),
         throwsA(isA<NetworkFailure>()),
@@ -1113,6 +1164,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<Map<String, dynamic>>(
@@ -1125,7 +1177,7 @@ void main() {
       await expectLater(
         repository.getMyBookings(
           statuses: const <BookingStatus>{},
-          ascending: false,
+          sort: BookingSort.newest,
           page: 0,
         ),
         throwsA(isA<UnknownFailure>()),
@@ -1138,6 +1190,7 @@ void main() {
         () => dio.get<Map<String, dynamic>>(
           _myBookingsPath,
           queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenThrow(
         DioException(
@@ -1150,7 +1203,7 @@ void main() {
       await expectLater(
         repository.getMyBookings(
           statuses: const <BookingStatus>{},
-          ascending: false,
+          sort: BookingSort.newest,
           page: 0,
         ),
         throwsA(same(mapped)),

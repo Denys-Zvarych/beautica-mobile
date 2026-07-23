@@ -14,9 +14,19 @@
 //
 // That assert fires ONLY in debug builds. Unit/widget tests that override
 // authProvider with a stub do NOT reproduce it because the stub has no real
-// masterProfile→authProvider back-edge. `integration_test/` runs in a DEBUG
-// build AND drives the REAL provider graph, so it is the only tier that
-// reproduces — and now regression-guards — the cyclic-invalidation bug.
+// masterProfile→authProvider back-edge. `flutter test integration_test/` runs
+// in a DEBUG build AND drives the REAL provider graph, so it is the only tier
+// that reproduces — and now regression-guards — the cyclic-invalidation bug.
+//
+// CAVEAT — THE PROFILE DRIVE DOES NOT RE-GUARD THIS (noted 2026-07-22). This
+// same file is ALSO run by the `integration-profile` CI job via
+// `flutter drive --profile`, where asserts are STRIPPED. There,
+// `_debugAssertCanDependOn` cannot fire at all, so this test can never fail
+// for the reason documented above — it degrades to a plain "the auth flow
+// still works with asserts off" smoke test. That is still worth running (it is
+// how the silently-dropped `enterText` bug was found), but the DEBUG run is
+// the only one that guards the cyclic-invalidation regression. Do not treat a
+// green profile drive as coverage for it.
 //
 // HOW THIS TEST EXERCISES THE REAL CASCADE (no auth stub)
 // -------------------------------------------------------
@@ -75,7 +85,7 @@ void main() {
 
       // Authenticated → on the real master profile screen.
       expect(
-        router.routerDelegate.currentConfiguration.uri.toString(),
+        AppHarness.location(router),
         startsWith(RouteNames.masterProfile),
         reason:
             'login must land on the real /master/profile screen so the '
@@ -86,7 +96,7 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-menu-master')));
       await tester.pumpAndSettle();
       expect(
-        router.routerDelegate.currentConfiguration.uri.toString(),
+        AppHarness.location(router),
         startsWith(RouteNames.masterMenu),
         reason: 'menu icon must push the settings hub at /master/menu',
       );
@@ -116,7 +126,7 @@ void main() {
       //    logout() would have thrown CircularDependencyError, context.go(login)
       //    would never run, and we'd still be on /master/menu.
       expect(
-        router.routerDelegate.currentConfiguration.uri.toString(),
+        AppHarness.location(router),
         startsWith(RouteNames.login),
         reason: 'a successful logout must navigate to /login',
       );

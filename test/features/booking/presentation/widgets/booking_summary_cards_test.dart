@@ -16,10 +16,13 @@
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_recap.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/section_rule.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -247,6 +250,95 @@ void main() {
         );
         expect(roomySize, 12.0);
         expect(compactSize, 11.0);
+      },
+    );
+  });
+
+  // mobile-qa (calendar rework) — the `trailingAction` slot.
+  //
+  // The booking-success recap is the ONLY call site that supplies it; the
+  // other four (both confirm screens, the salon success screen, «Деталі
+  // запису») leave it null and must be visually untouched. The slot is
+  // documented as "null renders nothing at all: no rule, no gap", and that
+  // contract is invisible on the one screen that DOES pass an action — a
+  // regression that always emitted the `SectionRule` would put a stray
+  // hairline and a gap under the price recap on four other surfaces at once,
+  // which no calendar test would ever see.
+  group('BookingSummaryCards trailingAction slot', () {
+    // Mirrors the booking-success recap's OWN call shape. Note the slot is
+    // reachable only through the primary constructor — neither `fromMaster`
+    // nor `fromSchedule` forwards it, which is why this group cannot reuse
+    // the `fromMaster` helpers above.
+    Future<int> pumpRuleCount(WidgetTester tester, {Widget? action}) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: SingleChildScrollView(
+            child: BookingSummaryCards(
+              showAddress: false,
+              dateLabel: formatFullDate(DateTime(2026, 7, 20, 14)),
+              timeLabel: formatTimeRange(
+                DateTime(2026, 7, 20, 14),
+                _kService.durationMinutes,
+              ),
+              singleSelection: BookingSelection(
+                name: _kService.name,
+                price: _kService.priceDisplay,
+                duration: DurationMinutes.format(_kService.durationMinutes),
+                durationMinutes: _kService.durationMinutes,
+                priceMin: _kService.priceMin,
+              ),
+              dense: true,
+              showBorder: true,
+              compactText: true,
+              trailingAction: action,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return find.byType(SectionRule).evaluate().length;
+    }
+
+    testWidgets(
+      'a null trailingAction renders NOTHING — no extra SectionRule, no '
+      'trailing gap (the contract every other call site relies on)',
+      (tester) async {
+        final int withoutAction = await pumpRuleCount(tester);
+        final double withoutHeight = tester
+            .getSize(find.byType(NeumorphicCard))
+            .height;
+
+        final int withAction = await pumpRuleCount(
+          tester,
+          action: const SizedBox(
+            key: Key('trailing-action-under-test'),
+            height: 42,
+            width: 120,
+          ),
+        );
+        final double withHeight = tester
+            .getSize(find.byType(NeumorphicCard))
+            .height;
+
+        expect(
+          find.byKey(const Key('trailing-action-under-test')),
+          findsOneWidget,
+          reason: 'a supplied action must actually render inside the card',
+        );
+        expect(
+          withAction,
+          withoutAction + 1,
+          reason:
+              'the action is separated by exactly ONE additional hairline — '
+              'and the null case adds none',
+        );
+        expect(
+          withHeight,
+          greaterThan(withoutHeight),
+          reason:
+              'if the rule+gap were emitted unconditionally the two cards '
+              'would be the same height and the null contract would be a lie',
+        );
       },
     );
   });

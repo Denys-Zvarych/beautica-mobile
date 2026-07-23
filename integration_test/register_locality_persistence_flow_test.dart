@@ -52,16 +52,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   testWidgets('CLIENT picks a city → register → draft lost (OS-kill) → OTP → '
       'PATCH /users/me carries the picked cityId', (tester) async {
     final fb = FakeBackend();
@@ -81,7 +71,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey<String>('role_continue')));
     await tester.pumpAndSettle();
-    expectLocation(router, RouteNames.register);
+    AppHarness.expectLocation(router, RouteNames.register);
 
     // ── Step 1 — credentials ────────────────────────────────────────────
     await tester.enterText(
@@ -99,7 +89,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
     await tester.pumpAndSettle();
-    expectLocation(router, RouteNames.registerStep2);
+    AppHarness.expectLocation(router, RouteNames.registerStep2);
 
     // ── Step 2 — profile ────────────────────────────────────────────────
     await tester.enterText(
@@ -117,7 +107,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
     await tester.pumpAndSettle();
-    expectLocation(router, RouteNames.registerStep3);
+    AppHarness.expectLocation(router, RouteNames.registerStep3);
 
     // ── Step 3 — pick a city via the REAL locality cascade ──────────────
     // Open the Oblast picker → pick the seeded Kyiv oblast.
@@ -143,7 +133,7 @@ void main() {
 
     // Register fired and we are on /verification.
     expect(fb.registerCalls, greaterThanOrEqualTo(1));
-    expectLocation(router, RouteNames.verification);
+    AppHarness.expectLocation(router, RouteNames.verification);
 
     // ── SIMULATE OS-KILL: wipe the in-memory draft to null ──────────────
     // After this the verification screen MUST re-hydrate the locality from
@@ -187,6 +177,6 @@ void main() {
     );
 
     // The flow completes — we reach /done.
-    expectLocation(router, RouteNames.done);
+    AppHarness.expectLocation(router, RouteNames.done);
   });
 }

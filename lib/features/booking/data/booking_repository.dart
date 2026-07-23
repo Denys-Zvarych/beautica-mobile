@@ -44,11 +44,13 @@ import 'package:beautica_api/beautica_api.dart'
     show CreateBookingRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/booking.dart';
+import '../domain/booking_sort.dart';
 import '../domain/booking_status.dart';
 import '../domain/create_booking_request.dart';
 import 'booking_mapper.dart';
@@ -91,18 +93,77 @@ abstract interface class BookingRepository {
   /// fetches client-side). Pass an empty set for no status filter (all
   /// statuses).
   ///
-  /// [ascending] drives the `sort=startsAt,<asc|desc>` param (backend Phase
-  /// 26.3): `true` for soonest-first ("what's next" — the Майбутні tab),
-  /// `false` for most-recent-first ("what just happened" — Минулі/Скасовані).
-  /// Only `startsAt` is sent — the client «Мої записи» screen has no sort
-  /// sheet, unlike the independent-master booking list.
+  /// [sort] drives the `sort=<property>,<direction>` param (backend Phase
+  /// 26.3). The client «Мої записи» screen has no sort sheet and passes only
+  /// the two `startsAt` directions ([BookingSort.oldest] for soonest-first —
+  /// "what's next", the Майбутні tab; [BookingSort.newest] for
+  /// most-recent-first — "what just happened", Минулі/Скасовані). The
+  /// independent-master list additionally offers the two price orders. Pass
+  /// null to omit the param entirely and take the backend's own
+  /// `@PageableDefault` (`startsAt,DESC`).
+  ///
+  /// Only the properties on the backend's Phase 26.6 whitelist are accepted —
+  /// [BookingSort] is exactly that whitelist, which is why this takes the enum
+  /// rather than a raw string.
+  ///
+  /// [serviceIds] narrows to bookings placed against the given MasterService
+  /// ids, sent as REPEATED `serviceId` params (backend Phase 26.4, capped at
+  /// 50 server-side). [from]/[to] bound `startsAt` to an inclusive local
+  /// (Europe/Kyiv) day range (backend Phase 26.2, capped at 366 days), each
+  /// independently optional — `from` alone is an open-ended future window,
+  /// `to` alone an open-ended past window. All three are omitted from the
+  /// query string when null/empty, applying no predicate.
   ///
   /// [page] is zero-based; [size] caps the page (default [kBookingsPageSize]).
+  ///
+  /// [statuses]/[serviceIds] are `Iterable` rather than `Set` (perf P5) so a
+  /// caller holding the canonically-sorted, unmodifiable `List`s that
+  /// `MasterBookingsQuery.of` produces can pass them straight through instead
+  /// of round-tripping each through a throwaway `Set` on every fetch. Both
+  /// shapes are accepted; neither is retained.
+  ///
+  /// [cancelToken] (mobile-perf MEDIUM-3, 2026-07-20) lets callers — notably
+  /// `BookingsDayNotifier`, whose family member is evicted the instant the
+  /// rail is scrubbed past the day-rail's 220ms debounce — cancel an
+  /// in-flight request when it is superseded before it resolves, mirroring
+  /// `SlotRepository.getMasterSlots`/`getWorkingDays`. Disposing a Riverpod
+  /// element stops the RESULT from landing but does not, by itself, abort the
+  /// underlying Dio request; this makes that possible.
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
     required int page,
     int size = kBookingsPageSize,
+    BookingSort? sort,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+    CancelToken? cancelToken,
+  });
+
+  /// The set of local days on which the authenticated caller has at least one
+  /// booking, across the inclusive `[from, to]` local-day range.
+  ///
+  /// Wraps `GET /bookings/me/booked-days` (backend Phase 26.5), which returns
+  /// bare `yyyy-MM-dd` strings — parsed here into date-only LOCAL
+  /// [DateTime]s via [parseApiDate].
+  ///
+  /// **Filter-independent by design**: the endpoint takes no status/serviceId
+  /// param, so the returned days reflect ALL of the caller's bookings in the
+  /// range. This is deliberate — the day-rail's dots must not vanish as the
+  /// user narrows the list filter (see `bookedDaysProvider`).
+  ///
+  /// The backend caps the range at 366 days and requires both bounds.
+  ///
+  /// [cancelToken] (mobile-perf LOW, 2026-07-22) mirrors [getMyBookings]'.
+  /// This is the single heaviest request in the feature — a full ±180-day
+  /// sweep — so a logout or a screen pop mid-flight must be able to abort it
+  /// rather than leave it running to completion for a result nobody will read.
+  /// Disposing the Riverpod element stops the RESULT from landing but does
+  /// not, by itself, abort the underlying Dio request.
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
   });
 
   /// Fetches the enriched detail for a single booking.
@@ -198,18 +259,43 @@ final class HttpBookingRepository implements BookingRepository {
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
-    required Set<BookingStatus> statuses,
-    required bool ascending,
+    required Iterable<BookingStatus> statuses,
     required int page,
     int size = kBookingsPageSize,
+    BookingSort? sort,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+    CancelToken? cancelToken,
   }) async {
+    // Canonicalised ONCE, here at the serialisation boundary. See the comment
+    // on the `status` param below for why this stays despite perf P5, and why
+    // it sorts by `index` (not by wire string).
+    //
+    // `unknown` is stripped: it is a decode-only member with no wire
+    // representation, and `status=UNKNOWN` would be a 400 (the backend's
+    // `@Size(max = 5)` cap is sized to `BookingStatus.filterable` exactly).
+    final List<String> statusParams =
+        (statuses
+                .where((BookingStatus s) => s != BookingStatus.unknown)
+                .toList(growable: false)
+              ..sort(
+                (BookingStatus a, BookingStatus b) =>
+                    a.index.compareTo(b.index),
+              ))
+            .map((BookingStatus s) => s.wireValue)
+            .toList(growable: false);
+    final List<String>? serviceIdParams = serviceIds == null
+        ? null
+        : (serviceIds.toList(growable: false)..sort());
+
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/v1/bookings/me',
         queryParameters: <String, dynamic>{
           'page': page,
           'size': size,
-          'sort': 'startsAt,${ascending ? 'asc' : 'desc'}',
+          if (sort != null) 'sort': sort.wireValue,
           // A List value renders as REPEATED bare `status=` params under
           // Dio's default `ListFormat.multi` — mirrors the identical
           // `serviceTypeSlugs` precedent in
@@ -217,11 +303,44 @@ final class HttpBookingRepository implements BookingRepository {
           // `@RequestParam` resolver binds repeated same-name params into the
           // backend's `EnumSet<BookingStatus>` (Phase 26.1). Omitted entirely
           // when empty so the backend applies no status filter.
-          if (statuses.isNotEmpty)
-            'status': statuses
-                .map((BookingStatus s) => s.wireValue)
-                .toList(growable: false),
+          //
+          // ⚠ Do NOT switch this Dio instance to `ListFormat.multiCompatible`:
+          // that emits `status[]=CONFIRMED`, which Spring binds to a param
+          // literally NAMED `status[]` — so the filter silently does nothing
+          // and the endpoint returns unfiltered 200s. The failure is invisible
+          // (no error, plausible-looking data), which is exactly why the
+          // emitted query string is asserted in `booking_repository_test.dart`.
+          //
+          // Both repeated-param lists are canonically SORTED before
+          // serialisation so the emitted URL is a pure function of the filter's
+          // value, not of the order the user tapped the chips — see the
+          // `MasterBookingsQuery` file header.
+          //
+          // Perf P5 proposed deleting this sort as "dead work duplicating
+          // `MasterBookingsQuery.of`". Kept, with one change — see
+          // `statusParams` above. `.of()`'s sort is NOT the same sort and is
+          // not redundant with this one: it exists so two identically-valued
+          // queries are `==`-equal and therefore ONE family member (List
+          // equality is order-sensitive), which is the family-leak guard the
+          // whole query class exists for. THIS sort exists so the emitted URL
+          // is canonical for EVERY caller — including `MyBookingsNotifier`,
+          // which passes `BookingTab.statuses` and never goes through `.of()`
+          // at all. Deleting it would move that invariant into each call site.
+          // What it cost was two sorts that disagreed (`.of()` by enum index,
+          // this one by wire STRING), so the query's canonical order did not
+          // survive to the wire; this one now also sorts by index, making it
+          // idempotent on an already-canonical list. Cost is ≤5 elements once
+          // per HTTP request.
+          if (statusParams.isNotEmpty) 'status': statusParams,
+          if (serviceIdParams != null && serviceIdParams.isNotEmpty)
+            'serviceId': serviceIdParams,
+          // `yyyy-MM-dd` off the LOCAL calendar fields — never
+          // `toIso8601String()`/`.toUtc()`, which would shift the day for any
+          // device east of UTC. See `shared/formatters/api_date.dart`.
+          if (from != null) 'from': toApiDate(from),
+          if (to != null) 'to': toApiDate(to),
         },
+        cancelToken: cancelToken,
       );
       final decoded =
           _deserialize<ApiResponsePageResponseBookingDetailResponse>(
@@ -242,6 +361,71 @@ final class HttpBookingRepository implements BookingRepository {
       if (kDebugMode) {
         log(
           'getMyBookings failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) async {
+    try {
+      // Raw Dio rather than the generated client, for the same reason
+      // `getMyBookings` bypasses it (see the file header): this response is a
+      // bare `ApiResponse<List<LocalDate>>` of plain strings, which the
+      // built_value serializers have no registered type for.
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/v1/bookings/me/booked-days',
+        queryParameters: <String, dynamic>{
+          'from': toApiDate(from),
+          'to': toApiDate(to),
+        },
+        cancelToken: cancelToken,
+      );
+
+      final Object? payload = response.data?['data'];
+      if (payload is! List) {
+        if (kDebugMode) {
+          log(
+            'getMyBookedDays: expected a List, got ${payload.runtimeType}',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+
+      final List<DateTime> days = <DateTime>[];
+      for (final Object? raw in payload) {
+        if (raw is! String) continue;
+        try {
+          days.add(parseApiDate(raw));
+        } on FormatException {
+          // One malformed day must not blank the whole rail — the dots are a
+          // hint, not a correctness gate. Skip it and keep the rest.
+          if (kDebugMode) {
+            log(
+              'getMyBookedDays: skipping unparseable day "$raw"',
+              name: _tag,
+              level: 900,
+            );
+          }
+        }
+      }
+      return days;
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMyBookedDays failed: ${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,
@@ -591,6 +775,20 @@ final class HttpBookingRepository implements BookingRepository {
 
   /// Maps a [DioException] to a typed [Failure]. Mirrors the identical
   /// mapping in `HttpSalonRepository` / `HttpMasterRepository`.
+  ///
+  /// `badCertificate` gets its own branch (mobile-security LOW) rather than
+  /// sharing the `badResponse`/`cancel`/`unknown` catch-all, exactly as
+  /// `HttpSalonRepository._mapDioException` already does — copying that
+  /// precedent CONVERGES the two files rather than diverging this one. The
+  /// motivation is sharper here than it was there: this repository's
+  /// `CancelToken` plumbing makes `DioExceptionType.cancel` a ROUTINE event
+  /// (every logout, every `bookedDaysProvider` dispose), so a possible-MITM
+  /// TLS failure on the app's most PII-dense traffic would otherwise be
+  /// indistinguishable in telemetry from a user popping a screen. The
+  /// [Failure] handed back to the UI is deliberately UNCHANGED
+  /// ([ServerFailure] — still fails closed); only the log signal is split
+  /// out. The cross-repository sweep of the remaining lump-everything
+  /// mappers stays a separate backlog item.
   Failure _mapDioException(DioException e) {
     if (e.error is Failure) return e.error as Failure;
     switch (e.type) {
@@ -599,9 +797,21 @@ final class HttpBookingRepository implements BookingRepository {
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
         return NetworkFailure(cause: e);
+      case DioExceptionType.badCertificate:
+        // Deliberately NOT gated behind `kDebugMode` (unlike the routine
+        // per-call-site DioException logs elsewhere in this file): a possible
+        // MITM must be visible in release-build telemetry, not only in local
+        // debug runs. No PII, no token, no booking id is logged — just the
+        // fact that certificate validation failed for booking traffic.
+        log(
+          'TLS/certificate validation failed for booking traffic — '
+          'possible MITM',
+          name: 'booking.repository.security',
+          level: 1000,
+        );
+        return ServerFailure(statusCode: e.response?.statusCode, cause: e);
       case DioExceptionType.badResponse:
       case DioExceptionType.cancel:
-      case DioExceptionType.badCertificate:
       case DioExceptionType.unknown:
         return ServerFailure(statusCode: e.response?.statusCode, cause: e);
     }

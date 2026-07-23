@@ -1,0 +1,34 @@
+# Ratchet baseline for scripts/forbid_naive_router_location.sh.
+#
+# Every file below reads `currentConfiguration.uri`/`.fullPath` directly. As
+# audited on introduction (2026-07-19), none of them push a route ON TOP OF
+# the location they then read (they only exercise `.go`/redirects at the read
+# site), so the ImperativeRouteMatch exclusion this gate guards against does
+# not bite them — they are correct as written, just not routed through the
+# shared `AppHarness.location`/`AppHarness.expectLocation` helper.
+#
+# The two files this gate exists BECAUSE OF —
+# integration_test/master_bookings_flow_test.dart and
+# integration_test/logout_flow_test.dart — are deliberately NOT in this list;
+# they were the actual bug and are now fixed.
+#
+# This baseline only ever shrinks: when a listed file is next meaningfully
+# touched and it starts pushing on top of a location it reads, migrate it to
+# the shared helper and drop it from here. New files are gated from line one.
+integration_test/master_home_add_services_flow_test.dart
+integration_test/service_setup_field_error_flow_test.dart
+test/features/auth/presentation/register_flow_shell_test.dart
+test/features/auth/presentation/register_step_1_screen_test.dart
+test/features/auth/presentation/register_step_2_screen_test.dart
+test/features/auth/presentation/register_step_3_screen_test.dart
+test/features/auth/presentation/register_step_3_skip_navigation_test.dart
+test/features/auth/presentation/role_selection_screen_test.dart
+test/features/booking/presentation/leave_review_screen_test.dart
+test/features/master/presentation/widgets/profile_nav_bar_navigation_test.dart
+test/features/shell/client_shell_top_bar_test.dart
+test/routing/app_router_no_leaked_timer_test.dart
+test/routing/app_router_test.dart
+test/routing/booking_route_guard_test.dart
+test/routing/client_branch_chrome_test.dart
+test/routing/navigation_links_test.dart
+test/routing/role_landing_chrome_test.dart

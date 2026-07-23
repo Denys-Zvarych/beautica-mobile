@@ -12,6 +12,7 @@
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:flutter/foundation.dart';
@@ -632,6 +633,207 @@ void main() {
               'trailing spacer) must still add real height above the CTA — '
               'this must stay true independently of the doubled-gap fix '
               'above.',
+        );
+      },
+    );
+  });
+
+  // ===========================================================================
+  // Security MEDIUM — the FIFTH «Разом» surface on the sum-level-only path.
+  //
+  // `_populatedChildren` summed `MasterService.priceMin`/`priceMax` in the
+  // widget and handed the pre-summed figures to `formatBookingTotals`, which
+  // can only re-check the SUMS. That is the exact shape the formatter's own
+  // header warns against, and it is live on FOUR screens
+  // (`SalonServiceSelectionScreen`, `SlotPickerScreen` ×2,
+  // `ServiceSelectorSheet`), each rendering the user-facing `_TotalRow`.
+  //
+  // Verified in Dart against the pre-fix expression:
+  //   priceMin: double.infinity  ->  «Infinity ₴»
+  //   priceMin: double.nan       ->  «NaN–NaN ₴» (NaN != NaN takes the band)
+  //   priceMin: 1e30             ->  «1e+30 ₴»
+  //   priceMin: -0.0             ->  «-0 ₴»
+  //   priceMin: 1e30 + -1e30     ->  «0 ₴»   (a confident, fictional total)
+  //
+  // The last two are the cases ONLY a per-term gate catches: `-0.0` because
+  // `-0.0 >= 0` is true, and the cancelling pair because `+` is not protective
+  // (`1e30 + -1e30 == 0.0` clears any sum-level check). Dropping the per-term
+  // gate from `formatBookingTotalsFromTerms` must fail specifically those two.
+  //
+  // The CONTROL case at the end is what makes this group honest: a blanket
+  // "always render —" mutation would satisfy every hostile case above and fail
+  // only the control.
+  // ===========================================================================
+
+  group('«Разом» totals — unrenderable wire prices', () {
+    /// A hostile manicure whose `priceMin` is [bad]. `priceDisplay` stays a
+    /// well-formed string so the only route a garbage figure can take onto the
+    /// screen is the bar's own summation — not the itemized shelf echoing a
+    /// pre-broken display string back at us.
+    MasterService hostileManicure(double bad) => MasterService(
+      id: 'svc-mani',
+      serviceDefId: 'def-mani',
+      name: 'Манікюр з покриттям',
+      durationMinutes: 90,
+      priceMin: bad,
+      priceDisplay: '500 ₴',
+      category: 'MANICURE',
+    );
+
+    /// Every rendered `Text` string in the tree — asserts no garbage figure
+    /// leaked into ANY node, not merely the one a scoped finder looked at.
+    List<String> renderedTexts(WidgetTester tester) => tester
+        .widgetList<Text>(find.byType(Text))
+        .map((Text t) => t.data ?? '')
+        .toList();
+
+    /// The bar's own `Text` nodes, located structurally (never by a Cyrillic
+    /// literal): scope to the `BookingSummaryBar` subtree. The itemized shelf
+    /// is collapsed by default, so the only money string in here is the
+    /// «Разом» total row's.
+    List<String> barTexts(WidgetTester tester) => tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byType(BookingSummaryBar),
+            matching: find.byType(Text),
+          ),
+        )
+        .map((Text t) => t.data ?? '')
+        .toList();
+
+    Future<void> pumpHostile(
+      WidgetTester tester,
+      List<MasterService> services,
+    ) async {
+      await tester.pumpApp(_bar(services: services));
+      await tester.pumpAndSettle();
+    }
+
+    for (final (String name, double bad, String leak)
+        in <(String, double, String)>[
+          ('double.infinity', double.infinity, 'Infinity'),
+          ('double.nan', double.nan, 'NaN'),
+          ('1e30 (exponent-notation threshold)', 1e30, 'e+'),
+        ]) {
+      testWidgets(
+        'a $name priceMin off the wire renders the neutral unavailable label, '
+        'never «$leak ₴», in the «Разом» total row',
+        (tester) async {
+          await pumpHostile(tester, <MasterService>[
+            hostileManicure(bad),
+            _kPedicure,
+          ]);
+
+          expect(tester.takeException(), isNull);
+          expect(
+            barTexts(tester),
+            contains(priceUnavailableLabel),
+            reason:
+                'an unstatable total must fall back to the shared '
+                'priceUnavailableLabel, exactly as every other «Разом» surface '
+                'does — the whole band is poisoned rather than the bad term '
+                'dropped, because dropping it would UNDERSTATE the price the '
+                'client is agreeing to',
+          );
+          expect(
+            renderedTexts(tester).where((String s) => s.contains(leak)),
+            isEmpty,
+            reason: '«$leak ₴» must never be stringified onto a screen',
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'a -0.0 priceMin does not render the leading minus «-0 ₴» — `>= 0` waves '
+      'negative zero through, which is why isRenderablePrice uses isNegative',
+      (tester) async {
+        await pumpHostile(tester, <MasterService>[
+          hostileManicure(-0.0),
+          _kPedicure,
+        ]);
+
+        expect(tester.takeException(), isNull);
+        expect(
+          barTexts(tester),
+          contains(priceUnavailableLabel),
+          reason:
+              'the SUM here is a perfectly renderable 200.0 — only the '
+              'PER-TERM gate sees the -0.0, so this case fails the moment the '
+              'bar goes back to summing first and checking the total',
+        );
+        expect(
+          renderedTexts(
+            tester,
+          ).where((String s) => RegExp(r'-\s*\d').hasMatch(s)),
+          isEmpty,
+          reason:
+              'a leading minus collides with the band en-dash into «-0–600 ₴»; '
+              'no negative money figure may render on the commit screen',
+        );
+      },
+    );
+
+    testWidgets(
+      'a CANCELLING PAIR (1e30 + -1e30 == 0.0) is poisoned by the PER-TERM '
+      'gate — a sum-level check alone would state a confident, fictional «0 ₴»',
+      (tester) async {
+        await pumpHostile(tester, <MasterService>[
+          hostileManicure(1e30),
+          const MasterService(
+            id: 'svc-pedi',
+            serviceDefId: 'def-pedi',
+            name: 'Педикюр з покриттям',
+            durationMinutes: 120,
+            priceMin: -1e30,
+            priceDisplay: '800 ₴',
+            category: 'PEDICURE',
+          ),
+        ]);
+
+        expect(tester.takeException(), isNull);
+        expect(
+          barTexts(tester),
+          contains(priceUnavailableLabel),
+          reason:
+              'both terms are individually unrenderable but their SUM is '
+              'exactly 0.0 and passes isRenderablePrice; only a per-term gate '
+              'catches this, which is why the gate is not applied to the sums '
+              'alone',
+        );
+        expect(
+          barTexts(tester).where((String s) => s.contains('0 ₴')),
+          isEmpty,
+          reason: 'the fictional «0 ₴» total must not be stated',
+        );
+      },
+    );
+
+    testWidgets(
+      'CONTROL — well-formed prices still render the real band, so a blanket '
+      '"always render —" mutation cannot satisfy this group',
+      (tester) async {
+        await pumpHostile(tester, const <MasterService>[
+          _kManicure,
+          _kPedicure,
+        ]);
+
+        expect(tester.takeException(), isNull);
+
+        final List<String> texts = barTexts(tester);
+        expect(
+          texts,
+          contains('700–1100 ₴'),
+          reason:
+              'manicure (500 FIXED) + pedicure (200–600 RANGE) sum to a real '
+              '700–1100 band and must render as the real total',
+        );
+        expect(
+          texts,
+          isNot(contains(priceUnavailableLabel)),
+          reason:
+              'a renderable selection must never fall back to the unavailable '
+              'label — this is the mutation guard for the five cases above',
         );
       },
     );

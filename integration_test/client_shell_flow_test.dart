@@ -53,17 +53,6 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // ── Helper: assert the router landed on [expected] ───────────────────────
-  void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
-    expect(
-      current,
-      startsWith(expected),
-      reason: 'Expected router location to start with $expected, got $current',
-    );
-  }
-
   // The 5 branches keyed by their index → (route, branch-body key). Index 2 is
   // the elevated center «Пошук» disc (tapped via client-nav-search-center, not a
   // flanking tile). The branch bodies are the real placeholder screens.
@@ -112,7 +101,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       // Landed on the CLIENT shell at /home (branch 0).
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       expect(
         find.byType(ClientShell),
         findsOneWidget,
@@ -142,7 +131,7 @@ void main() {
     await AppHarness.loginAs(tester, fb, UserRole.client);
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
-    expectLocation(router, RouteNames.clientHome);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
 
     // Visit every branch in a non-trivial order (incl. the center disc), then
     // back to home. After EACH hop:
@@ -155,7 +144,7 @@ void main() {
     for (final int index in <int>[1, 2, 3, 4, 0]) {
       await tapBranch(tester, index);
 
-      expectLocation(router, branchRoute[index]!);
+      AppHarness.expectLocation(router, branchRoute[index]!);
       expect(
         find.byType(ClientShell),
         findsOneWidget,
@@ -185,14 +174,14 @@ void main() {
     final GoRouter router = await AppHarness.boot(tester, fb);
     await AppHarness.loginAs(tester, fb, UserRole.client);
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expectLocation(router, RouteNames.clientHome);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
 
     // Attempt to deep-link into the MASTER shell. The live redirect must bounce
     // the CLIENT straight back to /home — they never see the master profile.
     router.go(RouteNames.masterProfile);
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
-    expectLocation(router, RouteNames.clientHome);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
     expect(
       find.byType(ClientShell),
       findsOneWidget,
@@ -226,7 +215,7 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
     // The master lands on /master/profile after login.
-    expectLocation(router, RouteNames.masterProfile);
+    AppHarness.expectLocation(router, RouteNames.masterProfile);
 
     // Attempt to deep-link into each CLIENT branch — the inverse gate must
     // bounce the master back to its own profile every time, and the client
@@ -241,7 +230,7 @@ void main() {
       router.go(clientRoute);
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.masterProfile);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
       expect(
         find.byType(ClientShell),
         findsNothing,
@@ -260,7 +249,7 @@ void main() {
     final GoRouter router = await AppHarness.boot(tester, fb);
 
     // No stored token → settled Unauthenticated → /login.
-    expectLocation(router, RouteNames.login);
+    AppHarness.expectLocation(router, RouteNames.login);
     expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
     expect(
       find.byType(ClientShell),
@@ -291,13 +280,13 @@ void main() {
     final GoRouter router = await AppHarness.boot(tester, fb);
     await AppHarness.loginAs(tester, fb, UserRole.client);
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expectLocation(router, RouteNames.clientHome);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
 
     // Drive the real DoneScreen (the post-registration celebration surface).
     // The authenticated CLIENT is NOT bounced off /done.
     router.go(RouteNames.done);
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expectLocation(router, RouteNames.done);
+    AppHarness.expectLocation(router, RouteNames.done);
 
     // Tap the real "to the app" CTA — its onPressed resolves the destination
     // through roleHomePath(role), the single source of truth f929caf restored.
@@ -305,7 +294,7 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
     // Must land on /home (the client shell), NOT "/" (the no-bar placeholder).
-    expectLocation(router, RouteNames.clientHome);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
     expect(
       find.byType(ClientShell),
       findsOneWidget,
@@ -345,13 +334,13 @@ void main() {
     final GoRouter router = await AppHarness.boot(tester, fb);
     await AppHarness.loginAs(tester, fb, UserRole.client);
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expectLocation(router, RouteNames.clientHome);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
 
     // Drive the back contract from a flanking tab (Passport, 4) and then from
     // the elevated center disc (Search, 2) — both must land back on Home.
     for (final int nonHomeBranch in <int>[4, 2]) {
       await tapBranch(tester, nonHomeBranch);
-      expectLocation(router, branchRoute[nonHomeBranch]!);
+      AppHarness.expectLocation(router, branchRoute[nonHomeBranch]!);
 
       // Dispatch the real platform back button (system / predictive back).
       final bool handled = await tester.binding.handlePopRoute();
@@ -366,7 +355,7 @@ void main() {
             'a non-Home back (branch $nonHomeBranch) must be swallowed by the '
             'shell PopScope and hop to Home — not bubble to the OS / exit',
       );
-      expectLocation(router, RouteNames.clientHome);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
       expect(
         find.byType(ClientShell),
         findsOneWidget,

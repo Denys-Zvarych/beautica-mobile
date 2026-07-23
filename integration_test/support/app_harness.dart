@@ -64,12 +64,14 @@
 //
 //   final GoRouter router = await AppHarness.boot(tester, fb);
 //
-// Use [router.routerDelegate.currentConfiguration.uri.toString()] to read the
-// current location — this is locale-invariant and does NOT depend on
-// [GoRouter.of(context)], which would require a context that is a DESCENDANT of
-// [InheritedGoRouter] (i.e., inside the router's subtree, not at the MaterialApp
-// level). The helper [expectLocation(tester, router, expected)] in each test
-// file uses this pattern.
+// Use [AppHarness.location(router)] to read the current location — it is
+// locale-invariant, does NOT depend on [GoRouter.of(context)] (which would
+// require a context that is a DESCENDANT of [InheritedGoRouter], i.e. inside
+// the router's subtree, not at the MaterialApp level), and — unlike a raw
+// [router.routerDelegate.currentConfiguration.uri] read — resolves correctly
+// after a `context.push` (see [location]'s own doc comment for why the raw
+// read is a trap). [AppHarness.expectLocation] wraps it for the common
+// `startsWith` assertion.
 //
 // USAGE
 // -----
@@ -81,10 +83,7 @@
 //     final router = await AppHarness.boot(tester, fb);
 //     await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 //     // assert route
-//     expect(
-//       router.routerDelegate.currentConfiguration.uri.toString(),
-//       startsWith('/master/profile'),
-//     );
+//     AppHarness.expectLocation(router, '/master/profile');
 //   });
 
 import 'package:beautica_mobile/core/app_start_time.dart';
@@ -149,8 +148,8 @@ abstract final class AppHarness {
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.
   ///
   /// Returns the live [GoRouter] instance wired into [MaterialApp.router] so
-  /// tests can assert [router.routerDelegate.currentConfiguration.uri] and
-  /// navigate programmatically without relying on [GoRouter.of(context)],
+  /// tests can assert the current location via [location]/[expectLocation]
+  /// and navigate programmatically without relying on [GoRouter.of(context)],
   /// which fails at the [MaterialApp] level (requires a descendant context).
   ///
   /// After this call the app is sitting on /login (the fake [SecureStorage] has
@@ -168,13 +167,76 @@ abstract final class AppHarness {
   /// "Tried to override a provider twice within the same container"). The caller
   /// already holds the instance it passed in, so the storage is reachable for
   /// assertions without a separate accessor.
+  ///
+  /// [retry] is forwarded to [ProviderScope.retry], which sets the retry
+  /// policy for EVERY provider in the harness container. It exists for one
+  /// specific need: asserting a FAILURE surface (an error state and its
+  /// «retry» affordance).
+  ///
+  /// Riverpod 3 retries a failed provider automatically — ten times, with
+  /// exponential backoff (`ProviderContainer.defaultRetry`: 200 ms doubling
+  /// to a 6 400 ms ceiling, ~38 s in total). Until that budget is spent the
+  /// provider re-enters `AsyncLoading` between attempts, so `AsyncValue.when`
+  /// keeps taking its `loading` branch and the `error` branch never renders.
+  /// A test that stubs a failing endpoint and then looks for the error state
+  /// therefore finds the LOADING state instead — not because the error state
+  /// is broken, but because the framework is still transparently retrying
+  /// underneath it.
+  ///
+  /// Passing `(_, _) => null` disables that auto-retry so the failure surfaces
+  /// on the first attempt, letting the test assert the error branch and its
+  /// manual «retry» button deterministically and in milliseconds rather than
+  /// after a 38-second real-time wait. It changes NOTHING about the app's own
+  /// behaviour — only how long the harness waits before observing it.
   static Future<GoRouter> boot(
     WidgetTester tester,
     FakeBackend fakeBackend, {
     FakeSecureStorage? storage,
     List<Object> extraOverrides = const <Object>[],
+    Duration? Function(int retryCount, Object error)? retry,
   }) async {
     installOverflowGuard();
+
+    // ── TEXT-INPUT MOCK REGISTRATION — DO NOT DELETE ────────────────────────
+    //
+    // WITHOUT THIS LINE, `tester.enterText(...)` IS A SILENT NO-OP IN ANY
+    // NON-DEBUG BUILD (`flutter drive --profile` / `--release`). Every field
+    // stays empty, the form's own "required" validation correctly bails, and
+    // the failure surfaces far downstream as a confusing tap/navigation
+    // assertion. It looks redundant in a debug `flutter test` run — it is not.
+    //
+    // MECHANISM
+    // ---------
+    //  1. `WidgetTester.enterText` ultimately posts a
+    //     `TextInputClient.updateEditingState` platform message carrying the
+    //     connection id `TestTextInput._client ?? -1`.
+    //  2. `IntegrationTestWidgetsFlutterBinding` overrides
+    //     `registerTestTextInput => false`, so the binding never registers the
+    //     `TestTextInput` mock handler, `_client` is never assigned, and the id
+    //     posted is ALWAYS `-1`.
+    //  3. In `TextInput._handleTextInputInvocation`, the escape hatch that
+    //     accepts `-1` ("the framework is in a test") lives INSIDE an
+    //     `assert(() { ... }())` block.
+    //  4. Asserts are stripped in profile/release. The `-1` message therefore
+    //     falls through and the injected value is DISCARDED WITHOUT ERROR.
+    //
+    // Registering the mock assigns a real `_client` id, so the message routes
+    // through the normal (non-assert) path and the text actually lands in the
+    // field — identically in debug and profile.
+    //
+    // WHY PER-`boot()`, AND WHY UNCONDITIONAL
+    // ---------------------------------------
+    // The binding's `reset()` between tests clears `_client`, but it only
+    // re-registers when `registerTestTextInput` is true — which it never is
+    // here. So registration has to happen on every boot, not once per isolate.
+    // Keeping it unconditional (rather than `if (!kDebugMode)`) means debug and
+    // profile exercise ONE code path, so the debug suite actually covers what
+    // the profile drive runs. `register()` is idempotent.
+    //
+    // Regression-guarded by the post-`enterText` assertion in [loginAs] (which
+    // turns a silent drop into a one-line diagnosis) and structurally by
+    // `scripts/forbid_missing_test_text_input.sh`.
+    tester.binding.testTextInput.register();
 
     // Load the IANA timezone database so booking/slot formatters can convert to
     // the pinned Europe/Kyiv wall-clock. The E2E harness boots the real app tree
@@ -197,6 +259,7 @@ abstract final class AppHarness {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: retry,
         // ProviderScope.overrides accepts List<Override>; we cast so callers
         // can pass a plain list without importing the internal Override type.
         // ignore: avoid_dynamic_calls
@@ -260,6 +323,146 @@ abstract final class AppHarness {
     return container.read(appRouterProvider);
   }
 
+  // ── Router location (push-safe) ──────────────────────────────────────────
+
+  /// Resolves the router's current logical location, correctly accounting for
+  /// an [ImperativeRouteMatch] — the match kind [GoRouter.push] (i.e.
+  /// `context.push`) produces. go_router 17.x DELIBERATELY EXCLUDES
+  /// [ImperativeRouteMatch] entries from both [RouteMatchList.uri] and
+  /// [RouteMatchList.fullPath] (see go_router's `match.dart`,
+  /// `RouteMatchList.uri` doc comment + `_generateFullPath`'s
+  /// `match is! ImperativeRouteMatch` filter). So reading either directly
+  /// after a push keeps reporting the PRE-push location FOREVER, even though
+  /// the push succeeded and the new screen is mounted.
+  ///
+  /// This is not hypothetical: it shipped twice — `ab34c0a` (nav-bar-hide)
+  /// and again in `master_bookings_flow_test.dart` /
+  /// `logout_flow_test.dart` (the latter is also the true root cause of the
+  /// long-standing "btn-menu-master not navigating" backlog MEDIUM, which was
+  /// never a real navigation regression). `scripts/forbid_naive_router_location.sh`
+  /// now gates every other direct `.uri` / `.fullPath` read in `test/` and
+  /// `integration_test/` — route through THIS helper instead.
+  ///
+  /// Resolution: if the last top-level match is an [ImperativeRouteMatch],
+  /// read the location from ITS OWN nested `matches.uri` (the match list
+  /// produced by that specific push); otherwise (a plain redirect outcome —
+  /// no push on top) [RouteMatchList.uri] is already correct.
+  ///
+  /// NOTE: flows that push ON TOP OF a `StatefulShellRoute` branch (the
+  /// CLIENT shell) resolve location differently —
+  /// `currentConfiguration.matches.last.matchedLocation` walks the shell's
+  /// own leaf chain and is intentionally NOT this helper (see
+  /// `salon_booking_flow_test.dart` / `service_preselection_flow_test.dart`
+  /// for that variant and why it diverges).
+  static String location(GoRouter router) {
+    final RouteMatchList configuration =
+        router.routerDelegate.currentConfiguration;
+    final RouteMatchBase? lastMatch = configuration.matches.isEmpty
+        ? null
+        : configuration.matches.last;
+    final Uri uri = lastMatch is ImperativeRouteMatch
+        ? lastMatch.matches.uri
+        : configuration.uri;
+    return uri.toString();
+  }
+
+  /// Resolves the current location for a flow that PUSHES ON TOP OF a
+  /// [StatefulShellRoute] branch (the CLIENT 5-tab shell).
+  ///
+  /// [location] is the wrong resolver there: every route reached after the
+  /// initial branch root (a salon/master profile, the booking sub-routes) is
+  /// pushed imperatively ONTO the shell, so `configuration.uri` keeps
+  /// reporting the BRANCH ROOT (`/search`) rather than the displayed screen,
+  /// and [location]'s own `ImperativeRouteMatch` unwrap resolves the push's
+  /// nested match list, not the shell's leaf chain.
+  /// `matches.last.matchedLocation` is what go_router's own
+  /// [ImperativeRouteMatch] uses internally and is always the full absolute
+  /// path (see go_router's `match.dart`), so it reflects the real current
+  /// screen regardless of shell nesting.
+  ///
+  /// Collapsed here (2026-07-22 audit) from three hand-copied duplicates in
+  /// `salon_booking_flow_test.dart`, `service_preselection_flow_test.dart` and
+  /// `independent_multi_service_booking_flow_test.dart`, so the shell variant
+  /// gets the same [expectLocation] matching rule as everything else instead
+  /// of drifting on its own.
+  static String shellLocation(GoRouter router) {
+    // router-location-ok: the shell-push resolver deliberately reads the leaf
+    // match chain; see this method's doc comment for why `.uri` is wrong here.
+    return router
+        .routerDelegate
+        .currentConfiguration
+        .matches
+        .last
+        .matchedLocation;
+  }
+
+  /// Convenience assertion built on [location]. See [expectShellLocation] for
+  /// the [StatefulShellRoute] variant.
+  ///
+  /// MATCHING IS SEGMENT-AWARE, NOT `startsWith` (2026-07-22 audit)
+  /// --------------------------------------------------------------
+  /// This helper used to assert `startsWith(expected)`, and 26 hand-copied
+  /// duplicates of it across `integration_test/` did the same. A raw prefix
+  /// match is far weaker than it reads:
+  ///   • `expectLocation(router, RouteNames.home)` reduces to
+  ///     `startsWith('/')` — TRUE for every one of the ~59 routes in the app.
+  ///     Two flows shipped that exact assertion believing it pinned a landing
+  ///     screen.
+  ///   • `expectLocation(router, '/booking')` silently accepts
+  ///     `/bookings/abc` — a different screen in a different shell branch.
+  ///
+  /// The rule is the one production already uses at
+  /// `lib/routing/auth_redirect.dart:291`: equal, or followed by a `/`
+  /// separator. A `?` boundary is accepted too, because [location] returns the
+  /// full URI including any query string (e.g. `/invite/accept?token=…`),
+  /// which `matchedLocation` never carries.
+  ///
+  /// Flows that need something else (exact equality against a location WITH a
+  /// query, `isNot(...)`, etc.) should call [location] directly.
+  static void expectLocation(GoRouter router, String expected) =>
+      _expectPath(location(router), expected, 'AppHarness.expectLocation');
+
+  /// [expectLocation] for flows that push on top of a [StatefulShellRoute]
+  /// branch — same matching rule, resolved via [shellLocation].
+  static void expectShellLocation(GoRouter router, String expected) =>
+      _expectPath(
+        shellLocation(router),
+        expected,
+        'AppHarness.expectShellLocation',
+      );
+
+  /// Shared segment-aware comparison behind [expectLocation] /
+  /// [expectShellLocation].
+  static void _expectPath(String current, String expected, String caller) {
+    // `'/'` can never be a meaningful expectation: EVERY location starts with
+    // it, so the assertion is unfalsifiable. Fail loudly at the call site
+    // rather than passing vacuously. Assert an exact landing path instead
+    // (`RouteNames.clientHome`, `RouteNames.masterProfile`, …); if you really
+    // do mean the literal `/` route, use `expect(AppHarness.location(router),
+    // equals(RouteNames.home))`.
+    expect(
+      expected,
+      isNot('/'),
+      reason:
+          '$caller was handed "/" — every location in the app satisfies that, '
+          'so the assertion can never fail. Assert the concrete landing route '
+          'instead, or use expect(AppHarness.location(router), equals("/")).',
+    );
+
+    final bool matches =
+        current == expected ||
+        current.startsWith('$expected/') ||
+        current.startsWith('$expected?');
+
+    expect(
+      matches,
+      isTrue,
+      reason:
+          'Expected router location to be $expected (or a sub-route of it), '
+          'got $current',
+    );
+  }
+
   // ── Tear-down ─────────────────────────────────────────────────────────────
 
   /// Resets [AppStartTime] to its pre-boot null state, then waits briefly
@@ -284,6 +487,59 @@ abstract final class AppHarness {
   static Future<void> tearDownHarness() async {
     AppStartTime.resetForTest();
     await Future<void>.delayed(const Duration(seconds: 2));
+  }
+
+  // ── Text-field introspection ──────────────────────────────────────────────
+
+  /// The live text currently held by the [EditableText] under [fieldKey], or
+  /// `null` when no such field is mounted.
+  ///
+  /// Reads [EditableTextState.textEditingValue] rather than the widget's
+  /// controller so it reflects what the ENGINE-side editing state actually
+  /// committed — which is exactly what silently diverges from the value passed
+  /// to `tester.enterText` when the text-input mock is unregistered (see the
+  /// `testTextInput.register()` comment in [boot]).
+  ///
+  /// The project's field keys sit on composite widgets (e.g.
+  /// `NeumorphicTextField`), so the [EditableText] is looked up as a
+  /// DESCENDANT, not as the keyed widget itself.
+  static String? _fieldText(WidgetTester tester, String fieldKey) {
+    final Finder editable = find.descendant(
+      of: find.byKey(ValueKey<String>(fieldKey)),
+      matching: find.byType(EditableText),
+    );
+    if (editable.evaluate().isEmpty) return null;
+    return tester
+        .state<EditableTextState>(editable.first)
+        .textEditingValue
+        .text;
+  }
+
+  /// Asserts the field under [fieldKey] actually holds [expected].
+  ///
+  /// Use immediately after `tester.enterText` on any shared path that must work
+  /// in non-debug builds: an unregistered text-input mock makes `enterText` a
+  /// SILENT no-op once asserts are stripped, and without this check the failure
+  /// only surfaces much later as a misleading tap/navigation assertion.
+  static void _expectFieldText(
+    WidgetTester tester,
+    String fieldKey,
+    String expected,
+  ) {
+    expect(
+      _fieldText(tester, fieldKey),
+      expected,
+      reason:
+          'tester.enterText did not land in "$fieldKey". In a non-debug build '
+          'this is almost always the unregistered text-input mock: enterText '
+          'posts its editing state with client id -1 '
+          '(IntegrationTestWidgetsFlutterBinding.registerTestTextInput == '
+          'false), and the -1 escape hatch in '
+          'TextInput._handleTextInputInvocation lives inside an '
+          'assert(() {...}()) block that profile/release STRIPS, so the value '
+          'is discarded without error. AppHarness.boot must call '
+          'tester.binding.testTextInput.register() — check it is still there.',
+    );
   }
 
   // ── Convenience: drive the login flow to completion ───────────────────────
@@ -328,6 +584,21 @@ abstract final class AppHarness {
     );
     await settle(tester);
 
+    // TEXT-INJECTION GUARD — assert the fields ACTUALLY took the text before
+    // blaming the tap. `tester.enterText` posts its editing state with the
+    // connection id `TestTextInput._client ?? -1`, and
+    // `IntegrationTestWidgetsFlutterBinding.registerTestTextInput` is `false`,
+    // so the id is `-1` unless `boot()` registered the mock. The `-1` escape
+    // hatch in `TextInput._handleTextInputInvocation` sits inside an
+    // `assert(() {...}())`, which profile/release STRIPS — so in a non-debug
+    // build the value is silently discarded and every field stays empty.
+    //
+    // This assertion converts that silent drop into a one-line diagnosis AT THE
+    // CAUSE, in any build mode. It is the regression test for the
+    // `testTextInput.register()` call in [boot] (see its comment).
+    _expectFieldText(tester, 'login_email', email);
+    _expectFieldText(tester, 'login_password', 'Secret1234');
+
     // Ensure the submit button is on-screen + interactive before tapping
     // (best-effort: only scrolls if the form has a Scrollable ancestor).
     final Finder submit = find.byKey(const ValueKey<String>('login_submit'));
@@ -353,12 +624,37 @@ abstract final class AppHarness {
       await tester.pump();
       await tester.pump();
     }
+    // DIAGNOSE HONESTLY. The pre-2026-07-22 version of this guard asserted
+    // "the button was absorbed by an in-flight overlay/route transition"
+    // unconditionally — which was FLATLY WRONG on the profile drive (the real
+    // cause was silently-dropped `enterText`, see [boot]) and cost a full
+    // investigation. Re-read the fields AT THE POINT OF FAILURE and only claim
+    // absorption when they are actually populated; otherwise say so plainly.
+    // A guard that confidently states the wrong cause is worse than one that
+    // admits it does not know.
+    final String? emailAtFailure = _fieldText(tester, 'login_email');
+    final String? passwordAtFailure = _fieldText(tester, 'login_password');
+    final bool fieldsPopulated =
+        (emailAtFailure != null && emailAtFailure.isNotEmpty) &&
+        (passwordAtFailure != null && passwordAtFailure.isNotEmpty);
     expect(
       fakeBackend.loginCalls,
       greaterThan(callsBefore),
-      reason:
-          'login_submit tap did not trigger _submit() — the button was absorbed '
-          'by an in-flight overlay/route transition (see app_harness flake guard)',
+      reason: fieldsPopulated
+          ? 'login_submit tap did not trigger _submit(), and BOTH credential '
+                'fields are populated at the point of failure '
+                '(login_email="$emailAtFailure") — so the most likely cause is '
+                'the button being absorbed by an in-flight overlay/route '
+                'transition (see the app_harness flake guard).'
+          : 'login_submit tap did not trigger _submit(), and the credential '
+                'fields are NOT populated at the point of failure '
+                '(login_email=${emailAtFailure == null ? '<not mounted>' : '"$emailAtFailure"'}, '
+                'login_password=${passwordAtFailure == null ? '<not mounted>' : '${passwordAtFailure.length} chars'}) '
+                '— LoginScreen._submit() bailed at its own empty-field '
+                'validation. This is NOT tap absorption. Either the screen was '
+                'remounted between enterText and the tap, or the injected text '
+                'was dropped (see the testTextInput.register() comment in '
+                'AppHarness.boot).',
     );
 
     // Pump until all auth microtasks and router redirects settle:

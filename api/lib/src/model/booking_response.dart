@@ -21,6 +21,7 @@ part 'booking_response.g.dart';
 /// * [startsAt]
 /// * [endsAt]
 /// * [priceAtBooking]
+/// * [priceMaxAtBooking] - The range ceiling agreed AT BOOKING TIME, present ONLY when the master left this service's price as a genuine RANGE (no priceOverride) when the booking was made. Null means a single price — render priceAtBooking alone. The client must never re-derive this from priceType/priceOverride; the decision is made server-side, once.
 /// * [durationMinutesAtBooking]
 /// * [createdAt]
 @BuiltValue()
@@ -53,6 +54,10 @@ abstract class BookingResponse
 
   @BuiltValueField(wireName: r'priceAtBooking')
   num? get priceAtBooking;
+
+  /// The range ceiling agreed AT BOOKING TIME, present ONLY when the master left this service's price as a genuine RANGE (no priceOverride) when the booking was made. Null means a single price — render priceAtBooking alone. The client must never re-derive this from priceType/priceOverride; the decision is made server-side, once.
+  @BuiltValueField(wireName: r'priceMaxAtBooking')
+  num? get priceMaxAtBooking;
 
   @BuiltValueField(wireName: r'durationMinutesAtBooking')
   int? get durationMinutesAtBooking;
@@ -147,6 +152,13 @@ class _$BookingResponseSerializer
       yield serializers.serialize(
         object.priceAtBooking,
         specifiedType: const FullType(num),
+      );
+    }
+    if (object.priceMaxAtBooking != null) {
+      yield r'priceMaxAtBooking';
+      yield serializers.serialize(
+        object.priceMaxAtBooking,
+        specifiedType: const FullType.nullable(num),
       );
     }
     if (object.durationMinutesAtBooking != null) {
@@ -250,6 +262,14 @@ class _$BookingResponseSerializer
             specifiedType: const FullType(num),
           ) as num;
           result.priceAtBooking = valueDes;
+          break;
+        case r'priceMaxAtBooking':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(num),
+          ) as num?;
+          if (valueDes == null) continue;
+          result.priceMaxAtBooking = valueDes;
           break;
         case r'durationMinutesAtBooking':
           final valueDes = serializers.deserialize(

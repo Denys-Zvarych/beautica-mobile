@@ -195,6 +195,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   @override
   final num? priceAtBooking;
   @override
+  final num? priceMaxAtBooking;
+  @override
   final int? durationMinutesAtBooking;
   @override
   final DateTime? createdAt;
@@ -249,6 +251,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.startsAt,
       this.endsAt,
       this.priceAtBooking,
+      this.priceMaxAtBooking,
       this.durationMinutesAtBooking,
       this.createdAt,
       this.clientFirstName,
@@ -292,6 +295,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         startsAt == other.startsAt &&
         endsAt == other.endsAt &&
         priceAtBooking == other.priceAtBooking &&
+        priceMaxAtBooking == other.priceMaxAtBooking &&
         durationMinutesAtBooking == other.durationMinutesAtBooking &&
         createdAt == other.createdAt &&
         clientFirstName == other.clientFirstName &&
@@ -326,6 +330,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, startsAt.hashCode);
     _$hash = $jc(_$hash, endsAt.hashCode);
     _$hash = $jc(_$hash, priceAtBooking.hashCode);
+    _$hash = $jc(_$hash, priceMaxAtBooking.hashCode);
     _$hash = $jc(_$hash, durationMinutesAtBooking.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
     _$hash = $jc(_$hash, clientFirstName.hashCode);
@@ -362,6 +367,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('startsAt', startsAt)
           ..add('endsAt', endsAt)
           ..add('priceAtBooking', priceAtBooking)
+          ..add('priceMaxAtBooking', priceMaxAtBooking)
           ..add('durationMinutesAtBooking', durationMinutesAtBooking)
           ..add('createdAt', createdAt)
           ..add('clientFirstName', clientFirstName)
@@ -428,6 +434,11 @@ class BookingDetailResponseBuilder
   num? get priceAtBooking => _$this._priceAtBooking;
   set priceAtBooking(num? priceAtBooking) =>
       _$this._priceAtBooking = priceAtBooking;
+
+  num? _priceMaxAtBooking;
+  num? get priceMaxAtBooking => _$this._priceMaxAtBooking;
+  set priceMaxAtBooking(num? priceMaxAtBooking) =>
+      _$this._priceMaxAtBooking = priceMaxAtBooking;
 
   int? _durationMinutesAtBooking;
   int? get durationMinutesAtBooking => _$this._durationMinutesAtBooking;
@@ -537,6 +548,7 @@ class BookingDetailResponseBuilder
       _startsAt = $v.startsAt;
       _endsAt = $v.endsAt;
       _priceAtBooking = $v.priceAtBooking;
+      _priceMaxAtBooking = $v.priceMaxAtBooking;
       _durationMinutesAtBooking = $v.durationMinutesAtBooking;
       _createdAt = $v.createdAt;
       _clientFirstName = $v.clientFirstName;
@@ -587,6 +599,7 @@ class BookingDetailResponseBuilder
           startsAt: startsAt,
           endsAt: endsAt,
           priceAtBooking: priceAtBooking,
+          priceMaxAtBooking: priceMaxAtBooking,
           durationMinutesAtBooking: durationMinutesAtBooking,
           createdAt: createdAt,
           clientFirstName: clientFirstName,

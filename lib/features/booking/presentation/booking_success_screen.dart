@@ -9,6 +9,14 @@
 // (PopScope, animated badge, staggered reveal, pinned footer) lives in
 // `widgets/booking_success_scaffold.dart`.
 //
+// «ДОДАТИ В КАЛЕНДАР» — ONE PER APPOINTMENT: the OS calendar's INSERT sheet
+// takes exactly one event per invocation, so the old single page-level pill
+// below the recap could only ever seed the FIRST of N services.
+// Each appointment card now carries its own compact `CalendarButton`
+// (`BookingSummaryCards.trailingAction`) and the page-level pill is gone —
+// including for N == 1, so there is one rule and one layout to maintain
+// rather than "bottom button when N == 1, per-card buttons otherwise".
+//
 // Reached ONLY via `BookingConfirmScreen`'s `pushReplacement` once EVERY
 // appointment succeeded (partial failures keep the client on the confirm
 // screen), so the recap here is always the full, confirmed set. The scaffold's
@@ -27,6 +35,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
@@ -55,6 +64,26 @@ class BookingSuccessScreen extends ConsumerStatefulWidget {
 
 class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
   late final ScreenProtectionManager _screenProtection;
+
+  /// Re-entry guard for the OS calendar INSERT intent, shared by ALL N
+  /// per-appointment buttons.
+  ///
+  /// The trigger went from one page-level pill to one button per appointment
+  /// card, so a same-gesture double-tap — or a tap that lands on an ADJACENT
+  /// card while the first is still going out — used to fire two INSERT intents
+  /// for two different events. This drops the second: one pending request at a
+  /// time, later taps ignored until it resolves.
+  ///
+  /// Scope, precisely: on Android `Add2Calendar.addEvent2Cal` resolves as soon
+  /// as `startActivity` returns, NOT when the user dismisses the OS sheet, so
+  /// the flag is true only for the channel round trip. It closes the
+  /// double-fire window it was raised for (the gated-`Completer` test in
+  /// `booking_success_calendar_test.dart` proves it bites) — it makes no
+  /// promise about the activity stack once the sheet is up.
+  ///
+  /// Deliberately NOT `setState`-driven: nothing on screen is painted from it,
+  /// so flipping it must not rebuild N recap cards.
+  bool _calendarInFlight = false;
 
   // `widget.args` never changes for this screen's lifetime, so the flattened
   // grand-total selection list is computed once here.
@@ -117,7 +146,6 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
           onPressed: () => context.go(RouteNames.clientHome),
         ),
       ],
-      belowRecap: CalendarButton(onTap: () => _onAddToCalendar(context)),
       recapCards: <Widget>[
         NeumorphicCard(
           key: const Key('booking-success-address-card'),
@@ -145,6 +173,19 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
             dense: true,
             showBorder: true,
             compactText: true,
+            // Each appointment exports ITSELF. The OS INSERT sheet is one
+            // event per invocation, so a single page-level button could only
+            // ever seed one of N — see `_onAddToCalendar`.
+            trailingAction: CalendarButton(
+              buttonKey: ValueKey<String>(
+                'booking-success-add-calendar-'
+                '${appointments[i].service.id}-$i',
+              ),
+              semanticsLabel: l10n.bookingAddCalendarServiceSemantics(
+                appointments[i].service.name,
+              ),
+              onTap: () => _onAddToCalendar(context, appointments[i]),
+            ),
           ),
         if (appointments.length > 1)
           NeumorphicCard(
@@ -162,53 +203,69 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
     );
   }
 
-  /// Opens the OS calendar's "new event" sheet for the just-confirmed booking.
+  /// Opens the OS calendar's "new event" sheet for [appointment] — the ONE
+  /// confirmed appointment whose recap card carries the tapped button.
   ///
-  /// A booking is always ≥1 appointment; the single `belowRecap` button adds
-  /// the FIRST one. The native INSERT sheet is one-event-per-invocation, so a
-  /// multi-service booking (N>1) intentionally seeds only the first appointment
-  /// rather than firing N stacked OS sheets — the client can add the rest from
-  /// «Мої записи» per booking.
-  Future<void> _onAddToCalendar(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final master = widget.args.master;
-    final BookingSuccessAppointment first = widget.args.appointments.first;
+  /// The native INSERT sheet is one-event-per-invocation, so a multi-service
+  /// booking cannot be exported by a single control. Rather than have one
+  /// button silently seed only the first appointment (its behaviour before the
+  /// multi-service rework), EVERY appointment card carries its own — including
+  /// when there is just one, so there is a single rule and a single layout.
+  /// Nothing here may read `appointments.first`.
+  ///
+  /// Guarded by [_calendarInFlight]: while one INSERT intent is pending, taps
+  /// on the OTHER cards (and repeat taps on this one) are dropped rather than
+  /// stacking a second platform activity.
+  Future<void> _onAddToCalendar(
+    BuildContext context,
+    BookingSuccessAppointment appointment,
+  ) async {
+    if (_calendarInFlight) return;
+    _calendarInFlight = true;
+    try {
+      final l10n = AppLocalizations.of(context);
+      final master = widget.args.master;
+      final MasterService service = appointment.service;
 
-    // Same street/buildingNo/city join the recap's address card renders.
-    final String? location = formatStreetCityLine(
-      street: master.street,
-      buildingNo: master.buildingNo,
-      city: master.city,
-    );
-    final String provider = '${master.firstName} ${master.lastName}'.trim();
-    final DateTime end = first.start.add(
-      Duration(minutes: first.service.durationMinutes),
-    );
+      // Same street/buildingNo/city join the recap's address card renders (the
+      // address is the master's, shared by every appointment).
+      final String? location = formatStreetCityLine(
+        street: master.street,
+        buildingNo: master.buildingNo,
+        city: master.city,
+      );
+      final String provider = '${master.firstName} ${master.lastName}'.trim();
+      final DateTime end = appointment.start.add(
+        Duration(minutes: service.durationMinutes),
+      );
 
-    // Structured facts only — NO free-text note fields reach the calendar.
-    // Date+time and price reuse the exact strings the success recap renders.
-    // A just-submitted booking is auto-approved CONFIRMED (see domain rules),
-    // so the status line is the confirmed label.
-    final String? description = buildCalendarDescription(
-      l10n: l10n,
-      service: first.service.name,
-      provider: provider,
-      providerRole: CalendarProviderRole.master,
-      dateTime:
-          '${formatFullDate(first.start)}, '
-          '${formatTimeRange(first.start, first.service.durationMinutes)}',
-      address: location,
-      price: ServicePriceDisplay.format(first.service),
-      status: l10n.bookingStatusConfirmed,
-    );
+      // Structured facts only — NO free-text note fields reach the calendar.
+      // Date+time and price reuse the exact strings this appointment's own
+      // recap card renders. A just-submitted booking is auto-approved CONFIRMED
+      // (see domain rules), so the status line is the confirmed label.
+      final String? description = buildCalendarDescription(
+        l10n: l10n,
+        service: service.name,
+        provider: provider,
+        providerRole: CalendarProviderRole.master,
+        dateTime:
+            '${formatFullDate(appointment.start)}, '
+            '${formatTimeRange(appointment.start, service.durationMinutes)}',
+        address: location,
+        price: ServicePriceDisplay.format(service),
+        status: l10n.bookingStatusConfirmed,
+      );
 
-    return addBookingToCalendar(
-      context: context,
-      title: l10n.bookingCalendarEventTitle(first.service.name, provider),
-      location: location,
-      start: first.start,
-      end: end,
-      description: description,
-    );
+      await addBookingToCalendar(
+        context: context,
+        title: l10n.bookingCalendarEventTitle(service.name, provider),
+        location: location,
+        start: appointment.start,
+        end: end,
+        description: description,
+      );
+    } finally {
+      _calendarInFlight = false;
+    }
   }
 }

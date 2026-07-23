@@ -25,6 +25,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -857,6 +858,231 @@ void main() {
               'cleared once the master-selection screen is popped',
         );
         expect(counting.acquireCount, counting.releaseCount);
+      },
+    );
+  });
+
+  // ===========================================================================
+  // Security MEDIUM — the FOURTH unguarded money-string builder.
+  //
+  // `_AssignConfirmBar.build` hand-built its own
+  // `'${minSum.toStringAsFixed(0)}–${maxSum.toStringAsFixed(0)} ₴'` from
+  // `_totals`, which summed `SalonCatalogService.priceMin`/`priceMax` — the
+  // same unclamped wire doubles `salon_mapper.dart` passes straight through —
+  // with NO `isRenderablePrice` gate at term OR sum level.
+  //
+  // Verified in Dart against the pre-fix expression:
+  //   priceMin: double.infinity  ->  «Infinity ₴»
+  //   priceMin: -0.0             ->  «-0 ₴»
+  //   priceMin: 1e30             ->  «1e+30 ₴»
+  //   priceMin: 1e30 + -1e30     ->  «0 ₴»   (a confident, fictional total)
+  //   priceMin: double.nan       ->  «NaN–NaN ₴» (NaN != NaN takes the band)
+  //
+  // Unlike `BookingRecap`'s int-coercing sibling this NEVER threw — it coerces
+  // nothing — which is exactly why it survived three rounds of consolidation:
+  // it had no crash to announce itself with. It just quietly stated a
+  // fictional price on the screen where the client commits to it.
+  //
+  // The CONTROL case at the end is what makes this group honest: a blanket
+  // "always render —" mutation would satisfy every hostile case above and fail
+  // only the control.
+  // ===========================================================================
+
+  group('_AssignConfirmBar totals — unrenderable wire prices', () {
+    /// A hostile svc-1 whose `priceMin` is [bad]. `priceDisplay` stays a
+    /// well-formed string so the only route a garbage figure can take onto the
+    /// screen is the confirm bar's own summation — not the shelf echoing a
+    /// pre-broken display string back at us.
+    SalonCatalogService hostileSvc1(double bad) => SalonCatalogService(
+      id: 'svc-1',
+      name: 'Манікюр з покриттям',
+      durationLabel: '1 год 30 хв',
+      priceDisplay: '500 ₴',
+      durationMinutes: 90,
+      priceType: ServicePriceType.fixed,
+      priceMin: bad,
+    );
+
+    /// Overrides pinning a single-service selection (svc-1 only, covered by
+    /// m1) whose catalogue entry carries [services].
+    List<Object> hostileOverrides(List<SalonCatalogService> services) {
+      const args = SalonBookingMasterSelectionArgs(
+        salonId: _kSalonId,
+        selectedServiceIds: <String>['svc-1', 'svc-2'],
+      );
+      return <Object>[
+        publicSalonProfileProvider(
+          _kSalonId,
+        ).overrideWith((ref) => (_stubSalon, _stubMasters)),
+        salonServiceCatalogProvider(_kSalonId).overrideWith(
+          (ref) => <SalonServiceCategoryEntry>[
+            SalonServiceCategoryEntry(
+              category: 'MANICURE',
+              displayName: 'Манікюр',
+              count: services.length,
+              services: services,
+            ),
+          ],
+        ),
+        salonMasterServiceCoverageProvider(
+          args,
+        ).overrideWith((ref) => _stubCoverage),
+      ];
+    }
+
+    /// Every rendered `Text` string in the tree — asserts no garbage figure
+    /// leaked into ANY node, not merely the one a scoped finder looked at.
+    List<String> renderedTexts(WidgetTester tester) => tester
+        .widgetList<Text>(find.byType(Text))
+        .map((Text t) => t.data ?? '')
+        .toList();
+
+    /// The confirm bar's price `Text`, located structurally (never by a
+    /// Cyrillic literal): it is the last `Text` inside the bar's total row,
+    /// so scope to the CTA's enclosing bar and read every `Text` there.
+    List<String> confirmBarTexts(WidgetTester tester) => tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find
+                .ancestor(
+                  of: find.byKey(const Key('salon-assign-confirm-cta')),
+                  matching: find.byType(Column),
+                )
+                .last,
+            matching: find.byType(Text),
+          ),
+        )
+        .map((Text t) => t.data ?? '')
+        .toList();
+
+    Future<void> pumpHostile(
+      WidgetTester tester,
+      List<SalonCatalogService> services,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(
+        _routerFor(),
+        overrides: hostileOverrides(services),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    for (final (String name, double bad, String leak)
+        in <(String, double, String)>[
+          ('double.infinity', double.infinity, 'Infinity'),
+          ('double.nan', double.nan, 'NaN'),
+          ('1e30 (exponent-notation threshold)', 1e30, 'e+'),
+        ]) {
+      testWidgets(
+        'a $name priceMin off the wire renders the neutral unavailable label, '
+        'never «$leak ₴», in the assign confirm bar',
+        (tester) async {
+          await pumpHostile(tester, <SalonCatalogService>[
+            hostileSvc1(bad),
+            _svc2,
+          ]);
+
+          expect(tester.takeException(), isNull);
+          expect(
+            confirmBarTexts(tester),
+            contains(priceUnavailableLabel),
+            reason:
+                'an unstatable total must fall back to the shared '
+                'priceUnavailableLabel, exactly as every other «Разом» surface '
+                'does — the whole band is poisoned rather than the bad term '
+                'dropped, because dropping it would UNDERSTATE the price the '
+                'client is agreeing to',
+          );
+          expect(
+            renderedTexts(tester).where((String s) => s.contains(leak)),
+            isEmpty,
+            reason: '«$leak ₴» must never be stringified onto a screen',
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'a -0.0 priceMin does not render the leading minus «-0 ₴» — `>= 0` waves '
+      'negative zero through, which is why isRenderablePrice uses isNegative',
+      (tester) async {
+        await pumpHostile(tester, <SalonCatalogService>[
+          hostileSvc1(-0.0),
+          _svc2,
+        ]);
+
+        expect(tester.takeException(), isNull);
+        expect(confirmBarTexts(tester), contains(priceUnavailableLabel));
+        expect(
+          renderedTexts(
+            tester,
+          ).where((String s) => RegExp(r'-\s*\d').hasMatch(s)),
+          isEmpty,
+          reason:
+              'a leading minus collides with the band en-dash into «-0–800 ₴»; '
+              'no negative money figure may render on the commit screen',
+        );
+      },
+    );
+
+    testWidgets(
+      'a CANCELLING PAIR (1e30 + -1e30 == 0.0) is poisoned by the PER-TERM '
+      'gate — a sum-level check alone would state a confident, fictional «0 ₴»',
+      (tester) async {
+        await pumpHostile(tester, <SalonCatalogService>[
+          hostileSvc1(1e30),
+          const SalonCatalogService(
+            id: 'svc-2',
+            name: 'Педикюр',
+            durationLabel: '2 год',
+            priceDisplay: '800 ₴',
+            durationMinutes: 120,
+            priceType: ServicePriceType.fixed,
+            priceMin: -1e30,
+          ),
+        ]);
+
+        expect(tester.takeException(), isNull);
+        expect(
+          confirmBarTexts(tester),
+          contains(priceUnavailableLabel),
+          reason:
+              'both terms are individually unrenderable but their SUM is '
+              'exactly 0.0 and passes isRenderablePrice; only a per-term gate '
+              'catches this, which is why the gate is not applied to the sums '
+              'alone',
+        );
+        expect(
+          confirmBarTexts(tester).where((String s) => s.contains('0 ₴')),
+          isEmpty,
+          reason: 'the fictional «0 ₴» total must not be stated',
+        );
+      },
+    );
+
+    testWidgets(
+      'CONTROL — well-formed prices still render the real band, so a blanket '
+      '"always render —" mutation cannot satisfy this group',
+      (tester) async {
+        await pumpHostile(tester, const <SalonCatalogService>[_svc1, _svc2]);
+
+        expect(tester.takeException(), isNull);
+
+        final List<String> texts = confirmBarTexts(tester);
+        expect(
+          texts,
+          contains('1300 ₴'),
+          reason:
+              'svc1 (500) + svc2 (800), both FIXED, collapse to a degenerate '
+              'band and must render as the real total',
+        );
+        expect(
+          texts,
+          isNot(contains(priceUnavailableLabel)),
+          reason:
+              'a renderable selection must never fall back to the unavailable '
+              'label — this is the mutation guard for the four cases above',
+        );
       },
     );
   });

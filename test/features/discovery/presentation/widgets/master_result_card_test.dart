@@ -181,6 +181,137 @@ void main() {
     });
   });
 
+  // ===========================================================================
+  // Security MEDIUM — `_priceLabel` used to coerce the WIRE doubles
+  // `MasterSearchItem.minEffectivePrice`/`priceMax` to `int` with a bare
+  // `.round()` before handing them to l10n, bypassing the shared
+  // `isRenderablePrice` gate that every other money surface passes through.
+  // `search_mapper.dart` maps both unclamped (`dto.minEffectivePrice
+  // ?.toDouble()`), and `jsonDecode('1e400')` yields `double.infinity` WITHOUT
+  // throwing, so the coercion failed two ways off a malformed payload:
+  //
+  //   1. `double.infinity.round()` / `double.nan.round()` THROW
+  //      (`UnsupportedError: Infinity or NaN toInt`) — inside `build()`, so the
+  //      card became an error widget in the search results list. This is the
+  //      distinguishing failure mode, hence the explicit `takeException()`
+  //      assertion in every case below.
+  //   2. `(1e30).round()` does NOT throw — it saturates to int64 max, so the
+  //      card silently stated «9223372036854775807 ₴». Note `1e20` saturates
+  //      too while passing `isRenderablePrice` (whose ceiling is calibrated for
+  //      `toStringAsFixed(0)`, not for int coercion), which is why the gate is
+  //      `renderableWholePrice` and not `isRenderablePrice` alone.
+  //
+  // An unrenderable bound is routed into the card's EXISTING "no price known"
+  // rendering rather than to `priceUnavailableLabel`: an unrenderable floor
+  // hides the price line exactly as a master with no priced services does, and
+  // an unrenderable ceiling collapses to the exact floor price. The control
+  // case at the end is what makes this group honest — a blanket "always hide
+  // the price" mutation would satisfy the first four tests and fail the fifth.
+  // ===========================================================================
+  group('MasterResultCard price label — unrenderable wire prices', () {
+    /// Every rendered `Text` string in the tree — used to assert that no
+    /// garbage figure leaked into ANY of them, not merely into the one node a
+    /// scoped finder happened to look at.
+    List<String> renderedTexts(WidgetTester tester) => tester
+        .widgetList<Text>(find.byType(Text))
+        .map((Text t) => t.data ?? '')
+        .toList();
+
+    for (final (String name, double bad) in <(String, double)>[
+      ('double.infinity', double.infinity),
+      ('double.nan', double.nan),
+      ('1e30 (int64-saturating)', 1e30),
+      (
+        '1e20 (int64-saturating, but under the isRenderablePrice ceiling)',
+        1e20,
+      ),
+      ('a negative price', -500.0),
+    ]) {
+      testWidgets(
+        'a $name minEffectivePrice off the wire hides the price line instead '
+        'of throwing out of build()',
+        (tester) async {
+          await _pump(tester, _master(minEffectivePrice: bad, priceMax: null));
+
+          expect(
+            tester.takeException(),
+            isNull,
+            reason:
+                '$name must never reach a bare `.round()` — that throws '
+                'UnsupportedError inside build() and turns this row of the '
+                'search results list into an error widget',
+          );
+          // The card's own "no price known" state: no currency-bearing
+          // fragment renders at all. Resolved from l10n, never hardcoded.
+          expect(
+            find.textContaining(_l10n(tester).searchPriceCurrencySuffix),
+            findsNothing,
+            reason:
+                'an unstatable floor must fall back to the card\'s existing '
+                'price-less rendering (line omitted), not print a figure',
+          );
+          expect(
+            renderedTexts(tester).where(
+              (String s) =>
+                  s.contains('Infinity') ||
+                  s.contains('NaN') ||
+                  s.contains('9223372036854775807') ||
+                  s.contains('-500'),
+            ),
+            isEmpty,
+            reason:
+                'no saturated, non-finite or negative figure may be '
+                'stringified onto a search card',
+          );
+        },
+      );
+
+      testWidgets(
+        'a $name priceMax off the wire collapses to the exact floor price '
+        'instead of throwing out of build()',
+        (tester) async {
+          await _pump(tester, _master(minEffectivePrice: 500, priceMax: bad));
+
+          expect(tester.takeException(), isNull);
+          final l10n = _l10n(tester);
+          // An unrenderable ceiling is ABSENT → the documented `priceMax ==
+          // null` path, which the card already renders correctly.
+          expect(
+            find.text(l10n.searchResultPriceExact(500)),
+            findsOneWidget,
+            reason:
+                'a garbage ceiling lands in the existing "this master has one '
+                'price" case — the known floor is still stated honestly',
+          );
+          expect(
+            renderedTexts(tester).where(
+              (String s) =>
+                  s.contains('Infinity') ||
+                  s.contains('NaN') ||
+                  s.contains('9223372036854775807'),
+            ),
+            isEmpty,
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'CONTROL — well-formed wire doubles still render the ordinary «N–M ₴» '
+      'range (a blanket "always hide the price" mutation fails here)',
+      (tester) async {
+        await _pump(tester, _master(minEffectivePrice: 350, priceMax: 900));
+
+        expect(tester.takeException(), isNull);
+        final l10n = _l10n(tester);
+        expect(
+          find.text(l10n.searchResultPriceRange(350, 900)),
+          findsOneWidget,
+        );
+      },
+    );
+  });
+
   // -------------------------------------------------------------------------
   // Phase 13.5 navigation — the card body is a button that navigates to
   // RouteNames.masterPublicProfile (/masters/:id, registered in Phase 13.5).

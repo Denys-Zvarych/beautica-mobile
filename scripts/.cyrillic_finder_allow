@@ -10,7 +10,6 @@
 #
 # Generated 2026-06-24 from the then-current corpus.
 integration_test/client_home_hub_flow_test.dart
-integration_test/client_search_flow_test.dart
 test/core/widgets/neumorphic_test.dart
 test/features/auth/presentation/registration_progress_test.dart
 test/features/auth/presentation/role_selection_screen_test.dart
