@@ -2515,6 +2515,10 @@
   "@serviceSetupSuccess": {
     "description": "Snackbar shown after the first-time bulk service setup succeeds."
   },
+  "serviceErrDuplicate": "This service is already in your menu.",
+  "@serviceErrDuplicate": {
+    "description": "Error shown when a service-catalog create/update/bulk write returns 409 DUPLICATE_SERVICE because the service is already in the master's menu."
+  },
   "serviceSetupErrAlreadyHasServices": "You already have services",
   "@serviceSetupErrAlreadyHasServices": {
     "description": "Error shown when the bulk-setup endpoint returns 409 because the master already has services."

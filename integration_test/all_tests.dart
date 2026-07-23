@@ -99,6 +99,7 @@ import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'service_crud_flow_test.dart' as service_crud;
+import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
@@ -212,6 +213,9 @@ void main() {
   group('schedule_edit_flow', schedule_edit.main);
   group('schedule_first_create_flow', schedule_first_create.main);
   group('service_crud_flow', service_crud.main);
+  // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays
+  // open, never errServer (Step 2.7 Rule 3b — the catalogue duplicate fix E2E).
+  group('service_duplicate_flow', service_duplicate.main);
   group('service_edit_category_type', service_edit_category_type.main);
   // Search service-filter → booking pre-selection (Step 2.7 Rule 3b) — exact
   // serviceTypeSlug pre-check on the master + salon booking catalogues.

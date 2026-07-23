@@ -496,6 +496,62 @@ final class DuplicateServiceFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrDuplicateService;
 }
 
+/// Emitted when a service-catalog WRITE (create / update / bulk-create) returns
+/// HTTP **409** with the typed `data.code == "DUPLICATE_SERVICE"` envelope: the
+/// master tried to add a service that is already in their menu (same service
+/// type / definition), or a DB unique-index race caught a concurrent add.
+///
+/// Distinct from the appointment-path [DuplicateServiceFailure] — that one is a
+/// booking payload naming the same `masterServiceId` twice ("a service can't be
+/// added twice" to ONE visit), which reads wrong for the catalogue's "already in
+/// your menu" case. This failure carries the two nullable diagnostic fields the
+/// backend returns:
+///   - [serviceName]: the clashing service's display name. **Null on the bulk
+///     path** (the bulk envelope omits it) — render the plain message then.
+///   - [existingServiceDefId]: the id of the already-present service definition.
+///     **Null when the DB unique-index race caught it** (no row id to report).
+///
+/// Expected backend envelope:
+/// ```json
+/// {
+///   "success": false,
+///   "data": {
+///     "code": "DUPLICATE_SERVICE",
+///     "serviceName": "Манікюр класичний" | null,
+///     "existingServiceDefId": "3f2a1c1e-…" | null
+///   },
+///   "message": "This service already exists"
+/// }
+/// ```
+/// The server-supplied top-level `message` is intentionally NEVER shown (it is
+/// untranslated internal English copy) — [userMessage] returns the Ukrainian
+/// catalogue-specific copy regardless of which fields are present.
+///
+/// Decoded by `HttpServiceRepository._mapServiceWriteException` (create / update)
+/// and `_mapBulkCreateException` (bulk) — checked BEFORE deferring to any
+/// [Failure] the [ErrorMapperInterceptor] may already have attached (it maps a
+/// non-auth 409 to a generic [ServerFailure]), mirroring the
+/// `CategoryAlreadyExistsFailure` precedent.
+final class ServiceDuplicateFailure extends Failure {
+  const ServiceDuplicateFailure({
+    this.serviceName,
+    this.existingServiceDefId,
+    super.cause,
+  });
+
+  /// The clashing service's display name, exactly as returned by the backend
+  /// (an untranslated catalogue value). Null on the bulk path.
+  final String? serviceName;
+
+  /// The id of the already-present service definition. Null when a DB
+  /// unique-index race caught the duplicate (no persisted row id to report).
+  final String? existingServiceDefId;
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).serviceErrDuplicate;
+}
+
 /// Emitted when a booking WRITE (create/reschedule) returns HTTP **409** with
 /// the typed `data.code == "CLIENT_BOOKING_CONFLICT"` envelope (backend
 /// commit f95d8fd): the authenticated CLIENT already has a PENDING/CONFIRMED

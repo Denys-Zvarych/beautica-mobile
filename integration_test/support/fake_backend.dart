@@ -763,6 +763,21 @@ final class FakeBackend {
   bool bulkRejectDurationField = false;
   int bulkRejectItemIndex = 0;
 
+  /// When true, the single-create route
+  /// (`POST /independent-masters/me/services`) replies HTTP 409 with the typed
+  /// `{ data: { code: "DUPLICATE_SERVICE", serviceName, existingServiceDefId } }`
+  /// envelope instead of the default 201 — the service the master tried to add is
+  /// already in their menu. Drives the repository's
+  /// `_mapServiceWriteException` → [ServiceDuplicateFailure] → inline
+  /// service-type error on the form (NOT the generic errServer snackbar, and NO
+  /// pop). Off by default so every other flow's create stays a clean 201.
+  bool createRejectDuplicate = false;
+
+  /// The `serviceName` the duplicate-409 envelope reports (the clashing service's
+  /// display name). Threaded through so a flow can assert the typed field survives
+  /// the decode; the form renders the localized copy regardless of its value.
+  String createDuplicateServiceName = 'Класичний манікюр';
+
   /// Test-support: empties the pre-seeded services list so
   /// `GET /api/v1/independent-masters/me/services` returns `[]`. Used by flows
   /// that must exercise the zero-services empty state (e.g. the master-home
@@ -2685,44 +2700,60 @@ final class FakeBackend {
     );
 
     // POST /api/v1/independent-masters/me/services
+    // Default: 201 echoing the created service. When [createRejectDuplicate] is
+    // set, replies HTTP 409 with the typed DUPLICATE_SERVICE envelope so the
+    // repository maps it to ServiceDuplicateFailure and the form flags the
+    // service-type field inline (never a pop / generic errServer snackbar).
     _adapter.onRoute(
       '/api/v1/independent-masters/me/services',
-      (server) => server.replyCallback(201, (req) {
-        createServiceCalls++;
-        final body = _decodeBody(req.data);
-        final defId = 'svc-$_nextServiceSeq';
-        final assignId = 'assign-$_nextServiceSeq';
-        final name = body['name'] as String? ?? 'New Service';
-        final priceType = body['priceType'] as String? ?? 'FIXED';
-        final newService = <String, dynamic>{
-          'id': assignId,
-          'masterId': 'user-master-1',
-          'isActive': true,
-          'priceType': priceType,
-          'priceMin': body['price'] ?? body['priceMin'] ?? 0,
-          'priceMax': body['priceMax'],
-          'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
-          'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
-          'serviceDefinition': <String, dynamic>{
-            'id': defId,
-            'name': name,
-            'description': null,
-            'category': body['categoryName'] ?? 'NAILS',
-            'baseDurationMinutes': body['durationMinutes'] ?? 60,
-            'bufferMinutesAfter': 0,
-            'isActive': true,
-            'priceType': priceType,
-            'priceMin': body['price'] ?? body['priceMin'] ?? 0,
-            'priceMax': body['priceMax'],
-            'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
-            'photoUrl': null,
-          },
-        };
-        _nextServiceSeq++;
-        _services.add(newService);
-        lastCreatedService = newService;
-        return _ok(newService);
-      }),
+      (server) =>
+          server.replyCallback(createRejectDuplicate ? 409 : 201, (req) {
+            createServiceCalls++;
+            if (createRejectDuplicate) {
+              return <String, dynamic>{
+                'success': false,
+                'data': <String, dynamic>{
+                  'code': 'DUPLICATE_SERVICE',
+                  'serviceName': createDuplicateServiceName,
+                  'existingServiceDefId': 'def-existing',
+                },
+                'message': 'This service already exists',
+              };
+            }
+            final body = _decodeBody(req.data);
+            final defId = 'svc-$_nextServiceSeq';
+            final assignId = 'assign-$_nextServiceSeq';
+            final name = body['name'] as String? ?? 'New Service';
+            final priceType = body['priceType'] as String? ?? 'FIXED';
+            final newService = <String, dynamic>{
+              'id': assignId,
+              'masterId': 'user-master-1',
+              'isActive': true,
+              'priceType': priceType,
+              'priceMin': body['price'] ?? body['priceMin'] ?? 0,
+              'priceMax': body['priceMax'],
+              'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
+              'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
+              'serviceDefinition': <String, dynamic>{
+                'id': defId,
+                'name': name,
+                'description': null,
+                'category': body['categoryName'] ?? 'NAILS',
+                'baseDurationMinutes': body['durationMinutes'] ?? 60,
+                'bufferMinutesAfter': 0,
+                'isActive': true,
+                'priceType': priceType,
+                'priceMin': body['price'] ?? body['priceMin'] ?? 0,
+                'priceMax': body['priceMax'],
+                'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
+                'photoUrl': null,
+              },
+            };
+            _nextServiceSeq++;
+            _services.add(newService);
+            lastCreatedService = newService;
+            return _ok(newService);
+          }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
