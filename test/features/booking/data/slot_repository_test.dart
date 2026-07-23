@@ -24,6 +24,11 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(Date(2026, 1, 1));
+    // `serviceId` on the generated availability methods became a
+    // `BuiltList<String>?` (repeatable query param —
+    // feat/multi-service-appointments), so mocktail needs a concrete fallback
+    // for `any(named: 'serviceId')` / `captureAny(named: 'serviceId')`.
+    registerFallbackValue(BuiltList<String>(const <String>[]));
   });
 
   setUp(() {
@@ -52,7 +57,7 @@ void main() {
       when(
         () => masterApi.getAvailableSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceId: BuiltList<String>(<String>['service-1']),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -84,7 +89,7 @@ void main() {
           verify(
                 () => masterApi.getAvailableSlots(
                   masterId: 'master-1',
-                  serviceId: 'service-1',
+                  serviceId: BuiltList<String>(<String>['service-1']),
                   date: captureAny(named: 'date'),
                   cancelToken: any(named: 'cancelToken'),
                 ),
@@ -104,7 +109,7 @@ void main() {
       when(
         () => masterApi.getAvailableSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceId: BuiltList<String>(<String>['service-1']),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -150,7 +155,7 @@ void main() {
       when(
         () => masterApi.getAvailableSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceId: BuiltList<String>(<String>['service-1']),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -180,7 +185,7 @@ void main() {
       when(
         () => masterApi.getAvailableSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceId: BuiltList<String>(<String>['service-1']),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -205,7 +210,7 @@ void main() {
       when(
         () => masterApi.getAvailableSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceId: BuiltList<String>(<String>['service-1']),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -237,7 +242,7 @@ void main() {
       when(
         () => masterApi.getAvailableSlots(
           masterId: 'master-1',
-          serviceId: 'service-1',
+          serviceId: BuiltList<String>(<String>['service-1']),
           date: any(named: 'date'),
           cancelToken: any(named: 'cancelToken'),
         ),
@@ -521,7 +526,9 @@ void main() {
           cancelToken: any(named: 'cancelToken'),
         ),
       ).captured;
-      expect(captured.single, 'svc-1');
+      // The repository wraps the single caller serviceId in a singleton
+      // BuiltList before forwarding it to the (now repeatable) generated param.
+      expect(captured.single, BuiltList<String>(<String>['svc-1']));
     });
 
     test('passes serviceId: null to the generated client when the caller omits '

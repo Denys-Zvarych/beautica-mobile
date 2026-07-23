@@ -211,7 +211,7 @@ import 'package:beautica_api/api.dart';
 final api = BeauticaApi().getMasterControllerApi();
 final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 final Date date = 2013-10-20; // Date | 
-final String serviceId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final BuiltList<String> serviceId = ; // BuiltList<String> | 
 
 try {
     final response = api.getAvailableSlots(masterId, date, serviceId);
@@ -227,7 +227,7 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **masterId** | **String**|  | 
  **date** | **Date**|  | 
- **serviceId** | **String**|  | 
+ **serviceId** | [**BuiltList&lt;String&gt;**](String.md)|  | 
 
 ### Return type
 
@@ -554,7 +554,7 @@ final api = BeauticaApi().getMasterControllerApi();
 final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 final Date from = 2013-10-20; // Date | 
 final Date to = 2013-10-20; // Date | 
-final String serviceId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final BuiltList<String> serviceId = ; // BuiltList<String> | 
 
 try {
     final response = api.getWorkingDays(masterId, from, to, serviceId);
@@ -571,7 +571,7 @@ Name | Type | Description  | Notes
  **masterId** | **String**|  | 
  **from** | **Date**|  | 
  **to** | **Date**|  | 
- **serviceId** | **String**|  | [optional] 
+ **serviceId** | [**BuiltList&lt;String&gt;**](String.md)|  | [optional] 
 
 ### Return type
 

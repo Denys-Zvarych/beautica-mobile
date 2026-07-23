@@ -289,6 +289,59 @@ void main() {
       expect(redactLogPath('/api/v1/bookings'), equals('/api/v1/bookings'));
     });
 
+    // ── MO-1 — appointment (multi-service visit) PII paths ──────────────────
+    //
+    // The visit endpoints carry the SAME PII the single-service booking
+    // endpoints do (enriched master name/address/price + free-text
+    // clientComment / providerComment / clientCancellationNote):
+    //   POST  /api/v1/appointments                 (create — clientComment)
+    //   GET   /api/v1/appointments/{id}            (detail — full enrichment)
+    //   PATCH /api/v1/appointments/{id}/cancel     (clientCancellationNote)
+    //   POST  /api/v1/appointments/{id}/review     (free-text comment)
+    // They MUST be classified PII so LoggingInterceptor redacts request AND
+    // response bodies (the error-path logger logs response bodies otherwise).
+    // Mirrors the `/api/v1/bookings` (exact) + `/api/v1/bookings/` (prefix)
+    // pair. This is the tripwire guarding the mobile-security allowlist fix —
+    // if the exact-`/appointments` entry or the `/appointments/` prefix is ever
+    // removed, these fail loudly.
+    test('bare POST /appointments is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/appointments'),
+        isTrue,
+        reason:
+            'POST /appointments carries free-text clientComment — its body '
+            'must be redacted in debug logs, exactly like POST /bookings.',
+      );
+    });
+
+    test('appointment sub-routes ({id}/cancel/review) are PII routes', () {
+      expect(
+        isPiiPath('/api/v1/appointments/appt-123'),
+        isTrue,
+        reason:
+            'GET /appointments/{id} returns enriched master address + notes — '
+            'PII that must be redacted, like GET /bookings/{id}.',
+      );
+      expect(
+        isPiiPath('/api/v1/appointments/appt-123/cancel'),
+        isTrue,
+        reason:
+            'PATCH .../cancel carries the free-text clientCancellationNote.',
+      );
+      expect(
+        isPiiPath('/api/v1/appointments/appt-123/review'),
+        isTrue,
+        reason: 'POST .../review carries the free-text review comment.',
+      );
+    });
+
+    test('a PII appointment path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/appointments/appt-123?token=secret'),
+        equals('/api/v1/appointments/appt-123?[REDACTED]'),
+      );
+    });
+
     test('auth/PII token route: whole query redacted (token value absent)', () {
       // /api/v1/auth/verify-email is an exact kPiiPaths member → full mask,
       // including the param NAME, not just its value.

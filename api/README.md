@@ -47,14 +47,14 @@ Please follow the [installation procedure](#installation--usage) and then run th
 import 'package:beautica_api/beautica_api.dart';
 
 
-final api = BeauticaApi().getAuthControllerApi();
-final InviteAcceptRequest inviteAcceptRequest = ; // InviteAcceptRequest | 
+final api = BeauticaApi().getAppointmentControllerApi();
+final String appointmentId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final AppointmentCancelRequest appointmentCancelRequest = ; // AppointmentCancelRequest | 
 
 try {
-    final response = await api.acceptInvite(inviteAcceptRequest);
-    print(response);
+    api.cancelAppointment(appointmentId, appointmentCancelRequest);
 } catch on DioException (e) {
-    print("Exception when calling AuthControllerApi->acceptInvite: $e\n");
+    print("Exception when calling AppointmentControllerApi->cancelAppointment: $e\n");
 }
 
 ```
@@ -65,6 +65,12 @@ All URIs are relative to *http://localhost:8080*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointment**](doc/AppointmentControllerApi.md#cancelappointment) | **PATCH** /api/v1/appointments/{appointmentId}/cancel | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**completeAppointment**](doc/AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**createAppointment**](doc/AppointmentControllerApi.md#createappointment) | **POST** /api/v1/appointments | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointment**](doc/AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**getAppointment**](doc/AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**notCompleteAppointment**](doc/AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**acceptInvite**](doc/AuthControllerApi.md#acceptinvite) | **POST** /api/v1/auth/invite/accept | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**forgotPassword**](doc/AuthControllerApi.md#forgotpassword) | **POST** /api/v1/auth/forgot-password | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**login**](doc/AuthControllerApi.md#login) | **POST** /api/v1/auth/login | 
@@ -136,6 +142,7 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancel**](doc/PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancelInfo**](doc/PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**info**](doc/PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
+[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createAppointmentReview**](doc/ReviewControllerApi.md#createappointmentreview) | **POST** /api/v1/appointments/{appointmentId}/review | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -180,11 +187,11 @@ Class | Method | HTTP request | Description
 ## Documentation For Models
 
  - [AddFavoriteRequest](doc/AddFavoriteRequest.md)
+ - [ApiResponseAppointmentDetailResponse](doc/ApiResponseAppointmentDetailResponse.md)
  - [ApiResponseAuthResponse](doc/ApiResponseAuthResponse.md)
  - [ApiResponseAvailableSlotsResponse](doc/ApiResponseAvailableSlotsResponse.md)
  - [ApiResponseAvatarResponse](doc/ApiResponseAvatarResponse.md)
  - [ApiResponseBookingDetailResponse](doc/ApiResponseBookingDetailResponse.md)
- - [ApiResponseBookingResponse](doc/ApiResponseBookingResponse.md)
  - [ApiResponseCategoryRequestResponse](doc/ApiResponseCategoryRequestResponse.md)
  - [ApiResponseContactSupportResponse](doc/ApiResponseContactSupportResponse.md)
  - [ApiResponseFavoriteResponse](doc/ApiResponseFavoriteResponse.md)
@@ -241,6 +248,10 @@ Class | Method | HTTP request | Description
  - [ApiResponseVerifyPasswordResetOtpResponse](doc/ApiResponseVerifyPasswordResetOtpResponse.md)
  - [ApiResponseVoid](doc/ApiResponseVoid.md)
  - [ApiResponseWeeklyScheduleResponse](doc/ApiResponseWeeklyScheduleResponse.md)
+ - [AppointmentCancelRequest](doc/AppointmentCancelRequest.md)
+ - [AppointmentDetailResponse](doc/AppointmentDetailResponse.md)
+ - [AppointmentItemResponse](doc/AppointmentItemResponse.md)
+ - [AppointmentProviderNoteRequest](doc/AppointmentProviderNoteRequest.md)
  - [ApprovedCategoryResponse](doc/ApprovedCategoryResponse.md)
  - [AssignServiceToMasterRequest](doc/AssignServiceToMasterRequest.md)
  - [AuthResponse](doc/AuthResponse.md)
@@ -262,12 +273,16 @@ Class | Method | HTTP request | Description
  - [CityResponse](doc/CityResponse.md)
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
  - [ContactSupportResponse](doc/ContactSupportResponse.md)
+ - [CreateAppointmentRequest](doc/CreateAppointmentRequest.md)
+ - [CreateAppointmentReviewRequest](doc/CreateAppointmentReviewRequest.md)
  - [CreateBookingRequest](doc/CreateBookingRequest.md)
  - [CreateCategoryRequestRequest](doc/CreateCategoryRequestRequest.md)
  - [CreatePlatformCategoryRequest](doc/CreatePlatformCategoryRequest.md)
  - [CreateReviewRequest](doc/CreateReviewRequest.md)
  - [CreateSalonRequest](doc/CreateSalonRequest.md)
  - [CreateServiceDefinitionRequest](doc/CreateServiceDefinitionRequest.md)
+ - [DuplicateServiceErrorResponse](doc/DuplicateServiceErrorResponse.md)
+ - [DuplicateServiceResponse](doc/DuplicateServiceResponse.md)
  - [EffectiveDayResponse](doc/EffectiveDayResponse.md)
  - [FavoriteMasterResponse](doc/FavoriteMasterResponse.md)
  - [FavoriteResponse](doc/FavoriteResponse.md)

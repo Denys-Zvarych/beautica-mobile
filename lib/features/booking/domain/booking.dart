@@ -146,5 +146,16 @@ abstract class Booking with _$Booking {
     /// `composeAddressLine`'s doc. Independently nullable; most providers
     /// never set one.
     String? locationNote,
+
+    /// The id of the multi-service VISIT this booking belongs to, when it was
+    /// placed as one line of a multi-service single-visit appointment
+    /// (`appointmentId` on the wire, backend `feat/multi-service-appointments`).
+    ///
+    /// **Null means a standalone single-service booking** — the legacy shape,
+    /// still the common case. MO-5 groups the «Мої записи» list by this id so
+    /// the N per-service bookings of one visit render as a single card; a null
+    /// value is its own group of one. Additive and purely informational here —
+    /// no existing behaviour keys off it.
+    String? appointmentId,
   }) = _Booking;
 }

@@ -411,7 +411,7 @@ class MasterControllerApi {
   Future<Response<ApiResponseAvailableSlotsResponse>> getAvailableSlots({
     required String masterId,
     required Date date,
-    required String serviceId,
+    required BuiltList<String> serviceId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -437,8 +437,12 @@ class MasterControllerApi {
 
     final _queryParameters = <String, dynamic>{
       r'date': encodeQueryParameter(_serializers, date, const FullType(Date)),
-      r'serviceId':
-          encodeQueryParameter(_serializers, serviceId, const FullType(String)),
+      r'serviceId': encodeCollectionQueryParameter<String>(
+        _serializers,
+        serviceId,
+        const FullType(BuiltList, [FullType(String)]),
+        format: ListFormat.multi,
+      ),
     };
 
     final _response = await _dio.request<Object>(
@@ -1094,7 +1098,7 @@ class MasterControllerApi {
     required String masterId,
     required Date from,
     required Date to,
-    String? serviceId,
+    BuiltList<String>? serviceId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -1122,8 +1126,12 @@ class MasterControllerApi {
       r'from': encodeQueryParameter(_serializers, from, const FullType(Date)),
       r'to': encodeQueryParameter(_serializers, to, const FullType(Date)),
       if (serviceId != null)
-        r'serviceId': encodeQueryParameter(
-            _serializers, serviceId, const FullType(String)),
+        r'serviceId': encodeCollectionQueryParameter<String>(
+          _serializers,
+          serviceId,
+          const FullType(BuiltList, [FullType(String)]),
+          format: ListFormat.multi,
+        ),
     };
 
     final _response = await _dio.request<Object>(

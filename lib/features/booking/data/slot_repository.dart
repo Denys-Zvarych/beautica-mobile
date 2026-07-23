@@ -22,6 +22,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -95,7 +96,13 @@ final class HttpSlotRepository implements SlotRepository {
     try {
       final res = await _masterApi.getAvailableSlots(
         masterId: masterId,
-        serviceId: serviceId,
+        // `serviceId` became a REPEATABLE query param on the backend
+        // (feat/multi-service-appointments — the generated param is now
+        // `BuiltList<String>` for multi-service availability). This
+        // single-service path wraps the one id in a singleton list, which
+        // serialises to exactly the one `serviceId=` param it always sent —
+        // behaviourally identical. MO-2/MO-3 will pass N ids here.
+        serviceId: BuiltList<String>(<String>[serviceId]),
         // Date-only wire param (year-month-day only; time-of-day discarded) —
         // mirrors `ScheduleMapper.dateToWire`.
         date: Date(date.year, date.month, date.day),
@@ -133,8 +140,12 @@ final class HttpSlotRepository implements SlotRepository {
         from: Date(from.year, from.month, from.day),
         to: Date(to.year, to.month, to.day),
         // Availability-aware mode when non-null; the generated client omits
-        // the query param entirely when null (schedule-shape mode).
-        serviceId: serviceId,
+        // the query param entirely when null (schedule-shape mode). Now a
+        // REPEATABLE `BuiltList<String>` param (see `getMasterSlots`) — the
+        // single id is wrapped in a singleton list, serialising identically.
+        serviceId: serviceId == null
+            ? null
+            : BuiltList<String>(<String>[serviceId]),
         cancelToken: cancelToken,
       );
       final days = res.data?.data ?? const <MasterWorkingDayResponse>[];

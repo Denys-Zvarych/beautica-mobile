@@ -241,17 +241,22 @@ void main() {
     test(
       'success: creates then fetches the enriched detail via getBookingById',
       () async {
-        final leanDto = (BookingResponseBuilder()..id = 'booking-1').build();
+        // POST /bookings now returns ApiResponseBookingDetailResponse (backend
+        // feat/multi-service-appointments). createBooking still reads only
+        // `.data?.data?.id` and does a follow-up getBookingById, so a minimal
+        // detail DTO carrying just the id is all this stub needs.
+        final createdDto = (BookingDetailResponseBuilder()..id = 'booking-1')
+            .build();
         when(
           () => bookingApi.createBooking(
             createBookingRequest: any(named: 'createBookingRequest'),
             idempotencyKey: any(named: 'idempotencyKey'),
           ),
         ).thenAnswer(
-          (_) async => Response<ApiResponseBookingResponse>(
-            data: ApiResponseBookingResponse(
+          (_) async => Response<ApiResponseBookingDetailResponse>(
+            data: ApiResponseBookingDetailResponse(
               (b) => b
-                ..data.replace(leanDto)
+                ..data.replace(createdDto)
                 ..success = true,
             ),
             requestOptions: RequestOptions(path: _createPath),
@@ -327,17 +332,17 @@ void main() {
     });
 
     test('response with null id → ServerFailure(null)', () async {
-      final leanDto = BookingResponseBuilder().build(); // id left unset
+      final createdDto = BookingDetailResponseBuilder().build(); // id unset
       when(
         () => bookingApi.createBooking(
           createBookingRequest: any(named: 'createBookingRequest'),
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
       ).thenAnswer(
-        (_) async => Response<ApiResponseBookingResponse>(
-          data: ApiResponseBookingResponse(
+        (_) async => Response<ApiResponseBookingDetailResponse>(
+          data: ApiResponseBookingDetailResponse(
             (b) => b
-              ..data.replace(leanDto)
+              ..data.replace(createdDto)
               ..success = true,
           ),
           requestOptions: RequestOptions(path: _createPath),

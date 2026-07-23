@@ -9,11 +9,11 @@ part of 'serializers.dart';
 Serializers _$serializers = (Serializers().toBuilder()
       ..add(AddFavoriteRequest.serializer)
       ..add(AddFavoriteRequestTargetTypeEnum.serializer)
+      ..add(ApiResponseAppointmentDetailResponse.serializer)
       ..add(ApiResponseAuthResponse.serializer)
       ..add(ApiResponseAvailableSlotsResponse.serializer)
       ..add(ApiResponseAvatarResponse.serializer)
       ..add(ApiResponseBookingDetailResponse.serializer)
-      ..add(ApiResponseBookingResponse.serializer)
       ..add(ApiResponseCategoryRequestResponse.serializer)
       ..add(ApiResponseContactSupportResponse.serializer)
       ..add(ApiResponseFavoriteResponse.serializer)
@@ -70,6 +70,12 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseVerifyPasswordResetOtpResponse.serializer)
       ..add(ApiResponseVoid.serializer)
       ..add(ApiResponseWeeklyScheduleResponse.serializer)
+      ..add(AppointmentCancelRequest.serializer)
+      ..add(AppointmentDetailResponse.serializer)
+      ..add(AppointmentDetailResponseMasterTypeEnum.serializer)
+      ..add(AppointmentDetailResponseStatusEnum.serializer)
+      ..add(AppointmentItemResponse.serializer)
+      ..add(AppointmentProviderNoteRequest.serializer)
       ..add(ApprovedCategoryResponse.serializer)
       ..add(AssignServiceToMasterRequest.serializer)
       ..add(AuthResponse.serializer)
@@ -97,6 +103,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CityResponse.serializer)
       ..add(ContactSupportRequest.serializer)
       ..add(ContactSupportResponse.serializer)
+      ..add(CreateAppointmentRequest.serializer)
+      ..add(CreateAppointmentReviewRequest.serializer)
       ..add(CreateBookingRequest.serializer)
       ..add(CreateCategoryRequestRequest.serializer)
       ..add(CreatePlatformCategoryRequest.serializer)
@@ -104,6 +112,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CreateSalonRequest.serializer)
       ..add(CreateServiceDefinitionRequest.serializer)
       ..add(CreateServiceDefinitionRequestPriceTypeEnum.serializer)
+      ..add(DuplicateServiceErrorResponse.serializer)
+      ..add(DuplicateServiceResponse.serializer)
       ..add(EffectiveDayResponse.serializer)
       ..add(EffectiveDayResponseSource_Enum.serializer)
       ..add(FavoriteMasterResponse.serializer)
@@ -222,6 +232,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(WorkIntervalDto.serializer)
       ..add(WorkingHoursRequest.serializer)
       ..add(WorkingHoursResponse.serializer)
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(AppointmentItemResponse)]),
+          () => ListBuilder<AppointmentItemResponse>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ApprovedCategoryResponse)]),
@@ -403,6 +417,12 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ServiceSummaryDto)]),
           () => ListBuilder<ServiceSummaryDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

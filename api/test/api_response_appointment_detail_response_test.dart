@@ -1,24 +1,29 @@
 import 'package:test/test.dart';
 import 'package:beautica_api/beautica_api.dart';
 
-// tests for ApiResponseBookingResponse
+// tests for ApiResponseAppointmentDetailResponse
 void main() {
-  final instance = ApiResponseBookingResponseBuilder();
+  final instance = ApiResponseAppointmentDetailResponseBuilder();
   // TODO add properties to the builder and call build()
 
-  group(ApiResponseBookingResponse, () {
+  group(ApiResponseAppointmentDetailResponse, () {
     // bool success
     test('to test the property `success`', () async {
       // TODO
     });
 
-    // BookingResponse data
+    // AppointmentDetailResponse data
     test('to test the property `data`', () async {
       // TODO
     });
 
     // String message
     test('to test the property `message`', () async {
+      // TODO
+    });
+
+    // BuiltMap<String, String> errors
+    test('to test the property `errors`', () async {
       // TODO
     });
   });

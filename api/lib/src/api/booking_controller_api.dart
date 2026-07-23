@@ -10,7 +10,6 @@ import 'package:dio/dio.dart';
 
 import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
-import 'package:beautica_api/src/model/api_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_list_local_date.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
@@ -163,9 +162,9 @@ class BookingControllerApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future] containing a [Response] with a [ApiResponseBookingResponse] as data
+  /// Returns a [Future] containing a [Response] with a [ApiResponseBookingDetailResponse] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<ApiResponseBookingResponse>> createBooking({
+  Future<Response<ApiResponseBookingDetailResponse>> createBooking({
     required CreateBookingRequest createBookingRequest,
     String? idempotencyKey,
     CancelToken? cancelToken,
@@ -217,7 +216,7 @@ class BookingControllerApi {
       onReceiveProgress: onReceiveProgress,
     );
 
-    ApiResponseBookingResponse? _responseData;
+    ApiResponseBookingDetailResponse? _responseData;
 
     try {
       final rawResponse = _response.data;
@@ -225,8 +224,8 @@ class BookingControllerApi {
           ? null
           : _serializers.deserialize(
               rawResponse,
-              specifiedType: const FullType(ApiResponseBookingResponse),
-            ) as ApiResponseBookingResponse;
+              specifiedType: const FullType(ApiResponseBookingDetailResponse),
+            ) as ApiResponseBookingDetailResponse;
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _response.requestOptions,
@@ -237,7 +236,7 @@ class BookingControllerApi {
       );
     }
 
-    return Response<ApiResponseBookingResponse>(
+    return Response<ApiResponseBookingDetailResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

@@ -236,6 +236,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? categoryName;
   @override
   final bool? canReview;
+  @override
+  final String? appointmentId;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -271,7 +273,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.buildingNo,
       this.locationNote,
       this.categoryName,
-      this.canReview})
+      this.canReview,
+      this.appointmentId})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -315,7 +318,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
         categoryName == other.categoryName &&
-        canReview == other.canReview;
+        canReview == other.canReview &&
+        appointmentId == other.appointmentId;
   }
 
   @override
@@ -351,6 +355,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, canReview.hashCode);
+    _$hash = $jc(_$hash, appointmentId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -387,7 +392,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
           ..add('categoryName', categoryName)
-          ..add('canReview', canReview))
+          ..add('canReview', canReview)
+          ..add('appointmentId', appointmentId))
         .toString();
   }
 }
@@ -532,6 +538,11 @@ class BookingDetailResponseBuilder
   bool? get canReview => _$this._canReview;
   set canReview(bool? canReview) => _$this._canReview = canReview;
 
+  String? _appointmentId;
+  String? get appointmentId => _$this._appointmentId;
+  set appointmentId(String? appointmentId) =>
+      _$this._appointmentId = appointmentId;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -569,6 +580,7 @@ class BookingDetailResponseBuilder
       _locationNote = $v.locationNote;
       _categoryName = $v.categoryName;
       _canReview = $v.canReview;
+      _appointmentId = $v.appointmentId;
       _$v = null;
     }
     return this;
@@ -620,6 +632,7 @@ class BookingDetailResponseBuilder
           locationNote: locationNote,
           categoryName: categoryName,
           canReview: canReview,
+          appointmentId: appointmentId,
         );
     replace(_$result);
     return _$result;

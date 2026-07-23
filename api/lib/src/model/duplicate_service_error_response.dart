@@ -3,64 +3,63 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:built_collection/built_collection.dart';
-import 'package:beautica_api/src/model/booking_response.dart';
+import 'package:beautica_api/src/model/duplicate_service_response.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'api_response_booking_response.g.dart';
+part 'duplicate_service_error_response.g.dart';
 
-/// ApiResponseBookingResponse
+/// 409 response body when a provider adds a service they already offer. Branch on `data.code` (DUPLICATE_SERVICE), never on `message`, which is generic copy shared with the other 409s.
 ///
 /// Properties:
-/// * [success]
-/// * [data]
-/// * [message]
-/// * [errors]
+/// * [success] - Always false on this response.
+/// * [data] - The duplicate-service detail payload.
+/// * [message] - Generic human-readable copy. Not branchable.
 @BuiltValue()
-abstract class ApiResponseBookingResponse
+abstract class DuplicateServiceErrorResponse
     implements
-        Built<ApiResponseBookingResponse, ApiResponseBookingResponseBuilder> {
+        Built<DuplicateServiceErrorResponse,
+            DuplicateServiceErrorResponseBuilder> {
+  /// Always false on this response.
   @BuiltValueField(wireName: r'success')
   bool? get success;
 
+  /// The duplicate-service detail payload.
   @BuiltValueField(wireName: r'data')
-  BookingResponse? get data;
+  DuplicateServiceResponse? get data;
 
+  /// Generic human-readable copy. Not branchable.
   @BuiltValueField(wireName: r'message')
   String? get message;
 
-  @BuiltValueField(wireName: r'errors')
-  BuiltMap<String, String>? get errors;
+  DuplicateServiceErrorResponse._();
 
-  ApiResponseBookingResponse._();
-
-  factory ApiResponseBookingResponse(
-          [void updates(ApiResponseBookingResponseBuilder b)]) =
-      _$ApiResponseBookingResponse;
+  factory DuplicateServiceErrorResponse(
+          [void updates(DuplicateServiceErrorResponseBuilder b)]) =
+      _$DuplicateServiceErrorResponse;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(ApiResponseBookingResponseBuilder b) => b;
+  static void _defaults(DuplicateServiceErrorResponseBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<ApiResponseBookingResponse> get serializer =>
-      _$ApiResponseBookingResponseSerializer();
+  static Serializer<DuplicateServiceErrorResponse> get serializer =>
+      _$DuplicateServiceErrorResponseSerializer();
 }
 
-class _$ApiResponseBookingResponseSerializer
-    implements PrimitiveSerializer<ApiResponseBookingResponse> {
+class _$DuplicateServiceErrorResponseSerializer
+    implements PrimitiveSerializer<DuplicateServiceErrorResponse> {
   @override
   final Iterable<Type> types = const [
-    ApiResponseBookingResponse,
-    _$ApiResponseBookingResponse
+    DuplicateServiceErrorResponse,
+    _$DuplicateServiceErrorResponse
   ];
 
   @override
-  final String wireName = r'ApiResponseBookingResponse';
+  final String wireName = r'DuplicateServiceErrorResponse';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    ApiResponseBookingResponse object, {
+    DuplicateServiceErrorResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
     if (object.success != null) {
@@ -74,7 +73,7 @@ class _$ApiResponseBookingResponseSerializer
       yield r'data';
       yield serializers.serialize(
         object.data,
-        specifiedType: const FullType(BookingResponse),
+        specifiedType: const FullType(DuplicateServiceResponse),
       );
     }
     if (object.message != null) {
@@ -84,20 +83,12 @@ class _$ApiResponseBookingResponseSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.errors != null) {
-      yield r'errors';
-      yield serializers.serialize(
-        object.errors,
-        specifiedType:
-            const FullType(BuiltMap, [FullType(String), FullType(String)]),
-      );
-    }
   }
 
   @override
   Object serialize(
     Serializers serializers,
-    ApiResponseBookingResponse object, {
+    DuplicateServiceErrorResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -110,7 +101,7 @@ class _$ApiResponseBookingResponseSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required ApiResponseBookingResponseBuilder result,
+    required DuplicateServiceErrorResponseBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -127,8 +118,8 @@ class _$ApiResponseBookingResponseSerializer
         case r'data':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(BookingResponse),
-          ) as BookingResponse;
+            specifiedType: const FullType(DuplicateServiceResponse),
+          ) as DuplicateServiceResponse;
           result.data.replace(valueDes);
           break;
         case r'message':
@@ -137,14 +128,6 @@ class _$ApiResponseBookingResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.message = valueDes;
-          break;
-        case r'errors':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType:
-                const FullType(BuiltMap, [FullType(String), FullType(String)]),
-          ) as BuiltMap<String, String>;
-          result.errors.replace(valueDes);
           break;
         default:
           unhandled.add(key);
@@ -155,12 +138,12 @@ class _$ApiResponseBookingResponseSerializer
   }
 
   @override
-  ApiResponseBookingResponse deserialize(
+  DuplicateServiceErrorResponse deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = ApiResponseBookingResponseBuilder();
+    final result = DuplicateServiceErrorResponseBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

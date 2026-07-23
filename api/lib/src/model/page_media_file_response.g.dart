@@ -8,9 +8,9 @@ part of 'page_media_file_response.dart';
 
 class _$PageMediaFileResponse extends PageMediaFileResponse {
   @override
-  final int? totalElements;
-  @override
   final int? totalPages;
+  @override
+  final int? totalElements;
   @override
   final PageableObject? pageable;
   @override
@@ -35,8 +35,8 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
       (PageMediaFileResponseBuilder()..update(updates))._build();
 
   _$PageMediaFileResponse._(
-      {this.totalElements,
-      this.totalPages,
+      {this.totalPages,
+      this.totalElements,
       this.pageable,
       this.size,
       this.content,
@@ -60,8 +60,8 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is PageMediaFileResponse &&
-        totalElements == other.totalElements &&
         totalPages == other.totalPages &&
+        totalElements == other.totalElements &&
         pageable == other.pageable &&
         size == other.size &&
         content == other.content &&
@@ -76,8 +76,8 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, totalElements.hashCode);
     _$hash = $jc(_$hash, totalPages.hashCode);
+    _$hash = $jc(_$hash, totalElements.hashCode);
     _$hash = $jc(_$hash, pageable.hashCode);
     _$hash = $jc(_$hash, size.hashCode);
     _$hash = $jc(_$hash, content.hashCode);
@@ -94,8 +94,8 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'PageMediaFileResponse')
-          ..add('totalElements', totalElements)
           ..add('totalPages', totalPages)
+          ..add('totalElements', totalElements)
           ..add('pageable', pageable)
           ..add('size', size)
           ..add('content', content)
@@ -113,14 +113,14 @@ class PageMediaFileResponseBuilder
     implements Builder<PageMediaFileResponse, PageMediaFileResponseBuilder> {
   _$PageMediaFileResponse? _$v;
 
+  int? _totalPages;
+  int? get totalPages => _$this._totalPages;
+  set totalPages(int? totalPages) => _$this._totalPages = totalPages;
+
   int? _totalElements;
   int? get totalElements => _$this._totalElements;
   set totalElements(int? totalElements) =>
       _$this._totalElements = totalElements;
-
-  int? _totalPages;
-  int? get totalPages => _$this._totalPages;
-  set totalPages(int? totalPages) => _$this._totalPages = totalPages;
 
   PageableObjectBuilder? _pageable;
   PageableObjectBuilder get pageable =>
@@ -169,8 +169,8 @@ class PageMediaFileResponseBuilder
   PageMediaFileResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _totalElements = $v.totalElements;
       _totalPages = $v.totalPages;
+      _totalElements = $v.totalElements;
       _pageable = $v.pageable?.toBuilder();
       _size = $v.size;
       _content = $v.content?.toBuilder();
@@ -203,8 +203,8 @@ class PageMediaFileResponseBuilder
     try {
       _$result = _$v ??
           _$PageMediaFileResponse._(
-            totalElements: totalElements,
             totalPages: totalPages,
+            totalElements: totalElements,
             pageable: _pageable?.build(),
             size: size,
             content: _content?.build(),

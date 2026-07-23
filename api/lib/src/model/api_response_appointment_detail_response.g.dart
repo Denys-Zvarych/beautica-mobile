@@ -1,41 +1,43 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'api_response_booking_response.dart';
+part of 'api_response_appointment_detail_response.dart';
 
 // **************************************************************************
 // BuiltValueGenerator
 // **************************************************************************
 
-class _$ApiResponseBookingResponse extends ApiResponseBookingResponse {
+class _$ApiResponseAppointmentDetailResponse
+    extends ApiResponseAppointmentDetailResponse {
   @override
   final bool? success;
   @override
-  final BookingResponse? data;
+  final AppointmentDetailResponse? data;
   @override
   final String? message;
   @override
   final BuiltMap<String, String>? errors;
 
-  factory _$ApiResponseBookingResponse(
-          [void Function(ApiResponseBookingResponseBuilder)? updates]) =>
-      (ApiResponseBookingResponseBuilder()..update(updates))._build();
+  factory _$ApiResponseAppointmentDetailResponse(
+          [void Function(ApiResponseAppointmentDetailResponseBuilder)?
+              updates]) =>
+      (ApiResponseAppointmentDetailResponseBuilder()..update(updates))._build();
 
-  _$ApiResponseBookingResponse._(
+  _$ApiResponseAppointmentDetailResponse._(
       {this.success, this.data, this.message, this.errors})
       : super._();
   @override
-  ApiResponseBookingResponse rebuild(
-          void Function(ApiResponseBookingResponseBuilder) updates) =>
+  ApiResponseAppointmentDetailResponse rebuild(
+          void Function(ApiResponseAppointmentDetailResponseBuilder) updates) =>
       (toBuilder()..update(updates)).build();
 
   @override
-  ApiResponseBookingResponseBuilder toBuilder() =>
-      ApiResponseBookingResponseBuilder()..replace(this);
+  ApiResponseAppointmentDetailResponseBuilder toBuilder() =>
+      ApiResponseAppointmentDetailResponseBuilder()..replace(this);
 
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is ApiResponseBookingResponse &&
+    return other is ApiResponseAppointmentDetailResponse &&
         success == other.success &&
         data == other.data &&
         message == other.message &&
@@ -55,7 +57,7 @@ class _$ApiResponseBookingResponse extends ApiResponseBookingResponse {
 
   @override
   String toString() {
-    return (newBuiltValueToStringHelper(r'ApiResponseBookingResponse')
+    return (newBuiltValueToStringHelper(r'ApiResponseAppointmentDetailResponse')
           ..add('success', success)
           ..add('data', data)
           ..add('message', message)
@@ -64,18 +66,20 @@ class _$ApiResponseBookingResponse extends ApiResponseBookingResponse {
   }
 }
 
-class ApiResponseBookingResponseBuilder
+class ApiResponseAppointmentDetailResponseBuilder
     implements
-        Builder<ApiResponseBookingResponse, ApiResponseBookingResponseBuilder> {
-  _$ApiResponseBookingResponse? _$v;
+        Builder<ApiResponseAppointmentDetailResponse,
+            ApiResponseAppointmentDetailResponseBuilder> {
+  _$ApiResponseAppointmentDetailResponse? _$v;
 
   bool? _success;
   bool? get success => _$this._success;
   set success(bool? success) => _$this._success = success;
 
-  BookingResponseBuilder? _data;
-  BookingResponseBuilder get data => _$this._data ??= BookingResponseBuilder();
-  set data(BookingResponseBuilder? data) => _$this._data = data;
+  AppointmentDetailResponseBuilder? _data;
+  AppointmentDetailResponseBuilder get data =>
+      _$this._data ??= AppointmentDetailResponseBuilder();
+  set data(AppointmentDetailResponseBuilder? data) => _$this._data = data;
 
   String? _message;
   String? get message => _$this._message;
@@ -86,11 +90,11 @@ class ApiResponseBookingResponseBuilder
       _$this._errors ??= MapBuilder<String, String>();
   set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
 
-  ApiResponseBookingResponseBuilder() {
-    ApiResponseBookingResponse._defaults(this);
+  ApiResponseAppointmentDetailResponseBuilder() {
+    ApiResponseAppointmentDetailResponse._defaults(this);
   }
 
-  ApiResponseBookingResponseBuilder get _$this {
+  ApiResponseAppointmentDetailResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
       _success = $v.success;
@@ -103,23 +107,24 @@ class ApiResponseBookingResponseBuilder
   }
 
   @override
-  void replace(ApiResponseBookingResponse other) {
-    _$v = other as _$ApiResponseBookingResponse;
+  void replace(ApiResponseAppointmentDetailResponse other) {
+    _$v = other as _$ApiResponseAppointmentDetailResponse;
   }
 
   @override
-  void update(void Function(ApiResponseBookingResponseBuilder)? updates) {
+  void update(
+      void Function(ApiResponseAppointmentDetailResponseBuilder)? updates) {
     if (updates != null) updates(this);
   }
 
   @override
-  ApiResponseBookingResponse build() => _build();
+  ApiResponseAppointmentDetailResponse build() => _build();
 
-  _$ApiResponseBookingResponse _build() {
-    _$ApiResponseBookingResponse _$result;
+  _$ApiResponseAppointmentDetailResponse _build() {
+    _$ApiResponseAppointmentDetailResponse _$result;
     try {
       _$result = _$v ??
-          _$ApiResponseBookingResponse._(
+          _$ApiResponseAppointmentDetailResponse._(
             success: success,
             data: _data?.build(),
             message: message,
@@ -135,7 +140,9 @@ class ApiResponseBookingResponseBuilder
         _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
-            r'ApiResponseBookingResponse', _$failedField, e.toString());
+            r'ApiResponseAppointmentDetailResponse',
+            _$failedField,
+            e.toString());
       }
       rethrow;
     }

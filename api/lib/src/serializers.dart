@@ -15,11 +15,11 @@ import 'package:beautica_api/src/date_serializer.dart';
 import 'package:beautica_api/src/model/date.dart';
 
 import 'package:beautica_api/src/model/add_favorite_request.dart';
+import 'package:beautica_api/src/model/api_response_appointment_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_auth_response.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_avatar_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
-import 'package:beautica_api/src/model/api_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_category_request_response.dart';
 import 'package:beautica_api/src/model/api_response_contact_support_response.dart';
 import 'package:beautica_api/src/model/api_response_favorite_response.dart';
@@ -76,6 +76,10 @@ import 'package:beautica_api/src/model/api_response_user_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_verify_password_reset_otp_response.dart';
 import 'package:beautica_api/src/model/api_response_void.dart';
 import 'package:beautica_api/src/model/api_response_weekly_schedule_response.dart';
+import 'package:beautica_api/src/model/appointment_cancel_request.dart';
+import 'package:beautica_api/src/model/appointment_detail_response.dart';
+import 'package:beautica_api/src/model/appointment_item_response.dart';
+import 'package:beautica_api/src/model/appointment_provider_note_request.dart';
 import 'package:beautica_api/src/model/approved_category_response.dart';
 import 'package:beautica_api/src/model/assign_service_to_master_request.dart';
 import 'package:beautica_api/src/model/auth_response.dart';
@@ -97,12 +101,16 @@ import 'package:beautica_api/src/model/city_district_response.dart';
 import 'package:beautica_api/src/model/city_response.dart';
 import 'package:beautica_api/src/model/contact_support_request.dart';
 import 'package:beautica_api/src/model/contact_support_response.dart';
+import 'package:beautica_api/src/model/create_appointment_request.dart';
+import 'package:beautica_api/src/model/create_appointment_review_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
 import 'package:beautica_api/src/model/create_category_request_request.dart';
 import 'package:beautica_api/src/model/create_platform_category_request.dart';
 import 'package:beautica_api/src/model/create_review_request.dart';
 import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
+import 'package:beautica_api/src/model/duplicate_service_error_response.dart';
+import 'package:beautica_api/src/model/duplicate_service_response.dart';
 import 'package:beautica_api/src/model/effective_day_response.dart';
 import 'package:beautica_api/src/model/favorite_master_response.dart';
 import 'package:beautica_api/src/model/favorite_response.dart';
@@ -205,11 +213,11 @@ part 'serializers.g.dart';
 
 @SerializersFor([
   AddFavoriteRequest,
+  ApiResponseAppointmentDetailResponse,
   ApiResponseAuthResponse,
   ApiResponseAvailableSlotsResponse,
   ApiResponseAvatarResponse,
   ApiResponseBookingDetailResponse,
-  ApiResponseBookingResponse,
   ApiResponseCategoryRequestResponse,
   ApiResponseContactSupportResponse,
   ApiResponseFavoriteResponse,
@@ -266,6 +274,10 @@ part 'serializers.g.dart';
   ApiResponseVerifyPasswordResetOtpResponse,
   ApiResponseVoid,
   ApiResponseWeeklyScheduleResponse,
+  AppointmentCancelRequest,
+  AppointmentDetailResponse,
+  AppointmentItemResponse,
+  AppointmentProviderNoteRequest,
   ApprovedCategoryResponse,
   AssignServiceToMasterRequest,
   AuthResponse,
@@ -287,12 +299,16 @@ part 'serializers.g.dart';
   CityResponse,
   ContactSupportRequest,
   ContactSupportResponse,
+  CreateAppointmentRequest,
+  CreateAppointmentReviewRequest,
   CreateBookingRequest,
   CreateCategoryRequestRequest,
   CreatePlatformCategoryRequest,
   CreateReviewRequest,
   CreateSalonRequest,
   CreateServiceDefinitionRequest,
+  DuplicateServiceErrorResponse,
+  DuplicateServiceResponse,
   EffectiveDayResponse,
   FavoriteMasterResponse,
   FavoriteResponse,

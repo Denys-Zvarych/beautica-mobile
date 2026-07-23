@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -12,6 +13,7 @@ part 'guest_booking_request.g.dart';
 ///
 /// Properties:
 /// * [serviceId]
+/// * [masterServiceIds]
 /// * [startsAt]
 /// * [name]
 /// * [surname]
@@ -19,7 +21,10 @@ part 'guest_booking_request.g.dart';
 abstract class GuestBookingRequest
     implements Built<GuestBookingRequest, GuestBookingRequestBuilder> {
   @BuiltValueField(wireName: r'serviceId')
-  String get serviceId;
+  String? get serviceId;
+
+  @BuiltValueField(wireName: r'masterServiceIds')
+  BuiltList<String>? get masterServiceIds;
 
   @BuiltValueField(wireName: r'startsAt')
   DateTime get startsAt;
@@ -59,11 +64,20 @@ class _$GuestBookingRequestSerializer
     GuestBookingRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'serviceId';
-    yield serializers.serialize(
-      object.serviceId,
-      specifiedType: const FullType(String),
-    );
+    if (object.serviceId != null) {
+      yield r'serviceId';
+      yield serializers.serialize(
+        object.serviceId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.masterServiceIds != null) {
+      yield r'masterServiceIds';
+      yield serializers.serialize(
+        object.masterServiceIds,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
     yield r'startsAt';
     yield serializers.serialize(
       object.startsAt,
@@ -110,6 +124,13 @@ class _$GuestBookingRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.serviceId = valueDes;
+          break;
+        case r'masterServiceIds':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.masterServiceIds.replace(valueDes);
           break;
         case r'startsAt':
           final valueDes = serializers.deserialize(

@@ -16,6 +16,7 @@ import 'package:beautica_api/src/model/api_response_service_definition_response.
 import 'package:beautica_api/src/model/assign_service_to_master_request.dart';
 import 'package:beautica_api/src/model/bulk_create_services_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
+import 'package:beautica_api/src/model/duplicate_service_error_response.dart';
 import 'package:beautica_api/src/model/update_service_definition_request.dart';
 import 'package:beautica_api/src/model/update_service_photo_request.dart';
 

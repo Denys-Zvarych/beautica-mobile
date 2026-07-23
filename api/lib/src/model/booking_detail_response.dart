@@ -42,6 +42,7 @@ part 'booking_detail_response.g.dart';
 /// * [locationNote] - The provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\", \"вхід з двору, дзвонити двічі\"). Resolved by the identical salon-vs-independent rule as street/buildingNo: a salon booking surfaces the salon's own note, an independent master surfaces their own note. Nullable — most providers never set one.
 /// * [categoryName]
 /// * [canReview]
+/// * [appointmentId] - The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). Strictly additive; when non-null the client can fetch the full visit via GET /appointments/{appointmentId}. Both mapper paths (entity + CLIENT projection) read the SAME appointment_id column, so they never diverge.
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -142,6 +143,10 @@ abstract class BookingDetailResponse
 
   @BuiltValueField(wireName: r'canReview')
   bool? get canReview;
+
+  /// The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). Strictly additive; when non-null the client can fetch the full visit via GET /appointments/{appointmentId}. Both mapper paths (entity + CLIENT projection) read the SAME appointment_id column, so they never diverge.
+  @BuiltValueField(wireName: r'appointmentId')
+  String? get appointmentId;
 
   BookingDetailResponse._();
 
@@ -380,6 +385,13 @@ class _$BookingDetailResponseSerializer
       yield serializers.serialize(
         object.canReview,
         specifiedType: const FullType(bool),
+      );
+    }
+    if (object.appointmentId != null) {
+      yield r'appointmentId';
+      yield serializers.serialize(
+        object.appointmentId,
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -622,6 +634,14 @@ class _$BookingDetailResponseSerializer
             specifiedType: const FullType(bool),
           ) as bool;
           result.canReview = valueDes;
+          break;
+        case r'appointmentId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.appointmentId = valueDes;
           break;
         default:
           unhandled.add(key);

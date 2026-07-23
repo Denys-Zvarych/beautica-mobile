@@ -300,6 +300,55 @@ void main() {
     });
   });
 
+  // MO-1 — the additive `appointmentId` field: non-null when the booking is one
+  // line of a multi-service visit, null for a standalone legacy booking. MO-5
+  // groups «Мої записи» by this id, so a silent drop would collapse every
+  // multi-service card back into N separate rows — this pins the passthrough.
+  group('BookingMapper.fromDto — appointmentId (MO-1)', () {
+    test('a present appointmentId maps through unchanged', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-in-visit'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..appointmentId = 'appt-99'
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.appointmentId, 'appt-99');
+    });
+
+    test(
+      'an absent appointmentId maps to null (standalone legacy booking)',
+      () {
+        // _validDto never sets appointmentId → the field is null on the wire.
+        final Booking b = BookingMapper.fromDto(
+          _validDto(id: 'booking-legacy'),
+        );
+
+        expect(
+          b.appointmentId,
+          isNull,
+          reason:
+              'a null appointmentId is the legacy single-service shape — MO-5 '
+              'treats it as its own group of one, so it must NOT default to ""',
+        );
+      },
+    );
+  });
+
   group('BookingStatus.fromWire', () {
     // Phase 7.1 reversed the old throw-on-unknown contract (a dropped booking
     // is invisible to the master, so the row must survive). Security S1 then

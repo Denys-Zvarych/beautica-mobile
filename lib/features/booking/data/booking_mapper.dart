@@ -139,6 +139,10 @@ abstract final class BookingMapper {
       clientCancellationNote: dto.clientCancellationNote,
       masterProfessionalTitle: dto.masterProfessionalTitle,
       locationNote: dto.locationNote,
+      // Additive (MO-1): null on a standalone single-service booking, set when
+      // this booking is one line of a multi-service visit. Carried through for
+      // MO-5's list grouping — nothing keys off it yet.
+      appointmentId: dto.appointmentId,
     );
   }
 

@@ -8,7 +8,8 @@ import 'package:beautica_api/api.dart';
 ## Properties
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**serviceId** | **String** |  | 
+**serviceId** | **String** |  | [optional] 
+**masterServiceIds** | **BuiltList&lt;String&gt;** |  | [optional] 
 **startsAt** | [**DateTime**](DateTime.md) |  | 
 **name** | **String** |  | 
 **surname** | **String** |  | 

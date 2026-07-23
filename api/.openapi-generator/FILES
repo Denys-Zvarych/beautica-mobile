@@ -2,11 +2,11 @@
 README.md
 analysis_options.yaml
 doc/AddFavoriteRequest.md
+doc/ApiResponseAppointmentDetailResponse.md
 doc/ApiResponseAuthResponse.md
 doc/ApiResponseAvailableSlotsResponse.md
 doc/ApiResponseAvatarResponse.md
 doc/ApiResponseBookingDetailResponse.md
-doc/ApiResponseBookingResponse.md
 doc/ApiResponseCategoryRequestResponse.md
 doc/ApiResponseContactSupportResponse.md
 doc/ApiResponseFavoriteResponse.md
@@ -63,6 +63,11 @@ doc/ApiResponseUserProfileResponse.md
 doc/ApiResponseVerifyPasswordResetOtpResponse.md
 doc/ApiResponseVoid.md
 doc/ApiResponseWeeklyScheduleResponse.md
+doc/AppointmentCancelRequest.md
+doc/AppointmentControllerApi.md
+doc/AppointmentDetailResponse.md
+doc/AppointmentItemResponse.md
+doc/AppointmentProviderNoteRequest.md
 doc/ApprovedCategoryResponse.md
 doc/AssignServiceToMasterRequest.md
 doc/AuthControllerApi.md
@@ -88,6 +93,8 @@ doc/CityResponse.md
 doc/ClientControllerApi.md
 doc/ContactSupportRequest.md
 doc/ContactSupportResponse.md
+doc/CreateAppointmentRequest.md
+doc/CreateAppointmentReviewRequest.md
 doc/CreateBookingRequest.md
 doc/CreateCategoryRequestRequest.md
 doc/CreatePlatformCategoryRequest.md
@@ -96,6 +103,8 @@ doc/CreateSalonRequest.md
 doc/CreateServiceDefinitionRequest.md
 doc/DashboardControllerApi.md
 doc/DeviceControllerApi.md
+doc/DuplicateServiceErrorResponse.md
+doc/DuplicateServiceResponse.md
 doc/EffectiveDayResponse.md
 doc/FavoriteControllerApi.md
 doc/FavoriteMasterResponse.md
@@ -211,6 +220,7 @@ doc/WorkingHoursRequest.md
 doc/WorkingHoursResponse.md
 lib/beautica_api.dart
 lib/src/api.dart
+lib/src/api/appointment_controller_api.dart
 lib/src/api/auth_controller_api.dart
 lib/src/api/booking_controller_api.dart
 lib/src/api/category_request_controller_api.dart
@@ -241,11 +251,11 @@ lib/src/auth/bearer_auth.dart
 lib/src/auth/oauth.dart
 lib/src/date_serializer.dart
 lib/src/model/add_favorite_request.dart
+lib/src/model/api_response_appointment_detail_response.dart
 lib/src/model/api_response_auth_response.dart
 lib/src/model/api_response_available_slots_response.dart
 lib/src/model/api_response_avatar_response.dart
 lib/src/model/api_response_booking_detail_response.dart
-lib/src/model/api_response_booking_response.dart
 lib/src/model/api_response_category_request_response.dart
 lib/src/model/api_response_contact_support_response.dart
 lib/src/model/api_response_favorite_response.dart
@@ -302,6 +312,10 @@ lib/src/model/api_response_user_profile_response.dart
 lib/src/model/api_response_verify_password_reset_otp_response.dart
 lib/src/model/api_response_void.dart
 lib/src/model/api_response_weekly_schedule_response.dart
+lib/src/model/appointment_cancel_request.dart
+lib/src/model/appointment_detail_response.dart
+lib/src/model/appointment_item_response.dart
+lib/src/model/appointment_provider_note_request.dart
 lib/src/model/approved_category_response.dart
 lib/src/model/assign_service_to_master_request.dart
 lib/src/model/auth_response.dart
@@ -323,6 +337,8 @@ lib/src/model/city_district_response.dart
 lib/src/model/city_response.dart
 lib/src/model/contact_support_request.dart
 lib/src/model/contact_support_response.dart
+lib/src/model/create_appointment_request.dart
+lib/src/model/create_appointment_review_request.dart
 lib/src/model/create_booking_request.dart
 lib/src/model/create_category_request_request.dart
 lib/src/model/create_platform_category_request.dart
@@ -330,6 +346,8 @@ lib/src/model/create_review_request.dart
 lib/src/model/create_salon_request.dart
 lib/src/model/create_service_definition_request.dart
 lib/src/model/date.dart
+lib/src/model/duplicate_service_error_response.dart
+lib/src/model/duplicate_service_response.dart
 lib/src/model/effective_day_response.dart
 lib/src/model/favorite_master_response.dart
 lib/src/model/favorite_response.dart
