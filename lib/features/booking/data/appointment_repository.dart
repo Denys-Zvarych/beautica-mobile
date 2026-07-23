@@ -281,6 +281,9 @@ final class HttpAppointmentRepository implements AppointmentRepository {
       if (_isBookingAlreadyElapsed(e)) {
         return BookingAlreadyElapsedFailure(cause: e);
       }
+      if (_isDuplicateService(e)) {
+        return DuplicateServiceFailure(cause: e);
+      }
       return _extractClientBookingConflict(e) ?? ConflictFailure(cause: e);
     }
     if (statusCode == 429) return BookingRateLimitedFailure(cause: e);
@@ -310,6 +313,20 @@ final class HttpAppointmentRepository implements AppointmentRepository {
       return ReviewNotAllowedFailure(cause: e);
     }
     return _mapDioException(e);
+  }
+
+  /// `true` when [e] is a 409 whose body is the
+  /// `{ "data": { "code": "DUPLICATE_SERVICE" } }` envelope
+  /// (`DuplicateServiceResponse`) — the visit payload named the same service
+  /// twice. Hand-decoded from the raw JSON body (this code is not part of the
+  /// generated client), mirroring [_isBookingAlreadyElapsed]. MO-3 also dedupes
+  /// the selection up-front so this normally never fires.
+  bool _isDuplicateService(DioException e) {
+    final body = e.response?.data;
+    if (body is! Map<String, dynamic>) return false;
+    final data = body['data'];
+    if (data is! Map<String, dynamic>) return false;
+    return data['code'] == 'DUPLICATE_SERVICE';
   }
 
   /// `true` when [e] is a 409 whose body is the

@@ -26,7 +26,7 @@
 // fixture service names (test data) are ever referenced by value.
 
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/independent_schedule_confirm_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/schedule_confirm_bar.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/selected_services_shelf.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -76,15 +76,19 @@ Widget _bareShelf(List<MasterService> services) => Scaffold(
   ),
 );
 
-/// The independent-flow bar composing the shelf (empty chosen-window map so no
-/// third line inflates the rows — the sizing under test is the itemized list's).
+/// The independent-flow bar composing the shelf. Post-MO-3 the independent
+/// booking flow's shelf is [BookingSummaryBar] (the per-service
+/// `IndependentScheduleConfirmBar` was retired with the single-visit rework);
+/// it composes the SAME shared [SelectedServicesShelf], so the shrink-wrap
+/// contract is pinned from this entry point too.
 Widget _independentBar(List<MasterService> services) => Scaffold(
-  bottomNavigationBar: IndependentScheduleConfirmBar(
+  bottomNavigationBar: BookingSummaryBar(
     services: services,
-    chosenWindowByServiceId: const <String, String>{},
+    // i18n-finder-ok: test-only CTA caption, never asserted by value.
+    ctaLabel: 'Далі',
+    ctaIcon: Icons.arrow_forward_rounded,
     enabled: true,
-    onConfirm: () {},
-    ctaKey: const Key('booking-time-confirm-cta'),
+    onAction: () {},
   ),
 );
 
@@ -219,23 +223,20 @@ void main() {
   });
 
   group('both compositions — independent + salon entry points size alike', () {
-    testWidgets(
-      'independent bar (IndependentScheduleConfirmBar) fits-content: 2 services '
-      'size the shelf panel well under the cap — proving the independent page '
-      'composes the fixed shelf',
-      (tester) async {
-        await tester.pumpApp(_independentBar(_twoServices));
-        await tester.pumpAndSettle();
+    testWidgets('independent bar (BookingSummaryBar) fits-content: 2 services '
+        'size the shelf panel well under the cap — proving the independent page '
+        'composes the fixed shelf', (tester) async {
+      await tester.pumpApp(_independentBar(_twoServices));
+      await tester.pumpAndSettle();
 
-        final double panelHeight = await _expandAndMeasurePanel(tester);
-        expect(panelHeight, lessThan(SelectedServicesShelf.listMaxHeight));
-        expect(
-          panelHeight,
-          lessThan(SelectedServicesShelf.listMaxHeight * 0.75),
-          reason: 'the independent bar must not reintroduce the blank gap',
-        );
-      },
-    );
+      final double panelHeight = await _expandAndMeasurePanel(tester);
+      expect(panelHeight, lessThan(SelectedServicesShelf.listMaxHeight));
+      expect(
+        panelHeight,
+        lessThan(SelectedServicesShelf.listMaxHeight * 0.75),
+        reason: 'the independent bar must not reintroduce the blank gap',
+      );
+    });
 
     testWidgets(
       'independent bar caps-and-scrolls: ~10 services clamp the shelf panel to '

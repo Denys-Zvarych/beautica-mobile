@@ -48,7 +48,6 @@ import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
-import '../features/booking/presentation/booking_time_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
@@ -617,20 +616,18 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             ServiceSelectorSheet(masterId: state.extra! as String),
       ),
-      // Booking flow Step 2 — the per-service TIME picker
-      // (`BookingTimeScreen`): a horizontal PageView, one slide per service
-      // selected in Step 1, each picking its OWN date + time (the confirmed
-      // salon-parity multi-service UX). Reached from `ServiceSelectorSheet`'s
-      // «Далі» CTA with a `BookingSlotPickerArgs` in `extra`.
+      // Booking flow Step 2 — the single date→time picker for the WHOLE visit
+      // (MO-3). The client picks ONE date then ONE start time; availability is
+      // fetched for the full ordered service selection (summed-duration block)
+      // and the whole visit is submitted as ONE `POST /appointments`.
       //
-      //   • bookingSlots      → BookingTimeScreen (primary multi-service flow)
-      //   • bookingSlots/time → SlotTimeScreen — the RETAINED single-service /
-      //     Phase 14.8 reschedule picker (a two-phase date→time screen sharing
-      //     `slotPickerProvider`). Not reached from the sheet today; kept
-      //     registered for the reschedule surface and its direct-pump tests.
-      // Both require a `BookingSlotPickerArgs` in `extra`; a missing/invalid
-      // extra redirects back to [RouteNames.bookingNew] rather than crashing on
-      // a bad cast.
+      //   • bookingSlots      → SlotDateScreen — «Оберіть дату»
+      //   • bookingSlots/time → SlotTimeScreen — «Оберіть час»
+      // Both share `slotPickerProvider` and require a `BookingSlotPickerArgs` in
+      // `extra` (reached from `ServiceSelectorSheet`'s «Далі», and from the
+      // reschedule surface with a non-null `rescheduleBookingId`); a missing/
+      // invalid extra redirects back to [RouteNames.bookingNew] rather than
+      // crashing on a bad cast.
       GoRoute(
         path: RouteNames.bookingSlots,
         redirect: (context, state) {
@@ -642,7 +639,7 @@ GoRouter appRouter(Ref ref) {
           return null;
         },
         builder: (context, state) =>
-            BookingTimeScreen(args: state.extra! as BookingSlotPickerArgs),
+            SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
         routes: [
           GoRoute(
             path: 'time',

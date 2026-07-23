@@ -20,8 +20,11 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
+    show maxServicesPerVisit;
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -75,6 +78,22 @@ const _kPedicure = MasterService(
 
 PublicMasterProfileData get _twoCategoryData =>
     (_kMaster, const <MasterService>[_kManicure, _kPedicure]);
+
+/// [n] services all in one `NAILS` category — used to drive the visit-selection
+/// cap (MO-3: at most [maxServicesPerVisit] services per visit).
+List<MasterService> _manyServices(int n) => <MasterService>[
+  for (int i = 0; i < n; i++)
+    MasterService(
+      id: 'svc-$i',
+      serviceDefId: 'def-$i',
+      // i18n-finder-ok: fixture service name, never asserted by value.
+      name: 'Послуга $i',
+      durationMinutes: 30,
+      priceMin: 100,
+      priceDisplay: '100 ₴',
+      category: 'NAILS',
+    ),
+];
 
 // A titled master for the identity-card test below: Change 2 flipped the top
 // `MasterStrip` to `showRole:true, showRating:true`, so the strip must now show
@@ -539,5 +558,58 @@ void main() {
 
       expect(find.text('slots-stub:$_kMasterId:svc-mani'), findsOneWidget);
     });
+  });
+
+  group('visit-selection cap (MO-3)', () {
+    testWidgets(
+      'caps the selection at maxServicesPerVisit (10) — the 11th add is '
+      'refused with a friendly cap SnackBar, and «Далі» carries exactly 10 ids',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 8000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides((ref) => (_kMaster, _manyServices(11))),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('booking_category_NAILS')));
+        await tester.pumpAndSettle();
+
+        // Tap all 11 tiles — the 11th add must be refused (cap = 10).
+        for (int i = 0; i < 11; i++) {
+          await tester.tap(find.byKey(Key('booking_service_tile_svc-$i')));
+          await tester.pump();
+        }
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ServiceSelectorSheet)),
+        );
+        expect(
+          find.text(l10n.bookingMaxServicesReached(maxServicesPerVisit)),
+          findsOneWidget,
+          reason: 'the 11th add must surface the friendly cap message',
+        );
+
+        // «Далі» → the slots stub carries exactly 10 ordered ids (the 11th was
+        // never added, so a duplicate/over-cap payload can never be sent).
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+
+        final Text stub = tester.widget<Text>(
+          find.textContaining('slots-stub:'),
+        );
+        final String ids = stub.data!.split(':').last;
+        expect(
+          ids.split(',').where((String s) => s.isNotEmpty).length,
+          maxServicesPerVisit,
+          reason: 'the visit must carry at most maxServicesPerVisit services',
+        );
+      },
+    );
   });
 }

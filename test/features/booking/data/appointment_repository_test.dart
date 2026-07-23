@@ -291,6 +291,26 @@ void main() {
       },
     );
 
+    test('409 DUPLICATE_SERVICE → DuplicateServiceFailure (MO-3)', () async {
+      when(
+        () => appointmentApi.createAppointment(
+          createAppointmentRequest: any(named: 'createAppointmentRequest'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(
+        _dioBadResponseWithBody(409, _createPath, <String, dynamic>{
+          'success': false,
+          'data': <String, dynamic>{'code': 'DUPLICATE_SERVICE'},
+          'message': 'duplicate service',
+        }),
+      );
+
+      await expectLater(
+        repository.createAppointment(req),
+        throwsA(isA<DuplicateServiceFailure>()),
+      );
+    });
+
     test('plain 409 (empty body) → ConflictFailure', () async {
       when(
         () => appointmentApi.createAppointment(

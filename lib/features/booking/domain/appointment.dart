@@ -9,10 +9,7 @@
 // see `booking.dart` — so the visit detail / grouping screens (MO-2…MO-5) never
 // need a secondary fetch once they hold an [Appointment].
 //
-// NOT to be confused with `booking_appointment.dart`'s [BookingAppointment] —
-// that is a PRESENTATION-flow value object (one selected service + its chosen
-// start + idempotency key, each mapping to one legacy `POST /bookings`). This
-// is the SERVER-side visit aggregate returned by `GET /appointments/{id}`.
+// This is the SERVER-side visit aggregate returned by `GET /appointments/{id}`.
 //
 // [status] reuses the shared [BookingStatus] enum: the appointment status
 // machine is the same five states as a booking (CONFIRMED / DECLINED /

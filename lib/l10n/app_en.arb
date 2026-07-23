@@ -132,6 +132,19 @@
   "@bookingErrorAlreadyElapsed": {
     "description": "Error message shown when PATCH /bookings/{id}/reschedule or /cancel returns HTTP 409 with data.code == BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's slot is already past the server clock, so it can no longer be rescheduled or cancelled. Surfaced via BookingAlreadyElapsedFailure.userMessage on a stale-screen / clock-rollback tap."
   },
+  "bookingErrDuplicateService": "A service can't be added twice. Remove the duplicate and try again.",
+  "@bookingErrDuplicateService": {
+    "description": "Error message shown when POST /appointments returns HTTP 409 with data.code == DUPLICATE_SERVICE — the multi-service visit named the same service twice. Surfaced via DuplicateServiceFailure.userMessage (the selection UI dedupes up-front, so this is a backstop)."
+  },
+  "bookingMaxServicesReached": "You can pick at most {count} services per visit.",
+  "@bookingMaxServicesReached": {
+    "description": "SnackBar shown when the client tries to add more than MAX_SERVICES_PER_VISIT services to one booking visit in the service selector.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "errEmailAlreadyRegistered": "This email is already registered. Please sign in instead.",
   "@errEmailAlreadyRegistered": {
     "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."

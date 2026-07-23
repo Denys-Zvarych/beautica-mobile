@@ -45,13 +45,13 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/slot_picker_notifier.dart';
 import '../application/working_days_notifier.dart';
-import '../domain/booking_appointment.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_slot.dart';
 import '../domain/booking_slot_picker_args.dart';
@@ -130,11 +130,22 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   WorkingDaysQuery get _workingDaysQuery => WorkingDaysQuery.month(
     masterId: widget.args.masterId,
     anyDayInMonth: _visibleMonth,
-    // MO-2: single-service path — `services.first` as a one-element list keeps
-    // the same wire request and the same family cache key as before. MO-3/MO-4
-    // widen this to the full ordered selection.
-    serviceIds: <String>[widget.args.services.first.id],
+    // MO-3: the WHOLE visit's ordered service selection — the backend's
+    // availability-aware `working` flag is then "the summed duration of ALL
+    // these services fits a free range", the SAME computation `getMasterSlots`
+    // runs below, so the calendar day-gate agrees with the time grid. Order is
+    // preserved (it is the back-to-back running order).
+    serviceIds: _serviceIds,
   );
+
+  /// The visit's ordered service ids — the single availability request and the
+  /// eventual `POST /appointments` both key off this exact ordered list.
+  /// `widget.args.services` is immutable for this screen's life, so the list is
+  /// built once (the freezed value-equal query key already absorbs identity —
+  /// this just avoids re-allocating a fresh `List<String>` on each access).
+  late final List<String> _serviceIds = <String>[
+    for (final MasterService s in widget.args.services) s.id,
+  ];
 
   static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
 
@@ -154,15 +165,14 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   }
 
   void _selectDay(DateTime day) {
-    // MO-2: single-service path — `services.first` as a one-element list keeps
-    // the same wire request as before. MO-3/MO-4 widen this to the full
-    // ordered selection.
-    final String serviceId = widget.args.services.first.id;
+    // MO-3: fetch availability for the WHOLE ordered visit selection — the
+    // backend sizes each returned slot to the summed duration of all these
+    // services performed back-to-back.
     ref
         .read(slotPickerProvider.notifier)
         .loadSlots(
           masterId: widget.args.masterId,
-          serviceIds: <String>[serviceId],
+          serviceIds: _serviceIds,
           date: day,
         );
   }
@@ -397,23 +407,21 @@ class SlotTimeScreen extends ConsumerWidget {
   static const Uuid _uuid = Uuid();
 
   void _confirm(BuildContext context, BookingSlot slot) {
-    // The RETAINED single-service / reschedule picker: builds a 1-element
-    // `appointments` list feeding the SAME `BookingConfirmScreen` the
-    // multi-service `BookingTimeScreen` flow uses. The stable idempotency key
-    // is generated once here (per tap), never regenerated on a retry from the
-    // confirm screen.
+    // MO-3: the whole multi-service visit shares ONE start time and ONE
+    // idempotency key. The key is minted here ONCE per submit attempt (per tap
+    // that reaches confirm) via `Uuid().v4()` (CSPRNG-backed) and carried on the
+    // args, so a retry on the confirm screen reuses it unchanged (de-dupes an
+    // ambiguously-failed `POST /appointments`) while backing out and re-picking
+    // a new time mints a fresh key. The single `createAppointment` submit runs
+    // on `BookingConfirmScreen`, not here.
     context.push(
       RouteNames.bookingConfirm,
       extra: BookingConfirmArgs(
         masterId: args.masterId,
         master: args.master,
-        appointments: <BookingAppointment>[
-          BookingAppointment(
-            serviceId: args.services.first.id,
-            startAt: slot.startAt,
-            idempotencyKey: _uuid.v4(),
-          ),
-        ],
+        services: args.services,
+        startAt: slot.startAt,
+        idempotencyKey: _uuid.v4(),
         rescheduleBookingId: args.rescheduleBookingId,
       ),
     );

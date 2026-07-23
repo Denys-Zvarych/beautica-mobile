@@ -64,13 +64,11 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/slot_picker_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/booking_time_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
@@ -143,24 +141,16 @@ BookingSlotPickerArgs _validArgs() => const BookingSlotPickerArgs(
 BookingConfirmArgs _validConfirmArgs() => BookingConfirmArgs(
   masterId: _kMasterId,
   master: _kMaster,
-  appointments: <BookingAppointment>[
-    BookingAppointment(
-      serviceId: _kService.id,
-      startAt: DateTime(2026, 7, 20, 10),
-      idempotencyKey: 'guard-key-1',
-    ),
-  ],
+  services: <MasterService>[_kService],
+  startAt: DateTime(2026, 7, 20, 10),
+  idempotencyKey: 'guard-key-1',
 );
 
 /// A valid `BookingSuccessArgs` extra for `/booking/success`.
 BookingSuccessArgs _validSuccessArgs() => BookingSuccessArgs(
   master: _kMaster,
-  appointments: <BookingSuccessAppointment>[
-    BookingSuccessAppointment(
-      service: _kService,
-      start: DateTime(2026, 7, 20, 10),
-    ),
-  ],
+  services: <MasterService>[_kService],
+  startAt: DateTime(2026, 7, 20, 10),
 );
 
 // Phase 14.12/14.13 — salon booking flow fixtures.
@@ -437,7 +427,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.masterProfile));
-        expect(find.byType(BookingTimeScreen), findsNothing);
+        expect(find.byType(SlotDateScreen), findsNothing);
       });
 
       testWidgets('/booking/slots/time (extra: valid args) → /master/profile', (
@@ -546,7 +536,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.bookingSlots));
-        expect(find.byType(BookingTimeScreen), findsOneWidget);
+        expect(find.byType(SlotDateScreen), findsOneWidget);
       });
 
       testWidgets('/booking/slots/time (extra: valid args)', (tester) async {
@@ -672,7 +662,7 @@ void main() {
           await tester.pumpAndSettle();
 
           expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(BookingTimeScreen), findsNothing);
+          expect(find.byType(SlotDateScreen), findsNothing);
         },
       );
 

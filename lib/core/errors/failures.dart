@@ -475,6 +475,27 @@ final class ConflictFailure extends Failure {
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errConflict;
 }
 
+/// Emitted when `POST /appointments` returns HTTP **409** with the typed
+/// `data.code == "DUPLICATE_SERVICE"` envelope (backend
+/// `feat/multi-service-appointments`): the multi-service visit payload carried
+/// the SAME `masterServiceId` more than once (or a conflicting service pairing
+/// the backend rejects).
+///
+/// The MO-3 selection UI dedupes the chosen services up-front (a service can be
+/// selected only once — the catalogue selection is a `Set` keyed by id), so a
+/// well-behaved client never reaches the server with a duplicate. This failure
+/// is the backstop for a stale/edge payload, mapped BEFORE the generic 409 →
+/// [ConflictFailure] fallback in
+/// `HttpAppointmentRepository._mapAppointmentWriteException` — mirroring the
+/// `CLIENT_BOOKING_CONFLICT` / `BOOKING_ALREADY_ELAPSED` hand-decode precedent.
+final class DuplicateServiceFailure extends Failure {
+  const DuplicateServiceFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrDuplicateService;
+}
+
 /// Emitted when a booking WRITE (create/reschedule) returns HTTP **409** with
 /// the typed `data.code == "CLIENT_BOOKING_CONFLICT"` envelope (backend
 /// commit f95d8fd): the authenticated CLIENT already has a PENDING/CONFIRMED

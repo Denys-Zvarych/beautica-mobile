@@ -56,6 +56,8 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
+    show maxServicesPerVisit;
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -235,6 +237,29 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
     });
   }
 
+  /// Toggles [id] in/out of the visit selection, capped at
+  /// [maxServicesPerVisit] (the backend `MAX_SERVICES_PER_VISIT`). An ADD that
+  /// would exceed the cap is refused with a friendly SnackBar rather than
+  /// silently dropped — a removal is never blocked. Deselection also naturally
+  /// dedupes the eventual `POST /appointments` payload: the selection is a
+  /// `Set` keyed by service id, so a service can be chosen at most once.
+  void _onToggleService(String id) {
+    final bool willAdd = !_selectionController.isSelected(id);
+    if (willAdd && _selectionController.value.length >= maxServicesPerVisit) {
+      final l10n = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(l10n.bookingMaxServicesReached(maxServicesPerVisit)),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      return;
+    }
+    _selectionController.toggleService(id);
+  }
+
   void _goNext(Master master, List<MasterService> selected) {
     context.push(
       RouteNames.bookingSlots,
@@ -272,9 +297,9 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                 enabled: selected.isNotEmpty,
                 onAction: () => _goNext(master, selected),
                 // Same toggle the catalogue checkbox uses, so both removal
-                // paths converge on identical end-state.
-                onRemove: (MasterService s) =>
-                    _selectionController.toggleService(s.id),
+                // paths converge on identical end-state. (Removal is never
+                // cap-blocked.)
+                onRemove: (MasterService s) => _onToggleService(s.id),
               );
             },
           );
@@ -318,7 +343,7 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                     hoistedKeys: _hoistedKeys,
                     selectedIdsListenable: _selectionController,
                     expandedKeys: _expandedKeys,
-                    onToggleService: _selectionController.toggleService,
+                    onToggleService: _onToggleService,
                     onToggleExpand: _toggleExpand,
                   );
                 },

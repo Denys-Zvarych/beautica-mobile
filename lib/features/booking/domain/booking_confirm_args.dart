@@ -1,35 +1,38 @@
 // Navigation payload for the `/booking/confirm` route (independent-master
 // booking flow's final review-and-submit step).
 //
-// MULTI-SERVICE (the multi-service booking rework): the client may select
-// several services in Step 1 and pick a SEPARATE time for each on the
-// per-service time PageView (`BookingTimeScreen`). Each becomes ONE
-// appointment — carried here as [appointments] (one [BookingAppointment] per
-// selected service, each with its own chosen `startAt` and a STABLE
-// idempotency key generated once when these args were built). All N
-// appointments are for the SAME [masterId]; the confirm screen submits one
-// `POST /bookings` per appointment (auto-confirmed to CONFIRMED). This mirrors
-// the salon flow's `SalonBookingConfirmArgs.appointments` shape, keyed by
-// SERVICE instead of MASTER — see `booking_appointment.dart`'s header.
+// MO-3 (single-visit rework): the client multi-selects several services in
+// Step 1 and picks ONE date + ONE start time for the WHOLE visit on the time
+// step (`SlotTimeScreen`). The services run back-to-back from [startAt]; the
+// whole visit is submitted as ONE `POST /appointments`
+// (`CreateAppointmentRequest`) — replacing the pre-MO-3 "N `POST /bookings`,
+// one per service" fan-out. So this payload carries the ordered [services]
+// selection, the single [startAt], and ONE stable [idempotencyKey] for the
+// visit (never one-per-service).
+//
+// ORDER IS LOAD-BEARING: [services] is the exact order the services will run
+// in — the same order flows to the availability request (`getMasterSlots`) and
+// to `CreateAppointmentRequest.masterServiceIds`, where the backend chains the
+// items back-to-back in that sequence.
 //
 // [master] is carried forward from `BookingSlotPickerArgs` so the confirm/
-// success screens can render the master-identity card without depending on a
-// fresh network read (they still re-watch `publicMasterProfileProvider` to
-// resolve each appointment's service display object out of the warmed cache).
-// Optional so the retained single-service / reschedule entry
-// (`SlotTimeScreen._confirm`) — which does not always thread it — stays valid.
+// success screens can render the master-identity card without a fresh network
+// read (they still re-watch `publicMasterProfileProvider` to resolve the
+// master + validate the services against the warmed cache).
 //
-// [rescheduleBookingId], threaded through from [BookingSlotPickerArgs], is the
-// Phase 14.8 extension point: a future phase branches on it (POST create vs.
-// PATCH reschedule) through the retained `BookingConfirm` notifier. Dormant
-// today (never non-null on the live create flow).
+// [rescheduleBookingId] is the reschedule extension point (track 14.8): when
+// non-null the flow is a RESCHEDULE of a single EXISTING booking — [services]
+// then holds exactly one element and the submit swaps `POST /appointments` for
+// `PATCH /bookings/{id}/reschedule` (see `booking_notifier.dart`'s
+// `AppointmentSubmit`). [idempotencyKey] / [clientComment] are create-only and
+// unused on that path.
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../master/domain/master.dart';
-import 'booking_appointment.dart';
+import '../../services/domain/master_service.dart';
 
 part 'booking_confirm_args.freezed.dart';
 
@@ -39,19 +42,28 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
   const factory BookingConfirmArgs({
     required String masterId,
 
-    /// Every selected service's fully-resolved appointment (service id +
-    /// chosen start + stable idempotency key), in slide order. Never empty on
-    /// a well-formed push — the «Підтвердити» CTA only enables once every
-    /// service has a date AND a time.
-    required List<BookingAppointment> appointments,
+    /// The visit's ordered service selection (1..10). Never empty on a
+    /// well-formed push — the time step's «Підтвердити» CTA only enables once a
+    /// start time is chosen for a non-empty selection. Order is the back-to-back
+    /// running order (see the file header).
+    required List<MasterService> services,
+
+    /// The client's chosen start for the WHOLE visit (its first service).
+    required DateTime startAt,
+
+    /// A single UUID v4 for the whole visit, generated ONCE when these args were
+    /// built (in `SlotTimeScreen._confirm`) and reused on every retry of the
+    /// SAME submit so an ambiguously-failed `POST /appointments` de-duplicates
+    /// server-side rather than double-booking. Unused on the reschedule path.
+    required String idempotencyKey,
 
     /// The target master, carried forward for the confirm/success recap.
-    /// Optional so the retained single-service picker (`SlotTimeScreen`) can
-    /// push without it.
+    /// Optional so a caller without it can still push (the provider fallback
+    /// re-resolves the master).
     Master? master,
 
-    /// Non-null only when this flow was entered from the Phase 14.8 reschedule
-    /// surface. See the file header — dormant today.
+    /// Non-null only when this flow was entered from the reschedule surface —
+    /// see the file header.
     String? rescheduleBookingId,
   }) = _BookingConfirmArgs;
 }
