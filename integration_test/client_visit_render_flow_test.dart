@@ -34,10 +34,13 @@ import 'package:beautica_mobile/features/booking/data/appointment_repository.dar
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
+import 'package:beautica_mobile/features/booking/presentation/appointment_review_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/visit_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -49,17 +52,32 @@ import 'support/app_harness.dart';
 /// — see the file header). [getAppointment] serves a 2-item visit; the status
 /// flips to CANCELLED once [cancelAppointment] runs so a re-fetch reflects it.
 class _FakeAppointmentRepository implements AppointmentRepository {
+  _FakeAppointmentRepository({
+    BookingStatus status = BookingStatus.confirmed,
+    bool canReview = false,
+    this.completed = false,
+  }) : _status = status,
+       _canReview = canReview;
+
+  /// When true, the visit's window is in the PAST (a COMPLETED visit) rather
+  /// than one day out — so `getAppointment` yields a review-eligible detail.
+  final bool completed;
+
   int getCalls = 0;
   int cancelCalls = 0;
+  int reviewCalls = 0;
   String? lastCancelNote;
-  BookingStatus _status = BookingStatus.confirmed;
+  int? lastReviewRating;
+  String? lastReviewComment;
+  BookingStatus _status;
+  bool _canReview;
 
   @override
   Future<Appointment> getAppointment(String id) async {
     getCalls++;
-    final DateTime start = DateTime.now().add(
-      const Duration(days: 1, hours: 10),
-    );
+    final DateTime start = completed
+        ? DateTime.now().subtract(const Duration(days: 1, hours: 10))
+        : DateTime.now().add(const Duration(days: 1, hours: 10));
     return Appointment(
       id: id,
       status: _status,
@@ -92,7 +110,7 @@ class _FakeAppointmentRepository implements AppointmentRepository {
           price: 400,
         ),
       ],
-      canReview: false,
+      canReview: _canReview,
       cityLabel: 'Київ',
       districtLabel: 'Печерський',
       street: 'вул. Хрещатик',
@@ -108,15 +126,21 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   }
 
   @override
-  Future<Appointment> createAppointment(CreateAppointmentRequest req) =>
-      throw UnimplementedError();
-
-  @override
   Future<void> createAppointmentReview(
     String id, {
     required int rating,
     String? comment,
-  }) => throw UnimplementedError();
+  }) async {
+    reviewCalls++;
+    lastReviewRating = rating;
+    lastReviewComment = comment;
+    // The visit is now reviewed — a re-fetch reflects it (canReview flips false).
+    _canReview = false;
+  }
+
+  @override
+  Future<Appointment> createAppointment(CreateAppointmentRequest req) =>
+      throw UnimplementedError();
 }
 
 Map<String, dynamic> _row({
@@ -125,6 +149,7 @@ Map<String, dynamic> _row({
   required String serviceName,
   required DateTime startsAt,
   int minutes = 60,
+  String status = 'CONFIRMED',
 }) => <String, dynamic>{
   'id': id,
   'masterId': 'master-aaa',
@@ -145,7 +170,7 @@ Map<String, dynamic> _row({
   'priceMaxAtBooking': null,
   'startsAt': startsAt.toIso8601String(),
   'endsAt': startsAt.add(Duration(minutes: minutes)).toIso8601String(),
-  'status': 'CONFIRMED',
+  'status': status,
   'canReview': false,
   'clientComment': null,
   'providerComment': null,
@@ -258,4 +283,104 @@ void main() {
       );
     },
   );
+
+  // MO-6 — the review leg: a COMPLETED, review-eligible visit reviewed ONCE via
+  // `createAppointmentReview`, never the per-booking review of a child.
+  testWidgets('CLIENT opens a COMPLETED visit, leaves ONE review via '
+      'createAppointmentReview, and the CTA disappears once canReview flips', (
+    tester,
+  ) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final fakeAppt = _FakeAppointmentRepository(
+      status: BookingStatus.completed,
+      canReview: true,
+      completed: true,
+    );
+
+    // A past, COMPLETED two-service visit → lands in the Минулі tab.
+    final DateTime visitStart = DateTime.now().subtract(
+      const Duration(days: 1, hours: 10),
+    );
+    fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+      _row(
+        id: 'v-1',
+        appointmentId: 'appt-1',
+        serviceName: 'Манікюр з покриттям',
+        startsAt: visitStart,
+        minutes: 90,
+        status: 'COMPLETED',
+      ),
+      _row(
+        id: 'v-2',
+        appointmentId: 'appt-1',
+        serviceName: 'Педикюр апаратний',
+        startsAt: visitStart.add(const Duration(minutes: 90)),
+        minutes: 60,
+        status: 'COMPLETED',
+      ),
+    ]);
+
+    await AppHarness.boot(
+      tester,
+      fb,
+      extraOverrides: <Object>[
+        appointmentRepositoryProvider.overrideWithValue(fakeAppt),
+      ],
+    );
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+
+    // ── Open the Записи branch and switch to the Минулі tab. ────────────────
+    await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+    await AppHarness.settle(tester);
+    expect(find.byType(MyBookingsScreen), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<BookingTab>(BookingTab.past)));
+    await AppHarness.settle(tester);
+
+    // ── The completed visit collapses into ONE grouped VisitCard. ───────────
+    expect(find.byType(VisitCard), findsOneWidget);
+
+    // ── Open the VISIT detail — COMPLETED + canReview → the review CTA. ──────
+    await tester.tap(find.byType(VisitCard));
+    await AppHarness.settle(tester);
+    expect(find.byType(VisitDetailScreen), findsOneWidget);
+    final Finder reviewCta = find.byKey(const Key('visit-detail-leave-review'));
+    expect(reviewCta, findsOneWidget);
+
+    // ── Route to the VISIT review form (never a per-booking review). ────────
+    await tester.tap(reviewCta);
+    await AppHarness.settle(tester);
+    expect(find.byType(AppointmentReviewScreen), findsOneWidget);
+
+    // ── Rate + submit → createAppointmentReview (the visit path). ───────────
+    await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+    await AppHarness.settle(tester);
+    await tester.enterText(
+      find.byKey(const Key('visit-review-comment')),
+      'Дуже задоволена візитом!',
+    );
+    await AppHarness.settle(tester);
+    await tester.tap(find.byKey(const Key('visit-review-submit')));
+    await AppHarness.settle(tester);
+
+    expect(fakeAppt.reviewCalls, 1);
+    expect(fakeAppt.lastReviewRating, 5);
+    expect(fakeAppt.lastReviewComment, 'Дуже задоволена візитом!');
+
+    // ── Popped back to the visit detail; canReview flipped → the CTA is gone,
+    //    replaced by the rebook-only action set. ─────────────────────────────
+    expect(find.byType(AppointmentReviewScreen), findsNothing);
+    expect(find.byType(VisitDetailScreen), findsOneWidget);
+    final AppLocalizations l10n = AppLocalizations.of(
+      tester.element(find.byType(VisitDetailScreen)),
+    );
+    expect(find.text(l10n.reviewSubmitSuccess), findsOneWidget);
+    expect(
+      find.byKey(const Key('visit-detail-leave-review')),
+      findsNothing,
+      reason: 'canReview flipped false after the review — CTA must vanish',
+    );
+    expect(find.byKey(const Key('visit-detail-rebook')), findsOneWidget);
+  });
 }

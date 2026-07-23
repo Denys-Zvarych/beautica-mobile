@@ -3979,14 +3979,6 @@
   "@reviewUnavailableCta": {
     "description": "Button in the not-reviewable info state that returns to the bookings list."
   },
-  "visitReviewComingSoonTitle": "Visit review coming soon",
-  "@visitReviewComingSoonTitle": {
-    "description": "MO-5 placeholder title on the multi-service visit review screen (MO-6 completes the form)."
-  },
-  "visitReviewComingSoonBody": "You'll soon be able to leave one review for the whole visit.",
-  "@visitReviewComingSoonBody": {
-    "description": "MO-5 placeholder body on the multi-service visit review screen (MO-6 completes the form)."
-  },
   "reviewErrAlreadyReviewed": "You have already reviewed this booking.",
   "@reviewErrAlreadyReviewed": {
     "description": "Error message when POST /reviews returns 409 because a review already exists for the booking."

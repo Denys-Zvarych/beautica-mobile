@@ -47,6 +47,7 @@ import 'client_elapsed_booking_readonly_flow_test.dart'
     as client_elapsed_booking_readonly;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
+import 'client_visit_render_flow_test.dart' as client_visit_render;
 import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
@@ -112,6 +113,11 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
+  // CLIENT multi-service VISIT journey (Step 2.7 Rule 3b, MO-5/MO-6) — a grouped
+  // visit card → visit detail → cancel via cancelAppointment (never
+  // cancelBooking), plus the MO-6 review leg: a COMPLETED visit → «Залишити
+  // відгук» → rate + comment → createAppointmentReview once → popped, CTA gone.
+  group('client_visit_render_flow', client_visit_render.main);
   group('client_home_hub_flow', client_home_hub.main);
   group('client_logout_flow', client_logout.main);
   group('client_profile_settings_flow', client_profile_settings.main);
