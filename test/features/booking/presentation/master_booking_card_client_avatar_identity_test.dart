@@ -29,33 +29,30 @@
 // still renders, the footprint is still 16dp, and the cost only shows up as
 // jank on a real handset scrolling a full timeline.
 //
-// ## CORRECTION — `headers:` IS part of the key (recorded 2026-07-24)
+// ## THE PROVIDER IS NOW THE SHARED CACHED LOADER (2026-07-24)
 //
-// An earlier QA pass on this file recorded that passing `headers:` to
-// `NetworkImage` "would NOT defeat dedupe, because `NetworkImage.==` compares
-// only `url` and `scale`". That is WRONG on this project's Flutter (3.41.9,
-// framework rev `00b0c91f06`). `painting/_network_image_io.dart:163-176`:
+// The inner provider is `beauticaMediaProvider(url)` — a
+// `CachedNetworkImageProvider` from the shared media loader
+// (core/media/beautica_image.dart) — wrapped in the same `ResizeImage`. On
+// this project's cached_network_image (3.4.1) its `==`/`hashCode` key off
+// `(cacheKey ?? url, scale, maxHeight, maxWidth)` and DELIBERATELY exclude the
+// `cacheManager`:
 //
-//     return other is NetworkImage &&
-//         other.url == url &&
-//         other.scale == scale &&
-//         mapEquals(other.headers, headers);
+//     bool operator ==(Object other) =>
+//         other is CachedNetworkImageProvider &&
+//         (cacheKey ?? url) == (other.cacheKey ?? other.url) &&
+//         scale == other.scale &&
+//         maxHeight == other.maxHeight &&
+//         maxWidth == other.maxWidth;
+//     int get hashCode => Object.hash(cacheKey ?? url, scale, maxHeight, maxWidth);
 //
-//     int get hashCode =>
-//         Object.hash(url, scale, const MapEquality<String, String>().hash(headers));
-//
-// Headers participate in BOTH `==` and `hashCode`, by VALUE. So a header map
-// whose contents vary per card or per rebuild — a rotated bearer token, a
-// per-request nonce, a signed-URL parameter — keys a DISTINCT `ImageCache`
-// entry every time, and every card refetches and re-decodes the same avatar.
-// (A map with identical contents everywhere is still `==`; it is variance that
-// costs, and an auth header is exactly the kind that varies.)
-//
-// No live defect: nothing passes `headers:` anywhere today, because
-// `clientAvatarUrl` is a PUBLIC R2 object URL. This note exists so the earlier
-// claim cannot later be read as licence to attach an `Authorization` header
-// here if those objects ever stop being public. If they do, the fix is a
-// shared pinned-image loader with a stable key — not a per-card header map.
+// So the dedup key is the URL (no `cacheKey`/`maxWidth`/`maxHeight` are passed
+// by the shared provider), and — unlike the old bare `NetworkImage`, whose
+// `==` folds in a `headers` map by value — there is no per-request header that
+// could vary and silently fragment the cache. `clientAvatarUrl` is a PUBLIC R2
+// object URL, so no auth header is attached; the "shared image loader with a
+// stable key" this note used to recommend as the fix is now what's in use.
+// The dedup-key assertion below pins that the URL is what decides identity.
 //
 // NOT ASSERTED HERE: fetch COUNTS. Counting real loads would need a stubbed
 // `HttpClient` plus `runAsync`, would re-enter the shared-`_sharedHttpClient`
@@ -63,18 +60,22 @@
 // framework's own cache. The provider key is the contract; the cache is
 // Flutter's.
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:network_image_mock/network_image_mock.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 
-const String _kAvatarA = 'https://cdn.example.com/avatars/client-1.png';
-const String _kAvatarB = 'https://cdn.example.com/avatars/client-2.png';
+const String _kHost = 'cdn.example.com';
+const String _kAvatarA = 'https://$_kHost/avatars/client-1.png';
+const String _kAvatarB = 'https://$_kHost/avatars/client-2.png';
 
 Booking _booking({required String id, String? avatarUrl}) {
   // future-date-ok: pinned wall-clock fixture; nothing here reads "now".
@@ -108,124 +109,159 @@ Widget _card(Booking b) => SizedBox(
   ),
 );
 
+/// The URL the inner [CachedNetworkImageProvider] keys its cache entry on —
+/// the dedup key. Unwraps the [ResizeImage] the mark hands its [Image].
+String _cacheKeyOf(ImageProvider<Object> provider) {
+  final ResizeImage resize = provider as ResizeImage;
+  final CachedNetworkImageProvider inner =
+      resize.imageProvider as CachedNetworkImageProvider;
+  return inner.cacheKey ?? inner.url;
+}
+
 void main() {
+  setUp(() {
+    // Allow the fixture host and route fetches through a fake that never
+    // resolves — identity is read off the built providers, not decoded frames.
+    MediaConfig.debugAllowedHosts = <String>{_kHost};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+  });
+
+  tearDown(() {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    imageCache.clear();
+    imageCache.clearLiveImages();
+  });
+
   group('the row-1 mark\'s ImageProvider is the ImageCache key — it must be '
       'value-equal, or every card refetches', () {
     testWidgets('two DIFFERENT bookings sharing one client resolve to the '
         'SAME provider — one fetch, one decode, shared', (
       WidgetTester tester,
     ) async {
-      await mockNetworkImagesFor(() async {
-        await tester.pumpApp(
-          Column(
-            children: <Widget>[
-              _card(_booking(id: 'morning', avatarUrl: _kAvatarA)),
-              _card(_booking(id: 'afternoon', avatarUrl: _kAvatarA)),
-            ],
-          ),
-        );
-        await tester.pump();
+      await tester.pumpApp(
+        Column(
+          children: <Widget>[
+            _card(_booking(id: 'morning', avatarUrl: _kAvatarA)),
+            _card(_booking(id: 'afternoon', avatarUrl: _kAvatarA)),
+          ],
+        ),
+      );
+      await tester.pump();
 
-        final List<Image> images = tester
-            .widgetList<Image>(find.byType(Image))
-            .toList();
-        expect(
-          images,
-          hasLength(2),
-          reason: 'precondition: both cards render the FULL body\'s row-1 mark',
-        );
+      final List<Image> images = tester
+          .widgetList<Image>(find.byType(Image))
+          .toList();
+      expect(
+        images,
+        hasLength(2),
+        reason: 'precondition: both cards render the FULL body\'s row-1 mark',
+      );
 
-        expect(
-          images.first.image,
-          equals(images.last.image),
-          reason:
-              'ImageCache is keyed by the provider, so two cards for the same '
-              'client MUST hand it an `==` provider — otherwise the same '
-              'avatar is fetched and decoded once per booking. A per-instance '
-              'key, a non-value-equal provider or a per-card cacheWidth all '
-              'break this silently: the photo still renders correctly.',
-        );
-        expect(
-          images.first.image.hashCode,
-          images.last.image.hashCode,
-          reason:
-              'the cache is a HashMap — equal providers with unequal hashCodes '
-              'still miss',
-        );
-      });
+      expect(
+        images.first.image,
+        equals(images.last.image),
+        reason:
+            'ImageCache is keyed by the provider, so two cards for the same '
+            'client MUST hand it an `==` provider — otherwise the same avatar '
+            'is fetched and decoded once per booking. cached_network_image '
+            'keys its provider `==` on (cacheKey ?? url); wrapping a '
+            'non-value-equal provider, a per-instance key or a per-card '
+            'cacheWidth all break this silently: the photo still renders.',
+      );
+      expect(
+        images.first.image.hashCode,
+        images.last.image.hashCode,
+        reason:
+            'the cache is a HashMap — equal providers with unequal hashCodes '
+            'still miss',
+      );
+      // The dedup key is the URL: the two providers share it, and it is what
+      // `CachedNetworkImageProvider.==` decides identity on.
+      expect(
+        _cacheKeyOf(images.first.image),
+        _kAvatarA,
+        reason: 'the cache key must be the avatar URL, not a per-card value',
+      );
+      expect(
+        _cacheKeyOf(images.first.image),
+        _cacheKeyOf(images.last.image),
+        reason: 'same client ⇒ same URL ⇒ same cache key ⇒ one fetch',
+      );
     });
 
     testWidgets('two bookings with DIFFERENT clients do NOT collide — the '
         'equality above is real, not a degenerate always-equal', (
       WidgetTester tester,
     ) async {
-      await mockNetworkImagesFor(() async {
-        await tester.pumpApp(
-          Column(
-            children: <Widget>[
-              _card(_booking(id: 'morning', avatarUrl: _kAvatarA)),
-              _card(_booking(id: 'afternoon', avatarUrl: _kAvatarB)),
-            ],
-          ),
-        );
-        await tester.pump();
+      await tester.pumpApp(
+        Column(
+          children: <Widget>[
+            _card(_booking(id: 'morning', avatarUrl: _kAvatarA)),
+            _card(_booking(id: 'afternoon', avatarUrl: _kAvatarB)),
+          ],
+        ),
+      );
+      await tester.pump();
 
-        final List<Image> images = tester
-            .widgetList<Image>(find.byType(Image))
-            .toList();
-        expect(images, hasLength(2));
-        expect(
-          images.first.image,
-          isNot(equals(images.last.image)),
-          reason:
-              'distinct avatar URLs must key distinct cache entries, or one '
-              'client would render another client\'s photo',
-        );
-      });
+      final List<Image> images = tester
+          .widgetList<Image>(find.byType(Image))
+          .toList();
+      expect(images, hasLength(2));
+      expect(
+        images.first.image,
+        isNot(equals(images.last.image)),
+        reason:
+            'distinct avatar URLs must key distinct cache entries, or one '
+            'client would render another client\'s photo',
+      );
+      expect(
+        _cacheKeyOf(images.first.image),
+        isNot(_cacheKeyOf(images.last.image)),
+        reason: 'distinct clients ⇒ distinct URLs ⇒ distinct cache keys',
+      );
     });
 
     testWidgets('a PRESS rebuild hands back an `==` provider, so `Image` skips '
         'resolve entirely and never refetches', (WidgetTester tester) async {
-      await mockNetworkImagesFor(() async {
-        await tester.pumpApp(
-          Center(
-            child: _card(_booking(id: 'pressed', avatarUrl: _kAvatarA)),
-          ),
-        );
-        await tester.pump();
+      await tester.pumpApp(
+        Center(
+          child: _card(_booking(id: 'pressed', avatarUrl: _kAvatarA)),
+        ),
+      );
+      await tester.pump();
 
-        final ImageProvider<Object> before = tester
-            .widget<Image>(find.byType(Image))
-            .image;
+      final ImageProvider<Object> before = tester
+          .widget<Image>(find.byType(Image))
+          .image;
 
-        // `onTapDown` flips `_pressed` and `setState`s, rebuilding the whole
-        // card subtree — the mark included — on every touch of every card.
-        final TestGesture gesture = await tester.startGesture(
-          tester.getCenter(find.byType(MasterBookingCard)),
-        );
-        await tester.pump();
+      // `onTapDown` flips `_pressed` and `setState`s, rebuilding the whole
+      // card subtree — the mark included — on every touch of every card.
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(find.byType(MasterBookingCard)),
+      );
+      await tester.pump();
 
-        final ImageProvider<Object> pressed = tester
-            .widget<Image>(find.byType(Image))
-            .image;
-        expect(
-          pressed,
-          equals(before),
-          reason:
-              '`_ImageState.didUpdateWidget` skips `_resolveImage()` only when '
-              '`widget.image == oldWidget.image`. An unequal provider here '
-              'means every touch re-resolves — and on a cache miss, refetches.',
-        );
+      final ImageProvider<Object> pressed = tester
+          .widget<Image>(find.byType(Image))
+          .image;
+      expect(
+        pressed,
+        equals(before),
+        reason:
+            '`_ImageState.didUpdateWidget` skips `_resolveImage()` only when '
+            '`widget.image == oldWidget.image`. An unequal provider here '
+            'means every touch re-resolves — and on a cache miss, refetches.',
+      );
 
-        await gesture.up();
-        await tester.pumpAndSettle();
+      await gesture.up();
+      await tester.pumpAndSettle();
 
-        expect(
-          tester.widget<Image>(find.byType(Image)).image,
-          equals(before),
-          reason: 'releasing the press must not churn the provider either',
-        );
-      });
+      expect(
+        tester.widget<Image>(find.byType(Image)).image,
+        equals(before),
+        reason: 'releasing the press must not churn the provider either',
+      );
     });
   });
 }

@@ -19,6 +19,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -49,6 +51,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -419,6 +422,19 @@ void main() {
   // fixture photo) and the zero-photo case (section renders nothing at all,
   // matching how every other optional section on this screen behaves).
   group('portfolio rail', () {
+    // The portfolio tiles now go through the shared RemoteImage loader, which
+    // renders an Image only for an https URL on an allowed host. Open the
+    // allowlist to the fixture host and route fetches through a fake so the
+    // tiles build their Image widgets without a real network round-trip.
+    setUp(() {
+      MediaConfig.debugAllowedHosts = <String>{'cdn.beautica.ua'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+    });
+    tearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+    });
+
     const List<SalonPortfolioPhoto> threePhotos = <SalonPortfolioPhoto>[
       SalonPortfolioPhoto(
         id: 'photo-1',

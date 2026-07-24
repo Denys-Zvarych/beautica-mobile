@@ -46,9 +46,14 @@
 // exactly that `Image.network(url, cacheWidth: side, cacheHeight: side, …)`
 // one-liner, BOTH tests below go red and EVERY OTHER TEST in
 // `test/features/booking/` stays green — including all four footprint states
-// (the box is still 16dp) and both identity tests (two `NetworkImage`s are
-// still `==` to each other, so dedupe still holds; it is the decode SHAPE and
-// the animation that are lost, and only this file sees either).
+// (the box is still 16dp) and both identity tests (two providers are still
+// `==` to each other, so dedupe still holds; it is the decode SHAPE and the
+// animation that are lost, and only this file sees either).
+//
+// The inner provider is now the shared disk-cached `beauticaMediaProvider`
+// (a `CachedNetworkImageProvider`) rather than a bare `NetworkImage`, but this
+// file asserts only the OUTER `ResizeImage` (policy + bounds + TickerMode), so
+// the migration leaves every assertion here unchanged.
 //
 // NOT ASSERTED HERE: the decoded pixels. Proving a 3:4 source is not squashed
 // end-to-end would need a real multi-frame/non-square codec through
@@ -59,15 +64,18 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:network_image_mock/network_image_mock.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 
-const String _kAvatar = 'https://cdn.example.com/avatars/client-1.png';
+const String _kHost = 'cdn.example.com';
+const String _kAvatar = 'https://$_kHost/avatars/client-1.png';
 
 Booking _booking() {
   // future-date-ok: pinned wall-clock fixture; nothing here reads "now".
@@ -118,67 +126,79 @@ Future<Image> _pumpMark(WidgetTester tester) async {
 }
 
 void main() {
+  setUp(() {
+    // Allow the fixture host and route fetches through a fake that never
+    // resolves — neither assertion needs a decoded frame, only the built tree.
+    MediaConfig.debugAllowedHosts = <String>{_kHost};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+  });
+
+  tearDown(() {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    imageCache.clear();
+    imageCache.clearLiveImages();
+  });
+
   group('the row-1 mark decodes through ResizeImage — bounded on BOTH axes, '
       'and by `fit` so non-square avatars are not squashed', () {
     testWidgets('the provider is a ResizeImage with policy `fit` and both '
         'width and height bound', (WidgetTester tester) async {
-      await mockNetworkImagesFor(() async {
-        final Image image = await _pumpMark(tester);
+      final Image image = await _pumpMark(tester);
 
-        final ImageProvider<Object> provider = image.image;
-        expect(
-          provider,
-          isA<ResizeImage>(),
-          reason:
-              'a bare NetworkImage decodes the R2 object at its NATIVE '
-              'resolution into a 16dp disc — the whole point of the explicit '
-              'provider is that the decode is bounded',
-        );
+      final ImageProvider<Object> provider = image.image;
+      expect(
+        provider,
+        isA<ResizeImage>(),
+        reason:
+            'a bare NetworkImage decodes the R2 object at its NATIVE '
+            'resolution into a 16dp disc — the whole point of the explicit '
+            'provider is that the decode is bounded',
+      );
 
-        final ResizeImage resize = provider as ResizeImage;
-        expect(
-          resize.policy,
-          ResizeImagePolicy.fit,
-          reason:
-              '`Image.network`\'s cacheWidth/cacheHeight sugar hard-codes '
-              '`ResizeImagePolicy.exact`, which with both axes bound is '
-              'BoxFit.fill at DECODE time: a 3:4 phone photo is squashed into '
-              'a square before the widget\'s BoxFit.cover ever sees it. '
-              'Avatars are uploaded via file_picker with no crop step and '
-              'stored byte-for-byte, so non-square sources are the norm. '
-              'Reaching `fit` is the ONLY reason the provider is spelled out '
-              'instead of using the one-line sugar — see _ClientAvatarMark\'s '
-              'MEMORY doc section.',
-        );
+      final ResizeImage resize = provider as ResizeImage;
+      expect(
+        resize.policy,
+        ResizeImagePolicy.fit,
+        reason:
+            '`Image.network`\'s cacheWidth/cacheHeight sugar hard-codes '
+            '`ResizeImagePolicy.exact`, which with both axes bound is '
+            'BoxFit.fill at DECODE time: a 3:4 phone photo is squashed into '
+            'a square before the widget\'s BoxFit.cover ever sees it. '
+            'Avatars are uploaded via file_picker with no crop step and '
+            'stored byte-for-byte, so non-square sources are the norm. '
+            'Reaching `fit` is the ONLY reason the provider is spelled out '
+            'instead of using the one-line sugar — see _ClientAvatarMark\'s '
+            'MEMORY doc section.',
+      );
 
-        expect(
-          resize.width,
-          isNotNull,
-          reason: 'an unbounded width decodes at the source\'s native size',
-        );
-        expect(
-          resize.height,
-          isNotNull,
-          reason:
-              'height must be bound TOO. ResizeImagePolicy constrains only '
-              'the axes it is given, so with width alone a 1:10 source decodes '
-              'to side x 10*side — an order of magnitude over budget — and '
-              'BoxFit.cover then throws almost all of it away. Both axes make '
-              'the ceiling (16 * dpr)^2 * 4 bytes REGARDLESS of source shape.',
-        );
-        expect(
-          resize.width,
-          greaterThan(0),
-          reason: 'a zero/negative bound is not a bound',
-        );
-        expect(
-          resize.height,
-          resize.width,
-          reason:
-              'the disc is square, so the decode budget is square — an '
-              'asymmetric pair means one axis stopped tracking _kSize',
-        );
-      });
+      expect(
+        resize.width,
+        isNotNull,
+        reason: 'an unbounded width decodes at the source\'s native size',
+      );
+      expect(
+        resize.height,
+        isNotNull,
+        reason:
+            'height must be bound TOO. ResizeImagePolicy constrains only '
+            'the axes it is given, so with width alone a 1:10 source decodes '
+            'to side x 10*side — an order of magnitude over budget — and '
+            'BoxFit.cover then throws almost all of it away. Both axes make '
+            'the ceiling (16 * dpr)^2 * 4 bytes REGARDLESS of source shape.',
+      );
+      expect(
+        resize.width,
+        greaterThan(0),
+        reason: 'a zero/negative bound is not a bound',
+      );
+      expect(
+        resize.height,
+        resize.width,
+        reason:
+            'the disc is square, so the decode budget is square — an '
+            'asymmetric pair means one axis stopped tracking _kSize',
+      );
     });
   });
 
@@ -188,48 +208,46 @@ void main() {
         'EFFECTIVE ticker mode at its own context is false', (
       WidgetTester tester,
     ) async {
-      await mockNetworkImagesFor(() async {
-        await _pumpMark(tester);
+      await _pumpMark(tester);
 
-        // The structural half: the widget itself installs the disable. A
-        // route- or app-level disable would satisfy the behavioural half
-        // below by accident, so this pins WHERE it comes from.
-        expect(
-          find.descendant(
-            of: find.byType(MasterBookingCard),
-            matching: find.byWidgetPredicate(
-              (Widget w) => w is TickerMode && !w.enabled,
-            ),
+      // The structural half: the widget itself installs the disable. A
+      // route- or app-level disable would satisfy the behavioural half
+      // below by accident, so this pins WHERE it comes from.
+      expect(
+        find.descendant(
+          of: find.byType(MasterBookingCard),
+          matching: find.byWidgetPredicate(
+            (Widget w) => w is TickerMode && !w.enabled,
           ),
-          findsOneWidget,
-          reason:
-              'the mark must wrap its Image in TickerMode(enabled: false). '
-              'Without it a multi-frame codec re-arms its frame Timer forever '
-              '(repetitionCount == -1), and every card listening to that '
-              'completer takes a setState + repaint per frame, all day, for a '
-              'decorative 16dp disc. The backend accepts image/webp, sniffs '
-              'MIME from magic bytes and never transcodes, so animated '
-              'avatars are already reachable — see ANIMATED SOURCES.',
-        );
+        ),
+        findsOneWidget,
+        reason:
+            'the mark must wrap its Image in TickerMode(enabled: false). '
+            'Without it a multi-frame codec re-arms its frame Timer forever '
+            '(repetitionCount == -1), and every card listening to that '
+            'completer takes a setState + repaint per frame, all day, for a '
+            'decorative 16dp disc. The backend accepts image/webp, sniffs '
+            'MIME from magic bytes and never transcodes, so animated '
+            'avatars are already reachable — see ANIMATED SOURCES.',
+      );
 
-        // The behavioural half, read the way the framework reads it:
-        // `_ImageState.didChangeDependencies` resolves the ambient ticker mode
-        // at the Image's own context (`widgets/image.dart:1151`) and, on the
-        // first delivered frame, calls
-        // `_stopListeningToStream(keepStreamAlive: true)` when it is false.
-        // `valuesOf(...).enabled` rather than the framework's own
-        // `TickerMode.of` only because the latter is deprecated post-3.35 —
-        // same resolved value, same inherited widget.
-        expect(
-          TickerMode.valuesOf(tester.element(find.byType(Image))).enabled,
-          isFalse,
-          reason:
-              'whatever the tree shape, the ticker mode RESOLVED at the '
-              'Image\'s own context is what _ImageState acts on — a disabled '
-              'TickerMode placed somewhere that does not enclose the Image '
-              'would satisfy the structural check above and still animate',
-        );
-      });
+      // The behavioural half, read the way the framework reads it:
+      // `_ImageState.didChangeDependencies` resolves the ambient ticker mode
+      // at the Image's own context (`widgets/image.dart:1151`) and, on the
+      // first delivered frame, calls
+      // `_stopListeningToStream(keepStreamAlive: true)` when it is false.
+      // `valuesOf(...).enabled` rather than the framework's own
+      // `TickerMode.of` only because the latter is deprecated post-3.35 —
+      // same resolved value, same inherited widget.
+      expect(
+        TickerMode.valuesOf(tester.element(find.byType(Image))).enabled,
+        isFalse,
+        reason:
+            'whatever the tree shape, the ticker mode RESOLVED at the '
+            'Image\'s own context is what _ImageState acts on — a disabled '
+            'TickerMode placed somewhere that does not enclose the Image '
+            'would satisfy the structural check above and still animate',
+      );
     });
   });
 }

@@ -71,6 +71,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -611,10 +612,6 @@ class _MasterPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? url = avatarUrl;
-    final bool isHttps =
-        url != null && url.isNotEmpty && Uri.tryParse(url)?.scheme == 'https';
-
     final Widget disc = Container(
       height: size,
       width: size,
@@ -635,16 +632,17 @@ class _MasterPhoto extends StatelessWidget {
                 ),
               ],
       ),
-      child: ClipOval(
-        child: isHttps
-            ? Image.network(
-                url,
-                fit: BoxFit.cover,
-                cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
-                    .round(),
-                errorBuilder: (_, _, _) => _initialsDisc(),
-              )
-            : _initialsDisc(),
+      // Shared media loader: the https-only + host-allowlist guard, the disk
+      // cache, the socket-level TLS controls and the animated-WebP pin all
+      // live in RemoteImage now (see core/media/beautica_image.dart). The
+      // circular clip + gradient-initials fallback are unchanged.
+      child: RemoteImage(
+        url: avatarUrl,
+        width: size,
+        height: size,
+        shape: RemoteImageShape.circle,
+        excludeFromSemantics: true,
+        fallback: _initialsDisc(),
       ),
     );
     // A cancelled booking's photo desaturates toward the base tone — the

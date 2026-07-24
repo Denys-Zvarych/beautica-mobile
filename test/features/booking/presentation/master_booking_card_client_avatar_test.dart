@@ -1,9 +1,8 @@
 // The FULL body's row-1 client mark — `_ClientAvatarMark` (2026-07-24).
 //
-// The backend now ships `clientAvatarUrl` on `BookingDetailResponse`, so the
-// slot that used to be an unconditional `person_outlined` glyph renders the
-// booking client's real photo when there is one and keeps the glyph as its
-// fallback.
+// The backend ships `clientAvatarUrl` on `BookingDetailResponse`, so the slot
+// that used to be an unconditional `person_outlined` glyph renders the booking
+// client's real photo when there is one and keeps the glyph as its fallback.
 //
 // ## WHAT THIS FILE IS ACTUALLY GUARDING — the 16dp footprint, not the pixels
 //
@@ -18,70 +17,57 @@
 // failure and no visual error anywhere near the change.
 //
 // `master_booking_card_test.dart` already pins that 43.5dp interior headroom
-// (`border 1.5 + _fullPadding 16 + row 1 (16) + 10`), and a `minHeight` floor
-// cannot pad an interior distance — but it pins it for a fixture with NO
-// avatar URL, i.e. for the fallback state only. Every state this file adds is
-// a state that pin cannot see. Hence the same two measurements repeated across
-// all four: the interior headroom (catches shrinkage AND growth) and the outer
-// box (which the floor pads from below, so it catches growth only).
+// (`border 1.5 + _fullPadding 16 + row 1 (16) + 10`), but only for a fixture
+// with NO avatar URL, i.e. for the fallback state. Every state this file adds
+// is a state that pin cannot see. Hence the same two measurements repeated
+// across all four: the interior headroom (catches shrinkage AND growth) and the
+// outer box (which the floor pads from below, so it catches growth only).
+//
+// ## MECHANISM — the shared media loader, injected (2026-07-24)
+//
+// The mark's provider moved from a bare `NetworkImage` to the shared
+// disk-cached `beauticaMediaProvider` (core/media/beautica_image.dart). That
+// provider's real `CacheManager` needs path_provider + sqflite and cannot run
+// under `flutter test` at all, so the three network-dependent states are driven
+// by injecting a [FakeMediaCacheManager] via `debugMediaCacheManager`:
+//   • loading → a stream that never resolves;
+//   • loaded  → a stream carrying a real (in-memory) PNG, decoded under
+//     `tester.runAsync`;
+//   • error   → a stream that errors immediately.
+// The host allowlist is opened to the fixture host via
+// `MediaConfig.debugAllowedHosts` — without it every https URL is rejected by
+// [isAllowedMediaUrl] and would fall straight to the glyph, so the allowlist
+// override is what makes the "photo" states reachable at all.
 //
 // NOT ASSERTED HERE, deliberately: what the photo looks like. The ring, the
 // clip and the fit are design choices with no correctness contract; the
 // footprint is the contract.
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:network_image_mock/network_image_mock.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 
-/// A publicly-shaped https avatar URL. Never fetched for real: the tests that
-/// expect a decoded frame run inside `mockNetworkImagesFor`, and the ones that
-/// expect the error path deliberately run outside it, where `flutter_test`'s
-/// default `HttpClient` answers 400.
-const String _kHttpsAvatar = 'https://cdn.example.com/avatars/client-1.png';
+/// The fixture host, added to the media allowlist in [setUp]. A publicly-shaped
+/// https avatar URL on this host is what the "photo" states require.
+const String _kHost = 'cdn.example.com';
+const String _kHttpsAvatar = 'https://$_kHost/avatars/client-1.png';
 
-/// The same URL downgraded — the case the https guard must refuse to request
-/// at all (`Image.network` uses its own `HttpClient`, not the pinned Dio).
-const String _kHttpAvatar = 'http://cdn.example.com/avatars/client-1.png';
+/// The same URL downgraded — the case [isAllowedMediaUrl] must refuse on
+/// scheme, before the host allowlist is even consulted.
+const String _kHttpAvatar = 'http://$_kHost/avatars/client-1.png';
 
-/// A DISTINCT https URL for the error case. Deliberately not [_kHttpsAvatar]:
-/// Flutter's `ImageCache` keys on the provider, so reusing the URL the
-/// "loaded" case already decoded would serve that cached bitmap instead of
-/// exercising the failure path at all.
-const String _kDeadAvatar = 'https://cdn.example.com/avatars/deleted-404.png';
-
-/// An `HttpClient` that fails whatever is asked of it — how the error state is
-/// provoked deterministically.
-///
-/// ## WHY NOT JUST SKIP `mockNetworkImagesFor` AND LET THE DEFAULT 400 FIRE
-///
-/// Because it silently stops working the moment any OTHER test in this file
-/// loads an image first. `NetworkImage._sharedHttpClient`
-/// (`painting/_network_image_io.dart`) is a `static final` — one instance per
-/// TEST PROCESS, built lazily from whatever `HttpOverrides` happened to be
-/// installed at the first image load anywhere in the file. `mockNetworkImagesFor`
-/// is a properly scoped `HttpOverrides.runZoned`, but the client it hands out
-/// on that first load is captured in that static forever, so a later
-/// un-mocked test keeps getting the MOCK — and a "dead" URL loads a perfectly
-/// good transparent pixel. That is not a hypothetical: it is what this test
-/// did before this class existed, and it failed by finding the photo where it
-/// expected the fallback.
-///
-/// `debugNetworkImageHttpClientProvider` is the supported way out: it is
-/// consulted on EVERY load, ahead of that static, so it works whatever ran
-/// first and leaves the other tests in this file order-independent.
-class _FailingHttpClient implements HttpClient {
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw const SocketException('avatar host unreachable (test fixture)');
-}
+/// A DISTINCT https URL for the error case, so a cached frame from the loaded
+/// case can never serve it (the test binding clears the image cache between
+/// tests, but distinct keys keep the intent explicit).
+const String _kDeadAvatar = 'https://$_kHost/avatars/deleted-404.png';
 
 /// The card's OWN key, derived from the fixture's booking id inside
 /// [MasterBookingCard] — never passed in from here, or the finder matches both
@@ -167,6 +153,29 @@ void _expectFootprintUnmoved(WidgetTester tester, String state) {
 }
 
 void main() {
+  late FakeMediaCacheManager fake;
+
+  setUp(() {
+    // Open the allowlist to the fixture host, and route every media fetch
+    // through an injected fake so no real network / disk cache is touched.
+    // Default responder is "loading forever"; individual tests swap it.
+    MediaConfig.debugAllowedHosts = <String>{_kHost};
+    fake = FakeMediaCacheManager(mediaLoadingForever);
+    debugMediaCacheManager = fake;
+  });
+
+  tearDown(() {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    // A `mediaLoadingForever` fetch leaves a never-completing ImageStream
+    // completer in the global image cache keyed by the avatar URL. Without
+    // clearing it, a later test resolving the SAME URL is handed that stuck
+    // completer instead of building a fresh one — which is why the "loaded"
+    // state (same URL as "loading") never decoded when the suite ran in order.
+    imageCache.clear();
+    imageCache.clearLiveImages();
+  });
+
   group('the row-1 client mark keeps its 16dp footprint in all four states', () {
     testWidgets('null URL — a guest booking, or a client with no photo', (
       WidgetTester tester,
@@ -182,121 +191,126 @@ void main() {
         findsNothing,
         reason: 'a null URL must not build a network image at all',
       );
+      expect(
+        fake.getFileStreamCalls,
+        0,
+        reason: 'a null URL must not reach the cache manager',
+      );
       _expectFootprintUnmoved(tester, 'null URL');
     });
 
     testWidgets('loading — the fallback glyph holds the slot, not a hole', (
       WidgetTester tester,
     ) async {
-      await mockNetworkImagesFor(() async {
-        await _pumpFullCard(tester, avatarUrl: _kHttpsAvatar);
-        // No `runAsync`, so no frame has decoded yet: this IS the loading
-        // state, and `frameBuilder` must be showing the glyph.
-        expect(
-          find.byType(Image),
-          findsOneWidget,
-          reason: 'an https URL must reach Image.network',
-        );
-        expect(
-          find.byIcon(Icons.person_outlined),
-          findsOneWidget,
-          reason:
-              'while the photo is in flight the slot must hold the fallback '
-              'glyph — a blank box would break row 1/row 2\'s shared left rail',
-        );
-        _expectFootprintUnmoved(tester, 'loading');
-      });
+      fake.responder = mediaLoadingForever;
+      await _pumpFullCard(tester, avatarUrl: _kHttpsAvatar);
+      // The fetch never resolves, so no frame has decoded: this IS the loading
+      // state, and `frameBuilder` must be showing the glyph.
+      expect(
+        find.byType(Image),
+        findsOneWidget,
+        reason: 'an allowed https URL must reach the mark\'s Image',
+      );
+      expect(
+        find.byIcon(Icons.person_outlined),
+        findsOneWidget,
+        reason:
+            'while the photo is in flight the slot must hold the fallback '
+            'glyph — a blank box would break row 1/row 2\'s shared left rail',
+      );
+      _expectFootprintUnmoved(tester, 'loading');
     });
 
     testWidgets('loaded — the photo replaces the glyph in the same box', (
       WidgetTester tester,
     ) async {
-      await mockNetworkImagesFor(() async {
-        await _pumpFullCard(tester, avatarUrl: _kHttpsAvatar);
-        // Image decoding is genuinely async (`instantiateImageCodec`), so it
-        // does not advance under `pump`/`pumpAndSettle` alone.
-        await tester.runAsync(() async {
-          await Future<void>.delayed(const Duration(milliseconds: 200));
-        });
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byIcon(Icons.person_outlined),
-          findsNothing,
-          reason: 'once decoded, the photo must take the glyph\'s place',
-        );
-        expect(
-          tester.getSize(find.byType(ClipOval)),
-          const Size(16, 16),
-          reason: 'the photo is clipped to exactly the glyph\'s footprint',
-        );
-        _expectFootprintUnmoved(tester, 'loaded');
+      fake.responder = mediaLoaded;
+      await _pumpFullCard(tester, avatarUrl: _kHttpsAvatar);
+      // Image decoding is genuinely async (`instantiateImageCodec`), so it
+      // does not advance under `pump`/`pumpAndSettle` alone.
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
       });
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byIcon(Icons.person_outlined),
+        findsNothing,
+        reason: 'once decoded, the photo must take the glyph\'s place',
+      );
+      expect(
+        tester.getSize(find.byType(ClipOval)),
+        const Size(16, 16),
+        reason: 'the photo is clipped to exactly the glyph\'s footprint',
+      );
+      _expectFootprintUnmoved(tester, 'loaded');
     });
 
     testWidgets('error — a dead URL falls back, never a broken-image box', (
       WidgetTester tester,
     ) async {
-      // Every fetch fails while this is installed — see [_FailingHttpClient]
-      // for why the ambient default cannot be relied on here.
-      // Cleared inline at the end of the body, NOT via `addTearDown`: the
-      // framework's `debugAssertAllPaintingVarsUnset` invariant runs before
-      // tear-downs and fails the test on a still-set painting debug variable.
-      //
-      // `finally`, not a bare trailing assignment: an assertion failure below
-      // is an exception, and a plain trailing reset is skipped on that path —
-      // leaving the override installed and failing EVERY LATER TEST IN THIS
-      // FILE on the same painting-vars invariant. One real failure would then
-      // arrive as four, three of them in tests that are fine. Verified by
-      // mutation (QA, 2026-07-24): breaking `errorBuilder` alone turned this
-      // file red 4 times, not once.
-      debugNetworkImageHttpClientProvider = () => _FailingHttpClient();
-      try {
-        await _pumpFullCard(tester, avatarUrl: _kDeadAvatar);
-        await tester.runAsync(() async {
-          await Future<void>.delayed(const Duration(milliseconds: 200));
-        });
-        await tester.pumpAndSettle();
+      fake.responder = mediaFetchError;
+      await _pumpFullCard(tester, avatarUrl: _kDeadAvatar);
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await tester.pumpAndSettle();
 
-        expect(
-          find.byIcon(Icons.person_outlined),
-          findsOneWidget,
-          reason: 'a failed fetch must land back on the glyph',
-        );
-        _expectFootprintUnmoved(tester, 'error');
-      } finally {
-        debugNetworkImageHttpClientProvider = null;
-      }
+      expect(
+        find.byIcon(Icons.person_outlined),
+        findsOneWidget,
+        reason: 'a failed fetch must land back on the glyph',
+      );
+      _expectFootprintUnmoved(tester, 'error');
     });
   });
 
-  group('the https-only guard, mirrored from ResultThumbnail/_MasterPhoto', () {
+  group('the https + allowlist guard, funnelled through isAllowedMediaUrl', () {
     testWidgets('an http:// URL is never requested — it falls to the glyph', (
       WidgetTester tester,
     ) async {
-      await mockNetworkImagesFor(() async {
-        await _pumpFullCard(tester, avatarUrl: _kHttpAvatar);
-        expect(
-          find.byType(Image),
-          findsNothing,
-          reason:
-              'Image.network uses its own HttpClient, not the pinned Dio, so a '
-              'cleartext URL must not be fetched at all — it must not merely '
-              'fail and fall back',
-        );
-        expect(find.byIcon(Icons.person_outlined), findsOneWidget);
-        _expectFootprintUnmoved(tester, 'http:// blocked');
-      });
+      await _pumpFullCard(tester, avatarUrl: _kHttpAvatar);
+      expect(
+        find.byType(Image),
+        findsNothing,
+        reason:
+            'a cleartext URL is rejected on scheme before any fetch — it must '
+            'not merely fail and fall back',
+      );
+      expect(
+        fake.getFileStreamCalls,
+        0,
+        reason: 'a rejected URL must never reach the cache manager',
+      );
+      expect(find.byIcon(Icons.person_outlined), findsOneWidget);
+      _expectFootprintUnmoved(tester, 'http:// blocked');
+    });
+
+    testWidgets('an https URL on an UNLISTED host is never requested', (
+      WidgetTester tester,
+    ) async {
+      await _pumpFullCard(
+        tester,
+        avatarUrl: 'https://evil.example.net/avatars/client-1.png',
+      );
+      expect(
+        find.byType(Image),
+        findsNothing,
+        reason:
+            'the host is not in the allowlist, so the guard must reject it '
+            'without a fetch — the real closable trust boundary',
+      );
+      expect(fake.getFileStreamCalls, 0);
+      expect(find.byIcon(Icons.person_outlined), findsOneWidget);
     });
 
     testWidgets('an empty-string URL is treated as no photo', (
       WidgetTester tester,
     ) async {
-      await mockNetworkImagesFor(() async {
-        await _pumpFullCard(tester, avatarUrl: '');
-        expect(find.byType(Image), findsNothing);
-        expect(find.byIcon(Icons.person_outlined), findsOneWidget);
-      });
+      await _pumpFullCard(tester, avatarUrl: '');
+      expect(find.byType(Image), findsNothing);
+      expect(fake.getFileStreamCalls, 0);
+      expect(find.byIcon(Icons.person_outlined), findsOneWidget);
     });
   });
 
@@ -306,40 +320,37 @@ void main() {
     ) async {
       // Disposed inline rather than via `addTearDown`: the framework's
       // "a SemanticsHandle was active at the end of the test" verification
-      // runs BEFORE tear-downs. In a `finally` for the same reason the error
-      // case above is — a failed expectation must not leak the handle into
-      // whatever runs next.
+      // runs BEFORE tear-downs.
       final SemanticsHandle handle = tester.ensureSemantics();
       try {
-        await mockNetworkImagesFor(() async {
-          await _pumpFullCard(tester, avatarUrl: _kHttpsAvatar);
+        fake.responder = mediaLoadingForever;
+        await _pumpFullCard(tester, avatarUrl: _kHttpsAvatar);
 
-          expect(
-            tester.widget<Image>(find.byType(Image)).excludeFromSemantics,
-            isTrue,
-            reason:
-                'the client\'s name is already announced by the card\'s own '
-                'Semantics(label:); an Image node would add an empty, '
-                'image-flagged second node inside that button',
-          );
-          // The property assertion above is the direct pin; this is the
-          // rendered-tree consequence — no `image`-flagged node anywhere
-          // inside the card, whatever route one might arrive by.
-          expect(
-            find.byWidgetPredicate(
-              (Widget w) => w is Semantics && (w.properties.image ?? false),
-            ),
-            findsNothing,
-            reason:
-                'no image-flagged semantics node may exist in the card\'s '
-                'subtree — the card is a single button announcing one person',
-          );
-          expect(
-            find.bySemanticsLabel(RegExp('cdn.example.com')),
-            findsNothing,
-            reason: 'the object URL must never reach the semantics tree',
-          );
-        });
+        expect(
+          tester.widget<Image>(find.byType(Image)).excludeFromSemantics,
+          isTrue,
+          reason:
+              'the client\'s name is already announced by the card\'s own '
+              'Semantics(label:); an Image node would add an empty, '
+              'image-flagged second node inside that button',
+        );
+        // The property assertion above is the direct pin; this is the
+        // rendered-tree consequence — no `image`-flagged node anywhere inside
+        // the card, whatever route one might arrive by.
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is Semantics && (w.properties.image ?? false),
+          ),
+          findsNothing,
+          reason:
+              'no image-flagged semantics node may exist in the card\'s '
+              'subtree — the card is a single button announcing one person',
+        );
+        expect(
+          find.bySemanticsLabel(RegExp(_kHost)),
+          findsNothing,
+          reason: 'the object URL must never reach the semantics tree',
+        );
       } finally {
         handle.dispose();
       }

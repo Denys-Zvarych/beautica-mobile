@@ -30,6 +30,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -991,24 +992,11 @@ class _SalonPortfolioTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Image.network uses its own HttpClient (not the pinned Dio), so guard the
-    // scheme here: only https is allowed — mirrors [ResultThumbnail]'s SEC
-    // guard against a malicious/compromised `http://` photo URL leaking the
-    // client IP if ATS/NSC is ever relaxed.
-    final bool isHttps = Uri.tryParse(photo.url)?.scheme == 'https';
-    final Widget tile = !isHttps
-        ? _errorTile()
-        : ClipRRect(
-            borderRadius: _radius,
-            child: Image.network(
-              photo.url,
-              fit: BoxFit.cover,
-              cacheWidth: (_size * MediaQuery.devicePixelRatioOf(context))
-                  .round(),
-              errorBuilder: (_, _, _) => _errorTile(),
-            ),
-          );
-
+    // The https-only + host-allowlist guard, decode-bounding and disk cache
+    // now live in RemoteImage (core/media/beautica_image.dart). Its shared
+    // [isAllowedMediaUrl] also RESTORES the null/empty-URL check this site's
+    // old inline `scheme == 'https'` guard omitted. `excludeFromSemantics` is
+    // set because the enclosing Semantics already labels the tile as an image.
     return Semantics(
       label: AppLocalizations.of(
         context,
@@ -1023,7 +1011,15 @@ class _SalonPortfolioTile extends StatelessWidget {
             borderRadius: _radius,
             boxShadow: VelvetShadows.extrudedSmall,
           ),
-          child: tile,
+          child: RemoteImage(
+            url: photo.url,
+            width: _size,
+            height: _size,
+            shape: RemoteImageShape.roundedRect,
+            borderRadius: _radius,
+            excludeFromSemantics: true,
+            fallback: _errorTile(),
+          ),
         ),
       ),
     );

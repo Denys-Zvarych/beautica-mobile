@@ -390,6 +390,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -2015,9 +2016,11 @@ class _ClientAvatarMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final String? url = avatarUrl;
-    final bool isHttps =
-        url != null && url.isNotEmpty && Uri.tryParse(url)?.scheme == 'https';
-    if (!isHttps) return _glyph;
+    // Shared media guard (core/media/beautica_image.dart): https-only + host
+    // allowlist, replacing this site's old inline scheme check. The explicit
+    // `url == null` keeps flow-promotion so `beauticaMediaProvider(url)` below
+    // sees a non-null String — isAllowedMediaUrl already rejects null itself.
+    if (url == null || !isAllowedMediaUrl(url)) return _glyph;
 
     // Decode at the physical pixel size this 16dp disc actually occupies
     // rather than at the R2 object's native resolution — see MEMORY above for
@@ -2043,7 +2046,11 @@ class _ClientAvatarMark extends StatelessWidget {
             // reach `fit`.
             child: Image(
               image: ResizeImage(
-                NetworkImage(url),
+                // Disk-cached, TLS-controlled shared provider — the ONLY change
+                // from the hand-built NetworkImage: same ResizeImage wrapper,
+                // same policy/bounds, so the decode shape and the 118dp height
+                // are mathematically unchanged.
+                beauticaMediaProvider(url),
                 width: side,
                 height: side,
                 policy: ResizeImagePolicy.fit,

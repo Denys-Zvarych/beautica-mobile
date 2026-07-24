@@ -148,6 +148,29 @@ dependencies:
   timezone: ^0.11.1
   material_symbols_icons: ^4.2951.0
 
+  # Shared disk-cached, TLS-controlled media image loader (lib/core/media/).
+  # Backs `beauticaImageCacheManager` / `beauticaMediaProvider` / `RemoteImage`
+  # — a single home for the R2 public-media fetch path with an injected
+  # `dart:io HttpClient` (system trust store, bounded per-host concurrency,
+  # explicit connection/idle timeouts) sitting beneath cached_network_image's
+  # own request queue. See lib/core/media/beautica_image.dart's ADR header for
+  # WHY the media path uses SecurityContext.defaultContext rather than the
+  # pinned dio_provider context (deliberate divergence, not an oversight).
+  cached_network_image: ^3.4.1
+
+  # Direct-imported by lib/core/media/beautica_image.dart (CacheManager, Config,
+  # HttpFileService, BaseCacheManager) and the injected IOClient. These are NOT
+  # pre-existing deps: cached_network_image above is itself new, and it drags in
+  # a fresh transitive closure — flutter_cache_manager plus sqflite (×5 packages:
+  # sqflite, sqflite_common, sqflite_android/darwin, sqflite_platform_interface),
+  # octo_image, synchronized, and the cached_network_image_platform_interface /
+  # _web interfaces. sqflite in particular is a NATIVE plugin, newly added for the
+  # disk cache's metadata store. flutter_cache_manager and http are pinned here
+  # (not just left transitive) because `depend_on_referenced_packages` requires a
+  # direct import to be a declared direct dependency.
+  flutter_cache_manager: ^3.4.1
+  http: ^1.6.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -165,6 +188,13 @@ dev_dependencies:
   # golden_toolkit removed 2026-05-26 — discontinued on pub.dev; was declared but never imported.
   # When golden tests are needed, use Flutter's built-in matchesGoldenFile or the alchemist package.
   mocktail: ^1.0.4
+
+  # In-memory filesystem for the shared media-loader tests: FakeMediaCacheManager
+  # yields a FileInfo backed by a MemoryFileSystem file so the "loaded" state
+  # decodes real bytes without touching disk. Already a transitive dep of
+  # flutter_cache_manager; declared here only for the direct import in
+  # test/helpers/fake_media_cache.dart.
+  file: ^7.0.1
   network_image_mock: ^2.1.1
 
   # Declared so widget tests can swap UrlLauncherPlatform.instance for a mock

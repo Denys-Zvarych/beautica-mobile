@@ -67,6 +67,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
@@ -1101,6 +1102,18 @@ void main() {
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
+      // The row-1 mark's guard moved from an inline `scheme == 'https'` check
+      // to the shared `isAllowedMediaUrl` (host allowlist, 2026-07-24). That
+      // allowlist is EMPTY unless `BEAUTICA_MEDIA_ORIGIN` is defined — which no
+      // integration build passes — so the seeded `127.0.0.1` avatar host would
+      // now be refused BEFORE any fetch and the mark would short-circuit to the
+      // glyph, constructing no `Image` and silently gutting the assertion below.
+      // Open the allowlist to exactly the seeded host so the guard lets the URL
+      // through and the mark really builds its `Image` (whose fetch still fails
+      // against the discard port, exercising the errorBuilder for real).
+      MediaConfig.debugAllowedHosts = <String>{'127.0.0.1'};
+      addTearDown(() => MediaConfig.debugAllowedHosts = null);
+
       // Same Kyiv day as the fake's booked-days seed, derived from
       // `fb.bookingStartsAt` rather than hand-typed — see the "two back-to-back"
       // test above for the incident that idiom prevents.
@@ -1153,10 +1166,12 @@ void main() {
           //
           // 127.0.0.1:9 (discard) rather than a hostname: connection refused
           // immediately, no DNS, no packet leaves the handset, no dependence
-          // on whether the device has internet. https, so the mark's scheme
-          // guard lets it through and an `Image` is actually constructed —
-          // an http:// URL would be rejected before the network and would
-          // prove nothing.
+          // on whether the device has internet. https AND — since 2026-07-24 —
+          // its host `127.0.0.1` is opened on `MediaConfig.debugAllowedHosts`
+          // at the top of this test, so the mark's `isAllowedMediaUrl` guard
+          // lets it through and an `Image` is actually constructed. An http://
+          // URL, or any host absent from that allowlist, would be rejected
+          // before the network and would prove nothing.
           'clientAvatarUrl': 'https://127.0.0.1:9/avatars/client-1.png',
         },
       ]);
