@@ -117,6 +117,59 @@ bool _hasCardAncestor(Element element) {
   return found;
 }
 
+/// EVERY rendered gridline the grid paints — hour lines (full-opacity
+/// [BrandColors.faint]) AND half-hour lines (the same hue at alpha 0.4) —
+/// sorted ascending by rendered top, so rung `i` is exactly
+/// `firstHour * 60 + i * 30` minutes.
+///
+/// Cards' own same-coloured hairline dividers are excluded via
+/// [_hasCardAncestor], or the ladder gains phantom rungs.
+List<Rect> _gridlineLadderAscending(WidgetTester tester) {
+  final Color halfHour = BrandColors.faint.withValues(alpha: 0.4);
+  final Iterable<Element> elements = find
+      .byWidgetPredicate(
+        (Widget w) =>
+            w is ColoredBox &&
+            (w.color == BrandColors.faint || w.color == halfHour),
+      )
+      .evaluate();
+  return elements.where((Element e) => !_hasCardAncestor(e)).map((Element e) {
+    final RenderBox box = e.renderObject! as RenderBox;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
+}
+
+/// The dp the RULER actually renders one 30-minute rung at — measured off two
+/// adjacent gridline rects, never re-derived from `_kHourH`.
+///
+/// This is the antidote to the self-referential assertion that let the
+/// card/gridline misalignment ship twice: a test that recomputes an expected
+/// height as `minutes / 60 * 120` restates the widget's own constant and can
+/// only catch a change to that constant — never a change to how it is APPLIED.
+/// See `bookings_timeline_grid_gridline_registration_test.dart`'s header, the
+/// parametric ground-truth guard this mirrors.
+double _renderedRungBand(WidgetTester tester) {
+  final List<Rect> ladder = _gridlineLadderAscending(tester);
+  expect(
+    ladder.length,
+    greaterThanOrEqualTo(2),
+    reason:
+        'the ruler must paint at least two gridlines for a scale to be '
+        'measurable from rendered geometry',
+  );
+  final double band = ladder[1].top - ladder[0].top;
+  expect(
+    band,
+    greaterThan(0),
+    reason: 'gridline rungs must be strictly ascending',
+  );
+  return band;
+}
+
+/// The dp the ruler renders one WALL-CLOCK HOUR at — two rendered 30-minute
+/// rungs. Same rationale as [_renderedRungBand].
+double _renderedHourBand(WidgetTester tester) => _renderedRungBand(tester) * 2;
+
 void main() {
   setUpAll(initBeauticaTimeZones);
 
@@ -240,10 +293,10 @@ void main() {
       // match) — not re-exported, so pinned here as a plain literal the way
       // this file already pins other cross-file geometry invariants (e.g. the
       // 48dp clip floor in the R2 group above). Raised 72 -> 112 by the
-      // proportional-duration-height pass (2026-07-20), then 112 -> 168 by the
-      // vertical-scale pass (2026-07-24, see `bookings_timeline_grid.dart`'s
-      // "ADDENDUM 7") so bookings land on their end-time line.
-      const double hourHeight = 168;
+      // proportional-duration-height pass (2026-07-20), 112 -> 168 by the
+      // vertical-scale pass, then 168 -> 120 by ADDENDUM 8 (2026-07-24) once
+      // the MICRO card layout removed the 56dp floor that forced the scale up.
+      const double hourHeight = 120;
 
       Finder rulerLabel(String text) => find.descendant(
         of: find.byType(TimelineHourRuler),
@@ -424,7 +477,7 @@ void main() {
         // `MasterBookingCard` also reads through `toBeauticaTime`, not just
         // the ruler. Since the 2026-07-21 pass BOTH the card's layouts print
         // the same date-free start–end range (`formatSlotTimeRange`), so this
-        // no longer depends on which layout the 60-minute (168dp floor)
+        // no longer depends on which layout the 60-minute (120dp floor)
         // booking selects — see `master_booking_card.dart`'s "The time is a
         // RANGE" header section. The range is the STRONGER witness of the two
         // it replaced: it proves BOTH instants convert, not just the start.
@@ -459,16 +512,20 @@ void main() {
     // `width` ONLY — no `height:` — so it always renders at its full natural
     // size regardless of duration.
     //
-    // The `greaterThan(...)` floor below tracks `MasterBookingCard`'s real
-    // natural height, which the compact-timeline pass (2026-07-20) shrank
-    // from ~150dp to ~52-56dp (`MasterBookingCard.estimatedNaturalHeight`) —
-    // it is NOT the old 48dp clip floor re-applied; it just has to stay
-    // comfortably below the card's new real size so a regression that
-    // reintroduces clipping (rendering back down near/at 48dp) still trips
-    // it.
+    // THE FLOOR THIS ASSERTS IS THE CARD'S OWN NATURAL HEIGHT, NOT A LITERAL.
+    // It used to be `greaterThan(48)` — the old clip floor, kept as a number
+    // the compact card's ~56dp real height comfortably cleared. ADDENDUM 8
+    // invalidated that: a 15-minute booking is now a 30dp box in the MICRO
+    // layout, so `> 48` failed even though nothing is clipped. The property
+    // being guarded was never "the card is tall"; it is "the card is never
+    // SHORTER than the layout it selected needs", which is exactly
+    // `MasterBookingCard.occupiedHeightFor(floor)`. Written against that, the
+    // guard survives any future density or scale pass — and still fails
+    // immediately if an `OverflowBox`/`ClipRect` crop comes back, because a
+    // cropped card renders shorter than its own natural height by definition.
     testWidgets(
-      'a 15-minute booking is positioned with no forced height, and its '
-      'rendered card is far taller than the old 48dp floor',
+      'a 15-minute booking is positioned with no forced height, and renders '
+      'at no less than its selected layout\'s full natural height',
       (WidgetTester tester) async {
         final DateTime day = _day;
         final Booking short = _booking(
@@ -498,13 +555,29 @@ void main() {
           findsNothing,
         );
 
-        // The card's ACTUAL rendered height comfortably clears the old 48dp
-        // clip floor — proof the full card (both content rows) is on
-        // screen, not a truncated sliver of it.
+        // The card's ACTUAL rendered height is at least its own natural
+        // content height — proof the whole card is on screen, not a truncated
+        // sliver of it. A 15-minute booking's floor at 120dp/hour is 30dp,
+        // which selects the MICRO layout (natural 29dp), so the box renders at
+        // 30 and nothing is cropped.
         final double renderedHeight = tester
             .getSize(find.byKey(const ValueKey<String>('timeline-card-short')))
             .height;
-        expect(renderedHeight, greaterThan(48));
+        expect(
+          renderedHeight,
+          greaterThanOrEqualTo(
+            MasterBookingCard.microLayoutNaturalHeight - 0.5,
+          ),
+          reason:
+              'a $renderedHeight dp card is shorter than the micro layout\'s '
+              'own ${MasterBookingCard.microLayoutNaturalHeight}dp natural '
+              'content — something is cropping it (the retired R2 '
+              'OverflowBox+ClipRect pair, or an exact `height:`).',
+        );
+        // And the content really is laid out, not merely allocated: a crop
+        // would still leave the box measurable.
+        expect(find.text(short.serviceName), findsOneWidget);
+        expect(tester.takeException(), isNull);
       },
     );
   });
@@ -698,9 +771,8 @@ void main() {
         );
         await tester.pump();
 
-        // VERTICAL-SCALE PASS (ADDENDUM 7): at 168dp/hour the 18:00 card sits
-        // ~3024dp down, well below the initial cull window, so it starts as a
-        // placeholder. Scroll to the very bottom to materialise the real card
+        // At ADDENDUM 8's 120dp/hour the 18:00 card sits ~1080dp down, still
+        // below the initial cull window, so it starts as a placeholder. Scroll to the very bottom to materialise the real card
         // before measuring it — the grid-extent property under test is
         // independent of culling (the placeholder reserves the exact box).
         final ScrollableState scrollable = tester.state<ScrollableState>(
@@ -730,16 +802,47 @@ void main() {
     // Mirrors the private `BookingsTimelineGrid._kSlotH` / `_kHourH` (not
     // re-exported — same convention the R4 group above already uses for
     // `hourHeight`). `_kSlotH` (30-minute GRIDLINE slot) is `_kHourH / 2` by
-    // construction; see that file's "ADDENDUM 7" for why the vertical scale
-    // rose to 168 and the card's legibility floor
-    // (`MasterBookingCard.estimatedNaturalHeight`, 56dp) was DECOUPLED from
-    // this slot so bookings >= 20min land their card bottom on the end line.
-    const double kSlotH = 84;
-    const double kHourH = 168;
+    // construction.
+    //
+    // THESE TWO LITERALS ARE NOT THE PRIMARY GUARD, AND THE TWO ASSERTIONS
+    // THAT COULD ONLY EVER BE SATISFIED BY THEM NO LONGER USE THEM.
+    //
+    // A test that recomputes an expected position from the same constant the
+    // widget uses is SELF-REFERENTIAL — it can catch a change to the constant
+    // but never a change to how the constant is APPLIED, which is what BOTH
+    // shipped misalignment bugs were. So the two cases in this group whose
+    // subject is card-vs-ruler REGISTRATION now derive their expectations from
+    // the rendered gridline ladder (`_renderedHourBand`):
+    //
+    //   * "INVARIANT: every booking >= 15 minutes lands its card bottom
+    //     exactly on its end-time line" — the widest case, seven durations.
+    //   * "NO ACCUMULATED DRIFT" — the direct regression for the twice-shipped
+    //     `_kMinInterCardGap` accumulator.
+    //
+    // The remaining literals are DELIBERATE and are kept:
+    //
+    //   * The per-duration height cases below (30/45/60/90/15 min) are ABSOLUTE
+    //     pins on the chosen vertical scale. `kSlotH`/`kHourH` are mirrored
+    //     literals here, NOT imports of the widget's private constants, so a
+    //     unilateral change to `_kHourH` turns them red — which is the point.
+    //     They document the scale; the two measured cases above and
+    //     `bookings_timeline_grid_gridline_registration_test.dart` prove the
+    //     application.
+    //   * "LOCKSTEP" in the gridline group below compares the RENDERED ruler
+    //     band to the RENDERED gridline band, so a one-sided edit to either
+    //     `_kHourH` fails there whatever these say.
+    //
+    // See that file's header for why the vertical scale came back DOWN to 120
+    // (the micro card layout removed the 56dp legibility floor that was forcing
+    // it up to 168) and why the card floor is
+    // `MasterBookingCard.microLayoutNaturalHeight`, decoupled from the slot,
+    // so short bookings land their card bottom on the end line.
+    const double kSlotH = 60;
+    const double kHourH = 120;
 
     final DateTime day = _day;
 
-    testWidgets('a 30-minute booking renders at exactly one slot (84dp)', (
+    testWidgets('a 30-minute booking renders at exactly one slot (60dp)', (
       WidgetTester tester,
     ) async {
       final Booking b = _booking(
@@ -760,7 +863,7 @@ void main() {
     });
 
     testWidgets(
-      'a 60-minute booking renders at EXACTLY two slots (168dp) — its card '
+      'a 60-minute booking renders at EXACTLY two slots (120dp) — its card '
       'bottom lands precisely on its end-time line',
       (WidgetTester tester) async {
         final Booking b = _booking(
@@ -779,19 +882,19 @@ void main() {
 
         final double height = _cardRect(tester, 'dur-60').height;
 
-        // VERTICAL-SCALE PASS (ADDENDUM 7): a 60-minute booking's
-        // proportional height is `60/60 * 168 = 168dp`, which exceeds both
-        // the 56dp legibility floor AND the adaptive full layout's own 117dp
-        // natural content — so the duration-derived height wins outright and
-        // the card lands EXACTLY on its end-time line (kSlotH * 2 = 168). No
-        // more "full layout slightly taller than the floor" slack: at 168
-        // the scale is roomy enough that the proportional height dominates.
+        // ADDENDUM 8: a 60-minute booking's proportional height is
+        // `60/60 * 120 = 120dp`, which clears the adaptive FULL layout's own
+        // 117dp natural content by 3dp — so the duration-derived height still
+        // wins outright and the card lands EXACTLY on its end-time line
+        // (kSlotH * 2 = 120). 60 minutes is the break-even for the full
+        // layout at this scale: that 3dp of headroom is exactly why `_kHourH`
+        // must not drop below 120 without moving `fullLayoutMinHeight` too.
         expect(height, closeTo(kSlotH * 2, 0.5));
       },
     );
 
     testWidgets(
-      'a 90-minute booking renders at exactly three slots (252dp) — three '
+      'a 90-minute booking renders at exactly three slots (180dp) — three '
       'times the 30-minute card\'s height, proving the height tracks '
       'duration proportionally rather than rounding up to a fixed unit',
       (WidgetTester tester) async {
@@ -815,7 +918,7 @@ void main() {
     );
 
     testWidgets(
-      'a 45-minute booking renders at 1.5 slots (126dp) — not rounded up to '
+      'a 45-minute booking renders at 1.5 slots (90dp) — not rounded up to '
       'a whole slot',
       (WidgetTester tester) async {
         final Booking b = _booking(
@@ -836,9 +939,9 @@ void main() {
       },
     );
 
-    testWidgets('a booking shorter than 20 minutes still renders every row, '
-        'un-clipped, at the 56dp legibility floor rather than a '
-        'duration-scaled sliver', (WidgetTester tester) async {
+    testWidgets('a booking shorter than the break-even still renders, '
+        'un-clipped, at the MICRO layout\'s 29dp legibility floor rather than '
+        'a duration-scaled sliver', (WidgetTester tester) async {
       final Booking b = _booking(
         id: 'dur-10',
         startAtUtc: _kyivAtUtc(9),
@@ -853,16 +956,17 @@ void main() {
       );
       await tester.pump();
 
-      // VERTICAL-SCALE PASS (ADDENDUM 7): sub-20-minute bookings floor at the
-      // card's 56dp legibility minimum (`MasterBookingCard
-      // .estimatedNaturalHeight`), NOT a duration-scaled ~28dp sliver
-      // (10/60*168) which would be too short to render legibly and NOT the
-      // 84dp gridline slot (the floor is decoupled from the slot now). This
-      // is the documented residual overrun below 20min — irreducible because
-      // a card cannot render below 56dp and services can be 1 minute long.
+      // ADDENDUM 8: sub-break-even bookings floor at the MICRO layout's
+      // natural height (`MasterBookingCard.microLayoutNaturalHeight`, 29dp),
+      // NOT a duration-scaled 20dp sliver (10/60*120) which no layout can
+      // render, NOT the old 56dp compact natural (the micro row is what let
+      // the floor come down), and NOT the 60dp gridline slot (the floor is
+      // decoupled from the slot). This is the documented residual overrun
+      // below the 14.5-minute break-even — irreducible because a card cannot
+      // render below its own natural height and services can be 1 minute long.
       expect(
         _cardRect(tester, 'dur-10').height,
-        closeTo(MasterBookingCard.estimatedNaturalHeight, 0.5),
+        closeTo(MasterBookingCard.microLayoutNaturalHeight, 0.5),
       );
 
       // No clipping/forced-height mechanism directly on the card — mirrors
@@ -891,18 +995,27 @@ void main() {
         findsNothing,
       );
       expect(find.text(b.serviceName), findsOneWidget);
-      expect(find.text(b.clientName!), findsOneWidget);
+      // The CLIENT NAME is deliberately absent from the VISUAL: a 29dp box
+      // selects `MasterBookingCard`'s MICRO layout, which renders
+      // service · time · dot only. It is still announced, because
+      // `masterBookingCardSemantics` («{client}, {service}») has ALWAYS carried
+      // it for all three layouts — the micro pass did not "move the client
+      // into Semantics" and did not touch that line; the only thing the micro
+      // branch relocated is the PRICE, to `Semantics(value:)`. (Both are
+      // asserted by `master_booking_card_test.dart`.) Asserting the name on
+      // screen here would be asserting the pre-ADDENDUM-8 shape.
+      expect(find.text(b.clientName!), findsNothing);
     });
 
     testWidgets(
-      'a 20-minute booking renders at EXACTLY 56dp — the break-even where '
-      'the proportional height meets the legibility floor, zero overrun '
-      '(the user\'s reported case: a card ending at 14:00 stops at 14:00)',
+      'a 15-minute booking renders at EXACTLY 30dp — the first duration at or '
+      'above the 14.5-minute break-even, so the proportional height clears '
+      'the micro floor and the card bottom lands on its end-time line',
       (WidgetTester tester) async {
         final Booking b = _booking(
           id: 'dur-20',
           startAtUtc: _kyivAtUtc(9),
-          durationMinutes: 20,
+          durationMinutes: 15,
         );
         await tester.pumpApp(
           BookingsTimelineGrid(
@@ -913,27 +1026,33 @@ void main() {
         );
         await tester.pump();
 
-        // 20/60 * 168 = 56, exactly `MasterBookingCard.estimatedNaturalHeight`
-        // — the proportional height and the legibility floor coincide, so the
-        // card bottom lands precisely on its end-time line with no residual.
+        // 15/60 * 120 = 30, just above `microLayoutNaturalHeight` (29) — the
+        // proportional height wins over the floor, so the card bottom lands
+        // precisely on its end-time line with no residual. (The exact
+        // break-even is 14.5 minutes; 15 is the shortest whole minute past
+        // it, and the shortest slot any real service catalogue uses.)
         expect(
           _cardRect(tester, 'dur-20').height,
-          closeTo(kHourH * 20 / 60, 0.5),
+          closeTo(kHourH * 15 / 60, 0.5),
         );
       },
     );
 
     testWidgets(
-      'INVARIANT: every booking >= 20 minutes lands its card bottom exactly '
-      'on its end-time line (height == duration/60 * kHourH) — no floor or '
-      'full-layout inflation past the line for any legible duration',
+      'INVARIANT: every booking >= 15 minutes lands its card bottom exactly '
+      'on its end-time line — its height is duration/60 of ONE RENDERED HOUR '
+      'BAND, so no floor or full-layout inflation pushes any legible duration '
+      'past its line, at whatever dp-per-hour the ruler is actually drawn at',
       (WidgetTester tester) async {
-        const List<int> durations = <int>[20, 25, 30, 45, 60, 90];
+        // 15 is now included: ADDENDUM 8 dropped the break-even from 20
+        // minutes to 14.5, so a quarter-hour slot is exact rather than
+        // inflated. 20/25 stay in the sweep — they are compact-layout
+        // durations at this scale and the floor must not touch them either.
+        const List<int> durations = <int>[15, 20, 25, 30, 45, 60, 90];
         // Staggered by 30min from 08:00 so every card stays in the top,
-        // never-culled band (the last starts at 10:30 == 1764dp, well inside
-        // the r3-last test's proven-renderable extent). Height is independent
-        // of vertical position and of any collision nudge, so overlap between
-        // longer cards is harmless to this assertion.
+        // never-culled band. Height is independent of vertical position and
+        // of any spacer, so overlap between longer cards is harmless to this
+        // assertion.
         final List<Booking> bookings = <Booking>[
           for (int i = 0; i < durations.length; i++)
             _booking(
@@ -951,20 +1070,34 @@ void main() {
         );
         await tester.pump();
 
+        // GROUND TRUTH, NOT `kHourH`. The expected height is read off the
+        // RENDERED gridline ladder, so this sweep pins the relationship
+        // «card height == its own wall-clock band» rather than restating the
+        // widget's own constant back at it (see `_renderedHourBand`). A future
+        // scale pass needs no edit here and still cannot silently break it.
+        final double hourBand = _renderedHourBand(tester);
         for (final int mins in durations) {
           expect(
             _cardRect(tester, 'dur-$mins').height,
-            closeTo(kHourH * mins / 60, 1.0),
-            reason: 'a $mins-min card must be $mins/60 * $kHourH dp tall',
+            closeTo(hourBand * mins / 60, 1.0),
+            reason:
+                'a $mins-min card must be $mins/60 of the RENDERED hour band '
+                '(${hourBand}dp), i.e. ${hourBand * mins / 60}dp',
           );
         }
+
+        // And the rendered band really is the ADDENDUM 8 scale — pinned once,
+        // deliberately, so a scale change is a conscious edit rather than a
+        // silent one. (Paired with, not substituted for, the measured
+        // assertions above: this line alone could not see a MISAPPLIED scale.)
+        expect(hourBand, closeTo(kHourH, 0.5));
       },
     );
 
     testWidgets(
-      'back-to-back bookings of DIFFERENT durations (60min then 90min) '
-      'tile with only the cosmetic minimum gap, no collision-nudge drift, '
-      'and never intersect',
+      'back-to-back bookings of DIFFERENT durations (60min then 90min) tile '
+      'EXACTLY — the second card starts where the first ends, zero gap, so no '
+      'drift can accumulate — and never intersect',
       (WidgetTester tester) async {
         final Booking first = _booking(
           id: 'tile-60',
@@ -992,18 +1125,80 @@ void main() {
         expect(firstRect.overlaps(secondRect), isFalse);
         expect(secondRect.top, greaterThanOrEqualTo(firstRect.bottom));
 
-        // The tiling itself: since the first card's real height now equals
-        // its full 60-minute wall-clock footprint, the second card's
-        // wall-clock-derived `desiredTop` lands EXACTLY at (or past) the
-        // first card's real bottom, so `_LaneColumn`'s collision-nudge
-        // degenerates to its cosmetic-minimum-gap floor rather than pushing
-        // the card further down to avoid a genuine collision — proving the
-        // "happy consequence" the proportional-height pass exists for.
-        const double kMinInterCardGap = 8; // VelvetSpacing.sm
+        // THIS ASSERTION WAS INVERTED BY ADDENDUM 8. As shipped it read
+        // `closeTo(8, 0.5)` and called the 8dp "the cosmetic minimum gap, no
+        // collision-nudge drift". That 8dp WAS the drift: `_kMinInterCardGap`
+        // floored a spacer measured from the previous card's bottom, so every
+        // back-to-back pair pushed the later card 8dp below its own gridline
+        // and the error compounded down the day (six consecutive hour-long
+        // bookings ended 40dp — 20 minutes at this scale — late). The test
+        // asserted the bug.
+        //
+        // The correct property is ZERO: the second card's top must sit on the
+        // first card's bottom, which (since the first card's height equals its
+        // wall-clock footprint) is its own start gridline. Separation is drawn
+        // by the two adjacent card borders, not bought with ruler space.
         expect(
           secondRect.top - firstRect.bottom,
-          closeTo(kMinInterCardGap, 0.5),
+          closeTo(0, 0.5),
+          reason:
+              'a non-zero gap here is added to an ABSOLUTE running position '
+              'that never re-registers against the ruler, so it compounds '
+              'once per booking. See bookings_timeline_grid.dart ADDENDUM 8.',
         );
+      },
+    );
+
+    testWidgets(
+      'NO ACCUMULATED DRIFT: in a run of six back-to-back hour-long bookings, '
+      'card N\'s top lands on its OWN start gridline for every N — the '
+      'regression test for the reported «12:00–14:00 looks like 12:10–14:10»',
+      (WidgetTester tester) async {
+        // Six consecutive 60-minute bookings from 09:00. Under the retired
+        // 8dp gap floor these drifted 0/8/16/24/32/40dp; the last card read a
+        // full 20 minutes late at this scale. One card is not enough to catch
+        // that — the defect is per-STEP, so the fixture has to be a run.
+        const int count = 6;
+        final List<Booking> bookings = <Booking>[
+          for (int i = 0; i < count; i++)
+            _booking(
+              id: 'run-$i',
+              startAtUtc: _kyivAtUtc(9 + i),
+              durationMinutes: 60,
+            ),
+        ];
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: bookings,
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        // Measured against the FIRST card's own top, and stepped by the hour
+        // band the RULER really rendered (`_renderedHourBand`) rather than by
+        // `kHourH`. That distinction is the whole point of this test: the
+        // retired `_kMinInterCardGap` never touched the constant, it changed
+        // how the constant was APPLIED, so an expectation recomputed from the
+        // constant is structurally blind to it. Reading the gridlines makes
+        // the ruler the ground truth, exactly as
+        // `bookings_timeline_grid_gridline_registration_test.dart` does.
+        final double hourBand = _renderedHourBand(tester);
+        final double origin = _cardRect(tester, 'run-0').top;
+        for (int i = 0; i < count; i++) {
+          final Rect card = _cardRect(tester, 'run-$i');
+          expect(
+            card.top - origin,
+            closeTo(i * hourBand, 0.5),
+            reason:
+                'card $i sits ${card.top - origin}dp below the first card but '
+                'its booking starts exactly $i hour(s) later, i.e. '
+                '${i * hourBand}dp of RENDERED ruler. A residual that GROWS '
+                'with i is the additive inter-card gap coming back.',
+          );
+        }
       },
     );
   });
@@ -1012,7 +1207,7 @@ void main() {
     // The user's complaint was a card that CROSSES its own end-time line
     // («ending at 14:00 rendered its card bottom down to ~14:10»). The
     // proportional-height tests above pin the card's HEIGHT
-    // (`duration/60 * 168`), which is necessary but NOT sufficient: a card of
+    // (`duration/60 * 120`), which is necessary but NOT sufficient: a card of
     // the exact right height can still cross its line if it is positioned
     // wrong. The strongest guard is to tie the card's rendered BOTTOM Y to the
     // rendered Y of the `Positioned` gridline for its `endAt`, so the card
@@ -1046,9 +1241,13 @@ void main() {
       (WidgetTester tester) async {
         // The FIRST booking is hour-aligned (09:00) so the whole card layer is
         // correctly registered against the ruler; the SECOND has a real idle
-        // gap before it, so its spacer is time-derived (not the cosmetic
-        // collision-nudge floor) and it sits at its true wall-clock position.
-        // Its end (12:00) is an on-the-hour gridline.
+        // gap before it. The idle gap is no longer load-bearing — ADDENDUM 8
+        // removed the additive `_kMinInterCardGap` floor, so a BACK-TO-BACK
+        // pair would land on its line too (the run test in the group above
+        // pins exactly that). It is kept because the original fixture's
+        // property — an off-hour start reaching its true wall-clock position —
+        // is what this case is for. Its end (12:00) is an on-the-hour
+        // gridline.
         final Booking first = _booking(
           id: 'anchor-first',
           startAtUtc: _kyivAtUtc(9),
@@ -1132,7 +1331,7 @@ void main() {
           reason:
               'the 13:40–14:00 card bottom (${card.bottom}) must land on the '
               '14:00 gridline (${endGridline.top}). If these differ by '
-              '(firstMinute mod 60)/60 * 168 dp, the card layer is anchored to '
+              '(firstMinute mod 60)/60 * 120 dp, the card layer is anchored to '
               'firstMinute while the ruler is anchored to the floored '
               'firstHour — every card is drawn too high and no card lands on '
               'its end line. Fix: anchor cards to firstHour*60, not '
@@ -1186,8 +1385,8 @@ void main() {
               'BookingsTimelineGrid._kHourH have desynced; the ruler labels '
               'and the lane hairlines no longer line up',
         );
-        // And both really are the 168dp vertical-scale-pass value.
-        expect(rulerBand, closeTo(168, 0.5));
+        // And both really are the 120dp ADDENDUM 8 value.
+        expect(rulerBand, closeTo(120, 0.5));
       },
     );
   });
@@ -1366,12 +1565,15 @@ void main() {
   //      not the EXACT box the real card would have occupied, every card BELOW
   //      it shifts — including visible ones — and the day's layout silently
   //      reflows as you scroll. Nothing throws.
-  //   2. THE SLACK/HYSTERESIS ARITHMETIC. The window is
-  //      `[offset − V, offset + 2V]` and is only re-anchored once the offset
-  //      has drifted `V / 2`. If either number is shaved, a card that is
-  //      genuinely ON SCREEN gets replaced by a blank box — the master's
-  //      booking just is not there. Again, nothing throws; the widget tree is
-  //      structurally identical either way.
+  //   2. THE SLACK/HYSTERESIS ARITHMETIC. The window ends at `offset + 1.5V`
+  //      and is only re-anchored once the offset has drifted `V / 4`
+  //      (ADDENDUM 9 — it was `+2V` / `V / 2` until the vertical scale came
+  //      down to 120dp/hour and the same pixel window started covering 1.4x
+  //      more of the DAY). The guaranteed margin is the difference,
+  //      `0.25V`. If either number is shaved further, a card that is genuinely
+  //      ON SCREEN gets replaced by a blank box — the master's booking just is
+  //      not there. Again, nothing throws; the widget tree is structurally
+  //      identical either way.
   //
   // AMENDED BY ADDENDUM 6 (mobile-perf MEDIUM, 2026-07-22). Claim 1 above is
   // no longer load-bearing and the text-scale gate it forced is GONE. Culling
@@ -1431,9 +1633,11 @@ void main() {
       'a card more than a full viewport below the visible band renders as a '
       'placeholder, and materialises once scrolled to',
       (WidgetTester tester) async {
-        // 09:00 and 21:00 Kyiv: 12 wall-clock hours apart, i.e. 2016dp of
-        // ruler at 168dp/hour (ADDENDUM 7). The initial window's bottom edge
-        // is `0 + 2 × 600 − 7 = 1193`, so the late card starts well below it.
+        // 09:00 and 21:00 Kyiv: 12 wall-clock hours apart, i.e. 1440dp of
+        // ruler at 120dp/hour (ADDENDUM 8). The initial window's bottom edge
+        // is `0 + 1.5 × 600 − 7 = 893` (ADDENDUM 9), so the late card starts
+        // well below it. The dedicated boundary test below pins the window's
+        // edge tightly; this one only needs it to be somewhere above 1440.
         final Booking early = _booking(
           id: 'cull-early',
           startAtUtc: _kyivAtUtc(9),
@@ -1498,6 +1702,135 @@ void main() {
     );
 
     // ─────────────────────────────────────────────────────────────────────
+    // ADDENDUM 9 — THE WINDOW'S SIZE ITSELF, PINNED IN BOTH DIRECTIONS.
+    //
+    // The test above only proves culling engages SOMEWHERE below the viewport;
+    // it passes for a `2V` window, a `1.5V` window and a `10V` window alike.
+    // That is how the window silently stopped doing its job: it is a PIXEL
+    // quantity, ADDENDUM 8 cut `_kHourH` 168 -> 120, and the same 2V of pixels
+    // quietly started covering 1.4x more of the DAY — first-paint culling on an
+    // ordinary 09:00–19:00 shift fell from ~35% of the day to ~10% with no test
+    // going red.
+    //
+    // So this case pins the edge from BOTH sides at once:
+    //   * TOO NARROW is caught by the `<= windowBottom` half (a card inside the
+    //     window must be real — shave the slack and an on-screen card becomes a
+    //     blank box).
+    //   * TOO WIDE is caught by the `> windowBottom` half plus the fixture
+    //     guard, which requires at least one probe in the `(1.5V, 2V]` strip —
+    //     exactly the band that regressing to ADDENDUM 4's window would
+    //     re-materialise.
+    //
+    // The boundary is derived from the RENDERED viewport and the RENDERED hour
+    // band, never from a hard-coded dp, so a future scale pass moves the
+    // expectation with it instead of falsifying this file.
+    // ─────────────────────────────────────────────────────────────────────
+    testWidgets(
+      'the culling band ends at scrollOffset + 1.5 viewports: every card '
+      'inside it is real and every card past it is a placeholder — including '
+      'the strip that ADDENDUM 4\'s wider 2V window would have materialised',
+      (WidgetTester tester) async {
+        // A long day, so probes land on both sides of the edge AND inside the
+        // 1.5V–2V discriminating strip. 09:00–21:00 at 120dp/hour is 1440dp of
+        // ruler against a 600dp viewport: the edge sits at 893dp (card 8 of 13
+        // is the first past it) and the strip 893–1193 holds cards 8 and 9.
+        final List<Booking> day = <Booking>[
+          for (int i = 0; i < 13; i++)
+            _booking(
+              id: 'window-$i',
+              startAtUtc: _kyivAtUtc(9 + i),
+              durationMinutes: 60,
+            ),
+        ];
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(bookings: day, day: _day, onBookingTap: (_) {}),
+        );
+        await tester.pump();
+
+        final double viewport = verticalScrollable(
+          tester,
+        ).position.viewportDimension;
+        expect(
+          viewport,
+          greaterThan(0),
+          reason: 'fixture guard: the grid must have a real viewport',
+        );
+
+        // The band's bottom edge in the lane `Column`s' own coordinates, which
+        // is exactly the space `timeline-lane-stack` establishes (the
+        // `labelCenteringNudge` padding sits OUTSIDE that `Stack`, so it is
+        // already netted out of every offset measured against it).
+        const double kSlack = 0.5;
+        final double windowBottom =
+            (1 + kSlack) * viewport - TimelineHourRuler.labelCenteringNudge;
+        final double oldWindowBottom =
+            2.0 * viewport - TimelineHourRuler.labelCenteringNudge;
+
+        double contentOffsetOf(String id) {
+          final double gridTop = tester
+              .getTopLeft(
+                find.byKey(const ValueKey<String>('timeline-lane-stack')),
+              )
+              .dy;
+          final Finder real = realCard(id);
+          final Finder target = real.evaluate().isNotEmpty
+              ? real
+              : culledPlaceholder(id);
+          return tester.getTopLeft(target).dy - gridTop;
+        }
+
+        int inDiscriminatingStrip = 0;
+        for (int i = 0; i < day.length; i++) {
+          final String id = 'window-$i';
+          final double top = contentOffsetOf(id);
+          final bool isCulled = culledPlaceholder(id).evaluate().isNotEmpty;
+
+          if (top > windowBottom && top <= oldWindowBottom) {
+            inDiscriminatingStrip++;
+          }
+
+          if (top <= windowBottom) {
+            expect(
+              isCulled,
+              isFalse,
+              reason:
+                  '$id is planned at ${top}dp, INSIDE the culling band '
+                  '(0 … ${windowBottom}dp), but was replaced by a '
+                  'placeholder. The slack has been shaved below '
+                  '$kSlack viewports and the guaranteed on-screen margin '
+                  '(slack − the V/4 re-anchor drift) has gone negative — a '
+                  'real booking now renders as a blank box.',
+            );
+          } else {
+            expect(
+              isCulled,
+              isTrue,
+              reason:
+                  '$id is planned at ${top}dp, PAST the culling band\'s '
+                  '${windowBottom}dp edge, but was fully materialised. The '
+                  'window is wider than ${1 + kSlack} viewports — if it has '
+                  'gone back to 2V, note that the window is a PIXEL quantity '
+                  'and `_kHourH` is 120, so 2V now buys ~9.1 hours of the day '
+                  'and culling barely engages on a normal working day (the '
+                  'ADDENDUM 9 finding).',
+            );
+          }
+        }
+
+        expect(
+          inDiscriminatingStrip,
+          greaterThanOrEqualTo(1),
+          reason:
+              'fixture guard: no probe lands between the 1.5V edge and the '
+              'old 2V edge, so the assertions above could not tell the two '
+              'windows apart and a regression to ADDENDUM 4\'s window would '
+              'pass',
+        );
+      },
+    );
+
+    // ─────────────────────────────────────────────────────────────────────
     // ⚠ HISTORICAL — THESE TWO TESTS WERE WRITTEN RED AND ARE NOW GREEN.
     // ADDENDUM 5 fixed the defect described below (`occupiedHeightFor`);
     // ADDENDUM 6 then made it non-load-bearing by culling below the window
@@ -1528,12 +1861,14 @@ void main() {
     // That is exactly why the placeholder must reserve `occupiedHeightFor`
     // (which accounts for the layout switch), not the bare `minHeight`.
     //
-    // AT THE CURRENT 168dp SCALE (ADDENDUM 7) that specific 5dp gap no longer
-    // arises — a 60-minute floor is now 168dp >= 117dp, so `occupiedHeightFor`
-    // and `minHeight` coincide at 168 — but `occupiedHeightFor` is KEPT
-    // because it is the general, scale-independent predictor: it stays exact
-    // for every duration, including any future scale where the floor lands
-    // between the compact (56dp) and full (117dp) naturals.
+    // AT THE CURRENT 120dp SCALE (ADDENDUM 8) that specific 5dp gap still
+    // does not arise — a 60-minute floor is 120dp >= 117dp, so
+    // `occupiedHeightFor` and `minHeight` coincide there — but
+    // `occupiedHeightFor` is NO LONGER a no-op the way it was at 168: the
+    // grid's card floor is now `microLayoutNaturalHeight` (29dp), so every
+    // booking under the 14.5-minute break-even has a floor BELOW its layout's
+    // natural and the `max` genuinely binds. It is also the general,
+    // scale-independent predictor for any future scale.
     //
     // How it was resolved: ADDENDUM 5 took the first branch — the
     // placeholder reserves `MasterBookingCard.occupiedHeightFor(floor)`, the
@@ -1715,17 +2050,28 @@ void main() {
               reason:
                   'at scroll offset $offset, booking slack-$i was culled '
                   'while still inside the viewport — the window\'s slack '
-                  '(a full viewport each side) or its half-viewport '
-                  're-anchor threshold has been shaved, and a real card is '
-                  'now a blank box on screen',
+                  '(half a viewport below the visible band) or its '
+                  'quarter-viewport re-anchor threshold has been shaved, and '
+                  'a real card is now a blank box on screen',
             );
           }
         }
 
         // Step in increments SMALLER than the re-anchor threshold
-        // (`viewport / 2` = 300dp), so most steps deliberately do NOT
-        // re-anchor the window — which is exactly when the slack has to
-        // carry the load on its own.
+        // (ADDENDUM 9's `viewport / 4` = 150dp; it was `viewport / 2` = 300dp
+        // before the window was tightened, so this step had to come down with
+        // it), so most steps deliberately do NOT re-anchor the window — which
+        // is exactly when the slack has to carry the load on its own. A step
+        // at or above the threshold would re-anchor on EVERY iteration and the
+        // hysteresis half of this test would go untested.
+        const double kStep = 100;
+        expect(
+          kStep,
+          lessThan(kViewportH / 4),
+          reason:
+              'the sweep must under-step the re-anchor threshold or it only '
+              'ever samples a freshly-anchored window',
+        );
         final double maxExtent = verticalScrollable(
           tester,
         ).position.maxScrollExtent;
@@ -1736,7 +2082,7 @@ void main() {
               'fixture guard: the day must be taller than the viewport or '
               'nothing is ever off-screen and this test is vacuous',
         );
-        for (double offset = 0; offset <= maxExtent; offset += 200) {
+        for (double offset = 0; offset <= maxExtent; offset += kStep) {
           await scrollTo(tester, offset);
           expectNoVisiblePlaceholder(offset);
         }
@@ -1751,6 +2097,319 @@ void main() {
           findsOneWidget,
           reason:
               'nothing was culled at all, so the assertions above proved '
+              'nothing',
+        );
+      },
+    );
+
+    // ─────────────────────────────────────────────────────────────────────
+    // ADDENDUM 9 — THE SAME INVARIANT WHERE THE GRID'S VIEWPORT IS NOT THE
+    // SCREEN. Every culling test above pumps the grid as the whole `home`, so
+    // its scroll viewport IS the surface height and `_windowViewport`'s
+    // pre-metrics seed (`MediaQuery.sizeOf(context).height`) happens to be
+    // exactly right. On a REAL screen it never is: `MasterBookingsScreen` puts
+    // an app bar above the grid and a `VelvetBottomNavBar` below it, so at an
+    // iPhone SE-class 375x667 the grid's own viewport is a few hundred dp
+    // shorter than the screen the seed reads.
+    //
+    // That gap is why this case exists, and it is worth its own test for two
+    // reasons:
+    //
+    //   1. THE SEED IS AN OVER-ESTIMATE, SO THE WINDOW SHRINKS ON THE FIRST
+    //      SCROLL. Before any scroll the band is sized off the SCREEN
+    //      (`1.5 x 600`); after [_onScroll] runs it is sized off the real
+    //      viewport (`1.5 x 320`). Cards between the two edges flip from real
+    //      to placeholder mid-session. That is safe ONLY because the shrink
+    //      happens far below the fold — and "far below the fold" is an
+    //      assertion, not a comment, so it is made here.
+    //   2. THE MARGIN IS A FRACTION OF THE VIEWPORT, so a window tightened too
+    //      far fails PROPORTIONALLY — it strands a visible card as a blank box
+    //      at 320dp just as it would at 600dp. Pinning the invariant at a
+    //      second, materially different viewport is what stops a future
+    //      tightening from being "fine on the test surface" and popping cards
+    //      in on a small phone.
+    //
+    // `master_bookings_screen_test.dart`'s small-viewport case now scrolls to
+    // `maxScrollExtent` before asserting its last card is in the tree, exactly
+    // because that card is legitimately culled at rest at 375x667. This test is
+    // what makes that adaptation safe: it holds the culling contract at a
+    // chrome-shrunk viewport so the screen test does not have to.
+    // ─────────────────────────────────────────────────────────────────────
+    testWidgets(
+      'when surrounding chrome shrinks the grid\'s viewport below the screen '
+      'height, no placeholder is ever on screen — before OR after the '
+      'pre-metrics seed is replaced by the real viewport',
+      (WidgetTester tester) async {
+        // Materially shorter than the 600dp surface, mirroring what an app bar
+        // plus a bottom nav bar leave the grid on a 667dp-tall phone.
+        const double kShrunkViewportH = 320;
+
+        final List<Booking> bookings = <Booking>[
+          for (int i = 0; i < 12; i++)
+            _booking(
+              id: 'chrome-$i',
+              startAtUtc: _kyivAtUtc(9 + i),
+              durationMinutes: 60,
+            ),
+        ];
+
+        await tester.pumpApp(
+          Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              height: kShrunkViewportH,
+              child: BookingsTimelineGrid(
+                bookings: bookings,
+                day: _day,
+                onBookingTap: (_) {},
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // FIXTURE GUARD: the whole point is that the grid's viewport is NOT
+        // the screen height. If a layout change ever let the grid size itself
+        // to the surface again, this test would silently become a duplicate of
+        // the sweep above.
+        final double realViewport = verticalScrollable(
+          tester,
+        ).position.viewportDimension;
+        expect(
+          realViewport,
+          closeTo(kShrunkViewportH, 1.0),
+          reason:
+              'fixture guard: the grid must actually be constrained to '
+              '${kShrunkViewportH}dp — this test is about the case where the '
+              'viewport is smaller than the screen the window seed reads',
+        );
+        expect(
+          realViewport,
+          lessThan(kViewportH * 0.75),
+          reason:
+              'fixture guard: the grid viewport must be MATERIALLY smaller '
+              'than the ${kViewportH}dp surface, or the pre-metrics seed and '
+              'the real viewport agree and the transition under test never '
+              'happens',
+        );
+
+        void expectNoVisiblePlaceholder(String phase) {
+          final Rect visible = tester.getRect(
+            find.byType(BookingsTimelineGrid),
+          );
+          for (int i = 0; i < bookings.length; i++) {
+            final Finder placeholder = culledPlaceholder('chrome-$i');
+            if (placeholder.evaluate().isEmpty) continue;
+            expect(
+              tester.getRect(placeholder).overlaps(visible),
+              isFalse,
+              reason:
+                  '$phase: chrome-$i was culled while still inside the grid\'s '
+                  '${realViewport}dp viewport. The window\'s slack '
+                  '(half a viewport below the visible band) or its '
+                  'quarter-viewport re-anchor threshold has been shaved '
+                  'until the guaranteed margin went negative, and a real '
+                  'booking is now a blank box on screen — the POP-IN this '
+                  'window is only allowed to avoid, not cause.',
+            );
+          }
+        }
+
+        // Phase 1 — the seeded window, before [_onScroll] has ever run.
+        expectNoVisiblePlaceholder('at rest (screen-height seed)');
+
+        // Phase 2 — every offset, stepping under the real viewport's own
+        // re-anchor threshold (320 / 4 = 80) so the window is deliberately
+        // sampled while stale, which is when the slack alone carries it.
+        const double kStep = 50;
+        expect(
+          kStep,
+          lessThan(kShrunkViewportH / 4),
+          reason:
+              'the sweep must under-step the re-anchor threshold or it only '
+              'ever samples a freshly-anchored window',
+        );
+        final double maxExtent = verticalScrollable(
+          tester,
+        ).position.maxScrollExtent;
+        expect(
+          maxExtent,
+          greaterThan(kShrunkViewportH),
+          reason:
+              'fixture guard: the day must overflow the shrunk viewport or '
+              'nothing is ever off-screen and this test is vacuous',
+        );
+        for (double offset = 0; offset <= maxExtent; offset += kStep) {
+          await scrollTo(tester, offset);
+          expectNoVisiblePlaceholder('at offset $offset (real viewport)');
+        }
+        await scrollTo(tester, maxExtent);
+        expectNoVisiblePlaceholder('at maxScrollExtent');
+
+        // FIXTURE GUARD: vacuous unless culling actually engaged. Asserted
+        // back at the top, where the day's tail is furthest below the fold.
+        await scrollTo(tester, 0);
+        expect(
+          culledPlaceholder('chrome-11'),
+          findsOneWidget,
+          reason:
+              'nothing was culled at the shrunk viewport at all, so the '
+              'assertions above proved nothing — culling must engage MORE at a '
+              'smaller viewport, not less',
+        );
+      },
+    );
+
+    // ─────────────────────────────────────────────────────────────────────
+    // ADDENDUM 9 — THE HYSTERESIS HALF OF THE MARGIN, PINNED SHARPLY.
+    //
+    // The window's safety is a SUBTRACTION between two independent constants:
+    // the guaranteed on-screen margin is
+    // `(_kWindowSlack - _kWindowReanchorFraction) x viewport`. Every other
+    // culling test above pins only the FIRST term:
+    //
+    //   * The "band ends at 1.5 viewports" case measures the window at rest
+    //     (offset 0, freshly anchored), so it sees `_kWindowSlack` and is
+    //     blind to `_kWindowReanchorFraction` entirely.
+    //   * The two sweeps DO scroll, but they step at a fixed 100/50dp over a
+    //     fixture whose cards sit 120dp apart — so whether a violated card
+    //     happens to land in the strip between the visible bottom and the
+    //     window edge is luck, not construction.
+    //
+    // MEASURED GAP (mobile-qa, 2026-07-24): mutating ONLY
+    // `_kWindowReanchorFraction` 0.25 -> 0.6, leaving the slack at 0.5, makes
+    // the guaranteed margin `-0.1 x viewport` — cards that are genuinely on
+    // screen render as blank boxes part-way through every scroll — and the
+    // whole file still passed green. This case is what makes that mutation
+    // red. It is the "cards POP IN during scroll" regression, which is
+    // user-visible in a way that a merely-too-WIDE window never is.
+    //
+    // TWO CONSTRUCTION CHOICES DO THE WORK, and both are guarded below rather
+    // than left as comments:
+    //
+    //   1. A DENSE fixture — 15-minute bookings tile at exactly 30dp, a
+    //      quarter of the 120dp pitch the other cases use — so the sweep's
+    //      RESOLUTION is 30dp: any margin violation wider than one card is
+    //      caught by construction instead of by coincidence.
+    //   2. A FINE step that is NOT derived from the current threshold. The
+    //      sibling sweep guards `kStep < kViewportH / 4`, which re-states
+    //      today's `_kWindowReanchorFraction` as a literal — if that constant
+    //      grows, the guard silently stops meaning "under-steps the
+    //      threshold". Stepping at 10dp under-steps ANY threshold, so every
+    //      staleness level up to whatever the real one is gets sampled,
+    //      including the worst case immediately before a re-anchor.
+    // ─────────────────────────────────────────────────────────────────────
+    testWidgets(
+      'the re-anchor hysteresis never outruns the slack: at EVERY scroll '
+      'offset — including the maximum staleness just before a re-anchor — no '
+      'culled card is above the fold',
+      (WidgetTester tester) async {
+        // 15-minute bookings tile at exactly 30dp (band 30dp vs the 29dp
+        // micro floor), giving the sweep 4x the resolution of the 120dp
+        // fixtures above. 09:00–21:00 is 48 cards / 1440dp — comfortably past
+        // the 893dp window edge, so culling genuinely engages (a shorter day
+        // fits INSIDE the window and the sweep would assert nothing; the
+        // `sawCulled` guard below is what caught exactly that while this case
+        // was being written).
+        const int kCardCount = 48;
+        final List<Booking> bookings = <Booking>[
+          for (int i = 0; i < kCardCount; i++)
+            _booking(
+              id: 'hyst-$i',
+              startAtUtc: _kyivAtUtc(9 + i ~/ 4, (i % 4) * 15),
+              durationMinutes: 15,
+            ),
+        ];
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: bookings,
+            day: _day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        // FIXTURE GUARD — the resolution claim, measured rather than assumed.
+        // If a density pass changed the micro floor so 15-minute cards no
+        // longer tile at 30dp, this sweep would quietly get coarser.
+        final double pitch =
+            tester.getRect(realCard('hyst-1')).top -
+            tester.getRect(realCard('hyst-0')).top;
+        expect(
+          pitch,
+          closeTo(30, 1.0),
+          reason:
+              'fixture guard: the dense run must tile at 30dp for the sweep '
+              'to resolve a margin violation narrower than the 120dp fixtures '
+              'used elsewhere',
+        );
+
+        /// The topmost culled card's rendered top, or null when nothing is
+        /// culled. Collected in ONE tree walk (a key-prefix predicate) rather
+        /// than 24 finder lookups per offset, so the fine step stays cheap.
+        double? topmostCulledTop() {
+          final Iterable<Element> culled = find
+              .byWidgetPredicate(
+                (Widget w) =>
+                    w.key is ValueKey<String> &&
+                    (w.key! as ValueKey<String>).value.startsWith(
+                      'timeline-card-culled-',
+                    ),
+              )
+              .evaluate();
+          double? top;
+          for (final Element e in culled) {
+            final RenderBox box = e.renderObject! as RenderBox;
+            final double t = box.localToGlobal(Offset.zero).dy;
+            if (top == null || t < top) top = t;
+          }
+          return top;
+        }
+
+        final double fold = tester
+            .getRect(find.byType(BookingsTimelineGrid))
+            .bottom;
+        final double maxExtent = verticalScrollable(
+          tester,
+        ).position.maxScrollExtent;
+        expect(
+          maxExtent,
+          greaterThan(0),
+          reason:
+              'fixture guard: the day must overflow the viewport or nothing '
+              'is ever culled',
+        );
+
+        // 10dp under-steps ANY plausible re-anchor threshold, so the window is
+        // sampled at every staleness including its worst. Deliberately NOT
+        // expressed as a fraction of the viewport — see this case's header.
+        const double kFineStep = 10;
+        int sawCulled = 0;
+        for (double offset = 0; offset <= maxExtent; offset += kFineStep) {
+          await scrollTo(tester, offset);
+          final double? top = topmostCulledTop();
+          if (top == null) continue;
+          sawCulled++;
+          expect(
+            top,
+            greaterThanOrEqualTo(fold - 0.5),
+            reason:
+                'at scroll offset $offset the topmost culled card starts at '
+                '${top}dp, ABOVE the fold at ${fold}dp — it is on screen and '
+                'it is a blank box. The guaranteed margin '
+                '`(slack - reanchorFraction) x viewport` has gone negative: '
+                'either the slack was shaved or the re-anchor threshold was '
+                'raised without raising the slack with it. Cards will POP IN '
+                'as the user scrolls.',
+          );
+        }
+
+        expect(
+          sawCulled,
+          greaterThan(0),
+          reason:
+              'nothing was culled at ANY offset, so this sweep asserted '
               'nothing',
         );
       },

@@ -240,6 +240,60 @@
 // its doc — because a two-number band is materially wider than the single
 // figure this card's compact 56dp layout was originally sized around.
 //
+// ## THE MICRO LAYOUT (2026-07-24) — A THIRD DENSITY, FOR SLOTS UNDER 56dp
+//
+// `bookings_timeline_grid.dart`'s VERTICAL-SCALE-DOWN pass (its "ADDENDUM 8")
+// dropped `_kHourH` to `120`, which puts a 30-minute booking at `60dp` and a
+// 15-minute one at `30dp`. The compact grid above needs `56dp`, so every
+// booking under ~28 minutes would have been INFLATED to a 56dp box — a card
+// visibly taller than its own wall-clock band, i.e. exactly the overrun the
+// scale pass exists to remove.
+//
+// The MICRO layout is the shape that fits a 15-minute band:
+//
+// ```
+// ┌────────────────────────────────────────┐
+// │ Стрижка жіноча        10:00–10:15   ●  │  ← what · when · status DOT
+// └────────────────────────────────────────┘
+//                  ~29dp
+// ```
+//
+// ONE row, no hairline, no price pill, no client name. The service name
+// LEADS and takes the `Expanded` slot because it is the only thing the card's
+// vertical POSITION does not already encode — a micro card sits on its own
+// start gridline, so "when" is legible from the geometry and needs only a
+// trailing confirmation. [TimelineStatusDot] stays hard right, in the same
+// place both other layouts put their status indicator, so the right edge of a
+// mixed-density lane reads as one column of statuses.
+//
+// WHAT IS DROPPED, AND WHERE IT WENT: the client name is already carried by
+// the card's own `Semantics(label:)` (`masterBookingCardSemantics`, unchanged
+// for all three layouts). The PRICE has no visual slot left, so [build]
+// attaches it as `Semantics(value:)` on the micro branch only — a standard
+// a11y property, no new ARB key, and no per-card `Tooltip` (a card-wide
+// tooltip would win the gesture arena on long-press and suppress the card's
+// own `onTap`; see [TimelineStatusDot]'s "GESTURE PROPERTY" note). Everything
+// dropped from the visual stays one tap away on «Деталі запису» — the whole
+// card is still the same single tap target it is in the other two layouts.
+//
+// THE 29dp BUDGET: border (1.5 × 2 = 3) + [_MasterBookingCardState.
+// _compactPadding]'s vertical 6 × 2 (12) + ONE text row, whose height is the
+// tallest of the three children — [VelvetText.masterCardTime] (11.5 × 1.2 =
+// 13.8), [VelvetText.masterCardService] (11 × 1.2 = 13.2) and the 8dp dot.
+// = **29dp** at textScaler 1.0 (13.8 rounds up to a whole 14 in text
+// layout), pinned as [MasterBookingCard.microLayoutNaturalHeight]. It is
+// MEASURED, not the round 30 an early sketch assumed nor the 28.8 the raw
+// token arithmetic gives. The grid floors its cards at this number, so a
+// 15-minute band (`15/60 × 120 = 30dp`) clears it and lands exactly on its
+// end line.
+//
+// THE SELECTION IS THREE-WAY BUT `null` STILL MEANS COMPACT. [_layout] reads
+// [minHeight] itself (same reason as the full/compact switch below), but a
+// `null` [minHeight] — every call site outside the timeline grid — resolves
+// to COMPACT, not micro. `null` means "no constraint at all", which is the
+// opposite of "a very tight constraint"; treating it as `0` and selecting
+// micro would silently re-shape every non-timeline caller.
+//
 // THE BORDER, NOT THE SHADOW, CARRIES "MORE VISIBLE"
 // -----------------------------------------------------------------------
 // The design's own card reads sharper mostly because of an OFFSET dual
@@ -316,20 +370,26 @@ class MasterBookingCard extends StatefulWidget {
   /// proportional-duration-height pass.
   final double? minHeight;
 
-  /// A documented ESTIMATE of this card's natural rendered height. Predates
-  /// the proportional-duration-height pass and is no longer read by
-  /// `BookingsTimelineGrid`'s lane layout (which now computes a real,
-  /// duration-derived floor per booking — see that file's `_cardMinHeightFor`
-  /// and "ADDENDUM 2") — kept as a documented, tested reference point for the
-  /// card's true natural size, and because a `null`-`minHeight` call site
-  /// (any caller outside the timeline grid) still renders at roughly this
-  /// height with nothing forced. Deliberately NOT a safety floor in itself:
-  /// the timeline's per-lane `Column` layout can never let two cards overlap
-  /// regardless of how far this estimate drifts from a card's true height (a
-  /// `Column` always starts a child exactly after its predecessor's REAL
-  /// rendered size, not this planning number) — so getting this value
-  /// slightly wrong only ever costs a little visual density, never
-  /// correctness.
+  /// The COMPACT body's EXACT natural rendered height at textScaler 1.0 (see
+  /// the derivation below) — the middle of this card's three naturals,
+  /// alongside [microLayoutNaturalHeight] and [fullLayoutNaturalHeight].
+  ///
+  /// CORRECTION — an earlier revision of this doc said it was "no longer read
+  /// by `BookingsTimelineGrid`'s lane layout". That was false when written and
+  /// is false now. It is read twice: [occupiedHeightFor] returns it for every
+  /// floor in the compact band, and it IS [microLayoutMaxHeight], the
+  /// compact/micro boundary — a floor that cannot contain this height is
+  /// exactly what selects the micro row. (What it stopped being, in the
+  /// PROPORTIONAL-DURATION-HEIGHT pass, is the grid's card FLOOR; that is now
+  /// [microLayoutNaturalHeight] — see `bookings_timeline_grid.dart`'s
+  /// `_cardMinHeightFor`.)
+  ///
+  /// Still deliberately NOT a safety floor: the timeline's per-lane `Column`
+  /// layout can never let two cards overlap regardless of how far any of these
+  /// naturals drift from a card's true height (a `Column` always starts a
+  /// child exactly after its predecessor's REAL rendered size, not a planning
+  /// number) — so getting this value wrong costs visual density and scroll
+  /// extent, never correctness.
   ///
   /// Derivation, post MINIATURE-OF-THE-FULL-CARD pass (this file's "THE 41dp
   /// BUDGET" header section, which carries the same arithmetic in full):
@@ -392,15 +452,58 @@ class MasterBookingCard extends StatefulWidget {
   /// `bookings_timeline_grid.dart`'s "ADDENDUM 5".
   static const double fullLayoutNaturalHeight = 117;
 
+  /// [_buildMicroBody]'s natural rendered height at textScaler 1.0 — the third
+  /// layout's counterpart to [estimatedNaturalHeight] /
+  /// [fullLayoutNaturalHeight], and exact for the same reason (one row of
+  /// single-line children, so lane width moves the ellipsis, never the height).
+  ///
+  /// Derivation, in full on the class doc's "THE MICRO LAYOUT" section:
+  /// border (1.5 × 2 = 3) + [_MasterBookingCardState._compactPadding]'s
+  /// vertical 6 × 2 (12) + the row's tallest child, the time range in
+  /// [VelvetText.masterCardTime] (Nunito 11.5 at `height: 1.2` = 13.8, which
+  /// Flutter's text layout rounds UP to a whole 14 — taller than the service
+  /// name's 13.2 and the 8dp status dot) = **29dp**.
+  ///
+  /// 29, NOT the round 30 an early sketch of this pass assumed, and not the
+  /// 28.8 the unrounded arithmetic gives. It is a MEASURED number:
+  /// `bookings_timeline_grid.dart`'s `_cardMinHeightFor` floors every card at
+  /// it and [occupiedHeightFor] predicts real boxes from it, so it has to be
+  /// what the card actually renders rather than what the type tokens multiply
+  /// out to. Pinned by `master_booking_card_test.dart`'s "the MICRO body
+  /// measures exactly 29dp" case and, as an [occupiedHeightFor] input, by
+  /// `master_booking_card_layout_height_test.dart`.
+  ///
+  /// TEXT SCALE 1.0 ONLY, exactly as [fullLayoutNaturalHeight].
+  static const double microLayoutNaturalHeight = 29;
+
+  /// The [minHeight] BELOW which this card renders its single-row micro
+  /// layout — equal to [estimatedNaturalHeight] because that IS the compact
+  /// grid's natural height: a floor that cannot contain the compact body is
+  /// precisely the case micro exists for. Exclusive, so a floor of exactly
+  /// [estimatedNaturalHeight] still gets the compact grid.
+  ///
+  /// A `null` [minHeight] never selects micro — see the class doc.
+  static const double microLayoutMaxHeight = estimatedNaturalHeight;
+
   /// The EXACT height this card's decorated box occupies when built with
   /// [minHeight], at textScaler 1.0 — computable without building the card.
   ///
   /// [minHeight] is a floor, never a ceiling (see the class doc), so the box
   /// resolves to `max(floor, the selected layout's natural content height)`,
   /// and which layout is selected is itself a pure function of [minHeight]
-  /// ([fullLayoutMinHeight]). Both branches' naturals are content-independent
-  /// exact numbers ([estimatedNaturalHeight] / [fullLayoutNaturalHeight]), so
-  /// this is a real prediction rather than an estimate.
+  /// ([fullLayoutMinHeight] / [microLayoutMaxHeight]). All three branches'
+  /// naturals are content-independent exact numbers
+  /// ([microLayoutNaturalHeight] / [estimatedNaturalHeight] /
+  /// [fullLayoutNaturalHeight]), so this is a real prediction rather than an
+  /// estimate.
+  ///
+  /// NO LONGER A MATHEMATICAL NO-OP. While the grid floored every card at
+  /// [estimatedNaturalHeight] this function could only ever return its own
+  /// argument, and the doc comments claiming otherwise were stale. The micro
+  /// layout moved the grid's floor down to [microLayoutNaturalHeight], so the
+  /// `max` genuinely binds again in the sub-compact band: a 10-minute booking
+  /// at `120dp/hour` has a `20dp` wall-clock band, a `29dp` floor, and a
+  /// `29dp` real box.
   ///
   /// Exists for `bookings_timeline_grid.dart`'s viewport culling, whose
   /// placeholder must reserve precisely the room the real card would take or
@@ -409,16 +512,32 @@ class MasterBookingCard extends StatefulWidget {
   /// forbids) — it predicts, it never constrains.
   ///
   /// Valid at textScaler 1.0 only — see [fullLayoutNaturalHeight].
-  static double occupiedHeightFor(double minHeight) => math.max(
-    minHeight,
-    minHeight >= fullLayoutMinHeight
-        ? fullLayoutNaturalHeight
-        : estimatedNaturalHeight,
-  );
+  static double occupiedHeightFor(double minHeight) {
+    final double natural;
+    if (minHeight >= fullLayoutMinHeight) {
+      natural = fullLayoutNaturalHeight;
+    } else if (minHeight < microLayoutMaxHeight) {
+      natural = microLayoutNaturalHeight;
+    } else {
+      natural = estimatedNaturalHeight;
+    }
+    return math.max(minHeight, natural);
+  }
 
   @override
   State<MasterBookingCard> createState() => _MasterBookingCardState();
 }
+
+/// Which body [_MasterBookingCardState.build] renders, resolved once from
+/// [MasterBookingCard.minHeight] — see [_MasterBookingCardState._layout].
+///
+/// An enum rather than the two booleans this started as: with three densities,
+/// a pair of independent `_useFullLayout`/`_useMicroLayout` getters can express
+/// the impossible "both" state, and every call site would have to re-derive the
+/// precedence between them. `switch` over this is exhaustive by construction,
+/// so a fourth density cannot be added without the compiler naming every place
+/// that must handle it.
+enum _MasterCardLayout { full, compact, micro }
 
 class _MasterBookingCardState extends State<MasterBookingCard> {
   bool _pressed = false;
@@ -495,19 +614,28 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// duration-derived floor reaches `117dp` or more gets the fuller layout;
   /// anything shorter stays on the compact grid.
   ///
-  /// ## The 45-minute card DOES get the full layout now — VERTICAL-SCALE
-  /// PASS, 2026-07-24
+  /// ## WHICH DURATIONS REACH IT — RE-DERIVE THIS, NEVER QUOTE IT
   ///
-  /// This premise INVERTED when `_kHourH` rose to `168`. A 45-minute booking's
-  /// duration-derived floor is now `45/60 * 168 = 126dp`, which is `>= 117`,
-  /// so it selects the fuller layout — and correctly so: at `168` the full
-  /// body's `117dp` natural height fits comfortably inside a 45-minute band's
-  /// `126dp` of ruled space, so the card no longer overshoots its end-time
-  /// line. (At the old `112` scale a 45-minute floor was only `84dp`, below
-  /// the `117dp` body, which is why the earlier pass kept 45-minute cards
-  /// compact to avoid drift; that reasoning is now obsolete.) The threshold is
-  /// set to the full body's own natural floor so a card takes the fuller shape
-  /// exactly when its ruled band can contain it without overhang.
+  /// The threshold itself is stable (the full body's own natural floor, so a
+  /// card takes the fuller shape exactly when its ruled band can contain it
+  /// without overhang), but WHICH durations clear it is a function of
+  /// `BookingsTimelineGrid._kHourH`, which has now moved three times. At the
+  /// current `120dp/hour` (that file's "ADDENDUM 8"):
+  ///
+  ///   * `>= 59` min — floor `>= 118dp`, clears `117`: FULL layout. The exact
+  ///     boundary duration is `58.5` min (`117 / 120 × 60`); an hour-long
+  ///     booking sits only `3dp` clear of it, which is why `_kHourH` cannot
+  ///     drop below `120` without moving this threshold too.
+  ///   * `28`-`58` min — floor `56`-`116dp`: COMPACT grid.
+  ///   * `< 28` min — floor below the compact body's own `56dp` natural
+  ///     (`56 / 120 × 60 = 28` exactly): MICRO, the single row (see this
+  ///     file's "THE MICRO LAYOUT" section).
+  ///
+  /// Two earlier revisions of this doc asserted a 45-minute answer, in
+  /// opposite directions (`112` → compact, `168` → full). At `120` it is
+  /// compact again (`45/60 × 120 = 90dp`). The lesson recorded here rather
+  /// than the answer: this list is DERIVED, and any `_kHourH` change
+  /// invalidates it wholesale.
   ///
   /// [_buildFullBody]'s NATURAL height (the same fixture the compact sweeps
   /// use — a long service name, a frozen RANGE band, a full client name)
@@ -567,9 +695,18 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     final Booking b = widget.booking;
     final String clientName = b.clientName ?? l10n.bookingDetailGuestClient;
 
+    final _MasterCardLayout layout = _layout;
+
     return Semantics(
       button: true,
       label: l10n.masterBookingCardSemantics(clientName, b.serviceName),
+      // The MICRO layout has no room for the price pill, so the price moves to
+      // the a11y channel rather than disappearing — see the class doc's "WHAT
+      // IS DROPPED, AND WHERE IT WENT". `null` on the other two layouts, whose
+      // semantics are unchanged.
+      value: layout == _MasterCardLayout.micro && b.showsPrice
+          ? b.priceLabel
+          : null,
       child: GestureDetector(
         key: Key('master-booking-card-${b.id}'),
         onTapDown: (_) => setState(() => _pressed = true),
@@ -600,20 +737,75 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             // `LayoutBuilder`", for why this reads [minHeight] itself
             // rather than the box's resolved `BoxConstraints` at build
             // time.
-            padding: _useFullLayout ? _fullPadding : _compactPadding,
-            child: _useFullLayout
-                ? _buildFullBody(b, clientName)
-                : _buildCompactBody(b, clientName),
+            padding: layout == _MasterCardLayout.full
+                ? _fullPadding
+                : _compactPadding,
+            child: switch (layout) {
+              _MasterCardLayout.full => _buildFullBody(b, clientName),
+              _MasterCardLayout.compact => _buildCompactBody(b, clientName),
+              _MasterCardLayout.micro => _buildMicroBody(b),
+            },
           ),
         ),
       ),
     );
   }
 
-  /// Whether [build] renders the design's fuller divided layout instead of
-  /// the compact two-row grid — see this file's "Adaptive full/compact
-  /// layout" header section for the full rationale.
-  bool get _useFullLayout => (widget.minHeight ?? 0) >= _kFullLayoutMinHeight;
+  /// Which of the three bodies [build] renders — see this file's "Adaptive
+  /// full/compact layout" and "THE MICRO LAYOUT" header sections.
+  ///
+  /// Reads [MasterBookingCard.minHeight] itself rather than the box's resolved
+  /// `BoxConstraints` (see "WHY NOT A `LayoutBuilder`") or the booking's
+  /// `durationMinutes` (which would be a second, independently-driftable
+  /// source of truth for a decision the timeline already made).
+  ///
+  /// `null` — every call site outside `BookingsTimelineGrid` — is COMPACT, not
+  /// micro: it means "no constraint", not "a very tight one".
+  _MasterCardLayout get _layout {
+    final double? minHeight = widget.minHeight;
+    if (minHeight == null) return _MasterCardLayout.compact;
+    if (minHeight >= _kFullLayoutMinHeight) return _MasterCardLayout.full;
+    if (minHeight < MasterBookingCard.microLayoutMaxHeight) {
+      return _MasterCardLayout.micro;
+    }
+    return _MasterCardLayout.compact;
+  }
+
+  /// The SINGLE-ROW body for a slot too short for the compact grid — service
+  /// name (flexes), the start–end range, the status dot. See this file's "THE
+  /// MICRO LAYOUT" header section for what is dropped and where it went.
+  ///
+  /// No `clientName` parameter on purpose: the client is not rendered here at
+  /// all, and taking the argument would invite a future edit to squeeze it in.
+  Widget _buildMicroBody(Booking b) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        // The service name LEADS and takes the flex: a micro card sits on its
+        // own start gridline, so the ruler already answers "when" — the
+        // service is the only thing the card's position cannot encode.
+        Expanded(
+          child: Text(
+            b.serviceName,
+            style: VelvetText.masterCardService,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        // The same two gaps the compact row 1 uses, in the same order
+        // (`VelvetSpacing.xs + 2` before the trailing metadata, the tighter
+        // `VelvetSpacing.xs` before the dot so the dot reads as ATTACHED to
+        // this booking rather than floating on the right margin).
+        const SizedBox(width: VelvetSpacing.xs + 2),
+        Text(
+          formatSlotTimeRange(b.startAt, b.endAt),
+          style: VelvetText.masterCardTime,
+        ),
+        const SizedBox(width: VelvetSpacing.xs),
+        TimelineStatusDot(booking: b),
+      ],
+    );
+  }
 
   /// The MINIATURE of [_buildFullBody] — identity row (start–end range ·
   /// client name · status dot), a hairline, then the transaction row

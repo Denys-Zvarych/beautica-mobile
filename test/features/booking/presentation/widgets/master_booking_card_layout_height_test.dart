@@ -89,11 +89,11 @@ Booking _booking({required int durationMinutes}) {
 /// private implementation detail, and a test that silently followed a change
 /// to it would stop pinning the pairing this file exists for.
 double _floorFor(int durationMinutes) {
-  const double hourHeight = 168; // `BookingsTimelineGrid._kHourH` (ADDENDUM 7)
+  const double hourHeight = 120; // `BookingsTimelineGrid._kHourH` (ADDENDUM 8)
   final double proportional = durationMinutes / 60.0 * hourHeight;
-  // Floored at the card's legibility minimum, DECOUPLED from the 30-minute
-  // gridline slot (ADDENDUM 7) — mirrors production `_cardMinHeightFor`.
-  const double floor = MasterBookingCard.estimatedNaturalHeight;
+  // Floored at the MICRO layout's natural height, DECOUPLED from the
+  // 30-minute gridline slot — mirrors production `_cardMinHeightFor`.
+  const double floor = MasterBookingCard.microLayoutNaturalHeight;
   return proportional > floor ? proportional : floor;
 }
 
@@ -134,33 +134,37 @@ void main() {
     'MasterBookingCard.occupiedHeightFor predicts the rendered box exactly',
     () {
       // Every duration the timeline can realistically hand a card, chosen to
-      // straddle the compact/full switch (ADDENDUM 7 raised the scale to
-      // 168dp/hour and moved the switch to 117dp == duration ~41.8min):
+      // straddle BOTH switches. At ADDENDUM 8's 120dp/hour the micro/compact
+      // boundary is 56dp (duration 28min) and the compact/full boundary is
+      // 117dp (duration 58.5min):
       //
-      //   10  — 28dp proportional, floored at the 56dp legibility minimum;
-      //         compact, floor == natural == 56
-      //   30  — floor 84 (30/60*168), clears the compact natural (56), still
-      //         compact (84 < 117)
-      //   45  — floor 126 (45/60*168) >= 117, so it takes the FULL layout now;
-      //         natural 117 < 126, so the floor wins, occupied == 126
-      //   59  — floor 165.2, full layout, floor well above the 117 natural
-      //   60  — floor 168, full layout; lands exactly on its end-time line
-      //   61  — floor 170.8, full layout
-      //   63  — floor 176.4, full layout
-      //   90  — floor 252, comfortably content-independent
-      //   120 — floor 336, the long tail
-      //
-      // At this scale every real floor is >= its layout's natural height, so
-      // occupiedHeightFor coincides with the floor (no overshoot) — see the
-      // sub-56 unit case below for the branch that still genuinely diverges.
+      //   5   — 10dp proportional, floored at the 29dp micro natural; MICRO,
+      //         and the one row where the floor is BELOW the natural, so
+      //         occupiedHeightFor genuinely raises it
+      //   10  — 20dp proportional, floored at 29; MICRO, same non-echo branch
+      //   15  — floor 30 (15/60*120), just clears the micro natural; MICRO
+      //   28  — floor 56, exactly the micro/compact boundary; COMPACT (the
+      //         bound is exclusive), floor == natural == 56
+      //   30  — floor 60, COMPACT (60 < 117)
+      //   45  — floor 90, COMPACT — this flipped back from full when the
+      //         scale came down from 168; see `_kFullLayoutMinHeight`'s doc
+      //   58  — floor 116, one step BELOW the full switch; COMPACT with the
+      //         floor well above the 56 natural
+      //   59  — floor 118, one step ABOVE it; FULL, floor just over the 117
+      //         natural
+      //   60  — floor 120, FULL; lands exactly on its end-time line
+      //   90  — floor 180, comfortably content-independent
+      //   120 — floor 240, the long tail
       for (final int durationMinutes in <int>[
+        5,
         10,
+        15,
+        28,
         30,
         45,
+        58,
         59,
         60,
-        61,
-        63,
         90,
         120,
       ]) {
@@ -191,25 +195,26 @@ void main() {
       }
 
       // occupiedHeightFor must GENUINELY read the selected layout's natural
-      // height, not echo its input. At the ADDENDUM 7 scale every real
-      // duration's floor already exceeds its natural (so the sweep above is
-      // all echoes), so the non-echo branch is proven with an artificial
-      // sub-legibility floor: a card asked for 40dp (below the 56dp compact
-      // natural) must still render at 56dp — content wins over the floor, the
-      // core class-doc contract — and occupiedHeightFor must PREDICT 56, not
-      // echo 40 back. This is what keeps the culling placeholder honest if a
-      // future scale ever hands a floor below a layout's natural again.
+      // height, not echo its input. The 5- and 10-minute rows of the sweep
+      // above already exercise that branch in production terms (their floors
+      // sit below the 29dp micro natural), which is itself the ADDENDUM 8
+      // correction: at the retired 168dp scale EVERY real floor exceeded its
+      // natural, the function was a mathematical no-op, and the only proof it
+      // was not came from an artificial fixture. The artificial case is kept
+      // as the WIDE version of the same property — a floor far below every
+      // layout — so the branch stays pinned even if a future scale lifts the
+      // real durations back above their naturals.
       testWidgets(
-        'occupiedHeightFor reads the natural, not the floor: a sub-56 floor '
-        'still predicts (and renders) the 56dp compact natural',
+        'occupiedHeightFor reads the natural, not the floor: a 12dp floor '
+        'still predicts (and renders) the 29dp micro natural',
         (WidgetTester tester) async {
-          const double floor = 40; // deliberately below estimatedNaturalHeight
+          const double floor = 12; // far below microLayoutNaturalHeight
           expect(
             floor,
-            lessThan(MasterBookingCard.estimatedNaturalHeight),
+            lessThan(MasterBookingCard.microLayoutNaturalHeight),
             reason:
-                'fixture guard: this floor must sit below the compact natural '
-                'or the branch under test is not exercised',
+                'fixture guard: this floor must sit below the SHORTEST layout '
+                'natural or the branch under test is not exercised',
           );
 
           final double rendered = await _renderedHeight(
@@ -220,18 +225,18 @@ void main() {
           );
           expect(
             rendered,
-            closeTo(MasterBookingCard.estimatedNaturalHeight, 0.5),
+            closeTo(MasterBookingCard.microLayoutNaturalHeight, 0.5),
             reason:
-                'the card must grow past a sub-natural floor to its own 56dp '
-                'content (no clipping) — if it renders at 40dp the class-doc '
+                'the card must grow past a sub-natural floor to its own 29dp '
+                'content (no clipping) — if it renders at 12dp the class-doc '
                 'floor-not-ceiling contract is broken.',
           );
           expect(
             MasterBookingCard.occupiedHeightFor(floor),
             closeTo(rendered, 0.5),
             reason:
-                'occupiedHeightFor echoed the 40dp floor instead of predicting '
-                'the 56dp natural — the culling placeholder would under-'
+                'occupiedHeightFor echoed the 12dp floor instead of predicting '
+                'the 29dp natural — the culling placeholder would under-'
                 'reserve and every card below would slide off its gridline.',
           );
         },
@@ -269,18 +274,20 @@ void main() {
         'above textScaler 1.0 the prediction is deliberately WRONG — which is '
         'why BookingsTimelineGrid only ever culls BELOW the visible window',
         (WidgetTester tester) async {
-          // A 45-minute booking, NOT 60: at ADDENDUM 7's 168dp scale a
-          // 60-minute floor (168dp) already exceeds even the 1.3 full-layout
-          // natural (132dp), so scaling would not push the box past the floor
-          // and the prediction would coincidentally hold. A 45-minute floor
-          // (126dp) sits BETWEEN the 1.0 natural (117) and the 1.3 natural
-          // (132), so at 1.3 the content grows past the floor and the
-          // textScaler-1.0 prediction is genuinely wrong — the property this
-          // test exists to pin.
-          final double floor = _floorFor(45);
+          // A 60-minute booking, and the duration matters. The floor has to
+          // sit BETWEEN the selected layout's 1.0 natural and its 1.3 natural,
+          // or the content cannot grow past the floor at 1.3 and the
+          // prediction holds by coincidence instead of being wrong. At
+          // ADDENDUM 8's 120dp scale that window is the FULL layout's
+          // 117 (@1.0) → 132 (@1.3), and a 60-minute floor is 120dp — inside
+          // it. (This used to be 45 minutes for the same reason at the 168dp
+          // scale, where a 45-minute floor was 126dp; at 120 a 45-minute floor
+          // is 90dp and selects the compact layout, whose 1.3 natural is only
+          // 65dp — the test would have silently stopped testing anything.)
+          final double floor = _floorFor(60);
           final double rendered = await _renderedHeight(
             tester,
-            durationMinutes: 45,
+            durationMinutes: 60,
             floor: floor,
             laneWidth: 272,
             textScale: 1.3,

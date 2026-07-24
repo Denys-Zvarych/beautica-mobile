@@ -833,23 +833,23 @@ void main() {
       // ── R2 — neither card is clipped: each one renders at least its
       //      layout's FULL natural height, not a truncated sliver. ──────────
       //
-      // The bound is `MasterBookingCard.estimatedNaturalHeight` — the card's
-      // own published constant for the compact body's natural size — not a
-      // hand-picked number. These are 20-minute bookings, so the grid floors
-      // them at one 30-minute slot (`_cardMinHeightFor`: max(proportional,
-      // hourHeight / 2)) and `MasterBookingCard` correctly renders its
-      // COMPACT branch, well below `fullLayoutMinHeight` (112dp). They
-      // measure 57dp on a real handset.
+      // The bound is `MasterBookingCard.microLayoutNaturalHeight` — the card's
+      // own published constant for the SHORTEST body it can render — not a
+      // hand-picked number, and deliberately the shortest of the three rather
+      // than the layout these particular fixtures happen to select.
       //
-      // The original `greaterThan(120)` here was unsatisfiable by
-      // construction: it is the FULL layout's bound (`fullLayoutNaturalHeight`
-      // is 117dp) applied to a card that, by its own duration, must render
-      // compact — a threshold this very file proves elsewhere ("a 45-minute
-      // booking renders the COMPACT card and a 60-minute one the FULL card").
-      // Asserting against the card's own natural-height constant keeps R2's
-      // real meaning — nothing is truncated — while agreeing with the layout
-      // the app is specified to choose. A card clipped to a sliver, which is
-      // the field bug this guards, still fails it.
+      // R2's real meaning is "nothing is truncated", which is a statement
+      // about the card's own natural height, not about which density it
+      // chose. Two earlier revisions of this bound tracked a specific layout
+      // and both went stale within one scale change: `greaterThan(120)` (the
+      // FULL body's bound applied to cards that must render compact,
+      // unsatisfiable by construction), then
+      // `MasterBookingCard.estimatedNaturalHeight` (56dp, the COMPACT body's)
+      // — which ADDENDUM 8 broke in turn, because at 120dp/hour these
+      // 20-minute bookings floor at 40dp and correctly select the MICRO row.
+      // The shortest natural is the one bound that stays true across every
+      // scale and density pass while still failing on a clipped sliver, which
+      // is the field bug this guards.
       final double earlyHeight = tester
           .getSize(
             find.byKey(const ValueKey<String>('timeline-card-booking-1')),
@@ -864,11 +864,11 @@ void main() {
           .height;
       expect(
         earlyHeight,
-        greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
+        greaterThanOrEqualTo(MasterBookingCard.microLayoutNaturalHeight),
       );
       expect(
         laterHeight,
-        greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
+        greaterThanOrEqualTo(MasterBookingCard.microLayoutNaturalHeight),
       );
 
       // ── R3 — the two rendered Rects do not intersect, and the later card
@@ -1079,7 +1079,7 @@ void main() {
   // harness-shape gap:
   //
   //   `master_booking_card_test.dart` selects a layout by HANDING THE WIDGET A
-  //   `minHeight:` LITERAL (`minHeight: 84` / `minHeight: 112`). That literal
+  //   `minHeight:` LITERAL (e.g. `minHeight: 90` / `minHeight: 120`). That
   //   is the test author's own transcription of what
   //   `bookings_timeline_grid.dart`'s `_cardMinHeightFor` is believed to
   //   compute. Nothing in that file executes `_cardMinHeightFor`. So the
@@ -1114,11 +1114,13 @@ void main() {
       );
 
       // 45 minutes and 60 minutes, back to back with a gap, so both land in the
-      // SAME lane column and neither can be nudged by collision handling. The
-      // durations are the whole fixture: `_cardMinHeightFor(45, 112)` = 84dp
-      // (below `_kFullLayoutMinHeight`) and `_cardMinHeightFor(60, 112)` = 112dp
-      // (exactly at it). Nothing here passes a `minHeight` — the grid derives
-      // both from `durationMinutesAtBooking` as decoded off the wire.
+      // SAME lane column. The durations are the whole fixture: at ADDENDUM 8's
+      // 120dp/hour, `_cardMinHeightFor(45, 120)` = 90dp (below
+      // `_kFullLayoutMinHeight`, 117) and `_cardMinHeightFor(60, 120)` = 120dp
+      // (just above it). Nothing here passes a `minHeight` — the grid derives
+      // both from `durationMinutesAtBooking` as decoded off the wire, which is
+      // exactly why this test survived a scale change that invalidated the
+      // dp literals in the widget tier.
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[
         fb.datasetBookingRow(
           id: 'forty-five',
@@ -1202,8 +1204,9 @@ void main() {
         find.byKey(const Key('master-booking-card-divider-sixty')),
         findsOneWidget,
         reason:
-            'a 60-minute booking derives a 112dp floor, exactly at the '
-            'threshold — it must render the full divided layout',
+            'a 60-minute booking derives a 120dp floor at ADDENDUM 8\'s '
+            '120dp/hour, just above the 117dp threshold — it must render the '
+            'full divided layout',
       );
       expect(
         find.byKey(const Key('master-booking-card-compact-divider-sixty')),
@@ -1222,28 +1225,68 @@ void main() {
       );
 
       // ── The real rendered boxes, so a "compact layout inside an oversized
-      //      box" regression cannot pass the key checks above. 84dp is the
-      //      45-minute floor met EXACTLY (the compact body's 56dp of content
-      //      leaves 28dp of intentional blank room); the 60-minute card is at
-      //      or above its own 112dp floor because the full body out-measures
-      //      it. ────────────────────────────────────────────────────────────
+      //      box" regression cannot pass the key checks above.
+      //
+      // THESE LITERALS WERE STALE AND THIS TEST WAS RED (mobile-qa,
+      // 2026-07-24). They were `84` and `>= 112`, derived from the retired
+      // 112dp/hour scale. ADDENDUM 8 moved `_kHourH` to 120, so the 45-minute
+      // floor is `45/60 × 120 = 90` and the 60-minute floor is `120` — the
+      // `expect(shortHeight, 84)` below could not pass. Nothing caught it
+      // because `integration_test/` needs an emulator and is not part of the
+      // CI gate, so a scale change silently broke a test no one runs.
+      //
+      // Hence the RATIO assertion that follows the two absolute ones: it is
+      // the only one of the three that survives the next scale change without
+      // an edit, and it is the property actually under test — that a card's
+      // box tracks its DURATION proportionally rather than rounding to a
+      // fixed unit per layout.
       final double shortHeight = tester.getSize(shortCard).height;
       final double longHeight = tester.getSize(longCard).height;
       expect(
         shortHeight,
-        84,
+        closeTo(90, 0.5),
         reason:
-            'the 45-minute card measured ${shortHeight}dp against its 84dp '
-            'duration-derived floor — either _cardMinHeightFor drifted or the '
-            'compact body no longer fits the slot its duration owns',
+            'the 45-minute card measured ${shortHeight}dp against its 90dp '
+            'duration-derived floor (45/60 × 120) — either _cardMinHeightFor '
+            'drifted or the compact body no longer fits the slot its duration '
+            'owns',
+      );
+      expect(
+        shortHeight,
+        greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
+        reason:
+            'the 45-minute card selects the COMPACT body, so its box can '
+            'never be shorter than that body\'s own natural height',
       );
       expect(
         longHeight,
-        greaterThanOrEqualTo(112),
+        closeTo(120, 0.5),
         reason:
-            'the 60-minute card measured ${longHeight}dp — the full body is '
-            'taller than its own 112dp floor, so anything below it means the '
-            'compact body was selected after all',
+            'the 60-minute card measured ${longHeight}dp against its 120dp '
+            'floor (60/60 × 120) — the full body\'s 117dp natural is BELOW '
+            'that floor, so the floor governs and the card lands exactly on '
+            'its end-time line',
+      );
+      expect(
+        longHeight,
+        greaterThanOrEqualTo(MasterBookingCard.fullLayoutNaturalHeight),
+        reason:
+            'the 60-minute card measured ${longHeight}dp — below the full '
+            'body\'s own natural means the compact body was selected after '
+            'all, whatever the divider keys above reported',
+      );
+      // THE SCALE-FREE INVARIANT: both durations clear their layout's natural
+      // height, so both boxes equal their wall-clock bands exactly — and the
+      // ratio of the boxes must therefore equal the ratio of the durations,
+      // at ANY dp-per-hour. A future scale pass that breaks proportionality
+      // fails here even if it updates the two literals above.
+      expect(
+        longHeight / shortHeight,
+        closeTo(60 / 45, 0.02),
+        reason:
+            'a 60-minute card (${longHeight}dp) must be exactly 60/45 of a '
+            '45-minute one (${shortHeight}dp); a different ratio means one of '
+            'the two hit a floor or a layout natural instead of its own band',
       );
     },
   );
