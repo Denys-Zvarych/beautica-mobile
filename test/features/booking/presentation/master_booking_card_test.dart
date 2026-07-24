@@ -26,7 +26,7 @@
 // (time/service/price, then client/status) into a scaled-down copy of the
 // >=1h card's own shape:
 //
-//   row 1  start–end range · client name (flexes) · status DOT
+//   row 1  client name (flexes) · start–end range · status DOT
 //   ─────  hairline
 //   row 2  service name (flexes) · price
 //
@@ -76,7 +76,9 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+// `rendering.dart` (for RenderParagraph) re-exports `semantics.dart`, which
+// this file also uses — importing both trips `unnecessary_import`.
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/pump_app.dart';
@@ -305,12 +307,42 @@ void main() {
             reason: 'the price must render below the hairline',
           );
 
-          // …and the time LEADS the client name on row 1 (the lighter label
-          // before the heavier one — see `_buildCompactBody`'s row-1 comment on
-          // why that reads as a sentence rather than two table cells).
+          // …and the CLIENT NAME leads row 1, with the range trailing it and
+          // the dot hard right (SWAPPED 2026-07-24 — the range used to lead.
+          // See `_buildCompactBody`'s row-1 comment for why the heavier
+          // headline now comes before the lighter confirming metadata).
+          //
+          // Asserted on RENDERED GEOMETRY rather than on child index, so what
+          // is pinned is the user-visible property — "the name sits left of
+          // the time, and they do not overlap" — which survives any
+          // re-wrapping of the row that preserves the painted order, and
+          // fails the moment the painted order flips back.
+          final Rect nameRect = tester.getRect(find.text(booking.clientName!));
+          final Rect timeRect = tester.getRect(timeFinder);
+          final Rect dotRect = tester.getRect(find.byType(TimelineStatusDot));
           expect(
-            tester.getTopLeft(timeFinder).dx,
-            lessThan(tester.getTopLeft(find.text(booking.clientName!)).dx),
+            nameRect.left,
+            lessThan(timeRect.left),
+            reason:
+                'the client name must LEAD row 1 — it rendered at '
+                '${nameRect.left}dp against the range at ${timeRect.left}dp',
+          );
+          expect(
+            timeRect.left - nameRect.right,
+            closeTo(VelvetSpacing.xs + 2, 0.01),
+            reason:
+                'the name and the range must not overlap: the 6dp '
+                '(VelvetSpacing.xs + 2) gap separating the identity headline '
+                'from the trailing metadata measured '
+                '${timeRect.left - nameRect.right}dp',
+          );
+          expect(
+            dotRect.left - timeRect.right,
+            closeTo(VelvetSpacing.xs, 0.01),
+            reason:
+                'the status dot stays hard right of the range, held against '
+                'it by the tighter 4dp (VelvetSpacing.xs) gap so it reads as '
+                'attached to this booking rather than floating on the margin',
           );
         },
       );
@@ -1926,6 +1958,250 @@ void main() {
     }
   });
 
+  // ── THE ROW-1 SWAP'S ONE PLAUSIBLE REGRESSION SURFACE (2026-07-24) ────────
+  //
+  // Moving the `Expanded` client name from the row's TRAIL to its LEAD does
+  // not change how a `Row` divides space — flex gets what the non-flex
+  // siblings leave, order-independently — so the swap cannot alter the WIDTH
+  // budget, and the sweep above already pins that. What the swap DOES move is
+  // which element sits against the row's saturation boundary: the ellipsis is
+  // now on the LEADING child, and the fixed-width range it must never push
+  // off the row is now DOWNSTREAM of it rather than upstream.
+  //
+  // The pre-swap suite never rendered a client name long enough to reach that
+  // boundary — every fixture used «Марія Іванюк» (~62dp against ~98dp of
+  // allotment), so the `Expanded` never actually clipped and `maxLines: 1` +
+  // ellipsis were carried untested. These cases saturate it deliberately.
+  //
+  // WHY THE GAP ASSERTION IN THE ORDER TEST IS NOT ENOUGH (mobile-security
+  // raised this as a precision note, explicitly NOT a security finding):
+  // `timeRect.left - nameRect.right` measures from the `Expanded` BOX's edge,
+  // not from the last glyph, so it pins the LAYOUT gap and would stay green
+  // for a name that ellipsised short of its box or drifted right inside it.
+  // The 'a SHORT name leaves slack' case below closes exactly that hole by
+  // measuring the PAINTED line against the box it was allotted.
+  group('a long client name saturates row 1 without breaking it', () {
+    // Long enough to blow past ~98dp of allotment at every scale, and a real
+    // Ukrainian double-barrelled name rather than a keyboard mash — a
+    // fixture literal, never a finder (forbid_cyrillic_finder.sh).
+    const String longName = 'Олександра-Валентина Кириленко-Вишневецька';
+
+    for (final double scale in <double>[1.0, 1.3]) {
+      testWidgets(
+        'in the narrowest 226dp lane at textScaler $scale it ellipsises on '
+        'ONE line, the range stays whole, and the row does not overflow',
+        (WidgetTester tester) async {
+          final Booking booking = _shortBooking(id: 'long-name').copyWith(
+            clientFirstName: 'Олександра-Валентина',
+            clientLastName: 'Кириленко-Вишневецька',
+          );
+          expect(
+            booking.clientName,
+            longName,
+            reason: 'precondition: the fixture must build the saturating name',
+          );
+
+          await tester.pumpApp(
+            Center(
+              child: SizedBox(
+                width: 226,
+                child: MasterBookingCard(booking: booking, onTap: () {}),
+              ),
+            ),
+            textScaleFactor: scale,
+          );
+          await tester.pump();
+
+          // `pumpApp` installs the overflow guard, so a RenderFlex overflow
+          // fails this on its own; this pins its ABSENCE explicitly.
+          expect(tester.takeException(), isNull);
+
+          // The range renders WHOLE beside a saturating name.
+          //
+          // HONEST SCOPE (mutation-checked, do not oversell this line): it
+          // does NOT by itself catch the `Expanded` moving onto the range.
+          // Verified 2026-07-24 by mutating the row to
+          // `Flexible(name) … Expanded(range)` — both flex children then take
+          // flex 1 and split the free space, so the range still got ~100dp
+          // against its 66dp (1.0) / 87dp (1.3) intrinsic and this assertion
+          // stayed GREEN. What actually catches that mutation is the
+          // `Expanded`-placement assertion below and the short-name slack
+          // case at the end of this group (which went RED on it). This line
+          // is kept as a cheap direct guard on the user-visible property.
+          expect(
+            find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+            findsOneWidget,
+            reason: 'the range must render WHOLE beside a saturating name',
+          );
+
+          // THE INVARIANT ITSELF, asserted structurally rather than inferred
+          // from widths: the flex is on the NAME and the range is non-flex.
+          // That is the whole reason the fixed-width range can never be
+          // squeezed, and it is the single property the 2026-07-24 swap had
+          // to preserve while moving the two children past each other.
+          expect(
+            find.ancestor(
+              of: find.text(longName),
+              matching: find.byType(Expanded),
+            ),
+            findsOneWidget,
+            reason:
+                'the Expanded must stay on the CLIENT NAME — it is the '
+                'variable-length field and the one carrying the ellipsis',
+          );
+          expect(
+            find.ancestor(
+              of: find.text(
+                formatSlotTimeRange(booking.startAt, booking.endAt),
+              ),
+              matching: find.byType(Expanded),
+            ),
+            findsNothing,
+            reason:
+                'the range must stay NON-FLEX — a fixed-width label that '
+                'must never truncate, whichever side of the name it sits on',
+          );
+
+          final RenderParagraph name = tester.renderObject<RenderParagraph>(
+            find.text(longName),
+          );
+          expect(
+            name.didExceedMaxLines,
+            isTrue,
+            reason:
+                'the name must actually ELLIPSISE at this width — if this is '
+                'false the fixture stopped saturating the row and every '
+                'assertion here went vacuous',
+          );
+          expect(
+            _paintedLineCount(name),
+            1,
+            reason:
+                'the name must stay on ONE line: a wrap would grow row 1 and '
+                'blow the compact card\'s 41dp content budget',
+          );
+
+          // Order and gaps SURVIVE saturation — the same three properties the
+          // order test pins on a short name, re-pinned at the boundary where
+          // the flex child is actually clipping.
+          final Rect nameRect = tester.getRect(find.text(longName));
+          final Rect timeRect = tester.getRect(
+            find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+          );
+          final Rect dotRect = tester.getRect(find.byType(TimelineStatusDot));
+          expect(nameRect.left, lessThan(timeRect.left));
+          expect(
+            timeRect.left - nameRect.right,
+            closeTo(VelvetSpacing.xs + 2, 0.01),
+            reason:
+                'the 6dp gap must hold even when the name is clipping into '
+                'it — measured ${timeRect.left - nameRect.right}dp',
+          );
+          expect(
+            dotRect.left - timeRect.right,
+            closeTo(VelvetSpacing.xs, 0.01),
+          );
+
+          // GLYPHS vs BOX at saturation. The measured result is worth
+          // recording because it is NOT the intuitive one: even a name that
+          // is genuinely clipping paints ~12.5dp SHORT of its box (105.63 in
+          // a 118.35dp box at scale 1.0; 85.96 in 98.42 at 1.3), because the
+          // ellipsis breaks at a grapheme boundary and the remainder of the
+          // last cluster is simply not drawn.
+          //
+          // So the order test's `timeRect.left - nameRect.right` gap is NEVER
+          // the visible gap on this row — not even in the saturated case. It
+          // is ~6dp of layout plus ~12.5dp of ellipsis remainder. That is
+          // fine (the row cannot collide either way) but it is the reason
+          // that assertion must not be read as a whitespace guarantee.
+          final double painted = _paintedLineWidth(name);
+          expect(
+            painted,
+            lessThanOrEqualTo(nameRect.width + 0.01),
+            reason:
+                'the painted line (${painted}dp) must never exceed its '
+                '${nameRect.width}dp box — that would bleed into the 6dp gap '
+                'and collide with the range',
+          );
+          expect(
+            nameRect.width - painted,
+            lessThan(20),
+            reason:
+                'a clipping line should still reach within a cluster of its '
+                'box edge; painted ${painted}dp in a ${nameRect.width}dp box '
+                '(shortfall ${nameRect.width - painted}dp). A large shortfall '
+                'means the name stopped filling the row it was given.',
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'a SHORT name leaves real slack inside its box — proving the 6dp gap '
+      'assertion measures the LAYOUT gap, not visible whitespace',
+      (WidgetTester tester) async {
+        final Booking booking = _shortBooking(id: 'short-name-slack');
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 226,
+              child: MasterBookingCard(booking: booking, onTap: () {}),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final RenderParagraph name = tester.renderObject<RenderParagraph>(
+          find.text(booking.clientName!),
+        );
+        expect(
+          name.didExceedMaxLines,
+          isFalse,
+          reason: 'precondition: the default fixture must NOT be saturating',
+        );
+
+        final double boxWidth = tester
+            .getRect(find.text(booking.clientName!))
+            .width;
+        final double painted = _paintedLineWidth(name);
+
+        // The point of the case: the box is MUCH wider than the glyphs, so
+        // the 6dp box-edge gap the order test pins is not what a user sees
+        // between the name and the range. Pinning the slack is what makes a
+        // silent `textAlign: TextAlign.end` — which would slide the glyphs
+        // right and collapse the VISIBLE gap to 6dp while every box-edge
+        // assertion stayed green — a failure rather than a no-op.
+        expect(
+          painted,
+          lessThan(boxWidth - 20),
+          reason:
+              'the short name painted ${painted}dp inside a ${boxWidth}dp '
+              'box; if these converged the name is no longer start-aligned '
+              'in its Expanded, or the row stopped giving it the slack',
+        );
+
+        // Start-aligned: the glyphs begin at the box's own left edge. Boxes
+        // are paragraph-local, so 0 IS the box's left edge here.
+        final List<TextBox> boxes = name.getBoxesForSelection(
+          TextSelection(
+            baseOffset: 0,
+            extentOffset: booking.clientName!.length,
+          ),
+        );
+        expect(boxes, isNotEmpty);
+        expect(
+          boxes.first.left,
+          closeTo(0, 0.01),
+          reason:
+              'the name must be START-aligned in its Expanded — a trailing '
+              'alignment would keep every box-edge assertion green while '
+              'moving the glyphs against the range',
+        );
+      },
+    );
+  });
+
   group('border visibility (2026-07-20 design-parity pass)', () {
     testWidgets(
       'the card border uses the bumped 0.38-alpha / 1.5dp stroke, not the '
@@ -2867,6 +3143,42 @@ void _expectNoDateOnCard(Booking booking) {
 /// in a const map, and an epsilon comparison is the honest way to match a
 /// scale anyway. Returns null for an unmeasured combination so the sweep fails
 /// loudly rather than running unpinned.
+/// Re-lays out [p]'s own span at the width it was given, reproducing its
+/// ellipsis, so the PAINTED line can be measured.
+///
+/// [RenderParagraph] exposes neither a line count nor a painted-line width
+/// directly, so this mirrors `master_result_card_test.dart`'s `_lineCount`
+/// idiom — a [TextPainter] re-layout is the only way to reach
+/// [TextPainter.computeLineMetrics]. The `ellipsis` argument is what makes
+/// the reproduction faithful for a clipping line: without it the painter
+/// would lay the full string out and report the untruncated width.
+TextPainter _relayout(RenderParagraph p) {
+  return TextPainter(
+    text: p.text,
+    textAlign: p.textAlign,
+    textDirection: p.textDirection,
+    textScaler: p.textScaler,
+    maxLines: p.maxLines,
+    ellipsis: p.overflow == TextOverflow.ellipsis ? '…' : null,
+  )..layout(maxWidth: p.constraints.maxWidth);
+}
+
+/// Width of the first laid-out line of [p] — the GLYPHS, not the box.
+double _paintedLineWidth(RenderParagraph p) {
+  final TextPainter painter = _relayout(p);
+  final double width = painter.computeLineMetrics().first.width;
+  painter.dispose();
+  return width;
+}
+
+/// Number of lines [p] actually laid out.
+int _paintedLineCount(RenderParagraph p) {
+  final TextPainter painter = _relayout(p);
+  final int lines = painter.computeLineMetrics().length;
+  painter.dispose();
+  return lines;
+}
+
 ({double clientName, double service})? _compactShareFloors(
   double lane,
   double scale,

@@ -1434,13 +1434,15 @@ abstract final class VelvetText {
     height: 1.2,
   );
 
-  /// Row 1's leading start–end time range (e.g. "09:00–09:45") — bodyStrong
-  /// at 11.5 sp, height 1.2, so it reads a touch more prominent than the
-  /// service name beside it without competing with the client name on row 2.
+  /// The master booking card's start–end time range (e.g. "09:00–09:45") —
+  /// bodyStrong at 11.5 sp, height 1.2, so it reads a touch more prominent
+  /// than the service name beside it on the micro card without competing with
+  /// the client name it TRAILS on the compact identity row (that row's order
+  /// was swapped 2026-07-24 — the range used to lead it).
   /// Deliberately NOT stepped down when the label became a range rather than
-  /// a bare start time: the `Expanded` service name beside it absorbs the
-  /// extra width (see `master_booking_card.dart`'s row-1 comment), so the
-  /// type scale never had to pay for it.
+  /// a bare start time: the `Expanded` label beside it absorbs the extra
+  /// width (see `master_booking_card.dart`'s row-1 comment), so the type
+  /// scale never had to pay for it.
   static final TextStyle masterCardTime = _bodyStrongStyle.copyWith(
     fontSize: 11.5,
     height: 1.2,

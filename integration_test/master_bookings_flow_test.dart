@@ -1437,9 +1437,17 @@ void main() {
         );
       }
 
-      // …and within row 1 the lighter range LEADS the heavier client name, and
-      // the dot is hard right of both — the diagonal the compact layout's
+      // …and within row 1 the heavier client name LEADS the lighter range,
+      // with the dot hard right of both — the diagonal the compact layout's
       // legibility rests on.
+      //
+      // SWAPPED 2026-07-24 (`_buildCompactBody`'s row 1 only). This assertion
+      // previously read `rangeX < nameX` and pinned the OLD order; it was
+      // stale-AND-FAILING after the swap, not stale-but-passing, because the
+      // widget-tier scope the swap was verified against does not run
+      // `integration_test/`. Kept (rather than deleted as duplicated by the
+      // widget-tier geometry pin) because this is the only place the order is
+      // asserted on a card built from data that actually crossed the wire.
       final double rangeX = tester
           .getTopLeft(inCard(find.text(expectedRange)))
           .dx;
@@ -1449,8 +1457,14 @@ void main() {
       final double dotX = tester
           .getTopLeft(inCard(find.byType(TimelineStatusDot)))
           .dx;
-      expect(rangeX, lessThan(nameX));
-      expect(nameX, lessThan(dotX));
+      expect(
+        nameX,
+        lessThan(rangeX),
+        reason:
+            'the client name must LEAD row 1 — name at ${nameX}dp against '
+            'the range at ${rangeX}dp',
+      );
+      expect(rangeX, lessThan(dotX));
 
       // The compact card never draws the labelled pill — the label lives in
       // the dot's Semantics/Tooltip channel instead (pinned per status at the

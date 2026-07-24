@@ -32,17 +32,27 @@
 //
 // ```
 // ┌──────────────────────────────────────┐
-// │ 09:00–09:30   Марія Іванюк        ●  │  ← when · who · status DOT
+// │ Марія Іванюк       09:00–09:30    ●  │  ← who · when · status DOT
 // │ ──────────────────────────────────── │  ← hairline (BrandColors.faint)
 // │ Стрижка жіноча              450 ₴    │  ← what · how much
 // └──────────────────────────────────────┘
 //                 56dp
 // ```
 //
-// Row 1 is IDENTITY (when + who), row 2 is the TRANSACTION (what + how
+// Row 1 is IDENTITY (who, then when), row 2 is the TRANSACTION (what + how
 // much), and the hairline is the same cut [_buildFullBody] makes between
 // its client-name row and its service row. That is what earns the word
 // "miniature" instead of "shrunk copy".
+//
+// ROW 1's INTERNAL ORDER WAS SWAPPED 2026-07-24 — client name FIRST, range
+// second. Only the COMPACT body changed; [_buildFullBody] and
+// [_buildMicroBody] are untouched. The swap moves compact row 1's LEADING
+// element onto the same field [_buildFullBody]'s own row 1 opens with (the
+// client name), which is the axis the word "miniature" is about; it does
+// diverge on where the range lives (full puts it on the service row, below
+// the hairline, beside a `schedule_outlined` glyph — compact has no room
+// for a second metadata slot and trails it on row 1 instead). See
+// [_buildCompactBody]'s row-1 comment for the reading-order rationale.
 //
 // The text [TimelineStatusBadge] compresses to [TimelineStatusDot] in this
 // layout ONLY — the label is what does not fit, so the colour carries the
@@ -117,9 +127,9 @@
 //     whole grid exists to answer "when am I going somewhere, and to whom".
 //     Its identity slot renders the master (avatar, professional title, salon
 //     name) — three fields this card must not show.
-//   * The MASTER card's dominant element is the CLIENT's name, with the
-//     booking's start–end time range leading the first line. It answers "who
-//     is coming to me, for what, and for how long".
+//   * The MASTER card's dominant element is the CLIENT's name, which opens
+//     the first line with the booking's start–end time range trailing it. It
+//     answers "who is coming to me, for what, and for how long".
 //
 // The genuinely shared pieces ARE shared: `BookingDisplayX.showsPrice` and
 // the date formatters. `BookingStatusBadge` (Phase 14.7) is DELIBERATELY NOT
@@ -807,8 +817,8 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     );
   }
 
-  /// The MINIATURE of [_buildFullBody] — identity row (start–end range ·
-  /// client name · status dot), a hairline, then the transaction row
+  /// The MINIATURE of [_buildFullBody] — identity row (client name ·
+  /// start–end range · status dot), a hairline, then the transaction row
   /// (service name · price). The only shape proven to fit a 30-minute (56dp)
   /// slot without clipping. See this file's "The compact layout is a
   /// MINIATURE OF THE FULL CARD" and "THE 41dp BUDGET" header sections.
@@ -817,34 +827,61 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // ROW 1 — IDENTITY: when, then who, then the status dot hard right.
+        // ROW 1 — IDENTITY: who, then when, then the status dot hard right.
         //
-        // Reading order is deliberate: the lighter range label
-        // ([VelvetText.masterCardTime], Nunito 11.5) LEADS the heavier client
-        // name ([VelvetText.masterCardClientName], Comfortaa 12.5), so the row
-        // reads as a sentence — "at this hour, this person" — rather than as
-        // two cells of a table. That weight gradient is one of the three
-        // things keeping this card off the squashed-grid failure mode; the
-        // other two are the hairline's semantic cut (identity above,
-        // transaction below — the same cut [_buildFullBody] makes) and the
-        // diagonal formed by the dot at top-right against the price pill at
-        // bottom-right, with the flexing text running between them.
+        // SWAPPED 2026-07-24 (compact ONLY — [_buildFullBody] and
+        // [_buildMicroBody] are untouched). The row previously LED with the
+        // range and trailed the name; the current order is the reverse.
+        //
+        // Reading order is deliberate: the heavier client name
+        // ([VelvetText.masterCardClientName], Comfortaa 12.5) LEADS the
+        // lighter range label ([VelvetText.masterCardTime], Nunito 11.5), so
+        // the row reads headline-then-metadata — "this person, at this hour"
+        // — rather than as two cells of a table. Two things make that the
+        // right way round HERE rather than a coin flip:
+        //
+        //   * a compact card already sits on its own start gridline, so the
+        //     timeline's geometry answers "when" before the label does — the
+        //     range is CONFIRMING metadata, and metadata trails. That is the
+        //     same argument [_buildMicroBody] makes for putting its own
+        //     range on the right, so the two densities now share one
+        //     trailing cluster: flexing text · 6 · range · 4 · dot.
+        //   * the name is the field a master actually scans a day timeline
+        //     for, and it is the one thing the card's POSITION cannot encode.
+        //     Leading with it also puts compact row 1's first element on the
+        //     same field [_buildFullBody]'s row 1 opens with, so a lane of
+        //     mixed-density cards reads as one left column of client names.
+        //
+        // The weight gradient still runs (heavy -> light now, not light ->
+        // heavy) and is still one of the three things keeping this card off
+        // the squashed-grid failure mode; the other two are unchanged — the
+        // hairline's semantic cut (identity above, transaction below, the
+        // same cut [_buildFullBody] makes) and the diagonal formed by the dot
+        // at top-right against the price pill at bottom-right, with the
+        // flexing text running between them.
+        //
+        // BOTH GAPS KEEP THE VALUES THE PRE-SWAP ROW USED, so the width
+        // arithmetic below is unchanged term for term: `VelvetSpacing.xs + 2`
+        // (6dp) separates the identity headline from the metadata cluster,
+        // and the tighter `VelvetSpacing.xs` (4dp) holds the dot against it.
         //
         // NO `LayoutBuilder` AND NO PRICE RESERVE ON THIS ROW — it cannot
-        // overflow on its own. Its non-flex content is the range label
-        // (86.6dp at the 1.3 textScaler ceiling), two fixed gaps (6 + 4) and
-        // an 8dp dot = 104.6dp against the narrowest lane's 203dp of inner
-        // width, leaving the `Expanded` client name ~98dp. The outgoing
-        // layout needed a capped pill here precisely because the PRICE shared
-        // this row; moving it to row 2 is what removed the constraint.
+        // overflow on its own, and the swap does not change that: a `Row`
+        // allots its flex child the space its non-flex siblings do not take
+        // REGARDLESS of their order. The non-flex content is still the range
+        // label (86.6dp at the 1.3 textScaler ceiling), two fixed gaps
+        // (6 + 4) and an 8dp dot = 104.6dp against the narrowest lane's 203dp
+        // of inner width (`320 − 94` lane, less 2 × 1.5 border and
+        // [_compactPadding]'s 2 × 10 horizontal), leaving the `Expanded`
+        // client name ~98dp. The `Expanded` stays on the NAME — it is the
+        // variable-length field and already carries `maxLines: 1` + ellipsis,
+        // whereas the range is fixed-width and must never truncate. The
+        // outgoing layout needed a capped pill here precisely because the
+        // PRICE shared this row; moving it to row 2 is what removed the
+        // constraint.
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
-            Text(
-              formatSlotTimeRange(b.startAt, b.endAt),
-              style: VelvetText.masterCardTime,
-            ),
-            const SizedBox(width: VelvetSpacing.xs + 2),
             Expanded(
               child: Text(
                 clientName,
@@ -853,9 +890,14 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            // Tight gap on purpose: the dot must read as ATTACHED to the
-            // client name — a status about this appointment — rather than
-            // floating in a third column on the right margin.
+            const SizedBox(width: VelvetSpacing.xs + 2),
+            Text(
+              formatSlotTimeRange(b.startAt, b.endAt),
+              style: VelvetText.masterCardTime,
+            ),
+            // Tight gap on purpose: the dot must read as ATTACHED to this
+            // booking's own metadata — a status about this appointment —
+            // rather than floating in a third column on the right margin.
             const SizedBox(width: VelvetSpacing.xs),
             TimelineStatusDot(booking: b),
           ],
