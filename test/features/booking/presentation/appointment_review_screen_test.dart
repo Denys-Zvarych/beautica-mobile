@@ -44,6 +44,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../../integration_test/support/app_harness.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _appointmentId = 'appt-1';
@@ -318,10 +319,7 @@ void main() {
         expect(find.text(l10n.reviewSubmitSuccess), findsOneWidget);
         // …the screen popped back to /host…
         expect(find.byType(AppointmentReviewScreen), findsNothing);
-        expect(
-          router.routerDelegate.currentConfiguration.uri.toString(),
-          '/host',
-        );
+        AppHarness.expectLocation(router, '/host');
         // …and the invalidation forced a refetch that now says canReview:false.
         expect(fetches, 2, reason: 'ref.invalidate(appointmentDetailProvider)');
         expect(find.text('cr:false'), findsOneWidget);

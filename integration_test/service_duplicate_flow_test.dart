@@ -46,6 +46,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -53,15 +54,6 @@ void main() {
 
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
-
-  Future<void> pumpFor(WidgetTester tester, {int frames = 12}) async {
-    for (int i = 0; i < frames; i++) {
-      // fixed-wait-ok: the ServiceCreateScreen holds a never-settling category
-      // loading animation (pumpAndSettle hangs); no single stable pump-until
-      // target spans this helper's call sites — advance bounded fixed frames.
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-  }
 
   testWidgets(
     'a create 409 DUPLICATE_SERVICE shows the duplicate error INLINE on the '
@@ -75,7 +67,7 @@ void main() {
       // loading skeleton runs an infinite shimmer that stalls pumpAndSettle).
       AppHarness.expectLocation(router, RouteNames.masterProfile);
       router.go(RouteNames.serviceCreate);
-      await pumpFor(tester, frames: 20);
+      await tester.pumpUntilFound(find.byKey(const Key('field-service-name')));
       AppHarness.expectLocation(router, RouteNames.serviceCreate);
 
       // ── Fill the form (FIXED pricing) ────────────────────────────────────
@@ -109,28 +101,30 @@ void main() {
         const Key('select-category-field'),
       );
       await tester.ensureVisible(categoryField);
-      await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(categoryField);
-      await pumpFor(tester, frames: 6);
       final Finder nailsChip = find.byKey(const Key('chip-category-NAILS'));
+      await tester.pumpUntilFound(nailsChip);
       expect(nailsChip, findsOneWidget);
       await tester.tap(nailsChip);
-      await pumpFor(tester, frames: 6);
 
-      // Select a NAILS service type (mandatory on create).
+      // Selecting the category closes the sheet and reveals the
+      // (category-scoped) service-type selector — wait for it to appear before
+      // interacting with it.
       final Finder serviceTypeField = find.byKey(
         const Key('select-service-type-field'),
       );
+      await tester.pumpUntilFound(serviceTypeField);
+
+      // Select a NAILS service type (mandatory on create).
       await tester.ensureVisible(serviceTypeField);
-      await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(serviceTypeField);
-      await pumpFor(tester, frames: 6);
       final Finder classicTypeChip = find.byKey(
         const Key('chip-service-type-type-nails-classic'),
       );
+      await tester.pumpUntilFound(classicTypeChip);
       expect(classicTypeChip, findsOneWidget);
       await tester.tap(classicTypeChip);
-      await pumpFor(tester, frames: 6);
+      await tester.pumpUntilGone(classicTypeChip);
 
       // Arm the backend to reject the create with the 409 DUPLICATE_SERVICE
       // envelope.
@@ -139,9 +133,21 @@ void main() {
       // Save → create POST → 409 → inline service-type error (no pop).
       final Finder submitBtn = find.byKey(const Key('btn-submit-service'));
       await tester.ensureVisible(submitBtn);
-      await tester.pump(const Duration(milliseconds: 100));
+
+      // Read localized copy off a live context (locale-invariant) before the
+      // tap rebuilds the row.
+      final l10n = AppLocalizations.of(tester.element(submitBtn));
+
       await tester.tap(submitBtn);
-      await pumpFor(tester, frames: 20);
+
+      // Wait for the inline duplicate error to render on the service-type row.
+      // pump-until (not a fixed wait): the create screen's category shimmer
+      // never settles, so pumpAndSettle can't be used here.
+      final Finder inlineDuplicate = find.descendant(
+        of: find.byKey(const Key('error-service-type')),
+        matching: find.text(l10n.serviceErrDuplicate),
+      );
+      await tester.pumpUntilFound(inlineDuplicate);
 
       // The create genuinely reached the network (not blocked client-side).
       expect(
@@ -154,17 +160,9 @@ void main() {
       // correct the choice (the anti-"stuck re-hitting the same 409" guarantee).
       AppHarness.expectLocation(router, RouteNames.serviceCreate);
 
-      // Read localized copy off a live context (locale-invariant).
-      final l10n = AppLocalizations.of(
-        tester.element(find.byKey(const Key('btn-submit-service'))),
-      );
-
       // The duplicate error is rendered INLINE on the service-type row.
       expect(
-        find.descendant(
-          of: find.byKey(const Key('error-service-type')),
-          matching: find.text(l10n.serviceErrDuplicate),
-        ),
+        inlineDuplicate,
         findsOneWidget,
         reason:
             'the 409 DUPLICATE_SERVICE must surface as the localized duplicate '

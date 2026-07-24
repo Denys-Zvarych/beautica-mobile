@@ -12,17 +12,13 @@
 // by the next account to use the device. Client photos are PII; a sign-out must
 // not leave them behind.
 //
-// ## STATUS: RED — PENDING FIX
+// ## STATUS: GREEN — RESOLVED (fix shipped in f35b8a3)
 //
-// This test FAILS against the current tree on purpose: `logout()` does not yet
-// call the purge. It is written to go GREEN the instant the dev adds, inside
-// `AuthNotifier.logout()`, a purge of the media cache — e.g.
-//
-//     await ref.read(...)/* or a top-level */ purgeBeauticaMediaCache();
-//
-// where the purge routes through the OVERRIDE-AWARE active manager
-// (`_activeMediaCacheManager.emptyCache()` in beautica_image.dart), NOT the raw
-// `beauticaImageCacheManager` directly.
+// `AuthNotifier.logout()` now purges the media cache through the OVERRIDE-AWARE
+// active manager (`_activeMediaCacheManager.emptyCache()` in beautica_image.dart),
+// NOT the raw `beauticaImageCacheManager` directly, so this test passes against
+// the current tree. It remains as a regression pin: if a future change drops
+// the purge from `logout()`, this goes red again.
 //
 // WHY THE OVERRIDE-AWARE PATH IS PART OF THE CONTRACT: the real
 // `beauticaImageCacheManager` is backed by path_provider + sqflite and CANNOT

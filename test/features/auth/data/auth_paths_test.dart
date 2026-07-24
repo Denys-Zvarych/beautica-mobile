@@ -216,6 +216,112 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // Tests 13b–13f: membership pins for the authenticated PII-only paths.
+    //
+    // Without these, the `length == 19` count (test 15) is the ONLY guard on
+    // the newer PII entries — a one-for-one path swap (drop one, add another)
+    // would keep the count at 19 and pass silently. Pinning each by identity
+    // makes the suite fail the moment a specific PII path is removed or renamed.
+    // -----------------------------------------------------------------------
+
+    test('13b. /api/v1/independent-masters/me/profile is in kPiiPaths (phone + PII '
+        'body redaction) but NOT kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/independent-masters/me/profile'),
+        reason:
+            'Phase 4.3 profile edit endpoint carries phone number + PII; '
+            'LoggingInterceptor must redact its body in debug builds.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/independent-masters/me/profile')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
+    test(
+      '13c. /api/v1/search/masters is in kPiiPaths (auth-gated address redaction) '
+      'but NOT kAuthPaths',
+      () {
+        expect(
+          kPiiPaths,
+          contains('/api/v1/search/masters'),
+          reason:
+              'Security fix 2026-06-25 — discovery search responses carry '
+              'auth-gated street/buildingNo for authenticated callers; the '
+              'error-path logger would otherwise log err.response?.data.',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/api/v1/search/masters')),
+          reason:
+              'Search is permitAll but the token is attached WHEN PRESENT to '
+              'unlock addresses; it must NOT be in kAuthPaths (would strip it).',
+        );
+      },
+    );
+
+    test(
+      '13d. /api/v1/search/salons is in kPiiPaths (auth-gated address redaction) '
+      'but NOT kAuthPaths',
+      () {
+        expect(
+          kPiiPaths,
+          contains('/api/v1/search/salons'),
+          reason:
+              'Security fix 2026-06-25 — discovery search responses carry '
+              'auth-gated street/buildingNo for authenticated callers.',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/api/v1/search/salons')),
+          reason:
+              'Search is permitAll but the token is attached WHEN PRESENT to '
+              'unlock addresses; it must NOT be in kAuthPaths (would strip it).',
+        );
+      },
+    );
+
+    test('13e. /api/v1/bookings is in kPiiPaths (free-text clientComment redaction) '
+        'but NOT kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/bookings'),
+        reason:
+            'Phase 14.0 — POST /bookings carries the free-text clientComment '
+            'field; its body must be redacted in debug logs.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/bookings')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
+    test('13f. /api/v1/appointments is in kPiiPaths (free-text clientComment '
+        'redaction) but NOT kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/appointments'),
+        reason:
+            'MO-1 — POST /appointments carries the free-text clientComment '
+            'field; its body must be redacted in debug logs.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/appointments')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
+    // -----------------------------------------------------------------------
     // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
@@ -248,34 +354,39 @@ void main() {
         );
       }
       // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 + the
-      // 2026-06-25 address-redaction fix + Phase 14.0 added 6 authenticated
-      // PII paths that are NOT in kAuthPaths).
+      // 2026-06-25 address-redaction fix + Phase 14.0 + the MO-1 appointment
+      // create endpoint added 7 authenticated PII paths that are NOT in
+      // kAuthPaths).
       expect(
         kPiiPaths.length,
         greaterThan(kAuthPaths.length),
         reason:
             'kPiiPaths must contain additional entries beyond kAuthPaths '
             '(/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
-            '/api/v1/masters/me, /api/v1/search/masters, and /api/v1/search/salons).',
+            '/api/v1/masters/me, /api/v1/search/masters, /api/v1/search/salons, '
+            '/api/v1/bookings, and /api/v1/appointments).',
       );
     });
 
     test(
-      '15. kPiiPaths has exactly 18 entries (kAuthPaths union + 6 authenticated PII paths)',
+      '15. kPiiPaths has exactly 19 entries (kAuthPaths union + 7 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(18),
+          equals(19),
           reason:
               'kPiiPaths must equal kAuthPaths (12) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
               '/api/v1/masters/me, the two auth-gated discovery search paths '
-              '/api/v1/search/masters + /api/v1/search/salons, and the '
-              'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings '
-              '(6 authenticated PII paths = 18 total). The search paths were '
+              '/api/v1/search/masters + /api/v1/search/salons, the '
+              'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings, and '
+              'the MO-1 CLIENT appointment create endpoint /api/v1/appointments '
+              '(7 authenticated PII paths = 19 total). The search paths were '
               'added by commit b550428 (auth-gated address redaction); '
               '/api/v1/bookings was added by the Phase 14.0 security fix '
-              '(POST /bookings carries the free-text clientComment field). '
+              '(POST /bookings carries the free-text clientComment field); '
+              '/api/v1/appointments was added by the MO-1 fix '
+              '(POST /appointments carries the free-text clientComment field). '
               'Update this count if new PII endpoints are added.',
         );
       },

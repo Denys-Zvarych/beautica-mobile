@@ -910,6 +910,37 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   /// post-frame callback at a time.
   bool _viewportSyncScheduled = false;
 
+  /// The culling band's BOTTOM edge, in the lane `Column`s' own local
+  /// coordinates — the ONLY scroll-derived value the tree consumes, and it
+  /// flows to exactly one place: each [_LaneColumn]'s `visibleBottom`.
+  ///
+  /// `_windowOffset` is measured against the scroll view's child, whose origin
+  /// sits [TimelineHourRuler.labelCenteringNudge] above each lane's own origin
+  /// (the `Padding` in [build]), hence the shift in [_cullingWindowBottom].
+  ///
+  /// Holding this in a [ValueNotifier] rather than mutating it via `setState`
+  /// confines a scroll re-anchor's rebuild to the lane `Row` (wrapped in the
+  /// [ValueListenableBuilder] in [build]). The ruler and the gridlines depend
+  /// only on the day's hour extent — never on scroll — so they no longer
+  /// rebuild when the window moves (mobile-perf LOW). Recomputed via
+  /// [_cullingWindowBottom] wherever [_windowOffset] / [_windowViewport]
+  /// change.
+  final ValueNotifier<double> _visibleBottom = ValueNotifier<double>(0);
+
+  /// The current culling-band bottom edge from the window anchor + viewport.
+  ///
+  /// ADDENDUM 6 — there is deliberately no matching `visibleTop`: cards above
+  /// the window are never culled, which is what lets culling run at every text
+  /// scale without the placeholder having to be size-exact. Do not reintroduce
+  /// a top edge without re-reading ADDENDUM 5 and 6.
+  ///
+  /// ADDENDUM 9 — the slack is `0.5V` (the band ends at `offset + 1.5V`), not
+  /// ADDENDUM 4's `1V`. See that addendum for the re-derived margin.
+  double get _cullingWindowBottom =>
+      _windowOffset +
+      (1 + _kWindowSlack) * _windowViewport -
+      TimelineHourRuler.labelCenteringNudge;
+
   @override
   void initState() {
     super.initState();
@@ -922,6 +953,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     super.didChangeDependencies();
     if (_windowViewport <= 0) {
       _windowViewport = MediaQuery.sizeOf(context).height;
+      _visibleBottom.value = _cullingWindowBottom;
     }
     // `ScrollPosition` never notifies on `applyViewportDimension`, so the
     // seed above would otherwise persist for an un-scrolled day's whole
@@ -946,6 +978,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _visibleBottom.dispose();
     super.dispose();
   }
 
@@ -968,10 +1001,12 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     if (!position.hasViewportDimension) return;
     final double viewport = position.viewportDimension;
     if (viewport <= 0 || viewport == _windowViewport) return;
-    setState(() {
-      _windowViewport = viewport;
-      if (position.hasPixels) _windowOffset = position.pixels;
-    });
+    // Only the culling band moves — publish it to the lane `Row` alone via the
+    // notifier rather than a `setState` that would also rebuild the ruler and
+    // the gridlines (mobile-perf LOW).
+    _windowViewport = viewport;
+    if (position.hasPixels) _windowOffset = position.pixels;
+    _visibleBottom.value = _cullingWindowBottom;
   }
 
   /// Rebuilds everything derived from `bookings` + `day` — lane assignment,
@@ -1082,10 +1117,15 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
             viewport * _kWindowReanchorFraction) {
       return;
     }
-    setState(() {
-      _windowOffset = position.pixels;
-      _windowViewport = viewport;
-    });
+    // Re-anchor the window. The offset/viewport this depends on feed ONLY the
+    // culling band, so the re-anchor publishes the new [_cullingWindowBottom]
+    // to the lane `Row` through the notifier — NOT via `setState`, which would
+    // needlessly rebuild the ruler + every gridline `Positioned` too. The
+    // re-anchor QUANTIZATION (the `_kWindowReanchorFraction` threshold above +
+    // the `_kWindowSlack` band) is unchanged; only the delivery mechanism is.
+    _windowOffset = position.pixels;
+    _windowViewport = viewport;
+    _visibleBottom.value = _cullingWindowBottom;
   }
 
   @override
@@ -1096,22 +1136,10 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     final int firstHour = firstMinute ~/ 60;
     final int lastHour = (_lastMinute / 60.0).ceil();
 
-    // The culling band's BOTTOM edge only, expressed in the lane `Column`s'
-    // own local coordinates. `_windowOffset` is measured against the scroll
-    // view's child, whose origin sits [TimelineHourRuler.labelCenteringNudge]
-    // above each lane's own origin (the `Padding` below), hence the shift.
-    //
-    // ADDENDUM 6 — there is deliberately no matching `visibleTop`: cards
-    // above the window are never culled, which is what lets culling run at
-    // every text scale without the placeholder having to be size-exact. Do
-    // not reintroduce a top edge without re-reading ADDENDUM 5 and 6.
-    //
-    // ADDENDUM 9 — the slack is `0.5V` (the band ends at `offset + 1.5V`), not
-    // ADDENDUM 4's `1V`. See that addendum for the re-derived margin.
-    final double visibleBottom =
-        _windowOffset +
-        (1 + _kWindowSlack) * _windowViewport -
-        TimelineHourRuler.labelCenteringNudge;
+    // The scroll-derived culling band ([_visibleBottom]) is consumed ONLY
+    // inside the [ValueListenableBuilder] wrapping the lane `Row` below, so a
+    // scroll re-anchor rebuilds that `Row` alone — never this `build`, the
+    // ruler, or the gridlines. See [_visibleBottom] / [_cullingWindowBottom].
 
     return SingleChildScrollView(
       controller: _scrollController,
@@ -1220,23 +1248,49 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                                     : BookingsTimelineGrid._halfHourLineColor,
                               ),
                             ),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              for (int lane = 0; lane < lanesCount; lane++) ...[
-                                if (lane > 0)
-                                  const SizedBox(width: VelvetSpacing.sm),
-                                _LaneColumn(
-                                  key: ValueKey<String>('timeline-lane-$lane'),
-                                  bookings: bookings,
-                                  geometry: _laneGeometry[lane],
-                                  cardWidth: effectiveCardW,
-                                  visibleBottom: visibleBottom,
-                                  onBookingTap: widget.onBookingTap,
-                                ),
-                              ],
-                            ],
+                          // The lane `Row` is the sole non-`Positioned` child
+                          // of the `Stack` (it drives the `Stack`'s size — see
+                          // the R3 note above). Wrapping it in a
+                          // [ValueListenableBuilder] on [_visibleBottom] keeps
+                          // that role (the builder is layout-transparent,
+                          // sizing to its `Row`) while confining every scroll
+                          // re-anchor's rebuild to this subtree alone.
+                          ValueListenableBuilder<double>(
+                            valueListenable: _visibleBottom,
+                            builder:
+                                (
+                                  BuildContext context,
+                                  double visibleBottom,
+                                  Widget? child,
+                                ) {
+                                  return Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: <Widget>[
+                                      for (
+                                        int lane = 0;
+                                        lane < lanesCount;
+                                        lane++
+                                      ) ...[
+                                        if (lane > 0)
+                                          const SizedBox(
+                                            width: VelvetSpacing.sm,
+                                          ),
+                                        _LaneColumn(
+                                          key: ValueKey<String>(
+                                            'timeline-lane-$lane',
+                                          ),
+                                          bookings: bookings,
+                                          geometry: _laneGeometry[lane],
+                                          cardWidth: effectiveCardW,
+                                          visibleBottom: visibleBottom,
+                                          onBookingTap: widget.onBookingTap,
+                                        ),
+                                      ],
+                                    ],
+                                  );
+                                },
                           ),
                         ],
                       ),
