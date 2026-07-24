@@ -1434,17 +1434,40 @@ abstract final class VelvetText {
     height: 1.2,
   );
 
-  /// The master booking card's start–end time range (e.g. "09:00–09:45") —
-  /// bodyStrong at 11.5 sp, height 1.2, so it reads a touch more prominent
-  /// than the service name beside it on the micro card without competing with
-  /// the client name it TRAILS on the compact identity row (that row's order
-  /// was swapped 2026-07-24 — the range used to lead it).
-  /// Deliberately NOT stepped down when the label became a range rather than
-  /// a bare start time: the `Expanded` label beside it absorbs the extra
-  /// width (see `master_booking_card.dart`'s row-1 comment), so the type
-  /// scale never had to pay for it.
-  static final TextStyle masterCardTime = _bodyStrongStyle.copyWith(
-    fontSize: 11.5,
+  /// The COMPACT and MICRO bodies' start–end time range (e.g. "09:00–09:45").
+  ///
+  /// ONE TIME STYLE ACROSS ALL THREE DENSITIES (2026-07-24)
+  /// -------------------------------------------------------------------
+  /// Derived FROM [masterCardDateFull] — the >=1h card's own range recipe —
+  /// rather than declared independently, so the three `MasterBookingCard`
+  /// bodies can never drift apart typographically again. It previously ran
+  /// `_bodyStrongStyle` at 11.5 sp in [BrandColors.text], which differed from
+  /// the full card's range on all three visible axes at once (base recipe,
+  /// size and colour): a lane of mixed-density cards read as two different
+  /// time styles stacked on one timeline, which is the report this pass
+  /// closes.
+  ///
+  /// THE ONE DELTA IS `height`, AND IT IS A LAYOUT KNOB, NOT A TYPE CHOICE.
+  /// [masterCardDateFull] inherits `_feedbackBase`'s 1.4 leading, which the
+  /// full card's 16dp-padded rows can afford. The MICRO body is a single
+  /// text row inside a 12dp-padded box whose whole existence is fitting a
+  /// sub-28-minute wall-clock band, and its rendered height IS the tallest
+  /// child's line box — so 1.4 would inflate
+  /// [MasterBookingCard.microLayoutNaturalHeight] from a measured 28dp to
+  /// 30dp and leave a 15-minute booking (a 30dp band at `_kHourH` 120) with
+  /// ZERO clearance over its own gridline. Stepping the leading to 1.2 —
+  /// exactly what [masterCardService], the text beside it on that row,
+  /// already uses — costs nothing visible (font, size, weight and colour are
+  /// identical to the full card's range; a single line's glyphs are laid out
+  /// the same either way, only the box around them changes) and keeps the
+  /// micro row at 28dp with 2dp of clearance.
+  ///
+  /// Measured, not derived: 63.76dp × 13dp at textScaler 1.0 and
+  /// 82.86dp × 17dp at 1.3 for the «09:00–09:20» fixture — NARROWER than the
+  /// 66.65 / 86.58 the outgoing 11.5 sp recipe measured, so the compact
+  /// identity row's `Expanded` client name GAINED ~3.7dp of budget in the
+  /// change (see `master_booking_card.dart`'s row-1 comment).
+  static final TextStyle masterCardTime = masterCardDateFull.copyWith(
     height: 1.2,
   );
 

@@ -124,6 +124,145 @@ Booking _shortBooking({
 }
 
 void main() {
+  // ONE TIME STYLE ACROSS ALL THREE DENSITIES (2026-07-24)
+  // ---------------------------------------------------------------------
+  // The reported bug: a lane mixes densities freely (a 30-minute booking
+  // sits directly under a 90-minute one), and the range was typeset in two
+  // unrelated recipes — `masterCardDateFull` (Nunito 11, muted) on the FULL
+  // body against a `bodyStrong` 11.5 sp in `BrandColors.text` on COMPACT and
+  // MICRO. Different base style, different size AND different colour, all
+  // visible side by side on one timeline.
+  //
+  // This group asserts the property directly off the RENDERED paragraphs
+  // rather than off the token identity, so it survives a future refactor
+  // that renames or re-homes either token, and it cannot be satisfied by a
+  // regenerated golden. `masterCardTime` is now literally
+  // `masterCardDateFull.copyWith(height: 1.2)`; `height` is EXCLUDED from
+  // the comparison on purpose and is the one axis allowed to differ — it is
+  // a layout knob (the micro body is a single text row, so the tallest
+  // child's line box IS the card's height, and `_feedbackBase`'s 1.4 leading
+  // would push `microLayoutNaturalHeight` to 30dp and leave a 15-minute
+  // booking zero clearance over its own gridline). Every axis a reader can
+  // actually SEE — family, size, weight, colour, letter spacing — must match.
+  group('the start–end range is typeset identically on all three bodies', () {
+    // (floor, layout name) — one per density, read through the card's own
+    // published thresholds rather than by quoting duration numbers.
+    final List<(double, String)> densities = <(double, String)>[
+      (1, 'micro'),
+      (MasterBookingCard.microLayoutMaxHeight, 'compact'),
+      (MasterBookingCard.fullLayoutMinHeight, 'full'),
+    ];
+
+    testWidgets('same family, size, weight, colour and letter spacing — only '
+        'the line-box `height` may differ', (WidgetTester tester) async {
+      final Booking booking = _shortBooking(id: 'one-time-style');
+      final String range = formatSlotTimeRange(booking.startAt, booking.endAt);
+
+      final Map<String, TextStyle> resolved = <String, TextStyle>{};
+      for (final (double floor, String name) in densities) {
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                minHeight: floor,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final RenderParagraph p = tester.renderObject<RenderParagraph>(
+          find.text(range),
+        );
+        final TextStyle? style = p.text.style;
+        expect(
+          style,
+          isNotNull,
+          reason:
+              'the $name body\'s range lost its explicit style and is now '
+              'inheriting DefaultTextStyle — that is a silent divergence '
+              'from the other two densities',
+        );
+        resolved[name] = style!;
+      }
+
+      final TextStyle reference = resolved['full']!;
+      for (final MapEntry<String, TextStyle> e in resolved.entries) {
+        if (e.key == 'full') continue;
+        final TextStyle actual = e.value;
+        expect(
+          <Object?>[
+            actual.fontFamily,
+            actual.fontSize,
+            actual.fontWeight,
+            actual.color,
+            actual.letterSpacing,
+          ],
+          <Object?>[
+            reference.fontFamily,
+            reference.fontSize,
+            reference.fontWeight,
+            reference.color,
+            reference.letterSpacing,
+          ],
+          reason:
+              'the ${e.key} body\'s time range no longer matches the FULL '
+              'card\'s. A master scrolling one lane sees both at once, so '
+              'they must read as ONE time style — fix the token '
+              '(VelvetText.masterCardTime derives from masterCardDateFull), '
+              'never by inlining a style at the call site.',
+        );
+      }
+    });
+
+    testWidgets(
+      'the FULL card is still the reference: its range keeps the muted '
+      'colour and the schedule_outlined glyph beside it',
+      (WidgetTester tester) async {
+        final Booking booking = _shortBooking(
+          id: 'one-time-style-full',
+          durationMinutes: 60,
+        );
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final RenderParagraph p = tester.renderObject<RenderParagraph>(
+          find.text(formatSlotTimeRange(booking.startAt, booking.endAt)),
+        );
+        expect(
+          p.text.style?.color,
+          BrandColors.muted,
+          reason:
+              'the FULL body is the reference recipe the other two were '
+              'brought onto — if IT drifts, the comparison above passes '
+              'while every density drifts together',
+        );
+        expect(
+          find.byIcon(Icons.schedule_outlined),
+          findsOneWidget,
+          reason:
+              'the glyph is FULL-only (compact/micro have no room for a '
+              'second metadata slot) and was explicitly out of scope for '
+              'the one-time-style pass',
+        );
+      },
+    );
+  });
+
   group(
     'R2 regression — a short booking renders every row, none truncated',
     () {
@@ -1191,7 +1330,7 @@ void main() {
         'renders every field un-clipped',
         (WidgetTester tester) async {
           // ADDENDUM 8: 56dp is no longer the grid's card FLOOR (that is now
-          // `microLayoutNaturalHeight`, 29dp) — it is the MICRO/COMPACT
+          // `microLayoutNaturalHeight`, 28dp) — it is the MICRO/COMPACT
           // BOUNDARY, and the bound is exclusive, so a card handed exactly 56
           // still gets the compact grid. At 120dp/hour that is a 28-minute
           // booking. The fixture's own `durationMinutes` is irrelevant to the
@@ -1380,7 +1519,7 @@ void main() {
         expect(
           find.text(booking.clientName!),
           findsNothing,
-          reason: 'the client name has no room in a single 14dp text row',
+          reason: 'the client name has no room in a single 13dp text row',
         );
         expect(
           find.text('450 ₴'),
@@ -1406,13 +1545,13 @@ void main() {
     );
 
     testWidgets('the micro body measures exactly MasterBookingCard.'
-        'microLayoutNaturalHeight (29dp) at textScaler 1.0 — the number '
+        'microLayoutNaturalHeight (28dp) at textScaler 1.0 — the number '
         'BookingsTimelineGrid floors every card at', (
       WidgetTester tester,
     ) async {
       // Measured with a floor BELOW the natural so the content, not the
       // floor, decides the height. `_cardMinHeightFor` produces exactly this
-      // shape for any booking under the 14.5-minute break-even.
+      // shape for any booking under the 14.0-minute break-even.
       final Booking booking =
           _shortBooking(id: 'micro-natural', durationMinutes: 10).copyWith(
             // The worst realistic content: if the height were content-sensitive
@@ -1789,6 +1928,15 @@ void main() {
     // replaced (measured through `VelvetText.masterCardTime`: «09:00» is
     // 30.45dp, «09:00–09:20» is 66.65dp at textScaler 1.0, and 39.55 -> 86.58
     // at 1.3), so this is the real risk of the change.
+    //
+    // RE-MEASURED after the ONE-TIME-STYLE pass (2026-07-24) put
+    // `VelvetText.masterCardTime` on the FULL card's own recipe (11 sp rather
+    // than 11.5): «09:00–09:20» is now 63.76dp at textScaler 1.0 and 82.86dp
+    // at 1.3. Every figure moved in the SAFE direction — the label got
+    // narrower, so the `Expanded` client name beside it GAINED ~4dp — but the
+    // sweeps below are kept exactly as they were: they assert a usable
+    // remaining column rather than an exact width, so they still bind, and a
+    // future edit that widens the label back has something to fail against.
     //
     // WHAT THE MINIATURE PASS MOVED — this sweep now measures TWO shares
     // ---------------------------------------------------------------------
@@ -2765,7 +2913,7 @@ void main() {
         final Rect card = tester.getRect(
           find.byKey(const Key('master-booking-card-budget-terms')),
         );
-        // Row 1's tallest child IS the row (the range label is 13.8dp and the
+        // Row 1's tallest child IS the row (the range label is 13dp and the
         // dot 8dp against the name's 15dp, under `CrossAxisAlignment.center`),
         // and row 2's tallest child is the pill — so these two rects delimit
         // the content region exactly.

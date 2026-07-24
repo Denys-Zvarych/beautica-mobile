@@ -592,11 +592,16 @@
 // Dropping to 120 puts a 15-minute band at `30dp`, well under the compact
 // body's `56dp`, which would have re-inflated every short booking to a box
 // nearly twice its band. `MasterBookingCard` gained a THIRD, single-row layout
-// (service name · time range · status dot) whose natural height is `29dp`,
+// (service name · time range · status dot) whose natural height is `28dp`,
 // selected when the floor cannot contain the compact body — see that widget's
 // "THE MICRO LAYOUT" section. [_cardMinHeightFor]'s floor moved to it.
 //
-// THE RESULTING GEOMETRY, at `_kHourH = 120`, spacer floor 0, card floor 29:
+// (That natural was `29dp` until the ONE-TIME-STYLE pass, 2026-07-24, put the
+// range on the full card's own type recipe — see `master_booking_card.dart`'s
+// section of that name. It is a MEASURED number and moves whenever either of
+// the micro row's two text tokens does; re-measure, never re-derive.)
+//
+// THE RESULTING GEOMETRY, at `_kHourH = 120`, spacer floor 0, card floor 28:
 //
 //   | duration | band  | card box | layout  | residual |
 //   |----------|-------|----------|---------|----------|
@@ -604,9 +609,9 @@
 //   |  45 min  |  90   |  90      | compact | 0 exact  |
 //   |  30 min  |  60   |  60      | compact | 0 exact  |
 //   |  15 min  |  30   |  30      | micro   | 0 exact  |
-//   |  10 min  |  20   |  29      | micro   | +9       |
+//   |  10 min  |  20   |  28      | micro   | +8       |
 //
-// The break-even is now 14.5 minutes (`29 / 120 * 60`), down from 20. Below
+// The break-even is now 14.0 minutes (`28 / 120 * 60`), down from 20. Below
 // it the residual is genuinely irreducible — a card cannot render below its
 // own natural height and services can be one minute long — but it no longer
 // touches any ordinary appointment length, and it never CLIPS (the R2
@@ -768,7 +773,7 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// `168` step bought exact end-line landing by making the whole day 1.5×
   /// longer to scroll; `120` keeps the exact landing and gives the scroll
   /// length back, because the MICRO card layout
-  /// ([MasterBookingCard.microLayoutNaturalHeight], `29dp`) removed the
+  /// ([MasterBookingCard.microLayoutNaturalHeight], `28dp`) removed the
   /// `56dp` legibility floor that was forcing the scale up.
   ///
   /// `120` is the SMALLEST round scale that still works: a 60-minute band is
@@ -1437,7 +1442,7 @@ List<_CardGeometry> _geometryForLane({
 /// "ADDENDUM 2" for the original derivation and "ADDENDUM 8" for the current
 /// floor. Proportional to [durationMinutes] against [hourHeight], floored at
 /// the MICRO card's natural height
-/// ([MasterBookingCard.microLayoutNaturalHeight], `29dp`) — the shortest box
+/// ([MasterBookingCard.microLayoutNaturalHeight], `28dp`) — the shortest box
 /// `MasterBookingCard` can render anything legible in.
 ///
 /// THE FLOOR IS THE SMALLEST OF THE CARD'S THREE NATURALS, ON PURPOSE. It used
@@ -1446,7 +1451,7 @@ List<_CardGeometry> _geometryForLane({
 /// box taller than its own wall-clock footprint — the residual overrun the
 /// previous pass documented as "irreducible". It was not irreducible; it was a
 /// consequence of the card having no shape below the compact grid. Now that it
-/// has one, the floor drops with it and the overrun only survives below ~14.5
+/// has one, the floor drops with it and the overrun only survives below ~14.0
 /// minutes.
 ///
 /// STILL INDEPENDENT OF THE 30-MINUTE SLOT (`hourHeight / 2`, now `60dp`): the

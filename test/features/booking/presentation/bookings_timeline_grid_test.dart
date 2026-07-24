@@ -558,7 +558,7 @@ void main() {
         // The card's ACTUAL rendered height is at least its own natural
         // content height — proof the whole card is on screen, not a truncated
         // sliver of it. A 15-minute booking's floor at 120dp/hour is 30dp,
-        // which selects the MICRO layout (natural 29dp), so the box renders at
+        // which selects the MICRO layout (natural 28dp), so the box renders at
         // 30 and nothing is cropped.
         final double renderedHeight = tester
             .getSize(find.byKey(const ValueKey<String>('timeline-card-short')))
@@ -940,7 +940,7 @@ void main() {
     );
 
     testWidgets('a booking shorter than the break-even still renders, '
-        'un-clipped, at the MICRO layout\'s 29dp legibility floor rather than '
+        'un-clipped, at the MICRO layout\'s 28dp legibility floor rather than '
         'a duration-scaled sliver', (WidgetTester tester) async {
       final Booking b = _booking(
         id: 'dur-10',
@@ -957,12 +957,12 @@ void main() {
       await tester.pump();
 
       // ADDENDUM 8: sub-break-even bookings floor at the MICRO layout's
-      // natural height (`MasterBookingCard.microLayoutNaturalHeight`, 29dp),
+      // natural height (`MasterBookingCard.microLayoutNaturalHeight`, 28dp),
       // NOT a duration-scaled 20dp sliver (10/60*120) which no layout can
       // render, NOT the old 56dp compact natural (the micro row is what let
       // the floor come down), and NOT the 60dp gridline slot (the floor is
       // decoupled from the slot). This is the documented residual overrun
-      // below the 14.5-minute break-even — irreducible because a card cannot
+      // below the 14.0-minute break-even — irreducible because a card cannot
       // render below its own natural height and services can be 1 minute long.
       expect(
         _cardRect(tester, 'dur-10').height,
@@ -995,7 +995,7 @@ void main() {
         findsNothing,
       );
       expect(find.text(b.serviceName), findsOneWidget);
-      // The CLIENT NAME is deliberately absent from the VISUAL: a 29dp box
+      // The CLIENT NAME is deliberately absent from the VISUAL: a 28dp box
       // selects `MasterBookingCard`'s MICRO layout, which renders
       // service · time · dot only. It is still announced, because
       // `masterBookingCardSemantics` («{client}, {service}») has ALWAYS carried
@@ -1008,9 +1008,10 @@ void main() {
     });
 
     testWidgets(
-      'a 15-minute booking renders at EXACTLY 30dp — the first duration at or '
-      'above the 14.5-minute break-even, so the proportional height clears '
-      'the micro floor and the card bottom lands on its end-time line',
+      'a 15-minute booking renders at EXACTLY 30dp — the shortest slot any '
+      'real service catalogue uses, comfortably above the 14.0-minute '
+      'break-even, so the proportional height clears the micro floor and the '
+      'card bottom lands on its end-time line',
       (WidgetTester tester) async {
         final Booking b = _booking(
           id: 'dur-20',
@@ -1026,14 +1027,110 @@ void main() {
         );
         await tester.pump();
 
-        // 15/60 * 120 = 30, just above `microLayoutNaturalHeight` (29) — the
+        // 15/60 * 120 = 30, clear of `microLayoutNaturalHeight` (28) — the
         // proportional height wins over the floor, so the card bottom lands
         // precisely on its end-time line with no residual. (The exact
-        // break-even is 14.5 minutes; 15 is the shortest whole minute past
-        // it, and the shortest slot any real service catalogue uses.)
+        // break-even is 14.0 minutes, and 14 — not 15 — is the shortest whole
+        // minute at or past it since the micro natural came down to 28; that
+        // boundary has its OWN case directly below. 15 is kept because it is
+        // the shortest slot any real service catalogue uses.)
         expect(
           _cardRect(tester, 'dur-20').height,
           closeTo(kHourH * 15 / 60, 0.5),
+        );
+      },
+    );
+
+    // THE BREAK-EVEN ITSELF, at the duration it actually falls on.
+    // ---------------------------------------------------------------------
+    // The break-even is `microLayoutNaturalHeight / kHourH * 60` — it MOVED
+    // from 14.5 to 14.0 minutes when the ONE-TIME-STYLE pass (2026-07-24)
+    // took the micro natural from 29dp to 28dp. The cases above and below
+    // this one sweep 15 and up (proportional wins) and 10 and down (the floor
+    // wins); NEITHER touches the boundary the pass created, so until this
+    // case existed the whole geometric consequence of the type change was
+    // pinned only one dp away from where it actually bites.
+    //
+    // 14 is the discriminating minute, and it discriminates in BOTH
+    // directions:
+    //   * at the current 28dp natural, 14/60 × 120 = 28.0 == the floor, so a
+    //     14-minute booking is the SHORTEST duration that lands exactly on
+    //     its own end-time line with zero residual overrun;
+    //   * at the outgoing 29dp natural it was BELOW the break-even, floored
+    //     to 29, and overran its line by 1dp.
+    // So this case fails if the natural ever drifts back up — including via
+    // the `height: 1.2` that `VelvetText.masterCardTime` deliberately leaves
+    // out of the typography-equality group, which is a layout knob whose
+    // only guard is geometry like this.
+    testWidgets(
+      'the NEW break-even is 14.0 minutes: a 14-minute booking lands its card '
+      'bottom EXACTLY on its end-time line (zero residual), while a '
+      '13-minute one is the longest booking the micro floor still inflates',
+      (WidgetTester tester) async {
+        final Booking atBreakEven = _booking(
+          id: 'dur-14',
+          startAtUtc: _kyivAtUtc(8),
+          durationMinutes: 14,
+        );
+        final Booking belowBreakEven = _booking(
+          id: 'dur-13',
+          startAtUtc: _kyivAtUtc(9),
+          durationMinutes: 13,
+        );
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: <Booking>[atBreakEven, belowBreakEven],
+            day: day,
+            onBookingTap: (_) {},
+          ),
+        );
+        await tester.pump();
+
+        // Ground truth off the RENDERED ladder, like the sweep below — the
+        // point is the RELATIONSHIP «14 minutes == its own wall-clock band»,
+        // not a restatement of `kHourH`.
+        final double hourBand = _renderedHourBand(tester);
+
+        // Tolerance is deliberately tighter than 1dp: the entire content of
+        // this assertion is that the card does NOT sit one dp above its band
+        // the way it did at the 29dp natural.
+        expect(
+          _cardRect(tester, 'dur-14').height,
+          closeTo(hourBand * 14 / 60, 0.5),
+          reason:
+              'a 14-minute booking must land exactly on its end-time line. '
+              'If it renders taller, the MICRO natural has drifted back above '
+              '28dp and the break-even is no longer 14.0 — re-measure '
+              'MasterBookingCard.microLayoutNaturalHeight and update every '
+              'doc that quotes the break-even.',
+        );
+        // Stated as the floor rather than as a number, so the pairing (not
+        // the literal 28) is what is pinned.
+        expect(
+          _cardRect(tester, 'dur-14').height,
+          closeTo(MasterBookingCard.microLayoutNaturalHeight, 0.5),
+          reason:
+              'at the break-even the proportional band and the micro floor '
+              'COINCIDE — that is what makes 14.0 the break-even',
+        );
+
+        // One minute below, the floor genuinely binds again: the card is
+        // taller than its own band and shorter than the next one.
+        final double thirteenHeight = _cardRect(tester, 'dur-13').height;
+        expect(
+          thirteenHeight,
+          closeTo(MasterBookingCard.microLayoutNaturalHeight, 0.5),
+          reason:
+              'below the break-even the card floors at the MICRO natural, '
+              'un-clipped — it can never render at its 26dp band',
+        );
+        expect(
+          thirteenHeight,
+          greaterThan(hourBand * 13 / 60),
+          reason:
+              'the residual overrun below the break-even is real and must '
+              'stay visible to this test — if it vanished, the floor stopped '
+              'binding and short cards would render as clipped slivers',
         );
       },
     );
@@ -1045,7 +1142,7 @@ void main() {
       'past its line, at whatever dp-per-hour the ruler is actually drawn at',
       (WidgetTester tester) async {
         // 15 is now included: ADDENDUM 8 dropped the break-even from 20
-        // minutes to 14.5, so a quarter-hour slot is exact rather than
+        // minutes to 14.0, so a quarter-hour slot is exact rather than
         // inflated. 20/25 stay in the sweep — they are compact-layout
         // durations at this scale and the floor must not touch them either.
         const List<int> durations = <int>[15, 20, 25, 30, 45, 60, 90];
@@ -1865,8 +1962,8 @@ void main() {
     // does not arise — a 60-minute floor is 120dp >= 117dp, so
     // `occupiedHeightFor` and `minHeight` coincide there — but
     // `occupiedHeightFor` is NO LONGER a no-op the way it was at 168: the
-    // grid's card floor is now `microLayoutNaturalHeight` (29dp), so every
-    // booking under the 14.5-minute break-even has a floor BELOW its layout's
+    // grid's card floor is now `microLayoutNaturalHeight` (28dp), so every
+    // booking under the 14.0-minute break-even has a floor BELOW its layout's
     // natural and the `max` genuinely binds. It is also the general,
     // scale-independent predictor for any future scale.
     //
@@ -2304,7 +2401,7 @@ void main() {
       'offset — including the maximum staleness just before a re-anchor — no '
       'culled card is above the fold',
       (WidgetTester tester) async {
-        // 15-minute bookings tile at exactly 30dp (band 30dp vs the 29dp
+        // 15-minute bookings tile at exactly 30dp (band 30dp vs the 28dp
         // micro floor), giving the sweep 4x the resolution of the 120dp
         // fixtures above. 09:00–21:00 is 48 cards / 1440dp — comfortably past
         // the 893dp window edge, so culling genuinely engages (a shorter day

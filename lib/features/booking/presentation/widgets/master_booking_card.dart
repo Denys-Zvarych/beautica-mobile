@@ -66,7 +66,7 @@
 // ([_compactPadding] vertical 6 × 2) = 41dp` of content. The stack:
 //
 //   | row 1     | 15 | [VelvetText.masterCardClientName] 12.5 × 1.2 — the
-//   |           |    | tallest child (time is 13.8, the dot 8)
+//   |           |    | tallest child (the range is 13, the dot 8)
 //   | gap       |  4 | `VelvetSpacing.xs`
 //   | hairline  |  1 |
 //   | gap       |  4 | `VelvetSpacing.xs`
@@ -105,6 +105,41 @@
 // [VelvetText.masterCardDateFull] style are unchanged; only the string is.
 // A master reading a timeline wants to know how long each appointment RUNS,
 // which the start alone never told them.
+//
+// ## ONE TIME STYLE ACROSS ALL THREE DENSITIES (2026-07-24)
+//
+// The range is now typeset identically on every body. It was not: the FULL
+// card drew it in [VelvetText.masterCardDateFull] (Nunito 11, muted) while
+// COMPACT and MICRO drew it in a [VelvetText.masterCardTime] that was an
+// independently-declared `bodyStrong` recipe at 11.5 sp in `BrandColors.text`
+// — a different base style, a different size AND a different colour, all at
+// once. A single lane mixes densities freely (a 30-minute booking sits
+// directly under a 90-minute one), so the two recipes were visible side by
+// side and read as two unrelated time treatments on one timeline.
+//
+// The FULL card's recipe won, and the fix is in the TOKEN, not at the call
+// sites: [VelvetText.masterCardTime] is now literally
+// `masterCardDateFull.copyWith(height: 1.2)`, so there is one source recipe
+// and the two can no longer drift apart. Both call sites below still read
+// `VelvetText.masterCardTime` and are otherwise untouched — the child ORDER
+// of compact row 1 and of the micro row is unchanged, and the full card,
+// its `schedule_outlined` glyph included, is byte-identical.
+//
+// The `height` step-down is the one delta, and it is a LAYOUT knob rather
+// than a type choice — see that token's own doc. It exists because this
+// card's MICRO body is exactly one text row, so the tallest child's line box
+// IS the card's height: `_feedbackBase`'s 1.4 leading would have pushed
+// [MasterBookingCard.microLayoutNaturalHeight] to 30dp and left a 15-minute
+// booking (a 30dp band) with zero clearance over its own gridline.
+//
+// TWO GEOMETRY CONSEQUENCES, both MEASURED and both in the safe direction:
+// the micro natural fell 29dp -> 28dp (so the timeline's card floor and the
+// sub-break-even overrun both shrink, and the break-even duration moves from
+// 14.5 to 14.0 minutes), and the range label got NARROWER — 82.9dp rather
+// than 86.6dp at the 1.3 textScaler ceiling — which HANDS BACK ~4dp to the
+// compact identity row's `Expanded` client name. The compact (56dp) and full
+// (117dp) naturals did not move at all: compact row 1's height is set by the
+// client name's taller 15dp line box either way.
 //
 // Dropping the avatar is the main height saving, not a smaller font pass —
 // [ClientAvatarGradients] (`core/theme/brand_colors.dart`, shared/public) and
@@ -265,7 +300,7 @@
 // ┌────────────────────────────────────────┐
 // │ Стрижка жіноча        10:00–10:15   ●  │  ← what · when · status DOT
 // └────────────────────────────────────────┘
-//                  ~29dp
+//                  ~28dp
 // ```
 //
 // ONE row, no hairline, no price pill, no client name. The service name
@@ -286,16 +321,22 @@
 // dropped from the visual stays one tap away on «Деталі запису» — the whole
 // card is still the same single tap target it is in the other two layouts.
 //
-// THE 29dp BUDGET: border (1.5 × 2 = 3) + [_MasterBookingCardState.
+// THE 28dp BUDGET: border (1.5 × 2 = 3) + [_MasterBookingCardState.
 // _compactPadding]'s vertical 6 × 2 (12) + ONE text row, whose height is the
-// tallest of the three children — [VelvetText.masterCardTime] (11.5 × 1.2 =
-// 13.8), [VelvetText.masterCardService] (11 × 1.2 = 13.2) and the 8dp dot.
-// = **29dp** at textScaler 1.0 (13.8 rounds up to a whole 14 in text
-// layout), pinned as [MasterBookingCard.microLayoutNaturalHeight]. It is
-// MEASURED, not the round 30 an early sketch assumed nor the 28.8 the raw
-// token arithmetic gives. The grid floors its cards at this number, so a
-// 15-minute band (`15/60 × 120 = 30dp`) clears it and lands exactly on its
-// end line.
+// tallest of the three children — [VelvetText.masterCardTime] and
+// [VelvetText.masterCardService], BOTH Nunito 11 at `height: 1.2` and both
+// measuring a 13dp line box, plus the 8dp dot. = **28dp** at textScaler 1.0,
+// pinned as [MasterBookingCard.microLayoutNaturalHeight]. It is MEASURED,
+// not what the raw token arithmetic (11 × 1.2 = 13.2) multiplies out to.
+// The grid floors its cards at this number, so a 15-minute band
+// (`15/60 × 120 = 30dp`) clears it with 2dp to spare.
+//
+// WAS 29dp UNTIL 2026-07-24, when the range's own style moved onto the FULL
+// card's recipe (Nunito 11 muted — see [VelvetText.masterCardTime]'s doc) so
+// all three densities read as one time style. The outgoing 11.5 sp recipe
+// measured a 14dp line box and made the RANGE the row's tallest child; at 11
+// it ties [VelvetText.masterCardService] instead, and the row lost the odd
+// dp. Re-measure this number rather than deriving it if either token moves.
 //
 // THE SELECTION IS THREE-WAY BUT `null` STILL MEANS COMPACT. [_layout] reads
 // [minHeight] itself (same reason as the full/compact switch below), but a
@@ -469,22 +510,24 @@ class MasterBookingCard extends StatefulWidget {
   ///
   /// Derivation, in full on the class doc's "THE MICRO LAYOUT" section:
   /// border (1.5 × 2 = 3) + [_MasterBookingCardState._compactPadding]'s
-  /// vertical 6 × 2 (12) + the row's tallest child, the time range in
-  /// [VelvetText.masterCardTime] (Nunito 11.5 at `height: 1.2` = 13.8, which
-  /// Flutter's text layout rounds UP to a whole 14 — taller than the service
-  /// name's 13.2 and the 8dp status dot) = **29dp**.
+  /// vertical 6 × 2 (12) + the row's tallest child — since the ONE-TIME-STYLE
+  /// pass (2026-07-24) the time range ([VelvetText.masterCardTime]) and the
+  /// service name ([VelvetText.masterCardService]) are both Nunito 11 at
+  /// `height: 1.2` and TIE at a 13dp line box, comfortably over the 8dp
+  /// status dot = **28dp**.
   ///
-  /// 29, NOT the round 30 an early sketch of this pass assumed, and not the
-  /// 28.8 the unrounded arithmetic gives. It is a MEASURED number:
+  /// 28, not the 28.2 the unrounded arithmetic gives, and 29 until the range
+  /// moved off its old 11.5 sp recipe. It is a MEASURED number:
   /// `bookings_timeline_grid.dart`'s `_cardMinHeightFor` floors every card at
   /// it and [occupiedHeightFor] predicts real boxes from it, so it has to be
   /// what the card actually renders rather than what the type tokens multiply
-  /// out to. Pinned by `master_booking_card_test.dart`'s "the MICRO body
-  /// measures exactly 29dp" case and, as an [occupiedHeightFor] input, by
+  /// out to — measured identical (28.0) at 226 / 266 / 272dp of lane. Pinned
+  /// by `master_booking_card_test.dart`'s "the MICRO body measures exactly
+  /// 28dp" case and, as an [occupiedHeightFor] input, by
   /// `master_booking_card_layout_height_test.dart`.
   ///
   /// TEXT SCALE 1.0 ONLY, exactly as [fullLayoutNaturalHeight].
-  static const double microLayoutNaturalHeight = 29;
+  static const double microLayoutNaturalHeight = 28;
 
   /// The [minHeight] BELOW which this card renders its single-row micro
   /// layout — equal to [estimatedNaturalHeight] because that IS the compact
@@ -512,8 +555,8 @@ class MasterBookingCard extends StatefulWidget {
   /// argument, and the doc comments claiming otherwise were stale. The micro
   /// layout moved the grid's floor down to [microLayoutNaturalHeight], so the
   /// `max` genuinely binds again in the sub-compact band: a 10-minute booking
-  /// at `120dp/hour` has a `20dp` wall-clock band, a `29dp` floor, and a
-  /// `29dp` real box.
+  /// at `120dp/hour` has a `20dp` wall-clock band, a `28dp` floor, and a
+  /// `28dp` real box.
   ///
   /// Exists for `bookings_timeline_grid.dart`'s viewport culling, whose
   /// placeholder must reserve precisely the room the real card would take or
@@ -834,11 +877,14 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // range and trailed the name; the current order is the reverse.
         //
         // Reading order is deliberate: the heavier client name
-        // ([VelvetText.masterCardClientName], Comfortaa 12.5) LEADS the
-        // lighter range label ([VelvetText.masterCardTime], Nunito 11.5), so
-        // the row reads headline-then-metadata — "this person, at this hour"
-        // — rather than as two cells of a table. Two things make that the
-        // right way round HERE rather than a coin flip:
+        // ([VelvetText.masterCardClientName], Comfortaa 12.5 in
+        // `BrandColors.text`) LEADS the lighter range label
+        // ([VelvetText.masterCardTime] — since 2026-07-24 the FULL card's own
+        // range recipe, Nunito 11 in `BrandColors.muted`), so the row reads
+        // headline-then-metadata — "this person, at this hour" — rather than
+        // as two cells of a table. The muted range widens that weight
+        // gradient rather than flattening it. Two things make that the right
+        // way round HERE rather than a coin flip:
         //
         //   * a compact card already sits on its own start gridline, so the
         //     timeline's geometry answers "when" before the label does — the
@@ -869,11 +915,15 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // overflow on its own, and the swap does not change that: a `Row`
         // allots its flex child the space its non-flex siblings do not take
         // REGARDLESS of their order. The non-flex content is still the range
-        // label (86.6dp at the 1.3 textScaler ceiling), two fixed gaps
-        // (6 + 4) and an 8dp dot = 104.6dp against the narrowest lane's 203dp
-        // of inner width (`320 − 94` lane, less 2 × 1.5 border and
-        // [_compactPadding]'s 2 × 10 horizontal), leaving the `Expanded`
-        // client name ~98dp. The `Expanded` stays on the NAME — it is the
+        // label (82.9dp at the 1.3 textScaler ceiling — RE-MEASURED after the
+        // 2026-07-24 one-time-style pass moved it from 11.5 sp to the full
+        // card's 11 sp recipe, down from 86.6dp), two fixed gaps (6 + 4) and
+        // an 8dp dot = 100.9dp against the narrowest lane's 203dp of inner
+        // width (`320 − 94` lane, less 2 × 1.5 border and [_compactPadding]'s
+        // 2 × 10 horizontal), leaving the `Expanded` client name ~102dp —
+        // ~4dp MORE than the outgoing recipe left it, so that pass could only
+        // relieve this budget, never tighten it. The `Expanded` stays on the
+        // NAME — it is the
         // variable-length field and already carries `maxLines: 1` + ellipsis,
         // whereas the range is fixed-width and must never truncate. The
         // outgoing layout needed a capped pill here precisely because the

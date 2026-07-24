@@ -138,10 +138,19 @@ void main() {
       // boundary is 56dp (duration 28min) and the compact/full boundary is
       // 117dp (duration 58.5min):
       //
-      //   5   — 10dp proportional, floored at the 29dp micro natural; MICRO,
+      //   5   — 10dp proportional, floored at the 28dp micro natural; MICRO,
       //         and the one row where the floor is BELOW the natural, so
       //         occupiedHeightFor genuinely raises it
-      //   10  — 20dp proportional, floored at 29; MICRO, same non-echo branch
+      //   10  — 20dp proportional, floored at 28; MICRO, same non-echo branch
+      //   13  — 26dp proportional, floored at 28; the LONGEST duration the
+      //         floor still raises, one minute under the break-even
+      //   14  — 28dp proportional == the 28dp floor EXACTLY: the break-even
+      //         itself, where `_floorFor`'s `max` is degenerate and
+      //         occupiedHeightFor's prediction has to be right for both
+      //         reasons at once. Added when the ONE-TIME-STYLE pass
+      //         (2026-07-24) moved the break-even from 14.5 to 14.0 — at the
+      //         outgoing 29dp natural this row was a floored one, so it is
+      //         precisely the row that changed branch and was not covered.
       //   15  — floor 30 (15/60*120), just clears the micro natural; MICRO
       //   28  — floor 56, exactly the micro/compact boundary; COMPACT (the
       //         bound is exclusive), floor == natural == 56
@@ -158,6 +167,8 @@ void main() {
       for (final int durationMinutes in <int>[
         5,
         10,
+        13,
+        14,
         15,
         28,
         30,
@@ -197,7 +208,7 @@ void main() {
       // occupiedHeightFor must GENUINELY read the selected layout's natural
       // height, not echo its input. The 5- and 10-minute rows of the sweep
       // above already exercise that branch in production terms (their floors
-      // sit below the 29dp micro natural), which is itself the ADDENDUM 8
+      // sit below the 28dp micro natural), which is itself the ADDENDUM 8
       // correction: at the retired 168dp scale EVERY real floor exceeded its
       // natural, the function was a mathematical no-op, and the only proof it
       // was not came from an artificial fixture. The artificial case is kept
@@ -206,7 +217,7 @@ void main() {
       // real durations back above their naturals.
       testWidgets(
         'occupiedHeightFor reads the natural, not the floor: a 12dp floor '
-        'still predicts (and renders) the 29dp micro natural',
+        'still predicts (and renders) the 28dp micro natural',
         (WidgetTester tester) async {
           const double floor = 12; // far below microLayoutNaturalHeight
           expect(
@@ -227,7 +238,7 @@ void main() {
             rendered,
             closeTo(MasterBookingCard.microLayoutNaturalHeight, 0.5),
             reason:
-                'the card must grow past a sub-natural floor to its own 29dp '
+                'the card must grow past a sub-natural floor to its own 28dp '
                 'content (no clipping) — if it renders at 12dp the class-doc '
                 'floor-not-ceiling contract is broken.',
           );
@@ -236,7 +247,7 @@ void main() {
             closeTo(rendered, 0.5),
             reason:
                 'occupiedHeightFor echoed the 12dp floor instead of predicting '
-                'the 29dp natural — the culling placeholder would under-'
+                'the 28dp natural — the culling placeholder would under-'
                 'reserve and every card below would slide off its gridline.',
           );
         },
