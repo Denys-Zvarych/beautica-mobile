@@ -61,8 +61,10 @@
 // >=1h card keeps the labelled pill, unchanged.
 //
 // OPEN TENSION — the ROW-1 GLYPH pass (2026-07-24) is FULL-ONLY.
-// [_buildFullBody]'s client name now opens with a `person_outlined` glyph
-// (see its row-1 comment); compact row 1's client name does NOT, so on this
+// [_buildFullBody]'s client name now opens with a 16dp [_ClientAvatarMark]
+// — the client's own photo when the booking carries one, falling back to the
+// `person_outlined` glyph the pass originally introduced (see its row-1
+// comment); compact row 1's client name has NEITHER, so on this
 // one axis the "miniature" claim is currently weaker than it was. That is
 // scope, not oversight: the brief was the >=1h card, and compact's own 41dp
 // budget is at ZERO slack at textScaler 1.0 (the table above), so a 16dp
@@ -156,7 +158,10 @@
 // move at all in THIS pass: compact row 1's height is set by the client name's
 // taller 15dp line box either way.
 //
-// Dropping the avatar is the main height saving, not a smaller font pass —
+// Dropping the avatar ROW is the main height saving, not a smaller font pass.
+// (The client's PHOTO did later return — but inline, inside row 1's existing
+// 16dp glyph footprint, as [_ClientAvatarMark]; that costs zero height by
+// construction and is a different thing from the 42dp row discussed here.)
 // [ClientAvatarGradients] (`core/theme/brand_colors.dart`, shared/public) and
 // this file's own [_ClientAvatar] widget are deliberately NOT deleted: they
 // remain available for any future non-timeline card that wants the gradient
@@ -260,18 +265,29 @@
 // `maxHeight`) — there is still no mechanism anywhere in this widget that
 // could crop a layout's paint to a box smaller than its natural size.
 //
-// WHAT DID NOT COME BACK — the design's avatar + master-name rows
+// WHAT DID NOT COME BACK — the design's avatar + master-name ROWS
 // -----------------------------------------------------------------------
 // The design's `BookingCard` (this file's source of truth,
 // `docs/signup-designs/SalonManagementDesign/lib/widgets/
-// booking_widgets.dart`) opens with a client avatar + a master-name row
-// under it. Neither returns here, full layout or not: this card renders
-// the INDEPENDENT master's own bookings, so naming which teammate served
-// the client (the master-name row's whole purpose) is meaningless, and the
-// original compact pass's rationale for dropping the avatar (pure height
-// saving) is orthogonal to whether that height then goes to a fuller
-// layout or stays blank — a locked product decision, not a pass that ran
-// out of room.
+// booking_widgets.dart`) opens with a 42dp client avatar on its own row + a
+// master-name row under it. Neither ROW returns here, full layout or not:
+// this card renders the INDEPENDENT master's own bookings, so naming which
+// teammate served the client (the master-name row's whole purpose) is
+// meaningless, and the original compact pass's rationale for dropping the
+// avatar row (pure height saving) is orthogonal to whether that height then
+// goes to a fuller layout or stays blank — a locked product decision, not a
+// pass that ran out of room.
+//
+// THE PHOTO ITSELF DID COME BACK, AT 16dp (2026-07-24). The backend now
+// ships `clientAvatarUrl` on `BookingDetailResponse`, and [_buildFullBody]'s
+// row 1 renders it INSIDE the `person_outlined` glyph's existing 16dp box
+// via [_ClientAvatarMark] — the glyph demoted to that widget's fallback.
+// This is not the design's avatar row returning by the back door and does
+// not reopen the decision above: the mark occupies a slot that already
+// existed, at a size already paid for, so the body's natural height is
+// unchanged at 118dp (measured, not argued — see
+// [MasterBookingCard.fullLayoutNaturalHeight]). The 42dp row, the second
+// identity line and the master name all remain out.
 //
 // PRICE MAY BE A FROZEN BAND — «450 ₴» OR «300–500 ₴»
 // -----------------------------------------------------------------------
@@ -513,6 +529,14 @@ class MasterBookingCard extends StatefulWidget {
   /// client-name row's tallest child and took that row 15 -> 16dp. That is
   /// the ONLY term that moved; nothing else in the stack was retuned to
   /// absorb it.
+  ///
+  /// STILL 118 after the CLIENT-PHOTO pass later the same day. Row 1's
+  /// leading slot became [_ClientAvatarMark] (photo when the booking has one,
+  /// that same glyph when it does not), and that widget renders an exactly
+  /// 16 x 16dp box in ALL FOUR of its states — loaded, loading, errored and
+  /// null — precisely so this constant could not move. Re-measured at 118.0
+  /// with and without a photo. See that widget's "SIZE INVARIANT" section:
+  /// it exists because of the clearance arithmetic below.
   ///
   /// ONLY AT 1.0. `Icon` does not scale with `textScaler`, so at 1.15 (a
   /// 17dp line box) and 1.3 (20dp) the TEXT is still the row's tallest child
@@ -1087,15 +1111,17 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     );
   }
 
-  /// The design's fuller layout — the client name (led by an accent
-  /// `person_outlined` glyph), a hairline divider, the service name (below
-  /// the divider, with the design's accent
+  /// The design's fuller layout — the client name (led by a 16dp
+  /// [_ClientAvatarMark]: the client's photo when the booking carries one,
+  /// else the accent `person_outlined` glyph), a hairline divider, the service
+  /// name (below the divider, with the design's accent
   /// `spa_outlined` glyph) paired with the booking's start–end time range
   /// (date-free — see this file's "The time is a RANGE" header section), then
   /// price + status. Only ever built once [build] has already confirmed the
   /// box is >= [_kFullLayoutMinHeight] — see this file's "Adaptive
-  /// full/compact layout" header section. Deliberately has NO avatar and NO
-  /// master-name row — see that same section's "WHAT DID NOT COME BACK".
+  /// full/compact layout" header section. Still has NO 42dp avatar ROW and NO
+  /// master-name row — see that same section's "WHAT DID NOT COME BACK", which
+  /// the 16dp inline mark does not reopen.
   Widget _buildFullBody(Booking b, String clientName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1141,14 +1167,22 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // the card's `Semantics(label:)` (`masterBookingCardSemantics`), so
         // `semanticLabel` is deliberately left null — naming it here would
         // announce the same person twice.
+        //
+        // THE GLYPH IS NOW THE FALLBACK, NOT THE ONLY STATE (2026-07-24)
+        // ---------------------------------------------------------------
+        // The backend ships `clientAvatarUrl` on `BookingDetailResponse`, so
+        // when the booking's client has a photo it renders HERE, inside the
+        // very same 16dp box, and the `person_outlined` glyph above becomes
+        // the fallback for the four cases that have no usable photo. See
+        // [_ClientAvatarMark] for the size invariant, the https guard and the
+        // four states — the one thing that must never change is that this
+        // slot measures 16 × 16dp in EVERY state, because
+        // [MasterBookingCard.fullLayoutNaturalHeight] (118) has zero
+        // clearance at 59 minutes and only 2dp at 60.
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
-            const Icon(
-              Icons.person_outlined,
-              size: 16,
-              color: BrandColors.accent,
-            ),
+            _ClientAvatarMark(avatarUrl: b.clientAvatarUrl),
             const SizedBox(width: VelvetSpacing.sm),
             // `Expanded`, because this is a `Row` now: an unbounded child
             // would make `maxLines: 1` + `ellipsis` inert and let a long
@@ -1797,6 +1831,233 @@ class TimelineStatusBadge extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The 16dp mark that OPENS [_MasterBookingCardState._buildFullBody]'s row 1 —
+/// the booking client's own photo when there is one, and the
+/// `person_outlined` glyph that used to be the only thing here when there is
+/// not.
+///
+/// ## THE SIZE INVARIANT — read this before touching anything below
+///
+/// This widget renders a box of EXACTLY [_kSize] × [_kSize] dp in all four
+/// states. Not "about", not "at most": exactly, and in the error and loading
+/// states too. The full body has effectively no vertical headroom —
+/// [MasterBookingCard.fullLayoutNaturalHeight] is 118dp against
+/// `BookingsTimelineGrid._kHourH`'s 120dp/hour, so a 59-minute booking's floor
+/// is 118 (zero clearance) and an hour-long one's is 120 (2dp). Row 1's height
+/// IS this mark's height (16dp beats the client name's 15dp line box at
+/// textScaler 1.0 — that is the whole reason the constant is 118 and not 117),
+/// so one stray dp here silently demotes every hour-long booking — most of a
+/// working day — to the compact layout. The size is pinned from the OUTSIDE by
+/// `master_booking_card_test.dart`'s 43.5dp interior-headroom assertion, which
+/// a `minHeight` floor cannot pad away.
+///
+/// That is why the photo goes INSIDE the glyph's footprint rather than beside
+/// it or scaled up to a conventional avatar size, and why every state below
+/// resolves to the same [SizedBox].
+///
+/// ## THE FOUR STATES
+///
+///   * **loaded** — the photo, `BoxFit.cover`-clipped to a 16dp disc with a
+///     hairline camel ring (see [_kRingAlpha]).
+///   * **loading** — the FALLBACK GLYPH, swapped for the photo on the first
+///     decoded frame. Deliberately not a spinner, not a shimmer and not a
+///     blank hole: at 16dp a progress affordance is illegible chrome, and a
+///     hole would break the left rail that rows 1 and 2 form by opening on the
+///     same x (see row 1's "IT ALSO BUYS A LEFT RAIL" note). Showing the
+///     already-correct fallback means the row is never in a state a master
+///     cannot read, and the swap is a repaint of one 16dp disc — no relayout,
+///     because the box is fixed either way. No cross-fade: it would cost an
+///     animation ticker per card across up to ~100 cards in a scrolling
+///     timeline, to soften a transition the size of a fingernail.
+///   * **error** (dead URL, 404, offline, malformed image) — the glyph, via
+///     `errorBuilder`. A booking row must never degrade into a broken-image
+///     box.
+///   * **null / non-https** — the glyph, without ever touching the network.
+///
+/// ## THE https GUARD — mirrored, not invented
+///
+/// `Image.network` builds its own `HttpClient`; it does NOT go through the
+/// app's pinned Dio or any of its interceptors. So the scheme is checked here,
+/// exactly as `ResultThumbnail` (`features/discovery`) and `_MasterPhoto`
+/// (`booking_card.dart`, the closest sibling — a booking card rendering a
+/// remote avatar) already do: anything that is not `https` falls to the glyph
+/// rather than being requested, so a compromised or downgraded `http://` URL
+/// cannot leak the master's IP in cleartext if ATS/NSC is ever relaxed.
+/// `clientAvatarUrl` is a public R2 object URL and carries no credential of
+/// its own — see `Booking.clientAvatarUrl`.
+///
+/// ## SEMANTICS — deliberately silent
+///
+/// `excludeFromSemantics: true`. The client's name is already announced by the
+/// card's own `Semantics(label:)` (`masterBookingCardSemantics`), and the
+/// glyph this replaces was decorative for that same reason. Left at the
+/// default, `Image` emits an `image`-flagged node into the card's subtree —
+/// a second, empty announcement inside a button that already reads its
+/// person's name, and a place a URL could later leak into the a11y tree.
+///
+/// ## CACHING
+///
+/// Nothing is added here on purpose. Flutter's own `ImageCache` keys on the
+/// `ResizeImage(NetworkImage(url), …)` this builds, so the same client on
+/// three bookings in one day resolves to ONE key: one fetch, one decode,
+/// shared by all three — and cards re-entering the timeline's culling window
+/// hit the cache rather than the network. It is memory-only (no disk tier),
+/// so the cost is one GET per distinct client per app session.
+///
+/// ## MEMORY — why BOTH axes are bound, and why the policy is `fit`
+///
+/// The decode is sized to the physical pixels this 16dp disc occupies, not to
+/// the R2 object's native resolution. That much is obvious; the two non-obvious
+/// parts are below, and both were mobile-perf findings.
+///
+/// **Both axes, not just width.** `ResizeImagePolicy` constrains only the axes
+/// you give it: with `width` alone the other dimension is whatever the source's
+/// aspect ratio implies, so the footprint is unbounded in height. A 1:10 source
+/// decodes to `side × 10·side` — an order of magnitude over budget — and
+/// `BoxFit.cover` then throws almost all of it away. Binding both axes makes
+/// the ceiling `(16 · devicePixelRatio)² × 4` bytes REGARDLESS of source shape:
+/// ~7KB at DPR 2.625, ~9KB at DPR 3, ~16KB at DPR 4. (The pre-2026-07-24 doc
+/// claimed a flat "~9KB"; that was only ever true for a square source at DPR 3.)
+///
+/// **`fit`, not `exact`.** With both axes set, `ResizeImagePolicy.exact` is
+/// `BoxFit.fill` at decode time — it would squash a 3:4 phone photo into a
+/// square before `BoxFit.cover` ever sees it. Avatars are uploaded through
+/// `file_picker` with no crop step and are stored byte-for-byte, so non-square
+/// sources are the NORM here, not the edge case. `fit` scales the source down
+/// until it fits inside `side × side` with its aspect ratio intact; `cover`
+/// then crops as it always did. The cost is that `cover` resamples the short
+/// axis up a little (≈1.3× for 3:4, ≈1.75× for 9:16) — invisible on a 16dp
+/// disc under a ring, and strictly cheaper than the old width-only decode in
+/// the common case (32×42 rather than 42×56).
+///
+/// ## ANIMATED SOURCES — pinned to frame 0
+///
+/// The backend's `MediaService.MIME_TO_EXT` accepts `image/webp`, sniffs MIME
+/// from magic bytes, and neither transcodes nor re-encodes on upload — and
+/// animated WebP shares the RIFF/WEBP signature with still WebP. So a client
+/// CAN upload an animated avatar today, and it would land here.
+///
+/// `ResizeImage` does not flatten animation: a multi-frame codec still yields a
+/// `MultiFrameImageStreamCompleter`, which re-arms a `Timer` after every frame
+/// for as long as `repetitionCount == -1` (the usual "loop forever"). Neither
+/// the 16dp box nor the decode bounds above suppress it. One shared completer
+/// per URL, but a `setState` and a repaint in EVERY card listening to it, all
+/// day, for a decorative fingernail-sized disc.
+///
+/// `TickerMode(enabled: false)` is Flutter's own documented answer (see
+/// `Image`'s class doc: "If the animation is paused when the image first loads,
+/// the first frame will be displayed and then animation will stop"). `_ImageState`
+/// reads it in `didChangeDependencies`, and on the first delivered frame calls
+/// `_stopListeningToStream(keepStreamAlive: true)`. Dropping that listener takes
+/// the completer to `hasListeners == false`, which cancels its timer — the
+/// `keepAlive` handle it leaves behind is a separate counter and does NOT re-arm
+/// the loop. Net: frame 0 renders, the decode loop never starts, the cache entry
+/// stays warm.
+///
+/// This is public API and one widget deep — deliberately NOT a custom
+/// `ImageProvider`/`instantiateImageCodec` path, which for a 16dp glyph would
+/// trade a battery problem for `ui.Image` refcount crashes. Rejecting or
+/// flattening animated WebP at upload is still the better long-term fix (it is
+/// one choke point and covers every consumer, not just this card); this guard
+/// is what protects the app from objects already in the bucket.
+class _ClientAvatarMark extends StatelessWidget {
+  const _ClientAvatarMark({required this.avatarUrl});
+
+  /// The client's public photo URL, or null — see `Booking.clientAvatarUrl`.
+  /// Null covers BOTH a guest/LINK booking and a registered client who never
+  /// uploaded one, and this widget deliberately renders them identically.
+  final String? avatarUrl;
+
+  /// The glyph's own size, and therefore row 1's height and 1dp of
+  /// [MasterBookingCard.fullLayoutNaturalHeight]. See the size invariant
+  /// above before changing it.
+  static const double _kSize = 16;
+
+  /// The photo's hairline ring, at the same alpha as the card's own border
+  /// ([_MasterBookingCardState._kBorderAlpha]) and in the same camel — no new
+  /// colour, the same edge treatment one level down.
+  ///
+  /// It exists because row 1 and row 2 open with a 16dp `BrandColors.accent`
+  /// glyph at the same x, which is what makes them read as one left rail. A
+  /// bare photograph in that slot leaves the accent register entirely and the
+  /// rail stops resolving as a column; the ring puts the accent mark back
+  /// around the photo while the photo carries the identity.
+  ///
+  /// Painted as a FOREGROUND decoration, so it overlays the image's edge
+  /// rather than deflating it — a `Container` border would inset the child to
+  /// 14dp and leave an antialiased seam. NO shadow of any kind: a circle
+  /// paired with a `boxShadow` rasterizes as a hard square under Impeller-GLES
+  /// (pinned for this file by `impeller_circle_shadow_guard_test.dart`).
+  static const double _kRingAlpha = _MasterBookingCardState._kBorderAlpha;
+
+  static final BoxDecoration _ring = BoxDecoration(
+    shape: BoxShape.circle,
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: _kRingAlpha),
+    ),
+  );
+
+  /// The fallback — byte-identical to the glyph this slot carried before the
+  /// photo landed, so the no-photo card is unchanged.
+  static const Widget _glyph = Icon(
+    Icons.person_outlined,
+    size: _kSize,
+    color: BrandColors.accent,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final String? url = avatarUrl;
+    final bool isHttps =
+        url != null && url.isNotEmpty && Uri.tryParse(url)?.scheme == 'https';
+    if (!isHttps) return _glyph;
+
+    // Decode at the physical pixel size this 16dp disc actually occupies
+    // rather than at the R2 object's native resolution — see MEMORY above for
+    // why BOTH axes are bound and why the policy is `fit` and not `exact`.
+    final int side = (_kSize * MediaQuery.devicePixelRatioOf(context)).round();
+
+    return SizedBox(
+      height: _kSize,
+      width: _kSize,
+      child: DecoratedBox(
+        decoration: _ring,
+        position: DecorationPosition.foreground,
+        child: ClipOval(
+          // See ANIMATED SOURCES above: this pins the mark to frame 0 and
+          // detaches it from the stream, so an animated WebP cannot drive a
+          // decode/repaint loop for the life of the timeline.
+          child: TickerMode(
+            enabled: false,
+            // Deliberately NOT `Image.network`: its `cacheWidth`/`cacheHeight`
+            // sugar hard-codes `ResizeImagePolicy.exact`, which with both axes
+            // set is `BoxFit.fill` at DECODE time and would squash every
+            // non-square avatar. Spelling the provider out is the only way to
+            // reach `fit`.
+            child: Image(
+              image: ResizeImage(
+                NetworkImage(url),
+                width: side,
+                height: side,
+                policy: ResizeImagePolicy.fit,
+              ),
+              fit: BoxFit.cover,
+              excludeFromSemantics: true,
+              // Rebuilt on every press (`_pressed` toggles `setState`), but
+              // `NetworkImage`/`ResizeImage` are value-equal (and
+              // `ResizeImageKey` folds in the policy), so each rebuild
+              // resolves to the SAME `ImageCache` entry — never a refetch.
+              frameBuilder: (_, Widget child, int? frame, bool wasSync) =>
+                  wasSync || frame != null ? child : _glyph,
+              errorBuilder: (_, _, _) => _glyph,
+            ),
           ),
         ),
       ),

@@ -74,6 +74,27 @@ abstract class Booking with _$Booking {
     /// `guestSurname` column is optional, so a guest booking legitimately
     /// carries a first name and no surname.
     String? clientLastName,
+
+    /// The client's profile photo — an already-PUBLIC Cloudflare R2 object
+    /// URL, exactly like [masterAvatarUrl] (never a signed URL, never a raw
+    /// storage key), so it needs no auth header and can be handed straight to
+    /// an `Image.network`.
+    ///
+    /// ## Null means "render the fallback", and NOTHING else
+    ///
+    /// The backend sends null in exactly two cases and they are deliberately
+    /// indistinguishable on the wire: a guest/LINK booking (no registered
+    /// account at all, so no photo AND no fallback — unlike
+    /// [clientFirstName]/[clientLastName], which the server does resolve from
+    /// the OTP-verified guest name), or a registered client who never uploaded
+    /// one. **Do not branch on which.** Both mean strictly "this booking has
+    /// no client photo".
+    ///
+    /// Null never encodes WHO IS ASKING. The value is a function of the
+    /// booking alone, identical on `GET /bookings/{id}` and on every row of
+    /// `GET /bookings/me`, for the provider and for the client reading their
+    /// own booking — so it is safe to cache by booking id across both.
+    String? clientAvatarUrl,
     required String serviceId,
     required String serviceName,
     String? categoryName,

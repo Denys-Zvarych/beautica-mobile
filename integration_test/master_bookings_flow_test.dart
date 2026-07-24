@@ -1129,12 +1129,36 @@ void main() {
           startsAt: firstStart, // 09:00–09:45 Kyiv
           duration: const Duration(minutes: 45),
         ),
-        fb.datasetBookingRow(
-          id: 'sixty',
-          status: 'CONFIRMED',
-          startsAt: firstStart.add(const Duration(minutes: 60)),
-          duration: const Duration(minutes: 60), // 10:00–11:00 Kyiv
-        ),
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'sixty',
+            status: 'CONFIRMED',
+            startsAt: firstStart.add(const Duration(minutes: 60)),
+            duration: const Duration(minutes: 60), // 10:00–11:00 Kyiv
+          ),
+          // THE FULL CARD IS THE ONLY ONE WITH A ROW-1 CLIENT PHOTO
+          // (`_ClientAvatarMark`, 2026-07-24), so this is the one row in the
+          // suite that can carry `clientAvatarUrl` end to end: JSON key ->
+          // @BuiltValueField(wireName:) -> BookingDetailResponse -> the real
+          // repository deserializer -> BookingMapper -> Booking -> the card,
+          // over the real HTTP boundary rather than a hand-built fixture.
+          //
+          // WHY THIS IS NOT JUST A DUPLICATE OF THE WIDGET TIER. The widget
+          // tests SIMULATE a failed fetch with `_FailingHttpClient` +
+          // `debugNetworkImageHttpClientProvider`. On a device there is no
+          // `HttpOverrides` at all: `Image.network` builds a real `HttpClient`
+          // and really fails, so the mark's frameBuilder/errorBuilder path runs
+          // for real inside a real scrolling timeline. What must survive that
+          // is the height — see the assertions below.
+          //
+          // 127.0.0.1:9 (discard) rather than a hostname: connection refused
+          // immediately, no DNS, no packet leaves the handset, no dependence
+          // on whether the device has internet. https, so the mark's scheme
+          // guard lets it through and an `Image` is actually constructed —
+          // an http:// URL would be rejected before the network and would
+          // prove nothing.
+          'clientAvatarUrl': 'https://127.0.0.1:9/avatars/client-1.png',
+        },
       ]);
 
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -1278,6 +1302,45 @@ void main() {
             'body\'s own natural means the compact body was selected after '
             'all, whatever the divider keys above reported',
       );
+      // ── THE CLIENT PHOTO SURVIVED THE WIRE, AND COST NOTHING. ─────────────
+      // The `sixty` row seeds an https `clientAvatarUrl` (see the fixture),
+      // so if the field made it through the real deserializer and the real
+      // mapper the full card's row-1 mark built an `Image`; if any hop dropped
+      // it, the mark short-circuits to the glyph and constructs none. That is
+      // the single observable difference between "carried" and "dropped" —
+      // the picture itself can never render here, because the URL is a
+      // deliberately-refused local port.
+      expect(
+        find.descendant(of: longCard, matching: find.byType(Image)),
+        findsOneWidget,
+        reason:
+            'clientAvatarUrl was seeded on this row, so the FULL card must '
+            'have constructed a network Image for it. Zero here means a hop '
+            'between the JSON key and Booking.clientAvatarUrl dropped the '
+            'field — a total, silent feature loss that looks exactly like '
+            '"this client has no photo" everywhere else in the suite.',
+      );
+      expect(
+        find.descendant(of: shortCard, matching: find.byType(Image)),
+        findsNothing,
+        reason:
+            'the COMPACT card has no row-1 mark at all, so no seeded URL can '
+            'put an Image in it — this keeps the assertion above honest',
+      );
+      // The height re-assertion that makes the two above worth running: the
+      // real, really-failing fetch must not move the box off its hour line.
+      // `longHeight` was measured with the photo in flight or already errored.
+      expect(
+        longHeight,
+        closeTo(120, 0.5),
+        reason:
+            'the 60-minute card measured ${longHeight}dp WITH a client photo '
+            'in its row-1 slot. The mark is 16dp in every one of its four '
+            'states by construction; a different number here means a real '
+            'network image resized the row in a way no mocked widget test '
+            'could observe.',
+      );
+
       // THE SCALE-FREE INVARIANT: both durations clear their layout's natural
       // height, so both boxes equal their wall-clock bands exactly — and the
       // ratio of the boxes must therefore equal the ratio of the durations,

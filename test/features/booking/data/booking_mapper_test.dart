@@ -349,6 +349,129 @@ void main() {
     );
   });
 
+  // ==========================================================================
+  // `clientAvatarUrl` — the booking client's photo (2026-07-24).
+  //
+  // `_ClientAvatarMark` (`master_booking_card.dart`) renders this straight into
+  // an `Image.network`, guarded by `url != null && url.isNotEmpty && scheme ==
+  // 'https'`. Two things about the mapper are therefore load-bearing, and
+  // NEITHER is visible from the widget tier — a widget test builds its own
+  // `Booking` and never sees the DTO:
+  //
+  //   1. THE PASSTHROUGH. If the mapper ever stops carrying the field, every
+  //      card silently falls back to the glyph. No test goes red: the glyph is
+  //      a legitimate state, so the suite reads a total feature loss as the
+  //      "client has no photo" path.
+  //
+  //   2. NO `?? ''`. Every sibling String field in this mapper IS coalesced
+  //      (`serviceId: dto.masterServiceId ?? ''`), so adding one here is the
+  //      natural-looking edit — and it would be wrong. An empty string is not
+  //      a URL. It survives the `isNotEmpty` clause only by accident of that
+  //      clause existing (the scheme check catches it too, so the mark's own
+  //      behaviour would not change today) — but it would put a bare `''` on
+  //      the domain object, where "no photo" stops being expressible as null
+  //      and any future consumer that only null-checks starts fetching it.
+  //      This pins the deliberate un-coalesced choice.
+  //
+  // The third test goes through `standardSerializers` rather than the typed
+  // builder, so the `@BuiltValueField(wireName: 'clientAvatarUrl')` binding is
+  // pinned too: a backend rename or a regenerated client that drops the field
+  // fails HERE, at unit level, instead of shipping as a blank slot.
+  // ==========================================================================
+  group('BookingMapper.fromDto — clientAvatarUrl', () {
+    test('a present https photo URL maps through unchanged', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-with-photo'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..clientAvatarUrl = 'https://cdn.example.com/avatars/c-1.png'
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(
+        b.clientAvatarUrl,
+        'https://cdn.example.com/avatars/c-1.png',
+        reason:
+            'the mark hands this value straight to Image.network — any '
+            'rewriting, trimming or re-hosting here changes what is fetched',
+      );
+    });
+
+    test('an absent photo maps to NULL — never to the empty string', () {
+      // _validDto never sets clientAvatarUrl → null on the wire. This is BOTH
+      // the guest/LINK booking and the registered-client-with-no-photo case;
+      // the backend makes them deliberately indistinguishable.
+      final Booking b = BookingMapper.fromDto(
+        _validDto(id: 'booking-no-photo'),
+      );
+
+      expect(
+        b.clientAvatarUrl,
+        isNull,
+        reason:
+            'a missing photo must stay null all the way to the card, which '
+            'reads null as "render the fallback glyph"',
+      );
+      expect(
+        b.clientAvatarUrl,
+        isNot(''),
+        reason:
+            'the deliberate NON-coalescing pin: a `?? \'\'` here would put a '
+            'non-URL on the domain object and make "no photo" inexpressible '
+            'as null. The card\'s https guard would still reject it, but only '
+            'incidentally — this must not depend on that luck.',
+      );
+    });
+
+    test('the wire name survives deserialization — a renamed or dropped '
+        '`clientAvatarUrl` field fails here, not as a blank slot on the '
+        'card', () {
+      final BookingDetailResponse? dto = standardSerializers
+          .deserializeWith(BookingDetailResponse.serializer, <String, Object?>{
+            'id': 'booking-wire',
+            'masterId': 'master-1',
+            'masterServiceId': 'service-1',
+            'masterFirstName': 'Оля',
+            'masterLastName': 'Коваль',
+            'masterType': 'INDEPENDENT_MASTER',
+            'serviceName': 'Манікюр',
+            'status': 'CONFIRMED',
+            'startsAt': '2026-07-10T10:00:00Z',
+            'endsAt': '2026-07-10T11:00:00Z',
+            'priceAtBooking': 500,
+            'durationMinutesAtBooking': 60,
+            'canReview': false,
+            'clientAvatarUrl': 'https://cdn.example.com/avatars/c-1.png',
+          });
+
+      expect(dto, isNotNull, reason: 'precondition: the envelope decodes');
+
+      final Booking b = BookingMapper.fromDto(dto!);
+
+      expect(
+        b.clientAvatarUrl,
+        'https://cdn.example.com/avatars/c-1.png',
+        reason:
+            'JSON key -> @BuiltValueField(wireName:) -> DTO -> mapper -> domain '
+            'is the whole contract surface this feature added; a rename on '
+            'either side must fail loudly here',
+      );
+    });
+  });
+
   group('BookingStatus.fromWire', () {
     // Phase 7.1 reversed the old throw-on-unknown contract (a dropped booking
     // is invisible to the master, so the row must survive). Security S1 then

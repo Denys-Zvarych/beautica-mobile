@@ -43,6 +43,7 @@ part 'booking_detail_response.g.dart';
 /// * [categoryName]
 /// * [canReview]
 /// * [appointmentId] - The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). Strictly additive; when non-null the client can fetch the full visit via GET /appointments/{appointmentId}. Both mapper paths (entity + CLIENT projection) read the SAME appointment_id column, so they never diverge.
+/// * [clientAvatarUrl] - The booking client's profile photo — the same already-public Cloudflare R2 object URL served by masterAvatarUrl and every other avatar field in this API (never a signed URL, never a raw storage key). Lets a provider timeline render the client's photo instead of a generic glyph. NULL in two cases, both of which must render the fallback glyph: (1) a guest (LINK) booking, which has no registered account at all (client_id IS NULL, V89 chk_bookings_guest_fields) and therefore no photo and no fallback — unlike clientFirstName/clientLastName, which do fall back to the OTP-verified guest name; (2) a registered client who has never uploaded one. Do not distinguish the two client-side. Both causes mean strictly 'this booking has no client photo' — NULL here never encodes who is asking. The value depends only on the booking, so the same booking yields the same value on GET /bookings/{id} and on every row of GET /bookings/me, for a provider and for the client themselves alike; a client reading their own booking sees their own photo. Safe to cache by booking id across both endpoints.
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -147,6 +148,10 @@ abstract class BookingDetailResponse
   /// The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). Strictly additive; when non-null the client can fetch the full visit via GET /appointments/{appointmentId}. Both mapper paths (entity + CLIENT projection) read the SAME appointment_id column, so they never diverge.
   @BuiltValueField(wireName: r'appointmentId')
   String? get appointmentId;
+
+  /// The booking client's profile photo — the same already-public Cloudflare R2 object URL served by masterAvatarUrl and every other avatar field in this API (never a signed URL, never a raw storage key). Lets a provider timeline render the client's photo instead of a generic glyph. NULL in two cases, both of which must render the fallback glyph: (1) a guest (LINK) booking, which has no registered account at all (client_id IS NULL, V89 chk_bookings_guest_fields) and therefore no photo and no fallback — unlike clientFirstName/clientLastName, which do fall back to the OTP-verified guest name; (2) a registered client who has never uploaded one. Do not distinguish the two client-side. Both causes mean strictly 'this booking has no client photo' — NULL here never encodes who is asking. The value depends only on the booking, so the same booking yields the same value on GET /bookings/{id} and on every row of GET /bookings/me, for a provider and for the client themselves alike; a client reading their own booking sees their own photo. Safe to cache by booking id across both endpoints.
+  @BuiltValueField(wireName: r'clientAvatarUrl')
+  String? get clientAvatarUrl;
 
   BookingDetailResponse._();
 
@@ -391,6 +396,13 @@ class _$BookingDetailResponseSerializer
       yield r'appointmentId';
       yield serializers.serialize(
         object.appointmentId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.clientAvatarUrl != null) {
+      yield r'clientAvatarUrl';
+      yield serializers.serialize(
+        object.clientAvatarUrl,
         specifiedType: const FullType.nullable(String),
       );
     }
@@ -642,6 +654,14 @@ class _$BookingDetailResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.appointmentId = valueDes;
+          break;
+        case r'clientAvatarUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.clientAvatarUrl = valueDes;
           break;
         default:
           unhandled.add(key);

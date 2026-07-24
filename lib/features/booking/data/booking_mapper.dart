@@ -114,6 +114,13 @@ abstract final class BookingMapper {
       clientId: dto.clientId?.toString(),
       clientFirstName: dto.clientFirstName,
       clientLastName: dto.clientLastName,
+      // NOT coalesced to '' for the same reason as the two names above, and
+      // one more: the empty string is not a URL, so defaulting would hand
+      // `Image.network` a value it would try to fetch. Null stays null all the
+      // way to the card, where it selects the fallback glyph. See
+      // `Booking.clientAvatarUrl` — null here is "no photo", never "not
+      // permitted to see it".
+      clientAvatarUrl: dto.clientAvatarUrl,
       serviceId: dto.masterServiceId ?? '',
       serviceName: dto.serviceName ?? '',
       categoryName: dto.categoryName,

@@ -238,6 +238,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final bool? canReview;
   @override
   final String? appointmentId;
+  @override
+  final String? clientAvatarUrl;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -274,7 +276,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.locationNote,
       this.categoryName,
       this.canReview,
-      this.appointmentId})
+      this.appointmentId,
+      this.clientAvatarUrl})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -319,7 +322,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         locationNote == other.locationNote &&
         categoryName == other.categoryName &&
         canReview == other.canReview &&
-        appointmentId == other.appointmentId;
+        appointmentId == other.appointmentId &&
+        clientAvatarUrl == other.clientAvatarUrl;
   }
 
   @override
@@ -356,6 +360,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, canReview.hashCode);
     _$hash = $jc(_$hash, appointmentId.hashCode);
+    _$hash = $jc(_$hash, clientAvatarUrl.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -393,7 +398,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('locationNote', locationNote)
           ..add('categoryName', categoryName)
           ..add('canReview', canReview)
-          ..add('appointmentId', appointmentId))
+          ..add('appointmentId', appointmentId)
+          ..add('clientAvatarUrl', clientAvatarUrl))
         .toString();
   }
 }
@@ -543,6 +549,11 @@ class BookingDetailResponseBuilder
   set appointmentId(String? appointmentId) =>
       _$this._appointmentId = appointmentId;
 
+  String? _clientAvatarUrl;
+  String? get clientAvatarUrl => _$this._clientAvatarUrl;
+  set clientAvatarUrl(String? clientAvatarUrl) =>
+      _$this._clientAvatarUrl = clientAvatarUrl;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -581,6 +592,7 @@ class BookingDetailResponseBuilder
       _categoryName = $v.categoryName;
       _canReview = $v.canReview;
       _appointmentId = $v.appointmentId;
+      _clientAvatarUrl = $v.clientAvatarUrl;
       _$v = null;
     }
     return this;
@@ -633,6 +645,7 @@ class BookingDetailResponseBuilder
           categoryName: categoryName,
           canReview: canReview,
           appointmentId: appointmentId,
+          clientAvatarUrl: clientAvatarUrl,
         );
     replace(_$result);
     return _$result;
