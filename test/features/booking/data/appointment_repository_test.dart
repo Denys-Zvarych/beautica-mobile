@@ -7,6 +7,17 @@
 // / plain 409, 429, review 409/403). Mirrors `booking_repository_test.dart`.
 //
 // Pure Dart: no ProviderScope, no widget tree.
+//
+// WHY EVERY INSTANT HERE IS A FIXED PAST LITERAL
+// ----------------------------------------------
+// Nothing on this path reads the wall clock — the repository maps DTOs and
+// serialises the create body, and `startsAt` is asserted as an EXACT
+// input⇄output pair (the domain `startAt` handed to `createAppointment` must
+// reappear verbatim on the captured wire body). A `futureBookingStart()`
+// anchor would make that pair non-deterministic for no gain. A literal in a
+// past year can never become "upcoming", so it is not the time bomb
+// `scripts/forbid_stale_future_date_fixture.sh` guards against and the gate
+// exempts it automatically.
 
 import 'package:beautica_api/beautica_api.dart' hide CreateAppointmentRequest;
 import 'package:beautica_api/beautica_api.dart'
@@ -40,8 +51,8 @@ AppointmentItemResponse _buildItem({
           ..bookingId = bookingId
           ..masterServiceId = masterServiceId
           ..serviceName = serviceName
-          ..startsAt = DateTime.utc(2026, 7, 10, 10)
-          ..endsAt = DateTime.utc(2026, 7, 10, 11)
+          ..startsAt = DateTime.utc(2020, 7, 10, 10)
+          ..endsAt = DateTime.utc(2020, 7, 10, 11)
           ..durationMinutesAtBooking = 60
           ..priceAtBooking = 500)
         .build();
@@ -55,8 +66,8 @@ AppointmentDetailResponse _buildDetail({String id = 'appt-1'}) =>
           ..masterLastName = 'Коваль'
           ..masterType =
               AppointmentDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
-          ..startsAt = DateTime.utc(2026, 7, 10, 10)
-          ..endsAt = DateTime.utc(2026, 7, 10, 11)
+          ..startsAt = DateTime.utc(2020, 7, 10, 10)
+          ..endsAt = DateTime.utc(2020, 7, 10, 11)
           ..totalDurationMinutes = 60
           ..totalPrice = 500
           ..canReview = false
@@ -141,7 +152,7 @@ void main() {
         (b) => b
           ..masterId = 'fallback-master'
           ..masterServiceIds = ListBuilder<String>(<String>['fallback-service'])
-          ..startsAt = DateTime.utc(2026, 1, 1),
+          ..startsAt = DateTime.utc(2020, 1, 1),
       ),
     );
     registerFallbackValue(AppointmentCancelRequest((b) => b));
@@ -158,7 +169,7 @@ void main() {
     final req = CreateAppointmentRequest(
       masterId: 'master-1',
       masterServiceIds: const <String>['s-1', 's-2'],
-      startAt: DateTime.utc(2026, 7, 10, 10),
+      startAt: DateTime.utc(2020, 7, 10, 10),
       idempotencyKey: 'key-1',
       clientComment: 'Please call before arriving',
     );
@@ -209,7 +220,7 @@ void main() {
       final body = captured[0] as wire.CreateAppointmentRequest;
       expect(body.masterId, 'master-1');
       expect(body.masterServiceIds.toList(), <String>['s-1', 's-2']);
-      expect(body.startsAt, DateTime.utc(2026, 7, 10, 10));
+      expect(body.startsAt, DateTime.utc(2020, 7, 10, 10));
       expect(body.idempotencyKey, 'key-1');
       expect(body.clientComment, 'Please call before arriving');
       expect(captured[1], 'key-1');

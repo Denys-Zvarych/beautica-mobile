@@ -27,7 +27,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+
+/// The visit's day, anchored to the real wall clock instead of written as an
+/// absolute literal — see `test/helpers/booking_fixture_dates.dart` for the
+/// time bomb this avoids.
+///
+/// These rows are stubbed into the **upcoming** tab. Nothing this suite asserts
+/// today reads `BookingDisplayX.isPast` — neither `MyBookingsScreen` nor
+/// `VisitCard` has a wall-clock branch, and the assertions here are card counts,
+/// keys, the price band, service names and two `context.push` targets. So the
+/// anchor is PRE-EMPTIVE, not load-bearing: it keeps the fixture honest to the
+/// tab it is stubbed into, so the first upcoming-only affordance this list grows
+/// later cannot quietly become a false negative on a DATE (the 2026-07-20
+/// incident, exactly).
+///
+/// Normalised to a fixed 10:00 UTC on that future day so the three fixtures
+/// keep the same relationship the pinned literals encoded — the visit's second
+/// service an hour after its first, the legacy booking the next day —
+/// regardless of what time of day the suite runs.
+DateTime _atTenUtc(DateTime d) => DateTime.utc(d.year, d.month, d.day, 10);
+
+final DateTime _visitStart = _atTenUtc(futureBookingStart());
+final DateTime _visitSecondStart = _visitStart.add(const Duration(hours: 1));
+final DateTime _legacyStart = _visitStart.add(const Duration(days: 1));
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -47,7 +71,7 @@ Booking _b({
   double? priceMax,
   DateTime? startAt,
 }) {
-  final DateTime start = startAt ?? DateTime.utc(2026, 8, 1, 10);
+  final DateTime start = startAt ?? _visitStart;
   return Booking(
     id: id,
     masterId: 'm1',
@@ -154,7 +178,7 @@ void main() {
       serviceName: 'Манікюр',
       durationMinutes: 60,
       price: 300,
-      startAt: DateTime.utc(2026, 8, 1, 10),
+      startAt: _visitStart,
     ),
     _b(
       id: 'v2',
@@ -163,13 +187,9 @@ void main() {
       durationMinutes: 90,
       price: 200,
       priceMax: 400,
-      startAt: DateTime.utc(2026, 8, 1, 11),
+      startAt: _visitSecondStart,
     ),
-    _b(
-      id: 'legacy-1',
-      serviceName: 'Стрижка',
-      startAt: DateTime.utc(2026, 8, 2, 10),
-    ),
+    _b(id: 'legacy-1', serviceName: 'Стрижка', startAt: _legacyStart),
   ];
 
   Future<void> pumpScreen(

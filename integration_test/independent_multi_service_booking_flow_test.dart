@@ -316,10 +316,14 @@ void main() {
             conflictingBookingId: 'other-booking-1',
             serviceName: 'Педикюр апаратний',
             masterName: 'Ірина Шевченко',
-            // future-date-ok: clashing booking's own window (pure absolute
-            // formatter, never asserted for freshness).
+            // The CLASHING booking's own window, not this visit's. It is only
+            // ever fed to a pure absolute formatter inside the inline error
+            // banner (asserted by key alone below), never compared against the
+            // wall clock — and `startsAt`/`endsAt` must stay a matched pair, so
+            // anchoring one of them to now would invert the window.
+            // future-date-ok: pinned conflict window, no wall-clock read.
             startsAt: DateTime.utc(2026, 7, 16, 14),
-            // future-date-ok: clashing booking's own window.
+            // future-date-ok: pinned conflict window, no wall-clock read.
             endsAt: DateTime.utc(2026, 7, 16, 15, 30),
           );
       final repo = _FakeAppointmentRepository(failOnceWith: conflict);

@@ -6,6 +6,19 @@
 // [VisitBookingEntryX] derives the card summary (count, summed duration, ordered
 // names, single-price / band label, earliest start, shared status) purely from
 // the grouped rows — no network.
+//
+// WHY EVERY INSTANT HERE IS A FIXED PAST LITERAL
+// ----------------------------------------------
+// Every derivation under test is a pure function of the grouped rows:
+// `startAt` is the MINIMUM of the rows' starts (asserted as an exact literal
+// below), `serviceNames` is ordered by start instant, and `showsPrice` is a
+// pure status predicate (`BookingDisplayX.showsPrice`) — none of them reads
+// `DateTime.now()`, and nothing here touches `BookingDisplayX.isPast`. What
+// matters is the ORDERING between the rows (10:00 before 11:00), not their
+// distance from "now", so `futureBookingStart()` would only make the
+// `expect(visit.startAt, …)` assertion non-deterministic. A literal in a past
+// year can never become "upcoming" and is exempt from
+// `scripts/forbid_stale_future_date_fixture.sh` automatically.
 
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -22,7 +35,7 @@ Booking _b({
   double? priceMax,
   DateTime? startAt,
 }) {
-  final DateTime start = startAt ?? DateTime.utc(2026, 7, 20, 10);
+  final DateTime start = startAt ?? DateTime.utc(2020, 7, 20, 10);
   return Booking(
     id: id,
     masterId: 'm1',
@@ -131,14 +144,14 @@ void main() {
           appointmentId: 'appt-1',
           serviceName: 'Педикюр',
           durationMinutes: 90,
-          startAt: DateTime.utc(2026, 7, 20, 11),
+          startAt: DateTime.utc(2020, 7, 20, 11),
         ),
         _b(
           id: 'v1',
           appointmentId: 'appt-1',
           serviceName: 'Манікюр',
           durationMinutes: 60,
-          startAt: DateTime.utc(2026, 7, 20, 10),
+          startAt: DateTime.utc(2020, 7, 20, 10),
         ),
       ]);
 
@@ -148,7 +161,7 @@ void main() {
       // regardless of the wire order.
       expect(visit.serviceNames, <String>['Манікюр', 'Педикюр']);
       expect(visit.lead.id, 'v1');
-      expect(visit.startAt, DateTime.utc(2026, 7, 20, 10));
+      expect(visit.startAt, DateTime.utc(2020, 7, 20, 10));
       expect(visit.status, BookingStatus.confirmed);
     });
 

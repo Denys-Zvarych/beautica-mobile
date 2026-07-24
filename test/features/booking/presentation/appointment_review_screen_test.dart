@@ -62,7 +62,16 @@ Appointment _appointment({
   BookingStatus status = BookingStatus.completed,
   required bool canReview,
 }) {
-  final DateTime start = DateTime.utc(2026, 7, 14, 15);
+  // A fixed PAST instant, deliberately NOT `futureBookingStart()`. This screen
+  // is the ONE-review-per-visit form for a COMPLETED visit, so a start in the
+  // future would be a self-contradictory fixture; and nothing it renders is
+  // wall-clock-relative — the header date goes through `formatFullDate`
+  // (absolute) and every gate under test (`canReview`, the rating gate, the
+  // 409/403 arms) is status- or state-driven, never `AppointmentDisplayX
+  // .isPast`. A past-year literal can never become "upcoming", so it is exempt
+  // from `scripts/forbid_stale_future_date_fixture.sh` by construction. The
+  // per-item offsets below (0 / +90 / +150 min) are what the suite relies on.
+  final DateTime start = DateTime.utc(2020, 7, 14, 15);
   return Appointment(
     id: _appointmentId,
     status: status,
