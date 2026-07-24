@@ -345,11 +345,23 @@
 // ADDENDUM 4 justified its placeholder by claiming the real card "would have
 // rendered at exactly `cardMinHeight`", because [_cardMinHeightFor]'s 56dp
 // floor clears the card's 54dp natural height. That reasoning covers
-// `MasterBookingCard`'s COMPACT layout ONLY. The card switches to its FULL
-// layout at `minHeight >= MasterBookingCard.fullLayoutMinHeight` (112dp), and
-// the full layout's own natural content measures 117dp — while a 60-minute
-// booking's floor is exactly 112dp. So the single most common booking length
-// rendered a 117dp card behind a 112dp placeholder, and because [_LaneColumn]
+// `MasterBookingCard`'s COMPACT layout ONLY.
+//
+// EVERY FIGURE IN THE NEXT PARAGRAPH IS AS-OF-2026-07-22 AND IS NOW STALE. It
+// is preserved verbatim because the bug it describes IS the difference between
+// two of those figures; substituting today's numbers would destroy the
+// arithmetic without making the account any truer. For the geometry in force
+// now see ADDENDUM 8's table and [MasterBookingCard.fullLayoutNaturalHeight] —
+// the full body measures 118dp (117 until the card's ROW-1 GLYPH pass,
+// 2026-07-24), and the threshold IS that same measured 118, no longer a tuned
+// 112.
+//
+// AS IT STOOD THEN: the card switched to its FULL layout at
+// `minHeight >= MasterBookingCard.fullLayoutMinHeight`, then a tuned 112dp,
+// and the full layout's own natural content measured 117dp — while a
+// 60-minute booking's floor was exactly 112dp. So the single most common
+// booking length rendered a 117dp card behind a 112dp placeholder, and because
+// [_LaneColumn]
 // is a flex `Column`, every card below a culled one moved UP 5dp per culled
 // card. Measured by mobile-qa: with two hour-long cards culled off the top,
 // the next card's content offset went 250 -> 240. The hour gridlines are
@@ -379,7 +391,7 @@
 // functions of the floor: which layout is selected is `floor >=
 // fullLayoutMinHeight`, and each layout's natural height is a
 // content-independent exact number (`estimatedNaturalHeight` 56 /
-// `fullLayoutNaturalHeight` 117 — every row in both bodies is a single
+// `fullLayoutNaturalHeight` 118 — every row in both bodies is a single
 // ellipsised line, so lane width and string length move the ellipsis, never
 // the height).
 //
@@ -538,10 +550,15 @@
 //     legibly below 56dp, and services can be as short as 1 minute, so no
 //     finite vertical scale zeroes it. Fully UN-CLIPPED — the box grows, it
 //     never crops (the R2 OverflowBox/ClipRect ban still holds).
-//   * 45-minute cards now clear the full-layout threshold (126dp >= 117dp), so
-//     they take the fuller divided layout — see `MasterBookingCard`'s
-//     `_kFullLayoutMinHeight` doc, whose old "45-min stays compact" reasoning
-//     inverted here.
+//   * 45-minute cards cleared the full-layout threshold AT THIS SCALE
+//     (126dp >= the then-117dp threshold), so they took the fuller divided
+//     layout, inverting `MasterBookingCard`'s `_kFullLayoutMinHeight` doc's
+//     older "45-min stays compact" reasoning. RE-INVERTED BY ADDENDUM 8, which
+//     took `_kHourH` back down to 120: a 45-minute band is 90dp there, under
+//     the threshold (118dp since the ROW-1 GLYPH pass), so 45-min is COMPACT
+//     again today — ADDENDUM 8's geometry table is the live statement. Both
+//     figures on this line are 168dp/hour-era and do not describe the grid as
+//     it ships.
 //   * A working day scrolls 1.5x longer than at 112 — accepted.
 //
 // ============================================================================
@@ -583,10 +600,13 @@
 // longer. The thing forcing that scale up was the card's `56dp` legibility
 // floor: at any lower scale a short booking's band fell under 56 and the card
 // overran. 120 is the smallest ROUND scale that keeps a 60-minute band
-// (`120dp`) at or above `MasterBookingCard.fullLayoutMinHeight` (`117dp`), so
-// hour-long bookings — most of a real working day — keep the full layout. Do
-// not go below 120 without moving that threshold. `_kFullLayoutMinHeight`
-// itself is UNCHANGED: it is a measured natural height, not a derived one.
+// (`120dp`) at or above `MasterBookingCard.fullLayoutMinHeight` (`117dp` when
+// this addendum was written; `118dp` since the card's ROW-1 GLYPH pass,
+// 2026-07-24), so hour-long bookings — most of a real working day — keep the
+// full layout. Do not go below 120 without moving that threshold.
+// `_kFullLayoutMinHeight` is not tuned to `_kHourH` — it is a MEASURED natural
+// height, so it moves whenever the full body's content does, and it has: the
+// hour-long booking's clearance over it is now `2dp`, not `3`.
 //
 // THE FIX (part 3) — A MICRO CARD, so the floor can follow the scale down.
 // Dropping to 120 puts a 15-minute band at `30dp`, well under the compact
@@ -778,9 +798,12 @@ class BookingsTimelineGrid extends StatefulWidget {
   ///
   /// `120` is the SMALLEST round scale that still works: a 60-minute band is
   /// `120dp`, which must stay `>= MasterBookingCard.fullLayoutMinHeight`
-  /// (`117dp`) or hour-long bookings — the bulk of a real working day — would
-  /// drop out of the full layout. Do NOT lower it further without moving that
-  /// threshold first.
+  /// (`118dp` since that card's ROW-1 GLYPH pass, 2026-07-24 — `117` before
+  /// it) or hour-long bookings — the bulk of a real working day — would drop
+  /// out of the full layout. The margin is now `2dp`. Do NOT lower this
+  /// further, and re-check it whenever the full body's content grows, since
+  /// that threshold is a measured height rather than a number tuned to fit
+  /// here.
   static const double _kHourH = 120;
 
   /// One 30-minute slot — the grid's minimum unit (ADDENDUM 2). Half of

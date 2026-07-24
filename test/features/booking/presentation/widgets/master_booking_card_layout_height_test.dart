@@ -136,7 +136,8 @@ void main() {
       // Every duration the timeline can realistically hand a card, chosen to
       // straddle BOTH switches. At ADDENDUM 8's 120dp/hour the micro/compact
       // boundary is 56dp (duration 28min) and the compact/full boundary is
-      // 117dp (duration 58.5min):
+      // 118dp (duration 59.0min — 117/58.5 until the card's ROW-1 GLYPH pass
+      // grew the full body by 1dp):
       //
       //   5   — 10dp proportional, floored at the 28dp micro natural; MICRO,
       //         and the one row where the floor is BELOW the natural, so
@@ -154,13 +155,14 @@ void main() {
       //   15  — floor 30 (15/60*120), just clears the micro natural; MICRO
       //   28  — floor 56, exactly the micro/compact boundary; COMPACT (the
       //         bound is exclusive), floor == natural == 56
-      //   30  — floor 60, COMPACT (60 < 117)
+      //   30  — floor 60, COMPACT (60 < 118)
       //   45  — floor 90, COMPACT — this flipped back from full when the
       //         scale came down from 168; see `_kFullLayoutMinHeight`'s doc
       //   58  — floor 116, one step BELOW the full switch; COMPACT with the
       //         floor well above the 56 natural
-      //   59  — floor 118, one step ABOVE it; FULL, floor just over the 117
-      //         natural
+      //   59  — floor 118, EXACTLY the switch since the ROW-1 GLYPH pass;
+      //         FULL, floor == the 118 natural at zero clearance (it used to
+      //         sit one step above a 117 natural)
       //   60  — floor 120, FULL; lands exactly on its end-time line
       //   90  — floor 180, comfortably content-independent
       //   120 — floor 240, the long tail
@@ -290,7 +292,7 @@ void main() {
           // or the content cannot grow past the floor at 1.3 and the
           // prediction holds by coincidence instead of being wrong. At
           // ADDENDUM 8's 120dp scale that window is the FULL layout's
-          // 117 (@1.0) → 132 (@1.3), and a 60-minute floor is 120dp — inside
+          // 118 (@1.0) → 132 (@1.3), and a 60-minute floor is 120dp — inside
           // it. (This used to be 45 minutes for the same reason at the 168dp
           // scale, where a 45-minute floor was 126dp; at 120 a 45-minute floor
           // is 90dp and selects the compact layout, whose 1.3 natural is only

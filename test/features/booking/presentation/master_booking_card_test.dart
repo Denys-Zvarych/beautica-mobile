@@ -362,7 +362,7 @@ void main() {
         // above (see its comment): without it, `pumpApp`'s
         // `MaterialApp.home` hands the card TIGHT constraints equal to the
         // full test surface, and — since the adaptive-layout pass — a
-        // `minHeight` that large would trip the >=117dp full-layout switch
+        // `minHeight` that large would trip the >=118dp full-layout switch
         // and render the full body instead of the compact grid this test is
         // about. (Both bodies now print the SAME range string AND carry a
         // hairline, so the switch is only observable through WHICH divider
@@ -798,7 +798,7 @@ void main() {
                 booking: booking,
                 onTap: () {},
                 // A 60-minute booking's floor (ADDENDUM 8: 60/60 * 120 =
-                // 120), just past the 117dp full-layout switch.
+                // 120), just past the 118dp full-layout switch.
                 minHeight: 120,
               ),
             ),
@@ -1243,7 +1243,7 @@ void main() {
     'switch reads the resolved minHeight constraint, not durationMinutes',
     () {
       testWidgets(
-        'a >=117dp card (a 60-minute booking\'s 120dp floor) renders the FULL '
+        'a >=118dp card (a 60-minute booking\'s 120dp floor) renders the FULL '
         'layout: client name, a divider, the service name BELOW the '
         'divider, the start–end time range (NO date), price and status — all '
         'present, none clipped',
@@ -1400,7 +1400,7 @@ void main() {
         (WidgetTester tester) async {
           // This test intentionally re-runs the FIRST test's own divider
           // assertion against a card whose `minHeight` is comfortably past
-          // the >=117dp threshold, as a standing structural guard: it is
+          // the >=118dp threshold, as a standing structural guard: it is
           // the automated half of the manual mutation check documented in
           // the phase report (temporarily hardcoding `_useFullLayout` to
           // always return `false` in `master_booking_card.dart` and
@@ -1448,20 +1448,29 @@ void main() {
   // (scale 112, floor 84dp). ADDENDUM 7 raised the scale to 168 and it became
   // "why 45 minutes NOW gets the FULL layout" (floor 126dp). ADDENDUM 8
   // dropped the scale to 120 and it is compact again (floor 90dp). The
-  // THRESHOLD never moved once: `_kFullLayoutMinHeight` is, and has always
-  // been, `fullLayoutNaturalHeight` (117dp) — a card gets the fuller shape
+  // THRESHOLD held through all three: `_kFullLayoutMinHeight` is, and has
+  // always been, `fullLayoutNaturalHeight` — a card gets the fuller shape
   // precisely when its floor can contain that body. Only the arithmetic from
   // duration to floor changed.
   //
+  // IT HAS SINCE MOVED, and for the one reason that can move it: the BODY
+  // grew. The ROW-1 GLYPH pass (2026-07-24) gave the full card's client-name
+  // row a leading 16dp `person_outlined` icon against a 15dp line box, so the
+  // natural went 117 -> 118dp and the threshold with it. That is the contract
+  // working, not breaking — the constant tracks a measurement, so it is the
+  // CONTENT that must be re-measured after a density change, never the
+  // threshold that gets retuned to keep a duration on the right side.
+  //
   // So the cases below are written against FLOORS, and each states the
   // duration that produces it at the CURRENT scale as a derived aside. The
-  // boundary cases (116 / 117) are the real guard and are scale-free.
+  // boundary cases (117 / 118) are the real guard and are scale-free.
   //
   // `_buildFullBody`'s NATURAL height, measured with the worst realistic
   // content (a long service name and a frozen RANGE band) at the narrowest
-  // production lane, is 117.0dp @1.0 (124 @1.15, 132 @1.3) — pinned exactly by
+  // production lane, is 118.0dp @1.0 (124 @1.15, 132 @1.3 — both unchanged by
+  // the glyph, which does not scale with `textScaler`) — pinned exactly by
   // the "the FULL body still measures exactly …dp" group below. At 120dp/hour
-  // an hour-long card's 120dp band is only 3dp clear of that natural, so at
+  // an hour-long card's 120dp band is only 2dp clear of that natural, so at
   // the app's 1.3 text-scale ceiling its body (132dp) grows ~12dp past the
   // band; nothing clips (content always wins) and that overhang is the reason
   // `_kHourH` must not drop below 120.
@@ -1764,7 +1773,7 @@ void main() {
   group('the full/compact threshold is a dp floor, not a duration', () {
     testWidgets(
       'a 90dp floor (45 minutes at 120dp/hour) selects the COMPACT grid — the '
-      'floor cannot contain the full body\'s 117dp natural',
+      'floor cannot contain the full body\'s 118dp natural',
       (WidgetTester tester) async {
         final Booking booking =
             _shortBooking(id: 'forty-five', durationMinutes: 45).copyWith(
@@ -1816,13 +1825,14 @@ void main() {
       },
     );
 
-    // The threshold's exact boundary is now 117 (== fullLayoutNaturalHeight),
-    // so a future off-by-one (>= vs >) or a drift of the constant is a failure
-    // rather than a silently different card.
+    // The threshold's exact boundary is now 118 (== fullLayoutNaturalHeight,
+    // up from 117 with the ROW-1 GLYPH pass), so a future off-by-one (>= vs >)
+    // or a drift of the constant is a failure rather than a silently
+    // different card.
     for (final ({double minHeight, bool full}) boundary
         in <({double minHeight, bool full})>[
-          (minHeight: 116, full: false),
-          (minHeight: 117, full: true),
+          (minHeight: 117, full: false),
+          (minHeight: 118, full: true),
         ]) {
       testWidgets('minHeight ${boundary.minHeight} selects the '
           '${boundary.full ? 'FULL' : 'COMPACT'} layout', (
@@ -1830,9 +1840,9 @@ void main() {
       ) async {
         expect(
           MasterBookingCard.fullLayoutMinHeight,
-          117,
+          118,
           reason:
-              'fixture guard: the switch must be at 117 (the full body\'s own '
+              'fixture guard: the switch must be at 118 (the full body\'s own '
               'natural) or this boundary pair is measuring the wrong edge',
         );
         await tester.pumpApp(
@@ -2460,7 +2470,7 @@ void main() {
       );
     });
 
-    testWidgets('the full layout (>=117dp) renders the band too', (
+    testWidgets('the full layout (>=118dp) renders the band too', (
       WidgetTester tester,
     ) async {
       final Booking booking = _shortBooking(
@@ -3013,7 +3023,7 @@ void main() {
     // floor cannot express it.
     for (final ({double scale, double height}) fullNatural
         in <({double scale, double height})>[
-          (scale: 1.0, height: 117),
+          (scale: 1.0, height: 118),
           (scale: 1.15, height: 124),
           (scale: 1.3, height: 132),
         ]) {
@@ -3037,8 +3047,8 @@ void main() {
                   booking: booking,
                   onTap: () {},
                   // Pumped exactly at the switch (== fullLayoutNaturalHeight,
-                  // 117): the LOWEST minHeight that selects the full body. At
-                  // textScaler 1.0 box == floor == the 117dp natural; at 1.15
+                  // 118): the LOWEST minHeight that selects the full body. At
+                  // textScaler 1.0 box == floor == the 118dp natural; at 1.15
                   // and 1.3 the content grows to 124 / 132 STRICTLY past this
                   // floor, so those two are genuine content measurements and
                   // catch any leak from the compact pass. (Since ADDENDUM 7
@@ -3224,6 +3234,486 @@ void main() {
   // per-textScaler sweep reads `_PriceTag`'s OWN `_maxTextWidth` ceiling
   // ([_kPriceCapWidth]) and its `FittedBox` scale, neither of which this
   // removal touches.
+
+  // THE ROW-1 CLIENT GLYPH (2026-07-24) — FULL BODY ONLY
+  // ---------------------------------------------------------------------
+  // The >=1h card's client-name row gained a leading `person_outlined` glyph
+  // in the SAME 16dp/`BrandColors.accent` register row 2's `spa_outlined`
+  // already uses (see `master_booking_card.dart`'s row-1 comment for why the
+  // 12dp/muted metadata register would have inverted the hierarchy).
+  //
+  // These are STRUCTURAL assertions, deliberately not goldens: a regenerated
+  // golden would accept the glyph landing on the wrong row, in the wrong
+  // register, or bleeding into the compact/micro bodies. Each case below
+  // names a property that a re-render cannot satisfy by accident.
+  group('the FULL body\'s row-1 client glyph', () {
+    testWidgets(
+      'renders exactly once, in the 16dp accent register, ABOVE the hairline '
+      '— i.e. on the client-identity row, not the service row',
+      (WidgetTester tester) async {
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 226,
+              child: MasterBookingCard(
+                booking: _shortBooking(id: 'glyph', durationMinutes: 60),
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        expect(
+          find.byKey(const Key('master-booking-card-divider-glyph')),
+          findsOneWidget,
+          reason: 'precondition: this must be the FULL layout',
+        );
+
+        final Finder glyph = find.byIcon(Icons.person_outlined);
+        expect(glyph, findsOneWidget);
+
+        final Icon icon = tester.widget<Icon>(glyph);
+        expect(
+          icon.size,
+          16,
+          reason:
+              'the client name is this card\'s PRIMARY field, so its glyph '
+              'takes the same 16dp register row 2\'s service glyph does — not '
+              'the 12dp one the trailing time range uses',
+        );
+        expect(
+          icon.color,
+          BrandColors.accent,
+          reason:
+              'same register means same colour: BrandColors.accent, not the '
+              'muted grey reserved for trailing metadata',
+        );
+
+        // ROW 1, PROVEN POSITIONALLY. The glyph must sit entirely above the
+        // hairline — that is what makes it the CLIENT row's mark rather than
+        // a second glyph on the service row.
+        final double glyphBottom = tester.getBottomLeft(glyph).dy;
+        final double dividerTop = tester
+            .getTopLeft(
+              find.byKey(const Key('master-booking-card-divider-glyph')),
+            )
+            .dy;
+        expect(
+          glyphBottom,
+          lessThanOrEqualTo(dividerTop),
+          reason:
+              'the client glyph rendered at or below the hairline, so it is '
+              'no longer on the client-identity row',
+        );
+      },
+    );
+
+    testWidgets(
+      'shares a left rail with the service glyph — both open their row at the '
+      'same x, so the two text columns align',
+      (WidgetTester tester) async {
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 226,
+              child: MasterBookingCard(
+                booking: _shortBooking(id: 'rail', durationMinutes: 60),
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          tester.getTopLeft(find.byIcon(Icons.person_outlined)).dx,
+          closeTo(tester.getTopLeft(find.byIcon(Icons.spa_outlined)).dx, 0.01),
+          reason:
+              'the two 16dp glyphs are supposed to form one left rail, which '
+              'is what puts the client name and the service name on a single '
+              'text column. A drift here means the row-1 glyph picked up a '
+              'different leading inset than row 2\'s.',
+        );
+      },
+    );
+
+    // ROW 1 IS A `Row` NOW, SO THE NAME NEEDS `Expanded` (mobile-qa,
+    // 2026-07-24). The source comment beside that `Expanded` names the exact
+    // failure mode — "an unbounded child would make `maxLines: 1` + ellipsis
+    // inert and let a long client name overflow instead of truncating" — but
+    // nothing exercised it: the existing "a long client name saturates row 1"
+    // group pumps with NO `minHeight`, which selects the COMPACT body, so the
+    // saturating fixture never reached the full layout at all. Verified by
+    // mutation: deleting this `Expanded` passed the whole booking suite.
+    //
+    // 1.3 is included because that is where the name is widest AND where the
+    // glyph does NOT grow with it, so the `Expanded` is carrying the most.
+    for (final double scale in <double>[1.0, 1.3]) {
+      testWidgets(
+        'a saturating client name ellipsises inside row 1 at textScaler '
+        '$scale — the glyph never pushes it past the padding edge',
+        (WidgetTester tester) async {
+          // A real Ukrainian double-barrelled name, as a FIXTURE literal and
+          // never a finder (forbid_cyrillic_finder.sh) — the same one the
+          // compact-layout saturation group uses, so both densities are
+          // stressed by identical content.
+          final Booking booking =
+              _shortBooking(id: 'long-full', durationMinutes: 60).copyWith(
+                clientFirstName: 'Олександра-Валентина',
+                clientLastName: 'Кириленко-Вишневецька',
+              );
+
+          await tester.pumpApp(
+            Center(
+              child: SizedBox(
+                width: 226,
+                child: MasterBookingCard(
+                  booking: booking,
+                  onTap: () {},
+                  minHeight: MasterBookingCard.fullLayoutMinHeight,
+                ),
+              ),
+            ),
+            textScaleFactor: scale,
+          );
+          await tester.pump();
+
+          // `pumpApp` installs the overflow guard, so an unbounded row-1 name
+          // fails here on the RenderFlex overflow alone.
+          expect(tester.takeException(), isNull);
+          expect(
+            find.byKey(const Key('master-booking-card-divider-long-full')),
+            findsOneWidget,
+            reason: 'precondition: this must be the FULL layout',
+          );
+
+          // The name is TRUNCATED, not merely un-crashed: its box must end
+          // inside the card's own padding edge. `_fullPadding` is 16 and the
+          // border 1.5, so the content edge is 17.5dp in from the card's
+          // right. A box reaching past it is the un-`Expanded` failure that
+          // the overflow guard can miss whenever the surface happens to be
+          // wide enough to absorb it.
+          final Rect card = tester.getRect(
+            find.byKey(const Key('master-booking-card-long-full')),
+          );
+          final Rect name = tester.getRect(
+            find.descendant(
+              of: find.byKey(const Key('master-booking-card-long-full')),
+              matching: find.byType(Text).first,
+            ),
+          );
+          expect(
+            name.right,
+            lessThanOrEqualTo(card.right - 17.5 + 0.01),
+            reason:
+                'the client name box ends at ${name.right} against the card\'s '
+                '${card.right - 17.5} content edge — row 1 stopped bounding '
+                'it, so `maxLines: 1` + ellipsis are inert and a long name '
+                'runs under the card\'s own padding',
+          );
+          expect(
+            name.height,
+            lessThan(MasterBookingCard.microLayoutNaturalHeight),
+            reason:
+                'the name grew past one line (${name.height}dp) — with the '
+                'glyph now sharing the row, a wrapped name is what pushes the '
+                'full body past the band its duration owns',
+          );
+        },
+      );
+    }
+
+    testWidgets('is DECORATIVE — it adds no second announcement', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpApp(
+        Center(
+          child: SizedBox(
+            width: 226,
+            child: MasterBookingCard(
+              booking: _shortBooking(id: 'a11y', durationMinutes: 60),
+              onTap: () {},
+              minHeight: MasterBookingCard.fullLayoutMinHeight,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.person_outlined)).semanticLabel,
+        isNull,
+        reason:
+            'the client name is already carried by the card\'s own '
+            'Semantics(label:) (masterBookingCardSemantics). Labelling the '
+            'glyph too would announce the same person twice to a screen '
+            'reader.',
+      );
+    });
+
+    // The glyph is a FULL-body element. The compact body is documented as a
+    // "miniature of the full card", so this pair is the standing guard that
+    // the glyph was not quietly propagated down: whether compact should ALSO
+    // gain one is a product question, not something a refactor gets to decide
+    // silently.
+    for (final ({String label, double minHeight, bool compactHairline}) shorter
+        in <({String label, double minHeight, bool compactHairline})>[
+          (label: 'COMPACT', minHeight: 60, compactHairline: true),
+          (label: 'MICRO', minHeight: 30, compactHairline: false),
+        ]) {
+      testWidgets('does NOT render on the ${shorter.label} body', (
+        WidgetTester tester,
+      ) async {
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 226,
+              child: MasterBookingCard(
+                booking: _shortBooking(id: 'shorter', durationMinutes: 30),
+                onTap: () {},
+                minHeight: shorter.minHeight,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        // Precondition: prove which body actually rendered, so a
+        // `findsNothing` cannot pass merely because the card failed to build
+        // or silently selected a different density.
+        //
+        // BOTH hairlines are asserted for BOTH densities, and that is the
+        // point (mobile-qa, 2026-07-24). The MICRO row previously stated only
+        // the "not FULL" half, which COMPACT satisfies just as well — so a
+        // regression that sent a 30dp floor to the compact body would have
+        // left the MICRO case passing while testing nothing about micro. The
+        // layout enum has exactly three branches and full/compact each carry
+        // their own distinctly-keyed hairline, so "neither hairline" is the
+        // positive identification of micro.
+        expect(
+          find.byKey(const Key('master-booking-card-divider-shorter')),
+          findsNothing,
+          reason: 'precondition: this must NOT be the FULL layout',
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-compact-divider-shorter')),
+          shorter.compactHairline ? findsOneWidget : findsNothing,
+          reason: shorter.compactHairline
+              ? 'precondition: this must be the COMPACT layout'
+              : 'precondition: the MICRO body is a single row and carries NO '
+                    'hairline at all, so neither divider may render — without '
+                    'this the MICRO case would pass just as happily against a '
+                    'COMPACT card',
+        );
+
+        expect(
+          find.byIcon(Icons.person_outlined),
+          findsNothing,
+          reason:
+              'the client glyph is a FULL-body element — the ${shorter.label} '
+              'body has no vertical budget for a 16dp icon (its naturals are '
+              'pinned at 56dp / 28dp and both are already at zero slack)',
+        );
+      });
+    }
+  });
+
+  // THE 118dp NATURAL, PINNED IN BOTH DIRECTIONS — and the 59-minute edge it
+  // now sits on (mobile-qa, 2026-07-24)
+  // ---------------------------------------------------------------------
+  // Two holes the ROW-1 GLYPH pass left behind, both found by mutation:
+  //
+  //   1. The "the FULL body still measures exactly 118dp at textScaler 1.0"
+  //      case above pumps at `minHeight: fullLayoutMinHeight`, so the box it
+  //      measures is `max(118, content)`. That pins the natural against
+  //      GROWTH only. Deleting the row-1 glyph takes the content back to
+  //      117, the floor pads it straight back to 118, and that case still
+  //      passes — verified by mutation. So nothing measured the 1dp the
+  //      whole constant bump is about; only the glyph-presence group did,
+  //      and a glyph can be present at the wrong SIZE.
+  //   2. The pass narrowed the hour-long card's clearance 3dp -> 2dp and, at
+  //      59 minutes, to EXACTLY zero (floor `59/60 × 120 = 118` == the
+  //      threshold). Nothing rendered a 59-minute card. The boundary pair
+  //      above pumps bare `117 / 118` dp literals, which pins the SWITCH but
+  //      never asks whether a real duration still reaches it.
+  //
+  // Both cases below are floor-INDEPENDENT where it matters: the first
+  // measures an interior distance the outer floor cannot pad, the second
+  // derives its floor from a duration rather than restating the threshold.
+  group('the FULL body\'s 118dp natural, measured from the inside', () {
+    testWidgets(
+      'row 1 is the GLYPH\'s 16dp, not the client name\'s 15dp line box — the '
+      'interior distance from the card\'s top edge to the hairline',
+      (WidgetTester tester) async {
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 226,
+              child: MasterBookingCard(
+                booking: _shortBooking(id: 'natural', durationMinutes: 60),
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        final Finder divider = find.byKey(
+          const Key('master-booking-card-divider-natural'),
+        );
+        expect(
+          divider,
+          findsOneWidget,
+          reason: 'precondition: this must be the FULL layout',
+        );
+
+        // THE BIDIRECTIONAL PIN, asserted FIRST and deliberately: it is the
+        // only assertion here that survives the glyph being deleted outright
+        // (a `getSize` on an absent icon throws `Bad state: No element`,
+        // which is red but says nothing about the constant). Ordering it
+        // ahead of the glyph reads means the diagnostic below is what a
+        // reviewer actually sees for the mutation this group exists to catch.
+        //
+        // `border 1.5 + _fullPadding 16 + row 1 +
+        // (VelvetSpacing.sm + 2 = 10)` = 43.5dp of interior above the
+        // hairline. This distance is INSIDE the card, so the `minHeight`
+        // floor cannot pad it: drop the glyph and it reads 42.5, grow the
+        // glyph and it reads more. That is the assertion the outer
+        // height measurement cannot make.
+        final double headroom =
+            tester.getRect(divider).top -
+            tester
+                .getRect(find.byKey(const Key('master-booking-card-natural')))
+                .top;
+        expect(
+          headroom,
+          closeTo(43.5, 0.01),
+          reason:
+              'the card\'s top edge sits ${headroom}dp above the hairline '
+              'against the 43.5dp the full body derives (1.5 border + 16 '
+              'padding + a 16dp row 1 + 10). 42.5 means the row-1 glyph was '
+              'removed and MasterBookingCard.fullLayoutNaturalHeight (118) is '
+              'now 1dp larger than the body it claims to measure — which the '
+              'outer "measures exactly 118dp" case CANNOT see, because it '
+              'pumps at that very constant as a floor.',
+        );
+
+        // WHICH term wins the row, stated as a strict inequality against the
+        // name's own measured line box rather than two literals — so it holds
+        // whatever either recipe is retuned to, and names the glyph as the
+        // reason `fullLayoutNaturalHeight` went 117 -> 118.
+        final double glyphHeight = tester
+            .getSize(find.byIcon(Icons.person_outlined))
+            .height;
+        final double nameHeight = tester
+            .getSize(
+              find.descendant(
+                of: find.byKey(const Key('master-booking-card-natural')),
+                matching: find.byType(Text).first,
+              ),
+            )
+            .height;
+        expect(
+          glyphHeight,
+          greaterThan(nameHeight),
+          reason:
+              'the glyph (${glyphHeight}dp) must out-measure the client name '
+              'line box (${nameHeight}dp) — if it does not, the row is back to '
+              'being text-driven and fullLayoutNaturalHeight is overstating '
+              'the body by the difference',
+        );
+      },
+    );
+
+    // The 59-minute case, which no test rendered before this one. At
+    // `BookingsTimelineGrid._kHourH` (120dp/hour — ADDENDUM 8) a 59-minute
+    // booking derives a floor of exactly 118dp: equal to the threshold, so it
+    // selects the FULL body at ZERO clearance rather than the 1dp it had
+    // against a 117 natural.
+    //
+    // THIS IS THE TRIPWIRE FOR THE NEXT ADDITIVE CHANGE TO `_buildFullBody`.
+    // One more dp of content and a 59-minute booking silently demotes to the
+    // compact grid — a real, bookable duration changing shape with nothing to
+    // announce it. The divider assertion below turns that into a failure.
+    // Written against the DURATION, so it survives a `_kHourH` change the way
+    // the layout-height suite's sweep does.
+    testWidgets(
+      'a 59-minute booking still selects the FULL body — at EXACTLY zero '
+      'clearance, so any further growth of that body fails here',
+      (WidgetTester tester) async {
+        // `BookingsTimelineGrid._cardMinHeightFor(59)` restated — the same
+        // idiom `master_booking_card_layout_height_test.dart` uses, since the
+        // scale is private to the grid.
+        const double hourHeight = 120; // `BookingsTimelineGrid._kHourH`
+        const double floor59 = 59 / 60.0 * hourHeight;
+
+        expect(
+          floor59,
+          greaterThanOrEqualTo(MasterBookingCard.fullLayoutMinHeight),
+          reason:
+              'a 59-minute booking derives a ${floor59}dp floor, which no '
+              'longer reaches the full-layout switch '
+              '(${MasterBookingCard.fullLayoutMinHeight}dp). The full body '
+              'grew past the last duration that could contain it — every '
+              '59-minute booking has just changed shape. Either give the dp '
+              'back, or make the demotion a deliberate, documented decision.',
+        );
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 226,
+              child: MasterBookingCard(
+                booking: _shortBooking(id: 'fifty-nine', durationMinutes: 59),
+                onTap: () {},
+                minHeight: floor59,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        expect(
+          find.byKey(const Key('master-booking-card-divider-fifty-nine')),
+          findsOneWidget,
+          reason:
+              'a 59-minute booking must still render the FULL divided layout',
+        );
+        expect(
+          find.byKey(
+            const Key('master-booking-card-compact-divider-fifty-nine'),
+          ),
+          findsNothing,
+          reason: 'the compact body is the demotion this test exists to catch',
+        );
+        expect(find.byIcon(Icons.person_outlined), findsOneWidget);
+
+        // ZERO CLEARANCE, STATED AS A MEASUREMENT: box == floor == natural.
+        // A box LARGER than the floor would mean the content outgrew the
+        // band it is allotted and the card overhangs its own end-time line.
+        final double height = tester
+            .getSize(find.byKey(const Key('master-booking-card-fifty-nine')))
+            .height;
+        expect(
+          height,
+          closeTo(floor59, 0.01),
+          reason:
+              'the 59-minute card measured ${height}dp against its ${floor59}dp '
+              'band — they are supposed to coincide exactly, which is what '
+              '"zero clearance" means here. A larger box is the full body '
+              'overhanging the booking\'s end-time line.',
+        );
+      },
+    );
+  });
 }
 
 /// Asserts NO date component renders anywhere on the card — the 2026-07-21

@@ -281,13 +281,14 @@ void main() {
 
   group('MasterBookingCard — status gate holds against a BAND, both layouts', () {
     // (label, minHeight) — null minHeight selects the compact grid; a floor at
-    // or above `MasterBookingCard.fullLayoutMinHeight` (117dp) selects the
+    // or above `MasterBookingCard.fullLayoutMinHeight` (118dp) selects the
     // divided full layout.
     //
     // THE `full` FLOOR IS READ OFF THE PUBLIC CONSTANT, NOT SPELLED AS A
     // LITERAL. It used to be a bare `112`, which was correct only while the
     // threshold was 112; the 2026-07-24 vertical-scale pass moved the
-    // threshold to 117 and this fixture silently started selecting the COMPACT
+    // threshold to 117 (118 today) and this fixture silently started selecting
+    // the COMPACT
     // layout instead — so all six `full / <moneyless status>` cases were
     // exercising the compact branch under a `full` label, and the
     // `_expectStatusIndicator` guard that exists to catch exactly that

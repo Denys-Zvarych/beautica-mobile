@@ -55,7 +55,8 @@ class TimelineHourRuler extends StatelessWidget {
   /// "ADDENDUM 8" for why `120` (short version: the MICRO card layout removed
   /// the `56dp` legibility floor that was forcing the scale up to `168`, and
   /// `120` is the smallest round scale at which a 60-minute band still clears
-  /// the full layout's `117dp` natural).
+  /// the full layout's natural height — `117dp` when that was written, `118dp`
+  /// since the card's ROW-1 GLYPH pass, so the clearance is now `2dp`).
   static const double _kHourH = 120;
 
   /// The vertical distance each label's text visually sits ABOVE its own

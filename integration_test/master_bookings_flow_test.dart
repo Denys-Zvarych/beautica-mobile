@@ -1116,7 +1116,8 @@ void main() {
       // 45 minutes and 60 minutes, back to back with a gap, so both land in the
       // SAME lane column. The durations are the whole fixture: at ADDENDUM 8's
       // 120dp/hour, `_cardMinHeightFor(45, 120)` = 90dp (below
-      // `_kFullLayoutMinHeight`, 117) and `_cardMinHeightFor(60, 120)` = 120dp
+      // `_kFullLayoutMinHeight`, 118 since the card's ROW-1 GLYPH pass) and
+      // `_cardMinHeightFor(60, 120)` = 120dp
       // (just above it). Nothing here passes a `minHeight` — the grid derives
       // both from `durationMinutesAtBooking` as decoded off the wire, which is
       // exactly why this test survived a scale change that invalidated the
@@ -1205,7 +1206,9 @@ void main() {
         findsOneWidget,
         reason:
             'a 60-minute booking derives a 120dp floor at ADDENDUM 8\'s '
-            '120dp/hour, just above the 117dp threshold — it must render the '
+            '120dp/hour, just above the full body\'s natural-height threshold '
+            '(118dp since the ROW-1 GLYPH pass, 117 before it) — it must '
+            'render the '
             'full divided layout',
       );
       expect(
@@ -1263,7 +1266,7 @@ void main() {
         closeTo(120, 0.5),
         reason:
             'the 60-minute card measured ${longHeight}dp against its 120dp '
-            'floor (60/60 × 120) — the full body\'s 117dp natural is BELOW '
+            'floor (60/60 × 120) — the full body\'s 118dp natural is BELOW '
             'that floor, so the floor governs and the card lands exactly on '
             'its end-time line',
       );

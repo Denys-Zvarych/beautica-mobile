@@ -60,6 +60,20 @@
 // widget's doc: colour alone across six statuses is not a signal). The
 // >=1h card keeps the labelled pill, unchanged.
 //
+// OPEN TENSION — the ROW-1 GLYPH pass (2026-07-24) is FULL-ONLY.
+// [_buildFullBody]'s client name now opens with a `person_outlined` glyph
+// (see its row-1 comment); compact row 1's client name does NOT, so on this
+// one axis the "miniature" claim is currently weaker than it was. That is
+// scope, not oversight: the brief was the >=1h card, and compact's own 41dp
+// budget is at ZERO slack at textScaler 1.0 (the table above), so a 16dp
+// glyph against its 15dp name line box would cost 1dp the layout does not
+// have — [MasterBookingCard.estimatedNaturalHeight] would go 56 -> 57 and
+// drag the timeline's compact/micro boundary with it. Giving compact the
+// glyph is therefore a real density decision (something else on the row
+// would have to pay for it), NOT a consistency fix to apply by reflex.
+// Pinned meanwhile by `master_booking_card_test.dart`'s "does NOT render on
+// the COMPACT body" case so the divergence stays deliberate and visible.
+//
 // THE 41dp BUDGET, AND WHAT IT COST TO ADD A DIVIDER
 // -----------------------------------------------------------------------
 // At textScaler 1.0 a 56dp box leaves `56 − 3 (border 1.5 × 2) − 12
@@ -138,8 +152,9 @@
 // 14.5 to 14.0 minutes), and the range label got NARROWER — 82.9dp rather
 // than 86.6dp at the 1.3 textScaler ceiling — which HANDS BACK ~4dp to the
 // compact identity row's `Expanded` client name. The compact (56dp) and full
-// (117dp) naturals did not move at all: compact row 1's height is set by the
-// client name's taller 15dp line box either way.
+// (117dp at the time; 118 since the ROW-1 GLYPH pass below) naturals did not
+// move at all in THIS pass: compact row 1's height is set by the client name's
+// taller 15dp line box either way.
 //
 // Dropping the avatar is the main height saving, not a smaller font pass —
 // [ClientAvatarGradients] (`core/theme/brand_colors.dart`, shared/public) and
@@ -489,10 +504,36 @@ class MasterBookingCard extends StatefulWidget {
   /// Derivation: border (1.5 × 2 = 3) + [_MasterBookingCardState._fullPadding]
   /// (16 × 2 = 32) + the client-name row + `VelvetSpacing.sm + 2` + the 1dp
   /// hairline + `VelvetSpacing.sm + 2` + the service/time row +
-  /// `VelvetSpacing.xs + 2` + the price/badge row = **117dp**.
+  /// `VelvetSpacing.xs + 2` + the price/badge row = **118dp**.
+  ///
+  /// WAS 117 UNTIL 2026-07-24, when row 1 gained its leading
+  /// `person_outlined` glyph (see [_buildFullBody]'s row-1 comment for the
+  /// design rationale). The glyph is 16dp against
+  /// [VelvetText.masterCardClientNameFull]'s 15dp line box, so it became the
+  /// client-name row's tallest child and took that row 15 -> 16dp. That is
+  /// the ONLY term that moved; nothing else in the stack was retuned to
+  /// absorb it.
+  ///
+  /// ONLY AT 1.0. `Icon` does not scale with `textScaler`, so at 1.15 (a
+  /// 17dp line box) and 1.3 (20dp) the TEXT is still the row's tallest child
+  /// and those two naturals are unchanged at 124 / 132dp — re-measured, not
+  /// assumed.
+  ///
+  /// THE TIMELINE CONSEQUENCE, and why this did not need `_kHourH` to move:
+  /// this constant IS [_MasterBookingCardState._kFullLayoutMinHeight], the
+  /// full/compact switch, so the threshold rose with it. A 60-minute booking
+  /// is floored at `BookingsTimelineGrid._kHourH` (120dp), which still clears
+  /// 118 — but the margin is now **2dp, down from 3**, and the exact boundary
+  /// duration moved `58.5` -> `59.0` minutes (`118 / 120 × 60`). A 59-minute
+  /// booking therefore still selects the full body, but at EXACTLY zero
+  /// clearance (floor `118.0`, threshold `118`) rather than 1dp. Any further
+  /// growth in this body pushes 59-minute bookings back to the compact grid,
+  /// and growth past 120 would do the same to hour-long ones — the bulk of a
+  /// real working day. Re-measure before adding a sixth term to
+  /// [_buildFullBody].
   ///
   /// Pinned by `master_booking_card_test.dart`'s "the FULL body still
-  /// measures exactly 117dp at textScaler 1.0" case, and — as the input to
+  /// measures exactly 118dp at textScaler 1.0" case, and — as the input to
   /// [occupiedHeightFor] — by `master_booking_card_layout_height_test.dart`,
   /// which renders the real card at every floor the timeline can produce and
   /// asserts the prediction matches to the pixel.
@@ -501,7 +542,7 @@ class MasterBookingCard extends StatefulWidget {
   /// 1.3, so any caller predicting a box from this constant MUST gate itself
   /// on `MediaQuery.textScalerOf(context).scale(1) <= 1.0` — see
   /// `bookings_timeline_grid.dart`'s "ADDENDUM 5".
-  static const double fullLayoutNaturalHeight = 117;
+  static const double fullLayoutNaturalHeight = 118;
 
   /// [_buildMicroBody]'s natural rendered height at textScaler 1.0 — the third
   /// layout's counterpart to [estimatedNaturalHeight] /
@@ -662,9 +703,9 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// The height, in dp, at or above which [build] switches from the
   /// compact grid to the fuller divided layout — see this file's
   /// "Adaptive full/compact layout" header section for the full mechanism.
-  /// Equal to [MasterBookingCard.fullLayoutNaturalHeight] (`117dp`, the full
+  /// Equal to [MasterBookingCard.fullLayoutNaturalHeight] (`118dp`, the full
   /// body's own natural floor at textScaler 1.0): a booking whose
-  /// duration-derived floor reaches `117dp` or more gets the fuller layout;
+  /// duration-derived floor reaches `118dp` or more gets the fuller layout;
   /// anything shorter stays on the compact grid.
   ///
   /// ## WHICH DURATIONS REACH IT — RE-DERIVE THIS, NEVER QUOTE IT
@@ -675,10 +716,11 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// `BookingsTimelineGrid._kHourH`, which has now moved three times. At the
   /// current `120dp/hour` (that file's "ADDENDUM 8"):
   ///
-  ///   * `>= 59` min — floor `>= 118dp`, clears `117`: FULL layout. The exact
-  ///     boundary duration is `58.5` min (`117 / 120 × 60`); an hour-long
-  ///     booking sits only `3dp` clear of it, which is why `_kHourH` cannot
-  ///     drop below `120` without moving this threshold too.
+  ///   * `>= 59` min — floor `>= 118dp`, clears `118`: FULL layout. The exact
+  ///     boundary duration is now `59.0` min (`118 / 120 × 60`), so a
+  ///     59-minute booking sits at EXACTLY zero clearance and an hour-long
+  ///     one only `2dp` clear — which is why `_kHourH` cannot drop below
+  ///     `120` without moving this threshold too.
   ///   * `28`-`58` min — floor `56`-`116dp`: COMPACT grid.
   ///   * `< 28` min — floor below the compact body's own `56dp` natural
   ///     (`56 / 120 × 60 = 28` exactly): MICRO, the single row (see this
@@ -692,7 +734,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   ///
   /// [_buildFullBody]'s NATURAL height (the same fixture the compact sweeps
   /// use — a long service name, a frozen RANGE band, a full client name)
-  /// measures 117dp at textScaler 1.0 (124dp at 1.15, 132dp at 1.3); it is
+  /// measures 118dp at textScaler 1.0 (124dp at 1.15, 132dp at 1.3); it is
   /// identical at 226 / 266 / 272dp of lane because every row is flex-driven,
   /// so lane width moves the ellipsis, never the height.
   ///
@@ -1045,8 +1087,9 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     );
   }
 
-  /// The design's fuller layout — client name, a hairline divider, the
-  /// service name (below the divider, with the design's accent
+  /// The design's fuller layout — the client name (led by an accent
+  /// `person_outlined` glyph), a hairline divider, the service name (below
+  /// the divider, with the design's accent
   /// `spa_outlined` glyph) paired with the booking's start–end time range
   /// (date-free — see this file's "The time is a RANGE" header section), then
   /// price + status. Only ever built once [build] has already confirmed the
@@ -1058,12 +1101,67 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // Row 1 — client identity only.
-        Text(
-          clientName,
-          style: VelvetText.masterCardClientNameFull,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        // Row 1 — client identity: a `person_outlined` glyph leading the
+        // client's name.
+        //
+        // THE GLYPH TAKES THE 16dp/ACCENT REGISTER, NOT THE 12dp/MUTED ONE
+        // (2026-07-24)
+        // ---------------------------------------------------------------
+        // This body runs a TWO-TIER glyph system, and the tiers are about
+        // a field's RANK, not its row: 16dp in [BrandColors.accent] marks the
+        // field that OPENS a row and owns it (row 2's `spa_outlined` + the
+        // service name), 12dp in [BrandColors.muted] marks a trailing
+        // metadata cluster (row 2's `schedule_outlined` + the time range).
+        // The client name is this card's PRIMARY identity field — the whole
+        // reason the master is reading the row — so the muted register would
+        // have inverted the hierarchy outright, printing a fainter mark on
+        // the name than on the service below it. A third size (14dp, which
+        // would have fitted inside the name's 15dp line box and dodged the
+        // 1dp growth below) was rejected for the same reason it is tempting:
+        // three sizes across three fields stop reading as a system at all,
+        // and "it saves a constant bump" is not a design argument.
+        //
+        // IT ALSO BUYS A LEFT RAIL — the real gain, and not decoration.
+        // Rows 1 and 2 now open with a 16dp glyph at the same x, so their
+        // TEXT starts on one column (`16 + VelvetSpacing.sm` in from the
+        // padding edge) instead of the ragged left this body had, where the
+        // client name began hard against the padding and the service name
+        // 24dp inside it. The hairline now cuts across a two-column grid
+        // rather than a full-bleed block.
+        //
+        // COST, MEASURED: the glyph is 1dp taller than
+        // [VelvetText.masterCardClientNameFull]'s 15dp line box at textScaler
+        // 1.0, so it becomes this row's tallest child and moved
+        // [MasterBookingCard.fullLayoutNaturalHeight] 117 -> 118. `Icon` does
+        // NOT scale with `textScaler`, so at 1.15 (17dp line box) and 1.3
+        // (20dp) the text still wins and those two naturals are UNCHANGED at
+        // 124 / 132. See that constant's doc for the timeline consequence.
+        //
+        // The glyph is DECORATIVE: the client name is already announced by
+        // the card's `Semantics(label:)` (`masterBookingCardSemantics`), so
+        // `semanticLabel` is deliberately left null — naming it here would
+        // announce the same person twice.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            const Icon(
+              Icons.person_outlined,
+              size: 16,
+              color: BrandColors.accent,
+            ),
+            const SizedBox(width: VelvetSpacing.sm),
+            // `Expanded`, because this is a `Row` now: an unbounded child
+            // would make `maxLines: 1` + `ellipsis` inert and let a long
+            // client name overflow instead of truncating.
+            Expanded(
+              child: Text(
+                clientName,
+                style: VelvetText.masterCardClientNameFull,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: VelvetSpacing.sm + 2),
         // The hairline divider — its canonical role in the design is

@@ -884,11 +884,13 @@ void main() {
 
         // ADDENDUM 8: a 60-minute booking's proportional height is
         // `60/60 * 120 = 120dp`, which clears the adaptive FULL layout's own
-        // 117dp natural content by 3dp — so the duration-derived height still
+        // 118dp natural content by 2dp — so the duration-derived height still
         // wins outright and the card lands EXACTLY on its end-time line
         // (kSlotH * 2 = 120). 60 minutes is the break-even for the full
-        // layout at this scale: that 3dp of headroom is exactly why `_kHourH`
-        // must not drop below 120 without moving `fullLayoutMinHeight` too.
+        // layout at this scale: that 2dp of headroom (3dp until the card's
+        // ROW-1 GLYPH pass took the full natural 117 -> 118) is exactly why
+        // `_kHourH` must not drop below 120 without moving
+        // `fullLayoutMinHeight` too.
         expect(height, closeTo(kSlotH * 2, 0.5));
       },
     );
@@ -1945,8 +1947,8 @@ void main() {
     //
     // That reasoning is about `MasterBookingCard`'s COMPACT layout only. The
     // card switches to its ADAPTIVE FULL layout once
-    // `minHeight >= fullLayoutNaturalHeight` (117dp, `_kFullLayoutMinHeight`),
-    // and the full layout's own natural content also measures 117dp.
+    // `minHeight >= fullLayoutNaturalHeight` (118dp, `_kFullLayoutMinHeight`),
+    // and the full layout's own natural content also measures 118dp.
     //
     // HISTORICAL MOTIVATION (scale 112, pre-ADDENDUM 7): a 60-minute booking's
     // floor was 112dp but its real card rendered at 117dp (full layout), so a
@@ -1959,7 +1961,7 @@ void main() {
     // (which accounts for the layout switch), not the bare `minHeight`.
     //
     // AT THE CURRENT 120dp SCALE (ADDENDUM 8) that specific 5dp gap still
-    // does not arise — a 60-minute floor is 120dp >= 117dp, so
+    // does not arise — a 60-minute floor is 120dp >= 118dp, so
     // `occupiedHeightFor` and `minHeight` coincide there — but
     // `occupiedHeightFor` is NO LONGER a no-op the way it was at 168: the
     // grid's card floor is now `microLayoutNaturalHeight` (28dp), so every
