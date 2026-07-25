@@ -3,18 +3,25 @@
 // `booking_detail_provider_view_test.dart` (Phase 7.2) proved the screen
 // role-branches at all and pinned the footer EMPTY for that phase. This suite
 // covers what Wave A fills it WITH:
-//   • CONFIRMED, not yet started → «Перенести» + «Скасувати» (decline);
-//   • CONFIRMED, [Booking.hasStarted] → «Завершити» alone (reschedule/decline
-//     hidden — they would 409 server-side, Phase 27.1);
+//   • CONFIRMED, not yet started → «Перенести» + «Скасувати» (decline), no
+//     «Завершити»/«Клієнт не прийшов»;
+//   • CONFIRMED, [Booking.hasStarted] → «Завершити» AND «Клієнт не прийшов»
+//     (no-show) (reschedule/decline hidden — they would 409 server-side,
+//     Phase 27.1);
 //   • every terminal status → nothing;
 //   • the decline dialog (reused `cancel_booking_dialog.dart` chrome) wires
 //     to `BookingRepository.declineBooking` with the optional comment (empty
 //     → null), and backing out calls nothing;
 //   • the complete dialog wires to `completeBooking`, and backing out calls
 //     nothing;
-//   • a 409 from either endpoint (`ProviderDeclineWindowClosedFailure` /
-//     `ProviderCompleteNotStartedFailure`) surfaces the friendly l10n message
-//     and refetches rather than crashing or showing a raw error;
+//   • the not-complete (no-show) dialog (same reused chrome) wires to
+//     `BookingRepository.notCompleteBooking` with the optional comment
+//     (empty → null), and backing out calls nothing;
+//   • a 409 from any of the three endpoints
+//     (`ProviderDeclineWindowClosedFailure` /
+//     `ProviderCompleteNotStartedFailure` /
+//     `ProviderNotCompleteNotStartedFailure`) surfaces the friendly l10n
+//     message and refetches rather than crashing or showing a raw error;
 //   • «Перенести» on the provider footer reuses the EXACT SAME
 //     `startBookingReschedule` flow the client uses (Phase 27.2 widened
 //     `PATCH …/reschedule` to providers on the identical endpoint/shape, no
@@ -189,6 +196,10 @@ void main() {
         );
         expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
         expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
+        expect(
+          find.byKey(const Key('booking-detail-not-complete')),
+          findsNothing,
+        );
       },
     );
 
@@ -216,6 +227,10 @@ void main() {
           findsOneWidget,
         );
         expect(
+          find.byKey(const Key('booking-detail-not-complete')),
+          findsOneWidget,
+        );
+        expect(
           find.byKey(const Key('booking-detail-provider-reschedule')),
           findsNothing,
         );
@@ -224,7 +239,8 @@ void main() {
     );
 
     testWidgets(
-      'CONFIRMED, fully elapsed: still complete only (not read-only)',
+      'CONFIRMED, fully elapsed: complete + not-complete both offered '
+      '(not read-only)',
       (tester) async {
         final DateTime start = DateTime.now().toUtc().subtract(
           const Duration(days: 1),
@@ -239,6 +255,10 @@ void main() {
 
         expect(
           find.byKey(const Key('booking-detail-complete')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('booking-detail-not-complete')),
           findsOneWidget,
         );
       },
@@ -276,6 +296,11 @@ void main() {
           find.byKey(const Key('booking-detail-complete')),
           findsNothing,
           reason: 'complete leaked at $status',
+        );
+        expect(
+          find.byKey(const Key('booking-detail-not-complete')),
+          findsNothing,
+          reason: 'not-complete leaked at $status',
         );
       }
     });
@@ -521,6 +546,156 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // Not-complete (client no-show) flow
+  // -------------------------------------------------------------------------
+
+  group('not-complete flow', () {
+    /// A CONFIRMED booking that has started (so «Завершити»/«Клієнт не
+    /// прийшов» are offered).
+    Booking startedBooking() {
+      final DateTime start = DateTime.now().toUtc().subtract(
+        const Duration(minutes: 5),
+      );
+      return _booking(
+        status: BookingStatus.confirmed,
+        startAt: start,
+        durationMinutes: 90,
+      );
+    }
+
+    testWidgets('confirming WITH a comment calls notCompleteBooking with it', (
+      tester,
+    ) async {
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.notCompleteBooking(any(), comment: any(named: 'comment')),
+      ).thenAnswer((_) async {});
+      final Booking booking = startedBooking();
+      await _pumpDetail(tester, booking, repo: repo);
+
+      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('not-complete-booking-dialog')),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('cancel-booking-note-field')),
+        'Клієнт не відповідав на дзвінки.',
+      );
+      await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.notCompleteBooking(
+          booking.id,
+          comment: 'Клієнт не відповідав на дзвінки.',
+        ),
+      ).called(1);
+      expect(
+        find.byKey(const Key('not-complete-booking-dialog')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('confirming with an EMPTY comment sends comment: null', (
+      tester,
+    ) async {
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.notCompleteBooking(any(), comment: any(named: 'comment')),
+      ).thenAnswer((_) async {});
+      final Booking booking = startedBooking();
+      await _pumpDetail(tester, booking, repo: repo);
+
+      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.notCompleteBooking(booking.id, comment: null),
+      ).called(1);
+    });
+
+    testWidgets('backing out with «Не позначати» calls nothing', (
+      tester,
+    ) async {
+      final repo = _MockBookingRepository();
+      final Booking booking = startedBooking();
+      await _pumpDetail(tester, booking, repo: repo);
+
+      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('not-complete-booking-keep')),
+      );
+      await tester.tap(find.byKey(const Key('not-complete-booking-keep')));
+      await tester.pumpAndSettle();
+
+      verifyNever(
+        () => repo.notCompleteBooking(any(), comment: any(named: 'comment')),
+      );
+      expect(
+        find.byKey(const Key('not-complete-booking-dialog')),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      'a 409 (ProviderNotCompleteNotStartedFailure) shows the friendly '
+      'message and refetches rather than crashing',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        final Booking booking = startedBooking();
+        when(
+          () => repo.notCompleteBooking(any(), comment: any(named: 'comment')),
+        ).thenThrow(const ProviderNotCompleteNotStartedFailure());
+        await _pumpDetail(tester, booking, repo: repo);
+        final AppLocalizations l10n = _l10n(tester);
+
+        await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(l10n.bookingErrorProviderNotCompleteNotStarted),
+          findsOneWidget,
+        );
+        // The dialog closed even though the write failed — it is a
+        // confirmation, not a busy-state host.
+        expect(
+          find.byKey(const Key('not-complete-booking-dialog')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('an UNKNOWN failure shows the generic error message', (
+      tester,
+    ) async {
+      final repo = _MockBookingRepository();
+      final Booking booking = startedBooking();
+      when(
+        () => repo.notCompleteBooking(any(), comment: any(named: 'comment')),
+      ).thenThrow(Exception('boom'));
+      await _pumpDetail(tester, booking, repo: repo);
+      final AppLocalizations l10n = _l10n(tester);
+
+      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(l10n.errUnknown), findsOneWidget);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Day-list staleness — a successful decline/complete must invalidate the
   // master's OWN «Мої записи» day timeline (`bookingsDayProvider`), not only
   // `bookingDetailProvider`, or the list the master returns to would still
@@ -657,6 +832,61 @@ void main() {
             cancelToken: any(named: 'cancelToken'),
           ),
         ).called(2); // initial watch fetch + the post-complete refetch.
+      },
+    );
+
+    testWidgets(
+      'a successful not-complete refetches an actively-watched day-list '
+      'family member for the booking\'s day',
+      (tester) async {
+        final DateTime start = DateTime.now().toUtc().subtract(
+          const Duration(minutes: 5),
+        );
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          startAt: start,
+          durationMinutes: 90,
+        );
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.notCompleteBooking(any(), comment: any(named: 'comment')),
+        ).thenAnswer((_) async {});
+        stubDayList(repo);
+
+        await tester.pumpApp(
+          BookingDetailScreen(bookingId: booking.id),
+          overrides: _overrides(booking, repo),
+        );
+        await tester.pumpAndSettle();
+
+        final BookingsDayQuery dayQuery = BookingsDayQuery.of(
+          day: booking.startAt,
+        );
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingDetailScreen)),
+        );
+        final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+            .listen(bookingsDayProvider(dayQuery), (_, _) {});
+        addTearDown(sub.close);
+        await container.read(bookingsDayProvider(dayQuery).future);
+
+        await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).called(2); // initial watch fetch + the post-not-complete refetch.
       },
     );
   });

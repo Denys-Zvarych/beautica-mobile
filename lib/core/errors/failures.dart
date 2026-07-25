@@ -704,6 +704,29 @@ final class ProviderCompleteNotStartedFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrorProviderCompleteNotStarted;
 }
 
+/// Emitted when `PATCH /bookings/{id}/not-complete` (or
+/// `PATCH /appointments/{id}/not-complete`) returns HTTP **409** — the
+/// backend guards the no-show transition to elapsed bookings only (the same
+/// shape as `BookingTemporalGuard.assertElapsedForComplete`): the booking's
+/// `startsAt` is still in the future, so a PROVIDER may not mark it
+/// NOT_COMPLETED yet.
+///
+/// Same decode note as [ProviderCompleteNotStartedFailure] — no typed
+/// `data.code` envelope, so `HttpBookingRepository.notCompleteBooking` /
+/// `HttpAppointmentRepository.notCompleteAppointment` map every 409 from
+/// either endpoint to this failure by call site. The mobile UI already gates
+/// the «Клієнт не прийшов» CTA to [BookingDisplayX.hasStarted], so this is
+/// the defensive backstop for a stale screen / rolled-back device clock —
+/// the screen catches it, shows [userMessage], and refetches the booking so
+/// the footer re-renders correctly.
+final class ProviderNotCompleteNotStartedFailure extends Failure {
+  const ProviderNotCompleteNotStartedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrorProviderNotCompleteNotStarted;
+}
+
 /// Emitted when `POST /bookings` or `PATCH /bookings/{id}/reschedule` returns
 /// HTTP **429** — the per-user booking-write rate limit (5 requests / 10 s,
 /// backend commit f95d8fd) is exhausted.

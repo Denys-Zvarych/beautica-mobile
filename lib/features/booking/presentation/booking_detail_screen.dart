@@ -30,11 +30,11 @@
 //
 // The table above is the CLIENT footer. A PROVIDER viewer (track 27.x Wave
 // A) gets an entirely different set — «Перенести» + «Скасувати»
-// (CONFIRMED, not yet started) or «Завершити» alone (CONFIRMED,
-// [BookingDisplayX.hasStarted]), nothing on any terminal status — built by
-// `_DetailBody._providerActions`, never this switch. See `booking_viewer_role
-// .dart` for the role derivation and `_DetailBody._actions`'s doc for the
-// dispatch.
+// (CONFIRMED, not yet started) or «Завершити» + «Клієнт не прийшов»
+// (CONFIRMED, [BookingDisplayX.hasStarted]), nothing on any terminal status
+// — built by `_DetailBody._providerActions`, never this switch. See
+// `booking_viewer_role.dart` for the role derivation and
+// `_DetailBody._actions`'s doc for the dispatch.
 //
 // Add-to-calendar is CONFIRMED-only (see `Booking.canAddToCalendar`) and
 // lives as a calendar icon in the header row opposite the back button (via the
@@ -299,6 +299,76 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     ref.invalidate(bookingsDayProvider);
   }
 
+  /// The PROVIDER'S «Клієнт не прийшов» opens the no-show confirmation, then
+  /// calls `notCompleteBooking`/`notCompleteAppointment` — same shape as
+  /// [_confirmDecline]/[_confirmComplete] (dialog → repository call →
+  /// 409-specific handling → refetch), swapped to the no-show
+  /// dialog/repository method/failure type.
+  ///
+  /// Same appointment-child routing as [_confirmDecline]/[_confirmComplete] —
+  /// a non-null [Booking.appointmentId] routes the write to
+  /// `AppointmentRepository.notCompleteAppointment` (whole-visit lockstep)
+  /// and tells the dialog `isAppointment: true` for the whole-visit copy; a
+  /// plain single-service booking (`appointmentId == null`) calls
+  /// `BookingRepository.notCompleteBooking`.
+  ///
+  /// Only reachable from the footer when [Booking.hasStarted] (elapsed
+  /// CONFIRMED) — see `_providerActions`'s doc.
+  Future<void> _confirmNotComplete(
+    BuildContext context,
+    Booking booking,
+  ) async {
+    final bool isAppointment = booking.appointmentId != null;
+    final String? comment = await showNotCompleteBookingDialog(
+      context,
+      booking,
+      isAppointment: isAppointment,
+    );
+    if (comment == null || !mounted) return; // backed out — nothing happened.
+
+    try {
+      final String? appointmentId = booking.appointmentId;
+      if (appointmentId != null) {
+        await ref
+            .read(appointmentRepositoryProvider)
+            .notCompleteAppointment(
+              appointmentId,
+              comment: comment.isEmpty ? null : comment,
+            );
+      } else {
+        await ref
+            .read(bookingRepositoryProvider)
+            .notCompleteBooking(
+              booking.id,
+              comment: comment.isEmpty ? null : comment,
+            );
+      }
+    } on ProviderNotCompleteNotStartedFailure catch (failure) {
+      // The booking's start slipped back into the future relative to this
+      // (possibly stale) screen — or the device clock was rolled back and the
+      // server refused to honour it. Same resolution as the decline/complete
+      // 409: localized message + refetch so the footer re-renders correctly.
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      ref.invalidate(bookingDetailProvider(booking.id));
+      return;
+    } catch (_) {
+      if (!context.mounted) return;
+      final l10n = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
+      return;
+    }
+    if (!mounted) return;
+    ref.invalidate(bookingDetailProvider(booking.id));
+    // Same day-list staleness fix as `_confirmDecline`/`_confirmComplete` —
+    // the booking just left CONFIRMED for NOT_COMPLETED.
+    ref.invalidate(bookingsDayProvider);
+  }
+
   /// Track 27.x/MO-6: when [Booking.appointmentId] is non-null this booking is
   /// one service of a multi-service VISIT — the reschedule routes to
   /// [startAppointmentReschedule] instead, moving every service in lockstep via
@@ -422,6 +492,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         onCancel: () => _confirmCancel(context, booking),
         onDecline: () => _confirmDecline(context, booking),
         onComplete: () => _confirmComplete(context, booking),
+        onNotComplete: () => _confirmNotComplete(context, booking),
         onRebook: () => _onRebook(booking),
         onLeaveReview: () => _onLeaveReview(booking),
         onLeaveClientFeedback: () => _onLeaveClientFeedback(booking),
@@ -442,6 +513,7 @@ class _DetailBody extends StatelessWidget {
     required this.onCancel,
     required this.onDecline,
     required this.onComplete,
+    required this.onNotComplete,
     required this.onRebook,
     required this.onLeaveReview,
     required this.onLeaveClientFeedback,
@@ -459,6 +531,10 @@ class _DetailBody extends StatelessWidget {
 
   /// Track 27.x Wave A — the PROVIDER'S «Завершити» (complete).
   final VoidCallback onComplete;
+
+  /// The PROVIDER'S «Клієнт не прийшов» (no-show), offered alongside
+  /// «Завершити» once [Booking.hasStarted] — see [_providerActions]'s doc.
+  final VoidCallback onNotComplete;
   final VoidCallback onRebook;
   final VoidCallback onLeaveReview;
 
@@ -721,10 +797,14 @@ class _DetailBody extends StatelessWidget {
   ///     to `startAppointmentReschedule`, moving the whole visit via
   ///     `PATCH /appointments/{id}/reschedule` — track 27.x/MO-6) + «Скасувати»
   ///     (decline).
-  ///   * CONFIRMED, [Booking.hasStarted] — «Завершити» only. Reschedule and
-  ///     decline are hidden, not merely disabled: both would 409 server-side
-  ///     once the appointment has begun (see `hasStarted`'s doc for why this
-  ///     is a DIFFERENT gate than the client-side [Booking.isPast]).
+  ///   * CONFIRMED, [Booking.hasStarted] — «Завершити» AND «Клієнт не
+  ///     прийшов» (no-show). Reschedule and decline are hidden, not merely
+  ///     disabled: both would 409 server-side once the appointment has begun
+  ///     (see `hasStarted`'s doc for why this is a DIFFERENT gate than the
+  ///     client-side [Booking.isPast]). The no-show action is the mirror of
+  ///     «Завершити» — the provider records whichever outcome actually
+  ///     happened (the client came, or they didn't) — and is offered ONLY
+  ///     once elapsed, never on a not-yet-started booking.
   ///   * COMPLETED, `booking.providerCanReviewClient` — «Залишити відгук про
   ///     клієнта» (track 7.x Wave B). PRIVATE feedback about the booking's
   ///     client; the client only ever sees their aggregate rating number
@@ -778,6 +858,13 @@ class _DetailBody extends StatelessWidget {
           label: l10n.bookingDetailCompleteCta,
           icon: Icons.check_circle_rounded,
           onPressed: onComplete,
+        ),
+        const SizedBox(height: VelvetSpacing.xs),
+        _DestructiveSecondaryButton(
+          buttonKey: const Key('booking-detail-not-complete'),
+          label: l10n.bookingDetailNotCompleteCta,
+          icon: Icons.person_off_rounded,
+          onTap: onNotComplete,
         ),
       ];
     }

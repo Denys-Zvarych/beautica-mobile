@@ -234,6 +234,27 @@ abstract interface class BookingRepository {
   /// the UX-only mirror).
   Future<void> completeBooking(String id);
 
+  /// Marks a booking NOT_COMPLETED (client no-show) on behalf of the
+  /// authenticated PROVIDER.
+  ///
+  /// Wraps `PATCH /bookings/{bookingId}/not-complete`. `StatusUpdateRequest
+  /// .cancellationReason` is `@NotNull` on the backend; this repository
+  /// always sends `CLIENT_NO_SHOW` — the one reason that fits a provider
+  /// recording that the client never showed up — mirroring how
+  /// [declineBooking] always bakes in `PROVIDER_UNAVAILABLE`.
+  ///
+  /// [comment] is the OPTIONAL free-text `providerComment`, mutually visible
+  /// to the client once the booking reads `NOT_COMPLETED` (CLAUDE.md
+  /// booking-notes rule — symmetric, mutual visibility, no audience
+  /// suppression).
+  ///
+  /// Throws [ProviderNotCompleteNotStartedFailure] on HTTP 409 — the
+  /// backend guards this transition to elapsed bookings only (the
+  /// `hasStarted`/`assertElapsedForComplete`-shaped guard); the UX is
+  /// pre-gated to elapsed bookings, so this is a defensive backstop for a
+  /// stale screen or a rolled-back device clock.
+  Future<void> notCompleteBooking(String id, {String? comment});
+
   /// Leaves a review for a COMPLETED booking on behalf of the authenticated
   /// client (Phase 14.6).
   ///
@@ -621,6 +642,41 @@ final class HttpBookingRepository implements BookingRepository {
         e,
         onConflict: (DioException e) =>
             ProviderCompleteNotStartedFailure(cause: e),
+      );
+    }
+  }
+
+  @override
+  Future<void> notCompleteBooking(String id, {String? comment}) async {
+    final String? trimmed = comment?.trim();
+    final String? effectiveComment = (trimmed == null || trimmed.isEmpty)
+        ? null
+        : trimmed;
+    try {
+      await _bookingApi.notCompleteBooking(
+        bookingId: id,
+        statusUpdateRequest: StatusUpdateRequest(
+          (b) => b
+            ..cancellationReason =
+                StatusUpdateRequestCancellationReasonEnum.CLIENT_NO_SHOW
+            ..comment = effectiveComment,
+        ),
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'notCompleteBooking failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapProviderActionException(
+        e,
+        onConflict: (DioException e) =>
+            ProviderNotCompleteNotStartedFailure(cause: e),
       );
     }
   }

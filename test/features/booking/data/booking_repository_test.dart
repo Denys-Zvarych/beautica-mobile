@@ -39,6 +39,7 @@ const _cancelPath = '/api/v1/bookings/booking-1/cancel';
 const _reschedulePath = '/api/v1/bookings/booking-1/reschedule';
 const _declinePath = '/api/v1/bookings/booking-1/decline';
 const _completePath = '/api/v1/bookings/booking-1/complete';
+const _notCompletePath = '/api/v1/bookings/booking-1/not-complete';
 const _myBookingsPath = '/api/v1/bookings/me';
 
 /// Builds a minimal enriched [BookingDetailResponse] DTO for happy-path
@@ -959,6 +960,126 @@ void main() {
 
         await expectLater(
           repository.completeBooking('booking-1'),
+          throwsA(
+            isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 403),
+          ),
+        );
+      },
+    );
+  });
+
+  // The PROVIDER no-show (client didn't show up) write path.
+  group('notCompleteBooking', () {
+    test('success: always sends CLIENT_NO_SHOW with comment as the optional '
+        'free text', () async {
+      when(
+        () => bookingApi.notCompleteBooking(
+          bookingId: any(named: 'bookingId'),
+          statusUpdateRequest: any(named: 'statusUpdateRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<void>(
+          requestOptions: RequestOptions(path: _notCompletePath),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.notCompleteBooking(
+        'booking-1',
+        comment: 'client never called back',
+      );
+
+      final captured = verify(
+        () => bookingApi.notCompleteBooking(
+          bookingId: captureAny(named: 'bookingId'),
+          statusUpdateRequest: captureAny(named: 'statusUpdateRequest'),
+        ),
+      ).captured;
+      expect(captured[0], 'booking-1');
+      final body = captured[1] as StatusUpdateRequest;
+      expect(
+        body.cancellationReason,
+        StatusUpdateRequestCancellationReasonEnum.CLIENT_NO_SHOW,
+      );
+      expect(body.comment, 'client never called back');
+    });
+
+    test(
+      'success with no comment: comment is null (blank is trimmed too)',
+      () async {
+        when(
+          () => bookingApi.notCompleteBooking(
+            bookingId: any(named: 'bookingId'),
+            statusUpdateRequest: any(named: 'statusUpdateRequest'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<void>(
+            requestOptions: RequestOptions(path: _notCompletePath),
+            statusCode: 200,
+          ),
+        );
+
+        await repository.notCompleteBooking('booking-1', comment: '   ');
+
+        final captured =
+            verify(
+                  () => bookingApi.notCompleteBooking(
+                    bookingId: any(named: 'bookingId'),
+                    statusUpdateRequest: captureAny(
+                      named: 'statusUpdateRequest',
+                    ),
+                  ),
+                ).captured.single
+                as StatusUpdateRequest;
+        expect(captured.comment, isNull);
+      },
+    );
+
+    test('connectionError → NetworkFailure', () async {
+      when(
+        () => bookingApi.notCompleteBooking(
+          bookingId: any(named: 'bookingId'),
+          statusUpdateRequest: any(named: 'statusUpdateRequest'),
+        ),
+      ).thenThrow(_dioConnectionError(_notCompletePath));
+
+      await expectLater(
+        repository.notCompleteBooking('booking-1'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    // Same no-typed-data.code reasoning as declineBooking/completeBooking —
+    // the backend's elapsed-only guard throws a plain BusinessException, so
+    // EVERY 409 from this endpoint maps to ProviderNotCompleteNotStartedFailure
+    // by call site.
+    test('ANY 409 (even with no body at all) → '
+        'ProviderNotCompleteNotStartedFailure', () async {
+      when(
+        () => bookingApi.notCompleteBooking(
+          bookingId: any(named: 'bookingId'),
+          statusUpdateRequest: any(named: 'statusUpdateRequest'),
+        ),
+      ).thenThrow(_dioBadResponse(409, _notCompletePath));
+
+      await expectLater(
+        repository.notCompleteBooking('booking-1'),
+        throwsA(isA<ProviderNotCompleteNotStartedFailure>()),
+      );
+    });
+
+    test(
+      'a non-409 bad response (e.g. 403) stays a generic ServerFailure',
+      () async {
+        when(
+          () => bookingApi.notCompleteBooking(
+            bookingId: any(named: 'bookingId'),
+            statusUpdateRequest: any(named: 'statusUpdateRequest'),
+          ),
+        ).thenThrow(_dioBadResponse(403, _notCompletePath));
+
+        await expectLater(
+          repository.notCompleteBooking('booking-1'),
           throwsA(
             isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 403),
           ),

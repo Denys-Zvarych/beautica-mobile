@@ -26,6 +26,9 @@
 //   • decline on an appointment-child booking calls
 //     `AppointmentRepository.declineAppointment(appointmentId, comment: ...)`,
 //     NEVER `BookingRepository.declineBooking`;
+//   • not-complete (client no-show) on an appointment-child booking calls
+//     `AppointmentRepository.notCompleteAppointment(appointmentId, comment:
+//     ...)`, NEVER `BookingRepository.notCompleteBooking`;
 //   • «Перенести» (reschedule) is SHOWN on an appointment-child booking, same
 //     key as the single-booking case — the provider-facing
 //     `/appointments/{id}/reschedule` endpoint now exists;
@@ -525,6 +528,125 @@ void main() {
 
       verify(() => bookingRepo.completeBooking(booking.id)).called(1);
       verifyNever(() => appointmentRepo.completeAppointment(any()));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Not-complete (client no-show) routing
+  // -------------------------------------------------------------------------
+
+  group('not-complete routing', () {
+    /// A CONFIRMED booking that has started (so «Завершити»/«Клієнт не
+    /// прийшов» are offered).
+    Booking startedBooking({String? appointmentId}) {
+      final DateTime start = DateTime.now().toUtc().subtract(
+        const Duration(minutes: 5),
+      );
+      return Booking(
+        id: 'b1',
+        masterId: 'm1',
+        masterFirstName: 'Марія',
+        masterLastName: 'Іванюк',
+        masterType: 'INDEPENDENT_MASTER',
+        clientId: 'c1',
+        clientFirstName: 'Олена',
+        clientLastName: 'Ковальчук',
+        serviceId: 's1',
+        serviceName: 'Манікюр з покриттям',
+        durationMinutes: 90,
+        price: 650,
+        startAt: start,
+        endAt: start.add(const Duration(minutes: 90)),
+        status: BookingStatus.confirmed,
+        canReview: false,
+        masterProfessionalTitle: 'Майстриня манікюру',
+        appointmentId: appointmentId,
+      );
+    }
+
+    testWidgets('appointment-child booking: not-complete calls '
+        'AppointmentRepository.notCompleteAppointment(appointmentId), never '
+        'BookingRepository.notCompleteBooking', (tester) async {
+      final Booking booking = startedBooking(appointmentId: 'appt-1');
+      final bookingRepo = _MockBookingRepository();
+      final appointmentRepo = _MockAppointmentRepository();
+      when(
+        () => appointmentRepo.notCompleteAppointment(
+          any(),
+          comment: any(named: 'comment'),
+        ),
+      ).thenAnswer((_) async {});
+
+      await _pumpDetail(
+        tester,
+        booking,
+        bookingRepo: bookingRepo,
+        appointmentRepo: appointmentRepo,
+      );
+
+      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      await tester.pumpAndSettle();
+      // The dialog reads as a whole-visit action, not a single-booking one.
+      expect(
+        find.byKey(const Key('not-complete-booking-dialog')),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('cancel-booking-note-field')),
+        'Клієнт не відповідав на дзвінки.',
+      );
+      await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => appointmentRepo.notCompleteAppointment(
+          'appt-1',
+          comment: 'Клієнт не відповідав на дзвінки.',
+        ),
+      ).called(1);
+      verifyNever(
+        () => bookingRepo.notCompleteBooking(
+          any(),
+          comment: any(named: 'comment'),
+        ),
+      );
+    });
+
+    testWidgets('REGRESSION GUARD — a plain single-service booking still '
+        'calls BookingRepository.notCompleteBooking, never the appointment '
+        'endpoint', (tester) async {
+      final Booking booking = startedBooking();
+      final bookingRepo = _MockBookingRepository();
+      final appointmentRepo = _MockAppointmentRepository();
+      when(
+        () => bookingRepo.notCompleteBooking(
+          any(),
+          comment: any(named: 'comment'),
+        ),
+      ).thenAnswer((_) async {});
+
+      await _pumpDetail(
+        tester,
+        booking,
+        bookingRepo: bookingRepo,
+        appointmentRepo: appointmentRepo,
+      );
+
+      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => bookingRepo.notCompleteBooking(booking.id, comment: null),
+      ).called(1);
+      verifyNever(
+        () => appointmentRepo.notCompleteAppointment(
+          any(),
+          comment: any(named: 'comment'),
+        ),
+      );
     });
   });
 }
