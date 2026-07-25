@@ -122,6 +122,9 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   @override
   Future<Appointment> getAppointment(String id) => throw UnimplementedError();
   @override
+  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
+  @override
   Future<void> cancelAppointment(String id, {String? note}) =>
       throw UnimplementedError();
   @override

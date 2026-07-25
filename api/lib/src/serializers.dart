@@ -82,6 +82,7 @@ import 'package:beautica_api/src/model/appointment_cancel_request.dart';
 import 'package:beautica_api/src/model/appointment_detail_response.dart';
 import 'package:beautica_api/src/model/appointment_item_response.dart';
 import 'package:beautica_api/src/model/appointment_provider_note_request.dart';
+import 'package:beautica_api/src/model/appointment_reschedule_request.dart';
 import 'package:beautica_api/src/model/approved_category_response.dart';
 import 'package:beautica_api/src/model/assign_service_to_master_request.dart';
 import 'package:beautica_api/src/model/auth_response.dart';
@@ -285,6 +286,7 @@ part 'serializers.g.dart';
   AppointmentDetailResponse,
   AppointmentItemResponse,
   AppointmentProviderNoteRequest,
+  AppointmentRescheduleRequest,
   ApprovedCategoryResponse,
   AssignServiceToMasterRequest,
   AuthResponse,

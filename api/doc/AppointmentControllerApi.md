@@ -15,6 +15,7 @@ Method | HTTP request | Description
 [**declineAppointment**](AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
 [**getAppointment**](AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
 [**notCompleteAppointment**](AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
+[**rescheduleAppointment**](AppointmentControllerApi.md#rescheduleappointment) | **PATCH** /api/v1/appointments/{appointmentId}/reschedule | 
 
 
 # **cancelAppointment**
@@ -264,6 +265,49 @@ No authorization required
 
  - **Content-Type**: application/json
  - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **rescheduleAppointment**
+> ApiResponseAppointmentDetailResponse rescheduleAppointment(appointmentId, appointmentRescheduleRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getAppointmentControllerApi();
+final String appointmentId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final AppointmentRescheduleRequest appointmentRescheduleRequest = ; // AppointmentRescheduleRequest | 
+
+try {
+    final response = api.rescheduleAppointment(appointmentId, appointmentRescheduleRequest);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling AppointmentControllerApi->rescheduleAppointment: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **appointmentId** | **String**|  | 
+ **appointmentRescheduleRequest** | [**AppointmentRescheduleRequest**](AppointmentRescheduleRequest.md)|  | 
+
+### Return type
+
+[**ApiResponseAppointmentDetailResponse**](ApiResponseAppointmentDetailResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

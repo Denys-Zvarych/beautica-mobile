@@ -299,10 +299,29 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     ref.invalidate(bookingsDayProvider);
   }
 
+  /// Track 27.x/MO-6: when [Booking.appointmentId] is non-null this booking is
+  /// one service of a multi-service VISIT — the reschedule routes to
+  /// [startAppointmentReschedule] instead, moving every service in lockstep via
+  /// `PATCH /appointments/{id}/reschedule`. A plain single-service booking
+  /// (`appointmentId == null`) is UNCHANGED — same [startBookingReschedule]
+  /// call as before. Confirmed-only either way — the CTA below is gated to
+  /// match.
   void _onReschedule(BuildContext context, Booking booking) {
+    final String? appointmentId = booking.appointmentId;
+    if (appointmentId != null) {
+      unawaited(
+        startAppointmentReschedule(
+          context: context,
+          ref: ref,
+          appointmentId: appointmentId,
+          bookingId: booking.id,
+        ),
+      );
+      return;
+    }
     // Reuse the create-booking slot picker, seeded to reschedule THIS booking
     // (the confirm-step submit swaps POST → PATCH /reschedule on the non-null
-    // rescheduleBookingId). Confirmed-only — the CTA below is gated to match.
+    // rescheduleBookingId).
     unawaited(
       startBookingReschedule(context: context, ref: ref, bookingId: booking.id),
     );
@@ -695,10 +714,13 @@ class _DetailBody extends StatelessWidget {
   /// device clock can still hit a 409, handled by `onDecline`/`onComplete`'s
   /// callers (see `_confirmDecline`/`_confirmComplete` in the screen state).
   ///
-  ///   * CONFIRMED, not yet started — «Перенести» (reuses the SAME
-  ///     `startBookingReschedule` flow the client uses; Phase 27.2 widened
-  ///     `PATCH …/reschedule` to providers on the identical endpoint/shape)
-  ///     + «Скасувати» (decline).
+  ///   * CONFIRMED, not yet started — «Перенести» (a plain single-service
+  ///     booking reuses the SAME `startBookingReschedule` flow the client uses
+  ///     — Phase 27.2 widened `PATCH …/reschedule` to providers on the
+  ///     identical endpoint/shape; an appointment-child booking instead routes
+  ///     to `startAppointmentReschedule`, moving the whole visit via
+  ///     `PATCH /appointments/{id}/reschedule` — track 27.x/MO-6) + «Скасувати»
+  ///     (decline).
   ///   * CONFIRMED, [Booking.hasStarted] — «Завершити» only. Reschedule and
   ///     decline are hidden, not merely disabled: both would 409 server-side
   ///     once the appointment has begun (see `hasStarted`'s doc for why this
@@ -713,12 +735,13 @@ class _DetailBody extends StatelessWidget {
   ///     unknown) — read-only, no actions.
   ///
   /// Track 27.x/MO-6 — a booking that is part of a multi-service VISIT
-  /// (`Booking.appointmentId != null`) hides «Перенести»: the backend exposes
-  /// NO provider-facing `/appointments/{id}/reschedule` endpoint (only the
-  /// per-booking one, which the visit-child 409 guard blocks), so there is no
-  /// working reschedule flow to offer. «Скасувати» (decline) stays — it
-  /// routes to `AppointmentRepository.declineAppointment` instead of the
-  /// per-booking endpoint (see [_confirmDecline]).
+  /// (`Booking.appointmentId != null`) now ALSO offers «Перенести»: the
+  /// backend exposes `PATCH /appointments/{id}/reschedule`, so `_onReschedule`
+  /// routes it to [startAppointmentReschedule] (whole-visit lockstep) instead
+  /// of the per-booking flow the visit-child 409 guard would otherwise block.
+  /// «Скасувати» (decline) is unchanged — it routes to
+  /// `AppointmentRepository.declineAppointment` instead of the per-booking
+  /// endpoint (see [_confirmDecline]).
   ///
   /// GATING NOTE (track 7.x Wave B, superseded): the CTA used to be offered
   /// on every COMPLETED provider booking regardless of prior feedback,
@@ -758,21 +781,19 @@ class _DetailBody extends StatelessWidget {
         ),
       ];
     }
-    // Track 27.x/MO-6 — no provider-facing appointment-reschedule endpoint
-    // exists (see this method's doc), so a visit-child booking never offers
-    // «Перенести», only «Скасувати».
-    final bool isAppointment = booking.appointmentId != null;
+    // Track 27.x/MO-6 — «Перенести» is now offered on EVERY not-yet-started
+    // CONFIRMED provider booking, appointment-child or not; `_onReschedule`
+    // (the screen state's handler bound to `onReschedule`) is what branches on
+    // `booking.appointmentId` to pick the right endpoint.
     return <Widget>[
-      if (!isAppointment) ...<Widget>[
-        NeumorphicButton(
-          key: const Key('booking-detail-provider-reschedule'),
-          label: l10n.bookingDetailRescheduleCta,
-          icon: Icons.event_repeat_rounded,
-          loading: rescheduleLoading,
-          onPressed: onReschedule,
-        ),
-        const SizedBox(height: VelvetSpacing.xs),
-      ],
+      NeumorphicButton(
+        key: const Key('booking-detail-provider-reschedule'),
+        label: l10n.bookingDetailRescheduleCta,
+        icon: Icons.event_repeat_rounded,
+        loading: rescheduleLoading,
+        onPressed: onReschedule,
+      ),
+      const SizedBox(height: VelvetSpacing.xs),
       _DestructiveSecondaryButton(
         buttonKey: const Key('booking-detail-decline'),
         label: l10n.bookingDetailDeclineCta,

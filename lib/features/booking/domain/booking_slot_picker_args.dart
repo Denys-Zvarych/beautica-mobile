@@ -19,11 +19,25 @@
 // This is a deliberate, documented scope boundary — see the file header of
 // `slot_picker_screen.dart` for the full rationale — not an oversight.
 //
-// [rescheduleBookingId] is an unused extension point for Phase 14.8
-// (change/reschedule booking): when non-null, a future phase will swap the
-// `/booking/confirm` POST for a `PATCH .../reschedule` call. Accepted now so
-// the reschedule flow can reuse this exact screen pair without a route-shape
-// change; no behavior is wired to it yet.
+// [rescheduleBookingId] is the reschedule extension point (Phase 14.8, wired):
+// when non-null, `/booking/confirm`'s submit swaps the create POST for a
+// `PATCH /bookings/{id}/reschedule` call.
+//
+// [rescheduleAppointmentId] is track 27.x/MO-6's whole-VISIT counterpart
+// (`PATCH /appointments/{id}/reschedule`): non-null only when the
+// PROVIDER/master footer reschedules a multi-service visit
+// (`Booking.appointmentId != null`) from `booking_detail_screen.dart`'s
+// `_onReschedule` — the endpoint itself is dual-actor (the visit's own
+// CLIENT or an assigned PROVIDER); this in-app caller is simply
+// PROVIDER-only today. [services] then carries the
+// visit's FULL ordered selection (every item, not just one) — this screen pair
+// already fetches availability against the SUMMED duration of `services`
+// regardless of count (see `SlotDateScreen._workingDaysQuery`'s doc), so no
+// screen-level change was needed to support it. [rescheduleBookingId] is set
+// ALONGSIDE it to the one booking id whose detail screen is open (used only for
+// cache invalidation on submit, never for routing — see
+// `BookingConfirmScreen._submit`, which checks [rescheduleAppointmentId]
+// FIRST).
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 
@@ -46,9 +60,15 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// once at least one service is selected.
     required List<MasterService> services,
 
-    /// Non-null only when this flow was entered from the Phase 14.8
-    /// reschedule surface. See the file header — not wired to any behavior
-    /// yet in this phase.
+    /// Non-null only when this flow was entered from the reschedule surface.
+    /// See the file header. Set for BOTH a single-booking reschedule AND a
+    /// whole-visit reschedule (in the latter case it identifies the ONE
+    /// booking whose detail screen triggered the flow, not the routing
+    /// target — see [rescheduleAppointmentId]).
     String? rescheduleBookingId,
+
+    /// Non-null only for a track 27.x/MO-6 whole-VISIT reschedule. See the
+    /// file header.
+    String? rescheduleAppointmentId,
   }) = _BookingSlotPickerArgs;
 }

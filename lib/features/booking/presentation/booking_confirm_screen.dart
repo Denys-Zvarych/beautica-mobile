@@ -23,6 +23,23 @@
 // `PATCH /bookings/{id}/reschedule` (`AppointmentSubmit.reschedule`); the
 // comment field is hidden (that endpoint has no comment channel).
 //
+// APPOINTMENT RESCHEDULE (track 27.x/MO-6): when `rescheduleAppointmentId` is
+// ALSO non-null (checked FIRST — see `_submit`), the flow instead moves the
+// WHOLE multi-service visit — [services] holds every item in the visit's
+// frozen running order, and the submit swaps to
+// `PATCH /appointments/{id}/reschedule` (`AppointmentSubmit
+// .rescheduleAppointment`). The recap below already lists every service (see
+// `_selections`), so the multi-row card itself makes clear this moves more
+// than one service; `_WholeVisitNotice` adds one explicit sentence above it.
+// The endpoint itself is dual-actor (the visit's own CLIENT or an assigned
+// PROVIDER); in-app, only the PROVIDER/master footer invokes it today
+// (`booking_detail_screen.dart`'s `_onReschedule` is the
+// only caller that ever sets it) — on success the confirm screen invalidates
+// `bookingDetailProvider(rescheduleBookingId)` + `bookingsDayProvider` (the
+// provider's own day calendar), mirroring `_confirmComplete`/`_confirmDecline`'s
+// post-write invalidation there, NOT the CLIENT `myBookingsProvider` tab the
+// single-booking reschedule branch below invalidates.
+//
 // DATA SOURCE: `BookingConfirmArgs` carries the fully-resolved ordered
 // [services] + the single [startAt] + the stable visit idempotency key + the
 // master. The master identity + address are re-read from
@@ -58,6 +75,7 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_notifier.dart';
+import '../application/bookings_day_notifier.dart';
 import '../application/my_bookings_notifier.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_success_args.dart';
@@ -106,7 +124,15 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     super.dispose();
   }
 
-  bool get _isReschedule => widget.args.rescheduleBookingId != null;
+  bool get _isReschedule =>
+      widget.args.rescheduleBookingId != null ||
+      widget.args.rescheduleAppointmentId != null;
+
+  /// `true` only for the track 27.x/MO-6 whole-VISIT reschedule — see the
+  /// file header. Drives `_submit`'s endpoint choice and the
+  /// `_WholeVisitNotice` banner.
+  bool get _isAppointmentReschedule =>
+      widget.args.rescheduleAppointmentId != null;
 
   /// The visit's summed duration in minutes — drives the single window's end
   /// time everywhere (confirm window, success window, calendar event).
@@ -139,8 +165,28 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     if (_failure != null) setState(() => _failure = null);
 
     final String? rescheduleId = widget.args.rescheduleBookingId;
+    final String? rescheduleAppointmentId = widget.args.rescheduleAppointmentId;
     try {
-      if (rescheduleId != null) {
+      if (rescheduleAppointmentId != null) {
+        // Track 27.x/MO-6 — whole-VISIT reschedule, checked BEFORE the
+        // single-booking branch below (both fields may be set together — see
+        // the file header). The in-app caller is PROVIDER-only today, so the
+        // post-write invalidation mirrors `_confirmComplete`/`_confirmDecline` in
+        // `booking_detail_screen.dart` (the provider's own day calendar +
+        // whichever single booking screen triggered this), NOT the CLIENT
+        // `myBookingsProvider` tab the branch below refreshes.
+        await ref
+            .read(appointmentSubmitProvider.notifier)
+            .rescheduleAppointment(
+              rescheduleAppointmentId,
+              widget.args.startAt,
+            );
+        if (!mounted) return;
+        if (rescheduleId != null) {
+          ref.invalidate(bookingDetailProvider(rescheduleId));
+        }
+        ref.invalidate(bookingsDayProvider);
+      } else if (rescheduleId != null) {
         await ref
             .read(appointmentSubmitProvider.notifier)
             .reschedule(rescheduleId, widget.args.startAt);
@@ -186,7 +232,7 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           master: master,
           services: services,
           startAt: widget.args.startAt,
-          isReschedule: rescheduleId != null,
+          isReschedule: rescheduleId != null || rescheduleAppointmentId != null,
         ),
       );
     } on Failure catch (failure) {
@@ -262,6 +308,7 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                     // note-to-master input would be silently ignored, so it is
                     // hidden on the reschedule path.
                     showComment: !_isReschedule,
+                    isAppointmentReschedule: _isAppointmentReschedule,
                     failure: _failure,
                   );
                 },
@@ -283,6 +330,7 @@ class _ConfirmBody extends StatelessWidget {
     required this.comment,
     required this.maxComment,
     required this.showComment,
+    required this.isAppointmentReschedule,
     required this.failure,
   });
 
@@ -296,6 +344,13 @@ class _ConfirmBody extends StatelessWidget {
   /// Whether the optional «Коментар для майстра» field is shown — false on the
   /// reschedule path (the reschedule endpoint has no comment channel).
   final bool showComment;
+
+  /// Track 27.x/MO-6 — `true` only on a whole-VISIT reschedule. Shows
+  /// [_WholeVisitNotice] above the recap card so the provider knows every
+  /// service listed below (not just the one they opened) is about to move
+  /// together — the recap already lists them all, but this makes the "whole
+  /// visit" framing explicit rather than implicit in a row count.
+  final bool isAppointmentReschedule;
 
   /// The last submit failure, or `null` — drives the single inline error
   /// banner pinned at the end of the scroll body (directly above the CTA).
@@ -324,6 +379,10 @@ class _ConfirmBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          if (isAppointmentReschedule) ...<Widget>[
+            const _WholeVisitNotice(),
+            const SizedBox(height: VelvetSpacing.md),
+          ],
           // ONE visit recap: the master identity card, the shared address, the
           // single visit window (start → start + summed duration), the ordered
           // service list and the «Разом» total — all in one card stack.
@@ -355,6 +414,45 @@ class _ConfirmBody extends StatelessWidget {
             const SizedBox(height: VelvetSpacing.md),
             _SubmitErrorBanner(failure: failure!),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Track 27.x/MO-6 — the neutral info banner shown ONLY on a whole-VISIT
+/// reschedule, above the recap card: an accent-tone icon + one sentence
+/// making explicit that every service listed below moves together, not just
+/// the one the provider opened. Mirrors [_SubmitErrorBanner]'s neumorphic-card
+/// shell, recoloured neutral (accent, not error) since nothing has failed.
+class _WholeVisitNotice extends StatelessWidget {
+  const _WholeVisitNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return NeumorphicCard(
+      key: const Key('booking-confirm-whole-visit-notice'),
+      showBorder: true,
+      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Padding(
+            padding: EdgeInsets.only(top: 1),
+            child: Icon(
+              Icons.info_outline_rounded,
+              size: 18,
+              color: BrandColors.accentDeep,
+            ),
+          ),
+          const SizedBox(width: VelvetSpacing.sm),
+          Expanded(
+            child: Text(
+              l10n.appointmentRescheduleWholeVisitNotice,
+              style: VelvetText.feedback(BrandColors.textSecondary),
+            ),
+          ),
         ],
       ),
     );

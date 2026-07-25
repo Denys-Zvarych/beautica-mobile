@@ -423,6 +423,7 @@ class SlotTimeScreen extends ConsumerWidget {
         startAt: slot.startAt,
         idempotencyKey: _uuid.v4(),
         rescheduleBookingId: args.rescheduleBookingId,
+        rescheduleAppointmentId: args.rescheduleAppointmentId,
       ),
     );
   }

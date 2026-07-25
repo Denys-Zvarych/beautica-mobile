@@ -71,6 +71,7 @@ Class | Method | HTTP request | Description
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointment**](doc/AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**getAppointment**](doc/AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**notCompleteAppointment**](doc/AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointment**](doc/AppointmentControllerApi.md#rescheduleappointment) | **PATCH** /api/v1/appointments/{appointmentId}/reschedule | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**acceptInvite**](doc/AuthControllerApi.md#acceptinvite) | **POST** /api/v1/auth/invite/accept | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**forgotPassword**](doc/AuthControllerApi.md#forgotpassword) | **POST** /api/v1/auth/forgot-password | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**login**](doc/AuthControllerApi.md#login) | **POST** /api/v1/auth/login | 
@@ -256,6 +257,7 @@ Class | Method | HTTP request | Description
  - [AppointmentDetailResponse](doc/AppointmentDetailResponse.md)
  - [AppointmentItemResponse](doc/AppointmentItemResponse.md)
  - [AppointmentProviderNoteRequest](doc/AppointmentProviderNoteRequest.md)
+ - [AppointmentRescheduleRequest](doc/AppointmentRescheduleRequest.md)
  - [ApprovedCategoryResponse](doc/ApprovedCategoryResponse.md)
  - [AssignServiceToMasterRequest](doc/AssignServiceToMasterRequest.md)
  - [AuthResponse](doc/AuthResponse.md)

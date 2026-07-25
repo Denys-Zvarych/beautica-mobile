@@ -27,6 +27,18 @@
 // `AppointmentSubmit`). [idempotencyKey] / [clientComment] are create-only and
 // unused on that path.
 //
+// [rescheduleAppointmentId] is track 27.x/MO-6's whole-VISIT counterpart: when
+// non-null the submit instead swaps to `PATCH /appointments/{id}/reschedule`
+// (`AppointmentSubmit.rescheduleAppointment`), moving EVERY service in the
+// visit in lockstep — [services] then holds the visit's FULL ordered
+// selection, not one element. Checked FIRST in `BookingConfirmScreen._submit`
+// (before [rescheduleBookingId]) since both may be set together —
+// [rescheduleBookingId] still carries the ONE booking id to invalidate/refetch
+// on success, it just no longer decides which endpoint is called once this
+// field is set. The endpoint itself is dual-actor (the visit's own CLIENT or
+// an assigned PROVIDER); only the PROVIDER/master footer invokes it in-app
+// today (see `booking_detail_screen.dart`'s `_onReschedule`).
+//
 // Pure Dart: no Flutter imports anywhere in this file.
 
 import 'package:freezed_annotation/freezed_annotation.dart';
@@ -65,5 +77,9 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// Non-null only when this flow was entered from the reschedule surface —
     /// see the file header.
     String? rescheduleBookingId,
+
+    /// Non-null only for a track 27.x/MO-6 whole-VISIT reschedule — see the
+    /// file header.
+    String? rescheduleAppointmentId,
   }) = _BookingConfirmArgs;
 }

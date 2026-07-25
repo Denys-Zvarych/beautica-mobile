@@ -39,6 +39,7 @@ class _MockReviewControllerApi extends Mock implements ReviewControllerApi {}
 
 const _createPath = '/api/v1/appointments';
 const _getPath = '/api/v1/appointments/appt-1';
+const _reschedulePath = '/api/v1/appointments/appt-1/reschedule';
 const _cancelPath = '/api/v1/appointments/appt-1/cancel';
 const _reviewPath = '/api/v1/appointments/appt-1/review';
 
@@ -157,6 +158,11 @@ void main() {
     );
     registerFallbackValue(AppointmentCancelRequest((b) => b));
     registerFallbackValue(CreateAppointmentReviewRequest((b) => b..rating = 5));
+    registerFallbackValue(
+      AppointmentRescheduleRequest(
+        (b) => b..newStartsAt = DateTime.utc(2020, 1, 1),
+      ),
+    );
   });
 
   setUp(() {
@@ -459,6 +465,166 @@ void main() {
       await expectLater(
         repository.createAppointment(req),
         throwsA(same(mapped)),
+      );
+    });
+  });
+
+  group('rescheduleAppointment', () {
+    final newStart = DateTime.utc(2020, 8, 1, 9);
+
+    test(
+      'success: forwards newStartsAt and maps the returned detail',
+      () async {
+        when(
+          () => appointmentApi.rescheduleAppointment(
+            appointmentId: 'appt-1',
+            appointmentRescheduleRequest: any(
+              named: 'appointmentRescheduleRequest',
+            ),
+          ),
+        ).thenAnswer(
+          (_) async => _detailResponse(_buildDetail(), path: _reschedulePath),
+        );
+
+        final appt = await repository.rescheduleAppointment('appt-1', newStart);
+
+        expect(appt.id, 'appt-1');
+        expect(appt.status, BookingStatus.confirmed);
+
+        final captured = verify(
+          () => appointmentApi.rescheduleAppointment(
+            appointmentId: 'appt-1',
+            appointmentRescheduleRequest: captureAny(
+              named: 'appointmentRescheduleRequest',
+            ),
+          ),
+        ).captured;
+        final body = captured.single as AppointmentRescheduleRequest;
+        expect(body.newStartsAt, newStart);
+      },
+    );
+
+    test('null data on 200 → ServerFailure(null)', () async {
+      when(
+        () => appointmentApi.rescheduleAppointment(
+          appointmentId: 'appt-1',
+          appointmentRescheduleRequest: any(
+            named: 'appointmentRescheduleRequest',
+          ),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseAppointmentDetailResponse>(
+          data: ApiResponseAppointmentDetailResponse((b) => b..success = true),
+          requestOptions: RequestOptions(path: _reschedulePath),
+          statusCode: 200,
+        ),
+      );
+
+      await expectLater(
+        repository.rescheduleAppointment('appt-1', newStart),
+        throwsA(
+          isA<ServerFailure>().having(
+            (f) => f.statusCode,
+            'statusCode',
+            isNull,
+          ),
+        ),
+      );
+    });
+
+    test(
+      '409 BOOKING_ALREADY_ELAPSED → BookingAlreadyElapsedFailure',
+      () async {
+        when(
+          () => appointmentApi.rescheduleAppointment(
+            appointmentId: 'appt-1',
+            appointmentRescheduleRequest: any(
+              named: 'appointmentRescheduleRequest',
+            ),
+          ),
+        ).thenThrow(
+          _dioBadResponseWithBody(
+            409,
+            _reschedulePath,
+            _bookingAlreadyElapsedBody(),
+          ),
+        );
+
+        await expectLater(
+          repository.rescheduleAppointment('appt-1', newStart),
+          throwsA(isA<BookingAlreadyElapsedFailure>()),
+        );
+      },
+    );
+
+    // The visit's requested slot was taken (or it is no longer reschedulable)
+    // between fetching availability and submitting — surfaces the SAME
+    // "time is no longer available" ConflictFailure the single-booking
+    // reschedule endpoint uses, not a bespoke type.
+    test('plain 409 (empty body) → ConflictFailure', () async {
+      when(
+        () => appointmentApi.rescheduleAppointment(
+          appointmentId: 'appt-1',
+          appointmentRescheduleRequest: any(
+            named: 'appointmentRescheduleRequest',
+          ),
+        ),
+      ).thenThrow(_dioBadResponse(409, _reschedulePath));
+
+      await expectLater(
+        repository.rescheduleAppointment('appt-1', newStart),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    // The backend's 15-minute–180-day window guard rejects with a plain 400 —
+    // no dedicated Failure type here; it defers to whatever the shared
+    // ErrorMapperInterceptor already attached (a ValidationFailure carrying the
+    // server's window message), simulated here via `e.error`.
+    test('400 window violation: pre-mapped ValidationFailure on e.error is '
+        're-thrown unchanged', () async {
+      const mapped = ValidationFailure(
+        fieldErrors: <String, String>{},
+        serverMessage: 'window violation',
+      );
+      when(
+        () => appointmentApi.rescheduleAppointment(
+          appointmentId: 'appt-1',
+          appointmentRescheduleRequest: any(
+            named: 'appointmentRescheduleRequest',
+          ),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _reschedulePath),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: _reschedulePath),
+            statusCode: 400,
+          ),
+          error: mapped,
+        ),
+      );
+
+      await expectLater(
+        repository.rescheduleAppointment('appt-1', newStart),
+        throwsA(same(mapped)),
+      );
+    });
+
+    test('connection error → NetworkFailure', () async {
+      when(
+        () => appointmentApi.rescheduleAppointment(
+          appointmentId: 'appt-1',
+          appointmentRescheduleRequest: any(
+            named: 'appointmentRescheduleRequest',
+          ),
+        ),
+      ).thenThrow(_dioConnectionError(_reschedulePath));
+
+      await expectLater(
+        repository.rescheduleAppointment('appt-1', newStart),
+        throwsA(isA<NetworkFailure>()),
       );
     });
   });

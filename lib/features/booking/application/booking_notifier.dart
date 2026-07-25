@@ -14,6 +14,13 @@
 //   • [reschedule] — the RESCHEDULE path: wraps `PATCH /bookings/{id}/reschedule`
 //     (`BookingRepository.rescheduleBooking`) for a single existing booking
 //     moved to a new time. There is no idempotency key / comment on this path.
+//   • [rescheduleAppointment] — track 27.x/MO-6's whole-VISIT counterpart:
+//     wraps `PATCH /appointments/{id}/reschedule`
+//     (`AppointmentRepository.rescheduleAppointment`), moving every service of
+//     a multi-service visit in lockstep to a new time. Dual-actor on the
+//     backend (the visit's own CLIENT or an assigned PROVIDER); today only
+//     the PROVIDER/master footer invokes it in-app. Same idle/rethrow
+//     contract as [reschedule].
 //
 // IDEMPOTENCY: [submitVisit] does NOT generate the key itself. The visit's
 // single `CreateAppointmentRequest.idempotencyKey` is minted ONCE per submit
@@ -87,6 +94,29 @@ class AppointmentSubmit extends _$AppointmentSubmit {
       await ref
           .read(bookingRepositoryProvider)
           .rescheduleBooking(bookingId, startAt);
+      state = const AsyncData<void>(null);
+    } catch (e, st) {
+      _logFailure(e, st);
+      state = const AsyncData<void>(null);
+      Error.throwWithStackTrace(e, st);
+    }
+  }
+
+  /// Moves the WHOLE visit [appointmentId] to [startAt] via
+  /// `PATCH /appointments/{id}/reschedule` (track 27.x/MO-6). Dual-actor on
+  /// the backend (the visit's own CLIENT or an assigned PROVIDER); today only
+  /// the PROVIDER/master footer invokes this method in-app. Same idle/rethrow
+  /// contract as [reschedule] — every service in the visit moves in lockstep,
+  /// so there is no per-service partial state to reconcile.
+  Future<void> rescheduleAppointment(
+    String appointmentId,
+    DateTime startAt,
+  ) async {
+    state = const AsyncLoading<void>();
+    try {
+      await ref
+          .read(appointmentRepositoryProvider)
+          .rescheduleAppointment(appointmentId, startAt);
       state = const AsyncData<void>(null);
     } catch (e, st) {
       _logFailure(e, st);

@@ -1,26 +1,30 @@
 // MO-1 — AppointmentRepository: interface + HTTP implementation for the
 // multi-service single-visit write/read path.
 //
-//   POST   /api/v1/appointments                        → create visit
-//   GET    /api/v1/appointments/{appointmentId}         → enriched detail
-//   PATCH  /api/v1/appointments/{appointmentId}/cancel   → CLIENT cancel
-//   PATCH  /api/v1/appointments/{appointmentId}/complete → PROVIDER complete
-//   PATCH  /api/v1/appointments/{appointmentId}/decline  → PROVIDER decline
-//   POST   /api/v1/appointments/{appointmentId}/review   → leave review
+//   POST   /api/v1/appointments                          → create visit
+//   GET    /api/v1/appointments/{appointmentId}           → enriched detail
+//   PATCH  /api/v1/appointments/{appointmentId}/reschedule → CLIENT or PROVIDER reschedule (dual-actor)
+//   PATCH  /api/v1/appointments/{appointmentId}/cancel     → CLIENT cancel
+//   PATCH  /api/v1/appointments/{appointmentId}/complete   → PROVIDER complete
+//   PATCH  /api/v1/appointments/{appointmentId}/decline    → PROVIDER decline
+//   POST   /api/v1/appointments/{appointmentId}/review     → leave review
 //
-// SCOPE (MO-1, extended track 27.x/MO-6): the CLIENT surface plus the two
-// PROVIDER whole-visit transitions [completeAppointment]/[declineAppointment].
-// The backend `assertNotAppointmentChild` guard 409s EVERY per-booking
-// provider transition once `booking.appointment != null` — a multi-service
-// visit's individual service bookings must be completed/declined in
-// lockstep, through these endpoints, never `BookingRepository.completeBooking`
-// /`declineBooking`. `booking_detail_screen.dart` routes here whenever the
-// booking it is showing carries a non-null `Booking.appointmentId` (each
-// service of a visit still opens its OWN single-booking detail screen — see
-// that file's `_confirmComplete`/`_confirmDecline`). `notCompleteAppointment`
-// exists on the generated client but has no mobile call site yet (no-show is
-// not reachable from this screen today) — add it here only when a caller
-// needs it.
+// SCOPE (MO-1, extended track 27.x/MO-6): the CLIENT surface plus three
+// whole-visit transitions — [rescheduleAppointment] (dual-actor: the visit's
+// own CLIENT or an assigned PROVIDER may call it; today only the
+// PROVIDER/master footer invokes it in-app, see `_onReschedule` below) and
+// [completeAppointment]/[declineAppointment] (PROVIDER-only). The backend
+// `assertNotAppointmentChild` guard 409s EVERY per-booking whole-visit
+// transition once `booking.appointment != null` — a multi-service visit's individual
+// service bookings must be rescheduled/completed/declined in lockstep,
+// through these endpoints, never `BookingRepository.rescheduleBooking`/
+// `completeBooking`/`declineBooking`. `booking_detail_screen.dart` routes here
+// whenever the booking it is showing carries a non-null `Booking.appointmentId`
+// (each service of a visit still opens its OWN single-booking detail screen —
+// see that file's `_onReschedule`/`_confirmComplete`/`_confirmDecline`).
+// `notCompleteAppointment` exists on the generated client but has no mobile
+// call site yet (no-show is not reachable from this screen today) — add it
+// here only when a caller needs it.
 //
 // Kept provider-free OTHERWISE (mirrors `booking_repository.dart`'s CLIENT-only
 // shape apart from its own track-27.x provider additions) — see
@@ -120,6 +124,31 @@ abstract interface class AppointmentRepository {
   /// endpoint enforces (the visit's `startsAt` is still in the future; SERVER
   /// clock authoritative).
   Future<void> completeAppointment(String id);
+
+  /// Moves the WHOLE visit to [newStartAt] (track 27.x/MO-6) — the
+  /// whole-visit counterpart to `BookingRepository.rescheduleBooking`.
+  /// Dual-actor on the backend (the visit's own CLIENT or an assigned
+  /// PROVIDER — see `AppointmentController.rescheduleAppointment` /
+  /// `AppointmentTransitionService.resolveVisitForClientReschedule`); today
+  /// only the PROVIDER/master footer invokes this repository method in-app
+  /// (`booking_detail_screen.dart`'s `_onReschedule`).
+  ///
+  /// Wraps `PATCH /appointments/{appointmentId}/reschedule`
+  /// (`AppointmentRescheduleRequest.newStartsAt`). The backend moves EVERY
+  /// service in the visit in lockstep to one new contiguous block starting at
+  /// [newStartAt] — every item keeps its frozen duration and running order;
+  /// there is no partial-visit reschedule. Returns the re-fetched (enriched)
+  /// [Appointment] — no follow-up GET needed.
+  ///
+  /// Throws [BookingAlreadyElapsedFailure] on a 409 whose body is the
+  /// `BOOKING_ALREADY_ELAPSED` envelope (the visit's window is already past the
+  /// SERVER clock), [ConflictFailure] on any other 409 (the requested slot is
+  /// taken, or the visit is no longer in a reschedulable state — a server-side
+  /// race), and whatever [Failure] the shared error-mapper interceptor already
+  /// attached for a plain 400 (the backend's 15-minute–180-day window guard) —
+  /// see [_mapAppointmentRescheduleException], transcribed from
+  /// `HttpBookingRepository._mapBookingWriteException`.
+  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt);
 
   /// Declines a visit on behalf of the authenticated PROVIDER (track 27.x /
   /// MO-6) — the whole-visit counterpart to `BookingRepository.declineBooking`.
@@ -222,6 +251,45 @@ final class HttpAppointmentRepository implements AppointmentRepository {
         );
       }
       throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<Appointment> rescheduleAppointment(
+    String id,
+    DateTime newStartAt,
+  ) async {
+    try {
+      final res = await _appointmentApi.rescheduleAppointment(
+        appointmentId: id,
+        appointmentRescheduleRequest: AppointmentRescheduleRequest(
+          (b) => b..newStartsAt = newStartAt,
+        ),
+      );
+      final dto = res.data?.data;
+      if (dto == null) {
+        if (kDebugMode) {
+          log(
+            'rescheduleAppointment: response data is null',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return AppointmentMapper.fromDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'rescheduleAppointment failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapAppointmentRescheduleException(e);
     }
   }
 
@@ -381,6 +449,32 @@ final class HttpAppointmentRepository implements AppointmentRepository {
       return _extractClientBookingConflict(e) ?? ConflictFailure(cause: e);
     }
     if (statusCode == 429) return BookingRateLimitedFailure(cause: e);
+    if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
+  }
+
+  /// Maps a [DioException] from `PATCH /appointments/{id}/reschedule` to a
+  /// typed [Failure] — transcribed from
+  /// `HttpBookingRepository._mapBookingWriteException` so a whole-visit
+  /// reschedule surfaces the SAME failures as the single-booking one:
+  ///   - 409 `BOOKING_ALREADY_ELAPSED` → [BookingAlreadyElapsedFailure] (the
+  ///     visit's window is already past the SERVER clock).
+  ///   - any other 409 → [ConflictFailure] ("this time is no longer
+  ///     available" — the requested slot was taken, or the visit is no longer
+  ///     reschedulable, between fetching availability and submitting).
+  ///   - a plain 400 (the backend's 15-minute–180-day window guard) has no
+  ///     dedicated type here — it defers to whatever [Failure] the shared
+  ///     `ErrorMapperInterceptor` already attached (a [ValidationFailure]
+  ///     carrying the server's window message), via `e.error is Failure`
+  ///     below.
+  Failure _mapAppointmentRescheduleException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 409) {
+      if (_isBookingAlreadyElapsed(e)) {
+        return BookingAlreadyElapsedFailure(cause: e);
+      }
+      return _extractClientBookingConflict(e) ?? ConflictFailure(cause: e);
+    }
     if (e.error is Failure) return e.error as Failure;
     return _mapDioException(e);
   }

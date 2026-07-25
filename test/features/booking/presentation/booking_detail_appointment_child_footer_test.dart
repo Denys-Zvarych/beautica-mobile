@@ -2,15 +2,22 @@
 // booking that is part of a multi-service VISIT (`Booking.appointmentId !=
 // null`).
 //
-// BUG: `_confirmComplete`/`_confirmDecline` always called the per-booking
-// `BookingRepository.completeBooking`/`declineBooking`, regardless of
-// `appointmentId`. The backend's `assertNotAppointmentChild` guard 409s EVERY
-// per-booking provider transition once `booking.appointment != null`
-// (`"This booking is part of a multi-service visit; use /appointments/{id}
-// to change it"`) — every master's card tap still lands each service of a
-// visit on ITS OWN single-booking detail screen (`master_bookings_screen
-// .dart`), so this screen legitimately shows an appointment-child booking and
-// must route its writes to the whole-visit endpoints instead.
+// BUG (original, now fixed): `_confirmComplete`/`_confirmDecline` always
+// called the per-booking `BookingRepository.completeBooking`/`declineBooking`,
+// regardless of `appointmentId`. The backend's `assertNotAppointmentChild`
+// guard 409s EVERY per-booking provider transition once
+// `booking.appointment != null` (`"This booking is part of a multi-service
+// visit; use /appointments/{id} to change it"`) — every master's card tap
+// still lands each service of a visit on ITS OWN single-booking detail screen
+// (`master_bookings_screen.dart`), so this screen legitimately shows an
+// appointment-child booking and must route its writes to the whole-visit
+// endpoints instead.
+//
+// Track 27.x/MO-6 follow-up: the backend gained
+// `PATCH /appointments/{id}/reschedule`, so «Перенести» is RE-ENABLED here too
+// (previously hidden — see the git history of this file for the old guard) —
+// tapping it now routes to `startAppointmentReschedule`
+// (`reschedule_navigation.dart`), never the per-booking flow.
 //
 // This suite pins:
 //   • complete on an appointment-child booking calls
@@ -19,8 +26,9 @@
 //   • decline on an appointment-child booking calls
 //     `AppointmentRepository.declineAppointment(appointmentId, comment: ...)`,
 //     NEVER `BookingRepository.declineBooking`;
-//   • «Перенести» (reschedule) is HIDDEN on an appointment-child booking — no
-//     provider-facing `/appointments/{id}/reschedule` endpoint exists;
+//   • «Перенести» (reschedule) is SHOWN on an appointment-child booking, same
+//     key as the single-booking case — the provider-facing
+//     `/appointments/{id}/reschedule` endpoint now exists;
 //   • REGRESSION GUARD — a plain single-service booking (`appointmentId ==
 //     null`) is UNCHANGED: it still calls the per-booking endpoints and still
 //     offers «Перенести» (mirrors `booking_detail_provider_footer_test.dart`,
@@ -34,16 +42,23 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/appointment_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
@@ -141,30 +156,32 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Footer content — «Перенести» hidden on an appointment-child booking
+  // Footer content — «Перенести» now SHOWN on an appointment-child booking too
+  // (track 27.x/MO-6 — previously hidden, see this file's header)
   // -------------------------------------------------------------------------
 
   group('footer content', () {
-    testWidgets('appointment-child booking: decline only, reschedule hidden', (
-      tester,
-    ) async {
-      final Booking booking = _booking(appointmentId: 'appt-1');
-      final bookingRepo = _MockBookingRepository();
-      final appointmentRepo = _MockAppointmentRepository();
+    testWidgets(
+      'appointment-child booking: reschedule + decline both offered',
+      (tester) async {
+        final Booking booking = _booking(appointmentId: 'appt-1');
+        final bookingRepo = _MockBookingRepository();
+        final appointmentRepo = _MockAppointmentRepository();
 
-      await _pumpDetail(
-        tester,
-        booking,
-        bookingRepo: bookingRepo,
-        appointmentRepo: appointmentRepo,
-      );
+        await _pumpDetail(
+          tester,
+          booking,
+          bookingRepo: bookingRepo,
+          appointmentRepo: appointmentRepo,
+        );
 
-      expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
-      expect(
-        find.byKey(const Key('booking-detail-provider-reschedule')),
-        findsNothing,
-      );
-    });
+        expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
+        expect(
+          find.byKey(const Key('booking-detail-provider-reschedule')),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets(
       'REGRESSION GUARD — a plain single-service booking still offers '
@@ -186,6 +203,156 @@ void main() {
           findsOneWidget,
         );
         expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Reschedule routing (track 27.x/MO-6) — tapping «Перенести» on an
+  // appointment-child booking launches the WHOLE-VISIT reschedule flow
+  // (`startAppointmentReschedule`), never the per-booking one; a plain
+  // single-service booking is unchanged (still `startBookingReschedule`).
+  // -------------------------------------------------------------------------
+
+  group('reschedule routing', () {
+    const Master master = Master(
+      id: 'm1',
+      firstName: 'Марія',
+      lastName: 'Іванюк',
+      avgRating: 4.9,
+      reviewCount: 12,
+      type: MasterType.independentMaster,
+    );
+
+    const MasterService service = MasterService(
+      id: 's1',
+      serviceDefId: 'def-s1',
+      name: 'Манікюр з покриттям',
+      durationMinutes: 90,
+      priceMin: 650,
+      priceDisplay: '650 ₴',
+      category: 'NAILS',
+    );
+
+    Appointment appointmentFixture(Booking booking) => Appointment(
+      id: 'appt-1',
+      status: BookingStatus.confirmed,
+      masterId: booking.masterId,
+      masterFirstName: booking.masterFirstName,
+      masterLastName: booking.masterLastName,
+      masterType: booking.masterType,
+      startAt: booking.startAt,
+      endAt: booking.endAt,
+      totalDurationMinutes: booking.durationMinutes,
+      totalPrice: booking.price,
+      items: <AppointmentItem>[
+        AppointmentItem(
+          bookingId: booking.id,
+          masterServiceId: service.id,
+          serviceName: booking.serviceName,
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+          durationMinutes: booking.durationMinutes,
+          price: booking.price,
+        ),
+      ],
+      canReview: false,
+    );
+
+    /// Pumps [BookingDetailScreen] inside a real `GoRouter` (required for
+    /// `context.push` inside `startAppointmentReschedule`/
+    /// `startBookingReschedule`) whose `RouteNames.bookingSlots` route is a
+    /// probe — reaching it proves the reschedule flow navigated.
+    Future<bool Function()> pumpRouted(
+      WidgetTester tester,
+      Booking booking, {
+      required _MockBookingRepository bookingRepo,
+      required _MockAppointmentRepository appointmentRepo,
+    }) async {
+      bool navigated = false;
+      final GoRouter router = GoRouter(
+        initialLocation: '/detail',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/detail',
+            builder: (_, _) => BookingDetailScreen(bookingId: booking.id),
+          ),
+          GoRoute(
+            path: RouteNames.bookingSlots,
+            builder: (_, _) {
+              navigated = true;
+              return const Scaffold(key: Key('slots_stub'));
+            },
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides(booking, bookingRepo, appointmentRepo),
+          appointmentDetailProvider(
+            'appt-1',
+          ).overrideWith((ref) async => appointmentFixture(booking)),
+          publicMasterProfileProvider(
+            booking.masterId,
+          ).overrideWith((ref) async => (master, <MasterService>[service])),
+        ],
+      );
+      await tester.pumpAndSettle();
+      return () => navigated;
+    }
+
+    testWidgets(
+      'appointment-child booking: reschedule tap resolves the visit via '
+      'AppointmentRepository.getAppointment and navigates to the slot picker',
+      (tester) async {
+        final Booking booking = _booking(appointmentId: 'appt-1');
+        final bookingRepo = _MockBookingRepository();
+        final appointmentRepo = _MockAppointmentRepository();
+        when(
+          () => appointmentRepo.getAppointment('appt-1'),
+        ).thenAnswer((_) async => appointmentFixture(booking));
+
+        final bool Function() navigated = await pumpRouted(
+          tester,
+          booking,
+          bookingRepo: bookingRepo,
+          appointmentRepo: appointmentRepo,
+        );
+
+        await tester.tap(
+          find.byKey(const Key('booking-detail-provider-reschedule')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(navigated(), isTrue);
+        expect(find.byKey(const Key('slots_stub')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'REGRESSION GUARD — a plain single-service booking still routes '
+      'through the per-booking reschedule flow, never '
+      'AppointmentRepository.getAppointment',
+      (tester) async {
+        final Booking booking = _booking();
+        final bookingRepo = _MockBookingRepository();
+        final appointmentRepo = _MockAppointmentRepository();
+
+        final bool Function() navigated = await pumpRouted(
+          tester,
+          booking,
+          bookingRepo: bookingRepo,
+          appointmentRepo: appointmentRepo,
+        );
+
+        await tester.tap(
+          find.byKey(const Key('booking-detail-provider-reschedule')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(navigated(), isTrue);
+        verifyNever(() => appointmentRepo.getAppointment(any()));
       },
     );
   });

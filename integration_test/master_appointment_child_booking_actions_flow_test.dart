@@ -27,6 +27,14 @@
 // per-booking endpoint) — the same "prove it went to the OTHER path" shape
 // `client_visit_render_flow_test.dart` uses for cancel.
 //
+// Track 27.x/MO-6 follow-up: `PATCH /appointments/{id}/reschedule` now exists,
+// so «Перенести» is SHOWN (not hidden) on a not-yet-started appointment-child
+// booking too — see the first assertion in the decline test below. This file
+// does not exercise a reschedule TAP (that flow is covered against mocked
+// repositories by `booking_detail_appointment_child_footer_test.dart` and
+// `reschedule_navigation_test.dart`'s `startAppointmentReschedule` group); the
+// fake here still throws `UnimplementedError` for it.
+//
 // The hand-fake also flips `FakeBackend.bookingStatus` on a successful write
 // so the screen's own `ref.invalidate(bookingDetailProvider(...))` triggers a
 // REAL re-fetch that reflects the terminal status — proving the invalidate →
@@ -93,6 +101,10 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<Appointment> getAppointment(String id) => throw UnimplementedError();
 
   @override
+  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
+
+  @override
   Future<void> cancelAppointment(String id, {String? note}) =>
       throw UnimplementedError();
 
@@ -149,8 +161,9 @@ void main() {
       final fakeAppt = _FakeAppointmentRepository(fb);
       await bootAndOpenDetail(tester, fb, fakeAppt);
 
-      // ── Footer: decline only, «Перенести» hidden — no provider-facing
-      //    appointment-reschedule endpoint exists. ────────────────────────
+      // ── Footer: «Перенести» + decline both offered — track 27.x/MO-6 added
+      //    `PATCH /appointments/{id}/reschedule`, so an appointment-child
+      //    booking now offers reschedule too, same as a plain one. ─────────
       expect(
         find.byKey(const Key('booking-detail-decline')),
         findsOneWidget,
@@ -158,8 +171,8 @@ void main() {
       );
       expect(
         find.byKey(const Key('booking-detail-provider-reschedule')),
-        findsNothing,
-        reason: 'no provider-facing appointment-reschedule endpoint exists',
+        findsOneWidget,
+        reason: 'the provider-facing appointment-reschedule endpoint exists',
       );
       expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
 

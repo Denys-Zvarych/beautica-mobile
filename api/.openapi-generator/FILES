@@ -70,6 +70,7 @@ doc/AppointmentControllerApi.md
 doc/AppointmentDetailResponse.md
 doc/AppointmentItemResponse.md
 doc/AppointmentProviderNoteRequest.md
+doc/AppointmentRescheduleRequest.md
 doc/ApprovedCategoryResponse.md
 doc/AssignServiceToMasterRequest.md
 doc/AuthControllerApi.md
@@ -325,6 +326,7 @@ lib/src/model/appointment_cancel_request.dart
 lib/src/model/appointment_detail_response.dart
 lib/src/model/appointment_item_response.dart
 lib/src/model/appointment_provider_note_request.dart
+lib/src/model/appointment_reschedule_request.dart
 lib/src/model/approved_category_response.dart
 lib/src/model/assign_service_to_master_request.dart
 lib/src/model/auth_response.dart
@@ -459,3 +461,4 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/appointment_reschedule_request_test.dart

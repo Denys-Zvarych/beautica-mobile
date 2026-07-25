@@ -25,7 +25,12 @@ import 'dart:io';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -36,6 +41,8 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
@@ -167,15 +174,44 @@ BookingConfirmArgs _rescheduleArgs() => BookingConfirmArgs(
   rescheduleBookingId: 'booking-1',
 );
 
+/// Same shape again, but for a track 27.x/MO-6 whole-VISIT reschedule — both
+/// `rescheduleBookingId` (the ONE booking whose detail screen triggered the
+/// flow, used only for cache invalidation) AND `rescheduleAppointmentId` (the
+/// routing discriminator, checked FIRST in `_submit`) are set. [services]
+/// carries two items so the recap visibly lists more than one service.
+BookingConfirmArgs _appointmentRescheduleArgs() => BookingConfirmArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  services: const <MasterService>[_kService, _kService2],
+  startAt: DateTime(2026, 7, 20, 14),
+  idempotencyKey: _kIdemKey,
+  rescheduleBookingId: 'booking-1',
+  rescheduleAppointmentId: 'appt-1',
+);
+
 /// Records every [createAppointment] call so the "single call, stable key"
 /// criteria can be asserted directly, and either returns [appointmentToReturn]
 /// or throws [errorToThrow] when set.
 class _FakeAppointmentRepository implements AppointmentRepository {
-  _FakeAppointmentRepository({this.appointmentToReturn, this.errorToThrow});
+  _FakeAppointmentRepository({
+    this.appointmentToReturn,
+    this.errorToThrow,
+    this.rescheduleErrorToThrow,
+  });
 
   Appointment? appointmentToReturn;
   Object? errorToThrow;
+
+  /// Track 27.x/MO-6 — thrown by [rescheduleAppointment] when set, mirroring
+  /// [errorToThrow]'s role for [createAppointment].
+  Object? rescheduleErrorToThrow;
   final List<CreateAppointmentRequest> requests = <CreateAppointmentRequest>[];
+
+  /// Records every whole-visit reschedule call so the "single call, correct
+  /// id/time" criteria can be asserted directly — mirrors
+  /// `_RecordingRescheduleRepository.rescheduleCalls` for the single-booking
+  /// path.
+  final List<(String, DateTime)> rescheduleCalls = <(String, DateTime)>[];
 
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) async {
@@ -187,6 +223,17 @@ class _FakeAppointmentRepository implements AppointmentRepository {
 
   @override
   Future<Appointment> getAppointment(String id) => throw UnimplementedError();
+
+  @override
+  Future<Appointment> rescheduleAppointment(
+    String id,
+    DateTime newStartAt,
+  ) async {
+    rescheduleCalls.add((id, newStartAt));
+    final Object? err = rescheduleErrorToThrow;
+    if (err != null) throw err;
+    return appointmentToReturn ?? _appointmentFixture();
+  }
 
   @override
   Future<void> cancelAppointment(String id, {String? note}) =>
@@ -275,6 +322,25 @@ class _RecordingRescheduleRepository implements BookingRepository {
     required int rating,
     String? comment,
   }) => throw UnimplementedError();
+}
+
+/// Minimal stub auth session — only needed by the whole-visit reschedule
+/// test, whose `bookingsDayProvider` watch (mirroring the real provider
+/// footer's day-calendar invalidation) reads `authProvider` for its
+/// session-boundary PII cache-key. Mirrors
+/// `booking_detail_appointment_child_footer_test.dart`'s `_StubAuth`.
+class _StubAuth extends AuthNotifier {
+  _StubAuth();
+
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'master-1',
+      email: 'master@e.com',
+      role: UserRole.independentMaster,
+    ),
+    accessToken: 't',
+  );
 }
 
 /// Minimal fake [SlotRepository] for the Date→Time→Confirm push-chain test.
@@ -419,6 +485,53 @@ void main() {
       // i18n-finder-ok: service name is fixture data (_kService), not translated UI copy.
       expect(find.text('Манікюр з покриттям'), findsOneWidget);
     });
+
+    // Track 27.x/MO-6 — the whole-visit notice banner is the one explicit
+    // "this moves everything" sentence (the recap's multi-row list already
+    // implies it, but this makes it unambiguous). Shown ONLY when
+    // `rescheduleAppointmentId` is set; absent on a plain create AND on a
+    // single-booking reschedule.
+    testWidgets(
+      'shows the whole-visit notice banner ONLY on an appointment reschedule',
+      (tester) async {
+        final fake = _FakeAppointmentRepository();
+        await pump(tester, fake, args: _appointmentRescheduleArgs());
+
+        expect(
+          find.byKey(const Key('booking-confirm-whole-visit-notice')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'REGRESSION GUARD — no whole-visit notice banner on a plain CREATE',
+      (tester) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        await pump(tester, fake);
+
+        expect(
+          find.byKey(const Key('booking-confirm-whole-visit-notice')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'REGRESSION GUARD — no whole-visit notice banner on a single-booking '
+      'reschedule',
+      (tester) async {
+        final fake = _FakeAppointmentRepository();
+        await pump(tester, fake, args: _rescheduleArgs());
+
+        expect(
+          find.byKey(const Key('booking-confirm-whole-visit-notice')),
+          findsNothing,
+        );
+      },
+    );
 
     // mobile-qa regression — pins the EXACT locked Ukrainian title so a silent
     // ARB revert is caught (a deliberate exception to the find-by-Key rule).
@@ -754,6 +867,126 @@ void main() {
         await container.read(myBookingsProvider(BookingTab.upcoming).future);
         expect(fake.getBookingByIdCalls, 2);
         expect(fake.getMyBookingsCalls, 2);
+      },
+    );
+
+    // Track 27.x/MO-6 — a successful WHOLE-VISIT reschedule calls
+    // AppointmentRepository.rescheduleAppointment (never BookingRepository
+    // .rescheduleBooking), and invalidates bookingDetail(the ONE booking that
+    // opened this flow) + bookingsDayProvider (the provider's own day
+    // calendar) from the widget layer — NOT myBookingsProvider (that's the
+    // CLIENT tab the single-booking branch above refreshes; this flow is
+    // PROVIDER-only).
+    testWidgets(
+      'a successful WHOLE-VISIT reschedule calls rescheduleAppointment, '
+      'invalidates bookingDetail(id) + bookingsDayProvider, and navigates to '
+      'success',
+      (tester) async {
+        final appointments = _FakeAppointmentRepository();
+        final bookings = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            appointmentRepositoryProvider.overrideWith((_) => appointments),
+            bookingRepositoryProvider.overrideWith((_) => bookings),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService, _kService2]),
+            ),
+            authProvider.overrideWith(_StubAuth.new),
+          ],
+        );
+        unawaited(
+          router.push(
+            RouteNames.bookingConfirm,
+            extra: _appointmentRescheduleArgs(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        // Pre-warm auth BEFORE subscribing to bookingsDayProvider — that
+        // family watches `authProvider.select(...)`, and _StubAuth's `build()`
+        // resolves asynchronously (loading → authenticated), which is itself a
+        // VALUE CHANGE the `.select` would otherwise see mid-flight, rebuilding
+        // `BookingsDayNotifier` a second time and inflating `getMyBookingsCalls`
+        // before the reschedule submit ever runs.
+        await container.read(authProvider.future);
+        final ProviderSubscription<AsyncValue<Booking>> subDetail = container
+            .listen(
+              bookingDetailProvider('booking-1'),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subDetail.close);
+        final BookingsDayQuery dayQuery = BookingsDayQuery.of(
+          day: DateTime(2026, 7, 20),
+        );
+        final ProviderSubscription<AsyncValue<BookingsDayState>> subDay =
+            container.listen(
+              bookingsDayProvider(dayQuery),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subDay.close);
+        await container.read(bookingDetailProvider('booking-1').future);
+        await container.read(bookingsDayProvider(dayQuery).future);
+        expect(bookings.getBookingByIdCalls, 1);
+        expect(bookings.getMyBookingsCalls, 1);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(appointments.rescheduleCalls, hasLength(1));
+        expect(appointments.rescheduleCalls.single.$1, 'appt-1');
+        expect(
+          appointments.rescheduleCalls.single.$2,
+          DateTime(2026, 7, 20, 14),
+        );
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        await container.read(bookingDetailProvider('booking-1').future);
+        await container.read(bookingsDayProvider(dayQuery).future);
+        expect(bookings.getBookingByIdCalls, 2);
+        expect(bookings.getMyBookingsCalls, 2);
+      },
+    );
+
+    // Track 27.x/MO-6 — a failed WHOLE-VISIT reschedule (the requested slot
+    // was taken between fetching availability and submitting) shows ONE
+    // inline error banner and stays on the confirm screen, mirroring the
+    // single-visit CREATE 409 test above — never a raw crash, never a silent
+    // navigation.
+    testWidgets(
+      'a 409 on a WHOLE-VISIT reschedule shows ONE inline error banner and '
+      'does not navigate away',
+      (tester) async {
+        final fake = _FakeAppointmentRepository(
+          rescheduleErrorToThrow: const ConflictFailure(),
+        );
+        final router = await pump(
+          tester,
+          fake,
+          args: _appointmentRescheduleArgs(),
+        );
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingConfirm));
+        expect(find.byType(BookingConfirmScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('booking-confirm-submit-error')),
+          findsOneWidget,
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingConfirmScreen)),
+        );
+        expect(find.text(l10n.errConflict), findsOneWidget);
+        expect(fake.rescheduleCalls, hasLength(1));
       },
     );
 

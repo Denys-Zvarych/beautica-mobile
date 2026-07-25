@@ -13,13 +13,22 @@
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/appointment_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/visit_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +38,15 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+
+class _StubAuth extends AuthNotifier {
+  _StubAuth(this._session);
+
+  final AuthSession _session;
+
+  @override
+  Future<AuthSession> build() async => _session;
+}
 
 /// The visit's day, anchored to the real wall clock instead of written as an
 /// absolute literal — see `test/helpers/booking_fixture_dates.dart` for the
@@ -170,6 +188,51 @@ GoRouter _router(
   );
 }
 
+/// MS5 (mobile-security MEDIUM finding) — a router whose leaf routes mount the
+/// REAL destination screens (`VisitDetailScreen` / `BookingDetailScreen`)
+/// instead of stub scaffolds, so [groupBookingsByAppointment]'s output is
+/// proven to route to the CORRECT real screen, not merely to a matching
+/// location string. See the regression test below for why this matters:
+/// `BookingDetailScreen`'s CLIENT footer offers «Перенести» purely off
+/// `booking.status == confirmed` (`_actions` in `booking_detail_screen.dart`)
+/// — it has NO guard against `booking.appointmentId != null` — so the ONLY
+/// thing standing between a client and the provider-only whole-visit
+/// reschedule path (`_onReschedule` → `startAppointmentReschedule` →
+/// `PATCH /appointments/{id}/reschedule`) is that an appointment-child booking
+/// never reaches `BookingDetailScreen` in the first place. This router pins
+/// that today's ONE existing route to a single booking id (`_openDetails` in
+/// `my_bookings_screen.dart`) is reachable ONLY through a `SingleBookingEntry`
+/// (`appointmentId == null` by construction — see `groupBookingsByAppointment`)
+/// — a `VisitBookingEntry` always opens [VisitDetailScreen] instead, which
+/// (per its own file header) offers NO reschedule affordance at all.
+GoRouter _realRouter(_MockBookingRepository repo) {
+  return GoRouter(
+    initialLocation: '/bookings',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/bookings',
+        builder: (_, _) => const MyBookingsScreen(),
+        routes: <RouteBase>[
+          GoRoute(
+            path: 'visit/:appointmentId',
+            builder: (BuildContext context, GoRouterState state) =>
+                VisitDetailScreen(
+                  appointmentId: state.pathParameters['appointmentId']!,
+                ),
+          ),
+          GoRoute(
+            path: ':bookingId',
+            builder: (BuildContext context, GoRouterState state) =>
+                BookingDetailScreen(
+                  bookingId: state.pathParameters['bookingId']!,
+                ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
 void main() {
   final List<Booking> visitAndLegacy = <Booking>[
     _b(
@@ -281,4 +344,134 @@ void main() {
     expect(find.byKey(const Key('booking_stub')), findsOneWidget);
     expect(location, '/bookings/legacy-1');
   });
+
+  // ===========================================================================
+  // MS5 (mobile-security MEDIUM) — routing invariant: a CLIENT's
+  // appointment-child booking must open `VisitDetailScreen` (no reschedule
+  // affordance), NEVER `BookingDetailScreen` — whose CLIENT footer offers
+  // «Перенести» purely off `booking.status == confirmed`
+  // (`booking_detail_screen.dart`'s `_actions`), with NO guard against
+  // `appointmentId != null`. If a future call site (e.g. a deferred FCM
+  // deep-link) ever pushed `RouteNames.bookingDetail(bookingId)` directly for
+  // an appointment-child booking — bypassing `groupBookingsByAppointment` +
+  // this screen's switch — the client would see a reschedule button wired to
+  // `_onReschedule` → `startAppointmentReschedule`, the PROVIDER-only
+  // whole-visit endpoint. Pinning that the ONE existing routing path never
+  // does this today makes such a regression visible the moment it is
+  // introduced, rather than only failing loudly server-side (403) in
+  // production.
+  // ===========================================================================
+
+  Appointment visitFixture() => Appointment(
+    id: 'appt-1',
+    status: BookingStatus.confirmed,
+    masterId: 'm1',
+    masterFirstName: 'Марія',
+    masterLastName: 'Іванюк',
+    masterType: 'INDEPENDENT_MASTER',
+    startAt: _visitStart,
+    endAt: _visitSecondStart.add(const Duration(minutes: 90)),
+    totalDurationMinutes: 150,
+    totalPrice: 500,
+    totalPriceMax: 700,
+    canReview: false,
+    items: <AppointmentItem>[
+      AppointmentItem(
+        bookingId: 'v1',
+        masterServiceId: 's-v1',
+        serviceName: 'Манікюр',
+        startAt: _visitStart,
+        endAt: _visitStart.add(const Duration(minutes: 60)),
+        durationMinutes: 60,
+        price: 300,
+      ),
+      AppointmentItem(
+        bookingId: 'v2',
+        masterServiceId: 's-v2',
+        serviceName: 'Педикюр',
+        startAt: _visitSecondStart,
+        endAt: _visitSecondStart.add(const Duration(minutes: 90)),
+        durationMinutes: 90,
+        price: 200,
+        priceMax: 400,
+      ),
+    ],
+  );
+
+  List<Object> clientOverrides(_MockBookingRepository repo) => <Object>[
+    bookingRepositoryProvider.overrideWithValue(repo),
+    screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+    authProvider.overrideWith(
+      () => _StubAuth(
+        const AuthSession.authenticated(
+          user: User(id: 'c1', email: 'c@e.com', role: UserRole.client),
+          accessToken: 't',
+        ),
+      ),
+    ),
+  ];
+
+  testWidgets('MS5 REGRESSION — client tapping a visit card opens the REAL '
+      'VisitDetailScreen (never BookingDetailScreen), which offers NO '
+      'reschedule CTA', (tester) async {
+    final repo = _MockBookingRepository();
+    _stubAllTabs(repo, upcoming: visitAndLegacy);
+
+    await tester.pumpRoutedApp(
+      _realRouter(repo),
+      overrides: <Object>[
+        ...clientOverrides(repo),
+        appointmentDetailProvider(
+          'appt-1',
+        ).overrideWith((ref) async => visitFixture()),
+      ],
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(VisitCard));
+    await tester.pumpAndSettle();
+
+    // Landed on the REAL visit screen, not the single-booking one.
+    expect(find.byType(VisitDetailScreen), findsOneWidget);
+    expect(find.byType(BookingDetailScreen), findsNothing);
+
+    // No reschedule affordance reachable at all — neither the provider key
+    // nor the client key exists on this screen (see `visit_detail_screen
+    // .dart`'s file header: "no ... reschedule ... header affordances").
+    expect(
+      find.byKey(const Key('booking-detail-provider-reschedule')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('booking-detail-reschedule')), findsNothing);
+  });
+
+  testWidgets(
+    'REGRESSION GUARD — client tapping a legacy (non-visit) card still opens '
+    'the REAL BookingDetailScreen, which DOES offer reschedule — proves the '
+    'router itself works, isolating the assertion above to the VISIT branch',
+    (tester) async {
+      final repo = _MockBookingRepository();
+      _stubAllTabs(repo, upcoming: visitAndLegacy);
+      final Booking legacy = visitAndLegacy.last;
+
+      await tester.pumpRoutedApp(
+        _realRouter(repo),
+        overrides: <Object>[
+          ...clientOverrides(repo),
+          bookingDetailProvider('legacy-1').overrideWith((ref) async => legacy),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(BookingCard));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expect(find.byType(VisitDetailScreen), findsNothing);
+      expect(
+        find.byKey(const Key('booking-detail-reschedule')),
+        findsOneWidget,
+      );
+    },
+  );
 }
