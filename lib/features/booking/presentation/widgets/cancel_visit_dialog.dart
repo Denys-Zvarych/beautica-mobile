@@ -139,6 +139,11 @@ class _CancelVisitDialogState extends State<CancelVisitDialog> {
                 const SizedBox(height: VelvetSpacing.md),
 
                 _DestructiveButton(
+                  // Preserves the pre-existing value so `visit_detail_screen_
+                  // test.dart`'s tap-by-key stays valid — out of scope for
+                  // this fix (only the cancel/decline single-booking dialogs'
+                  // shared key was the target).
+                  buttonKey: const Key('cancel-booking-confirm'),
                   label: l10n.cancelBookingConfirmCta,
                   icon: Icons.close_rounded,
                   onPressed: () => dismissOverlay(context, _note.text.trim()),

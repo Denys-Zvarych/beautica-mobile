@@ -1811,6 +1811,21 @@ final class FakeBackend {
   int cancelBookingCalls = 0;
   String? lastCancelComment;
 
+  /// Track 27.x Wave A — `PATCH /bookings/{id}/decline` (PROVIDER decline)
+  /// call count + the last `StatusUpdateRequest` body the fake actually
+  /// received (`comment`/`cancellationReason`, wire keys as
+  /// `booking_repository.dart`'s `declineBooking` serialises them). Flips
+  /// [bookingStatus] to `DECLINED` on success — mirrors the client cancel
+  /// route above, but on the PROVIDER write path.
+  int declineBookingCalls = 0;
+  String? lastDeclineComment;
+  String? lastDeclineCancellationReason;
+
+  /// Track 27.x Wave A — `PATCH /bookings/{id}/complete` (PROVIDER complete,
+  /// no request body) call count. Flips [bookingStatus] to `COMPLETED` on
+  /// success.
+  int completeBookingCalls = 0;
+
   /// `PATCH /bookings/{id}/reschedule` call count + the last `newStartsAt`
   /// wire value the client submitted (track 24.x auto-confirm reschedule).
   int rescheduleBookingCalls = 0;
@@ -3383,6 +3398,42 @@ final class FakeBackend {
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // PATCH /api/v1/bookings/booking-1/decline — Track 27.x Wave A, the
+    // PROVIDER decline write path (`booking_repository.dart`'s
+    // `declineBooking`). Flips the seeded booking to DECLINED and captures the
+    // exact `StatusUpdateRequest` wire body — `cancellationReason` (always
+    // `PROVIDER_UNAVAILABLE` for this affordance) and the optional `comment` —
+    // so a flow can assert the REAL serialised shape reached the fake, not
+    // just that a mocked repository method was invoked with the right Dart
+    // arguments (that gap is exactly what the widget-tier
+    // `booking_detail_provider_footer_test.dart` cannot close).
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/decline',
+      (server) => server.replyCallback(200, (req) {
+        declineBookingCalls++;
+        final body = _decodeBody(req.data);
+        lastDeclineComment = body['comment'] as String?;
+        lastDeclineCancellationReason = body['cancellationReason'] as String?;
+        bookingStatus = 'DECLINED';
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // PATCH /api/v1/bookings/booking-1/complete — Track 27.x Wave A, the
+    // PROVIDER complete write path. No request body (`completeBooking`'s
+    // generated client call sends none) — flips the seeded booking to
+    // COMPLETED.
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/complete',
+      (server) => server.replyCallback(200, (_) {
+        completeBookingCalls++;
+        bookingStatus = 'COMPLETED';
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch),
     );
 
     // POST /api/v1/reviews — CLIENT leave-review (Phase 14.6). Records the

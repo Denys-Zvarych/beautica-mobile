@@ -256,6 +256,13 @@ class _RecordingRescheduleRepository implements BookingRepository {
       throw UnimplementedError();
 
   @override
+  Future<void> declineBooking(String id, {String? comment}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> completeBooking(String id) => throw UnimplementedError();
+
+  @override
   Future<void> createReview({
     required String bookingId,
     required int rating,

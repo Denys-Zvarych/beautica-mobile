@@ -132,6 +132,14 @@
   "@bookingErrorAlreadyElapsed": {
     "description": "Error message shown when PATCH /bookings/{id}/reschedule or /cancel returns HTTP 409 with data.code == BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's slot is already past the server clock, so it can no longer be rescheduled or cancelled. Surfaced via BookingAlreadyElapsedFailure.userMessage on a stale-screen / clock-rollback tap."
   },
+  "bookingErrorProviderDeclineWindowClosed": "This booking has already started — it can no longer be declined.",
+  "@bookingErrorProviderDeclineWindowClosed": {
+    "description": "Error message shown when PATCH /bookings/{id}/decline returns HTTP 409 (backend Phase 27.1 BookingTemporalGuard.assertFutureForProviderCancel — the booking's startsAt is no longer strictly in the future). Surfaced via ProviderDeclineWindowClosedFailure.userMessage on a stale-screen / clock-rollback tap."
+  },
+  "bookingErrorProviderCompleteNotStarted": "This booking hasn't started yet — it can't be completed.",
+  "@bookingErrorProviderCompleteNotStarted": {
+    "description": "Error message shown when PATCH /bookings/{id}/complete returns HTTP 409 (backend Phase 27.1 BookingTemporalGuard.assertElapsedForComplete — the booking's startsAt is still in the future). Surfaced via ProviderCompleteNotStartedFailure.userMessage on a stale-screen / clock-rollback tap."
+  },
   "bookingErrDuplicateService": "A service can't be added twice. Remove the duplicate and try again.",
   "@bookingErrDuplicateService": {
     "description": "Error message shown when POST /appointments returns HTTP 409 with data.code == DUPLICATE_SERVICE — the multi-service visit named the same service twice. Surfaced via DuplicateServiceFailure.userMessage (the selection UI dedupes up-front, so this is a backstop)."
@@ -3576,6 +3584,10 @@
   "@bookingMasterLabel": {
     "description": "Label above a master's display name — used by the client-booking-conflict dialog's clashing-booking recap."
   },
+  "bookingClientLabel": "Client",
+  "@bookingClientLabel": {
+    "description": "Label above a client's display name — used by the PROVIDER-facing DeclineBookingDialog's recap (track 27.x Wave A)."
+  },
   "bookingConflictClientTitle": "You already have a booking at this time",
   "@bookingConflictClientTitle": {
     "description": "Title of the modal shown when POST /bookings or PATCH /bookings/{id}/reschedule returns a CLIENT_BOOKING_CONFLICT 409 (ClientBookingConflictFailure)."
@@ -3860,6 +3872,42 @@
   "@cancelBookingKeepCta": {
     "description": "Safe back-out button on the cancel-booking dialog."
   },
+  "declineBookingDialogTitle": "Decline this client's booking?",
+  "@declineBookingDialogTitle": {
+    "description": "Track 27.x Wave A — title of the PROVIDER decline confirmation dialog."
+  },
+  "declineBookingDialogSubtitle": "This can't be undone. The client will be notified.",
+  "@declineBookingDialogSubtitle": {
+    "description": "Track 27.x Wave A — subtitle of the PROVIDER decline confirmation dialog."
+  },
+  "declineBookingNoteLabel": "Comment for the client (optional)",
+  "@declineBookingNoteLabel": {
+    "description": "Track 27.x Wave A — caption above the PROVIDER decline dialog's optional comment field. The value is mutually visible to the client once the booking reads DECLINED."
+  },
+  "declineBookingNoteHint": "E.g.: fell ill, emergency…",
+  "@declineBookingNoteHint": {
+    "description": "Track 27.x Wave A — placeholder text inside the PROVIDER decline dialog's optional comment field."
+  },
+  "declineBookingConfirmCta": "Yes, decline",
+  "@declineBookingConfirmCta": {
+    "description": "Track 27.x Wave A — the destructive confirm button on the PROVIDER decline confirmation dialog."
+  },
+  "declineBookingKeepCta": "Keep booking",
+  "@declineBookingKeepCta": {
+    "description": "Track 27.x Wave A — safe back-out button on the PROVIDER decline confirmation dialog."
+  },
+  "completeBookingDialogTitle": "Complete this booking?",
+  "@completeBookingDialogTitle": {
+    "description": "Track 27.x Wave A — title of the PROVIDER complete confirmation dialog."
+  },
+  "completeBookingDialogBody": "Confirm that the client's visit took place.",
+  "@completeBookingDialogBody": {
+    "description": "Track 27.x Wave A — body text of the PROVIDER complete confirmation dialog."
+  },
+  "completeBookingConfirmCta": "Yes, complete",
+  "@completeBookingConfirmCta": {
+    "description": "Track 27.x Wave A — the confirm button on the PROVIDER complete confirmation dialog."
+  },
   "bookingDetailBackSemantics": "Back to bookings list",
   "@bookingDetailBackSemantics": {
     "description": "Accessibility label for the booking detail screen's back button."
@@ -3902,6 +3950,14 @@
   "bookingDetailRebookCta": "Book again",
   "@bookingDetailRebookCta": {
     "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
+  },
+  "bookingDetailDeclineCta": "Decline",
+  "@bookingDetailDeclineCta": {
+    "description": "Track 27.x Wave A — PROVIDER footer secondary action on a CONFIRMED, not-yet-started booking's detail screen; opens the decline confirmation. Distinct from bookingDetailCancelCta (the CLIENT's «Cancel booking»)."
+  },
+  "bookingDetailCompleteCta": "Complete",
+  "@bookingDetailCompleteCta": {
+    "description": "Track 27.x Wave A — PROVIDER footer primary action on a CONFIRMED booking whose appointment has started (Booking.hasStarted); opens the complete confirmation."
   },
   "bookingDetailReviewCta": "Leave a review",
   "@bookingDetailReviewCta": {

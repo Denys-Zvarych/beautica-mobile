@@ -379,8 +379,12 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('footer slot', () {
+    // Track 27.x Wave A filled the provider footer with its OWN actions
+    // (reschedule/decline/complete — see `booking_detail_provider_footer_test
+    // .dart`). What stays pinned HERE is narrower but still load-bearing: no
+    // CLIENT-keyed action ever leaks into a provider viewer, at any status.
     testWidgets(
-      'the provider footer is EMPTY in 7.2 — no client actions leak through',
+      'CONFIRMED never leaks a CLIENT action to the provider footer',
       (tester) async {
         // CONFIRMED is the status with the richest client footer, so it is the
         // one that would most visibly leak.

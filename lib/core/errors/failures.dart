@@ -656,6 +656,54 @@ final class BookingAlreadyElapsedFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrorAlreadyElapsed;
 }
 
+/// Emitted when `PATCH /bookings/{id}/decline` returns HTTP **409** — the
+/// backend's Phase 27.1 `BookingTemporalGuard.assertFutureForProviderCancel`
+/// guard: the booking's `startsAt` is no longer strictly in the future
+/// (`now >= startsAt`), so a PROVIDER may no longer back out of it — their
+/// only remaining resolution is `/complete` (or the untouched
+/// `/not-complete`).
+///
+/// **Decode note — unlike [BookingAlreadyElapsedFailure]:** the backend's new
+/// `BookingTemporalGuard` throws a plain `BusinessException(CONFLICT, "...")`
+/// with no typed `data.code` envelope (see `GlobalExceptionHandler
+/// .handleBusiness`, which genericises every CONFLICT body to
+/// `{"data": null}`), unlike the `BookingElapsedException` /
+/// `BOOKING_ALREADY_ELAPSED` shape [BookingAlreadyElapsedFailure] decodes.
+/// `HttpBookingRepository.declineBooking` therefore maps EVERY 409 from this
+/// endpoint to this failure directly, by CALL SITE rather than by body
+/// content — there is nothing else a decline 409 could mean.
+///
+/// The mobile UI already flips the provider footer to «Завершити» once
+/// [BookingDisplayX.hasStarted] — but that gate is UX-only, so this is the
+/// defensive backstop for a stale screen or a rolled-back device clock: the
+/// screen catches it, shows [userMessage], and refetches the booking so the
+/// footer re-renders correctly.
+final class ProviderDeclineWindowClosedFailure extends Failure {
+  const ProviderDeclineWindowClosedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrorProviderDeclineWindowClosed;
+}
+
+/// Emitted when `PATCH /bookings/{id}/complete` returns HTTP **409** — the
+/// backend's Phase 27.1 `BookingTemporalGuard.assertElapsedForComplete`
+/// guard: the booking's `startsAt` is still in the future (`now < startsAt`),
+/// so a PROVIDER may not mark it COMPLETED yet.
+///
+/// Same decode note as [ProviderDeclineWindowClosedFailure] — the guard's
+/// `BusinessException` carries no typed `data.code`, so
+/// `HttpBookingRepository.completeBooking` maps every 409 from this endpoint
+/// to this failure by call site. Defensive backstop for a stale screen /
+/// rolled-back clock, mirroring that failure's doc.
+final class ProviderCompleteNotStartedFailure extends Failure {
+  const ProviderCompleteNotStartedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrorProviderCompleteNotStarted;
+}
+
 /// Emitted when `POST /bookings` or `PATCH /bookings/{id}/reschedule` returns
 /// HTTP **429** — the per-user booking-write rate limit (5 requests / 10 s,
 /// backend commit f95d8fd) is exhausted.

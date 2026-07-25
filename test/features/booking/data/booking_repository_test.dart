@@ -37,6 +37,8 @@ const _createPath = '/api/v1/bookings';
 const _getPath = '/api/v1/bookings/booking-1';
 const _cancelPath = '/api/v1/bookings/booking-1/cancel';
 const _reschedulePath = '/api/v1/bookings/booking-1/reschedule';
+const _declinePath = '/api/v1/bookings/booking-1/decline';
+const _completePath = '/api/v1/bookings/booking-1/complete';
 const _myBookingsPath = '/api/v1/bookings/me';
 
 /// Builds a minimal enriched [BookingDetailResponse] DTO for happy-path
@@ -218,6 +220,12 @@ void main() {
     registerFallbackValue(
       RescheduleBookingRequest(
         (b) => b..newStartsAt = DateTime.utc(2026, 1, 1),
+      ),
+    );
+    registerFallbackValue(
+      StatusUpdateRequest(
+        (b) => b.cancellationReason =
+            StatusUpdateRequestCancellationReasonEnum.PROVIDER_UNAVAILABLE,
       ),
     );
   });
@@ -752,6 +760,207 @@ void main() {
           repository.cancelBooking('booking-1'),
           throwsA(
             isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 409),
+          ),
+        );
+      },
+    );
+  });
+
+  // Track 27.x Wave A — the PROVIDER decline write path.
+  group('declineBooking', () {
+    test('success: always sends PROVIDER_UNAVAILABLE with comment as the '
+        'optional free text', () async {
+      when(
+        () => bookingApi.declineBooking(
+          bookingId: any(named: 'bookingId'),
+          statusUpdateRequest: any(named: 'statusUpdateRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<void>(
+          requestOptions: RequestOptions(path: _declinePath),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.declineBooking('booking-1', comment: 'ill, apologies');
+
+      final captured = verify(
+        () => bookingApi.declineBooking(
+          bookingId: captureAny(named: 'bookingId'),
+          statusUpdateRequest: captureAny(named: 'statusUpdateRequest'),
+        ),
+      ).captured;
+      expect(captured[0], 'booking-1');
+      final body = captured[1] as StatusUpdateRequest;
+      expect(
+        body.cancellationReason,
+        StatusUpdateRequestCancellationReasonEnum.PROVIDER_UNAVAILABLE,
+      );
+      expect(body.comment, 'ill, apologies');
+    });
+
+    test(
+      'success with no comment: comment is null (blank is trimmed too)',
+      () async {
+        when(
+          () => bookingApi.declineBooking(
+            bookingId: any(named: 'bookingId'),
+            statusUpdateRequest: any(named: 'statusUpdateRequest'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<void>(
+            requestOptions: RequestOptions(path: _declinePath),
+            statusCode: 200,
+          ),
+        );
+
+        await repository.declineBooking('booking-1', comment: '   ');
+
+        final captured =
+            verify(
+                  () => bookingApi.declineBooking(
+                    bookingId: any(named: 'bookingId'),
+                    statusUpdateRequest: captureAny(
+                      named: 'statusUpdateRequest',
+                    ),
+                  ),
+                ).captured.single
+                as StatusUpdateRequest;
+        expect(captured.comment, isNull);
+      },
+    );
+
+    test('connectionError → NetworkFailure', () async {
+      when(
+        () => bookingApi.declineBooking(
+          bookingId: any(named: 'bookingId'),
+          statusUpdateRequest: any(named: 'statusUpdateRequest'),
+        ),
+      ).thenThrow(_dioConnectionError(_declinePath));
+
+      await expectLater(
+        repository.declineBooking('booking-1'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    // Unlike cancelBooking's BOOKING_ALREADY_ELAPSED, the backend's Phase
+    // 27.1 BookingTemporalGuard throws a plain BusinessException with NO
+    // typed data.code envelope — GlobalExceptionHandler.handleBusiness
+    // genericises every CONFLICT body to {"data": null}. So EVERY 409 from
+    // this endpoint maps to ProviderDeclineWindowClosedFailure, by call site
+    // — see that failure's doc.
+    test(
+      'ANY 409 (even with no body at all) → ProviderDeclineWindowClosedFailure',
+      () async {
+        when(
+          () => bookingApi.declineBooking(
+            bookingId: any(named: 'bookingId'),
+            statusUpdateRequest: any(named: 'statusUpdateRequest'),
+          ),
+        ).thenThrow(_dioBadResponse(409, _declinePath));
+
+        await expectLater(
+          repository.declineBooking('booking-1'),
+          throwsA(isA<ProviderDeclineWindowClosedFailure>()),
+        );
+      },
+    );
+
+    test('a 409 carrying an UNRELATED data.code still maps to '
+        'ProviderDeclineWindowClosedFailure — the mapping is by call site, not '
+        'by body content', () async {
+      when(
+        () => bookingApi.declineBooking(
+          bookingId: any(named: 'bookingId'),
+          statusUpdateRequest: any(named: 'statusUpdateRequest'),
+        ),
+      ).thenThrow(
+        _dioBadResponseWithBody(409, _declinePath, <String, dynamic>{
+          'success': false,
+          'data': <String, dynamic>{'code': 'SOME_OTHER_CODE'},
+        }),
+      );
+
+      await expectLater(
+        repository.declineBooking('booking-1'),
+        throwsA(isA<ProviderDeclineWindowClosedFailure>()),
+      );
+    });
+
+    test(
+      'a non-409 bad response (e.g. 403) stays a generic ServerFailure',
+      () async {
+        when(
+          () => bookingApi.declineBooking(
+            bookingId: any(named: 'bookingId'),
+            statusUpdateRequest: any(named: 'statusUpdateRequest'),
+          ),
+        ).thenThrow(_dioBadResponse(403, _declinePath));
+
+        await expectLater(
+          repository.declineBooking('booking-1'),
+          throwsA(
+            isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 403),
+          ),
+        );
+      },
+    );
+  });
+
+  // Track 27.x Wave A — the PROVIDER complete write path.
+  group('completeBooking', () {
+    test('success: no request body', () async {
+      when(
+        () => bookingApi.completeBooking(bookingId: any(named: 'bookingId')),
+      ).thenAnswer(
+        (_) async => Response<void>(
+          requestOptions: RequestOptions(path: _completePath),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.completeBooking('booking-1');
+
+      verify(
+        () => bookingApi.completeBooking(bookingId: 'booking-1'),
+      ).called(1);
+    });
+
+    test('connectionError → NetworkFailure', () async {
+      when(
+        () => bookingApi.completeBooking(bookingId: any(named: 'bookingId')),
+      ).thenThrow(_dioConnectionError(_completePath));
+
+      await expectLater(
+        repository.completeBooking('booking-1'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('ANY 409 → ProviderCompleteNotStartedFailure — same no-typed-code '
+        'reasoning as declineBooking', () async {
+      when(
+        () => bookingApi.completeBooking(bookingId: any(named: 'bookingId')),
+      ).thenThrow(_dioBadResponse(409, _completePath));
+
+      await expectLater(
+        repository.completeBooking('booking-1'),
+        throwsA(isA<ProviderCompleteNotStartedFailure>()),
+      );
+    });
+
+    test(
+      'a non-409 bad response (e.g. 403) stays a generic ServerFailure',
+      () async {
+        when(
+          () => bookingApi.completeBooking(bookingId: any(named: 'bookingId')),
+        ).thenThrow(_dioBadResponse(403, _completePath));
+
+        await expectLater(
+          repository.completeBooking('booking-1'),
+          throwsA(
+            isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 403),
           ),
         );
       },
