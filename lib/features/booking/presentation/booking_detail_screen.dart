@@ -588,11 +588,17 @@ class _DetailBody extends StatelessWidget {
   String? _subline(Booking b, AppLocalizations l10n) {
     switch (b.status) {
       case BookingStatus.confirmed:
-        // The reminder ("Нагадаємо про запис напередодні.") is an
-        // upcoming-only affordance. An ELAPSED CONFIRMED booking is already
-        // read-only (Reschedule/Cancel/Add-to-calendar all hidden, «Записатись
-        // знову» shown), so drop the reminder too — reminding about a visit
-        // whose time has passed is meaningless.
+        // The reminder ("Нагадаємо про запис напередодні.") is a CLIENT-facing
+        // promise — the app reminds the CLIENT the day before. The PROVIDER
+        // makes no such promise to themselves, so suppress it for the provider
+        // viewer entirely (past or future).
+        if (viewer.isProvider) {
+          return null;
+        }
+        // The reminder is also an upcoming-only affordance. An ELAPSED CONFIRMED
+        // booking is already read-only (Reschedule/Cancel/Add-to-calendar all
+        // hidden, «Записатись знову» shown), so drop the reminder too — reminding
+        // about a visit whose time has passed is meaningless.
         if (b.isPast) {
           return null;
         }
