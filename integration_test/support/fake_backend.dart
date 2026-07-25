@@ -1853,16 +1853,6 @@ final class FakeBackend {
   /// success.
   int completeBookingCalls = 0;
 
-  /// No-show — `PATCH /bookings/{id}/not-complete` (PROVIDER client-no-show)
-  /// call count + the last `StatusUpdateRequest` body the fake actually
-  /// received (`comment`/`cancellationReason`, wire keys as
-  /// `booking_repository.dart`'s `notCompleteBooking` serialises them). Flips
-  /// [bookingStatus] to `NOT_COMPLETED` on success — same shape as
-  /// [declineBookingCalls] above, but for the no-show write path.
-  int notCompleteBookingCalls = 0;
-  String? lastNotCompleteComment;
-  String? lastNotCompleteCancellationReason;
-
   /// `PATCH /bookings/{id}/reschedule` call count + the last `newStartsAt`
   /// wire value the client submitted (track 24.x auto-confirm reschedule).
   int rescheduleBookingCalls = 0;
@@ -3510,26 +3500,6 @@ final class FakeBackend {
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch),
-    );
-
-    // PATCH /api/v1/bookings/booking-1/not-complete — the PROVIDER no-show
-    // write path (`booking_repository.dart`'s `notCompleteBooking`). Flips
-    // the seeded booking to NOT_COMPLETED and captures the exact
-    // `StatusUpdateRequest` wire body — `cancellationReason` (always
-    // `CLIENT_NO_SHOW` for this affordance) and the optional `comment` — same
-    // shape as the `/decline` route above.
-    _adapter.onRoute(
-      '/api/v1/bookings/booking-1/not-complete',
-      (server) => server.replyCallback(200, (req) {
-        notCompleteBookingCalls++;
-        final body = _decodeBody(req.data);
-        lastNotCompleteComment = body['comment'] as String?;
-        lastNotCompleteCancellationReason =
-            body['cancellationReason'] as String?;
-        bookingStatus = 'NOT_COMPLETED';
-        return _okVoid;
-      }),
-      request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
 
     // POST /api/v1/reviews — CLIENT leave-review (Phase 14.6). Records the

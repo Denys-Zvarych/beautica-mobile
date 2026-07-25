@@ -133,9 +133,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<void> declineAppointment(String id, {String? comment}) =>
       throw UnimplementedError();
   @override
-  Future<void> notCompleteAppointment(String id, {String? comment}) =>
-      throw UnimplementedError();
-  @override
   Future<void> createAppointmentReview(
     String id, {
     required int rating,
@@ -218,10 +215,6 @@ class _RecordingBookingRepository implements BookingRepository {
 
   @override
   Future<void> completeBooking(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> notCompleteBooking(String id, {String? comment}) =>
-      throw UnimplementedError();
 
   @override
   Future<void> createReview({

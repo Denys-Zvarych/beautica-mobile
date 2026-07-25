@@ -140,10 +140,6 @@
   "@bookingErrorProviderCompleteNotStarted": {
     "description": "Error message shown when PATCH /bookings/{id}/complete returns HTTP 409 (backend Phase 27.1 BookingTemporalGuard.assertElapsedForComplete — the booking's startsAt is still in the future). Surfaced via ProviderCompleteNotStartedFailure.userMessage on a stale-screen / clock-rollback tap."
   },
-  "bookingErrorProviderNotCompleteNotStarted": "This booking hasn't started yet — it can't be marked as a no-show.",
-  "@bookingErrorProviderNotCompleteNotStarted": {
-    "description": "Error message shown when PATCH /bookings/{id}/not-complete (or /appointments/{id}/not-complete) returns HTTP 409 — the backend guards the no-show transition to elapsed bookings only. Surfaced via ProviderNotCompleteNotStartedFailure.userMessage on a stale-screen / clock-rollback tap."
-  },
   "bookingErrDuplicateService": "A service can't be added twice. Remove the duplicate and try again.",
   "@bookingErrDuplicateService": {
     "description": "Error message shown when POST /appointments returns HTTP 409 with data.code == DUPLICATE_SERVICE — the multi-service visit named the same service twice. Surfaced via DuplicateServiceFailure.userMessage (the selection UI dedupes up-front, so this is a backstop)."
@@ -3934,38 +3930,6 @@
   "@completeAppointmentDialogBody": {
     "description": "Track 27.x/MO-6 — body text of the PROVIDER complete confirmation dialog for a multi-service visit, making explicit that every service is affected."
   },
-  "notCompleteBookingDialogTitle": "Client didn't show up?",
-  "@notCompleteBookingDialogTitle": {
-    "description": "Title of the PROVIDER no-show confirmation dialog, shown for a single-service booking."
-  },
-  "notCompleteBookingDialogSubtitle": "The booking will be marked as a no-show. This can't be undone.",
-  "@notCompleteBookingDialogSubtitle": {
-    "description": "Subtitle of the PROVIDER no-show confirmation dialog, shown for a single-service booking."
-  },
-  "notCompleteBookingNoteLabel": "Comment for the client (optional)",
-  "@notCompleteBookingNoteLabel": {
-    "description": "Caption above the PROVIDER no-show dialog's optional comment field. The value is mutually visible to the client once the booking reads NOT_COMPLETED."
-  },
-  "notCompleteBookingNoteHint": "E.g.: client never arrived, couldn't reach them…",
-  "@notCompleteBookingNoteHint": {
-    "description": "Placeholder text inside the PROVIDER no-show dialog's optional comment field."
-  },
-  "notCompleteBookingConfirmCta": "Yes, no-show",
-  "@notCompleteBookingConfirmCta": {
-    "description": "The destructive confirm button on the PROVIDER no-show confirmation dialog."
-  },
-  "notCompleteBookingKeepCta": "Don't mark as no-show",
-  "@notCompleteBookingKeepCta": {
-    "description": "Safe back-out button on the PROVIDER no-show confirmation dialog."
-  },
-  "notCompleteAppointmentDialogTitle": "Client didn't show up for the visit?",
-  "@notCompleteAppointmentDialogTitle": {
-    "description": "Title of the PROVIDER no-show confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the no-show transitions every service in the visit, not just the one shown."
-  },
-  "notCompleteAppointmentDialogSubtitle": "Every service in this visit will be marked as a no-show. This can't be undone.",
-  "@notCompleteAppointmentDialogSubtitle": {
-    "description": "Subtitle of the PROVIDER no-show confirmation dialog for a multi-service visit, making explicit that every service is affected."
-  },
   "completeBookingConfirmCta": "Yes, complete",
   "@completeBookingConfirmCta": {
     "description": "Track 27.x Wave A — the confirm button on the PROVIDER complete confirmation dialog."
@@ -4015,15 +3979,11 @@
   },
   "bookingDetailDeclineCta": "Decline",
   "@bookingDetailDeclineCta": {
-    "description": "Track 27.x Wave A — PROVIDER footer secondary action on a CONFIRMED, not-yet-started booking's detail screen; opens the decline confirmation. Distinct from bookingDetailCancelCta (the CLIENT's «Cancel booking»)."
+    "description": "Track 27.x Wave A — PROVIDER footer secondary action on a CONFIRMED booking's detail screen (both not-yet-started and elapsed/Booking.hasStarted); opens the decline confirmation. Distinct from bookingDetailCancelCta (the CLIENT's «Cancel booking»)."
   },
   "bookingDetailCompleteCta": "Complete",
   "@bookingDetailCompleteCta": {
-    "description": "Track 27.x Wave A — PROVIDER footer primary action on a CONFIRMED booking whose appointment has started (Booking.hasStarted); opens the complete confirmation."
-  },
-  "bookingDetailNotCompleteCta": "Client didn't show up",
-  "@bookingDetailNotCompleteCta": {
-    "description": "PROVIDER footer secondary action on a CONFIRMED booking whose appointment has started (Booking.hasStarted), shown alongside bookingDetailCompleteCta; opens the no-show confirmation."
+    "description": "Track 27.x Wave A — PROVIDER footer primary action on a CONFIRMED booking whose appointment has started (Booking.hasStarted), shown alongside bookingDetailDeclineCta; opens the complete confirmation."
   },
   "bookingDetailReviewCta": "Leave a review",
   "@bookingDetailReviewCta": {

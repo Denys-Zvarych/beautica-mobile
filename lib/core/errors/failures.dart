@@ -656,28 +656,34 @@ final class BookingAlreadyElapsedFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrorAlreadyElapsed;
 }
 
-/// Emitted when `PATCH /bookings/{id}/decline` returns HTTP **409** — the
-/// backend's Phase 27.1 `BookingTemporalGuard.assertFutureForProviderCancel`
-/// guard: the booking's `startsAt` is no longer strictly in the future
-/// (`now >= startsAt`), so a PROVIDER may no longer back out of it — their
-/// only remaining resolution is `/complete` (or the untouched
-/// `/not-complete`).
+/// Emitted when `PATCH /bookings/{id}/decline` returns HTTP **409**.
 ///
-/// **Decode note — unlike [BookingAlreadyElapsedFailure]:** the backend's new
-/// `BookingTemporalGuard` throws a plain `BusinessException(CONFLICT, "...")`
-/// with no typed `data.code` envelope (see `GlobalExceptionHandler
-/// .handleBusiness`, which genericises every CONFLICT body to
-/// `{"data": null}`), unlike the `BookingElapsedException` /
+/// Historically the backend's Phase 27.1 `BookingTemporalGuard
+/// .assertFutureForProviderCancel` guard rejected a decline once a booking's
+/// `startsAt` was no longer strictly in the future — a since-reversed
+/// decision (the backend now allows a provider to decline a CONFIRMED
+/// booking at ANY time, elapsed or not, so a client no-show is recorded as a
+/// decline with a free-text reason rather than a separate status). This
+/// failure is kept as a defensive backstop only: some OTHER 409 shape on this
+/// endpoint is still plausible (e.g. a concurrent status change), and this is
+/// the generic "decline was rejected" fallback for it.
+///
+/// **Decode note — unlike [BookingAlreadyElapsedFailure]:** the backend's
+/// `BookingTemporalGuard`-family guards throw a plain
+/// `BusinessException(CONFLICT, "...")` with no typed `data.code` envelope
+/// (see `GlobalExceptionHandler.handleBusiness`, which genericises every
+/// CONFLICT body to `{"data": null}`), unlike the `BookingElapsedException` /
 /// `BOOKING_ALREADY_ELAPSED` shape [BookingAlreadyElapsedFailure] decodes.
 /// `HttpBookingRepository.declineBooking` therefore maps EVERY 409 from this
 /// endpoint to this failure directly, by CALL SITE rather than by body
 /// content — there is nothing else a decline 409 could mean.
 ///
-/// The mobile UI already flips the provider footer to «Завершити» once
-/// [BookingDisplayX.hasStarted] — but that gate is UX-only, so this is the
-/// defensive backstop for a stale screen or a rolled-back device clock: the
-/// screen catches it, shows [userMessage], and refetches the booking so the
-/// footer re-renders correctly.
+/// The mobile UI now offers «Скасувати» (decline) on a CONFIRMED provider
+/// booking regardless of [BookingDisplayX.hasStarted], so this failure is
+/// not expected to fire in normal operation — the screen still catches it,
+/// shows [userMessage], and refetches the booking so the footer re-renders
+/// correctly, as defense-in-depth against an unforeseen server-side
+/// rejection.
 final class ProviderDeclineWindowClosedFailure extends Failure {
   const ProviderDeclineWindowClosedFailure({super.cause});
 
@@ -702,29 +708,6 @@ final class ProviderCompleteNotStartedFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).bookingErrorProviderCompleteNotStarted;
-}
-
-/// Emitted when `PATCH /bookings/{id}/not-complete` (or
-/// `PATCH /appointments/{id}/not-complete`) returns HTTP **409** — the
-/// backend guards the no-show transition to elapsed bookings only (the same
-/// shape as `BookingTemporalGuard.assertElapsedForComplete`): the booking's
-/// `startsAt` is still in the future, so a PROVIDER may not mark it
-/// NOT_COMPLETED yet.
-///
-/// Same decode note as [ProviderCompleteNotStartedFailure] — no typed
-/// `data.code` envelope, so `HttpBookingRepository.notCompleteBooking` /
-/// `HttpAppointmentRepository.notCompleteAppointment` map every 409 from
-/// either endpoint to this failure by call site. The mobile UI already gates
-/// the «Клієнт не прийшов» CTA to [BookingDisplayX.hasStarted], so this is
-/// the defensive backstop for a stale screen / rolled-back device clock —
-/// the screen catches it, shows [userMessage], and refetches the booking so
-/// the footer re-renders correctly.
-final class ProviderNotCompleteNotStartedFailure extends Failure {
-  const ProviderNotCompleteNotStartedFailure({super.cause});
-
-  @override
-  String userMessage(BuildContext ctx) =>
-      AppLocalizations.of(ctx).bookingErrorProviderNotCompleteNotStarted;
 }
 
 /// Emitted when `POST /bookings` or `PATCH /bookings/{id}/reschedule` returns

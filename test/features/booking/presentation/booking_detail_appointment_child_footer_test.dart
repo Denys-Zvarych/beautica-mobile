@@ -25,10 +25,9 @@
 //     `BookingRepository.completeBooking`;
 //   • decline on an appointment-child booking calls
 //     `AppointmentRepository.declineAppointment(appointmentId, comment: ...)`,
-//     NEVER `BookingRepository.declineBooking`;
-//   • not-complete (client no-show) on an appointment-child booking calls
-//     `AppointmentRepository.notCompleteAppointment(appointmentId, comment:
-//     ...)`, NEVER `BookingRepository.notCompleteBooking`;
+//     NEVER `BookingRepository.declineBooking` — on BOTH a not-yet-started
+//     and an elapsed (`hasStarted`) booking, since the backend allows a
+//     provider decline at any time;
 //   • «Перенести» (reschedule) is SHOWN on an appointment-child booking, same
 //     key as the single-booking case — the provider-facing
 //     `/appointments/{id}/reschedule` endpoint now exists;
@@ -532,12 +531,14 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Not-complete (client no-show) routing
+  // Decline routing on an ELAPSED appointment-child booking — the backend
+  // allows a provider decline at any time, so «Скасувати» stays offered (and
+  // routes the same way) once Booking.hasStarted, not just before.
   // -------------------------------------------------------------------------
 
-  group('not-complete routing', () {
-    /// A CONFIRMED booking that has started (so «Завершити»/«Клієнт не
-    /// прийшов» are offered).
+  group('decline routing on an elapsed booking', () {
+    /// A CONFIRMED booking that has started (so «Завершити»/«Скасувати» are
+    /// offered).
     Booking startedBooking({String? appointmentId}) {
       final DateTime start = DateTime.now().toUtc().subtract(
         const Duration(minutes: 5),
@@ -564,14 +565,14 @@ void main() {
       );
     }
 
-    testWidgets('appointment-child booking: not-complete calls '
-        'AppointmentRepository.notCompleteAppointment(appointmentId), never '
-        'BookingRepository.notCompleteBooking', (tester) async {
+    testWidgets('appointment-child booking: decline on an elapsed booking '
+        'still calls AppointmentRepository.declineAppointment(appointmentId), '
+        'never BookingRepository.declineBooking', (tester) async {
       final Booking booking = startedBooking(appointmentId: 'appt-1');
       final bookingRepo = _MockBookingRepository();
       final appointmentRepo = _MockAppointmentRepository();
       when(
-        () => appointmentRepo.notCompleteAppointment(
+        () => appointmentRepo.declineAppointment(
           any(),
           comment: any(named: 'comment'),
         ),
@@ -584,46 +585,41 @@ void main() {
         appointmentRepo: appointmentRepo,
       );
 
-      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      // Both actions are offered on an elapsed CONFIRMED visit.
+      expect(find.byKey(const Key('booking-detail-complete')), findsOneWidget);
+      expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('booking-detail-decline')));
       await tester.pumpAndSettle();
       // The dialog reads as a whole-visit action, not a single-booking one.
-      expect(
-        find.byKey(const Key('not-complete-booking-dialog')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('decline-booking-dialog')), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const Key('cancel-booking-note-field')),
-        'Клієнт не відповідав на дзвінки.',
+        'Клієнт не прийшов.',
       );
-      await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+      await tester.tap(find.byKey(const Key('decline-booking-confirm')));
       await tester.pumpAndSettle();
 
       verify(
-        () => appointmentRepo.notCompleteAppointment(
+        () => appointmentRepo.declineAppointment(
           'appt-1',
-          comment: 'Клієнт не відповідав на дзвінки.',
+          comment: 'Клієнт не прийшов.',
         ),
       ).called(1);
       verifyNever(
-        () => bookingRepo.notCompleteBooking(
-          any(),
-          comment: any(named: 'comment'),
-        ),
+        () => bookingRepo.declineBooking(any(), comment: any(named: 'comment')),
       );
     });
 
-    testWidgets('REGRESSION GUARD — a plain single-service booking still '
-        'calls BookingRepository.notCompleteBooking, never the appointment '
+    testWidgets('REGRESSION GUARD — a plain single-service elapsed booking '
+        'still calls BookingRepository.declineBooking, never the appointment '
         'endpoint', (tester) async {
       final Booking booking = startedBooking();
       final bookingRepo = _MockBookingRepository();
       final appointmentRepo = _MockAppointmentRepository();
       when(
-        () => bookingRepo.notCompleteBooking(
-          any(),
-          comment: any(named: 'comment'),
-        ),
+        () => bookingRepo.declineBooking(any(), comment: any(named: 'comment')),
       ).thenAnswer((_) async {});
 
       await _pumpDetail(
@@ -633,16 +629,16 @@ void main() {
         appointmentRepo: appointmentRepo,
       );
 
-      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      await tester.tap(find.byKey(const Key('booking-detail-decline')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+      await tester.tap(find.byKey(const Key('decline-booking-confirm')));
       await tester.pumpAndSettle();
 
       verify(
-        () => bookingRepo.notCompleteBooking(booking.id, comment: null),
+        () => bookingRepo.declineBooking(booking.id, comment: null),
       ).called(1);
       verifyNever(
-        () => appointmentRepo.notCompleteAppointment(
+        () => appointmentRepo.declineAppointment(
           any(),
           comment: any(named: 'comment'),
         ),

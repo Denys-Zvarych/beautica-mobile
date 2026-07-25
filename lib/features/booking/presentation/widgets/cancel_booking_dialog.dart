@@ -62,13 +62,6 @@ part 'cancel_visit_dialog.dart';
 // language.
 part 'decline_booking_dialog.dart';
 
-// The PROVIDER's client-no-show confirmation, kept in this library for the
-// exact same reason as `decline_booking_dialog.dart`: it reuses this
-// dialog's private destructive chrome verbatim (relabelled copy only), so
-// the client-cancel, provider-decline, and provider-no-show confirmations
-// read as one visual language.
-part 'not_complete_booking_dialog.dart';
-
 /// Opens the cancellation confirmation for [booking].
 ///
 /// Resolves to the client's note (possibly an EMPTY string — they confirmed

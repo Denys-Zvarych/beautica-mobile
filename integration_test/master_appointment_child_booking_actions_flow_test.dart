@@ -1,16 +1,14 @@
-// Track 27.x/MO-6 — E2E: the PROVIDER footer's decline/complete/not-complete
-// round trip on a booking that is part of a multi-service VISIT
-// (`Booking.appointmentId != null`).
+// Track 27.x/MO-6 — E2E: the PROVIDER footer's decline/complete round trip on
+// a booking that is part of a multi-service VISIT (`Booking.appointmentId !=
+// null`).
 //
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
 // --------------------------------------------------------------
 // `booking_detail_appointment_child_footer_test.dart` (widget tier) proves the
-// Dart call site: an appointment-child booking routes
-// complete/decline/not-complete to
-// `AppointmentRepository.completeAppointment`/`declineAppointment`/
-// `notCompleteAppointment` instead of the per-booking `BookingRepository`
-// methods, and hides «Перенести» — but it does all of that against MOCKED
-// repositories. This file closes the same gap
+// Dart call site: an appointment-child booking routes complete/decline to
+// `AppointmentRepository.completeAppointment`/`declineAppointment` instead of
+// the per-booking `BookingRepository` methods, and hides «Перенести» — but it
+// does all of that against MOCKED repositories. This file closes the same gap
 // `master_booking_provider_actions_flow_test.dart` closes for the plain
 // single-service case: proving the fix holds against a REAL fetch of the
 // booking (real login, real `GET /bookings/booking-1` via `FakeBackend`,
@@ -76,12 +74,9 @@ class _FakeAppointmentRepository implements AppointmentRepository {
 
   int completeCalls = 0;
   int declineCalls = 0;
-  int notCompleteCalls = 0;
   String? lastCompleteId;
   String? lastDeclineId;
   String? lastDeclineComment;
-  String? lastNotCompleteId;
-  String? lastNotCompleteComment;
 
   @override
   Future<void> completeAppointment(String id) async {
@@ -100,14 +95,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
     lastDeclineId = id;
     lastDeclineComment = comment;
     _fb.bookingStatus = 'DECLINED';
-  }
-
-  @override
-  Future<void> notCompleteAppointment(String id, {String? comment}) async {
-    notCompleteCalls++;
-    lastNotCompleteId = id;
-    lastNotCompleteComment = comment;
-    _fb.bookingStatus = 'NOT_COMPLETED';
   }
 
   @override
@@ -252,9 +239,15 @@ void main() {
       expect(
         find.byKey(const Key('booking-detail-complete')),
         findsOneWidget,
-        reason: 'an underway CONFIRMED booking must offer complete only',
+        reason: 'an underway CONFIRMED booking must offer complete',
       );
-      expect(find.byKey(const Key('booking-detail-decline')), findsNothing);
+      expect(
+        find.byKey(const Key('booking-detail-decline')),
+        findsOneWidget,
+        reason:
+            'decline stays offered on an underway booking too — the backend '
+            'allows a provider decline at any time',
+      );
       expect(
         find.byKey(const Key('booking-detail-provider-reschedule')),
         findsNothing,
@@ -284,14 +277,14 @@ void main() {
 
       // ── The status PERSISTS across a real re-fetch: terminal footer. ──────
       expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
+      expect(find.byKey(const Key('booking-detail-decline')), findsNothing);
     },
   );
 
   testWidgets(
-    'PROVIDER marks an elapsed appointment-child (multi-service visit) '
-    'booking as a no-show → routes to '
-    'AppointmentRepository.notCompleteAppointment, never '
-    'BookingRepository.notCompleteBooking, and the status persists as '
+    'PROVIDER declines an underway (elapsed) appointment-child (multi-service '
+    'visit) booking → still routes to AppointmentRepository.declineAppointment, '
+    'never BookingRepository.declineBooking, and the status persists as '
     'terminal across a real re-fetch',
     (tester) async {
       final fb = FakeBackend();
@@ -314,57 +307,49 @@ void main() {
         reason: 'an underway CONFIRMED booking must offer complete',
       );
       expect(
-        find.byKey(const Key('booking-detail-not-complete')),
+        find.byKey(const Key('booking-detail-decline')),
         findsOneWidget,
-        reason: 'an underway CONFIRMED booking must ALSO offer no-show',
+        reason:
+            'the backend allows a provider decline at any time, so it stays '
+            'offered on an underway/elapsed booking too',
       );
-      expect(find.byKey(const Key('booking-detail-decline')), findsNothing);
       expect(
         find.byKey(const Key('booking-detail-provider-reschedule')),
         findsNothing,
       );
 
-      await tester.tap(find.byKey(const Key('booking-detail-not-complete')));
+      await tester.tap(find.byKey(const Key('booking-detail-decline')));
       await AppHarness.settle(tester);
-      expect(
-        find.byKey(const Key('not-complete-booking-dialog')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('decline-booking-dialog')), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const Key('cancel-booking-note-field')),
         'Client never arrived, could not reach them.',
       );
-      await tester.tap(find.byKey(const Key('not-complete-booking-confirm')));
+      await tester.tap(find.byKey(const Key('decline-booking-confirm')));
       await AppHarness.settle(tester);
 
       expect(tester.takeException(), isNull);
-      expect(
-        find.byKey(const Key('not-complete-booking-dialog')),
-        findsNothing,
-      );
+      expect(find.byKey(const Key('decline-booking-dialog')), findsNothing);
 
       // ── The write went to the WHOLE-VISIT endpoint, never the per-booking
       //    one — the exact regression this suite pins. ────────────────────
-      expect(fakeAppt.notCompleteCalls, 1);
-      expect(fakeAppt.lastNotCompleteId, 'appt-1');
+      expect(fakeAppt.declineCalls, 1);
+      expect(fakeAppt.lastDeclineId, 'appt-1');
       expect(
-        fakeAppt.lastNotCompleteComment,
+        fakeAppt.lastDeclineComment,
         'Client never arrived, could not reach them.',
       );
       expect(
-        fb.notCompleteBookingCalls,
+        fb.declineBookingCalls,
         0,
         reason:
-            'an appointment-child no-show must never reach the per-booking '
-            'PATCH /bookings/{id}/not-complete endpoint',
+            'an appointment-child decline must never reach the per-booking '
+            'PATCH /bookings/{id}/decline endpoint',
       );
 
       // ── The status PERSISTS across a real re-fetch: terminal footer. ──────
-      expect(
-        find.byKey(const Key('booking-detail-not-complete')),
-        findsNothing,
-      );
+      expect(find.byKey(const Key('booking-detail-decline')), findsNothing);
       expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
     },
   );

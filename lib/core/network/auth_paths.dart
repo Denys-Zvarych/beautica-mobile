@@ -151,7 +151,7 @@ const List<String> kPiiPathPrefixes = <String>[
   // Covers `GET /appointments/{id}` (enriched master name/address/price +
   // notes), `PATCH /appointments/{id}/cancel` (free-text clientCancellationNote),
   // `PATCH /appointments/{id}/reschedule` (dual-actor, no note payload),
-  // `PATCH /appointments/{id}/decline` + `/not-complete` (providerComment) and
+  // `PATCH /appointments/{id}/decline` (providerComment) and
   // `POST /appointments/{id}/review` (free-text review comment). The bare
   // `POST /appointments` create endpoint is covered separately by the
   // exact-match entry in [kPiiPaths] (no trailing dynamic segment to match a

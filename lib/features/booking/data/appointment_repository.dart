@@ -7,24 +7,22 @@
 //   PATCH  /api/v1/appointments/{appointmentId}/cancel     → CLIENT cancel
 //   PATCH  /api/v1/appointments/{appointmentId}/complete   → PROVIDER complete
 //   PATCH  /api/v1/appointments/{appointmentId}/decline    → PROVIDER decline
-//   PATCH  /api/v1/appointments/{appointmentId}/not-complete → PROVIDER no-show
 //   POST   /api/v1/appointments/{appointmentId}/review     → leave review
 //
-// SCOPE (MO-1, extended track 27.x/MO-6): the CLIENT surface plus four
+// SCOPE (MO-1, extended track 27.x/MO-6): the CLIENT surface plus three
 // whole-visit transitions — [rescheduleAppointment] (dual-actor: the visit's
 // own CLIENT or an assigned PROVIDER may call it; today only the
 // PROVIDER/master footer invokes it in-app, see `_onReschedule` below) and
-// [completeAppointment]/[declineAppointment]/[notCompleteAppointment]
-// (PROVIDER-only). The backend `assertNotAppointmentChild` guard 409s EVERY
-// per-booking whole-visit transition once `booking.appointment != null` — a
-// multi-service visit's individual service bookings must be
-// rescheduled/completed/declined/no-showed in lockstep, through these
-// endpoints, never `BookingRepository.rescheduleBooking`/`completeBooking`/
-// `declineBooking`/`notCompleteBooking`. `booking_detail_screen.dart` routes
-// here whenever the booking it is showing carries a non-null
-// `Booking.appointmentId` (each service of a visit still opens its OWN
-// single-booking detail screen — see that file's
-// `_onReschedule`/`_confirmComplete`/`_confirmDecline`/`_confirmNotComplete`).
+// [completeAppointment]/[declineAppointment] (PROVIDER-only). The backend
+// `assertNotAppointmentChild` guard 409s EVERY per-booking whole-visit
+// transition once `booking.appointment != null` — a multi-service visit's
+// individual service bookings must be rescheduled/completed/declined in
+// lockstep, through these endpoints, never
+// `BookingRepository.rescheduleBooking`/`completeBooking`/`declineBooking`.
+// `booking_detail_screen.dart` routes here whenever the booking it is
+// showing carries a non-null `Booking.appointmentId` (each service of a
+// visit still opens its OWN single-booking detail screen — see that file's
+// `_onReschedule`/`_confirmComplete`/`_confirmDecline`).
 //
 // Kept provider-free OTHERWISE (mirrors `booking_repository.dart`'s CLIENT-only
 // shape apart from its own track-27.x provider additions) — see
@@ -162,23 +160,6 @@ abstract interface class AppointmentRepository {
   /// `BookingTemporalGuard.assertFutureForProviderCancel` guard the
   /// single-booking endpoint enforces.
   Future<void> declineAppointment(String id, {String? comment});
-
-  /// Marks the WHOLE visit NOT_COMPLETED (client no-show) on behalf of the
-  /// authenticated PROVIDER — the whole-visit counterpart to
-  /// `BookingRepository.notCompleteBooking`.
-  ///
-  /// Wraps `PATCH /appointments/{appointmentId}/not-complete`. The backend
-  /// transitions EVERY booking belonging to the visit to NOT_COMPLETED in
-  /// lockstep; there is no partial-visit no-show. [comment] is the OPTIONAL
-  /// free-text `providerComment`, mutually visible to the client on EVERY
-  /// booking in the visit once it reads NOT_COMPLETED (CLAUDE.md
-  /// booking-notes rule — symmetric, mutual visibility, no audience
-  /// suppression).
-  ///
-  /// Throws [ProviderNotCompleteNotStartedFailure] on HTTP 409 — the same
-  /// elapsed-only guard the single-booking endpoint enforces (the visit's
-  /// `startsAt` is still in the future).
-  Future<void> notCompleteAppointment(String id, {String? comment});
 
   /// Leaves a review for a COMPLETED visit on behalf of the authenticated
   /// client.
@@ -394,40 +375,6 @@ final class HttpAppointmentRepository implements AppointmentRepository {
         e,
         onConflict: (DioException e) =>
             ProviderDeclineWindowClosedFailure(cause: e),
-      );
-    }
-  }
-
-  @override
-  Future<void> notCompleteAppointment(String id, {String? comment}) async {
-    // Blank/whitespace-only comment → send no comment at all — same trim
-    // rule as `declineAppointment`.
-    final String? trimmed = comment?.trim();
-    final String? effectiveComment = (trimmed == null || trimmed.isEmpty)
-        ? null
-        : trimmed;
-    try {
-      await _appointmentApi.notCompleteAppointment(
-        appointmentId: id,
-        appointmentProviderNoteRequest: AppointmentProviderNoteRequest(
-          (b) => b..providerComment = effectiveComment,
-        ),
-      );
-    } on Failure {
-      rethrow;
-    } on DioException catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'notCompleteAppointment failed: ${e.type} ${e.response?.statusCode}',
-          name: _tag,
-          level: 900,
-          stackTrace: st,
-        );
-      }
-      throw _mapProviderActionException(
-        e,
-        onConflict: (DioException e) =>
-            ProviderNotCompleteNotStartedFailure(cause: e),
       );
     }
   }
