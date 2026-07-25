@@ -4,11 +4,16 @@
 // КЛІЄНТА» screen's submit CTA: [submit] calls
 // `ClientReviewRepository.createClientReview` (`POST /client-reviews`).
 //
-// Unlike [LeaveReview] (the CLIENT→MASTER mirror), there is no
-// `bookingDetailProvider` invalidation on success — the backend carries no
-// provider-side `canReview`-equivalent flag for `BookingDetailScreen` to
-// re-resolve (see `ClientReviewAlreadyExistsFailure`'s doc), so there is
-// nothing on the detail screen that a successful submit would change.
+// Like [LeaveReview] (the CLIENT→MASTER mirror), a successful submit DOES
+// change something on `BookingDetailScreen`: the backend flips
+// `Booking.providerCanReviewClient` to false, which gates that screen's own
+// «Залишити відгук про клієнта» CTA (see `_DetailBody._providerActions`).
+// This notifier only owns the submit call itself — the resulting
+// `bookingDetailProvider` invalidation is the SCREEN's job (done in
+// `LeaveClientFeedbackScreen._submit`'s success branch, right before the
+// `context.pop()`), since only the screen knows the `bookingId` to invalidate
+// and the pop timing that keeps the underlying detail screen's re-fetch
+// from racing the navigation.
 //
 // The screen reads the resulting [AsyncValue] after awaiting [submit]: an
 // [AsyncError] carries the mapped [Failure] — a

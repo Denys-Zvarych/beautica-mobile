@@ -143,7 +143,13 @@ class _LeaveClientFeedbackScreenState
       return;
     }
 
-    // Success — thank the provider and pop back to the detail.
+    // Success — the backend just flipped `providerCanReviewClient` to false
+    // for this booking, so invalidate the shared `bookingDetailProvider`
+    // BEFORE popping: `BookingDetailScreen` stays mounted beneath this pushed
+    // route and `ref.watch`es the same family instance, so the invalidation
+    // makes it re-fetch and drop the now-stale review CTA the instant we pop
+    // back onto it (see the file header's gating note).
+    ref.invalidate(bookingDetailProvider(widget.bookingId));
     messenger
       ..clearSnackBars()
       ..showSnackBar(SnackBar(content: Text(l10n.clientReviewSubmitSuccess)));

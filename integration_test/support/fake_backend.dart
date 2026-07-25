@@ -1755,13 +1755,21 @@ final class FakeBackend {
   String? lastReviewComment;
   String? lastReviewBookingId;
 
+  /// Server-computed `providerCanReviewClient` for the seeded booking (track
+  /// 7.x Wave B). Gates `BookingDetailScreen`'s own «Залишити відгук про
+  /// клієнта» CTA (see `_DetailBody._providerActions`) exactly like
+  /// [bookingCanReview] gates the CLIENT footer. A flow that exercises the
+  /// leave-client-feedback journey seeds this `true` (with [bookingStatus] =
+  /// `COMPLETED`); a successful `POST /client-reviews` flips it `false` so a
+  /// detail re-fetch (triggered by the screen's `bookingDetailProvider`
+  /// invalidation on success) re-resolves the CTA away, mirroring
+  /// [bookingCanReview]'s post-review flip.
+  bool bookingProviderCanReviewClient = true;
+
   /// `POST /client-reviews` call count + the last rating/comment/bookingId
   /// submitted (track 7.x Wave B — the PROVIDER→CLIENT «ВІДГУК ПРО КЛІЄНТА»
-  /// mirror of [createReviewCalls] above). Unlike the CLIENT→MASTER review,
-  /// there is no server-computed `canReview`-equivalent to flip — the
-  /// provider footer offers the entry CTA on every COMPLETED booking
-  /// regardless (see `LeaveClientFeedbackScreen`'s file header). Asserted by
-  /// the leave-client-feedback flow.
+  /// mirror of [createReviewCalls] above). Asserted by the
+  /// leave-client-feedback flow.
   int createClientReviewCalls = 0;
   int? lastClientReviewRating;
   String? lastClientReviewComment;
@@ -1938,6 +1946,7 @@ final class FakeBackend {
     'endsAt': bookingEndsAt,
     'status': bookingStatus,
     'canReview': bookingCanReview,
+    'providerCanReviewClient': bookingProviderCanReviewClient,
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': bookingClientCancellationNote,
@@ -3515,9 +3524,13 @@ final class FakeBackend {
     );
 
     // POST /api/v1/client-reviews — PROVIDER leave-client-feedback (track 7.x
-    // Wave B). Records the submitted bookingId/rating/comment. Unlike
-    // `/api/v1/reviews` above there is no `canReview`-equivalent flag to flip
-    // — the generated `ClientReviewControllerApi.create` deserializes an
+    // Wave B). Records the submitted bookingId/rating/comment and flips
+    // [bookingProviderCanReviewClient] false so a subsequent detail re-fetch
+    // (the screen invalidates `bookingDetailProvider` on success — the exact
+    // regression this flip exists to pin) re-resolves the provider footer's
+    // «Залишити відгук про клієнта» CTA away, mirroring `/api/v1/reviews`
+    // above flipping [bookingCanReview]. The generated
+    // `ClientReviewControllerApi.create` deserializes an
     // `ApiResponse<ClientReviewResponse>`; a `data: null` envelope is valid
     // (every `ClientReviewResponse` field is nullable) and the repository
     // returns void anyway.
@@ -3529,6 +3542,7 @@ final class FakeBackend {
         lastClientReviewBookingId = body['bookingId'] as String?;
         lastClientReviewRating = body['rating'] as int?;
         lastClientReviewComment = body['comment'] as String?;
+        bookingProviderCanReviewClient = false;
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),

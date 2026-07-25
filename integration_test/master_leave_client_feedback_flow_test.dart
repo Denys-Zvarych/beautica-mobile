@@ -61,8 +61,10 @@ void main() {
       final fb = FakeBackend()
         ..currentRole = UserRole.independentMaster
         // Seed the booking as a finished visit — the client-feedback footer
-        // CTA is COMPLETED-only (see `_DetailBody._providerActions`).
-        ..bookingStatus = 'COMPLETED';
+        // CTA is COMPLETED-only (see `_DetailBody._providerActions`) — AND
+        // still reviewable, so the CTA is present on the first fetch below.
+        ..bookingStatus = 'COMPLETED'
+        ..bookingProviderCanReviewClient = true;
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
@@ -77,6 +79,7 @@ void main() {
             'a COMPLETED provider booking must offer «Залишити відгук про '
             'клієнта»',
       );
+      final int detailFetchesBeforeSubmit = fb.getBookingDetailCalls;
 
       // ── 2. Tap it → «ВІДГУК ПРО КЛІЄНТА» is pushed. ────────────────────────
       await tester.tap(
@@ -127,6 +130,33 @@ void main() {
         reason: 'a successful submit pops back to the detail',
       );
       expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+      // ── 6. REGRESSION PIN — the CTA must be gone, not re-tappable. ─────────
+      // Before the fix, `LeaveClientFeedbackScreen._submit`'s success branch
+      // popped straight back WITHOUT invalidating `bookingDetailProvider`, so
+      // the underlying `BookingDetailScreen` kept serving its stale cached
+      // booking (`providerCanReviewClient: true`) and the CTA stayed visible
+      // and re-tappable — a second tap re-submitted and the backend answered
+      // with a 409. The fix invalidates the provider right before the pop, so
+      // returning here must show a real re-fetch (FakeBackend now answers
+      // `providerCanReviewClient: false`, flipped by the POST above) and the
+      // CTA must be gone as a result.
+      expect(
+        fb.getBookingDetailCalls,
+        greaterThan(detailFetchesBeforeSubmit),
+        reason:
+            'popping back must trigger a REAL re-fetch of the booking detail '
+            '— the whole point of the `ref.invalidate(bookingDetailProvider(…))` '
+            'fix — not just reuse the stale cached value',
+      );
+      expect(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+        findsNothing,
+        reason:
+            'once the client has been reviewed, the CTA must disappear so it '
+            'cannot be re-tapped into a 409 — this is the regression the fix '
+            'closes',
+      );
 
       // Drain the SnackBar's auto-dismiss timer so none is pending at teardown.
       await tester.pumpUntilGone(

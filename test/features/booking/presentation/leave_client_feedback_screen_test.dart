@@ -275,6 +275,66 @@ void main() {
       },
     );
 
+    testWidgets('REGRESSION (was: CTA stayed visible → re-tappable → 409) — a '
+        'successful submit invalidates bookingDetailProvider(bookingId) so the '
+        'underlying detail re-fetches', (tester) async {
+      // Before the fix, `_submit`'s success branch popped straight back
+      // WITHOUT invalidating `bookingDetailProvider`, so
+      // `BookingDetailScreen` (which `ref.watch`es the SAME family
+      // instance and stays mounted beneath this pushed route) kept serving
+      // its stale cached booking — the «Залишити відгук про клієнта» CTA
+      // stayed visible and re-tappable, and a second tap 409'd against the
+      // backend. This pins the fix directly at the provider level: the
+      // `detail` override below counts how many times
+      // `bookingDetailProvider(_bookingId)` is actually (re)fetched. One
+      // fetch on first load, and — the whole point of the fix — a SECOND
+      // fetch the instant a successful submit invalidates it, before the
+      // pop even completes.
+      final repo = _MockClientReviewRepository();
+      when(
+        () => repo.createClientReview(
+          bookingId: any(named: 'bookingId'),
+          rating: any(named: 'rating'),
+          comment: any(named: 'comment'),
+        ),
+      ).thenAnswer((_) async {});
+
+      int fetchCount = 0;
+      await pumpFeedback(
+        tester,
+        repo: repo,
+        detail: (ref) async {
+          fetchCount++;
+          return _booking();
+        },
+      );
+      expect(
+        fetchCount,
+        1,
+        reason: 'exactly one fetch backs the initial screen load',
+      );
+      // Captured BEFORE the pop — the screen is gone afterwards.
+      final AppLocalizations l10n = _l10n(tester);
+
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await tester.pumpAndSettle();
+
+      expect(
+        fetchCount,
+        2,
+        reason:
+            'a successful submit must invalidate '
+            'bookingDetailProvider(bookingId), forcing a real re-fetch — '
+            'without it the underlying BookingDetailScreen never learns '
+            'providerCanReviewClient flipped to false and keeps showing a '
+            'CTA that would 409 on a second tap',
+      );
+
+      await tester.pumpUntilGone(find.text(l10n.clientReviewSubmitSuccess));
+    });
+
     testWidgets(
       'a ClientReviewNotAllowedFailure surfaces the localized message and '
       'stays on the form (no pop)',
