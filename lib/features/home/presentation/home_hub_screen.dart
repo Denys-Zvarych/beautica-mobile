@@ -38,6 +38,8 @@ import '../../../routing/route_names.dart';
 import '../../../shared/calendar/add_to_calendar.dart';
 import '../../booking/application/booking_reschedule_in_flight_notifier.dart';
 import '../../booking/presentation/reschedule_navigation.dart';
+import '../../rating/application/my_rating_notifier.dart';
+import '../../rating/domain/client_rating.dart';
 import '../application/home_hub_notifier.dart';
 import '../domain/home_hub_models.dart';
 import 'widgets/beauty_timeline_section.dart';
@@ -387,25 +389,20 @@ class _StatPillsRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Narrow `.select` — this row only needs the rating slice, so it rebuilds
-    // only when clientRating changes (not on name / photo / city edits). This
-    // de-dupes the previous full-provider watch shared with the profile card.
-    // Project to the rating slice while PRESERVING the error state. `whenData`
-    // would collapse an error into AsyncLoading and leave the `error:` branch
-    // below as dead code (perpetual skeleton on profile-load failure); `map`
-    // keeps all three states distinct so the graceful "—" fallback renders.
-    final AsyncValue<double?> ratingAsync = ref.watch(
-      clientProfileProvider.select(
-        (AsyncValue<ClientProfileSummary> v) => v.map(
-          data: (AsyncData<ClientProfileSummary> d) =>
-              AsyncData<double?>(d.value.clientRating),
-          error: (AsyncError<ClientProfileSummary> e) =>
-              AsyncError<double?>(e.error, e.stackTrace),
-          loading: (AsyncLoading<ClientProfileSummary> l) =>
-              const AsyncLoading<double?>(),
-        ),
-      ),
-    );
+    // Source the pill from the AUTHORITATIVE rating provider — the same
+    // `GET /users/me/rating` loader that backs `MyRatingScreen` (the detail
+    // window opened by tapping this pill). The profile summary's `clientRating`
+    // slice is unpopulated and renders "—", so the two used to disagree; reading
+    // `myRatingProvider` here keeps home and detail in lock-step on the real
+    // number. It is `keepAlive`-cached (5-min TTL) — the same in-flight/cached
+    // call the detail screen makes, so this adds no repeated network cost.
+    //
+    // Watching it directly also de-couples this row from profile edits (name /
+    // photo / city), so it no longer rebuilds on those — narrower than the old
+    // shared-provider `.select`. All three AsyncValue states stay distinct so
+    // the `error:` branch below keeps its graceful "—" fallback (never a
+    // perpetual skeleton).
+    final AsyncValue<ClientRating> ratingAsync = ref.watch(myRatingProvider);
 
     // CRITICAL: IntrinsicHeight bounds the stretch Row so CrossAxisAlignment.stretch
     // is well-defined inside the ListView. Without it the cross axis is unbounded
@@ -421,9 +418,25 @@ class _StatPillsRow extends ConsumerWidget {
           const SizedBox(width: VelvetSpacing.md - 4),
           Expanded(
             flex: 2,
+            // Seamless reload: keep showing the last-known real number across a
+            // recompute instead of flashing the skeleton. Riverpod retains the
+            // previous `.value` through a reload/refresh, and `.when` surfaces it
+            // via `data(...)` when a value exists — `skipLoadingOnRefresh` is
+            // already true by default (so `ref.invalidate(myRatingProvider)` is
+            // seamless); `skipLoadingOnReload: true` extends the same to a
+            // dependency-triggered rebuild. The skeleton therefore shows ONLY on
+            // the true COLD load (no cached value yet — `keepAlive` holds the
+            // value for 5 min, so a back-nav within the window never re-skeletons).
+            // Crucially the value rendered during a reload is myRatingProvider's
+            // OWN authoritative number, never the profile `clientRating` slice or
+            // a hardcoded "—", so this cannot resurrect the stale-number bug.
+            // `skipError` stays false → the error branch keeps its graceful "—".
             child: ratingAsync.when(
-              data: (double? rating) =>
-                  MyRatingStatCard(clientRating: rating, onTap: onRating),
+              skipLoadingOnReload: true,
+              data: (ClientRating rating) => MyRatingStatCard(
+                clientRating: rating.avgRating,
+                onTap: onRating,
+              ),
               loading: () => const _StatPillSkeleton(),
               error: (Object e, StackTrace st) =>
                   MyRatingStatCard(clientRating: null, onTap: onRating),
