@@ -161,6 +161,36 @@ abstract interface class AppointmentRepository {
   /// single-booking endpoint enforces.
   Future<void> declineAppointment(String id, {String? comment});
 
+  /// Declines ONE service (`bookingId`) of a multi-service visit
+  /// (`appointmentId`) on behalf of the authenticated PROVIDER, leaving the
+  /// visit's OTHER services CONFIRMED — the per-service counterpart to
+  /// [declineAppointment] (which declines the WHOLE visit in lockstep).
+  ///
+  /// Wraps `PATCH /appointments/{appointmentId}/services/{bookingId}/decline`.
+  /// [comment] is the OPTIONAL free-text `providerComment`, mutually visible to
+  /// the client on THIS booking once it reads DECLINED (CLAUDE.md booking-notes
+  /// rule — symmetric, mutual visibility, no audience suppression). The siblings
+  /// are untouched.
+  ///
+  /// Each service of a visit opens its OWN single-booking
+  /// `BookingDetailScreen`, so the provider decline tapped there must decline
+  /// only that one child — `booking_detail_screen.dart`'s `_confirmDecline`
+  /// routes here (passing `appointmentId = Booking.appointmentId`,
+  /// `bookingId = Booking.id`) whenever the shown booking carries a non-null
+  /// `Booking.appointmentId`.
+  ///
+  /// Throws [NotFoundFailure] on HTTP 404 (the `bookingId` is not a child of
+  /// `appointmentId`) and [ProviderDeclineWindowClosedFailure] on HTTP 409 (the
+  /// child is already terminal, or another `BookingTemporalGuard` rejection) —
+  /// the same 409 type [declineAppointment] surfaces, so `_confirmDecline`'s
+  /// existing failure handling covers both routes unchanged. A 403 (no provider
+  /// authority) defers to the shared error-mapper's [Failure].
+  Future<void> declineAppointmentService(
+    String appointmentId,
+    String bookingId, {
+    String? comment,
+  });
+
   /// Leaves a review for a COMPLETED visit on behalf of the authenticated
   /// client.
   ///
@@ -371,6 +401,51 @@ final class HttpAppointmentRepository implements AppointmentRepository {
           stackTrace: st,
         );
       }
+      throw _mapProviderActionException(
+        e,
+        onConflict: (DioException e) =>
+            ProviderDeclineWindowClosedFailure(cause: e),
+      );
+    }
+  }
+
+  @override
+  Future<void> declineAppointmentService(
+    String appointmentId,
+    String bookingId, {
+    String? comment,
+  }) async {
+    // Blank/whitespace-only comment → send no comment at all (the field is
+    // optional on the wire; a null keeps the payload clean) — same trim rule
+    // as [declineAppointment] / `HttpBookingRepository.declineBooking`.
+    final String? trimmed = comment?.trim();
+    final String? effectiveComment = (trimmed == null || trimmed.isEmpty)
+        ? null
+        : trimmed;
+    try {
+      await _appointmentApi.declineAppointmentItem(
+        appointmentId: appointmentId,
+        bookingId: bookingId,
+        appointmentProviderNoteRequest: AppointmentProviderNoteRequest(
+          (b) => b..providerComment = effectiveComment,
+        ),
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'declineAppointmentService failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      // 409 (child already terminal / temporal guard) →
+      // [ProviderDeclineWindowClosedFailure], mirroring [declineAppointment].
+      // A 404 (bookingId not a child of appointmentId) falls through
+      // [_mapProviderActionException] to [_mapDioException], which maps it to
+      // [NotFoundFailure]; a 403 defers to the shared error-mapper's [Failure].
       throw _mapProviderActionException(
         e,
         onConflict: (DioException e) =>

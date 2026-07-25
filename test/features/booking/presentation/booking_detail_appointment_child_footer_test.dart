@@ -24,10 +24,15 @@
 //     `AppointmentRepository.completeAppointment(appointmentId)`, NEVER
 //     `BookingRepository.completeBooking`;
 //   • decline on an appointment-child booking calls
-//     `AppointmentRepository.declineAppointment(appointmentId, comment: ...)`,
-//     NEVER `BookingRepository.declineBooking` — on BOTH a not-yet-started
-//     and an elapsed (`hasStarted`) booking, since the backend allows a
-//     provider decline at any time;
+//     `AppointmentRepository.declineAppointmentService(appointmentId,
+//     bookingId, comment: ...)` — the PER-SERVICE visit endpoint
+//     (`PATCH /appointments/{id}/services/{bookingId}/decline`), declining
+//     ONLY the tapped service and leaving the visit's siblings CONFIRMED —
+//     NEVER the whole-visit `declineAppointment` (which used to decline every
+//     service at once — the CRITICAL bug this fixes) and NEVER
+//     `BookingRepository.declineBooking`, on BOTH a not-yet-started and an
+//     elapsed (`hasStarted`) booking, since the backend allows a provider
+//     decline at any time;
 //   • «Перенести» (reschedule) is SHOWN on an appointment-child booking, same
 //     key as the single-booking case — the provider-facing
 //     `/appointments/{id}/reschedule` endpoint now exists;
@@ -365,13 +370,17 @@ void main() {
 
   group('decline routing', () {
     testWidgets('appointment-child booking: decline calls '
-        'AppointmentRepository.declineAppointment(appointmentId), never '
-        'BookingRepository.declineBooking', (tester) async {
+        'AppointmentRepository.declineAppointmentService(appointmentId, '
+        'bookingId) — only THIS service — never the whole-visit '
+        'declineAppointment nor BookingRepository.declineBooking', (
+      tester,
+    ) async {
       final Booking booking = _booking(appointmentId: 'appt-1');
       final bookingRepo = _MockBookingRepository();
       final appointmentRepo = _MockAppointmentRepository();
       when(
-        () => appointmentRepo.declineAppointment(
+        () => appointmentRepo.declineAppointmentService(
+          any(),
           any(),
           comment: any(named: 'comment'),
         ),
@@ -386,7 +395,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('booking-detail-decline')));
       await tester.pumpAndSettle();
-      // The dialog reads as a whole-visit action, not a single-booking one.
+      // The dialog reads as a single-service action (only this booking is
+      // declined; the visit's siblings stay CONFIRMED).
       expect(find.byKey(const Key('decline-booking-dialog')), findsOneWidget);
 
       await tester.enterText(
@@ -397,11 +407,18 @@ void main() {
       await tester.pumpAndSettle();
 
       verify(
-        () => appointmentRepo.declineAppointment(
+        () => appointmentRepo.declineAppointmentService(
           'appt-1',
+          'b1',
           comment: 'Майстер захворів.',
         ),
       ).called(1);
+      verifyNever(
+        () => appointmentRepo.declineAppointment(
+          any(),
+          comment: any(named: 'comment'),
+        ),
+      );
       verifyNever(
         () => bookingRepo.declineBooking(any(), comment: any(named: 'comment')),
       );
@@ -434,7 +451,8 @@ void main() {
         () => bookingRepo.declineBooking(booking.id, comment: null),
       ).called(1);
       verifyNever(
-        () => appointmentRepo.declineAppointment(
+        () => appointmentRepo.declineAppointmentService(
+          any(),
           any(),
           comment: any(named: 'comment'),
         ),
@@ -566,13 +584,17 @@ void main() {
     }
 
     testWidgets('appointment-child booking: decline on an elapsed booking '
-        'still calls AppointmentRepository.declineAppointment(appointmentId), '
-        'never BookingRepository.declineBooking', (tester) async {
+        'calls AppointmentRepository.declineAppointmentService(appointmentId, '
+        'bookingId) — only THIS service — never the whole-visit '
+        'declineAppointment nor BookingRepository.declineBooking', (
+      tester,
+    ) async {
       final Booking booking = startedBooking(appointmentId: 'appt-1');
       final bookingRepo = _MockBookingRepository();
       final appointmentRepo = _MockAppointmentRepository();
       when(
-        () => appointmentRepo.declineAppointment(
+        () => appointmentRepo.declineAppointmentService(
+          any(),
           any(),
           comment: any(named: 'comment'),
         ),
@@ -591,7 +613,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('booking-detail-decline')));
       await tester.pumpAndSettle();
-      // The dialog reads as a whole-visit action, not a single-booking one.
+      // The dialog reads as a single-service action (only this booking is
+      // declined; the visit's siblings stay CONFIRMED).
       expect(find.byKey(const Key('decline-booking-dialog')), findsOneWidget);
 
       await tester.enterText(
@@ -602,11 +625,18 @@ void main() {
       await tester.pumpAndSettle();
 
       verify(
-        () => appointmentRepo.declineAppointment(
+        () => appointmentRepo.declineAppointmentService(
           'appt-1',
+          'b1',
           comment: 'Клієнт не прийшов.',
         ),
       ).called(1);
+      verifyNever(
+        () => appointmentRepo.declineAppointment(
+          any(),
+          comment: any(named: 'comment'),
+        ),
+      );
       verifyNever(
         () => bookingRepo.declineBooking(any(), comment: any(named: 'comment')),
       );
@@ -638,7 +668,8 @@ void main() {
         () => bookingRepo.declineBooking(booking.id, comment: null),
       ).called(1);
       verifyNever(
-        () => appointmentRepo.declineAppointment(
+        () => appointmentRepo.declineAppointmentService(
+          any(),
           any(),
           comment: any(named: 'comment'),
         ),

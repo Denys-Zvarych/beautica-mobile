@@ -323,6 +323,90 @@ class AppointmentControllerApi {
     return _response;
   }
 
+  /// declineAppointmentItem
+  ///
+  ///
+  /// Parameters:
+  /// * [appointmentId]
+  /// * [bookingId]
+  /// * [appointmentProviderNoteRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future]
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<void>> declineAppointmentItem({
+    required String appointmentId,
+    required String bookingId,
+    AppointmentProviderNoteRequest? appointmentProviderNoteRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/api/v1/appointments/{appointmentId}/services/{bookingId}/decline'
+            .replaceAll(
+                '{' r'appointmentId' '}',
+                encodeQueryParameter(
+                        _serializers, appointmentId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'bookingId' '}',
+                encodeQueryParameter(
+                        _serializers, bookingId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(AppointmentProviderNoteRequest);
+      _bodyData = appointmentProviderNoteRequest == null
+          ? null
+          : _serializers.serialize(appointmentProviderNoteRequest,
+              specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    return _response;
+  }
+
   /// getAppointment
   ///
   ///

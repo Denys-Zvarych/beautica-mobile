@@ -1877,6 +1877,38 @@ final class FakeBackend {
   /// appointment-vs-booking flow in this suite already uses.
   String? bookingAppointmentId;
 
+  /// Track 27.x/MO-6 (PER-SERVICE decline) — a SIBLING service of the same
+  /// multi-service visit as `booking-1` (both carry [bookingAppointmentId]).
+  /// Served at the concrete `GET /bookings/booking-2` route below with its OWN
+  /// status ([siblingBookingStatus]), INDEPENDENT of `booking-1`'s
+  /// [bookingStatus]. This is the "reflect per-item status" surface the
+  /// per-service decline regression needs: declining ONE child
+  /// (`declineChild('booking-1')`) must leave this sibling CONFIRMED — the old
+  /// whole-visit decline flipped BOTH. A flow that exercises the sibling seeds
+  /// [bookingAppointmentId] before booting so `booking-2` reads as a real
+  /// visit child.
+  String siblingBookingStatus = 'CONFIRMED';
+
+  /// `GET /bookings/booking-2` (sibling detail) call count — non-zero proves
+  /// the sibling detail actually re-fetched through the real HTTP boundary
+  /// (not a stale cached CONFIRMED value).
+  int getSiblingBookingDetailCalls = 0;
+
+  /// Flips ONLY the tapped child's status to DECLINED, keyed on [bookingId] —
+  /// `booking-1` moves [bookingStatus], `booking-2` moves
+  /// [siblingBookingStatus]. Because the per-service decline fix passes THIS
+  /// child's own id (never the whole visit), declining `booking-1` here leaves
+  /// `booking-2` CONFIRMED. The old whole-visit `declineAppointment` would have
+  /// moved every child at once — this per-item routing is exactly what makes
+  /// the sibling assertion a genuine regression guard.
+  void declineChild(String bookingId) {
+    if (bookingId == 'booking-2') {
+      siblingBookingStatus = 'DECLINED';
+    } else {
+      bookingStatus = 'DECLINED';
+    }
+  }
+
   /// `GET /bookings/booking-1` (detail) + `GET /bookings/me` (list) call
   /// counts. A reschedule invalidates BOTH `bookingDetailProvider(id)` and
   /// `myBookingsProvider(upcoming)`, so a test asserts these counters climb
@@ -1950,6 +1982,47 @@ final class FakeBackend {
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': bookingClientCancellationNote,
+    'masterProfessionalTitle': 'Майстриня манікюру',
+    'locationNote': null,
+    'appointmentId': bookingAppointmentId,
+  };
+
+  /// The enriched `BookingDetailResponse` body for the SIBLING child
+  /// (`booking-2`) of the same visit as `booking-1` — a SECOND service of the
+  /// visit, carrying the same [bookingAppointmentId] but its OWN independent
+  /// [siblingBookingStatus]. Distinct `serviceName` so a rendered assertion
+  /// can tell the two children apart; same master/window as `booking-1` so its
+  /// provider footer offers the same CONFIRMED affordances until (and only if)
+  /// it is itself declined.
+  Map<String, dynamic> _seededSiblingBookingJson() => <String, dynamic>{
+    'id': 'booking-2',
+    'masterId': 'master-aaa',
+    'masterFirstName': 'Софія',
+    'masterLastName': 'Бондар',
+    'masterAvatarUrl': null,
+    'masterType': 'INDEPENDENT_MASTER',
+    'salonName': null,
+    'clientId': 'client-1',
+    'clientFirstName': clientFirstName,
+    'clientLastName': clientLastName,
+    'masterServiceId': 'pub-assign-2',
+    'serviceName': 'Дизайн нігтів',
+    'categoryName': 'Манікюр',
+    'cityLabel': 'Київ',
+    'districtLabel': 'Печерський',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'durationMinutesAtBooking': 60,
+    'priceAtBooking': 400,
+    'priceMaxAtBooking': null,
+    'startsAt': bookingStartsAt,
+    'endsAt': bookingEndsAt,
+    'status': siblingBookingStatus,
+    'canReview': false,
+    'providerCanReviewClient': false,
+    'clientComment': null,
+    'providerComment': null,
+    'clientCancellationNote': null,
     'masterProfessionalTitle': 'Майстриня манікюру',
     'locationNote': null,
     'appointmentId': bookingAppointmentId,
@@ -3419,6 +3492,19 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getBookingDetailCalls++;
         return _ok(_seededBookingJson());
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
+    // the same multi-service visit (per-service decline regression). Reflects
+    // its OWN mutable [siblingBookingStatus] so a re-open after declining
+    // `booking-1` proves this sibling stayed CONFIRMED.
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-2',
+      (server) => server.replyCallback(200, (_) {
+        getSiblingBookingDetailCalls++;
+        return _ok(_seededSiblingBookingJson());
       }),
       request: const Request(method: RequestMethods.get),
     );

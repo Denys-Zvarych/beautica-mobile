@@ -13,6 +13,7 @@ Method | HTTP request | Description
 [**completeAppointment**](AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
 [**createAppointment**](AppointmentControllerApi.md#createappointment) | **POST** /api/v1/appointments | 
 [**declineAppointment**](AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
+[**declineAppointmentItem**](AppointmentControllerApi.md#declineappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/decline | 
 [**getAppointment**](AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
 [**notCompleteAppointment**](AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
 [**rescheduleAppointment**](AppointmentControllerApi.md#rescheduleappointment) | **PATCH** /api/v1/appointments/{appointmentId}/reschedule | 
@@ -168,6 +169,50 @@ try {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **appointmentId** | **String**|  | 
+ **appointmentProviderNoteRequest** | [**AppointmentProviderNoteRequest**](AppointmentProviderNoteRequest.md)|  | [optional] 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **declineAppointmentItem**
+> declineAppointmentItem(appointmentId, bookingId, appointmentProviderNoteRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getAppointmentControllerApi();
+final String appointmentId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final AppointmentProviderNoteRequest appointmentProviderNoteRequest = ; // AppointmentProviderNoteRequest | 
+
+try {
+    api.declineAppointmentItem(appointmentId, bookingId, appointmentProviderNoteRequest);
+} catch on DioException (e) {
+    print('Exception when calling AppointmentControllerApi->declineAppointmentItem: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **appointmentId** | **String**|  | 
+ **bookingId** | **String**|  | 
  **appointmentProviderNoteRequest** | [**AppointmentProviderNoteRequest**](AppointmentProviderNoteRequest.md)|  | [optional] 
 
 ### Return type

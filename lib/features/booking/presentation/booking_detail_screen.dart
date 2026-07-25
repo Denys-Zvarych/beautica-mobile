@@ -173,23 +173,23 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// repository call → 409-specific handling → refetch), swapped to the
   /// provider's own dialog/repository method/failure type.
   ///
-  /// Track 27.x/MO-6: when [Booking.appointmentId] is non-null this booking
-  /// is one service of a multi-service VISIT — the backend's
-  /// `assertNotAppointmentChild` guard 409s a per-booking decline on an
-  /// appointment child (`"…use /appointments/{id} to change it"`), so the
-  /// write routes to `AppointmentRepository.declineAppointment` instead,
-  /// transitioning every service in the visit in lockstep. The dialog itself
-  /// is told via `isAppointment` so its copy reads "the whole visit", not
-  /// just this one service. A booking with a `null` `appointmentId` (a plain
-  /// single-service booking) is UNCHANGED — same dialog, same
-  /// `BookingRepository.declineBooking` call, same failure handling.
+  /// Track 27.x/MO-6 (CRITICAL fix): when [Booking.appointmentId] is non-null
+  /// this booking is ONE service of a multi-service VISIT — and each service of
+  /// a visit opens its OWN single-booking `BookingDetailScreen`, so declining
+  /// here must decline only THIS child and leave the visit's siblings
+  /// CONFIRMED. The write therefore routes to
+  /// `AppointmentRepository.declineAppointmentService(appointmentId, booking.id)`
+  /// (`PATCH /appointments/{id}/services/{bookingId}/decline`), NOT the
+  /// whole-visit `declineAppointment` (`PATCH /appointments/{id}/decline`),
+  /// which used to decline EVERY service at once — the bug this fixes. A
+  /// booking with a `null` `appointmentId` (a plain single-service booking) is
+  /// UNCHANGED — same dialog, same `BookingRepository.declineBooking` call,
+  /// same failure handling.
+  ///
+  /// The dialog is NOT told `isAppointment` here (its copy stays per-service):
+  /// only this one service is being declined, not the whole visit.
   Future<void> _confirmDecline(BuildContext context, Booking booking) async {
-    final bool isAppointment = booking.appointmentId != null;
-    final String? comment = await showDeclineBookingDialog(
-      context,
-      booking,
-      isAppointment: isAppointment,
-    );
+    final String? comment = await showDeclineBookingDialog(context, booking);
     if (comment == null || !mounted) return; // backed out — nothing happened.
 
     try {
@@ -197,8 +197,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       if (appointmentId != null) {
         await ref
             .read(appointmentRepositoryProvider)
-            .declineAppointment(
+            .declineAppointmentService(
               appointmentId,
+              booking.id,
               comment: comment.isEmpty ? null : comment,
             );
       } else {
@@ -751,9 +752,11 @@ class _DetailBody extends StatelessWidget {
   /// backend exposes `PATCH /appointments/{id}/reschedule`, so `_onReschedule`
   /// routes it to [startAppointmentReschedule] (whole-visit lockstep) instead
   /// of the per-booking flow the visit-child 409 guard would otherwise block.
-  /// «Скасувати» (decline) is unchanged — it routes to
-  /// `AppointmentRepository.declineAppointment` instead of the per-booking
-  /// endpoint (see [_confirmDecline]).
+  /// «Скасувати» (decline) routes to
+  /// `AppointmentRepository.declineAppointmentService` (the per-service visit
+  /// endpoint), declining ONLY this tapped service and leaving the visit's
+  /// siblings CONFIRMED — NOT the whole-visit `declineAppointment` (see
+  /// [_confirmDecline]).
   ///
   /// GATING NOTE (track 7.x Wave B, superseded): the CTA used to be offered
   /// on every COMPLETED provider booking regardless of prior feedback,

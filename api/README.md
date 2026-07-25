@@ -69,6 +69,7 @@ Class | Method | HTTP request | Description
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**completeAppointment**](doc/AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**createAppointment**](doc/AppointmentControllerApi.md#createappointment) | **POST** /api/v1/appointments | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointment**](doc/AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointmentItem**](doc/AppointmentControllerApi.md#declineappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/decline | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**getAppointment**](doc/AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**notCompleteAppointment**](doc/AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointment**](doc/AppointmentControllerApi.md#rescheduleappointment) | **PATCH** /api/v1/appointments/{appointmentId}/reschedule | 
