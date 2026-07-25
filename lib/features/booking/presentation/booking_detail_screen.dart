@@ -328,9 +328,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
 
   /// «Залишити відгук про клієнта» (track 7.x Wave B) — pushes the leave-
   /// client-feedback screen onto the master's own stack (swipe-back returns
-  /// here). Offered on every COMPLETED provider booking — see
-  /// `_DetailBody._providerActions`'s doc for why there is no client-side gate
-  /// to check first.
+  /// here). Offered on a COMPLETED provider booking only when
+  /// `booking.providerCanReviewClient` is `true` — see
+  /// `_DetailBody._providerActions`'s doc.
   void _onLeaveClientFeedback(Booking booking) {
     context.push(RouteNames.clientReview(booking.id));
   }
@@ -663,23 +663,31 @@ class _DetailBody extends StatelessWidget {
   ///     decline are hidden, not merely disabled: both would 409 server-side
   ///     once the appointment has begun (see `hasStarted`'s doc for why this
   ///     is a DIFFERENT gate than the client-side [Booking.isPast]).
-  ///   * COMPLETED — «Залишити відгук про клієнта» (track 7.x Wave B). PRIVATE
-  ///     feedback about the booking's client; the client only ever sees their
-  ///     aggregate rating number move, never this screen's words.
+  ///   * COMPLETED, `booking.providerCanReviewClient` — «Залишити відгук про
+  ///     клієнта» (track 7.x Wave B). PRIVATE feedback about the booking's
+  ///     client; the client only ever sees their aggregate rating number
+  ///     move, never this screen's words.
+  ///   * COMPLETED, but `!booking.providerCanReviewClient` (client already
+  ///     reviewed, or not eligible) — no CTA, footer is empty.
   ///   * Every other terminal status (CANCELLED / DECLINED / NOT_COMPLETED /
   ///     unknown) — read-only, no actions.
   ///
-  /// GATING NOTE (track 7.x Wave B): unlike the CLIENT footer's «Залишити
-  /// відгук про майстра» (gated on the server-computed `booking.canReview`),
-  /// `BookingDetailResponse` carries NO provider-side canReview-equivalent
-  /// flag — there is nothing to gate this CTA on beyond COMPLETED, so it is
-  /// offered on every COMPLETED provider booking, including one whose client
-  /// was already reviewed. The 409 the backend returns for a duplicate submit
-  /// (`ClientReviewAlreadyExistsFailure`) is handled ON the destination screen
-  /// (`LeaveClientFeedbackScreen` swaps its form for a not-reviewable info
-  /// state) rather than pre-empted here.
+  /// GATING NOTE (track 7.x Wave B, superseded): the CTA used to be offered
+  /// on every COMPLETED provider booking regardless of prior feedback,
+  /// because `BookingDetailResponse` carried no provider-side
+  /// canReview-equivalent flag. It now does —
+  /// `booking.providerCanReviewClient` — so the CTA is pre-gated here exactly
+  /// like the CLIENT footer's «Залишити відгук про майстра»/`canReview`
+  /// above. The 409 the backend returns for a duplicate submit
+  /// (`ClientReviewAlreadyExistsFailure`) is STILL handled on the destination
+  /// screen (`LeaveClientFeedbackScreen` swaps its form for a not-reviewable
+  /// info state) as defense-in-depth against a race between this screen's
+  /// load and the submit (e.g. reviewed from another device in between).
   List<Widget> _providerActions(AppLocalizations l10n) {
     if (booking.status == BookingStatus.completed) {
+      if (!booking.providerCanReviewClient) {
+        return const <Widget>[];
+      }
       return <Widget>[
         NeumorphicButton(
           key: const Key('booking-detail-leave-client-feedback'),

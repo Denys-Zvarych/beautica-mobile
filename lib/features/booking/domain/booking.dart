@@ -178,5 +178,18 @@ abstract class Booking with _$Booking {
     /// value is its own group of one. Additive and purely informational here —
     /// no existing behaviour keys off it.
     String? appointmentId,
+
+    /// `true` only when the CURRENT authenticated viewer is the provider AND
+    /// this booking's client may still be reviewed by them — server-computed
+    /// (mirrors [canReview], but from the PROVIDER's side): COMPLETED,
+    /// non-guest client, no `ClientReview` yet for this booking. Defaults to
+    /// `false`, matching the backend's own hardcoded-`false` rows on
+    /// `GET /bookings/me` (both the client and provider listing paths) — only
+    /// `GET /bookings/{id}` ever sends a real value here. Gates the master
+    /// footer's «Залишити відгук про клієнта» CTA; the write endpoint
+    /// (`POST /client-reviews`) re-checks the same conditions server-side
+    /// regardless of this value, so a stale/duplicate submit still surfaces
+    /// as a 409 rather than being trusted client-side.
+    @Default(false) bool providerCanReviewClient,
   }) = _Booking;
 }

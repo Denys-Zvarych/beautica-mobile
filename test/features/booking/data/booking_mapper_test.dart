@@ -349,6 +349,79 @@ void main() {
     );
   });
 
+  // Track 7.x Wave B — `providerCanReviewClient`: gates the PROVIDER footer's
+  // «Залишити відгук про клієнта» CTA (`booking_detail_screen.dart`). Real
+  // value only on GET /bookings/{id}; both GET /bookings/me listing paths
+  // hardcode false server-side. `@Default(false)` on the freezed field means
+  // a dropped/renamed wire field silently fails CLOSED at the model layer —
+  // this pins the mapper's OWN `?? false` coalescing so a regression is
+  // caught here, at unit level, rather than only by the (much slower, wider)
+  // widget suite noticing the CTA vanished.
+  group('BookingMapper.fromDto — providerCanReviewClient', () {
+    test('a null wire value maps to false (fail-closed)', () {
+      // _validDto never sets providerCanReviewClient → null on the wire.
+      final Booking b = BookingMapper.fromDto(_validDto(id: 'booking-no-flag'));
+
+      expect(
+        b.providerCanReviewClient,
+        isFalse,
+        reason:
+            'every GET /bookings/me row omits this field server-side; a '
+            'null wire value must never be trusted as reviewable',
+      );
+    });
+
+    test('a true wire value maps through unchanged', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-reviewable'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.COMPLETED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = true
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.providerCanReviewClient, isTrue);
+    });
+
+    test('an explicit false wire value maps through unchanged', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-already-reviewed'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.COMPLETED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = false
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.providerCanReviewClient, isFalse);
+    });
+  });
+
   // ==========================================================================
   // `clientAvatarUrl` — the booking client's photo (2026-07-24).
   //

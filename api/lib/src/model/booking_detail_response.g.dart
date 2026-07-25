@@ -237,6 +237,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   @override
   final bool? canReview;
   @override
+  final bool? providerCanReviewClient;
+  @override
   final String? appointmentId;
   @override
   final String? clientAvatarUrl;
@@ -276,6 +278,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.locationNote,
       this.categoryName,
       this.canReview,
+      this.providerCanReviewClient,
       this.appointmentId,
       this.clientAvatarUrl})
       : super._();
@@ -322,6 +325,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         locationNote == other.locationNote &&
         categoryName == other.categoryName &&
         canReview == other.canReview &&
+        providerCanReviewClient == other.providerCanReviewClient &&
         appointmentId == other.appointmentId &&
         clientAvatarUrl == other.clientAvatarUrl;
   }
@@ -359,6 +363,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, canReview.hashCode);
+    _$hash = $jc(_$hash, providerCanReviewClient.hashCode);
     _$hash = $jc(_$hash, appointmentId.hashCode);
     _$hash = $jc(_$hash, clientAvatarUrl.hashCode);
     _$hash = $jf(_$hash);
@@ -398,6 +403,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('locationNote', locationNote)
           ..add('categoryName', categoryName)
           ..add('canReview', canReview)
+          ..add('providerCanReviewClient', providerCanReviewClient)
           ..add('appointmentId', appointmentId)
           ..add('clientAvatarUrl', clientAvatarUrl))
         .toString();
@@ -544,6 +550,11 @@ class BookingDetailResponseBuilder
   bool? get canReview => _$this._canReview;
   set canReview(bool? canReview) => _$this._canReview = canReview;
 
+  bool? _providerCanReviewClient;
+  bool? get providerCanReviewClient => _$this._providerCanReviewClient;
+  set providerCanReviewClient(bool? providerCanReviewClient) =>
+      _$this._providerCanReviewClient = providerCanReviewClient;
+
   String? _appointmentId;
   String? get appointmentId => _$this._appointmentId;
   set appointmentId(String? appointmentId) =>
@@ -591,6 +602,7 @@ class BookingDetailResponseBuilder
       _locationNote = $v.locationNote;
       _categoryName = $v.categoryName;
       _canReview = $v.canReview;
+      _providerCanReviewClient = $v.providerCanReviewClient;
       _appointmentId = $v.appointmentId;
       _clientAvatarUrl = $v.clientAvatarUrl;
       _$v = null;
@@ -644,6 +656,7 @@ class BookingDetailResponseBuilder
           locationNote: locationNote,
           categoryName: categoryName,
           canReview: canReview,
+          providerCanReviewClient: providerCanReviewClient,
           appointmentId: appointmentId,
           clientAvatarUrl: clientAvatarUrl,
         );

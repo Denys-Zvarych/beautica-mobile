@@ -18,19 +18,20 @@
 // deliberately NOT ported. The inline «Клієнт цього коментаря не побачить»
 // reminder beside the comment counter IS still part of the design and is kept.
 //
-// ## The gating limitation (read before touching this file)
+// ## The gating (read before touching this file)
 //
-// The CLIENT→MASTER mirror gates its form on `Booking.canReview` — a
-// server-computed flag `BookingDetailScreen` also uses to show/hide its entry
-// CTA. `BookingDetailResponse` carries NO equivalent flag for the PROVIDER
-// side: nothing on the wire says whether feedback about this booking's client
-// was already left. `BookingDetailScreen`'s provider footer therefore offers
-// the entry CTA for EVERY COMPLETED provider booking (see
-// `_DetailBody._providerActions`), and this screen has no way to pre-empt a
-// duplicate submit. The 409 the backend returns instead
-// ([ClientReviewAlreadyExistsFailure]) is caught here and swaps the form for
-// the SAME not-reviewable info state a stale CLIENT review deep link shows —
-// see [_LeaveClientFeedbackScreenState._submit].
+// The CLIENT→MASTER mirror gates its form on `Booking.canReview`; this
+// PROVIDER→CLIENT direction now mirrors it exactly via
+// `Booking.providerCanReviewClient` — a server-computed flag
+// `BookingDetailScreen`'s provider footer pre-gates its entry CTA on (see
+// `_DetailBody._providerActions`), so a booking whose client was already
+// reviewed no longer shows the CTA at all. This screen keeps its OWN 409
+// handling as defense-in-depth, not as the primary gate: a stale list load
+// racing a submit from another device can still land here with a booking
+// that was reviewable a moment ago and isn't anymore. The 409 the backend
+// returns in that case ([ClientReviewAlreadyExistsFailure]) is caught here
+// and swaps the form for the SAME not-reviewable info state a stale CLIENT
+// review deep link shows — see [_LeaveClientFeedbackScreenState._submit].
 //
 // go_router only: pushed at `/master/bookings/:bookingId/review`, nested under
 // the provider's own booking-detail route so swipe-back returns to the

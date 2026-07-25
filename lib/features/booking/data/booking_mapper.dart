@@ -141,6 +141,11 @@ abstract final class BookingMapper {
       endAt: endsAt,
       status: status,
       canReview: dto.canReview ?? false,
+      // Real value only on GET /bookings/{id}; both GET /bookings/me listing
+      // paths hardcode false server-side, so a null/false wire value here is
+      // the expected shape there, not a missing-field defect. See
+      // `Booking.providerCanReviewClient`'s doc.
+      providerCanReviewClient: dto.providerCanReviewClient ?? false,
       clientComment: dto.clientComment,
       providerComment: dto.providerComment,
       clientCancellationNote: dto.clientCancellationNote,

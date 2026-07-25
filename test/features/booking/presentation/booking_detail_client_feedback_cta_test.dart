@@ -5,22 +5,27 @@
 // footer content for CONFIRMED (reschedule/decline/complete) and pins every
 // terminal status EMPTY for that phase — including COMPLETED, which this
 // track now fills. This suite covers what track 7.x Wave B adds:
-//   • a COMPLETED provider booking shows the entry CTA, and tapping it PUSHES
-//     the leave-client-feedback route (real `context.push`, matching the
+//   • a COMPLETED provider booking shows the entry CTA ONLY when
+//     `Booking.providerCanReviewClient` is `true`, and tapping it PUSHES the
+//     leave-client-feedback route (real `context.push`, matching the
 //     provider reschedule test's technique — the go_router push memory means
 //     the pushed route's `fullPath` collapses to its parent, so the mounted
 //     stub is the reliable proof, not `currentConfiguration.uri`);
+//   • a COMPLETED provider booking with `providerCanReviewClient: false`
+//     (already reviewed / not eligible) does NOT show it, even though the
+//     status alone would have offered it before this flag existed;
 //   • every OTHER terminal status (CANCELLED / DECLINED / NOT_COMPLETED) and
 //     a not-yet-terminal CONFIRMED booking do NOT show it — it is a
-//     COMPLETED-only affordance, never a blanket "any provider booking";
+//     COMPLETED-and-eligible-only affordance, never a blanket "any provider
+//     booking";
 //   • the CLIENT viewer never sees this key, on any status.
 //
-// GATING NOTE asserted here as a NEGATIVE space, not a positive one: unlike
-// the CLIENT footer's «Залишити відгук про майстра» (gated on the
-// server-computed `booking.canReview`), there is no provider-side
-// canReview-equivalent flag to test against — this suite intentionally shows
-// the CTA is offered on COMPLETED regardless of any prior feedback, per
-// `LeaveClientFeedbackScreen`'s file header.
+// GATING NOTE: this mirrors the CLIENT footer's «Залишити відгук про
+// майстра» (gated on the server-computed `booking.canReview`) — the
+// provider-side equivalent is `booking.providerCanReviewClient`, added
+// specifically to close the gap this suite used to document as a known
+// limitation (see `LeaveClientFeedbackScreen`'s file header for the residual
+// 409 defense-in-depth that still guards a load/submit race).
 //
 // Finders are key-first; all copy is asserted through l10n.
 
@@ -78,6 +83,7 @@ const User _clientUser = User(
 Booking _booking({
   BookingStatus status = BookingStatus.completed,
   DateTime? startAt,
+  bool providerCanReviewClient = true,
 }) {
   final DateTime start = startAt ?? futureBookingStart();
   return Booking(
@@ -97,6 +103,7 @@ Booking _booking({
     endAt: start.add(const Duration(minutes: 90)),
     status: status,
     canReview: false,
+    providerCanReviewClient: providerCanReviewClient,
   );
 }
 
@@ -128,13 +135,41 @@ void main() {
   const Key ctaKey = Key('booking-detail-leave-client-feedback');
 
   testWidgets(
-    'a COMPLETED provider booking shows «Залишити відгук про клієнта»',
+    'a COMPLETED, reviewable provider booking shows «Залишити відгук про '
+    'клієнта»',
     (tester) async {
-      await _pumpDetail(tester, _booking(status: BookingStatus.completed));
+      await _pumpDetail(
+        tester,
+        _booking(
+          status: BookingStatus.completed,
+          providerCanReviewClient: true,
+        ),
+      );
 
       final AppLocalizations l10n = _l10n(tester);
       expect(find.byKey(ctaKey), findsOneWidget);
       expect(find.text(l10n.bookingDetailClientReviewCta), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a COMPLETED provider booking with providerCanReviewClient: false does '
+    'NOT show the client-feedback CTA (already reviewed / not eligible)',
+    (tester) async {
+      await _pumpDetail(
+        tester,
+        _booking(
+          status: BookingStatus.completed,
+          providerCanReviewClient: false,
+        ),
+      );
+
+      expect(
+        find.byKey(const Key('booking-detail-client-strip')),
+        findsOneWidget,
+        reason: 'the provider view did not render',
+      );
+      expect(find.byKey(ctaKey), findsNothing);
     },
   );
 

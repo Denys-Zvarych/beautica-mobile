@@ -459,9 +459,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_client_review_response_test.dart
-test/api_response_user_rating_response_test.dart
-test/client_review_controller_api_test.dart
-test/client_review_response_test.dart
-test/create_client_review_request_test.dart
-test/user_rating_response_test.dart
