@@ -32,16 +32,13 @@ import 'master_avatar_badge.dart';
 /// The client identity header on the leave-client-feedback screen. Avatar +
 /// name, with the completed booking's service + date as a quiet,
 /// check-marked context line so the provider is sure *which* client and
-/// *which* visit they are rating. A small camel «приватно» lock chip sits on
-/// the name row to foreshadow that this record is internal — the client never
-/// reads it.
+/// *which* visit they are rating.
 class ClientFeedbackCard extends StatelessWidget {
   const ClientFeedbackCard({
     super.key,
     required this.name,
     required this.roleLabel,
     required this.visitContext,
-    required this.privateChipLabel,
     required this.semanticsLabel,
   });
 
@@ -52,9 +49,6 @@ class ClientFeedbackCard extends StatelessWidget {
 
   /// The completed visit's context line, e.g. «Манікюр · 14 липня».
   final String visitContext;
-
-  /// The «приватно» chip text, already localized by the caller.
-  final String privateChipLabel;
 
   /// Pre-composed accessibility label for the whole card, already localized
   /// by the caller (mirrors [visitContext] etc. — this widget stays
@@ -85,19 +79,11 @@ class ClientFeedbackCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Flexible(
-                        child: Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _nameStyle,
-                        ),
-                      ),
-                      const SizedBox(width: VelvetSpacing.xs),
-                      _PrivateChip(label: privateChipLabel),
-                    ],
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _nameStyle,
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -130,43 +116,6 @@ class ClientFeedbackCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// A tiny camel lock chip reading «приватно» — a quiet foreshadow that this is
-/// an internal record the client never reads. [label] arrives already
-/// localized from the screen.
-class _PrivateChip extends StatelessWidget {
-  const _PrivateChip({required this.label});
-
-  final String label;
-
-  static final TextStyle _labelStyle = VelvetText.feedback(
-    BrandColors.accentDeep,
-  ).copyWith(fontSize: 9.5, letterSpacing: 0.2);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const Key('client-feedback-private-chip'),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: BrandColors.accent.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const Icon(
-            Icons.lock_rounded,
-            size: 11,
-            color: BrandColors.accentDeep,
-          ),
-          const SizedBox(width: 3),
-          Text(label, style: _labelStyle),
-        ],
       ),
     );
   }

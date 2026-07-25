@@ -257,7 +257,6 @@ class _Form extends StatelessWidget {
                   name: name,
                   roleLabel: roleLabel,
                   visitContext: visitContext,
-                  privateChipLabel: l10n.clientReviewPrivateChipLabel,
                   semanticsLabel: '$name, $visitContext',
                 ),
                 const SizedBox(height: VelvetSpacing.lg),

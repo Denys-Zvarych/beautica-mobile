@@ -19,9 +19,9 @@
 //     state, no SnackBar;
 //   • a [ClientReviewNotAllowedFailure] — the localized message surfaces in a
 //     SnackBar and the provider STAYS on the form (no pop);
-//   • the private chip + the inline «Клієнт цього коментаря не побачить»
-//     reminder render (the two things that make this screen more than a
-//     mirror of the client's own leave-review form);
+//   • the inline «Клієнт цього коментаря не побачить» reminder renders (the
+//     thing that makes this screen more than a mirror of the client's own
+//     leave-review form);
 //   • the fetch error + loading states behind the shared top bar.
 //
 // Finders are key-first; every asserted string goes through l10n (CI no-raw-
@@ -181,17 +181,12 @@ void main() {
       expect(find.text(_l10n(tester).clientReviewRatingLabel5), findsOneWidget);
     });
 
-    testWidgets('the client identity card renders the private chip + the '
-        'privacy reminder', (tester) async {
+    testWidgets('the privacy reminder renders beside the comment field', (
+      tester,
+    ) async {
       await pumpFeedback(tester, detail: (ref) async => _booking());
 
       final AppLocalizations l10n = _l10n(tester);
-      expect(
-        find.byKey(const Key('client-feedback-private-chip')),
-        findsOneWidget,
-        reason: 'the «приватно» chip must render on the client card',
-      );
-      expect(find.text(l10n.clientReviewPrivateChipLabel), findsOneWidget);
       expect(
         find.byKey(const Key('leave-client-feedback-privacy-note')),
         findsOneWidget,

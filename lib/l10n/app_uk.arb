@@ -4141,10 +4141,6 @@
   "@clientReviewCommentPrivacyNote": {
     "description": "Inline reminder beside the comment counter on the leave-client-feedback screen — the client never sees this text, only their aggregate rating number moves."
   },
-  "clientReviewPrivateChipLabel": "приватно",
-  "@clientReviewPrivateChipLabel": {
-    "description": "Small lock chip on the client identity card of the leave-client-feedback screen, foreshadowing that the record is internal."
-  },
   "clientReviewRoleLabel": "Клієнт",
   "@clientReviewRoleLabel": {
     "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."
