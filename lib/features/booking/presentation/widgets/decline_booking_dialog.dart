@@ -34,25 +34,40 @@ part of 'cancel_booking_dialog.dart';
 ///
 /// Resolves to the provider's optional comment (possibly an EMPTY string —
 /// confirmed but wrote nothing) on confirm — forwarded to
-/// `BookingRepository.declineBooking` as `comment`, mutually visible to the
-/// client once the booking reads `DECLINED` (CLAUDE.md booking-notes rule).
-/// Resolves to `null` on every way of backing out, exactly like
-/// [showCancelBookingDialog] — `null` means *do nothing*.
+/// `BookingRepository.declineBooking` (or, when [isAppointment] is `true`,
+/// `AppointmentRepository.declineAppointment`) as the `comment`/
+/// `providerComment`, mutually visible to the client once the booking(s)
+/// read `DECLINED` (CLAUDE.md booking-notes rule). Resolves to `null` on
+/// every way of backing out, exactly like [showCancelBookingDialog] — `null`
+/// means *do nothing*.
+///
+/// [isAppointment] (`Booking.appointmentId != null`) swaps the title/subtitle
+/// to the whole-visit copy — the decline transitions EVERY service in the
+/// visit, not just [booking].
 Future<String?> showDeclineBookingDialog(
   BuildContext context,
-  Booking booking,
-) {
+  Booking booking, {
+  bool isAppointment = false,
+}) {
   return showDialog<String>(
     context: context,
     barrierDismissible: true,
-    builder: (_) => DeclineBookingDialog(booking: booking),
+    builder: (_) =>
+        DeclineBookingDialog(booking: booking, isAppointment: isAppointment),
   );
 }
 
 class DeclineBookingDialog extends StatefulWidget {
-  const DeclineBookingDialog({super.key, required this.booking});
+  const DeclineBookingDialog({
+    super.key,
+    required this.booking,
+    this.isAppointment = false,
+  });
 
   final Booking booking;
+
+  /// See [showDeclineBookingDialog]'s doc.
+  final bool isAppointment;
 
   @override
   State<DeclineBookingDialog> createState() => _DeclineBookingDialogState();
@@ -101,13 +116,17 @@ class _DeclineBookingDialogState extends State<DeclineBookingDialog> {
                 const SizedBox(height: VelvetSpacing.md),
 
                 Text(
-                  l10n.declineBookingDialogTitle,
+                  widget.isAppointment
+                      ? l10n.declineAppointmentDialogTitle
+                      : l10n.declineBookingDialogTitle,
                   textAlign: TextAlign.center,
                   style: VelvetText.subheading(),
                 ),
                 const SizedBox(height: VelvetSpacing.xs),
                 Text(
-                  l10n.declineBookingDialogSubtitle,
+                  widget.isAppointment
+                      ? l10n.declineAppointmentDialogSubtitle
+                      : l10n.declineBookingDialogSubtitle,
                   textAlign: TextAlign.center,
                   style: VelvetText.bookSuccessSubline,
                 ),

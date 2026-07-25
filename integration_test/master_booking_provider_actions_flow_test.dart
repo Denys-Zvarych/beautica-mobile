@@ -124,7 +124,7 @@ void main() {
         find.byKey(const Key('cancel-booking-note-field')),
         'Client rescheduled elsewhere.',
       );
-      await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
+      await tester.tap(find.byKey(const Key('decline-booking-confirm')));
       await AppHarness.settle(tester);
 
       expect(tester.takeException(), isNull);

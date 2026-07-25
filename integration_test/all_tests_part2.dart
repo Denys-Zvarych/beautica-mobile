@@ -10,6 +10,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'master_appointment_child_booking_actions_flow_test.dart'
+    as master_appointment_child_booking_actions;
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
@@ -48,6 +50,14 @@ void main() {
   group(
     'master_booking_provider_actions_flow',
     master_booking_provider_actions.main,
+  );
+  // Track 27.x/MO-6 — the same PROVIDER decline/complete round trip, but for
+  // an appointment-child (multi-service visit) booking: routes to
+  // AppointmentRepository instead of the per-booking endpoints, reschedule
+  // hidden (Step 2.7 Rule 3b).
+  group(
+    'master_appointment_child_booking_actions_flow',
+    master_appointment_child_booking_actions.main,
   );
   group('master_home_add_services_flow', master_home_add_services.main);
   // Track 7.x Wave B — the PROVIDER leave-client-feedback journey (detail →

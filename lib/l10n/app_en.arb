@@ -3906,6 +3906,14 @@
   "@declineBookingKeepCta": {
     "description": "Track 27.x Wave A — safe back-out button on the PROVIDER decline confirmation dialog."
   },
+  "declineAppointmentDialogTitle": "Cancel the client's visit?",
+  "@declineAppointmentDialogTitle": {
+    "description": "Track 27.x/MO-6 — title of the PROVIDER decline confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the decline transitions every service in the visit, not just the one shown."
+  },
+  "declineAppointmentDialogSubtitle": "This action cannot be undone. Every service in this visit will be cancelled. The client will be notified.",
+  "@declineAppointmentDialogSubtitle": {
+    "description": "Track 27.x/MO-6 — subtitle of the PROVIDER decline confirmation dialog for a multi-service visit, making explicit that every service is affected."
+  },
   "completeBookingDialogTitle": "Complete this booking?",
   "@completeBookingDialogTitle": {
     "description": "Track 27.x Wave A — title of the PROVIDER complete confirmation dialog."
@@ -3913,6 +3921,14 @@
   "completeBookingDialogBody": "Confirm that the client's visit took place.",
   "@completeBookingDialogBody": {
     "description": "Track 27.x Wave A — body text of the PROVIDER complete confirmation dialog."
+  },
+  "completeAppointmentDialogTitle": "Complete the visit?",
+  "@completeAppointmentDialogTitle": {
+    "description": "Track 27.x/MO-6 — title of the PROVIDER complete confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the completion transitions every service in the visit, not just the one shown."
+  },
+  "completeAppointmentDialogBody": "Confirm that the client's visit took place. Every service in this visit will be marked complete.",
+  "@completeAppointmentDialogBody": {
+    "description": "Track 27.x/MO-6 — body text of the PROVIDER complete confirmation dialog for a multi-service visit, making explicit that every service is affected."
   },
   "completeBookingConfirmCta": "Yes, complete",
   "@completeBookingConfirmCta": {

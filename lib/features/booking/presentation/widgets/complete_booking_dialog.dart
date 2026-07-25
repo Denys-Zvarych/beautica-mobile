@@ -18,22 +18,29 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 
-/// Confirmation dialog for marking a booking COMPLETED.
+/// Confirmation dialog for marking a booking (or a whole multi-service visit)
+/// COMPLETED.
 ///
 /// Show via [showDialog]:
 /// ```dart
 /// final confirmed = await showDialog<bool>(
 ///   context: context,
-///   builder: (_) => const CompleteBookingDialog(),
+///   builder: (_) => CompleteBookingDialog(isAppointment: booking.appointmentId != null),
 /// );
-/// if (confirmed == true) { /* proceed with BookingRepository.completeBooking */ }
+/// if (confirmed == true) { /* proceed with completeBooking/completeAppointment */ }
 /// ```
 ///
 /// Returns `true` when the provider confirmed, `false` (or `null` when the
 /// dialog is dismissed by tapping outside) otherwise — mirrors
 /// `DeleteServiceDialog`'s contract.
 class CompleteBookingDialog extends StatelessWidget {
-  const CompleteBookingDialog({super.key});
+  const CompleteBookingDialog({super.key, this.isAppointment = false});
+
+  /// `true` when the booking being completed is part of a multi-service
+  /// visit (`Booking.appointmentId != null`) — the confirm swaps to the
+  /// whole-visit copy so the provider knows every service in the visit is
+  /// about to be marked COMPLETED, not just the one they opened.
+  final bool isAppointment;
 
   @override
   Widget build(BuildContext context) {
@@ -45,8 +52,18 @@ class CompleteBookingDialog extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(VelvetRadii.card)),
       ),
-      title: Text(l10n.completeBookingDialogTitle, style: VelvetText.heading()),
-      content: Text(l10n.completeBookingDialogBody, style: VelvetText.body()),
+      title: Text(
+        isAppointment
+            ? l10n.completeAppointmentDialogTitle
+            : l10n.completeBookingDialogTitle,
+        style: VelvetText.heading(),
+      ),
+      content: Text(
+        isAppointment
+            ? l10n.completeAppointmentDialogBody
+            : l10n.completeBookingDialogBody,
+        style: VelvetText.body(),
+      ),
       actions: <Widget>[
         TextButton(
           key: const Key('complete-booking-keep'),

@@ -1,20 +1,29 @@
 // MO-1 — AppointmentRepository: interface + HTTP implementation for the
 // multi-service single-visit write/read path.
 //
-//   POST   /api/v1/appointments                       → create visit
+//   POST   /api/v1/appointments                        → create visit
 //   GET    /api/v1/appointments/{appointmentId}         → enriched detail
 //   PATCH  /api/v1/appointments/{appointmentId}/cancel   → CLIENT cancel
+//   PATCH  /api/v1/appointments/{appointmentId}/complete → PROVIDER complete
+//   PATCH  /api/v1/appointments/{appointmentId}/decline  → PROVIDER decline
 //   POST   /api/v1/appointments/{appointmentId}/review   → leave review
 //
-// SCOPE (MO-1): the CLIENT surface only. The provider visit transitions
-// (`/decline`, `/complete`, `/not-complete`) exist on the backend and on the
-// generated `AppointmentControllerApi`, but this client app has NO
-// provider-side booking-transition surface today (the single-booking
-// `BookingRepository` likewise exposes only the CLIENT `cancelBooking`, never
-// `declineBooking`/`completeBooking`), so they are deliberately NOT wrapped
-// here — added only if/when a provider visit-management screen needs them.
+// SCOPE (MO-1, extended track 27.x/MO-6): the CLIENT surface plus the two
+// PROVIDER whole-visit transitions [completeAppointment]/[declineAppointment].
+// The backend `assertNotAppointmentChild` guard 409s EVERY per-booking
+// provider transition once `booking.appointment != null` — a multi-service
+// visit's individual service bookings must be completed/declined in
+// lockstep, through these endpoints, never `BookingRepository.completeBooking`
+// /`declineBooking`. `booking_detail_screen.dart` routes here whenever the
+// booking it is showing carries a non-null `Booking.appointmentId` (each
+// service of a visit still opens its OWN single-booking detail screen — see
+// that file's `_confirmComplete`/`_confirmDecline`). `notCompleteAppointment`
+// exists on the generated client but has no mobile call site yet (no-show is
+// not reachable from this screen today) — add it here only when a caller
+// needs it.
 //
-// Kept provider-free on purpose (mirrors `booking_repository.dart`) — see
+// Kept provider-free OTHERWISE (mirrors `booking_repository.dart`'s CLIENT-only
+// shape apart from its own track-27.x provider additions) — see
 // `booking_providers.dart` for the Riverpod wiring. Tests construct
 // [HttpAppointmentRepository] directly with a mocktail
 // [AppointmentControllerApi] + [ReviewControllerApi].
@@ -97,6 +106,33 @@ abstract interface class AppointmentRepository {
   /// cancels the client's OWN visit; the provider decline/no-show transitions
   /// are out of scope (see the file header).
   Future<void> cancelAppointment(String id, {String? note});
+
+  /// Marks a visit COMPLETED on behalf of the authenticated PROVIDER (track
+  /// 27.x / MO-6) — the whole-visit counterpart to
+  /// `BookingRepository.completeBooking`.
+  ///
+  /// Wraps `PATCH /appointments/{appointmentId}/complete` — no request body.
+  /// The backend transitions EVERY booking belonging to the visit to
+  /// COMPLETED in lockstep; there is no partial-visit completion.
+  ///
+  /// Throws [ProviderCompleteNotStartedFailure] on HTTP 409 — the same
+  /// `BookingTemporalGuard.assertElapsedForComplete` guard the single-booking
+  /// endpoint enforces (the visit's `startsAt` is still in the future; SERVER
+  /// clock authoritative).
+  Future<void> completeAppointment(String id);
+
+  /// Declines a visit on behalf of the authenticated PROVIDER (track 27.x /
+  /// MO-6) — the whole-visit counterpart to `BookingRepository.declineBooking`.
+  ///
+  /// Wraps `PATCH /appointments/{appointmentId}/decline`. [comment] is the
+  /// OPTIONAL free-text `providerComment`, mutually visible to the client on
+  /// EVERY booking in the visit once it reads DECLINED (CLAUDE.md booking-
+  /// notes rule — symmetric, mutual visibility, no audience suppression).
+  ///
+  /// Throws [ProviderDeclineWindowClosedFailure] on HTTP 409 — the same
+  /// `BookingTemporalGuard.assertFutureForProviderCancel` guard the
+  /// single-booking endpoint enforces.
+  Future<void> declineAppointment(String id, {String? comment});
 
   /// Leaves a review for a COMPLETED visit on behalf of the authenticated
   /// client.
@@ -220,6 +256,64 @@ final class HttpAppointmentRepository implements AppointmentRepository {
   }
 
   @override
+  Future<void> completeAppointment(String id) async {
+    try {
+      await _appointmentApi.completeAppointment(appointmentId: id);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'completeAppointment failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapProviderActionException(
+        e,
+        onConflict: (DioException e) =>
+            ProviderCompleteNotStartedFailure(cause: e),
+      );
+    }
+  }
+
+  @override
+  Future<void> declineAppointment(String id, {String? comment}) async {
+    // Blank/whitespace-only comment → send no comment at all (the field is
+    // optional on the wire; a null keeps the payload clean) — same trim rule
+    // as `HttpBookingRepository.declineBooking`.
+    final String? trimmed = comment?.trim();
+    final String? effectiveComment = (trimmed == null || trimmed.isEmpty)
+        ? null
+        : trimmed;
+    try {
+      await _appointmentApi.declineAppointment(
+        appointmentId: id,
+        appointmentProviderNoteRequest: AppointmentProviderNoteRequest(
+          (b) => b..providerComment = effectiveComment,
+        ),
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'declineAppointment failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapProviderActionException(
+        e,
+        onConflict: (DioException e) =>
+            ProviderDeclineWindowClosedFailure(cause: e),
+      );
+    }
+  }
+
+  @override
   Future<void> createAppointmentReview(
     String id, {
     required int rating,
@@ -298,6 +392,21 @@ final class HttpAppointmentRepository implements AppointmentRepository {
     if (e.response?.statusCode == 409 && _isBookingAlreadyElapsed(e)) {
       return BookingAlreadyElapsedFailure(cause: e);
     }
+    return _mapDioException(e);
+  }
+
+  /// Maps a [DioException] from `PATCH /appointments/{id}/decline` or
+  /// `PATCH /appointments/{id}/complete` to a typed [Failure] — transcribed
+  /// verbatim from `HttpBookingRepository._mapProviderActionException`. Every
+  /// 409 from either endpoint means the backend's `BookingTemporalGuard`
+  /// rejected the action's timing (there is no typed `data.code` envelope to
+  /// decode), so [onConflict] resolves it PURELY by call site. Everything
+  /// else defers to [_mapDioException].
+  Failure _mapProviderActionException(
+    DioException e, {
+    required Failure Function(DioException e) onConflict,
+  }) {
+    if (e.response?.statusCode == 409) return onConflict(e);
     return _mapDioException(e);
   }
 

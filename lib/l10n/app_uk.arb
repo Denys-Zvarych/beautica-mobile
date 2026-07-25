@@ -3906,6 +3906,14 @@
   "@declineBookingKeepCta": {
     "description": "Track 27.x Wave A — safe back-out button on the PROVIDER decline confirmation dialog."
   },
+  "declineAppointmentDialogTitle": "Скасувати візит клієнта?",
+  "@declineAppointmentDialogTitle": {
+    "description": "Track 27.x/MO-6 — title of the PROVIDER decline confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the decline transitions every service in the visit, not just the one shown."
+  },
+  "declineAppointmentDialogSubtitle": "Цю дію не можна відмінити. Усі послуги цього візиту буде скасовано. Клієнта буде повідомлено.",
+  "@declineAppointmentDialogSubtitle": {
+    "description": "Track 27.x/MO-6 — subtitle of the PROVIDER decline confirmation dialog for a multi-service visit, making explicit that every service is affected."
+  },
   "completeBookingDialogTitle": "Завершити запис?",
   "@completeBookingDialogTitle": {
     "description": "Track 27.x Wave A — title of the PROVIDER complete confirmation dialog."
@@ -3913,6 +3921,14 @@
   "completeBookingDialogBody": "Підтвердіть, що візит клієнта відбувся.",
   "@completeBookingDialogBody": {
     "description": "Track 27.x Wave A — body text of the PROVIDER complete confirmation dialog."
+  },
+  "completeAppointmentDialogTitle": "Завершити візит?",
+  "@completeAppointmentDialogTitle": {
+    "description": "Track 27.x/MO-6 — title of the PROVIDER complete confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the completion transitions every service in the visit, not just the one shown."
+  },
+  "completeAppointmentDialogBody": "Підтвердіть, що візит клієнта відбувся. Усі послуги цього візиту буде позначено як завершені.",
+  "@completeAppointmentDialogBody": {
+    "description": "Track 27.x/MO-6 — body text of the PROVIDER complete confirmation dialog for a multi-service visit, making explicit that every service is affected."
   },
   "completeBookingConfirmCta": "Так, завершити",
   "@completeBookingConfirmCta": {

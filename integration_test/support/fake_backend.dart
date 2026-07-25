@@ -1850,6 +1850,25 @@ final class FakeBackend {
   int rescheduleBookingCalls = 0;
   String? lastRescheduleNewStartsAt;
 
+  /// Track 27.x/MO-6 — the seeded booking's `appointmentId`, `null` by
+  /// default (a plain single-service booking). A flow proving the
+  /// appointment-child provider-write routing (`BookingDetailScreen`'s
+  /// `_confirmDecline`/`_confirmComplete` routing to
+  /// `AppointmentRepository.completeAppointment`/`declineAppointment` instead
+  /// of the per-booking endpoints) sets this to a non-null id BEFORE booting
+  /// the harness, so `GET /bookings/booking-1` serves a booking whose
+  /// `appointmentId` is non-null — mirroring how `bookingPriceMax` is seeded
+  /// for the RANGE-price flow. The per-booking `/decline`/`/complete` ROUTES
+  /// below still exist and would still (unrealistically) succeed if hit — the
+  /// real backend's `assertNotAppointmentChild` 409 guard is NOT reproduced
+  /// here; the routing proof instead rests on the write count staying at 0 on
+  /// [declineBookingCalls]/[completeBookingCalls] while the hand-faked
+  /// `AppointmentRepository` (see
+  /// `master_appointment_child_booking_actions_flow_test.dart`) records the
+  /// call — the same "prove it went to the OTHER path" shape every other
+  /// appointment-vs-booking flow in this suite already uses.
+  String? bookingAppointmentId;
+
   /// `GET /bookings/booking-1` (detail) + `GET /bookings/me` (list) call
   /// counts. A reschedule invalidates BOTH `bookingDetailProvider(id)` and
   /// `myBookingsProvider(upcoming)`, so a test asserts these counters climb
@@ -1924,6 +1943,7 @@ final class FakeBackend {
     'clientCancellationNote': bookingClientCancellationNote,
     'masterProfessionalTitle': 'Майстриня манікюру',
     'locationNote': null,
+    'appointmentId': bookingAppointmentId,
   };
 
   /// The `ApiResponse<PageResponse<BookingDetailResponse>>` envelope for the

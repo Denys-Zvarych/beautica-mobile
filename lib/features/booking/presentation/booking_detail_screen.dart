@@ -171,17 +171,43 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// confirmation; mirrors [_confirmCancel]'s shape exactly (dialog →
   /// repository call → 409-specific handling → refetch), swapped to the
   /// provider's own dialog/repository method/failure type.
+  ///
+  /// Track 27.x/MO-6: when [Booking.appointmentId] is non-null this booking
+  /// is one service of a multi-service VISIT — the backend's
+  /// `assertNotAppointmentChild` guard 409s a per-booking decline on an
+  /// appointment child (`"…use /appointments/{id} to change it"`), so the
+  /// write routes to `AppointmentRepository.declineAppointment` instead,
+  /// transitioning every service in the visit in lockstep. The dialog itself
+  /// is told via `isAppointment` so its copy reads "the whole visit", not
+  /// just this one service. A booking with a `null` `appointmentId` (a plain
+  /// single-service booking) is UNCHANGED — same dialog, same
+  /// `BookingRepository.declineBooking` call, same failure handling.
   Future<void> _confirmDecline(BuildContext context, Booking booking) async {
-    final String? comment = await showDeclineBookingDialog(context, booking);
+    final bool isAppointment = booking.appointmentId != null;
+    final String? comment = await showDeclineBookingDialog(
+      context,
+      booking,
+      isAppointment: isAppointment,
+    );
     if (comment == null || !mounted) return; // backed out — nothing happened.
 
     try {
-      await ref
-          .read(bookingRepositoryProvider)
-          .declineBooking(
-            booking.id,
-            comment: comment.isEmpty ? null : comment,
-          );
+      final String? appointmentId = booking.appointmentId;
+      if (appointmentId != null) {
+        await ref
+            .read(appointmentRepositoryProvider)
+            .declineAppointment(
+              appointmentId,
+              comment: comment.isEmpty ? null : comment,
+            );
+      } else {
+        await ref
+            .read(bookingRepositoryProvider)
+            .declineBooking(
+              booking.id,
+              comment: comment.isEmpty ? null : comment,
+            );
+      }
     } on ProviderDeclineWindowClosedFailure catch (failure) {
       // The booking's window opened (or the device clock was rolled back)
       // between this screen loading and the confirm tap — the SERVER clock
@@ -224,15 +250,29 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// dialog (no note to collect — see `CompleteBookingDialog`'s doc), then
   /// calls `completeBooking`. Same 409-handling shape as [_confirmDecline]/
   /// [_confirmCancel].
+  ///
+  /// Track 27.x/MO-6: same appointment-child routing as [_confirmDecline] —
+  /// a non-null [Booking.appointmentId] routes the write to
+  /// `AppointmentRepository.completeAppointment` (whole-visit lockstep) and
+  /// tells the dialog `isAppointment: true` for the whole-visit copy; a plain
+  /// single-service booking (`appointmentId == null`) is UNCHANGED.
   Future<void> _confirmComplete(BuildContext context, Booking booking) async {
+    final bool isAppointment = booking.appointmentId != null;
     final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => const CompleteBookingDialog(),
+      builder: (_) => CompleteBookingDialog(isAppointment: isAppointment),
     );
     if (confirmed != true || !mounted) return;
 
     try {
-      await ref.read(bookingRepositoryProvider).completeBooking(booking.id);
+      final String? appointmentId = booking.appointmentId;
+      if (appointmentId != null) {
+        await ref
+            .read(appointmentRepositoryProvider)
+            .completeAppointment(appointmentId);
+      } else {
+        await ref.read(bookingRepositoryProvider).completeBooking(booking.id);
+      }
     } on ProviderCompleteNotStartedFailure catch (failure) {
       // The booking's start slipped back into the future relative to this
       // (possibly stale) screen — or the device clock was rolled back and the
@@ -672,6 +712,14 @@ class _DetailBody extends StatelessWidget {
   ///   * Every other terminal status (CANCELLED / DECLINED / NOT_COMPLETED /
   ///     unknown) — read-only, no actions.
   ///
+  /// Track 27.x/MO-6 — a booking that is part of a multi-service VISIT
+  /// (`Booking.appointmentId != null`) hides «Перенести»: the backend exposes
+  /// NO provider-facing `/appointments/{id}/reschedule` endpoint (only the
+  /// per-booking one, which the visit-child 409 guard blocks), so there is no
+  /// working reschedule flow to offer. «Скасувати» (decline) stays — it
+  /// routes to `AppointmentRepository.declineAppointment` instead of the
+  /// per-booking endpoint (see [_confirmDecline]).
+  ///
   /// GATING NOTE (track 7.x Wave B, superseded): the CTA used to be offered
   /// on every COMPLETED provider booking regardless of prior feedback,
   /// because `BookingDetailResponse` carried no provider-side
@@ -710,15 +758,21 @@ class _DetailBody extends StatelessWidget {
         ),
       ];
     }
+    // Track 27.x/MO-6 — no provider-facing appointment-reschedule endpoint
+    // exists (see this method's doc), so a visit-child booking never offers
+    // «Перенести», only «Скасувати».
+    final bool isAppointment = booking.appointmentId != null;
     return <Widget>[
-      NeumorphicButton(
-        key: const Key('booking-detail-provider-reschedule'),
-        label: l10n.bookingDetailRescheduleCta,
-        icon: Icons.event_repeat_rounded,
-        loading: rescheduleLoading,
-        onPressed: onReschedule,
-      ),
-      const SizedBox(height: VelvetSpacing.xs),
+      if (!isAppointment) ...<Widget>[
+        NeumorphicButton(
+          key: const Key('booking-detail-provider-reschedule'),
+          label: l10n.bookingDetailRescheduleCta,
+          icon: Icons.event_repeat_rounded,
+          loading: rescheduleLoading,
+          onPressed: onReschedule,
+        ),
+        const SizedBox(height: VelvetSpacing.xs),
+      ],
       _DestructiveSecondaryButton(
         buttonKey: const Key('booking-detail-decline'),
         label: l10n.bookingDetailDeclineCta,
