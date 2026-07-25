@@ -755,3 +755,47 @@ final class ReviewNotAllowedFailure extends Failure {
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).reviewErrNotAllowed;
 }
+
+/// Emitted when `POST /client-reviews` returns HTTP **409 Conflict** because
+/// the authenticated PROVIDER has ALREADY left feedback about this booking's
+/// client (track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА», backend `POST
+/// /client-reviews`).
+///
+/// Unlike [ReviewAlreadyExistsFailure] (the CLIENT→MASTER direction), there is
+/// currently NO server-computed canReview-equivalent flag on
+/// `BookingDetailResponse` for the PROVIDER side — `BookingDetailScreen`
+/// offers the «Залишити відгук про клієнта» entry CTA on every COMPLETED
+/// provider booking, with no client-side way to know in advance whether
+/// feedback was already left. This failure is therefore the ONLY signal of a
+/// duplicate submit; `LeaveClientFeedbackScreen` surfaces it by swapping the
+/// form for the same not-reviewable info state the CLIENT flow shows on a
+/// stale deep link, rather than a silent no-op or a raw error.
+///
+/// Decoded by `HttpClientReviewRepository._mapClientReviewException` — the 409
+/// status check runs before deferring to any [Failure] the interceptor may
+/// have attached, mirroring the [ReviewAlreadyExistsFailure] precedent.
+final class ClientReviewAlreadyExistsFailure extends Failure {
+  const ClientReviewAlreadyExistsFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).clientReviewErrAlreadyReviewed;
+}
+
+/// Emitted when `POST /client-reviews` is rejected because the booking is not
+/// eligible for provider feedback (track 7.x Wave B): HTTP **403** (not the
+/// booking's provider), or any other **4xx** — e.g. the booking is not
+/// COMPLETED, or it is a guest/LINK booking with no registered client account
+/// to rate ([BookingDisplayX.isGuestBooking]). Both collapse into one friendly
+/// message; the provider never needs to distinguish the two.
+///
+/// Decoded by `HttpClientReviewRepository._mapClientReviewException` before
+/// deferring to the shared `_mapDioException`, mirroring
+/// [ReviewNotAllowedFailure].
+final class ClientReviewNotAllowedFailure extends Failure {
+  const ClientReviewNotAllowedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).clientReviewErrNotAllowed;
+}

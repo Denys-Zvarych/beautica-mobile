@@ -15,6 +15,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseAvatarResponse.serializer)
       ..add(ApiResponseBookingDetailResponse.serializer)
       ..add(ApiResponseCategoryRequestResponse.serializer)
+      ..add(ApiResponseClientReviewResponse.serializer)
       ..add(ApiResponseContactSupportResponse.serializer)
       ..add(ApiResponseFavoriteResponse.serializer)
       ..add(ApiResponseGuestTokenResponse.serializer)
@@ -67,6 +68,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseScheduleOverrideResponse.serializer)
       ..add(ApiResponseServiceDefinitionResponse.serializer)
       ..add(ApiResponseUserProfileResponse.serializer)
+      ..add(ApiResponseUserRatingResponse.serializer)
       ..add(ApiResponseVerifyPasswordResetOtpResponse.serializer)
       ..add(ApiResponseVoid.serializer)
       ..add(ApiResponseWeeklyScheduleResponse.serializer)
@@ -101,12 +103,14 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CategoryRequestResponse.serializer)
       ..add(CityDistrictResponse.serializer)
       ..add(CityResponse.serializer)
+      ..add(ClientReviewResponse.serializer)
       ..add(ContactSupportRequest.serializer)
       ..add(ContactSupportResponse.serializer)
       ..add(CreateAppointmentRequest.serializer)
       ..add(CreateAppointmentReviewRequest.serializer)
       ..add(CreateBookingRequest.serializer)
       ..add(CreateCategoryRequestRequest.serializer)
+      ..add(CreateClientReviewRequest.serializer)
       ..add(CreatePlatformCategoryRequest.serializer)
       ..add(CreateReviewRequest.serializer)
       ..add(CreateSalonRequest.serializer)
@@ -220,6 +224,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(UpdateServicePhotoRequest.serializer)
       ..add(UploadPortfolioPhotoRequest.serializer)
       ..add(UserProfileResponse.serializer)
+      ..add(UserRatingResponse.serializer)
       ..add(VerifyEmailRequest.serializer)
       ..add(VerifyPasswordResetOtpRequest.serializer)
       ..add(VerifyPasswordResetOtpResponse.serializer)
@@ -508,6 +513,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

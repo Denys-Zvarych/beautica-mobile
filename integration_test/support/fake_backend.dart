@@ -1755,6 +1755,25 @@ final class FakeBackend {
   String? lastReviewComment;
   String? lastReviewBookingId;
 
+  /// `POST /client-reviews` call count + the last rating/comment/bookingId
+  /// submitted (track 7.x Wave B — the PROVIDER→CLIENT «ВІДГУК ПРО КЛІЄНТА»
+  /// mirror of [createReviewCalls] above). Unlike the CLIENT→MASTER review,
+  /// there is no server-computed `canReview`-equivalent to flip — the
+  /// provider footer offers the entry CTA on every COMPLETED booking
+  /// regardless (see `LeaveClientFeedbackScreen`'s file header). Asserted by
+  /// the leave-client-feedback flow.
+  int createClientReviewCalls = 0;
+  int? lastClientReviewRating;
+  String? lastClientReviewComment;
+  String? lastClientReviewBookingId;
+
+  /// `GET /users/me/rating` fixture (track 7.x Wave B — «Мій рейтинг»). Null
+  /// [myRatingAvgRating] means no reviews yet (the empty state); a flow that
+  /// exercises the rated state overrides it before booting.
+  double? myRatingAvgRating;
+  int myRatingReviewCount = 0;
+  int getMyRatingCalls = 0;
+
   /// The client's free-text cancellation note, captured on cancel (may be null
   /// — a silent self-cancellation).
   String? bookingClientCancellationNote;
@@ -2249,6 +2268,24 @@ final class FakeBackend {
         return currentRole == UserRole.client
             ? _ok(_clientProfileBody())
             : _ok(userJsonForRole(currentRole));
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/users/me/rating — CLIENT's own aggregate two-sided rating
+    // (track 7.x Wave B, «Мій рейтинг»). A DISTINCT path from `/users/me`
+    // above — the mock router matches by exact path, so registration order
+    // relative to the sibling `/users/me` GET/PATCH routes does not matter
+    // here (unlike the `.../reviews` vs `.../reviews/summary` prefix case
+    // elsewhere in this file).
+    _adapter.onRoute(
+      '/api/v1/users/me/rating',
+      (server) => server.replyCallback(200, (_) {
+        getMyRatingCalls++;
+        return _ok(<String, dynamic>{
+          'avgRating': myRatingAvgRating,
+          'reviewCount': myRatingReviewCount,
+        });
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -3452,6 +3489,26 @@ final class FakeBackend {
         lastReviewRating = body['rating'] as int?;
         lastReviewComment = body['comment'] as String?;
         bookingCanReview = false;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // POST /api/v1/client-reviews — PROVIDER leave-client-feedback (track 7.x
+    // Wave B). Records the submitted bookingId/rating/comment. Unlike
+    // `/api/v1/reviews` above there is no `canReview`-equivalent flag to flip
+    // — the generated `ClientReviewControllerApi.create` deserializes an
+    // `ApiResponse<ClientReviewResponse>`; a `data: null` envelope is valid
+    // (every `ClientReviewResponse` field is nullable) and the repository
+    // returns void anyway.
+    _adapter.onRoute(
+      '/api/v1/client-reviews',
+      (server) => server.replyCallback(200, (req) {
+        createClientReviewCalls++;
+        final body = _decodeBody(req.data);
+        lastClientReviewBookingId = body['bookingId'] as String?;
+        lastClientReviewRating = body['rating'] as int?;
+        lastClientReviewComment = body['comment'] as String?;
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),

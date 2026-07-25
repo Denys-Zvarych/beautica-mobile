@@ -2970,6 +2970,16 @@
   "@myRatingExplanation": {
     "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
   },
+  "myRatingReviewCount": "{count, plural, =0{0 reviews} =1{1 review} other{{count} reviews}}",
+  "@myRatingReviewCount": {
+    "description": "Review-count line under the client's average rating on the My Rating screen (track 7.x Wave B, GET /users/me/rating).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
   "passportColumnProcedures": "Favourite procedures",
   "@passportColumnProcedures": {
     "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
@@ -4050,6 +4060,106 @@
   "reviewMasterRoleIndependent": "Independent master",
   "@reviewMasterRoleIndependent": {
     "description": "Fallback role subtitle on the master feedback card when the master has no professional title and is not salon-employed."
+  },
+  "bookingDetailClientReviewCta": "Leave feedback about the client",
+  "@bookingDetailClientReviewCta": {
+    "description": "Track 7.x Wave B — PROVIDER footer action on a COMPLETED booking's detail screen; opens the leave-client-feedback screen. Offered on every COMPLETED provider booking (no server-side canReview-equivalent gate exists yet)."
+  },
+  "clientReviewScreenTitle": "FEEDBACK ABOUT CLIENT",
+  "@clientReviewScreenTitle": {
+    "description": "Top-bar title of the leave-client-feedback screen (track 7.x Wave B)."
+  },
+  "clientReviewBackSemantics": "Back",
+  "@clientReviewBackSemantics": {
+    "description": "Accessibility label for the back button on the leave-client-feedback screen."
+  },
+  "clientReviewRatingSection": "CLIENT RATING",
+  "@clientReviewRatingSection": {
+    "description": "Section eyebrow above the required star-rating input on the leave-client-feedback screen."
+  },
+  "clientReviewRatingRequiredTag": "required",
+  "@clientReviewRatingRequiredTag": {
+    "description": "Small 'required' tag beside the rating section eyebrow on the leave-client-feedback screen."
+  },
+  "clientReviewCommentSection": "COMMENT ABOUT CLIENT",
+  "@clientReviewCommentSection": {
+    "description": "Section eyebrow above the optional comment field on the leave-client-feedback screen."
+  },
+  "clientReviewCommentOptionalTag": "optional",
+  "@clientReviewCommentOptionalTag": {
+    "description": "Small 'optional' tag beside the comment section eyebrow on the leave-client-feedback screen."
+  },
+  "clientReviewRatingPrompt": "Tap a star to rate",
+  "@clientReviewRatingPrompt": {
+    "description": "Prompt shown under the stars before any rating is selected on the leave-client-feedback screen."
+  },
+  "clientReviewStarsSemantics": "Client rating from 1 to 5 stars",
+  "@clientReviewStarsSemantics": {
+    "description": "Accessibility label for the 5-star rating input on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel1": "Poor",
+  "@clientReviewRatingLabel1": {
+    "description": "Descriptive label for a 1-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel2": "Fair",
+  "@clientReviewRatingLabel2": {
+    "description": "Descriptive label for a 2-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel3": "Okay",
+  "@clientReviewRatingLabel3": {
+    "description": "Descriptive label for a 3-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel4": "Good",
+  "@clientReviewRatingLabel4": {
+    "description": "Descriptive label for a 4-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel5": "Great",
+  "@clientReviewRatingLabel5": {
+    "description": "Descriptive label for a 5-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewCommentHint": "Add a comment (optional)",
+  "@clientReviewCommentHint": {
+    "description": "Placeholder text inside the optional comment field on the leave-client-feedback screen."
+  },
+  "clientReviewCommentPrivacyNote": "The client will not see this comment",
+  "@clientReviewCommentPrivacyNote": {
+    "description": "Inline reminder beside the comment counter on the leave-client-feedback screen — the client never sees this text, only their aggregate rating number moves."
+  },
+  "clientReviewPrivateChipLabel": "private",
+  "@clientReviewPrivateChipLabel": {
+    "description": "Small lock chip on the client identity card of the leave-client-feedback screen, foreshadowing that the record is internal."
+  },
+  "clientReviewRoleLabel": "Client",
+  "@clientReviewRoleLabel": {
+    "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."
+  },
+  "clientReviewSubmitCta": "Send feedback",
+  "@clientReviewSubmitCta": {
+    "description": "Primary submit button on the leave-client-feedback screen; disabled until a star is selected."
+  },
+  "clientReviewSubmitSuccess": "Feedback saved",
+  "@clientReviewSubmitSuccess": {
+    "description": "Snackbar shown after client feedback is successfully submitted on the leave-client-feedback screen."
+  },
+  "clientReviewUnavailableTitle": "Feedback about this client was already left",
+  "@clientReviewUnavailableTitle": {
+    "description": "Title of the info state shown when feedback about this booking's client was already left, reached via the submit-time 409 (no client-side gate exists to pre-empt it)."
+  },
+  "clientReviewUnavailableBody": "Feedback about a client can only be left for a completed booking — and only once. It is added to the client's rating.",
+  "@clientReviewUnavailableBody": {
+    "description": "Body copy of the not-reviewable info state on the leave-client-feedback screen."
+  },
+  "clientReviewUnavailableCta": "Back to bookings",
+  "@clientReviewUnavailableCta": {
+    "description": "Button in the not-reviewable info state that returns to the provider's bookings list."
+  },
+  "clientReviewErrAlreadyReviewed": "You have already left feedback about this client.",
+  "@clientReviewErrAlreadyReviewed": {
+    "description": "Error message when POST /client-reviews returns 409 because feedback already exists for this booking's client."
+  },
+  "clientReviewErrNotAllowed": "This booking is not available for client feedback.",
+  "@clientReviewErrNotAllowed": {
+    "description": "Error message when POST /client-reviews is rejected (403 not the provider / 4xx booking not completed or guest booking) on the leave-client-feedback screen."
   },
   "bookingRescheduleSubmitCta": "Reschedule booking",
   "@bookingRescheduleSubmitCta": {

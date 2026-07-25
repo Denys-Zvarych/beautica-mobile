@@ -266,6 +266,20 @@ abstract final class RouteNames {
   static String masterBookingDetail(String bookingId) =>
       '$masterBookings/${Uri.encodeComponent(bookingId)}';
 
+  /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback), nested
+  /// under [masterBookingDetail] so it pushes onto the master's own stack and
+  /// pops back to the detail — mirrors [bookingReview]'s nesting for the
+  /// opposite (CLIENT→MASTER) direction.
+  ///
+  /// Reached from the detail's COMPLETED-provider-booking entry CTA
+  /// (`_DetailBody._providerActions`). Unlike [bookingReview] there is no
+  /// server-computed canReview-equivalent flag for the provider side yet, so
+  /// the CTA is offered on every COMPLETED provider booking; a duplicate
+  /// submit's 409 is handled ON the destination screen (see
+  /// `LeaveClientFeedbackScreen`'s file header).
+  static String clientReview(String bookingId) =>
+      '${masterBookingDetail(bookingId)}/review';
+
   // Master profile settings hub (INDEPENDENT_MASTER). Pushed from the profile
   // screen's top-right menu icon. Lists edit sections, each pushing its own
   // dedicated page; the terminal logout row raises the logout confirm dialog.

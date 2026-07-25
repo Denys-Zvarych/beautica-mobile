@@ -2970,6 +2970,16 @@
   "@myRatingExplanation": {
     "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
   },
+  "myRatingReviewCount": "{count, plural, =0{0 відгуків} =1{1 відгук} few{{count} відгуки} many{{count} відгуків} other{{count} відгуків}}",
+  "@myRatingReviewCount": {
+    "description": "Review-count line under the client's average rating on the My Rating screen (track 7.x Wave B, GET /users/me/rating).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
   "passportColumnProcedures": "Улюблені процедури",
   "@passportColumnProcedures": {
     "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
@@ -4050,6 +4060,106 @@
   "reviewMasterRoleIndependent": "Незалежний майстер",
   "@reviewMasterRoleIndependent": {
     "description": "Fallback role subtitle on the master feedback card when the master has no professional title and is not salon-employed."
+  },
+  "bookingDetailClientReviewCta": "Залишити відгук про клієнта",
+  "@bookingDetailClientReviewCta": {
+    "description": "Track 7.x Wave B — PROVIDER footer action on a COMPLETED booking's detail screen; opens the leave-client-feedback screen. Offered on every COMPLETED provider booking (no server-side canReview-equivalent gate exists yet)."
+  },
+  "clientReviewScreenTitle": "ВІДГУК ПРО КЛІЄНТА",
+  "@clientReviewScreenTitle": {
+    "description": "Top-bar title of the leave-client-feedback screen (track 7.x Wave B)."
+  },
+  "clientReviewBackSemantics": "Назад",
+  "@clientReviewBackSemantics": {
+    "description": "Accessibility label for the back button on the leave-client-feedback screen."
+  },
+  "clientReviewRatingSection": "ОЦІНКА КЛІЄНТА",
+  "@clientReviewRatingSection": {
+    "description": "Section eyebrow above the required star-rating input on the leave-client-feedback screen."
+  },
+  "clientReviewRatingRequiredTag": "обов’язково",
+  "@clientReviewRatingRequiredTag": {
+    "description": "Small 'required' tag beside the rating section eyebrow on the leave-client-feedback screen."
+  },
+  "clientReviewCommentSection": "КОМЕНТАР ПРО КЛІЄНТА",
+  "@clientReviewCommentSection": {
+    "description": "Section eyebrow above the optional comment field on the leave-client-feedback screen."
+  },
+  "clientReviewCommentOptionalTag": "за бажанням",
+  "@clientReviewCommentOptionalTag": {
+    "description": "Small 'optional' tag beside the comment section eyebrow on the leave-client-feedback screen."
+  },
+  "clientReviewRatingPrompt": "Торкніться зірки, щоб оцінити",
+  "@clientReviewRatingPrompt": {
+    "description": "Prompt shown under the stars before any rating is selected on the leave-client-feedback screen."
+  },
+  "clientReviewStarsSemantics": "Оцінка клієнта від 1 до 5 зірок",
+  "@clientReviewStarsSemantics": {
+    "description": "Accessibility label for the 5-star rating input on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel1": "Погано",
+  "@clientReviewRatingLabel1": {
+    "description": "Descriptive label for a 1-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel2": "Так собі",
+  "@clientReviewRatingLabel2": {
+    "description": "Descriptive label for a 2-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel3": "Нормально",
+  "@clientReviewRatingLabel3": {
+    "description": "Descriptive label for a 3-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel4": "Добре",
+  "@clientReviewRatingLabel4": {
+    "description": "Descriptive label for a 4-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel5": "Чудово",
+  "@clientReviewRatingLabel5": {
+    "description": "Descriptive label for a 5-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewCommentHint": "Додайте коментар (необов’язково)",
+  "@clientReviewCommentHint": {
+    "description": "Placeholder text inside the optional comment field on the leave-client-feedback screen."
+  },
+  "clientReviewCommentPrivacyNote": "Клієнт цього коментаря не побачить",
+  "@clientReviewCommentPrivacyNote": {
+    "description": "Inline reminder beside the comment counter on the leave-client-feedback screen — the client never sees this text, only their aggregate rating number moves."
+  },
+  "clientReviewPrivateChipLabel": "приватно",
+  "@clientReviewPrivateChipLabel": {
+    "description": "Small lock chip on the client identity card of the leave-client-feedback screen, foreshadowing that the record is internal."
+  },
+  "clientReviewRoleLabel": "Клієнт",
+  "@clientReviewRoleLabel": {
+    "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."
+  },
+  "clientReviewSubmitCta": "Надіслати відгук",
+  "@clientReviewSubmitCta": {
+    "description": "Primary submit button on the leave-client-feedback screen; disabled until a star is selected."
+  },
+  "clientReviewSubmitSuccess": "Відгук збережено",
+  "@clientReviewSubmitSuccess": {
+    "description": "Snackbar shown after client feedback is successfully submitted on the leave-client-feedback screen."
+  },
+  "clientReviewUnavailableTitle": "Відгук про цього клієнта вже залишено",
+  "@clientReviewUnavailableTitle": {
+    "description": "Title of the info state shown when feedback about this booking's client was already left, reached via the submit-time 409 (no client-side gate exists to pre-empt it)."
+  },
+  "clientReviewUnavailableBody": "Відгук про клієнта можна залишити лише про завершений запис — і лише один раз. Він додається до рейтингу клієнта.",
+  "@clientReviewUnavailableBody": {
+    "description": "Body copy of the not-reviewable info state on the leave-client-feedback screen."
+  },
+  "clientReviewUnavailableCta": "До записів",
+  "@clientReviewUnavailableCta": {
+    "description": "Button in the not-reviewable info state that returns to the provider's bookings list."
+  },
+  "clientReviewErrAlreadyReviewed": "Ви вже залишили відгук про цього клієнта.",
+  "@clientReviewErrAlreadyReviewed": {
+    "description": "Error message when POST /client-reviews returns 409 because feedback already exists for this booking's client."
+  },
+  "clientReviewErrNotAllowed": "Цей запис недоступний для відгуку про клієнта.",
+  "@clientReviewErrNotAllowed": {
+    "description": "Error message when POST /client-reviews is rejected (403 not the provider / 4xx booking not completed or guest booking) on the leave-client-feedback screen."
   },
   "bookingRescheduleSubmitCta": "Перенести запис",
   "@bookingRescheduleSubmitCta": {

@@ -14,6 +14,7 @@ import 'package:beautica_api/src/api/auth_controller_api.dart';
 import 'package:beautica_api/src/api/booking_controller_api.dart';
 import 'package:beautica_api/src/api/category_request_controller_api.dart';
 import 'package:beautica_api/src/api/client_controller_api.dart';
+import 'package:beautica_api/src/api/client_review_controller_api.dart';
 import 'package:beautica_api/src/api/dashboard_controller_api.dart';
 import 'package:beautica_api/src/api/device_controller_api.dart';
 import 'package:beautica_api/src/api/favorite_controller_api.dart';
@@ -129,6 +130,12 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   ClientControllerApi getClientControllerApi() {
     return ClientControllerApi(dio, serializers);
+  }
+
+  /// Get ClientReviewControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  ClientReviewControllerApi getClientReviewControllerApi() {
+    return ClientReviewControllerApi(dio, serializers);
   }
 
   /// Get DashboardControllerApi instance, base route and serializer can be overridden by a given but be careful,

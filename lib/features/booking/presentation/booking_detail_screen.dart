@@ -326,6 +326,15 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     context.push(RouteNames.bookingReview(booking.id));
   }
 
+  /// «Залишити відгук про клієнта» (track 7.x Wave B) — pushes the leave-
+  /// client-feedback screen onto the master's own stack (swipe-back returns
+  /// here). Offered on every COMPLETED provider booking — see
+  /// `_DetailBody._providerActions`'s doc for why there is no client-side gate
+  /// to check first.
+  void _onLeaveClientFeedback(Booking booking) {
+    context.push(RouteNames.clientReview(booking.id));
+  }
+
   @override
   Widget build(BuildContext context) {
     final AsyncValue<Booking> async = ref.watch(
@@ -356,6 +365,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         onComplete: () => _confirmComplete(context, booking),
         onRebook: () => _onRebook(booking),
         onLeaveReview: () => _onLeaveReview(booking),
+        onLeaveClientFeedback: () => _onLeaveClientFeedback(booking),
         onAddToCalendar: () => _onAddToCalendar(context, booking),
       ),
     );
@@ -375,6 +385,7 @@ class _DetailBody extends StatelessWidget {
     required this.onComplete,
     required this.onRebook,
     required this.onLeaveReview,
+    required this.onLeaveClientFeedback,
     required this.onAddToCalendar,
   });
 
@@ -391,6 +402,9 @@ class _DetailBody extends StatelessWidget {
   final VoidCallback onComplete;
   final VoidCallback onRebook;
   final VoidCallback onLeaveReview;
+
+  /// Track 7.x Wave B — the PROVIDER'S «Залишити відгук про клієнта».
+  final VoidCallback onLeaveClientFeedback;
   final VoidCallback onAddToCalendar;
 
   @override
@@ -649,16 +663,32 @@ class _DetailBody extends StatelessWidget {
   ///     decline are hidden, not merely disabled: both would 409 server-side
   ///     once the appointment has begun (see `hasStarted`'s doc for why this
   ///     is a DIFFERENT gate than the client-side [Booking.isPast]).
-  ///   * Every terminal status (COMPLETED / CANCELLED / DECLINED /
-  ///     NOT_COMPLETED / unknown) — read-only, no actions.
+  ///   * COMPLETED — «Залишити відгук про клієнта» (track 7.x Wave B). PRIVATE
+  ///     feedback about the booking's client; the client only ever sees their
+  ///     aggregate rating number move, never this screen's words.
+  ///   * Every other terminal status (CANCELLED / DECLINED / NOT_COMPLETED /
+  ///     unknown) — read-only, no actions.
   ///
-  /// TODO(track 27.x — «Залишити відгук про клієнта»): once the master→client
-  /// review screen is built and design-approved (backend 27.4–27.6 already
-  /// shipped `POST /client-reviews` + `GET /users/me/rating`), attach it here
-  /// for a COMPLETED booking, gated on a server-computed provider-side
-  /// canReview-equivalent — mirror how the CLIENT footer gates its review CTA
-  /// on `booking.canReview` rather than inventing a client-side heuristic.
+  /// GATING NOTE (track 7.x Wave B): unlike the CLIENT footer's «Залишити
+  /// відгук про майстра» (gated on the server-computed `booking.canReview`),
+  /// `BookingDetailResponse` carries NO provider-side canReview-equivalent
+  /// flag — there is nothing to gate this CTA on beyond COMPLETED, so it is
+  /// offered on every COMPLETED provider booking, including one whose client
+  /// was already reviewed. The 409 the backend returns for a duplicate submit
+  /// (`ClientReviewAlreadyExistsFailure`) is handled ON the destination screen
+  /// (`LeaveClientFeedbackScreen` swaps its form for a not-reviewable info
+  /// state) rather than pre-empted here.
   List<Widget> _providerActions(AppLocalizations l10n) {
+    if (booking.status == BookingStatus.completed) {
+      return <Widget>[
+        NeumorphicButton(
+          key: const Key('booking-detail-leave-client-feedback'),
+          label: l10n.bookingDetailClientReviewCta,
+          icon: Icons.rate_review_rounded,
+          onPressed: onLeaveClientFeedback,
+        ),
+      ];
+    }
     if (booking.status != BookingStatus.confirmed) {
       return const <Widget>[];
     }

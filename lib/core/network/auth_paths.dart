@@ -106,6 +106,13 @@ const Set<String> kPiiPaths = {
   // (detail/cancel/decline/not-complete/review) are covered by the prefix in
   // [kPiiPathPrefixes] below.
   '/api/v1/appointments',
+  // Track 7.x Wave B — PROVIDER→CLIENT leave-feedback create endpoint. Exact
+  // match: the bare `/api/v1/client-reviews` path (no dynamic segment)
+  // carries the free-text `comment` field on POST — the provider's private
+  // note about the client, never shown to the client, but still free text
+  // that must not land in plain-text debug logs. Mirrors the `/api/v1/
+  // bookings` and `/api/v1/appointments` exact-match precedents above.
+  '/api/v1/client-reviews',
 };
 
 /// Path PREFIXES whose request/response bodies — and URL query strings — carry

@@ -342,6 +342,62 @@ void main() {
       );
     });
 
+    // ── Track 7.x Wave B — client-review PII path (mobile-security HIGH fix) ─
+    //
+    // `POST /api/v1/client-reviews` carries the provider's free-text
+    // `comment` about the client (private feedback, never shown to the
+    // client — but still free text that must never land in plain-text debug
+    // logs, exactly like the CLIENT→MASTER `POST /reviews` comment). This is
+    // the tripwire guarding the fix — if the exact-match entry is ever
+    // removed from kPiiPaths, this fails loudly instead of silently logging
+    // PII again.
+    test('bare POST /client-reviews is in kPiiPaths (exact match, no dynamic '
+        'segment)', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/client-reviews'),
+        reason:
+            'POST /client-reviews carries the free-text provider comment '
+            'about the client — its body must be redacted in debug logs, '
+            'exactly like POST /bookings and POST /appointments.',
+      );
+    });
+
+    test(
+      '/api/v1/client-reviews is classified as a PII route via isPiiPath',
+      () {
+        expect(
+          isPiiPath('/api/v1/client-reviews'),
+          isTrue,
+          reason:
+              'isPiiPath must resolve true for the exact bare path so '
+              'LoggingInterceptor redacts the request body.',
+        );
+      },
+    );
+
+    test('a PII client-reviews path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/client-reviews?token=secret'),
+        equals('/api/v1/client-reviews?[REDACTED]'),
+      );
+    });
+
+    test(
+      '/api/v1/client-reviews is NOT in kAuthPaths (it is authenticated)',
+      () {
+        expect(
+          kAuthPaths,
+          isNot(contains('/api/v1/client-reviews')),
+          reason:
+              'POST /client-reviews requires a Bearer token (the authenticated '
+              'provider) — listing it in kAuthPaths would strip the token and '
+              'cause a 401, mirroring the independent-masters/me precedent '
+              'above.',
+        );
+      },
+    );
+
     test('auth/PII token route: whole query redacted (token value absent)', () {
       // /api/v1/auth/verify-email is an exact kPiiPaths member → full mask,
       // including the param NAME, not just its value.

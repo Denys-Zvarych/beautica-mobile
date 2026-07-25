@@ -25,6 +25,7 @@ import 'package:beautica_mobile/core/network/dio_provider.dart';
 
 import 'appointment_repository.dart';
 import 'booking_repository.dart';
+import 'client_review_repository.dart';
 import 'slot_repository.dart';
 
 part 'booking_providers.g.dart';
@@ -81,3 +82,18 @@ AppointmentRepository appointmentRepository(Ref ref) =>
 @Riverpod(keepAlive: true)
 SlotRepository slotRepository(Ref ref) =>
     HttpSlotRepository(ref.watch(masterApiProvider));
+
+/// Provides the generated [ClientReviewControllerApi] singleton for the
+/// PROVIDER→CLIENT leave-feedback write path (`POST /client-reviews`, track
+/// 7.x Wave B). A dedicated provider local to this feature — mirrors
+/// [bookingReviewApi] above — rather than importing another feature's data
+/// layer.
+@Riverpod(keepAlive: true)
+ClientReviewControllerApi clientReviewApi(Ref ref) =>
+    ClientReviewControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the [ClientReviewRepository] singleton backed by
+/// [clientReviewApiProvider].
+@Riverpod(keepAlive: true)
+ClientReviewRepository clientReviewRepository(Ref ref) =>
+    HttpClientReviewRepository(ref.watch(clientReviewApiProvider));

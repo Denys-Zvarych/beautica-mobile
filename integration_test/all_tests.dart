@@ -89,6 +89,8 @@ import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
+import 'master_leave_client_feedback_flow_test.dart'
+    as master_leave_client_feedback;
 import 'master_received_reviews_flow_test.dart' as master_received_reviews;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
@@ -207,6 +209,10 @@ void main() {
     master_booking_provider_actions.main,
   );
   group('master_home_add_services_flow', master_home_add_services.main);
+  // Track 7.x Wave B — the PROVIDER leave-client-feedback journey (detail →
+  // «ВІДГУК ПРО КЛІЄНТА» → submit) against a real HTTP boundary (Step 2.7
+  // Rule 3b).
+  group('master_leave_client_feedback_flow', master_leave_client_feedback.main);
   group('master_received_reviews_flow', master_received_reviews.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);

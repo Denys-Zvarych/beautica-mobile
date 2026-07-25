@@ -49,6 +49,7 @@ import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/appointment_review_screen.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
+import '../features/booking/presentation/leave_client_feedback_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
 import '../features/booking/presentation/visit_detail_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
@@ -889,6 +890,21 @@ GoRouter appRouter(Ref ref) {
             builder: (context, state) => BookingDetailScreen(
               bookingId: state.pathParameters['bookingId']!,
             ),
+            routes: [
+              // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-
+              // feedback), nested under the detail so it pushes onto the
+              // master's own stack (swipe-back returns to the detail).
+              // Reached from the detail's COMPLETED-provider-booking entry
+              // CTA. `builder:` (not `pageBuilder: _instantPage`) so the
+              // default Material transition + left-edge swipe-back apply,
+              // matching the detail route and its CLIENT-side `review` twin.
+              GoRoute(
+                path: 'review',
+                builder: (context, state) => LeaveClientFeedbackScreen(
+                  bookingId: state.pathParameters['bookingId']!,
+                ),
+              ),
+            ],
           ),
         ],
       ),
