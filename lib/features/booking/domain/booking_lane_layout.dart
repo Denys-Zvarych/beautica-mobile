@@ -40,11 +40,28 @@
 //   `.notCompleted`) in `startAt` order, each into the first lane `>= floor`,
 //   where `floor = 1 + (the highest lane index any OVERLAPPING active
 //   booking landed in)`, or `0` if no active booking overlaps it at all.
-//   "Free" is tested against every booking already placed by EITHER pass
-//   (active or cancelled), via the same shared `laneEnd` bookkeeping pass 1
-//   already used — a cancelled booking can still share a lane with another
-//   cancelled booking once it is demoted, it just may never sit AT OR BELOW
-//   an active booking it genuinely overlaps.
+//   "Free" is tested against a SEPARATE `cancelledLaneEnd` array that pass 2
+//   builds fresh as it sweeps — it is deliberately NOT the `laneEnd` array
+//   pass 1 wrote.
+//
+//   Reusing pass 1's `laneEnd` for that test was the `fe018d3` REGRESSION
+//   ("cancelled bookings shifted right with nothing overlapping them"):
+//   `laneEnd[lane]` only ever holds the END OF THE LAST ACTIVE OCCUPANT pass
+//   1 placed in that lane. By the time pass 1 finishes, `laneEnd[0]` is the
+//   end of the LAST active booking of the WHOLE DAY — regardless of whether
+//   it overlaps the cancelled booking pass 2 is currently placing. A
+//   cancelled 14:00-15:00 booking tested against a `laneEnd[0]` left by an
+//   unrelated active 17:00-18:00 booking reads as "lane 0 busy" and gets
+//   bumped to lane 1 for no reason. `floor`, computed just above from the
+//   genuine `_overlaps` pairwise scan, already guarantees every lane `>=
+//   floor` is clear of ACTIVE bookings this cancelled booking actually
+//   overlaps — that is the entire contract pass 2 owes to pass 1. All pass 2
+//   needs beyond `floor` is to avoid stacking two cancelled-class bookings
+//   on top of each other, which only requires tracking cancelled-class
+//   occupancy, hence the dedicated `cancelledLaneEnd` array. A cancelled
+//   booking sharing a lane column with a non-overlapping active booking is
+//   correct and desirable, not a bug — do NOT "simplify" this back to a
+//   shared array.
 //
 // WHY THIS ACHIEVES "EVERY ACTIVE LANE IS LEFT OF EVERY OVERLAPPING
 // CANCELLED LANE": for any pair of overlapping bookings on the timeline,
@@ -173,10 +190,11 @@ List<int> assignLanes(List<Booking> bookings) {
   cancelledByStart.sort(_byStartThenOriginalIndex);
 
   final List<int> laneByOriginalIndex = List<int>.filled(bookings.length, 0);
-  // laneEnd[lane] == the endAt of the lane's current last occupant — shared
-  // across both passes, so a cancelled booking placed in pass 2 correctly
-  // sees (and can reuse, once vacated) every lane an active booking already
-  // opened in pass 1.
+  // laneEnd[lane] == the endAt of the lane's current last occupant.
+  // PASS-1-ONLY — see this file's header (`fe018d3` regression note). Pass 2
+  // reads pass 1's per-booking lane assignments (`laneByOriginalIndex`) to
+  // compute `floor`, but never consults this array's occupancy state; it
+  // tracks its own in `cancelledLaneEnd` below.
   final List<DateTime> laneEnd = <DateTime>[];
 
   // Pass 1 — ACTIVE bookings only. Exactly the original (pre-status-aware)
@@ -201,6 +219,14 @@ List<int> assignLanes(List<Booking> bookings) {
   // booking it genuinely overlaps (see this file's header). `floor` is
   // recomputed per booking from the now-final active lane assignments above;
   // pass 2 never revisits or mutates them.
+  //
+  // cancelledLaneEnd[lane] == the endAt of the lane's current last
+  // CANCELLED-CLASS occupant, or `null` if pass 2 hasn't placed anything
+  // there yet. Deliberately separate from pass 1's `laneEnd` (see this
+  // file's header) — `floor` alone already keeps this booking clear of every
+  // ACTIVE booking it overlaps, so this array only needs to prevent two
+  // CANCELLED-CLASS bookings from colliding with each other.
+  final List<DateTime?> cancelledLaneEnd = <DateTime?>[];
   for (final MapEntry<int, Booking> entry in cancelledByStart) {
     final Booking booking = entry.value;
     int floor = 0;
@@ -218,14 +244,28 @@ List<int> assignLanes(List<Booking> bookings) {
       }
     }
     int lane = floor;
-    while (lane < laneEnd.length && laneEnd[lane].isAfter(booking.startAt)) {
+    // A lane is free once its last CANCELLED-CLASS occupant's endAt is <=
+    // this booking's startAt (touching endpoints count as free — see doc
+    // above), or once it has never held a CANCELLED-CLASS occupant at all
+    // (`null`). Lanes below `floor` are skipped entirely — `floor` already
+    // rules them out on ACTIVE-overlap grounds, and this array has nothing
+    // to add there.
+    while (lane < cancelledLaneEnd.length &&
+        cancelledLaneEnd[lane] != null &&
+        cancelledLaneEnd[lane]!.isAfter(booking.startAt)) {
       lane++;
     }
-    if (lane == laneEnd.length) {
-      laneEnd.add(booking.endAt);
-    } else {
-      laneEnd[lane] = booking.endAt;
+    // `lane` can land past the CURRENT end of `cancelledLaneEnd` by more than
+    // one slot — `floor` may already sit above every lane pass 2 has opened
+    // so far (an active booking can claim a high lane with nothing
+    // cancelled-class anywhere below it yet). Pad with `null` ("no
+    // CANCELLED-CLASS occupant yet", i.e. free) up to `lane` rather than the
+    // pass-1-style single `.add`, which would silently corrupt indices past
+    // the end of the list.
+    if (lane >= cancelledLaneEnd.length) {
+      cancelledLaneEnd.length = lane + 1;
     }
+    cancelledLaneEnd[lane] = booking.endAt;
     laneByOriginalIndex[entry.key] = lane;
   }
 

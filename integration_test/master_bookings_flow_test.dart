@@ -2135,4 +2135,168 @@ void main() {
       );
     },
   );
+
+  // ── mobile-qa (2026-07-26) — status-aware lane assignment: an ISOLATED
+  //      cancelled booking (overlapping NOTHING) must also render in the
+  //      leftmost lane — not just the overlap-demotion case above ─────────
+  //
+  // Step 2.7 Rule 3b. The unit tier's minimal repro
+  // (`booking_lane_layout_test.dart`'s "an ISOLATED cancelled booking
+  // sandwiched between two unrelated active bookings...") proves
+  // `assignLanes` itself no longer reads pass 1's stale `laneEnd` watermark
+  // for a cancelled booking that overlaps nothing — but it is fed a
+  // hand-built `List<Booking>`. It cannot prove the fix survives the real
+  // `GET /bookings/me` (server `startsAt` order) -> `BookingMapper` ->
+  // `BookingsDayNotifier` -> `BookingsTimelineGrid` chain this bug was
+  // actually reported against, which is exactly the gap the sibling
+  // overlap-demotion test directly above closes for the OVERLAP shape of
+  // this same fix. This closes it for the ISOLATED shape: a regression
+  // specific to how the grid feeds `assignLanes` its day-scoped,
+  // server-ordered list (e.g. a future edit that re-sorted or filtered
+  // before the call, or reintroduced a shared occupancy array at a layer
+  // above `assignLanes` itself) would not be caught by the unit tier alone.
+  //
+  // No `integration_test/patrol/` case is needed here — nothing in this
+  // flow touches a native surface (no OS permission dialog, deep link, push
+  // notification, WebView, or biometric prompt); it is pure Flutter
+  // widget/HTTP plumbing, fully reachable through the existing fake-backed
+  // `integration_test/` harness.
+  testWidgets(
+    'a CANCELLED booking overlapping NOTHING, sandwiched between an early '
+    'and a late active booking, still renders in the leftmost lane — '
+    'left-aligned with both active cards — through a real GET /bookings/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // Same Kyiv day as the fake's booked-days seed, derived from
+      // `fb.bookingStartsAt` rather than hand-typed — see the "two
+      // back-to-back" test above for the incident that idiom prevents.
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time) — the same
+      // 09:00/14:00/17:00 Kyiv shape as the unit tier's minimal repro,
+      // carried onto the wire.
+      final DateTime earlyStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+      // 11:00 UTC == 14:00 Kyiv — clear of the early booking's 10:00 Kyiv
+      // end and well before the late booking's 17:00 Kyiv start, so it
+      // genuinely overlaps NEITHER of them.
+      final DateTime isolatedCancelledStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        11,
+      );
+      // 14:00 UTC == 17:00 Kyiv.
+      final DateTime lateStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        14,
+      );
+
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'early-active',
+          status: 'CONFIRMED',
+          startsAt: earlyStart,
+          duration: const Duration(hours: 1),
+        ),
+        fb.datasetBookingRow(
+          id: 'isolated-cancelled',
+          status: 'CANCELLED',
+          startsAt: isolatedCancelledStart,
+          duration: const Duration(hours: 1),
+        ),
+        fb.datasetBookingRow(
+          id: 'late-active',
+          status: 'CONFIRMED',
+          startsAt: lateStart,
+          duration: const Duration(hours: 1),
+        ),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await _selectRailDay(tester, bookedDay);
+
+      expect(
+        fb.getMyBookingsCalls,
+        greaterThan(0),
+        reason: 'all three bookings must be served by the real endpoint',
+      );
+
+      // ── All three reached the screen over the real wire, WITHOUT any
+      //      horizontal scroll — this is the assertion the field bug broke:
+      //      a cancelled booking that overlaps nothing must never need the
+      //      grid scrolled right to be found. ─────────────────────────────
+      final Finder earlyCard = find.byKey(
+        const Key('master-booking-card-early-active'),
+      );
+      final Finder cancelledCard = find.byKey(
+        const Key('master-booking-card-isolated-cancelled'),
+      );
+      final Finder lateCard = find.byKey(
+        const Key('master-booking-card-late-active'),
+      );
+      expect(
+        earlyCard,
+        findsOneWidget,
+        reason: 'the early active booking must be visible without scroll',
+      );
+      expect(
+        cancelledCard,
+        findsOneWidget,
+        reason:
+            'the isolated cancelled booking must be visible WITHOUT any '
+            'horizontal scroll — this is the exact real-device report: a '
+            'master reading a cancelled card off-screen as "still blocking '
+            'the slot"',
+      );
+      expect(
+        lateCard,
+        findsOneWidget,
+        reason: 'the late active booking must be visible without scroll',
+      );
+
+      // ── The cancelled card is LEFT-ALIGNED with both active cards — real
+      //      rendered geometry, not a declared property. Nothing here
+      //      overlaps anything else, so all three sit in lane 0 and their
+      //      LEFT edges must coincide exactly. ─────────────────────────────
+      final Rect earlyRect = _masterCardRect(tester, 'early-active');
+      final Rect cancelledRect = _masterCardRect(tester, 'isolated-cancelled');
+      final Rect lateRect = _masterCardRect(tester, 'late-active');
+      expect(
+        cancelledRect.left,
+        earlyRect.left,
+        reason:
+            'the isolated cancelled card must be LEFT-ALIGNED with the '
+            'early active card — both in lane 0 — not shifted right by a '
+            "stale watermark left over from processing the LATE active "
+            "booking in pass 1 (the fe018d3 bug's exact shape)",
+      );
+      expect(
+        cancelledRect.left,
+        lateRect.left,
+        reason:
+            'the isolated cancelled card must also align with the LATE '
+            'active card — the very booking whose end time was the source '
+            'of the fe018d3 watermark leak',
+      );
+    },
+  );
 }
