@@ -398,7 +398,10 @@ class _StatefulFakeScheduleRepository implements ScheduleRepository {
   ) async => const <ScheduleOverride>[];
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async {
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async {
     putCount++;
     final DateTime key = _dateOnly(override.start);
     // Reflect the saved override in the effective data so the next
@@ -417,6 +420,15 @@ class _StatefulFakeScheduleRepository implements ScheduleRepository {
   Future<void> clearOverride(DateTime date) async {
     _effective.remove(_dateOnly(date));
   }
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   // ── Unused by these tests (weekly template path) ──────────────────────────
   @override
@@ -490,11 +502,22 @@ class _CountingRangeScheduleRepository implements ScheduleRepository {
 
   // ── Unused by the cache revisit test ───────────────────────────────────────
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async =>
-      override;
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async => override;
 
   @override
   Future<void> clearOverride(DateTime date) async {}
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   @override
   Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
@@ -622,7 +645,10 @@ class _CompleterScheduleRepository implements ScheduleRepository {
   }
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async {
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async {
     putCount++;
     _saved = true;
     return override;
@@ -632,6 +658,15 @@ class _CompleterScheduleRepository implements ScheduleRepository {
   Future<void> clearOverride(DateTime date) async {
     _saved = false;
   }
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   @override
   Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
@@ -1005,11 +1040,22 @@ class _MutableDiscreteRepository implements ScheduleRepository {
   ) async => const <ScheduleOverride>[];
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async =>
-      override;
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async => override;
 
   @override
   Future<void> clearOverride(DateTime date) async {}
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   @override
   Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[

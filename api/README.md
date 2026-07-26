@@ -127,6 +127,7 @@ Class | Method | HTTP request | Description
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getOverrides**](doc/MasterControllerApi.md#getoverrides) | **GET** /api/v1/masters/{masterId}/overrides | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWeeklySchedules**](doc/MasterControllerApi.md#getweeklyschedules) | **GET** /api/v1/masters/{masterId}/weekly-schedules | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWorkingDays**](doc/MasterControllerApi.md#getworkingdays) | **GET** /api/v1/masters/{masterId}/working-days | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**previewOverrideConflicts**](doc/MasterControllerApi.md#previewoverrideconflicts) | **POST** /api/v1/masters/{masterId}/overrides/conflicts | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**rotateMasterSalon**](doc/MasterControllerApi.md#rotatemastersalon) | **PATCH** /api/v1/masters/{masterId}/salon | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateMyProfile**](doc/MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateWeeklySchedule**](doc/MasterControllerApi.md#updateweeklyschedule) | **PUT** /api/v1/masters/{masterId}/weekly-schedules/{scheduleId} | 
@@ -225,6 +226,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseMasterServiceResponse](doc/ApiResponseMasterServiceResponse.md)
  - [ApiResponseMasterSummaryResponse](doc/ApiResponseMasterSummaryResponse.md)
  - [ApiResponseMediaFileResponse](doc/ApiResponseMediaFileResponse.md)
+ - [ApiResponseOverrideConflictPreviewResponse](doc/ApiResponseOverrideConflictPreviewResponse.md)
  - [ApiResponsePageMediaFileResponse](doc/ApiResponsePageMediaFileResponse.md)
  - [ApiResponsePageResponseBookingDetailResponse](doc/ApiResponsePageResponseBookingDetailResponse.md)
  - [ApiResponsePageResponseBookingResponse](doc/ApiResponsePageResponseBookingResponse.md)
@@ -319,6 +321,9 @@ Class | Method | HTTP request | Description
  - [MediaFileResponse](doc/MediaFileResponse.md)
  - [MyReviewResponse](doc/MyReviewResponse.md)
  - [OblastResponse](doc/OblastResponse.md)
+ - [OverrideConflictPreviewResponse](doc/OverrideConflictPreviewResponse.md)
+ - [OverrideConflictQueryRequest](doc/OverrideConflictQueryRequest.md)
+ - [OverrideConflictResponse](doc/OverrideConflictResponse.md)
  - [PageMediaFileResponse](doc/PageMediaFileResponse.md)
  - [PageResponseBookingDetailResponse](doc/PageResponseBookingDetailResponse.md)
  - [PageResponseBookingResponse](doc/PageResponseBookingResponse.md)

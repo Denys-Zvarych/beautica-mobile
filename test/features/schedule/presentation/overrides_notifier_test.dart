@@ -310,4 +310,152 @@ void main() {
       },
     );
   });
+
+  // ── 2026-07-26 booking-conflict design ────────────────────────────────────
+  //
+  // `checkConflicts` and `putSpan`'s `cancelOverlapping` forwarding had ZERO
+  // notifier-level coverage before this audit (mobile-qa, 2026-07-26) — every
+  // existing test in this file predates the design. The widget-level
+  // `day_hours_sheet_test.dart` booking-conflict-gate group covers the
+  // SINGLE-date `putOverride` path end-to-end; this closes the `putSpan`
+  // (multi-date) gap, which no other test reaches.
+
+  group('checkConflicts (2026-07-26 design)', () {
+    test('delegates straight to repo.previewConflicts and returns its result '
+        'WITHOUT touching provider state (no AsyncLoading flicker)', () async {
+      final previewResult = OverrideConflictCheck(
+        conflicts: <OverrideConflict>[
+          OverrideConflict(
+            bookingId: 'b1',
+            appointmentId: null,
+            date: DateTime(2026, 6, 20),
+            startsAt: DateTime.utc(2026, 6, 20, 10),
+            endsAt: DateTime.utc(2026, 6, 20, 11),
+            clientDisplayName: 'Клієнт',
+            serviceName: 'Послуга',
+          ),
+        ],
+        totalCount: 1,
+        truncated: false,
+        scanTruncated: false,
+      );
+      when(
+        () => repo.previewConflicts(any()),
+      ).thenAnswer((_) async => previewResult);
+
+      final container = makeContainer();
+      await container.read(overridesProvider(range).future);
+
+      // The provider's state is settled AsyncData before the check.
+      final AsyncValue<List<ScheduleOverride>> before = container.read(
+        overridesProvider(range),
+      );
+      expect(before, isA<AsyncData<List<ScheduleOverride>>>());
+
+      final span = _spanDayOff(DateTime(2026, 6, 20), DateTime(2026, 6, 20));
+      final result = await container
+          .read(overridesProvider(range).notifier)
+          .checkConflicts(span);
+
+      expect(result, same(previewResult));
+      verify(() => repo.previewConflicts(span)).called(1);
+      // State is untouched by the check — same instance as before.
+      expect(container.read(overridesProvider(range)), same(before));
+    });
+
+    test(
+      'a thrown Failure propagates directly — NOT wrapped in AsyncValue',
+      () async {
+        when(
+          () => repo.previewConflicts(any()),
+        ).thenThrow(const ServerFailure(statusCode: 500));
+
+        final container = makeContainer();
+        await container.read(overridesProvider(range).future);
+
+        // `checkConflicts` is not itself `async` — it returns
+        // `_repo.previewConflicts(span)` directly — so a mocktail
+        // `thenThrow` fires SYNCHRONOUSLY the instant the method is called,
+        // before a Future object even exists. `expectLater` needs a Future
+        // or a value; a bare call-expression argument would throw while
+        // being evaluated, outside the matcher's try/catch. Wrapping in a
+        // closure (the sync `expect` idiom) lets `throwsA` catch it.
+        expect(
+          () => container
+              .read(overridesProvider(range).notifier)
+              .checkConflicts(
+                _spanDayOff(DateTime(2026, 6, 20), DateTime(2026, 6, 20)),
+              ),
+          throwsA(isA<ServerFailure>()),
+        );
+        // The already-loaded override list is left intact — a failed CHECK must
+        // not disturb the provider's settled state.
+        expect(container.read(overridesProvider(range)).hasError, isFalse);
+      },
+    );
+  });
+
+  group('putSpan — cancelOverlapping forwarding (2026-07-26 design)', () {
+    test('cancelOverlapping: true is forwarded to EVERY expanded per-date PUT '
+        '(the consent is "cancel whatever overlaps", not "cancel exactly '
+        'these ids")', () async {
+      when(() => repo.putOverride(any(), cancelOverlapping: true)).thenAnswer(
+        (inv) async => inv.positionalArguments.first as ScheduleOverride,
+      );
+
+      final container = makeContainer();
+      await container.read(overridesProvider(range).future);
+
+      final start = DateTime(2026, 6, 10);
+      final end = DateTime(2026, 6, 12);
+      await container
+          .read(overridesProvider(range).notifier)
+          .putSpan(_spanDayOff(start, end), cancelOverlapping: true);
+
+      expect(container.read(overridesProvider(range)).hasError, isFalse);
+      final captured = verify(
+        () => repo.putOverride(
+          captureAny(),
+          cancelOverlapping: captureAny(named: 'cancelOverlapping'),
+        ),
+      ).captured;
+      // [override, cancelOverlapping] pairs, one per expanded date.
+      final flags = <bool>[
+        for (int i = 1; i < captured.length; i += 2) captured[i] as bool,
+      ];
+      expect(flags, hasLength(3));
+      expect(
+        flags.every((f) => f == true),
+        isTrue,
+        reason:
+            'every one of the 3 expanded dates must carry the SAME '
+            'consent flag the master gave once for the whole span',
+      );
+    });
+
+    test('the default cancelOverlapping: false preserves pre-existing '
+        'behaviour when a caller never opts in', () async {
+      when(() => repo.putOverride(any(), cancelOverlapping: false)).thenAnswer(
+        (inv) async => inv.positionalArguments.first as ScheduleOverride,
+      );
+
+      final container = makeContainer();
+      await container.read(overridesProvider(range).future);
+
+      await container
+          .read(overridesProvider(range).notifier)
+          .putSpan(_spanDayOff(DateTime(2026, 6, 10), DateTime(2026, 6, 11)));
+
+      final captured = verify(
+        () => repo.putOverride(
+          captureAny(),
+          cancelOverlapping: captureAny(named: 'cancelOverlapping'),
+        ),
+      ).captured;
+      final flags = <bool>[
+        for (int i = 1; i < captured.length; i += 2) captured[i] as bool,
+      ];
+      expect(flags.every((f) => f == false), isTrue);
+    });
+  });
 }

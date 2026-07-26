@@ -36,6 +36,7 @@ doc/ApiResponseMasterReviewSummaryResponse.md
 doc/ApiResponseMasterServiceResponse.md
 doc/ApiResponseMasterSummaryResponse.md
 doc/ApiResponseMediaFileResponse.md
+doc/ApiResponseOverrideConflictPreviewResponse.md
 doc/ApiResponsePageMediaFileResponse.md
 doc/ApiResponsePageResponseBookingDetailResponse.md
 doc/ApiResponsePageResponseBookingResponse.md
@@ -144,6 +145,9 @@ doc/MediaControllerApi.md
 doc/MediaFileResponse.md
 doc/MyReviewResponse.md
 doc/OblastResponse.md
+doc/OverrideConflictPreviewResponse.md
+doc/OverrideConflictQueryRequest.md
+doc/OverrideConflictResponse.md
 doc/PageMediaFileResponse.md
 doc/PageResponseBookingDetailResponse.md
 doc/PageResponseBookingResponse.md
@@ -293,6 +297,7 @@ lib/src/model/api_response_master_review_summary_response.dart
 lib/src/model/api_response_master_service_response.dart
 lib/src/model/api_response_master_summary_response.dart
 lib/src/model/api_response_media_file_response.dart
+lib/src/model/api_response_override_conflict_preview_response.dart
 lib/src/model/api_response_page_media_file_response.dart
 lib/src/model/api_response_page_response_booking_detail_response.dart
 lib/src/model/api_response_page_response_booking_response.dart
@@ -388,6 +393,9 @@ lib/src/model/master_working_day_response.dart
 lib/src/model/media_file_response.dart
 lib/src/model/my_review_response.dart
 lib/src/model/oblast_response.dart
+lib/src/model/override_conflict_preview_response.dart
+lib/src/model/override_conflict_query_request.dart
+lib/src/model/override_conflict_response.dart
 lib/src/model/page_media_file_response.dart
 lib/src/model/page_response_booking_detail_response.dart
 lib/src/model/page_response_booking_response.dart
@@ -461,3 +469,7 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_override_conflict_preview_response_test.dart
+test/override_conflict_preview_response_test.dart
+test/override_conflict_query_request_test.dart
+test/override_conflict_response_test.dart

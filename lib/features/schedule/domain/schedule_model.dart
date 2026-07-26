@@ -632,4 +632,141 @@ class ScheduleOverride {
     return '${start.toIso8601String()}_${kind.name}_'
         '${summariseIntervals(intervals)}';
   }
+
+  /// The new working window this override would leave in place, formatted
+  /// `HH:mm–HH:mm` (e.g. `10:00–15:00`) — the day-off-conflict dialog's
+  /// `narrowedHours` subline detail. `null` for a day-off (no window) or a
+  /// custom override with no working time at all.
+  ///
+  /// INTERVAL mode: the earliest interval start to the latest interval end.
+  /// EXPLICIT_TIMES mode: the earliest to the latest discrete start time —
+  /// there is no "end" for a discrete slot, so the span is start-to-start,
+  /// which is still a useful "these are the new hours" summary.
+  String? get narrowedHoursLabel {
+    if (kind == OverrideKind.dayOff) return null;
+    if (mode == WeekdayMode.explicitTimes) {
+      if (times.isEmpty) return null;
+      final sorted = sortDedupeTimes(times);
+      return '${formatTime(sorted.first)}–${formatTime(sorted.last)}';
+    }
+    if (intervals.isEmpty) return null;
+    final sorted = List<WorkInterval>.of(intervals)
+      ..sort((a, b) => a.startMinutes.compareTo(b.startMinutes));
+    final latestEnd = sorted.fold<TimeOfDay>(
+      sorted.first.end,
+      (acc, i) => i.endMinutes > (acc.hour * 60 + acc.minute) ? i.end : acc,
+    );
+    return '${formatTime(sorted.first.start)}–${formatTime(latestEnd)}';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-07-26 design — schedule override booking-conflict check.
+//
+// `POST /masters/{id}/overrides/conflicts` (read-only preview) and the
+// `cancelOverlapping` flag on `PUT /overrides/{date}` (write). See
+// `ScheduleRepository.previewConflicts` / `.putOverride` for the wire layer,
+// `OverridesNotifier.checkConflicts` for the orchestration, and
+// `DayOffConflictDialog` (presentation/widgets) for the confirmation UI these
+// feed. Ported from the approved preview at
+// `docs/signup-designs/DayOffConflictDialog/lib/screens/day_off_conflict_data.dart`
+// — the dialog's copy is NOT baked into these domain types (unlike the
+// preview, which returns literal Ukrainian strings from `title`/`subline`
+// getters): every user-facing string route through `AppLocalizations` per
+// the `no_raw_ui_strings` CI gate, so this app's `DayOffConflictDialog` reads
+// this DATA and composes the copy itself via l10n ICU plurals.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// What kind of schedule change produced a conflict list — decides which
+/// dialog copy the presentation layer selects.
+enum DayOffChangeKind {
+  /// One calendar date turned into a full day off.
+  singleDay,
+
+  /// A span of dates turned into days off (vacation, sick leave).
+  dateRange,
+
+  /// The date(s) stay a working day, but the hours were narrowed and some
+  /// bookings now fall outside them.
+  narrowedHours,
+}
+
+/// One CONFIRMED booking that a pending override would leave without
+/// availability. Carries no price — the dialog is about people and times,
+/// not revenue (locked 2026-07-26 design decision).
+class OverrideConflict {
+  const OverrideConflict({
+    required this.bookingId,
+    required this.appointmentId,
+    required this.date,
+    required this.startsAt,
+    required this.endsAt,
+    required this.clientDisplayName,
+    required this.serviceName,
+  });
+
+  final String bookingId;
+
+  /// Non-null when this conflict is one item of a multi-service visit.
+  final String? appointmentId;
+
+  /// Calendar date (Kyiv-local) the booking falls on — the backend's own
+  /// timezone-resolved value, never re-derived client-side from [startsAt].
+  final DateTime date;
+
+  final DateTime startsAt;
+  final DateTime endsAt;
+  final String clientDisplayName;
+  final String serviceName;
+
+  int get durationMinutes => endsAt.difference(startsAt).inMinutes;
+}
+
+/// The full result of `POST /overrides/conflicts` — [OverridesNotifier
+/// .checkConflicts]'s return value and the day-off-conflict dialog's single
+/// input (together with [start] / [end] / the change [DayOffChangeKind]).
+class OverrideConflictCheck {
+  const OverrideConflictCheck({
+    required this.conflicts,
+    required this.totalCount,
+    required this.truncated,
+    required this.scanTruncated,
+  });
+
+  /// Sorted chronologically by the backend. Capped at the server's
+  /// `MAX_PREVIEW_RESULTS` (500) — see [truncated].
+  final List<OverrideConflict> conflicts;
+
+  /// The server-computed conflict count. Equal to `conflicts.length` unless
+  /// [truncated] is true, in which case this is the true count (still exact,
+  /// since only the RESULT LIST was trimmed) — unless [scanTruncated] is
+  /// ALSO true, in which case this is only a lower bound (the candidate scan
+  /// itself was capped before counting). See [isCountExact].
+  final int totalCount;
+
+  /// True when [conflicts] was trimmed to fewer rows than [totalCount].
+  final bool truncated;
+
+  /// True when the server's underlying candidate scan itself was capped —
+  /// [totalCount] is then only a LOWER BOUND on the true conflict count, not
+  /// an exact figure. Independent of [truncated] (see that field's doc and
+  /// `ScheduleOverrideConflictService.MAX_CANDIDATES_SCANNED`'s javadoc on the
+  /// backend).
+  final bool scanTruncated;
+
+  bool get isEmpty => conflicts.isEmpty;
+  bool get isNotEmpty => conflicts.isNotEmpty;
+
+  /// False the moment [totalCount] cannot be trusted as the true conflict
+  /// count — the dialog must then render "at least N" copy instead of "N".
+  bool get isCountExact => !scanTruncated;
+
+  /// True when [conflicts] spans more than one calendar date — the dialog
+  /// then groups rows under date headers instead of relying on its own
+  /// subline to establish the day.
+  bool get spansMultipleDates {
+    if (conflicts.length < 2) return false;
+    final DateTime first = conflicts.first.date;
+    return conflicts.any((OverrideConflict c) => c.date != first);
+  }
 }

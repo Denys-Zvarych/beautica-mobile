@@ -70,6 +70,7 @@ export 'package:beautica_api/src/model/api_response_master_review_summary_respon
 export 'package:beautica_api/src/model/api_response_master_service_response.dart';
 export 'package:beautica_api/src/model/api_response_master_summary_response.dart';
 export 'package:beautica_api/src/model/api_response_media_file_response.dart';
+export 'package:beautica_api/src/model/api_response_override_conflict_preview_response.dart';
 export 'package:beautica_api/src/model/api_response_page_media_file_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_booking_detail_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
@@ -164,6 +165,9 @@ export 'package:beautica_api/src/model/master_working_day_response.dart';
 export 'package:beautica_api/src/model/media_file_response.dart';
 export 'package:beautica_api/src/model/my_review_response.dart';
 export 'package:beautica_api/src/model/oblast_response.dart';
+export 'package:beautica_api/src/model/override_conflict_preview_response.dart';
+export 'package:beautica_api/src/model/override_conflict_query_request.dart';
+export 'package:beautica_api/src/model/override_conflict_response.dart';
 export 'package:beautica_api/src/model/page_media_file_response.dart';
 export 'package:beautica_api/src/model/page_response_booking_detail_response.dart';
 export 'package:beautica_api/src/model/page_response_booking_response.dart';

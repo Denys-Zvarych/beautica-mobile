@@ -66,7 +66,15 @@ Booking _booking({
   String? clientLastName = 'Ткаченко',
   String? clientId = 'c1',
 }) {
-  final DateTime start = DateTime.utc(2026, 7, 14, 12);
+  // A fixed PAST instant, not a stale future one (scripts/
+  // forbid_stale_future_date_fixture.sh): this fixture defaults to a
+  // COMPLETED booking, which is always in the past by construction, and
+  // nothing in this suite reads `BookingDisplayX.isPast` or asserts on the
+  // formatted date string — so there is no "upcoming" behaviour to anchor to
+  // `DateTime.now()` for, unlike the reschedule/cancel-affordance fixtures
+  // `futureBookingStart()` exists for. A year < the current year is exempt
+  // from the gate automatically (it can never become "upcoming" again).
+  final DateTime start = DateTime.utc(2020, 7, 14, 12);
   return Booking(
     id: _bookingId,
     masterId: 'm1',
@@ -261,7 +269,16 @@ void main() {
         ).called(1);
         expect(find.text(l10n.clientReviewSubmitSuccess), findsOneWidget);
         expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
+        // Read AFTER the pop, not while the feedback screen's
+        // ImperativeRouteMatch (from context.push) is still on the stack —
+        // go_router's ImperativeRouteMatch exclusion (the trap this gate
+        // guards) only makes this read wrong for a still-pushed leaf. Here
+        // the pop already collapsed the stack back to the plain, never-
+        // pushed '/host' match, so `.uri` correctly reflects it; the
+        // `LeaveClientFeedbackScreen` findsNothing assertion just above is
+        // what actually proves the pop happened.
         expect(
+          // router-location-ok: read after the pop, not a still-pushed leaf
           router.routerDelegate.currentConfiguration.uri.toString(),
           '/host',
         );

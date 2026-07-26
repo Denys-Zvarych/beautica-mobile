@@ -137,6 +137,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
   @override
   final BuiltList<String>? times;
   @override
+  final bool? cancelOverlapping;
+  @override
   final bool? kindConsistent;
 
   factory _$ScheduleOverrideRequest(
@@ -149,6 +151,7 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
       this.mode,
       this.intervals,
       this.times,
+      this.cancelOverlapping,
       this.kindConsistent})
       : super._();
   @override
@@ -169,6 +172,7 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
         mode == other.mode &&
         intervals == other.intervals &&
         times == other.times &&
+        cancelOverlapping == other.cancelOverlapping &&
         kindConsistent == other.kindConsistent;
   }
 
@@ -180,6 +184,7 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     _$hash = $jc(_$hash, mode.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
     _$hash = $jc(_$hash, times.hashCode);
+    _$hash = $jc(_$hash, cancelOverlapping.hashCode);
     _$hash = $jc(_$hash, kindConsistent.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -193,6 +198,7 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
           ..add('mode', mode)
           ..add('intervals', intervals)
           ..add('times', times)
+          ..add('cancelOverlapping', cancelOverlapping)
           ..add('kindConsistent', kindConsistent))
         .toString();
   }
@@ -225,6 +231,11 @@ class ScheduleOverrideRequestBuilder
   ListBuilder<String> get times => _$this._times ??= ListBuilder<String>();
   set times(ListBuilder<String>? times) => _$this._times = times;
 
+  bool? _cancelOverlapping;
+  bool? get cancelOverlapping => _$this._cancelOverlapping;
+  set cancelOverlapping(bool? cancelOverlapping) =>
+      _$this._cancelOverlapping = cancelOverlapping;
+
   bool? _kindConsistent;
   bool? get kindConsistent => _$this._kindConsistent;
   set kindConsistent(bool? kindConsistent) =>
@@ -242,6 +253,7 @@ class ScheduleOverrideRequestBuilder
       _mode = $v.mode;
       _intervals = $v.intervals?.toBuilder();
       _times = $v.times?.toBuilder();
+      _cancelOverlapping = $v.cancelOverlapping;
       _kindConsistent = $v.kindConsistent;
       _$v = null;
     }
@@ -273,6 +285,7 @@ class ScheduleOverrideRequestBuilder
             mode: mode,
             intervals: _intervals?.build(),
             times: _times?.build(),
+            cancelOverlapping: cancelOverlapping,
             kindConsistent: kindConsistent,
           );
     } catch (_) {

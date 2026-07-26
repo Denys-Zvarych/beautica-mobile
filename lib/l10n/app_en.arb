@@ -2345,6 +2345,111 @@
   "@scheduleOverrideErrorsBanner": {
     "description": "Snackbar shown when trying to save custom hours with validation errors in the per-date override sheet (Phase 15.4)."
   },
+  "dayOffConflictCountPhrase": "{count, plural, =1{1 booking} other{{count} bookings}}",
+  "@dayOffConflictCountPhrase": {
+    "description": "The exact affected-bookings count phrase used inside the day-off/pause booking-conflict dialog's title (2026-07-26 design).",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictCountPhraseApprox": "{count, plural, =1{at least 1 booking} other{at least {count} bookings}}",
+  "@dayOffConflictCountPhraseApprox": {
+    "description": "Same as dayOffConflictCountPhrase but prefixed 'at least' — used when the backend conflict scan itself was capped (OverrideConflictCheck.isCountExact == false), so the true count is only a lower bound.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictTitleSingleDay": "You have {countPhrase} that day",
+  "@dayOffConflictTitleSingleDay": {
+    "description": "Day-off-conflict dialog title when a single calendar date turned into a full day off. countPhrase comes from dayOffConflictCountPhrase(Approx).",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictTitleRange": "You have {countPhrase} on these days",
+  "@dayOffConflictTitleRange": {
+    "description": "Day-off-conflict dialog title when a span of dates turned into days off.",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictTitleNarrowedHours": "Outside the new hours — {countPhrase}",
+  "@dayOffConflictTitleNarrowedHours": {
+    "description": "Day-off-conflict dialog title when the date stays a working day but the hours were narrowed and some bookings fall outside the new window.",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictSublineDayOff": "Day off · {date}",
+  "@dayOffConflictSublineDayOff": {
+    "description": "Day-off-conflict dialog subline restating a day-off change ('Day off · <date>'); used for both a single date and, with the day-count phrase appended, a date range.",
+    "placeholders": {
+      "date": { "type": "String" }
+    }
+  },
+  "dayOffConflictSublineDayCount": "{days, plural, =1{1 day} other{{days} days}}",
+  "@dayOffConflictSublineDayCount": {
+    "description": "Standalone inclusive day-count phrase appended after dayOffConflictSublineDayOff for a multi-date range change.",
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "dayOffConflictSublineNarrowedHours": "Working hours · {date} · {hours}",
+  "@dayOffConflictSublineNarrowedHours": {
+    "description": "Day-off-conflict dialog subline for a narrowed-hours change ('Working hours · <date> · <HH:mm–HH:mm>').",
+    "placeholders": {
+      "date": { "type": "String" },
+      "hours": { "type": "String" }
+    }
+  },
+  "dayOffConflictTroughCaption": "{count, plural, =1{This booking will be cancelled} other{These bookings will be cancelled}}",
+  "@dayOffConflictTroughCaption": {
+    "description": "Caption directly above the recessed conflict trough, naming what the list holds.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictConsequenceNote": "{count, plural, =1{The client will see the booking as \"Cancelled\".} other{The clients will see their bookings as \"Cancelled\".}}",
+  "@dayOffConflictConsequenceNote": {
+    "description": "Muted note under the conflict trough stating what the client(s) will see. Deliberately does NOT promise a notification — the 2026-07-26 backend design (D6) sends none for this path."
+  },
+  "dayOffConflictTruncatedNote": "{shown, plural, =1{Showing the first {shown} booking} other{Showing the first {shown} bookings}}",
+  "@dayOffConflictTruncatedNote": {
+    "description": "Shown only when OverrideConflictCheck.truncated is true — the returned row list was capped below the true count, so the trough is not showing every affected booking.",
+    "placeholders": {
+      "shown": { "type": "int" }
+    }
+  },
+  "dayOffConflictConfirmCta": "{count, plural, =1{Yes, cancel booking} other{Yes, cancel bookings}}",
+  "@dayOffConflictConfirmCta": {
+    "description": "The destructive confirm button label. Deliberately never shows the numeral itself (only used to pick the singular/plural noun) — 'Yes, cancel bookings', never 'Yes, cancel 3 bookings'.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictKeepCta": "Leave as is",
+  "@dayOffConflictKeepCta": {
+    "description": "The day-off-conflict dialog's safe back-out action. Deliberately avoids the ambiguous verb 'Cancel' (which would read as either 'cancel the bookings' or 'cancel this dialog')."
+  },
+  "dayOffCheckErrorTitle": "Couldn't check your bookings",
+  "@dayOffCheckErrorTitle": {
+    "description": "Title of the fallback dialog shown when the booking-conflict preview request itself fails (network down / server error) — never saves blind."
+  },
+  "dayOffCheckErrorBody": "Nothing has been changed. Saving a day off isn't safe until we can see your bookings for these dates.",
+  "@dayOffCheckErrorBody": {
+    "description": "Body copy of the conflict-check-failed dialog."
+  },
+  "dayOffCheckErrorRetryCta": "Try again",
+  "@dayOffCheckErrorRetryCta": {
+    "description": "Retry action on the conflict-check-failed dialog."
+  },
+  "scheduleOverrideErrRateLimited": "Too many attempts. Wait {seconds}s and try again.",
+  "@scheduleOverrideErrRateLimited": {
+    "description": "Error message for ScheduleOverrideRateLimitedFailure (HTTP 429 on PUT /overrides/{date}) when the server sent a Retry-After header — either the per-minute write-rate limit or the aggregate per-hour decline budget.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
   "applyScheduleTitle": "Schedule validity period",
   "@applyScheduleTitle": {
     "description": "Title of the apply-schedule sheet where the master sets the weekly template's validity window (Phase 15.5)."

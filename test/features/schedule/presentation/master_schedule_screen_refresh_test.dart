@@ -148,11 +148,22 @@ class _CountingFakeScheduleRepository implements ScheduleRepository {
   ) async => const <ScheduleOverride>[];
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async =>
-      override;
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async => override;
 
   @override
   Future<void> clearOverride(DateTime date) async {}
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   @override
   Future<List<WeeklySchedule>> listWeeklySchedules() async =>

@@ -1044,4 +1044,198 @@ void main() {
       expect(wire, Date(2024, 2, 29));
     });
   });
+
+  // ── 2026-07-26 booking-conflict design — POST /overrides/conflicts wire ───
+  //
+  // Zero coverage existed for this mapper surface before this audit
+  // (mobile-qa, 2026-07-26): `conflictQueryRequestForSpan` builds the request
+  // body every save now sends BEFORE any write; `overrideConflictFromResponse`
+  // / `overrideConflictCheckFromResponse` decode the response the day-off-
+  // conflict dialog renders. A silent field-name drift here would go
+  // undetected by every existing widget test (they all construct the domain
+  // types directly, never round-trip the wire).
+  group('conflictQueryRequestForSpan', () {
+    test('DAY_OFF span carries kind=DAY_OFF, no mode/intervals/times', () {
+      final span = ScheduleOverride.dayOff(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 29),
+      );
+      final req = ScheduleMapper.conflictQueryRequestForSpan(span);
+
+      expect(req.from, Date(2026, 7, 27));
+      expect(req.to, Date(2026, 7, 29));
+      expect(req.kind, OverrideConflictQueryRequestKindEnum.DAY_OFF);
+      expect(req.mode, isNull);
+      expect(req.intervals, isNull);
+      expect(req.times, isNull);
+    });
+
+    test('CUSTOM_HOURS/INTERVAL span carries kind=CUSTOM_HOURS, mode=INTERVAL, '
+        'the serialised intervals — never times', () {
+      final span = ScheduleOverride.custom(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        intervals: <WorkInterval>[
+          WorkInterval(
+            start: const TimeOfDay(hour: 9, minute: 0),
+            end: const TimeOfDay(hour: 18, minute: 0),
+          ),
+        ],
+      );
+      final req = ScheduleMapper.conflictQueryRequestForSpan(span);
+
+      expect(req.kind, OverrideConflictQueryRequestKindEnum.CUSTOM_HOURS);
+      expect(req.mode, OverrideConflictQueryRequestModeEnum.INTERVAL);
+      expect(req.intervals, hasLength(1));
+      expect(req.intervals!.first.startTime, '09:00:00');
+      expect(req.times, isNull);
+    });
+
+    test('CUSTOM_HOURS/EXPLICIT_TIMES span carries mode=EXPLICIT_TIMES, the '
+        'serialised times — never intervals', () {
+      final span = ScheduleOverride.explicitTimes(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        times: <TimeOfDay>[
+          const TimeOfDay(hour: 9, minute: 0),
+          const TimeOfDay(hour: 15, minute: 0),
+        ],
+      );
+      final req = ScheduleMapper.conflictQueryRequestForSpan(span);
+
+      expect(req.mode, OverrideConflictQueryRequestModeEnum.EXPLICIT_TIMES);
+      expect(req.times, <String>['09:00:00', '15:00:00']);
+      expect(req.intervals, isNull);
+    });
+
+    test(
+      'a CUSTOM_HOURS override with zero working slots collapses to '
+      'DAY_OFF on the wire — mirrors overrideToRequestForDate\'s '
+      'kindConsistent contract so the two request builders never disagree',
+      () {
+        final span = ScheduleOverride.custom(
+          start: DateTime(2026, 7, 27),
+          end: DateTime(2026, 7, 27),
+          intervals: const <WorkInterval>[],
+        );
+        final req = ScheduleMapper.conflictQueryRequestForSpan(span);
+        expect(req.kind, OverrideConflictQueryRequestKindEnum.DAY_OFF);
+      },
+    );
+  });
+
+  group('overrideConflictFromResponse', () {
+    test('maps every field 1:1, UTC instants kept canonical (no .toLocal)', () {
+      final dto = OverrideConflictResponse(
+        (b) => b
+          ..bookingId = 'booking-42'
+          ..appointmentId = 'appt-7'
+          ..date = Date(2026, 7, 27)
+          ..startsAt = DateTime.utc(2026, 7, 27, 10)
+          ..endsAt = DateTime.utc(2026, 7, 27, 11)
+          ..clientDisplayName = 'Олена Гриценко'
+          ..serviceName = 'Манікюр з покриттям',
+      );
+
+      final c = ScheduleMapper.overrideConflictFromResponse(dto);
+
+      expect(c.bookingId, 'booking-42');
+      expect(c.appointmentId, 'appt-7');
+      expect(c.date, DateTime(2026, 7, 27));
+      expect(c.startsAt, DateTime.utc(2026, 7, 27, 10));
+      expect(c.endsAt, DateTime.utc(2026, 7, 27, 11));
+      expect(c.clientDisplayName, 'Олена Гриценко');
+      expect(c.serviceName, 'Манікюр з покриттям');
+      expect(c.durationMinutes, 60);
+    });
+
+    test(
+      'a null appointmentId (standalone booking, not a visit child) survives '
+      'as null — never coerced to empty string',
+      () {
+        final dto = OverrideConflictResponse(
+          (b) => b
+            ..bookingId = 'booking-1'
+            ..date = Date(2026, 7, 27)
+            ..startsAt = DateTime.utc(2026, 7, 27, 10)
+            ..endsAt = DateTime.utc(2026, 7, 27, 11)
+            ..clientDisplayName = 'Клієнт'
+            ..serviceName = 'Послуга',
+        );
+        final c = ScheduleMapper.overrideConflictFromResponse(dto);
+        expect(c.appointmentId, isNull);
+      },
+    );
+
+    test(
+      'a malformed row (every optional field absent) never throws — '
+      'defensive fallbacks keep one bad row from crashing the whole preview',
+      () {
+        final dto = OverrideConflictResponse(
+          (b) => b..date = Date(2026, 7, 27),
+        );
+        expect(
+          () => ScheduleMapper.overrideConflictFromResponse(dto),
+          returnsNormally,
+        );
+        final c = ScheduleMapper.overrideConflictFromResponse(dto);
+        expect(c.bookingId, '');
+        expect(c.clientDisplayName, '');
+        expect(c.serviceName, '');
+        expect(c.startsAt, DateTime.fromMillisecondsSinceEpoch(0));
+      },
+    );
+  });
+
+  group('overrideConflictCheckFromResponse', () {
+    test('maps conflicts + totalCount + truncated + scanTruncated 1:1', () {
+      final row = OverrideConflictResponse(
+        (b) => b
+          ..bookingId = 'b1'
+          ..date = Date(2026, 7, 27)
+          ..startsAt = DateTime.utc(2026, 7, 27, 10)
+          ..endsAt = DateTime.utc(2026, 7, 27, 11)
+          ..clientDisplayName = 'Клієнт'
+          ..serviceName = 'Послуга',
+      );
+      final dto = OverrideConflictPreviewResponse(
+        (b) => b
+          ..conflicts.replace(<OverrideConflictResponse>[row])
+          ..totalCount = 8
+          ..truncated = true
+          ..scanTruncated = false,
+      );
+
+      final check = ScheduleMapper.overrideConflictCheckFromResponse(dto);
+
+      expect(check.conflicts, hasLength(1));
+      expect(
+        check.totalCount,
+        8,
+        reason:
+            'the AUTHORITATIVE count must come from the wire totalCount, '
+            'never re-derived from conflicts.length',
+      );
+      expect(check.truncated, isTrue);
+      expect(check.scanTruncated, isFalse);
+      expect(check.isCountExact, isTrue);
+    });
+
+    test('a null totalCount falls back to conflicts.length (defensive — the '
+        'backend always sends it for a real response)', () {
+      final dto = OverrideConflictPreviewResponse(
+        (b) => b..conflicts.replace(const <OverrideConflictResponse>[]),
+      );
+      final check = ScheduleMapper.overrideConflictCheckFromResponse(dto);
+      expect(check.totalCount, 0);
+      expect(check.truncated, isFalse);
+      expect(check.scanTruncated, isFalse);
+    });
+
+    test('an absent conflicts list maps to an empty list, not a crash', () {
+      final dto = OverrideConflictPreviewResponse((b) => b..totalCount = 0);
+      final check = ScheduleMapper.overrideConflictCheckFromResponse(dto);
+      expect(check.conflicts, isEmpty);
+    });
+  });
 }

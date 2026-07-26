@@ -805,3 +805,36 @@ final class ClientReviewNotAllowedFailure extends Failure {
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).clientReviewErrNotAllowed;
 }
+
+/// Emitted when `PUT /masters/{id}/overrides/{date}` returns HTTP **429**
+/// (2026-07-26 booking-conflict design). Two independent server-side buckets
+/// share this status: the flat per-actor write-rate limit (50 requests/60s)
+/// and the aggregate per-actor decline budget (1500 bookings/hour) — the
+/// mobile client does not need to distinguish which one tripped, only show a
+/// friendly throttle message with whatever `Retry-After` the server sent.
+///
+/// Decoded by `HttpScheduleRepository._logAndMapOverrideWrite` — the status
+/// check runs BEFORE deferring to any [Failure] the [ErrorMapperInterceptor]
+/// may have attached (that interceptor has no schedule-override-specific 429
+/// case), mirroring the [BookingRateLimitedFailure] / [ResendThrottledFailure]
+/// precedents.
+final class ScheduleOverrideRateLimitedFailure extends Failure {
+  const ScheduleOverrideRateLimitedFailure({
+    required this.retryAfterSeconds,
+    super.cause,
+  });
+
+  /// Seconds until the next write is allowed, parsed from the server's
+  /// `Retry-After` header. `null` when the header was absent or unparsable —
+  /// the UI then shows a static "try later" message instead of a countdown.
+  final int? retryAfterSeconds;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final seconds = retryAfterSeconds;
+    if (seconds == null) {
+      return AppLocalizations.of(ctx).cooldownTryLater;
+    }
+    return AppLocalizations.of(ctx).scheduleOverrideErrRateLimited(seconds);
+  }
+}

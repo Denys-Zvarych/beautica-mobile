@@ -139,6 +139,23 @@ abstract final class VelvetShadows {
       blurRadius: 8,
     ),
   ];
+
+  /// The day-off-conflict dialog's destructive-confirm pill lift (2026-07-26
+  /// design). Transcribed verbatim from the approved preview
+  /// (`docs/signup-designs/DayOffConflictDialog/lib/theme/velvet_tokens.dart`
+  /// `VelvetShadows.destructiveLift`).
+  ///
+  /// **Non-offset and alpha-attenuated on purpose** — same Impeller-GLES
+  /// safety rationale as [borderedCard] / [borderedButton] just above: an
+  /// OPAQUE shadow at a non-zero offset on a rounded [BoxDecoration] pokes an
+  /// untranslated corner sliver past the rounded edge; a non-offset shadow's
+  /// rrect footprint exactly matches the button's, so it can only ever read
+  /// as a uniform halo. Uses [BrandColors.error] rather than a shadow tone —
+  /// this button is the ONE saturated red surface the dialog has, and its
+  /// lift should read as a warm red glow, not a neutral drop shadow.
+  static final List<BoxShadow> destructiveLift = <BoxShadow>[
+    BoxShadow(color: BrandColors.error.withValues(alpha: 0.30), blurRadius: 14),
+  ];
 }
 
 // NOTE — a `cardDropShadow` recipe (a single OFFSET, fully-opaque

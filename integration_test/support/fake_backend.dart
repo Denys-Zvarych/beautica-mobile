@@ -874,6 +874,29 @@ final class FakeBackend {
   /// times? }`. Lets a test assert the override the editor serialised.
   Map<String, dynamic>? lastOverrideBody;
 
+  // ── Override booking-conflict preview telemetry (2026-07-26 design) ────────
+  /// `POST /api/v1/masters/{masterId}/overrides/conflicts` call count.
+  int previewConflictsCalls = 0;
+
+  /// The most recent conflict-preview request body — `{ from, to, kind, mode?,
+  /// intervals?, times? }`.
+  Map<String, dynamic>? lastConflictQueryBody;
+
+  /// Conflicts the NEXT `previewConflicts` call(s) report — wire-shaped rows
+  /// `{ bookingId, appointmentId, date, startsAt, endsAt, clientDisplayName,
+  /// serviceName }`. Empty by default (no conflicts), so every flow that never
+  /// seeds this keeps the pre-existing "no gate to see" behaviour; a flow
+  /// driving the non-empty path sets this BEFORE booting.
+  List<Map<String, dynamic>> conflictPreviewRows = <Map<String, dynamic>>[];
+
+  /// `PUT /overrides/{date}` calls made with `cancelOverlapping: true` while
+  /// [conflictPreviewRows] was non-empty — the fake's stand-in for "the server
+  /// atomically declined every conflicting booking with this write" (D3). Also
+  /// flips the seeded `booking-1` fixture's [bookingStatus] to `DECLINED` so a
+  /// flow can assert the conflicting booking is gone from the source of truth
+  /// the app re-reads after the invalidation the sheet issues on confirm.
+  int overrideCancelOverlappingWrites = 0;
+
   // ── Internal helpers ───────────────────────────────────────────────────────
 
   /// The CLIENT `GET /users/me` body, built from the mutable client state so a
@@ -3173,6 +3196,17 @@ final class FakeBackend {
           putOverrideCalls++;
           final body = _decodeBody(req.data);
           lastOverrideBody = body;
+          // 2026-07-26 booking-conflict design: a confirmed write carries
+          // `cancelOverlapping: true` — the real backend then atomically
+          // declines every conflicting CONFIRMED booking with the write. The
+          // fake mirrors that ONLY as a status flip on the seeded booking
+          // fixture (no per-booking id matching — this fake is not the
+          // preview endpoint's source of truth, `conflictPreviewRows` is).
+          if (body['cancelOverlapping'] == true &&
+              conflictPreviewRows.isNotEmpty) {
+            overrideCancelOverlappingWrites++;
+            bookingStatus = 'DECLINED';
+          }
           // Echo the request back as a response-shaped override so the read
           // mapper round-trips it (date/kind/mode/intervals/times).
           return _ok(<String, dynamic>{
@@ -3184,6 +3218,29 @@ final class FakeBackend {
           });
         }),
         request: const Request(method: RequestMethods.put, data: Matchers.any),
+      );
+    }
+
+    // POST /api/v1/masters/{masterId}/overrides/conflicts (2026-07-26
+    // booking-conflict design) — read-only preview of every CONFIRMED booking
+    // the pending override would leave without availability. Reports whatever
+    // a flow seeded in [conflictPreviewRows] (empty by default, so every flow
+    // that never sets it keeps the pre-existing "no gate to see" behaviour —
+    // `_noConflicts`-equivalent at the wire boundary).
+    for (final masterId in <String>['me', 'user-master-1']) {
+      _adapter.onRoute(
+        '/api/v1/masters/$masterId/overrides/conflicts',
+        (server) => server.replyCallback(200, (req) {
+          previewConflictsCalls++;
+          lastConflictQueryBody = _decodeBody(req.data);
+          return _ok(<String, dynamic>{
+            'conflicts': conflictPreviewRows,
+            'totalCount': conflictPreviewRows.length,
+            'truncated': false,
+            'scanTruncated': false,
+          });
+        }),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
       );
     }
 

@@ -43,6 +43,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseMasterServiceResponse.serializer)
       ..add(ApiResponseMasterSummaryResponse.serializer)
       ..add(ApiResponseMediaFileResponse.serializer)
+      ..add(ApiResponseOverrideConflictPreviewResponse.serializer)
       ..add(ApiResponsePageMediaFileResponse.serializer)
       ..add(ApiResponsePageResponseBookingDetailResponse.serializer)
       ..add(ApiResponsePageResponseBookingResponse.serializer)
@@ -158,6 +159,11 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(MediaFileResponseMediaTypeEnum.serializer)
       ..add(MyReviewResponse.serializer)
       ..add(OblastResponse.serializer)
+      ..add(OverrideConflictPreviewResponse.serializer)
+      ..add(OverrideConflictQueryRequest.serializer)
+      ..add(OverrideConflictQueryRequestKindEnum.serializer)
+      ..add(OverrideConflictQueryRequestModeEnum.serializer)
+      ..add(OverrideConflictResponse.serializer)
       ..add(PageMediaFileResponse.serializer)
       ..add(PageResponseBookingDetailResponse.serializer)
       ..add(PageResponseBookingResponse.serializer)
@@ -359,6 +365,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
+              BuiltList, const [const FullType(OverrideConflictResponse)]),
+          () => ListBuilder<OverrideConflictResponse>())
+      ..addBuilderFactory(
+          const FullType(
               BuiltList, const [const FullType(PlatformCategoryUsageResponse)]),
           () => ListBuilder<PlatformCategoryUsageResponse>())
       ..addBuilderFactory(
@@ -509,6 +519,12 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
+          () => ListBuilder<WorkIntervalDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
@@ -516,6 +532,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

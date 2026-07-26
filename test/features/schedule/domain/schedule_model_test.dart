@@ -386,4 +386,161 @@ void main() {
       expect(broken.hasError, isTrue);
     });
   });
+
+  // ── 2026-07-26 booking-conflict design: OverrideConflictCheck / ────────────
+  //    OverrideConflict — the day-off-conflict dialog's sole data input.
+  //
+  // Zero coverage existed for this model before this audit (mobile-qa,
+  // 2026-07-26) — the widget-level dialog tests
+  // (`day_off_conflict_dialog_test.dart`) exercise it indirectly, but the
+  // getters themselves (the exact boundary conditions the dialog's copy
+  // selection branches on) had no direct test.
+  group('OverrideConflictCheck', () {
+    OverrideConflict conflict({String id = 'b1', DateTime? date}) =>
+        OverrideConflict(
+          bookingId: id,
+          appointmentId: null,
+          date: date ?? DateTime(2026, 7, 27),
+          startsAt: DateTime.utc(2026, 7, 27, 10),
+          endsAt: DateTime.utc(2026, 7, 27, 11),
+          clientDisplayName: 'Клієнт',
+          serviceName: 'Послуга',
+        );
+
+    test('isEmpty / isNotEmpty mirror conflicts.isEmpty', () {
+      const empty = OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
+      expect(empty.isEmpty, isTrue);
+      expect(empty.isNotEmpty, isFalse);
+
+      final nonEmpty = OverrideConflictCheck(
+        conflicts: <OverrideConflict>[conflict()],
+        totalCount: 1,
+        truncated: false,
+        scanTruncated: false,
+      );
+      expect(nonEmpty.isEmpty, isFalse);
+      expect(nonEmpty.isNotEmpty, isTrue);
+    });
+
+    test('isCountExact is false ONLY when scanTruncated — independent of '
+        'truncated', () {
+      OverrideConflictCheck check({
+        required bool truncated,
+        required bool scanTruncated,
+      }) => OverrideConflictCheck(
+        conflicts: <OverrideConflict>[conflict()],
+        totalCount: 10,
+        truncated: truncated,
+        scanTruncated: scanTruncated,
+      );
+
+      expect(
+        check(truncated: false, scanTruncated: false).isCountExact,
+        isTrue,
+      );
+      // Result list trimmed, but the SCAN was not — totalCount is still an
+      // exact figure, just not equal to conflicts.length.
+      expect(
+        check(truncated: true, scanTruncated: false).isCountExact,
+        isTrue,
+        reason:
+            'truncated (a capped RESULT LIST) alone must not make the count '
+            'inexact — only scanTruncated (a capped CANDIDATE SCAN) does',
+      );
+      expect(
+        check(truncated: false, scanTruncated: true).isCountExact,
+        isFalse,
+      );
+      expect(check(truncated: true, scanTruncated: true).isCountExact, isFalse);
+    });
+
+    test('spansMultipleDates is false for <2 conflicts or a single shared '
+        'date, true once a second date appears', () {
+      final d1 = DateTime(2026, 7, 27);
+      final d2 = DateTime(2026, 7, 28);
+
+      expect(
+        const OverrideConflictCheck(
+          conflicts: <OverrideConflict>[],
+          totalCount: 0,
+          truncated: false,
+          scanTruncated: false,
+        ).spansMultipleDates,
+        isFalse,
+        reason: '0 conflicts',
+      );
+
+      expect(
+        OverrideConflictCheck(
+          conflicts: <OverrideConflict>[conflict(date: d1)],
+          totalCount: 1,
+          truncated: false,
+          scanTruncated: false,
+        ).spansMultipleDates,
+        isFalse,
+        reason: '1 conflict — below the <2 guard',
+      );
+
+      expect(
+        OverrideConflictCheck(
+          conflicts: <OverrideConflict>[
+            conflict(id: 'b1', date: d1),
+            conflict(id: 'b2', date: d1),
+          ],
+          totalCount: 2,
+          truncated: false,
+          scanTruncated: false,
+        ).spansMultipleDates,
+        isFalse,
+        reason: '2 conflicts sharing the SAME date',
+      );
+
+      expect(
+        OverrideConflictCheck(
+          conflicts: <OverrideConflict>[
+            conflict(id: 'b1', date: d1),
+            conflict(id: 'b2', date: d2),
+          ],
+          totalCount: 2,
+          truncated: false,
+          scanTruncated: false,
+        ).spansMultipleDates,
+        isTrue,
+        reason: '2 conflicts on DIFFERENT dates',
+      );
+    });
+  });
+
+  group('ScheduleOverride.narrowedHoursLabel', () {
+    test('null for a day-off (no window to summarise)', () {
+      final o = ScheduleOverride.dayOff(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+      );
+      expect(o.narrowedHoursLabel, isNull);
+    });
+
+    test('earliest interval start – latest interval end for INTERVAL mode', () {
+      final o = ScheduleOverride.custom(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        intervals: <WorkInterval>[_wi(14, 0, 18, 0), _wi(9, 0, 12, 0)],
+      );
+      expect(o.narrowedHoursLabel, '09:00–18:00');
+    });
+
+    test('earliest – latest discrete start time for EXPLICIT_TIMES mode', () {
+      final o = ScheduleOverride.explicitTimes(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        times: <TimeOfDay>[_t(15, 0), _t(9, 0), _t(11, 0)],
+      );
+      expect(o.narrowedHoursLabel, '09:00–15:00');
+    });
+  });
 }

@@ -2345,6 +2345,111 @@
   "@scheduleOverrideErrorsBanner": {
     "description": "Snackbar shown when trying to save custom hours with validation errors in the per-date override sheet (Phase 15.4)."
   },
+  "dayOffConflictCountPhrase": "{count, plural, =1{1 запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
+  "@dayOffConflictCountPhrase": {
+    "description": "The exact affected-bookings count phrase used inside the day-off/pause booking-conflict dialog's title (2026-07-26 design).",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictCountPhraseApprox": "{count, plural, =1{щонайменше 1 запис} few{щонайменше {count} записи} many{щонайменше {count} записів} other{щонайменше {count} записів}}",
+  "@dayOffConflictCountPhraseApprox": {
+    "description": "Same as dayOffConflictCountPhrase but prefixed 'at least' — used when the backend conflict scan itself was capped (OverrideConflictCheck.isCountExact == false), so the true count is only a lower bound.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictTitleSingleDay": "У цей день у вас {countPhrase}",
+  "@dayOffConflictTitleSingleDay": {
+    "description": "Day-off-conflict dialog title when a single calendar date turned into a full day off. countPhrase comes from dayOffConflictCountPhrase(Approx).",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictTitleRange": "У ці дні у вас {countPhrase}",
+  "@dayOffConflictTitleRange": {
+    "description": "Day-off-conflict dialog title when a span of dates turned into days off.",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictTitleNarrowedHours": "Поза новими годинами — {countPhrase}",
+  "@dayOffConflictTitleNarrowedHours": {
+    "description": "Day-off-conflict dialog title when the date stays a working day but the hours were narrowed and some bookings fall outside the new window.",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictSublineDayOff": "Вихідний · {date}",
+  "@dayOffConflictSublineDayOff": {
+    "description": "Day-off-conflict dialog subline restating a day-off change ('Вихідний · <date>'); used for both a single date and, with the day-count phrase appended, a date range.",
+    "placeholders": {
+      "date": { "type": "String" }
+    }
+  },
+  "dayOffConflictSublineDayCount": "{days, plural, =1{1 день} few{{days} дні} many{{days} днів} other{{days} днів}}",
+  "@dayOffConflictSublineDayCount": {
+    "description": "Standalone inclusive day-count phrase appended after dayOffConflictSublineDayOff for a multi-date range change.",
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "dayOffConflictSublineNarrowedHours": "Робочі години · {date} · {hours}",
+  "@dayOffConflictSublineNarrowedHours": {
+    "description": "Day-off-conflict dialog subline for a narrowed-hours change ('Робочі години · <date> · <HH:mm–HH:mm>').",
+    "placeholders": {
+      "date": { "type": "String" },
+      "hours": { "type": "String" }
+    }
+  },
+  "dayOffConflictTroughCaption": "{count, plural, =1{Цей запис буде скасовано} other{Ці записи буде скасовано}}",
+  "@dayOffConflictTroughCaption": {
+    "description": "Caption directly above the recessed conflict trough, naming what the list holds.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictConsequenceNote": "{count, plural, =1{Клієнт побачить запис як «Скасовано».} other{Клієнти побачать записи як «Скасовано».}}",
+  "@dayOffConflictConsequenceNote": {
+    "description": "Muted note under the conflict trough stating what the client(s) will see. Deliberately does NOT promise a notification — the 2026-07-26 backend design (D6) sends none for this path."
+  },
+  "dayOffConflictTruncatedNote": "{shown, plural, =1{Показано перший {shown} запис} few{Показано перші {shown} записи} many{Показано перші {shown} записів} other{Показано перші {shown} записів}}",
+  "@dayOffConflictTruncatedNote": {
+    "description": "Shown only when OverrideConflictCheck.truncated is true — the returned row list was capped below the true count, so the trough is not showing every affected booking.",
+    "placeholders": {
+      "shown": { "type": "int" }
+    }
+  },
+  "dayOffConflictConfirmCta": "{count, plural, =1{Так, скасувати запис} other{Так, скасувати записи}}",
+  "@dayOffConflictConfirmCta": {
+    "description": "The destructive confirm button label. Deliberately never shows the numeral itself (only used to pick the singular/plural noun) — 'Так, скасувати записи', never 'Так, скасувати 3 записи'.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictKeepCta": "Залишити як є",
+  "@dayOffConflictKeepCta": {
+    "description": "The day-off-conflict dialog's safe back-out action. Deliberately avoids the ambiguous verb 'Скасувати' (which would read as either 'cancel the bookings' or 'cancel this dialog')."
+  },
+  "dayOffCheckErrorTitle": "Не вдалося перевірити записи",
+  "@dayOffCheckErrorTitle": {
+    "description": "Title of the fallback dialog shown when the booking-conflict preview request itself fails (network down / server error) — never saves blind."
+  },
+  "dayOffCheckErrorBody": "Розклад не змінено. Поки ми не побачимо ваші записи на ці дати, зберігати вихідний небезпечно.",
+  "@dayOffCheckErrorBody": {
+    "description": "Body copy of the conflict-check-failed dialog."
+  },
+  "dayOffCheckErrorRetryCta": "Спробувати ще раз",
+  "@dayOffCheckErrorRetryCta": {
+    "description": "Retry action on the conflict-check-failed dialog."
+  },
+  "scheduleOverrideErrRateLimited": "Забагато спроб. Зачекайте {seconds} с і спробуйте ще раз.",
+  "@scheduleOverrideErrRateLimited": {
+    "description": "Error message for ScheduleOverrideRateLimitedFailure (HTTP 429 on PUT /overrides/{date}) when the server sent a Retry-After header — either the per-minute write-rate limit or the aggregate per-hour decline budget.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
   "applyScheduleTitle": "Період дії графіка",
   "@applyScheduleTitle": {
     "description": "Title of the apply-schedule sheet where the master sets the weekly template's validity window (Phase 15.5)."

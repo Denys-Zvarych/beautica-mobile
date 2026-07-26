@@ -249,38 +249,58 @@ abstract final class ScheduleMapper {
     );
   }
 
-  /// Serialises a single-day override into the PUT body for [date]. The caller
-  /// (repository) expands a multi-day [ScheduleOverride] span into one PUT per
-  /// date and supplies that date here — the mapper never groups spans.
-  static ScheduleOverrideRequest overrideToRequestForDate(
-    ScheduleOverride override,
-    DateTime date,
-  ) {
-    // Contract (Phase 15.9, backend `ScheduleOverrideRequest.isKindConsistent`):
-    //   • DAY_OFF carries neither intervals nor times.
-    //   • CUSTOM_HOURS carries EITHER a non-empty intervals list (INTERVAL) OR a
-    //     non-empty times list (EXPLICIT_TIMES), never both, never empty.
-    // A CUSTOM_HOURS override that resolves to zero working slots (empty times
-    // in EXPLICIT_TIMES mode, or empty intervals in INTERVAL mode) is NOT a
-    // valid CUSTOM_HOURS payload — it would 400 on `kindConsistent`. Such an
-    // override means "no hours that date", which is the DAY_OFF encoding, so we
-    // collapse it to DAY_OFF.
+  /// Resolves the discrete DAY_OFF/CUSTOM_HOURS(INTERVAL|EXPLICIT_TIMES) shape
+  /// an [override] serialises to on the wire, shared by
+  /// [overrideToRequestForDate] and [conflictQueryRequestForSpan] so the two
+  /// request builders can never disagree about what counts as a day-off.
+  ///
+  /// Contract (Phase 15.9, backend `ScheduleOverrideRequest.isKindConsistent`
+  /// — the conflict-preview `OverrideConflictQueryRequest` mirrors the same
+  /// rule):
+  ///   • DAY_OFF carries neither intervals nor times.
+  ///   • CUSTOM_HOURS carries EITHER a non-empty intervals list (INTERVAL) OR
+  ///     a non-empty times list (EXPLICIT_TIMES), never both, never empty.
+  /// A CUSTOM_HOURS override that resolves to zero working slots (empty times
+  /// in EXPLICIT_TIMES mode, or empty intervals in INTERVAL mode) is NOT a
+  /// valid CUSTOM_HOURS payload — it would 400 on `kindConsistent`. Such an
+  /// override means "no hours that date", which is the DAY_OFF encoding, so it
+  /// collapses to DAY_OFF here too.
+  static _OverrideWireShape _wireShapeOf(ScheduleOverride override) {
     final isExplicit = override.mode == WeekdayMode.explicitTimes;
     final hasWork = isExplicit
         ? override.times.isNotEmpty
         : override.intervals.isNotEmpty;
     final isDayOff = override.kind == OverrideKind.dayOff || !hasWork;
+    return _OverrideWireShape(isDayOff: isDayOff, isExplicit: isExplicit);
+  }
+
+  /// Serialises a single-day override into the PUT body for [date]. The caller
+  /// (repository) expands a multi-day [ScheduleOverride] span into one PUT per
+  /// date and supplies that date here — the mapper never groups spans.
+  ///
+  /// [cancelOverlapping] forwards the 2026-07-26 booking-conflict design's
+  /// consent flag: `false` (default) preserves the pre-existing behaviour
+  /// (409 if the write would orphan a CONFIRMED booking); `true` — sent only
+  /// after the master confirms [DayOffConflictDialog] — asks the backend to
+  /// also decline every conflicting booking atomically with the write.
+  static ScheduleOverrideRequest overrideToRequestForDate(
+    ScheduleOverride override,
+    DateTime date, {
+    bool cancelOverlapping = false,
+  }) {
+    final shape = _wireShapeOf(override);
     return ScheduleOverrideRequest((b) {
       b
         ..date = dateToWire(date)
-        ..kind = isDayOff
+        ..cancelOverlapping = cancelOverlapping
+        ..kind = shape.isDayOff
             ? ScheduleOverrideRequestKindEnum.DAY_OFF
             : ScheduleOverrideRequestKindEnum.CUSTOM_HOURS;
       // DAY_OFF carries only its kind (no intervals/times, no reason/note — the
       // backend dropped those fields). CUSTOM_HOURS carries either the discrete
       // times (EXPLICIT_TIMES) or the intervals (INTERVAL), never both.
-      if (isDayOff) return;
-      if (isExplicit) {
+      if (shape.isDayOff) return;
+      if (shape.isExplicit) {
         b
           ..mode = ScheduleOverrideRequestModeEnum.EXPLICIT_TIMES
           ..times = _timesToWire(override.times).toBuilder();
@@ -290,6 +310,77 @@ abstract final class ScheduleMapper {
           ..intervals = _intervalsToDtos(override.intervals).toBuilder();
       }
     });
+  }
+
+  // ── Booking-conflict preview (2026-07-26 design) ─────────────────────────────
+
+  /// Builds the `POST /overrides/conflicts` body for the WHOLE `[span.start,
+  /// span.end]` range in ONE request — never expanded per-date, unlike the PUT
+  /// fan-out [overrideToRequestForDate] feeds. The shape (kind/mode/intervals/
+  /// times) is held constant across the range, mirroring how
+  /// `OverridesNotifier.putSpan` applies one override to every date it expands.
+  static OverrideConflictQueryRequest conflictQueryRequestForSpan(
+    ScheduleOverride span,
+  ) {
+    final shape = _wireShapeOf(span);
+    return OverrideConflictQueryRequest((b) {
+      b
+        ..from = dateToWire(span.start)
+        ..to = dateToWire(span.end)
+        ..kind = shape.isDayOff
+            ? OverrideConflictQueryRequestKindEnum.DAY_OFF
+            : OverrideConflictQueryRequestKindEnum.CUSTOM_HOURS;
+      if (shape.isDayOff) return;
+      if (shape.isExplicit) {
+        b
+          ..mode = OverrideConflictQueryRequestModeEnum.EXPLICIT_TIMES
+          ..times = _timesToWire(span.times).toBuilder();
+      } else {
+        b
+          ..mode = OverrideConflictQueryRequestModeEnum.INTERVAL
+          ..intervals = _intervalsToDtos(span.intervals).toBuilder();
+      }
+    });
+  }
+
+  /// Maps one `OverrideConflictResponse` row to the domain [OverrideConflict].
+  /// Every wire field is nullable (generic `built_value` codegen) even though
+  /// the backend always populates them for a real row; defensive fallbacks
+  /// (epoch / empty string) keep one malformed row from crashing the whole
+  /// preview instead of just rendering blank.
+  ///
+  /// [OverrideConflict.startsAt] / `.endsAt` are kept as the CANONICAL UTC
+  /// instant the generated client deserialises — never `.toLocal()` (the
+  /// device-zone convention this app deliberately dropped; see
+  /// `shared/time/time_zones.dart`'s header). The presentation layer converts
+  /// via `toBeauticaTime` at render time, exactly like every other booking
+  /// instant in the app.
+  static OverrideConflict overrideConflictFromResponse(
+    OverrideConflictResponse dto,
+  ) => OverrideConflict(
+    bookingId: dto.bookingId ?? '',
+    appointmentId: dto.appointmentId,
+    date: _dateFromWire(dto.date),
+    startsAt: dto.startsAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+    endsAt: dto.endsAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+    clientDisplayName: dto.clientDisplayName ?? '',
+    serviceName: dto.serviceName ?? '',
+  );
+
+  /// Maps the full `OverrideConflictPreviewResponse` envelope to the domain
+  /// [OverrideConflictCheck].
+  static OverrideConflictCheck overrideConflictCheckFromResponse(
+    OverrideConflictPreviewResponse dto,
+  ) {
+    final conflicts = (dto.conflicts ?? const <OverrideConflictResponse>[])
+        .map(overrideConflictFromResponse)
+        .toList(growable: false);
+    return OverrideConflictCheck(
+      conflicts: conflicts,
+      totalCount: dto.totalCount ?? conflicts.length,
+      truncated: dto.truncated ?? false,
+      scanTruncated: dto.scanTruncated ?? false,
+    );
   }
 
   // ── EffectiveDayResponse → EffectiveDay ───────────────────────────────────────
@@ -333,6 +424,16 @@ abstract final class ScheduleMapper {
   /// INTERVAL (legacy custom-hours shape).
   static bool _overrideModeIsExplicit(ScheduleOverrideResponseModeEnum? mode) =>
       mode == ScheduleOverrideResponseModeEnum.EXPLICIT_TIMES;
+}
+
+/// Internal carrier for [ScheduleMapper._wireShapeOf]'s resolved DAY_OFF vs.
+/// CUSTOM_HOURS(INTERVAL|EXPLICIT_TIMES) verdict, shared by the PUT and
+/// conflict-preview request builders.
+class _OverrideWireShape {
+  const _OverrideWireShape({required this.isDayOff, required this.isExplicit});
+
+  final bool isDayOff;
+  final bool isExplicit;
 }
 
 /// Internal carrier for a resolved weekly-day shape during gap-fill so the

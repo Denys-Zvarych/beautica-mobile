@@ -1583,4 +1583,45 @@ abstract final class VelvetText {
     fontWeight: FontWeight.w700,
     color: BrandColors.accentDeep,
   );
+
+  // ---------------------------------------------------------------------------
+  // 2026-07-26 — day-off / pause booking-conflict dialog (`DayOffConflictDialog`
+  // presentation/widgets). Transcribed verbatim from the approved preview's
+  // `docs/signup-designs/DayOffConflictDialog/lib/theme/velvet_tokens.dart`
+  // (`VelvetText.rowName` / `.rowService` / `.rowTime` / `.rowTimeEnd`) —
+  // this preview's sizes/heights match the CURRENT shipped scale exactly (no
+  // "known doc conflict" shrink adjustment needed, unlike the older MyBookings
+  // port), so every value below is a literal copy.
+  // ---------------------------------------------------------------------------
+
+  /// A conflict row's client name — the heaviest text in the row (the person
+  /// is what the master is weighing). bodyStrong at w800, height 1.25.
+  static final TextStyle dayOffConflictRowName = _bodyStrongStyle.copyWith(
+    fontWeight: FontWeight.w800,
+    height: 1.25,
+  );
+
+  /// A conflict row's service name, beneath the client name — body at 11 sp,
+  /// tight-leading (1.25) so the two row lines read as one block.
+  static final TextStyle dayOffConflictRowService = _bodyStyle.copyWith(
+    fontSize: 11,
+    height: 1.25,
+  );
+
+  /// A conflict row's start time — statValue (Comfortaa) at 15 sp, `height:
+  /// 1.0` so the bare numeral sits tight in the right-aligned time stub,
+  /// mirroring [schedWheelDigit] / [bookingDayNumber]'s tight-numeral device.
+  static final TextStyle dayOffConflictRowTime = _statValueStyle.copyWith(
+    fontSize: 15,
+    height: 1.0,
+  );
+
+  /// A conflict row's end time — the quiet half of the time stub. Feedback
+  /// base at 10.5 sp, muted, `height: 1.0`, w600.
+  static final TextStyle dayOffConflictRowTimeEnd = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 10.5,
+    height: 1.0,
+    fontWeight: FontWeight.w600,
+  );
 }

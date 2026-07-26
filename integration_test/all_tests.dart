@@ -104,6 +104,8 @@ import 'salon_booking_flow_test.dart' as salon_booking;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
+import 'schedule_override_conflict_flow_test.dart'
+    as schedule_override_conflict;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
@@ -236,6 +238,12 @@ void main() {
   group('salon_service_filter_flow', salon_service_filter.main);
   group('schedule_edit_flow', schedule_edit.main);
   group('schedule_first_create_flow', schedule_first_create.main);
+  // 2026-07-26 booking-conflict design (Step 2.7 Rule 3b) — save a day-off
+  // through the REAL conflict-preview → confirm → write pipeline: no
+  // conflicts saves straight through, a conflict gates behind
+  // DayOffConflictDialog, confirming declines the conflicting booking,
+  // backing out persists nothing at all.
+  group('schedule_override_conflict_flow', schedule_override_conflict.main);
   group('service_crud_flow', service_crud.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays
   // open, never errServer (Step 2.7 Rule 3b — the catalogue duplicate fix E2E).

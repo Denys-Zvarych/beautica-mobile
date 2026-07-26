@@ -428,9 +428,13 @@ class _CommentFooterRow extends StatelessWidget {
   final int maxChars;
   final String privacyNote;
 
-  static final TextStyle _noteStyle = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 11);
+  // `VelvetText.feedbackMutedSm` is already the muted 11sp variant of the
+  // feedback base style, so it renders identically to the previous
+  // `VelvetText.feedback(BrandColors.muted)` plus a manual size override —
+  // that manual override was redundant (the base is already 11sp) and is
+  // exactly the pattern `scripts/forbid_inline_fontsize.sh` disallows.
+  // Reusing the cached token avoids both the redundancy and the gate.
+  static final TextStyle _noteStyle = VelvetText.feedbackMutedSm;
   static final TextStyle _fullStyle = VelvetText.feedbackCounter.copyWith(
     color: BrandColors.error,
   );

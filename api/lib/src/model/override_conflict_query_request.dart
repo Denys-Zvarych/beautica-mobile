@@ -9,30 +9,35 @@ import 'package:beautica_api/src/model/work_interval_dto.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'schedule_override_request.g.dart';
+part 'override_conflict_query_request.g.dart';
 
-/// ScheduleOverrideRequest
+/// OverrideConflictQueryRequest
 ///
 /// Properties:
-/// * [date]
+/// * [from]
+/// * [to]
 /// * [kind]
 /// * [mode]
 /// * [intervals]
 /// * [times]
-/// * [cancelOverlapping]
 /// * [kindConsistent]
 @BuiltValue()
-abstract class ScheduleOverrideRequest
-    implements Built<ScheduleOverrideRequest, ScheduleOverrideRequestBuilder> {
-  @BuiltValueField(wireName: r'date')
-  Date get date;
+abstract class OverrideConflictQueryRequest
+    implements
+        Built<OverrideConflictQueryRequest,
+            OverrideConflictQueryRequestBuilder> {
+  @BuiltValueField(wireName: r'from')
+  Date get from;
+
+  @BuiltValueField(wireName: r'to')
+  Date get to;
 
   @BuiltValueField(wireName: r'kind')
-  ScheduleOverrideRequestKindEnum get kind;
+  OverrideConflictQueryRequestKindEnum get kind;
   // enum kindEnum {  DAY_OFF,  CUSTOM_HOURS,  };
 
   @BuiltValueField(wireName: r'mode')
-  ScheduleOverrideRequestModeEnum? get mode;
+  OverrideConflictQueryRequestModeEnum? get mode;
   // enum modeEnum {  INTERVAL,  EXPLICIT_TIMES,  };
 
   @BuiltValueField(wireName: r'intervals')
@@ -41,57 +46,59 @@ abstract class ScheduleOverrideRequest
   @BuiltValueField(wireName: r'times')
   BuiltList<String>? get times;
 
-  @BuiltValueField(wireName: r'cancelOverlapping')
-  bool? get cancelOverlapping;
-
   @BuiltValueField(wireName: r'kindConsistent')
   bool? get kindConsistent;
 
-  ScheduleOverrideRequest._();
+  OverrideConflictQueryRequest._();
 
-  factory ScheduleOverrideRequest(
-          [void updates(ScheduleOverrideRequestBuilder b)]) =
-      _$ScheduleOverrideRequest;
+  factory OverrideConflictQueryRequest(
+          [void updates(OverrideConflictQueryRequestBuilder b)]) =
+      _$OverrideConflictQueryRequest;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(ScheduleOverrideRequestBuilder b) => b;
+  static void _defaults(OverrideConflictQueryRequestBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<ScheduleOverrideRequest> get serializer =>
-      _$ScheduleOverrideRequestSerializer();
+  static Serializer<OverrideConflictQueryRequest> get serializer =>
+      _$OverrideConflictQueryRequestSerializer();
 }
 
-class _$ScheduleOverrideRequestSerializer
-    implements PrimitiveSerializer<ScheduleOverrideRequest> {
+class _$OverrideConflictQueryRequestSerializer
+    implements PrimitiveSerializer<OverrideConflictQueryRequest> {
   @override
   final Iterable<Type> types = const [
-    ScheduleOverrideRequest,
-    _$ScheduleOverrideRequest
+    OverrideConflictQueryRequest,
+    _$OverrideConflictQueryRequest
   ];
 
   @override
-  final String wireName = r'ScheduleOverrideRequest';
+  final String wireName = r'OverrideConflictQueryRequest';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    ScheduleOverrideRequest object, {
+    OverrideConflictQueryRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'date';
+    yield r'from';
     yield serializers.serialize(
-      object.date,
+      object.from,
+      specifiedType: const FullType(Date),
+    );
+    yield r'to';
+    yield serializers.serialize(
+      object.to,
       specifiedType: const FullType(Date),
     );
     yield r'kind';
     yield serializers.serialize(
       object.kind,
-      specifiedType: const FullType(ScheduleOverrideRequestKindEnum),
+      specifiedType: const FullType(OverrideConflictQueryRequestKindEnum),
     );
     if (object.mode != null) {
       yield r'mode';
       yield serializers.serialize(
         object.mode,
-        specifiedType: const FullType(ScheduleOverrideRequestModeEnum),
+        specifiedType: const FullType(OverrideConflictQueryRequestModeEnum),
       );
     }
     if (object.intervals != null) {
@@ -108,13 +115,6 @@ class _$ScheduleOverrideRequestSerializer
         specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
-    if (object.cancelOverlapping != null) {
-      yield r'cancelOverlapping';
-      yield serializers.serialize(
-        object.cancelOverlapping,
-        specifiedType: const FullType(bool),
-      );
-    }
     if (object.kindConsistent != null) {
       yield r'kindConsistent';
       yield serializers.serialize(
@@ -127,7 +127,7 @@ class _$ScheduleOverrideRequestSerializer
   @override
   Object serialize(
     Serializers serializers,
-    ScheduleOverrideRequest object, {
+    OverrideConflictQueryRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -140,32 +140,39 @@ class _$ScheduleOverrideRequestSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required ScheduleOverrideRequestBuilder result,
+    required OverrideConflictQueryRequestBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'date':
+        case r'from':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(Date),
           ) as Date;
-          result.date = valueDes;
+          result.from = valueDes;
+          break;
+        case r'to':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(Date),
+          ) as Date;
+          result.to = valueDes;
           break;
         case r'kind':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(ScheduleOverrideRequestKindEnum),
-          ) as ScheduleOverrideRequestKindEnum;
+            specifiedType: const FullType(OverrideConflictQueryRequestKindEnum),
+          ) as OverrideConflictQueryRequestKindEnum;
           result.kind = valueDes;
           break;
         case r'mode':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(ScheduleOverrideRequestModeEnum),
-          ) as ScheduleOverrideRequestModeEnum;
+            specifiedType: const FullType(OverrideConflictQueryRequestModeEnum),
+          ) as OverrideConflictQueryRequestModeEnum;
           result.mode = valueDes;
           break;
         case r'intervals':
@@ -183,13 +190,6 @@ class _$ScheduleOverrideRequestSerializer
           ) as BuiltList<String>;
           result.times.replace(valueDes);
           break;
-        case r'cancelOverlapping':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.cancelOverlapping = valueDes;
-          break;
         case r'kindConsistent':
           final valueDes = serializers.deserialize(
             value,
@@ -206,12 +206,12 @@ class _$ScheduleOverrideRequestSerializer
   }
 
   @override
-  ScheduleOverrideRequest deserialize(
+  OverrideConflictQueryRequest deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = ScheduleOverrideRequestBuilder();
+    final result = OverrideConflictQueryRequestBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(
@@ -226,40 +226,40 @@ class _$ScheduleOverrideRequestSerializer
   }
 }
 
-class ScheduleOverrideRequestKindEnum extends EnumClass {
+class OverrideConflictQueryRequestKindEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'DAY_OFF')
-  static const ScheduleOverrideRequestKindEnum DAY_OFF =
-      _$scheduleOverrideRequestKindEnum_DAY_OFF;
+  static const OverrideConflictQueryRequestKindEnum DAY_OFF =
+      _$overrideConflictQueryRequestKindEnum_DAY_OFF;
   @BuiltValueEnumConst(wireName: r'CUSTOM_HOURS')
-  static const ScheduleOverrideRequestKindEnum CUSTOM_HOURS =
-      _$scheduleOverrideRequestKindEnum_CUSTOM_HOURS;
+  static const OverrideConflictQueryRequestKindEnum CUSTOM_HOURS =
+      _$overrideConflictQueryRequestKindEnum_CUSTOM_HOURS;
 
-  static Serializer<ScheduleOverrideRequestKindEnum> get serializer =>
-      _$scheduleOverrideRequestKindEnumSerializer;
+  static Serializer<OverrideConflictQueryRequestKindEnum> get serializer =>
+      _$overrideConflictQueryRequestKindEnumSerializer;
 
-  const ScheduleOverrideRequestKindEnum._(String name) : super(name);
+  const OverrideConflictQueryRequestKindEnum._(String name) : super(name);
 
-  static BuiltSet<ScheduleOverrideRequestKindEnum> get values =>
-      _$scheduleOverrideRequestKindEnumValues;
-  static ScheduleOverrideRequestKindEnum valueOf(String name) =>
-      _$scheduleOverrideRequestKindEnumValueOf(name);
+  static BuiltSet<OverrideConflictQueryRequestKindEnum> get values =>
+      _$overrideConflictQueryRequestKindEnumValues;
+  static OverrideConflictQueryRequestKindEnum valueOf(String name) =>
+      _$overrideConflictQueryRequestKindEnumValueOf(name);
 }
 
-class ScheduleOverrideRequestModeEnum extends EnumClass {
+class OverrideConflictQueryRequestModeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'INTERVAL')
-  static const ScheduleOverrideRequestModeEnum INTERVAL =
-      _$scheduleOverrideRequestModeEnum_INTERVAL;
+  static const OverrideConflictQueryRequestModeEnum INTERVAL =
+      _$overrideConflictQueryRequestModeEnum_INTERVAL;
   @BuiltValueEnumConst(wireName: r'EXPLICIT_TIMES')
-  static const ScheduleOverrideRequestModeEnum EXPLICIT_TIMES =
-      _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES;
+  static const OverrideConflictQueryRequestModeEnum EXPLICIT_TIMES =
+      _$overrideConflictQueryRequestModeEnum_EXPLICIT_TIMES;
 
-  static Serializer<ScheduleOverrideRequestModeEnum> get serializer =>
-      _$scheduleOverrideRequestModeEnumSerializer;
+  static Serializer<OverrideConflictQueryRequestModeEnum> get serializer =>
+      _$overrideConflictQueryRequestModeEnumSerializer;
 
-  const ScheduleOverrideRequestModeEnum._(String name) : super(name);
+  const OverrideConflictQueryRequestModeEnum._(String name) : super(name);
 
-  static BuiltSet<ScheduleOverrideRequestModeEnum> get values =>
-      _$scheduleOverrideRequestModeEnumValues;
-  static ScheduleOverrideRequestModeEnum valueOf(String name) =>
-      _$scheduleOverrideRequestModeEnumValueOf(name);
+  static BuiltSet<OverrideConflictQueryRequestModeEnum> get values =>
+      _$overrideConflictQueryRequestModeEnumValues;
+  static OverrideConflictQueryRequestModeEnum valueOf(String name) =>
+      _$overrideConflictQueryRequestModeEnumValueOf(name);
 }
