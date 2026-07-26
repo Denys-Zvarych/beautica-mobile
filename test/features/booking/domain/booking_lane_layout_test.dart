@@ -37,6 +37,7 @@ Booking _booking({
   required String id,
   required DateTime startAt,
   required DateTime endAt,
+  BookingStatus status = BookingStatus.confirmed,
 }) => Booking(
   id: id,
   masterId: 'master-1',
@@ -49,9 +50,16 @@ Booking _booking({
   price: 500,
   startAt: startAt,
   endAt: endAt,
-  status: BookingStatus.confirmed,
+  status: status,
   canReview: false,
 );
+
+/// Every OVERLAPPING pair in [bookings] (per [assignLanes]'s own
+/// touching-endpoints-don't-count rule) must land in different lanes — the
+/// one invariant that must hold regardless of status mix. Used by case (f)'s
+/// integrity check.
+bool _overlapsForTest(Booking a, Booking b) =>
+    a.startAt.isBefore(b.endAt) && b.startAt.isBefore(a.endAt);
 
 void main() {
   group('assignLanes', () {
@@ -281,6 +289,289 @@ void main() {
 
       expect(lanes, <int>[0, 1, 0]);
       expect(laneCount(lanes), 2);
+    });
+  });
+
+  // ===========================================================================
+  // STATUS-AWARE LANE ASSIGNMENT (2026-07-26) — the demotion path
+  // ===========================================================================
+  //
+  // Real bug report: a master cancels a booking and a NEW confirmed booking
+  // is created for the same slot (the backend's overlap guard only blocks on
+  // CONFIRMED, never on a cancelled-class status). Every fixture above pins
+  // `status: BookingStatus.confirmed`, so none of it ever exercised
+  // `_isActiveClass`/pass 2 — the entire demotion path had ZERO coverage.
+  // See `booking_lane_layout.dart`'s own file header for the full mechanism.
+  group('status-aware lane assignment — the cancelled-demotion path', () {
+    test('a CONFIRMED booking overlapping a CANCELLED one in the same slot: '
+        'confirmed lands in lane 0, cancelled is demoted to lane >= 1 '
+        '(the user-reported bug)', () {
+      // The cancelled booking starts STRICTLY EARLIER than the confirmed
+      // one — under the pre-fix pure-`startAt` sort this is exactly the
+      // fixture shape that puts the cancelled card in lane 0 (sorted
+      // first, opens lane 0; the confirmed booking sorts second, overlaps
+      // it, and is pushed to lane 1). See this test file's header note on
+      // how this was confirmed to fail against the pre-fix algorithm.
+      final Booking cancelled = _booking(
+        id: 'cancelled-first',
+        startAt: _at(9),
+        endAt: _at(10),
+        status: BookingStatus.cancelled,
+      );
+      final Booking confirmed = _booking(
+        id: 'confirmed-second',
+        startAt: _at(9, 15),
+        endAt: _at(10, 15),
+      );
+
+      final List<int> lanes = assignLanes(<Booking>[cancelled, confirmed]);
+
+      expect(
+        lanes[1],
+        0,
+        reason:
+            'the LIVE confirmed booking must win lane 0 — the only lane '
+            'visible without horizontal scrolling',
+      );
+      expect(
+        lanes[0],
+        greaterThanOrEqualTo(1),
+        reason:
+            'the dead cancelled booking must never sit at or below a '
+            'confirmed booking it genuinely overlaps',
+      );
+    });
+
+    test('an UNKNOWN-status booking is treated as ACTIVE — not demoted — when '
+        'overlapping a cancelled booking, even when the cancelled booking '
+        'starts first', () {
+      // Cancelled starts EARLIER than unknown, so a naive "demote whatever
+      // sorts after CANCELLED" implementation would still demote unknown
+      // here. unknown must win lane 0 regardless of arrival order — its
+      // whole contract is "might still be live, never treat as less
+      // important than a definitively cancelled booking".
+      final Booking cancelled = _booking(
+        id: 'cancelled-early',
+        startAt: _at(9),
+        endAt: _at(10),
+        status: BookingStatus.cancelled,
+      );
+      final Booking unknown = _booking(
+        id: 'unknown-late',
+        startAt: _at(9, 15),
+        endAt: _at(10, 15),
+        status: BookingStatus.unknown,
+      );
+
+      final List<int> lanes = assignLanes(<Booking>[cancelled, unknown]);
+
+      expect(
+        lanes[1],
+        0,
+        reason: 'unknown is fail-safe ACTIVE and must win lane 0',
+      );
+      expect(lanes[0], 1, reason: 'cancelled is demoted behind it');
+    });
+
+    test('DECLINED and NOT_COMPLETED are demoted exactly like CANCELLED, '
+        'behind an overlapping CONFIRMED booking', () {
+      final Booking confirmed = _booking(
+        id: 'confirmed',
+        startAt: _at(9),
+        endAt: _at(10),
+      );
+      final Booking declined = _booking(
+        id: 'declined',
+        startAt: _at(9),
+        endAt: _at(10),
+        status: BookingStatus.declined,
+      );
+      final Booking notCompleted = _booking(
+        id: 'not-completed',
+        startAt: _at(9),
+        endAt: _at(10),
+        status: BookingStatus.notCompleted,
+      );
+
+      final List<int> lanes = assignLanes(<Booking>[
+        confirmed,
+        declined,
+        notCompleted,
+      ]);
+
+      expect(lanes[0], 0, reason: 'the active booking keeps lane 0');
+      expect(
+        lanes[1],
+        greaterThanOrEqualTo(1),
+        reason: 'DECLINED must be demoted behind the active booking',
+      );
+      expect(
+        lanes[2],
+        greaterThanOrEqualTo(1),
+        reason: 'NOT_COMPLETED must be demoted behind the active booking',
+      );
+    });
+
+    test('a time range containing ONLY cancelled-class bookings still starts '
+        'at lane 0 — demotion is a per-overlap floor, not a blanket rule', () {
+      final Booking declined = _booking(
+        id: 'declined-only',
+        startAt: _at(9),
+        endAt: _at(10),
+        status: BookingStatus.declined,
+      );
+
+      final List<int> lanes = assignLanes(<Booking>[declined]);
+
+      expect(lanes, <int>[0]);
+      expect(laneCount(lanes), 1);
+    });
+
+    test(
+      'two overlapping cancelled-class bookings partition normally between '
+      'themselves — no mutual demotion when neither overlaps anything active',
+      () {
+        final Booking cancelled = _booking(
+          id: 'c1',
+          startAt: _at(9),
+          endAt: _at(10),
+          status: BookingStatus.cancelled,
+        );
+        final Booking declined = _booking(
+          id: 'd1',
+          startAt: _at(9, 30),
+          endAt: _at(10, 30),
+          status: BookingStatus.declined,
+        );
+
+        final List<int> lanes = assignLanes(<Booking>[cancelled, declined]);
+
+        expect(lanes, <int>[0, 1]);
+        expect(laneCount(lanes), 2);
+      },
+    );
+
+    test('output integrity over a mixed active/cancelled fixture: every input '
+        'gets exactly one non-negative lane, and no two overlapping bookings '
+        'share a lane', () {
+      final List<Booking> bookings = <Booking>[
+        _booking(id: 'a-1', startAt: _at(9), endAt: _at(10)),
+        _booking(
+          id: 'cancelled-1',
+          startAt: _at(9, 15),
+          endAt: _at(9, 45),
+          status: BookingStatus.cancelled,
+        ),
+        _booking(
+          id: 'a-2',
+          startAt: _at(9, 30),
+          endAt: _at(10, 30),
+          status: BookingStatus.completed,
+        ),
+        _booking(
+          id: 'declined-1',
+          startAt: _at(9),
+          endAt: _at(9, 20),
+          status: BookingStatus.declined,
+        ),
+        _booking(
+          id: 'not-completed-1',
+          startAt: _at(11),
+          endAt: _at(11, 30),
+          status: BookingStatus.notCompleted,
+        ),
+        _booking(id: 'a-3', startAt: _at(13), endAt: _at(14)),
+      ];
+
+      final List<int> lanes = assignLanes(bookings);
+
+      expect(lanes.length, bookings.length);
+      for (final int lane in lanes) {
+        expect(lane, greaterThanOrEqualTo(0));
+      }
+      for (int i = 0; i < bookings.length; i++) {
+        for (int j = i + 1; j < bookings.length; j++) {
+          if (_overlapsForTest(bookings[i], bookings[j])) {
+            expect(
+              lanes[i],
+              isNot(lanes[j]),
+              reason:
+                  '${bookings[i].id} and ${bookings[j].id} overlap in wall '
+                  'clock time and must not share a lane',
+            );
+          }
+        }
+      }
+    });
+
+    test('touching endpoints (a.endAt == b.startAt) share a lane across the '
+        'active/cancelled boundary too', () {
+      final Booking active = _booking(
+        id: 'active-touch',
+        startAt: _at(9),
+        endAt: _at(10),
+      );
+      final Booking cancelled = _booking(
+        id: 'cancelled-touch',
+        startAt: _at(10), // touches active.endAt exactly
+        endAt: _at(11),
+        status: BookingStatus.cancelled,
+      );
+
+      final List<int> lanes = assignLanes(<Booking>[active, cancelled]);
+
+      expect(
+        lanes,
+        <int>[0, 0],
+        reason:
+            'a 09-10 active booking and a 10-11 cancelled one do not '
+            'overlap and must not be pushed into separate lanes',
+      );
+      expect(laneCount(lanes), 1);
+    });
+
+    test('laneCount growth from demotion is bounded by the number of '
+        'OVERLAPPING cancelled bookings, not the total cancelled count', () {
+      final Booking active = _booking(
+        id: 'active',
+        startAt: _at(9),
+        endAt: _at(10),
+      );
+      // The ONE cancelled booking that actually overlaps the active
+      // booking — this is the only one that should ever force a new lane.
+      final Booking overlappingCancelled = _booking(
+        id: 'cancelled-overlapping',
+        startAt: _at(9, 15),
+        endAt: _at(9, 45),
+        status: BookingStatus.cancelled,
+      );
+      // Five more cancelled bookings, all AFTER the active booking ends
+      // and all mutually non-overlapping — none of them contests an
+      // active lane, so all five should be free to reuse lane 0.
+      final List<Booking> farCancelled = <Booking>[
+        for (int i = 0; i < 5; i++)
+          _booking(
+            id: 'far-cancelled-$i',
+            startAt: _at(11 + i, 0),
+            endAt: _at(11 + i, 30),
+            status: BookingStatus.declined,
+          ),
+      ];
+
+      final List<int> lanes = assignLanes(<Booking>[
+        active,
+        overlappingCancelled,
+        ...farCancelled,
+      ]);
+
+      expect(
+        laneCount(lanes),
+        2,
+        reason:
+            '6 cancelled-class bookings exist in total, but only ONE '
+            'overlaps an active booking — laneCount must track that one '
+            'overlap, not the total cancelled count',
+      );
     });
   });
 }

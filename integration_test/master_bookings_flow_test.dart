@@ -1996,4 +1996,143 @@ void main() {
       );
     },
   );
+
+  // ── 2026-07-26 — status-aware lane assignment: a CANCELLED booking must
+  //      never hide the live CONFIRMED booking that replaced it ────────────
+  //
+  // Step 2.7 Rule 3b: `booking_lane_layout_test.dart` (unit tier) now proves
+  // `assignLanes` itself demotes a cancelled-class booking behind an
+  // overlapping active one — but that is a pure function fed a hand-built
+  // `List<Booking>`. It cannot prove the demotion survives the real chain
+  // this bug was actually reported against: `GET /bookings/me` (server
+  // `startsAt` order — the cancelled/live pair does NOT arrive pre-sorted by
+  // "which one is live") → `BookingMapper` → `BookingsDayNotifier` →
+  // `BookingsTimelineGrid`, which is the only caller of `assignLanes` in the
+  // app and the surface the master actually looks at. A regression that
+  // dropped the status-aware split at any one of those hops (e.g. the grid
+  // re-sorting its input before calling `assignLanes`, or the mapper losing
+  // `status` off the wire) would leave the unit test green while the master
+  // still sees the dead booking up front.
+  //
+  // No `integration_test/patrol/` case is needed here — nothing in this flow
+  // touches a native surface (no OS permission dialog, deep link, push
+  // notification, WebView, or biometric prompt); it is pure Flutter
+  // widget/HTTP plumbing, fully reachable through the existing fake-backed
+  // `integration_test/` harness.
+  testWidgets(
+    'a CANCELLED booking overlapping a live CONFIRMED one at the same slot: '
+    'the CONFIRMED card renders in the leftmost lane, and the cancelled one '
+    'is still present (reachable, not filtered), through a real GET '
+    '/bookings/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // Same Kyiv day as the fake's booked-days seed, derived from
+      // `fb.bookingStartsAt` rather than hand-typed — see the "two
+      // back-to-back" test above for the incident that idiom prevents.
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
+      final DateTime cancelledStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+      // The confirmed replacement starts a few minutes LATER than the
+      // cancelled booking it replaced, but still genuinely overlaps it —
+      // exactly the fixture shape that pins the bug: under the pre-fix pure
+      // `startAt` sort, the EARLIER-starting cancelled booking would sort
+      // first and win lane 0, pushing the live confirmed booking off-screen
+      // to the right (see `booking_lane_layout_test.dart`'s "user-reported
+      // bug" case, which was confirmed to fail against that exact algorithm
+      // before this fix landed).
+      final DateTime confirmedStart = cancelledStart.add(
+        const Duration(minutes: 5),
+      );
+
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'cancelled-slot',
+          status: 'CANCELLED',
+          startsAt: cancelledStart,
+          duration: const Duration(minutes: 60),
+        ),
+        fb.datasetBookingRow(
+          id: 'confirmed-slot',
+          status: 'CONFIRMED',
+          startsAt: confirmedStart,
+          duration: const Duration(minutes: 60),
+        ),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await _selectRailDay(tester, bookedDay);
+
+      expect(
+        fb.getMyBookingsCalls,
+        greaterThan(0),
+        reason: 'both cards must be served by the real endpoint',
+      );
+
+      // ── Both bookings actually reached the screen over the real wire —
+      //      the cancelled one is REACHABLE, not filtered out of the
+      //      response or dropped by the mapper. ─────────────────────────────
+      final Finder confirmedCard = find.byKey(
+        const Key('master-booking-card-confirmed-slot'),
+      );
+      final Finder cancelledCard = find.byKey(
+        const Key('master-booking-card-cancelled-slot'),
+      );
+      expect(
+        confirmedCard,
+        findsOneWidget,
+        reason:
+            'the live confirmed booking must be found WITHOUT any '
+            'horizontal scroll — it must be in the leftmost lane',
+      );
+      expect(
+        cancelledCard,
+        findsOneWidget,
+        reason:
+            'the cancelled booking must still be present in the widget '
+            'tree — demotion moves it to a further-right lane, it must '
+            'never be filtered out of the render entirely',
+      );
+
+      // ── The CONFIRMED card is the one in the leftmost lane — the real
+      //      rendered geometry, not a declared property. ─────────────────────
+      final Rect confirmedRect = _masterCardRect(tester, 'confirmed-slot');
+      final Rect cancelledRect = _masterCardRect(tester, 'cancelled-slot');
+      expect(
+        confirmedRect.left,
+        lessThan(cancelledRect.left),
+        reason:
+            'confirmed-slot $confirmedRect must render strictly to the '
+            'LEFT of cancelled-slot $cancelledRect — this is the exact '
+            'field bug: a master cancels a booking, a new confirmed one is '
+            'made for the same slot, and the dead cancelled card must never '
+            'occupy the one lane visible without scrolling',
+      );
+      expect(
+        confirmedRect.overlaps(cancelledRect),
+        isFalse,
+        reason:
+            'the two cards genuinely overlap in wall-clock time, so they '
+            'must land in two DIFFERENT lanes and never intersect on '
+            'screen',
+      );
+    },
+  );
 }
