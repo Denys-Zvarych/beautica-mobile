@@ -1,3 +1,9 @@
+// MO-8 [mobile-security MEDIUM, fixed] — NOT ROUTED. `VisitDetailScreen`, the
+// only call site of `showCancelVisitDialog`, was unregistered from
+// `app_router.dart` (see that file's header for the full finding). This part
+// file is INTENTIONALLY RETAINED (not deleted) alongside it — re-adding a UI
+// entry point requires re-registering the VisitDetailScreen GoRoute.
+//
 // MO-5 — «Скасувати запис?» for a multi-service VISIT.
 //
 // A `part of cancel_booking_dialog.dart` (see that file's `part` directive): it

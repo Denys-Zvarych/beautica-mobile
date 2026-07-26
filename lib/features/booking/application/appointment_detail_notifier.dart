@@ -1,3 +1,11 @@
+// MO-8 [mobile-security MEDIUM, fixed] — this provider itself is still LIVE
+// (`reschedule_navigation.dart` watches it for the single-booking reschedule
+// flow — do not remove it). What is NOT ROUTED any more is its ORIGINAL
+// consumer pair, `VisitDetailScreen`/`AppointmentReviewScreen`: their shared
+// GoRoute was unregistered from `app_router.dart` (see `visit_detail_screen.
+// dart`'s header for the full finding) while both screens — and this
+// provider — are INTENTIONALLY RETAINED.
+//
 // MO-5 — «Деталі запису» (VISIT) data source.
 //
 // The visit analogue of `booking_detail_notifier.dart`: a plain family

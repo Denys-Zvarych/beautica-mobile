@@ -1,30 +1,54 @@
-// MO-5 — E2E: the CLIENT «МОЇ ЗАПИСИ» multi-service VISIT journey.
+// MO-7 — E2E: the CLIENT «МОЇ ЗАПИСИ» multi-service VISIT journey, PER SERVICE.
 //
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
 // --------------------------------------------------------------
-// The widget/unit tier proves the pieces in isolation: my_bookings_entry_test
-// (grouping + summary derivations), my_bookings_visit_grouping_test (one grouped
-// card + routing), visit_detail_screen_test (recap + cancel/review routing).
-// NONE proves the REAL journey wired together against the fake backend:
+// Product decision (locked 2026-07-26): «Мої записи» no longer collapses a
+// multi-service visit's rows into one grouped card. This file used to prove
+// the OPPOSITE — that a visit's rows collapsed into one `VisitCard` and
+// cancelled as a whole via `AppointmentRepository.cancelAppointment` (the
+// backend 409'd a per-booking cancel on a visit child at the time). Both of
+// those are now false: `VisitCard`/`groupBookingsByAppointment` are DELETED
+// (see `my_bookings_screen.dart`'s file header), and the backend's
+// `assertNotAppointmentChild` guard on `PATCH /bookings/{id}/cancel` is gone
+// (backend `1d1d524`) — the endpoint now cancels ONLY the targeted leg and
+// recomputes the appointment header server-side.
+//
+// The widget/unit tier proves the pieces in isolation:
+// `my_bookings_visit_grouping_test.dart` (per-service rendering + routing +
+// the cancel-routes-to-cancelBooking regression). This file proves the REAL
+// journey wired together against the fake backend:
 //
 //   1. CLIENT logs in and opens the Записи branch.
-//   2. `GET /bookings/me` returns TWO per-service rows sharing an appointmentId
-//      + one legacy standalone row → the list collapses the visit into ONE
-//      `VisitCard` while the legacy row keeps its own `BookingCard`.
-//   3. Tapping the visit card opens the VISIT detail (`getAppointment`), which
-//      renders the multi-service recap (both ordered services, one window, one
-//      total).
-//   4. Cancelling the visit calls `AppointmentRepository.cancelAppointment`
-//      (the visit path) and NEVER the per-booking `cancelBooking` — the backend
-//      409s a single-booking cancel on an appointment child, so the client must
-//      route a visit to the appointment endpoint.
+//   2. `GET /bookings/me` returns TWO per-service rows sharing an
+//      appointmentId + one legacy standalone row → the list renders THREE
+//      ordinary `BookingCard`s — no grouping, no visit chrome.
+//   3. Tapping ONE visit leg opens ITS OWN single-booking detail
+//      (`GET /bookings/{id}`), never `VisitDetailScreen`.
+//   4. Cancelling that leg calls the PER-BOOKING
+//      `PATCH /bookings/{id}/cancel` — never any appointment-level
+//      endpoint — proving the write acts on that ONE service only.
 //
-// `/bookings/me` is served by `FakeBackend` (real Dio adapter, so the grouping
-// runs over genuinely-fetched rows). The visit DETAIL's `getAppointment` /
-// `cancelAppointment` go through a hand-written [_FakeAppointmentRepository]
-// override — mirroring `independent_multi_service_booking_flow_test.dart`, which
-// likewise overrides `appointmentRepositoryProvider` rather than adding a real
-// `/appointments` route to the fake adapter.
+// `/bookings/me` is served by `FakeBackend` (real Dio adapter, so the render
+// runs over genuinely-fetched rows). The tapped leg reuses the FIXED
+// `booking-1` single-seeded fixture (`fb.bookingAppointmentId` marks it as a
+// visit child) so the cancel goes through the REAL wired
+// `PATCH /bookings/booking-1/cancel` route — the same "seed the concrete
+// fixture id" pattern `booking_detail_appointment_child_footer_test.dart`
+// established for the provider-side per-service decline regression.
+// `AppointmentRepository` is overridden with a call-counting fake (no real
+// `/appointments` route exists on the fake adapter — mirrors every other
+// appointment-vs-booking flow in this suite) purely to prove it is NEVER
+// touched by this journey.
+//
+// The whole-visit REVIEW journey this file used to also cover (tap a
+// `VisitCard` → `VisitDetailScreen` → `AppointmentReviewScreen` →
+// `createAppointmentReview`) has no UI entry point left after this change —
+// `VisitCard` was its only tap target in the list. That journey is NOT
+// deleted: `VisitDetailScreen`/`AppointmentReviewScreen` and their own
+// widget-tier tests (`visit_detail_screen_test.dart`,
+// `appointment_review_screen_test.dart`, both pump the screens directly, no
+// dependency on the list) still cover it in isolation. Whether that journey
+// needs a new entry point is a product decision outside this ticket's scope.
 //
 // KEY POLICY (AppHarness): all TAPS are key-/type-based; Ukrainian text appears
 // in CONTENT ASSERTIONS only.
@@ -33,14 +57,10 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
-import 'package:beautica_mobile/features/booking/presentation/appointment_review_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/visit_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -48,86 +68,27 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
-/// The visit read/cancel path, hand-faked (no real `/appointments` adapter route
-/// — see the file header). [getAppointment] serves a 2-item visit; the status
-/// flips to CANCELLED once [cancelAppointment] runs so a re-fetch reflects it.
-class _FakeAppointmentRepository implements AppointmentRepository {
-  _FakeAppointmentRepository({
-    BookingStatus status = BookingStatus.confirmed,
-    bool canReview = false,
-    this.completed = false,
-  }) : _status = status,
-       _canReview = canReview;
-
-  /// When true, the visit's window is in the PAST (a COMPLETED visit) rather
-  /// than one day out — so `getAppointment` yields a review-eligible detail.
-  final bool completed;
-
-  int getCalls = 0;
+/// A call-counting stand-in for [AppointmentRepository] — every method throws
+/// except [cancelAppointment], which merely counts calls. This journey must
+/// NEVER reach ANY appointment-level endpoint (no real `/appointments` route
+/// exists on the fake Dio adapter — see the file header), so any accidental
+/// call surfaces loudly rather than silently 404ing.
+class _SpyAppointmentRepository implements AppointmentRepository {
   int cancelCalls = 0;
-  int reviewCalls = 0;
   String? lastCancelNote;
-  int? lastReviewRating;
-  String? lastReviewComment;
-  BookingStatus _status;
-  bool _canReview;
-
-  @override
-  Future<Appointment> getAppointment(String id) async {
-    getCalls++;
-    final DateTime start = completed
-        ? DateTime.now().subtract(const Duration(days: 1, hours: 10))
-        : DateTime.now().add(const Duration(days: 1, hours: 10));
-    return Appointment(
-      id: id,
-      status: _status,
-      masterId: 'master-aaa',
-      masterFirstName: 'Софія',
-      masterLastName: 'Бондар',
-      masterProfessionalTitle: 'Майстриня манікюру',
-      masterType: 'INDEPENDENT_MASTER',
-      startAt: start,
-      endAt: start.add(const Duration(minutes: 150)),
-      totalDurationMinutes: 150,
-      totalPrice: 900,
-      items: <AppointmentItem>[
-        AppointmentItem(
-          bookingId: 'v-1',
-          masterServiceId: 'ms-1',
-          serviceName: 'Манікюр з покриттям',
-          startAt: start,
-          endAt: start.add(const Duration(minutes: 90)),
-          durationMinutes: 90,
-          price: 500,
-        ),
-        AppointmentItem(
-          bookingId: 'v-2',
-          masterServiceId: 'ms-2',
-          serviceName: 'Педикюр апаратний',
-          startAt: start.add(const Duration(minutes: 90)),
-          endAt: start.add(const Duration(minutes: 150)),
-          durationMinutes: 60,
-          price: 400,
-        ),
-      ],
-      canReview: _canReview,
-      cityLabel: 'Київ',
-      districtLabel: 'Печерський',
-      street: 'вул. Хрещатик',
-      buildingNo: '12',
-    );
-  }
-
-  @override
-  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
 
   @override
   Future<void> cancelAppointment(String id, {String? note}) async {
     cancelCalls++;
     lastCancelNote = note;
-    _status = BookingStatus.cancelled;
   }
+
+  @override
+  Future<Appointment> getAppointment(String id) => throw UnimplementedError();
+
+  @override
+  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt) =>
+      throw UnimplementedError();
 
   @override
   Future<void> completeAppointment(String id) => throw UnimplementedError();
@@ -148,13 +109,7 @@ class _FakeAppointmentRepository implements AppointmentRepository {
     String id, {
     required int rating,
     String? comment,
-  }) async {
-    reviewCalls++;
-    lastReviewRating = rating;
-    lastReviewComment = comment;
-    // The visit is now reviewed — a re-fetch reflects it (canReview flips false).
-    _canReview = false;
-  }
+  }) => throw UnimplementedError();
 
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) =>
@@ -204,201 +159,95 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  testWidgets(
-    'CLIENT sees a multi-service visit as ONE grouped card, opens its detail, '
-    'and cancels via cancelAppointment (never cancelBooking)',
-    (tester) async {
-      final fb = FakeBackend()..currentRole = UserRole.client;
-      final fakeAppt = _FakeAppointmentRepository();
-
-      final DateTime visitStart = DateTime.now().add(
-        const Duration(days: 1, hours: 10),
-      );
-      final DateTime legacyStart = DateTime.now().add(
-        const Duration(days: 2, hours: 10),
-      );
-
-      // Two rows sharing appt-1 (the visit) + one legacy standalone row.
-      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
-        _row(
-          id: 'v-1',
-          appointmentId: 'appt-1',
-          serviceName: 'Манікюр з покриттям',
-          startsAt: visitStart,
-          minutes: 90,
-        ),
-        _row(
-          id: 'v-2',
-          appointmentId: 'appt-1',
-          serviceName: 'Педикюр апаратний',
-          startsAt: visitStart.add(const Duration(minutes: 90)),
-          minutes: 60,
-        ),
-        _row(id: 'legacy-1', serviceName: 'Стрижка', startsAt: legacyStart),
-      ]);
-
-      await AppHarness.boot(
-        tester,
-        fb,
-        extraOverrides: <Object>[
-          appointmentRepositoryProvider.overrideWithValue(fakeAppt),
-        ],
-      );
-
-      await AppHarness.loginAs(tester, fb, UserRole.client);
-
-      // ── Open the Записи branch (bottom-nav tile 3). ───────────────────────
-      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
-      await AppHarness.settle(tester);
-      expect(find.byType(MyBookingsScreen), findsOneWidget);
-
-      // ── The visit collapses into ONE VisitCard; the legacy row keeps its
-      //    own BookingCard. ──────────────────────────────────────────────────
-      expect(find.byType(VisitCard), findsOneWidget);
-      expect(find.byType(BookingCard), findsOneWidget);
-      // The grouped card lists both of the visit's ordered services.
-      expect(
-        find.byKey(const ValueKey<String>('visit-service-appt-1-0')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('visit-service-appt-1-1')),
-        findsOneWidget,
-      );
-
-      // ── Open the VISIT detail (getAppointment) — the multi-service recap. ──
-      await tester.tap(find.byType(VisitCard));
-      await AppHarness.settle(tester);
-      expect(find.byType(VisitDetailScreen), findsOneWidget);
-      expect(fakeAppt.getCalls, greaterThanOrEqualTo(1));
-      // i18n-finder-ok: service name is injected fixture data, locale-invariant
-      expect(find.text('Манікюр з покриттям'), findsWidgets);
-      // i18n-finder-ok: service name is injected fixture data, locale-invariant
-      expect(find.text('Педикюр апаратний'), findsWidgets);
-
-      // ── Cancel the visit — routes to cancelAppointment, never cancelBooking.
-      await tester.tap(find.byKey(const Key('visit-detail-cancel')));
-      await AppHarness.settle(tester);
-      expect(find.byKey(const Key('cancel-visit-dialog')), findsOneWidget);
-
-      await tester.enterText(
-        find.byKey(const Key('cancel-booking-note-field')),
-        'Захворіла, вибачте.',
-      );
-      await AppHarness.settle(tester);
-      await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
-      await AppHarness.settle(tester);
-
-      expect(fakeAppt.cancelCalls, 1);
-      expect(fakeAppt.lastCancelNote, 'Захворіла, вибачте.');
-      // The per-booking cancel path must NOT have been touched for a visit.
-      expect(
-        fb.cancelBookingCalls,
-        0,
-        reason:
-            'a visit cancel must route to cancelAppointment, never the '
-            'per-booking cancelBooking (the backend 409s that on a child)',
-      );
-    },
-  );
-
-  // MO-6 — the review leg: a COMPLETED, review-eligible visit reviewed ONCE via
-  // `createAppointmentReview`, never the per-booking review of a child.
-  testWidgets('CLIENT opens a COMPLETED visit, leaves ONE review via '
-      'createAppointmentReview, and the CTA disappears once canReview flips', (
-    tester,
-  ) async {
+  testWidgets('CLIENT sees a multi-service visit as TWO plain BookingCards (no '
+      'grouping), opens ONE leg, and cancels it via the per-booking '
+      'cancelBooking — never any appointment-level endpoint', (tester) async {
     final fb = FakeBackend()..currentRole = UserRole.client;
-    final fakeAppt = _FakeAppointmentRepository(
-      status: BookingStatus.completed,
-      canReview: true,
-      completed: true,
-    );
+    final spyAppt = _SpyAppointmentRepository();
 
-    // A past, COMPLETED two-service visit → lands in the Минулі tab.
-    final DateTime visitStart = DateTime.now().subtract(
+    final DateTime visitStart = DateTime.now().add(
       const Duration(days: 1, hours: 10),
     );
+    final DateTime legacyStart = DateTime.now().add(
+      const Duration(days: 2, hours: 10),
+    );
+
+    // `booking-1` is the tapped/cancelled leg — reuses the FIXED
+    // single-seeded fixture (`fb.bookingAppointmentId`) so its
+    // `GET`/`PATCH …/cancel` go through the REAL wired routes (see the
+    // file header). `booking-2` is its sibling in the list only (its own
+    // GET/cancel routes are not exercised by this flow) + one legacy
+    // standalone row.
+    fb.bookingAppointmentId = 'appt-1';
     fb.seedManyBookingsDataset(<Map<String, dynamic>>[
       _row(
-        id: 'v-1',
+        id: 'booking-1',
         appointmentId: 'appt-1',
         serviceName: 'Манікюр з покриттям',
         startsAt: visitStart,
         minutes: 90,
-        status: 'COMPLETED',
       ),
       _row(
-        id: 'v-2',
+        id: 'booking-2',
         appointmentId: 'appt-1',
         serviceName: 'Педикюр апаратний',
         startsAt: visitStart.add(const Duration(minutes: 90)),
         minutes: 60,
-        status: 'COMPLETED',
       ),
+      _row(id: 'legacy-1', serviceName: 'Стрижка', startsAt: legacyStart),
     ]);
 
     await AppHarness.boot(
       tester,
       fb,
       extraOverrides: <Object>[
-        appointmentRepositoryProvider.overrideWithValue(fakeAppt),
+        appointmentRepositoryProvider.overrideWithValue(spyAppt),
       ],
     );
 
     await AppHarness.loginAs(tester, fb, UserRole.client);
 
-    // ── Open the Записи branch and switch to the Минулі tab. ────────────────
+    // ── Open the Записи branch (bottom-nav tile 3). ───────────────────────
     await tester.tap(find.byKey(const Key('client-nav-tile-3')));
     await AppHarness.settle(tester);
     expect(find.byType(MyBookingsScreen), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey<BookingTab>(BookingTab.past)));
-    await AppHarness.settle(tester);
+    // ── The visit's two legs render as ORDINARY, SEPARATE BookingCards —
+    //    no grouping, no visit chrome — alongside the legacy row. ─────────
+    expect(find.byType(BookingCard), findsNWidgets(3));
+    expect(find.byKey(const ValueKey<String>('booking-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('booking-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('legacy-1')), findsOneWidget);
 
-    // ── The completed visit collapses into ONE grouped VisitCard. ───────────
-    expect(find.byType(VisitCard), findsOneWidget);
-
-    // ── Open the VISIT detail — COMPLETED + canReview → the review CTA. ──────
-    await tester.tap(find.byType(VisitCard));
+    // ── Open ONE leg's OWN detail (GET /bookings/booking-1). ───────────────
+    await tester.tap(find.byKey(const ValueKey<String>('booking-1')));
     await AppHarness.settle(tester);
-    expect(find.byType(VisitDetailScreen), findsOneWidget);
-    final Finder reviewCta = find.byKey(const Key('visit-detail-leave-review'));
-    expect(reviewCta, findsOneWidget);
+    expect(find.byType(BookingDetailScreen), findsOneWidget);
 
-    // ── Route to the VISIT review form (never a per-booking review). ────────
-    await tester.tap(reviewCta);
+    // ── Cancel THIS leg — routes to the per-booking cancelBooking, never
+    //    an appointment-level endpoint. ─────────────────────────────────────
+    await tester.tap(find.byKey(const Key('booking-detail-cancel')));
     await AppHarness.settle(tester);
-    expect(find.byType(AppointmentReviewScreen), findsOneWidget);
+    expect(find.byKey(const Key('cancel-booking-dialog')), findsOneWidget);
 
-    // ── Rate + submit → createAppointmentReview (the visit path). ───────────
-    await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
-    await AppHarness.settle(tester);
     await tester.enterText(
-      find.byKey(const Key('visit-review-comment')),
-      'Дуже задоволена візитом!',
+      find.byKey(const Key('cancel-booking-note-field')),
+      'Захворіла, вибачте.',
     );
     await AppHarness.settle(tester);
-    await tester.tap(find.byKey(const Key('visit-review-submit')));
+    await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
     await AppHarness.settle(tester);
 
-    expect(fakeAppt.reviewCalls, 1);
-    expect(fakeAppt.lastReviewRating, 5);
-    expect(fakeAppt.lastReviewComment, 'Дуже задоволена візитом!');
-
-    // ── Popped back to the visit detail; canReview flipped → the CTA is gone,
-    //    replaced by the rebook-only action set. ─────────────────────────────
-    expect(find.byType(AppointmentReviewScreen), findsNothing);
-    expect(find.byType(VisitDetailScreen), findsOneWidget);
-    final AppLocalizations l10n = AppLocalizations.of(
-      tester.element(find.byType(VisitDetailScreen)),
-    );
-    expect(find.text(l10n.reviewSubmitSuccess), findsOneWidget);
+    expect(fb.cancelBookingCalls, 1);
+    expect(fb.lastCancelComment, 'Захворіла, вибачте.');
+    // Never touched ANY appointment-level endpoint — the write acted on
+    // this ONE service only.
     expect(
-      find.byKey(const Key('visit-detail-leave-review')),
-      findsNothing,
-      reason: 'canReview flipped false after the review — CTA must vanish',
+      spyAppt.cancelCalls,
+      0,
+      reason:
+          'a per-card cancel must route to the per-booking cancelBooking, '
+          'never AppointmentRepository.cancelAppointment',
     );
-    expect(find.byKey(const Key('visit-detail-rebook')), findsOneWidget);
   });
 }

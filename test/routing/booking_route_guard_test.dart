@@ -80,6 +80,8 @@ import 'package:beautica_mobile/features/master/application/public_master_profil
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -386,6 +388,22 @@ void main() {
               _kSalonMasterId: <String, String>{'svc-1': 'svc-1'},
             },
           ),
+          // Malformed/guard-redirect cases land the CLIENT session on
+          // `RouteNames.clientHome` (HomeHubScreen), whose `_StatPillsRow`
+          // watches `myRatingProvider`. `myRating`'s build (`my_rating_
+          // notifier.dart`) unconditionally starts a 5-minute
+          // `ref.keepAlive()` TTL `Timer` — correctly cancelled via
+          // `ref.onDispose` on provider disposal, but disposal only happens
+          // when `container.dispose()` runs (`addTearDown`, AFTER a test
+          // body returns), which is AFTER the `!timersPending` tear-down
+          // check. The `retry: null` knob above does not help here — that
+          // only suppresses Riverpod's error-retry backoff, not this
+          // explicit application Timer. Same leaked-timer shape as the
+          // other overrides in this list; settling with an override
+          // (bypassing `myRating`'s build body, and the Timer, entirely) is
+          // the fix, mirroring `role_landing_chrome_test.dart`'s identical
+          // fix for the same screen.
+          myRatingProvider.overrideWith((ref) async => const ClientRating()),
         ],
       );
       addTearDown(container.dispose);

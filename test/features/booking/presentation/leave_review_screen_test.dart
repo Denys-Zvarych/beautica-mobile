@@ -64,6 +64,11 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 Booking _booking({
   BookingStatus status = BookingStatus.completed,
   required bool canReview,
+  // MO-7 — non-null when this booking is one service of a multi-service
+  // VISIT. Defaults to null (a plain single-service booking) so every
+  // existing call site is unaffected; see the "MO-7 regression pin" test
+  // below for why this param exists.
+  String? appointmentId,
 }) {
   final DateTime start = DateTime.utc(2026, 7, 10, 15);
   return Booking(
@@ -85,6 +90,7 @@ Booking _booking({
     status: status,
     canReview: canReview,
     masterProfessionalTitle: 'Майстриня манікюру',
+    appointmentId: appointmentId,
   );
 }
 
@@ -444,6 +450,10 @@ void main() {
     Future<GoRouter> pumpDetail(
       WidgetTester tester, {
       required bool canReview,
+      // MO-7 — threaded through so the "visit leg" regression-pin test below
+      // can seed a non-null appointmentId through the SAME harness the plain
+      // single-service cases use, rather than a parallel setup.
+      String? appointmentId,
     }) async {
       final GoRouter router = GoRouter(
         initialLocation: '/bookings/$_bookingId',
@@ -466,9 +476,10 @@ void main() {
         overrides: <Object>[
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
           bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
-          bookingDetailProvider(
-            _bookingId,
-          ).overrideWith((ref) async => _booking(canReview: canReview)),
+          bookingDetailProvider(_bookingId).overrideWith(
+            (ref) async =>
+                _booking(canReview: canReview, appointmentId: appointmentId),
+          ),
         ],
       );
       await tester.pumpAndSettle();
@@ -504,5 +515,37 @@ void main() {
         findsNothing,
       );
     });
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MO-7 regression pin
+    // ─────────────────────────────────────────────────────────────────────
+    // The whole-visit review journey (`VisitCard` → `VisitDetailScreen` →
+    // `AppointmentReviewScreen`) lost its only tap target when «Мої записи»
+    // stopped grouping a visit's rows into one card (see
+    // `my_bookings_visit_grouping_test.dart`'s file header). This test proves
+    // the PER-SERVICE review journey survived that refactor: `_actions`
+    // (`booking_detail_screen.dart`) gates the entry CTA on `booking.canReview`
+    // alone — it never branches on `booking.appointmentId` — and every row in
+    // the list (visit leg or not) now opens THIS same `BookingDetailScreen`.
+    // A reviewable COMPLETED visit leg must therefore still show the CTA and
+    // push the review route exactly like a plain single-service booking. If
+    // this ever regresses, the client's only way to review a multi-service
+    // visit's individual service is gone.
+    testWidgets(
+      'MO-7: a reviewable COMPLETED VISIT LEG (non-null appointmentId) still '
+      'shows the entry CTA and tapping it pushes the review route — the '
+      'per-service review journey survives the grouping removal',
+      (tester) async {
+        await pumpDetail(tester, canReview: true, appointmentId: 'appt-1');
+
+        final Finder cta = find.byKey(const Key('booking-detail-leave-review'));
+        expect(cta, findsOneWidget);
+
+        await tester.tap(cta);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('review-stub')), findsOneWidget);
+      },
+    );
   });
 }

@@ -46,12 +46,10 @@ import '../features/booking/domain/booking_slot_picker_args.dart';
 import '../features/booking/domain/booking_success_args.dart';
 import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
-import '../features/booking/presentation/appointment_review_screen.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
 import '../features/booking/presentation/leave_client_feedback_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
-import '../features/booking/presentation/visit_detail_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
@@ -459,32 +457,21 @@ GoRouter appRouter(Ref ref) {
                 pageBuilder: (context, state) =>
                     _instantPage(state, const MyBookingsScreen()),
                 routes: [
-                  // MO-5 — /bookings/visit/:appointmentId — «Деталі запису» for
-                  // a multi-service VISIT, pushed onto this branch's own
-                  // navigator from a VisitCard tap. Declared BEFORE the
-                  // `:bookingId` route so the literal `visit/` segment is matched
-                  // as a distinct path, never captured as a bookingId. `builder:`
-                  // (not `pageBuilder: _instantPage`) so the default Material
-                  // transition + swipe-back apply, matching the single detail.
-                  GoRoute(
-                    path: 'visit/:appointmentId',
-                    builder: (context, state) => VisitDetailScreen(
-                      appointmentId: state.pathParameters['appointmentId']!,
-                    ),
-                    routes: [
-                      // MO-5 seam / MO-6 — the VISIT review path. The visit
-                      // detail's «Залишити відгук» CTA routes here carrying the
-                      // appointmentId so a visit is reviewed once as a whole
-                      // (`POST /appointments/{id}/review`), never the per-booking
-                      // review of a child.
-                      GoRoute(
-                        path: 'review',
-                        builder: (context, state) => AppointmentReviewScreen(
-                          appointmentId: state.pathParameters['appointmentId']!,
-                        ),
-                      ),
-                    ],
-                  ),
+                  // MO-8 [mobile-security MEDIUM] — the `visit/:appointmentId`
+                  // GoRoute (and its nested `review` child) was REMOVED here.
+                  // It backed `VisitDetailScreen`'s whole-visit cancel
+                  // (`AppointmentRepository.cancelAppointment`, cascading every
+                  // leg) via a path with no UI entry point since MO-7 deleted
+                  // `VisitCard` — but `MainActivity` is `exported="true"` with
+                  // `flutter_deeplinking_enabled="true"`, so a co-installed app
+                  // could still reach it with an explicit, component-targeted
+                  // intent (bypassing `intent-filter` data matching) and
+                  // force-navigate an authenticated session to the whole-visit
+                  // cancel the locked product decision ("cancel just that one
+                  // service") removed. `VisitDetailScreen` / the nested
+                  // `AppointmentReviewScreen` are NOT deleted — see their file
+                  // headers — only unregistered. Re-adding a UI entry point
+                  // requires re-registering a route here.
                   // /bookings/:bookingId — «Деталі запису» (14.3/14.4),
                   // pushed onto this branch's own navigator (swipe-back
                   // returns to the still-scrolled list) from a BookingCard

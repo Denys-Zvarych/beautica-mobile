@@ -1,3 +1,9 @@
+// MO-8 [mobile-security MEDIUM, fixed] — NOT ROUTED. Nested under
+// `VisitDetailScreen`'s now-unregistered `GoRoute` (see that file's header for
+// the full finding); this screen has no UI entry point either. INTENTIONALLY
+// RETAINED (not deleted) pending the same open product question — re-adding
+// an entry point requires re-registering both GoRoutes in `app_router.dart`.
+//
 // MO-6 — «ВІДГУК ПРО МАЙСТРА» for a multi-service VISIT.
 //
 // The visit analogue of `leave_review_screen.dart`: a client leaves ONE review

@@ -1,3 +1,14 @@
+// MO-8 [mobile-security MEDIUM, fixed] — NOT ROUTED. MO-7 deleted `VisitCard`,
+// this screen's only UI entry point, but its `GoRoute` (`/bookings/visit/
+// :appointmentId`) stayed registered — reachable via an explicit, component-
+// targeted intent (MainActivity is `exported="true"`, `flutter_deeplinking_
+// enabled="true"`) straight to the whole-visit cancel below, which the locked
+// product decision ("cancel just that one service") deliberately removed.
+// The `GoRoute` was unregistered in `app_router.dart`; this file is
+// INTENTIONALLY RETAINED (not deleted) pending an open product question —
+// whether the whole-visit review journey needs a new entry point. Re-adding
+// one requires re-registering a GoRoute in `app_router.dart`.
+//
 // MO-5 — «Деталі запису» for a multi-service VISIT, opened from a `VisitCard`.
 //
 // The visit analogue of `booking_detail_screen.dart`: it is backed by

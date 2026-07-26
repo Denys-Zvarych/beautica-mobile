@@ -1,13 +1,27 @@
-// MO-5 — widget suite for the «Мої записи» VISIT grouping + routing.
+// MO-7 — widget suite for the «Мої записи» PER-SERVICE rendering.
+//
+// Product decision (locked 2026-07-26): «Мої записи» no longer collapses a
+// multi-service visit's rows into one grouped card. A 2-service visit now
+// renders as TWO ordinary `BookingCard`s — indistinguishable from any other
+// single-service booking, no «Візит · 1 з 2» badge, no shared header — each
+// acting on its OWN booking. This file replaces the old MO-5 grouping suite
+// (`groupBookingsByAppointment` / `VisitBookingEntry` / `VisitCard` are all
+// deleted).
 //
 // Proves the acceptance criteria:
-//   • a 2-item visit (rows sharing an appointmentId) renders ONE grouped
-//     `VisitCard` — services list, summed duration, price band, one time,
-//     status — while a legacy standalone booking still renders its own
-//     `BookingCard`;
-//   • tapping the visit card pushes `/bookings/visit/:appointmentId` (the
-//     appointment detail), tapping the legacy card pushes `/bookings/:bookingId`
-//     (the single-booking detail).
+//   • a visit's rows (sharing an `appointmentId`) each render their OWN
+//     `BookingCard`, in the server's `startAt` order — no grouping, no visit
+//     chrome;
+//   • tapping ANY row — visit leg or legacy standalone — pushes the SAME
+//     single-booking detail route, `/bookings/:bookingId`, keyed off that
+//     row's own id;
+//   • cancelling a visit leg from «Деталі запису» calls
+//     `BookingRepository.cancelBooking(leg.id, ...)` — the per-booking
+//     endpoint — never any appointment-level cancel; the ONLY thing that
+//     used to stand between an appointment-child booking and
+//     `BookingDetailScreen` was the grouped `VisitCard` indirection, and that
+//     indirection is gone by design (see `my_bookings_screen.dart`'s file
+//     header).
 //
 // Finders are key-first / type-first; status copy is asserted through l10n.
 
@@ -17,20 +31,19 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/appointment_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
-import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/visit_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -48,23 +61,8 @@ class _StubAuth extends AuthNotifier {
   Future<AuthSession> build() async => _session;
 }
 
-/// The visit's day, anchored to the real wall clock instead of written as an
-/// absolute literal — see `test/helpers/booking_fixture_dates.dart` for the
-/// time bomb this avoids.
-///
-/// These rows are stubbed into the **upcoming** tab. Nothing this suite asserts
-/// today reads `BookingDisplayX.isPast` — neither `MyBookingsScreen` nor
-/// `VisitCard` has a wall-clock branch, and the assertions here are card counts,
-/// keys, the price band, service names and two `context.push` targets. So the
-/// anchor is PRE-EMPTIVE, not load-bearing: it keeps the fixture honest to the
-/// tab it is stubbed into, so the first upcoming-only affordance this list grows
-/// later cannot quietly become a false negative on a DATE (the 2026-07-20
-/// incident, exactly).
-///
-/// Normalised to a fixed 10:00 UTC on that future day so the three fixtures
-/// keep the same relationship the pinned literals encoded — the visit's second
-/// service an hour after its first, the legacy booking the next day —
-/// regardless of what time of day the suite runs.
+/// The visit's day, anchored to the real wall clock — see
+/// `test/helpers/booking_fixture_dates.dart` for the time-bomb this avoids.
 DateTime _atTenUtc(DateTime d) => DateTime.utc(d.year, d.month, d.day, 10);
 
 final DateTime _visitStart = _atTenUtc(futureBookingStart());
@@ -72,6 +70,9 @@ final DateTime _visitSecondStart = _visitStart.add(const Duration(hours: 1));
 final DateTime _legacyStart = _visitStart.add(const Duration(days: 1));
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
+
+class _MockAppointmentRepository extends Mock
+    implements AppointmentRepository {}
 
 class _NoOpScreenProtection extends ScreenProtectionManager {
   @override
@@ -155,7 +156,7 @@ void _stubAllTabs(
   }
 }
 
-/// A router whose leaf routes are stubs recording their resolved location, so a
+/// A router whose leaf route is a stub recording its resolved location, so a
 /// card tap's `context.push` target is observable.
 GoRouter _router(
   _MockBookingRepository repo, {
@@ -169,13 +170,6 @@ GoRouter _router(
         builder: (_, _) => const MyBookingsScreen(),
         routes: <RouteBase>[
           GoRoute(
-            path: 'visit/:appointmentId',
-            builder: (BuildContext context, GoRouterState state) {
-              onLocation(state.uri.toString());
-              return const Scaffold(key: Key('visit_stub'));
-            },
-          ),
-          GoRoute(
             path: ':bookingId',
             builder: (BuildContext context, GoRouterState state) {
               onLocation(state.uri.toString());
@@ -188,52 +182,9 @@ GoRouter _router(
   );
 }
 
-/// MS5 (mobile-security MEDIUM finding) — a router whose leaf routes mount the
-/// REAL destination screens (`VisitDetailScreen` / `BookingDetailScreen`)
-/// instead of stub scaffolds, so [groupBookingsByAppointment]'s output is
-/// proven to route to the CORRECT real screen, not merely to a matching
-/// location string. See the regression test below for why this matters:
-/// `BookingDetailScreen`'s CLIENT footer offers «Перенести» purely off
-/// `booking.status == confirmed` (`_actions` in `booking_detail_screen.dart`)
-/// — it has NO guard against `booking.appointmentId != null` — so the ONLY
-/// thing standing between a client and the provider-only whole-visit
-/// reschedule path (`_onReschedule` → `startAppointmentReschedule` →
-/// `PATCH /appointments/{id}/reschedule`) is that an appointment-child booking
-/// never reaches `BookingDetailScreen` in the first place. This router pins
-/// that today's ONE existing route to a single booking id (`_openDetails` in
-/// `my_bookings_screen.dart`) is reachable ONLY through a `SingleBookingEntry`
-/// (`appointmentId == null` by construction — see `groupBookingsByAppointment`)
-/// — a `VisitBookingEntry` always opens [VisitDetailScreen] instead, which
-/// (per its own file header) offers NO reschedule affordance at all.
-GoRouter _realRouter(_MockBookingRepository repo) {
-  return GoRouter(
-    initialLocation: '/bookings',
-    routes: <RouteBase>[
-      GoRoute(
-        path: '/bookings',
-        builder: (_, _) => const MyBookingsScreen(),
-        routes: <RouteBase>[
-          GoRoute(
-            path: 'visit/:appointmentId',
-            builder: (BuildContext context, GoRouterState state) =>
-                VisitDetailScreen(
-                  appointmentId: state.pathParameters['appointmentId']!,
-                ),
-          ),
-          GoRoute(
-            path: ':bookingId',
-            builder: (BuildContext context, GoRouterState state) =>
-                BookingDetailScreen(
-                  bookingId: state.pathParameters['bookingId']!,
-                ),
-          ),
-        ],
-      ),
-    ],
-  );
-}
-
 void main() {
+  // Two rows of the SAME visit (sharing appt-1) + one legacy standalone row —
+  // the exact dataset the old grouping suite used, now asserting NO grouping.
   final List<Booking> visitAndLegacy = <Booking>[
     _b(
       id: 'v1',
@@ -271,135 +222,114 @@ void main() {
   }
 
   testWidgets(
-    'a 2-item visit renders one grouped card + legacy stays its own',
+    'a 2-service visit renders TWO plain BookingCards — no grouping, no '
+    'visit chrome — alongside the legacy card',
     (tester) async {
       final repo = _MockBookingRepository();
       _stubAllTabs(repo, upcoming: visitAndLegacy);
 
       await pumpScreen(tester, repo, onLocation: (_) {});
 
-      // Exactly one grouped visit card, and one legacy single card.
-      expect(find.byType(VisitCard), findsOneWidget);
-      expect(find.byType(BookingCard), findsOneWidget);
+      // Three rows in, three ordinary BookingCards out — the visit's two legs
+      // are NOT collapsed into one.
+      expect(find.byType(BookingCard), findsNWidgets(3));
+      expect(find.byKey(const ValueKey<String>('v1')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('v2')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('legacy-1')), findsOneWidget);
 
-      // Visit summary: count · summed duration line + total band + one time.
-      expect(
-        find.byKey(const ValueKey<String>('service-visit-appt-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('visit-time-appt-1')),
-        findsOneWidget,
-      );
-      // Band: floor 300+200 = 500, ceiling 300+(400) = 700.
-      expect(find.text('500–700 ₴'), findsOneWidget);
-
-      // The ordered service names of the visit.
-      expect(
-        find.byKey(const ValueKey<String>('visit-service-appt-1-0')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('visit-service-appt-1-1')),
-        findsOneWidget,
-      );
+      // Each leg shows its OWN service name and price — no summed "N послуг"
+      // count, no shared visit total.
       // i18n-finder-ok: service name is injected fixture data, locale-invariant
       expect(find.text('Манікюр'), findsOneWidget);
       // i18n-finder-ok: service name is injected fixture data, locale-invariant
       expect(find.text('Педикюр'), findsOneWidget);
+      // i18n-finder-ok: service name is injected fixture data, locale-invariant
+      expect(find.text('Стрижка'), findsOneWidget);
 
-      // A status badge on the grouped card.
-      expect(find.byType(BookingStatusBadge), findsWidgets);
+      // Each leg's PRICE and TIME anchors carry its OWN figures — v2's price
+      // is a genuine RANGE (300 was never its price), v1's is a flat figure,
+      // and the two legs start an hour apart. Nothing here is a sum or a
+      // shared visit total — `BookingCard` has no such concept. Scoped by
+      // KEY (not a bare `find.text`) because `legacy-1` deliberately shares
+      // v1's flat "300 ₴" figure in this fixture — a global text finder would
+      // be ambiguous; reading the keyed widget's own `data` proves THIS
+      // card's anchor, regardless of what any other card happens to show.
+      for (final Booking b in visitAndLegacy) {
+        final Text priceText = tester.widget<Text>(
+          find.byKey(ValueKey<String>('price-${b.id}')),
+        );
+        expect(
+          priceText.data,
+          b.priceLabel,
+          reason: '${b.id} must render its OWN priceLabel (${b.priceLabel})',
+        );
+        final Text timeText = tester.widget<Text>(
+          find.byKey(ValueKey<String>('time-${b.id}')),
+        );
+        expect(
+          timeText.data,
+          formatSlotTime(b.startAt),
+          reason: '${b.id} must render its OWN start time',
+        );
+      }
+      // v1 and v2 do NOT share a price — proves neither leg is showing the
+      // other's (or a summed) figure.
+      expect(visitAndLegacy[0].priceLabel, isNot(visitAndLegacy[1].priceLabel));
     },
   );
 
-  testWidgets('tapping the visit card pushes /bookings/visit/:appointmentId', (
-    tester,
-  ) async {
-    final repo = _MockBookingRepository();
-    _stubAllTabs(repo, upcoming: visitAndLegacy);
+  testWidgets(
+    'the visit legs render in startAt order, correctly interleaved among '
+    'other bookings — the server sort alone does the work',
+    (tester) async {
+      final repo = _MockBookingRepository();
+      _stubAllTabs(repo, upcoming: visitAndLegacy);
 
-    String? location;
-    await pumpScreen(tester, repo, onLocation: (String l) => location = l);
+      await pumpScreen(tester, repo, onLocation: (_) {});
 
-    await tester.tap(find.byType(VisitCard));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const Key('visit_stub')), findsOneWidget);
-    expect(location, '/bookings/visit/appt-1');
-  });
-
-  testWidgets('tapping the legacy card pushes /bookings/:bookingId', (
-    tester,
-  ) async {
-    final repo = _MockBookingRepository();
-    _stubAllTabs(repo, upcoming: visitAndLegacy);
-
-    String? location;
-    await pumpScreen(tester, repo, onLocation: (String l) => location = l);
-
-    await tester.tap(find.byType(BookingCard));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const Key('booking_stub')), findsOneWidget);
-    expect(location, '/bookings/legacy-1');
-  });
-
-  // ===========================================================================
-  // MS5 (mobile-security MEDIUM) — routing invariant: a CLIENT's
-  // appointment-child booking must open `VisitDetailScreen` (no reschedule
-  // affordance), NEVER `BookingDetailScreen` — whose CLIENT footer offers
-  // «Перенести» purely off `booking.status == confirmed`
-  // (`booking_detail_screen.dart`'s `_actions`), with NO guard against
-  // `appointmentId != null`. If a future call site (e.g. a deferred FCM
-  // deep-link) ever pushed `RouteNames.bookingDetail(bookingId)` directly for
-  // an appointment-child booking — bypassing `groupBookingsByAppointment` +
-  // this screen's switch — the client would see a reschedule button wired to
-  // `_onReschedule` → `startAppointmentReschedule`, the PROVIDER-only
-  // whole-visit endpoint. Pinning that the ONE existing routing path never
-  // does this today makes such a regression visible the moment it is
-  // introduced, rather than only failing loudly server-side (403) in
-  // production.
-  // ===========================================================================
-
-  Appointment visitFixture() => Appointment(
-    id: 'appt-1',
-    status: BookingStatus.confirmed,
-    masterId: 'm1',
-    masterFirstName: 'Марія',
-    masterLastName: 'Іванюк',
-    masterType: 'INDEPENDENT_MASTER',
-    startAt: _visitStart,
-    endAt: _visitSecondStart.add(const Duration(minutes: 90)),
-    totalDurationMinutes: 150,
-    totalPrice: 500,
-    totalPriceMax: 700,
-    canReview: false,
-    items: <AppointmentItem>[
-      AppointmentItem(
-        bookingId: 'v1',
-        masterServiceId: 's-v1',
-        serviceName: 'Манікюр',
-        startAt: _visitStart,
-        endAt: _visitStart.add(const Duration(minutes: 60)),
-        durationMinutes: 60,
-        price: 300,
-      ),
-      AppointmentItem(
-        bookingId: 'v2',
-        masterServiceId: 's-v2',
-        serviceName: 'Педикюр',
-        startAt: _visitSecondStart,
-        endAt: _visitSecondStart.add(const Duration(minutes: 90)),
-        durationMinutes: 90,
-        price: 200,
-        priceMax: 400,
-      ),
-    ],
+      final List<Element> cards = tester
+          .elementList(find.byType(BookingCard))
+          .toList();
+      final List<String> renderedOrder = <String>[
+        for (final Element e in cards) (e.widget as BookingCard).booking.id,
+      ];
+      expect(renderedOrder, <String>['v1', 'v2', 'legacy-1']);
+    },
   );
 
-  List<Object> clientOverrides(_MockBookingRepository repo) => <Object>[
+  testWidgets(
+    'tapping a visit leg pushes /bookings/:bookingId keyed off ITS OWN id, '
+    'exactly like a legacy card',
+    (tester) async {
+      final repo = _MockBookingRepository();
+      _stubAllTabs(repo, upcoming: visitAndLegacy);
+
+      String? location;
+      await pumpScreen(tester, repo, onLocation: (String l) => location = l);
+
+      await tester.tap(find.byKey(const ValueKey<String>('v2')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('booking_stub')), findsOneWidget);
+      expect(location, '/bookings/v2');
+    },
+  );
+
+  // ===========================================================================
+  // MO-7 — cancelling a visit leg from «Деталі запису» routes to the
+  // PER-BOOKING `cancelBooking`, never an appointment-level cancel, and never
+  // touches the visit's sibling. The backend's old `assertNotAppointmentChild`
+  // 409 guard on `PATCH /bookings/{id}/cancel` is gone (backend `1d1d524`) —
+  // the endpoint now cancels ONLY the targeted leg and recomputes the
+  // appointment header server-side.
+  // ===========================================================================
+
+  List<Object> clientOverrides(
+    _MockBookingRepository repo,
+    _MockAppointmentRepository appointmentRepo,
+  ) => <Object>[
     bookingRepositoryProvider.overrideWithValue(repo),
+    appointmentRepositoryProvider.overrideWithValue(appointmentRepo),
     screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
     authProvider.overrideWith(
       () => _StubAuth(
@@ -411,67 +341,47 @@ void main() {
     ),
   ];
 
-  testWidgets('MS5 REGRESSION — client tapping a visit card opens the REAL '
-      'VisitDetailScreen (never BookingDetailScreen), which offers NO '
-      'reschedule CTA', (tester) async {
-    final repo = _MockBookingRepository();
-    _stubAllTabs(repo, upcoming: visitAndLegacy);
-
-    await tester.pumpRoutedApp(
-      _realRouter(repo),
-      overrides: <Object>[
-        ...clientOverrides(repo),
-        appointmentDetailProvider(
-          'appt-1',
-        ).overrideWith((ref) async => visitFixture()),
-      ],
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byType(VisitCard));
-    await tester.pumpAndSettle();
-
-    // Landed on the REAL visit screen, not the single-booking one.
-    expect(find.byType(VisitDetailScreen), findsOneWidget);
-    expect(find.byType(BookingDetailScreen), findsNothing);
-
-    // No reschedule affordance reachable at all — neither the provider key
-    // nor the client key exists on this screen (see `visit_detail_screen
-    // .dart`'s file header: "no ... reschedule ... header affordances").
-    expect(
-      find.byKey(const Key('booking-detail-provider-reschedule')),
-      findsNothing,
-    );
-    expect(find.byKey(const Key('booking-detail-reschedule')), findsNothing);
-  });
-
   testWidgets(
-    'REGRESSION GUARD — client tapping a legacy (non-visit) card still opens '
-    'the REAL BookingDetailScreen, which DOES offer reschedule — proves the '
-    'router itself works, isolating the assertion above to the VISIT branch',
+    'CLIENT cancels ONE visit leg — routes to BookingRepository.cancelBooking '
+    '(the per-booking endpoint), never AppointmentRepository.cancelAppointment, '
+    'and never touches the sibling leg\'s own id',
     (tester) async {
+      final Booking leg = _b(id: 'v1', appointmentId: 'appt-1');
       final repo = _MockBookingRepository();
-      _stubAllTabs(repo, upcoming: visitAndLegacy);
-      final Booking legacy = visitAndLegacy.last;
+      final appointmentRepo = _MockAppointmentRepository();
+      when(
+        () => repo.cancelBooking(any(), reason: any(named: 'reason')),
+      ).thenAnswer((_) async {});
 
-      await tester.pumpRoutedApp(
-        _realRouter(repo),
+      await tester.pumpApp(
+        const BookingDetailScreen(bookingId: 'v1'),
         overrides: <Object>[
-          ...clientOverrides(repo),
-          bookingDetailProvider('legacy-1').overrideWith((ref) async => legacy),
+          ...clientOverrides(repo, appointmentRepo),
+          bookingDetailProvider('v1').overrideWith((ref) async => leg),
         ],
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byType(BookingCard));
+      await tester.tap(find.byKey(const Key('booking-detail-cancel')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('cancel-booking-note-field')),
+        'Захворіла, вибачте.',
+      );
+      await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
       await tester.pumpAndSettle();
 
-      expect(find.byType(BookingDetailScreen), findsOneWidget);
-      expect(find.byType(VisitDetailScreen), findsNothing);
-      expect(
-        find.byKey(const Key('booking-detail-reschedule')),
-        findsOneWidget,
+      verify(
+        () => repo.cancelBooking('v1', reason: 'Захворіла, вибачте.'),
+      ).called(1);
+      verifyNever(
+        () =>
+            appointmentRepo.cancelAppointment(any(), note: any(named: 'note')),
       );
+      // The sibling leg ('v2') is never a party to this write — a per-card
+      // cancel must act on exactly the ONE id it was opened for, proving the
+      // visit's other service stays untouched (and, by extension, CONFIRMED).
+      verifyNever(() => repo.cancelBooking('v2', reason: any(named: 'reason')));
     },
   );
 }
