@@ -169,6 +169,15 @@ const List<String> kPiiPathPrefixes = <String>[
 const List<String> kPiiPathSegments = <String>[
   '/working-hours',
   '/weekly-schedules',
+  // Per-date schedule overrides — `PUT /api/v1/masters/{masterId}/overrides/
+  // {date}` (working intervals + the display-only window, same class of data as
+  // /weekly-schedules) and `POST /api/v1/masters/{masterId}/overrides/conflicts`
+  // (2026-07-26 booking-conflict preview, whose RESPONSE carries client display
+  // names and service names). Both sit behind a dynamic {masterId}, so neither
+  // exact membership nor a fixed prefix matches. Without this entry
+  // `LoggingInterceptor.onError` logs `err.response?.data` verbatim, so a 4xx on
+  // either route would spill a conflict payload with client identifiers.
+  '/overrides',
 ];
 
 /// Query-parameter keys whose VALUES must be masked in debug logs on ANY route

@@ -91,6 +91,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required this.initialIntervals,
     required this.hasExistingOverride,
     required this.initialDayOff,
+    this.initialWindow,
     this.initialMode = WeekdayMode.interval,
     this.initialTimes = const <TimeOfDay>[],
     this.clock,
@@ -127,6 +128,13 @@ class DayHoursSheet extends ConsumerStatefulWidget {
   /// Empty → the working-hours editor seeds a sensible default day.
   final List<WorkInterval> initialIntervals;
 
+  /// The day's STORED display-only working window, when the backend has one.
+  /// Non-null → the seed takes the lossless regime (`breaks = window MINUS
+  /// intervals`), so a break flush against a window edge is re-rendered as a
+  /// break instead of vanishing. `null` (legacy row / day-off / EXPLICIT_TIMES)
+  /// → the historical gap reconstruction, unchanged.
+  final WorkInterval? initialWindow;
+
   /// `true` when a per-date override already exists for [date] — drives the
   /// "Видалити перевизначення" (clear) action's visibility.
   final bool hasExistingOverride;
@@ -154,6 +162,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required List<WorkInterval> initialIntervals,
     required bool hasExistingOverride,
     required bool initialDayOff,
+    WorkInterval? initialWindow,
     WeekdayMode initialMode = WeekdayMode.interval,
     List<TimeOfDay> initialTimes = const <TimeOfDay>[],
     DateTime Function()? clock,
@@ -171,6 +180,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
         initialIntervals: initialIntervals,
         hasExistingOverride: hasExistingOverride,
         initialDayOff: initialDayOff,
+        initialWindow: initialWindow,
         initialMode: initialMode,
         initialTimes: initialTimes,
         clock: clock,
@@ -208,7 +218,10 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     _times = List<TimeOfDay>.of(widget.initialTimes);
     _day = widget.initialIntervals.isEmpty
         ? DayHours.defaultDay()
-        : DayHours.fromIntervals(widget.initialIntervals);
+        : DayHours.fromIntervals(
+            widget.initialIntervals,
+            window: widget.initialWindow,
+          );
   }
 
   /// Custom-hours mode is unsaveable while the relevant editor has errors.
@@ -291,6 +304,17 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         start: widget.date,
         end: widget.date,
         intervals: _day.toIntervals(),
+        // Persist the edited від–до as display-only metadata so an edge-flush
+        // break survives the next load. Containment holds by construction:
+        // `toIntervals()` walks this exact window and clamps to it.
+        //
+        // Sent UNCONDITIONALLY — including when [widget.initialWindow] was null
+        // (a legacy row saved before the window existed), which is how such a
+        // row heals itself on its first re-save. This is the deliberate inverse
+        // of `ScheduleMapper`'s "never synthesise a window from the intervals"
+        // rule; that rule binds the READ path only. See the EXCEPTION note in
+        // `data/schedule_mapper.dart`'s header before restoring `null` here.
+        window: _day.window.clone(),
       );
     }
 

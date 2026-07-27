@@ -478,6 +478,200 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 40)),
   );
+
+  // ── Test 6 — THE RELOAD HALF of the edge-flush-break story (2026-07-27).
+  //
+  // Test 5 above proves the OUTBOUND half: the break reaches the wire, i.e. the
+  // blocked hour is genuinely excluded from availability. It says nothing about
+  // what the master SEES when they come back.
+  //
+  // THE REPORTED BUG lives on that return trip. Only working INTERVALS were
+  // persisted and breaks were reconstructed from the GAPS BETWEEN them, so an
+  // edge-flush break left no gap to see: `[10:00–18:00]` read back as "window
+  // 10:00–18:00, no breaks". The master reopened «Робочі дні та години» and
+  // their 09:00–10:00 break was GONE — silently normalised into a shortened
+  // working day. Availability was correct; the screen lied.
+  //
+  // The backend now persists `windowStart`/`windowEnd` alongside the intervals,
+  // and `DayHours.fromIntervals` re-derives `breaks = window MINUS intervals`.
+  // This flow feeds that exact wire shape through the REAL repository, mapper,
+  // notifier and editor and asserts the RENDERED result — the user-visible
+  // acceptance criterion, which no unit or widget test observes end-to-end
+  // (Rule 3b: the read path crosses the generated client, the mapper's
+  // both-or-neither guard and the editor's seed, and a wire-name mismatch
+  // anywhere in that chain is invisible to all three layers individually).
+  //
+  // Monday: intervals [10:00–18:00] + window 09:00–18:00 → must render від
+  // 09:00 WITH a 09:00–10:00 break row.
+  // Tuesday: a LEGACY row (intervals only) → must still render від 09:00 with
+  // NO break row, proving the legacy regime is untouched in the same run.
+
+  testWidgets(
+    'A stored working window reloads as a BREAK ROW, not a shortened working '
+    'day (Monday 10:00–18:00 + window 09:00–18:00 → від 09:00 + break '
+    '09:00–10:00); a legacy row in the same response is unchanged',
+    (tester) async {
+      final fb = FakeBackend();
+      // Reseed BEFORE boot so the editor's first load sees the window row.
+      fb.seedWeeklyScheduleWithStoredWindow();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.scheduleWeeklyEditor);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
+
+      expect(
+        fb.getScheduleCalls,
+        greaterThanOrEqualTo(1),
+        reason: 'the editor must have loaded the seeded template',
+      );
+
+      // ── THE ASSERTION. The window well shows the STORED 09:00 start …
+      final Finder day1 = find.byKey(const Key('weekly-day-1'));
+      expect(day1, findsOneWidget, reason: 'Monday card must render');
+      await tester.ensureVisible(day1);
+      await tester.pumpAndSettle();
+
+      expect(
+        _wellText(tester, 'weekly-day-1-work-start'),
+        '09:00',
+        reason:
+            'THE BUG: 10:00 here means the stored window never reached the '
+            'editor and the break was normalised into a shortened working day '
+            '— exactly what the master reported seeing',
+      );
+      expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
+
+      // … and the carved hour is rendered as a real BREAK ROW.
+      expect(
+        find.byKey(const Key('weekly-day-1-break-0-start')),
+        findsOneWidget,
+        reason:
+            'the edge-flush break must reappear as a break row — its absence '
+            'IS the reported bug',
+      );
+      expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
+      expect(_wellText(tester, 'weekly-day-1-break-0-end'), '10:00');
+
+      // ── The legacy row in the SAME response is untouched: Tuesday carries no
+      // stored window, so it takes the historical gap reconstruction.
+      final Finder day2 = find.byKey(const Key('weekly-day-2'));
+      await tester.scrollUntilVisible(
+        day2,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(_wellText(tester, 'weekly-day-2-work-start'), '09:00');
+      expect(_wellText(tester, 'weekly-day-2-work-end'), '18:00');
+      expect(
+        find.byKey(const Key('weekly-day-2-break-0-start')),
+        findsNothing,
+        reason: 'a legacy row must render exactly as it always did',
+      );
+
+      // ── A pure reload is NOT an edit: reconstructing the break out of the
+      // stored window must leave the pristine Save gate intact.
+      expect(
+        find.byKey(const Key('weekly-no-changes-hint')),
+        findsOneWidget,
+        reason:
+            'merely reopening the template must stay pristine — a dirty gate '
+            'here would mean the seed disagrees with its own baseline',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
+
+  // ── Test 7 — the window SURVIVES a save round-trip on the wire.
+  //
+  // Test 6 proves the window comes IN correctly. This proves it goes back OUT:
+  // after an unrelated edit (closing Tuesday), Monday's untouched row must
+  // still carry BOTH window keys in the PUT body — otherwise the very next
+  // reload silently demotes the row back to legacy and the break vanishes
+  // again, one save later.
+
+  testWidgets(
+    'Saving after an unrelated edit re-sends Monday\'s windowStart/windowEnd '
+    'in the PUT body (the row is never silently demoted back to legacy)',
+    (tester) async {
+      final fb = FakeBackend();
+      fb.seedWeeklyScheduleWithStoredWindow();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.scheduleWeeklyEditor);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
+
+      // Edit a DIFFERENT day: close Tuesday. Monday is untouched.
+      // The day cards live in a lazy ListView, so scroll the toggle into
+      // existence before targeting it.
+      final Finder tuesdayToggle = find.byKey(const Key('weekly-toggle-2'));
+      await tester.scrollUntilVisible(
+        tuesdayToggle,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(tuesdayToggle);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+      final int putsBefore = fb.putScheduleCalls;
+      final Finder saveBtn = find.byKey(const Key('btn-save-weekly-template'));
+      await tester.ensureVisible(saveBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(saveBtn);
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+      expect(fb.putScheduleCalls, greaterThan(putsBefore));
+
+      final List<dynamic>? days = fb.lastWeeklyDays;
+      expect(days, isNotNull, reason: 'the PUT body must carry a days list');
+      final Map<String, dynamic> day1Body = days!
+          .cast<Map<String, dynamic>>()
+          .firstWhere((d) => d['dayOfWeek'] == 1);
+
+      expect(
+        day1Body['windowStart'],
+        '09:00:00',
+        reason:
+            'dropping the window on a save demotes the row to legacy — the '
+            'break would survive exactly one more reload and then vanish',
+      );
+      expect(day1Body['windowEnd'], '18:00:00');
+      // Availability is unchanged by the window — the intervals ride alongside.
+      final List<Map<String, dynamic>> intervals =
+          (day1Body['intervals'] as List<dynamic>).cast<Map<String, dynamic>>();
+      expect(intervals, hasLength(1));
+      expect(
+        (intervals.single['startTime'] as String).substring(0, 5),
+        '10:00',
+      );
+
+      // The CLOSED day carries no window (nothing to contain) and the LEGACY
+      // Tuesday row is not retro-fitted with a synthesised one.
+      final Map<String, dynamic> day2Body = days
+          .cast<Map<String, dynamic>>()
+          .firstWhere((d) => d['dayOfWeek'] == 2);
+      expect(day2Body['intervals'], isEmpty, reason: 'Tuesday was closed');
+      expect(day2Body['windowStart'], isNull);
+      expect(day2Body['windowEnd'], isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
+}
+
+/// Reads the `HH:MM` rendered inside a keyed [TimeWell] (`…-work-start`,
+/// `…-work-end`, `…-break-N-start`, …) — a data value, never localised copy.
+String _wellText(WidgetTester tester, String key) {
+  final Finder well = find.byKey(Key(key));
+  expect(well, findsOneWidget, reason: 'time well "$key" must be rendered');
+  final Finder txt = find.descendant(of: well, matching: find.byType(Text));
+  return tester.widget<Text>(txt.first).data!;
 }
 
 /// Opens the wheel time picker behind [well], moves the hours wheel by

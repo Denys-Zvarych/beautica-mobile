@@ -17,6 +17,9 @@ part 'weekly_schedule_day_request.g.dart';
 /// * [mode]
 /// * [intervals]
 /// * [times]
+/// * [windowStart]
+/// * [windowEnd]
+/// * [windowConsistent]
 /// * [modeConsistent]
 @BuiltValue()
 abstract class WeeklyScheduleDayRequest
@@ -34,6 +37,15 @@ abstract class WeeklyScheduleDayRequest
 
   @BuiltValueField(wireName: r'times')
   BuiltList<String>? get times;
+
+  @BuiltValueField(wireName: r'windowStart')
+  String? get windowStart;
+
+  @BuiltValueField(wireName: r'windowEnd')
+  String? get windowEnd;
+
+  @BuiltValueField(wireName: r'windowConsistent')
+  bool? get windowConsistent;
 
   @BuiltValueField(wireName: r'modeConsistent')
   bool? get modeConsistent;
@@ -96,6 +108,27 @@ class _$WeeklyScheduleDayRequestSerializer
         specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
+    if (object.windowStart != null) {
+      yield r'windowStart';
+      yield serializers.serialize(
+        object.windowStart,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.windowEnd != null) {
+      yield r'windowEnd';
+      yield serializers.serialize(
+        object.windowEnd,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.windowConsistent != null) {
+      yield r'windowConsistent';
+      yield serializers.serialize(
+        object.windowConsistent,
+        specifiedType: const FullType(bool),
+      );
+    }
     if (object.modeConsistent != null) {
       yield r'modeConsistent';
       yield serializers.serialize(
@@ -156,6 +189,27 @@ class _$WeeklyScheduleDayRequestSerializer
             specifiedType: const FullType(BuiltList, [FullType(String)]),
           ) as BuiltList<String>;
           result.times.replace(valueDes);
+          break;
+        case r'windowStart':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.windowStart = valueDes;
+          break;
+        case r'windowEnd':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.windowEnd = valueDes;
+          break;
+        case r'windowConsistent':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.windowConsistent = valueDes;
           break;
         case r'modeConsistent':
           final valueDes = serializers.deserialize(

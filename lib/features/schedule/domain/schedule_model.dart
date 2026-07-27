@@ -11,10 +11,16 @@
 // (returned from pure functions, never passed to a widget arg), so they are
 // outside the `no_raw_ui_strings` lint surface.
 //
-// WIRE-LAYER NOTE: the window+breaks split is a PRESENTATION affordance handled
-// entirely inside this model (`DayHours.fromIntervals`/`toIntervals`). The data
-// layer (`schedule_mapper.dart`) only ever sees `List<WorkInterval>`, exactly
-// like the backend. Never move break logic into the wire layer.
+// WIRE-LAYER NOTE (superseded 2026-07-27 for the WINDOW only): break RANGES stay
+// a presentation affordance derived here (`DayHours.fromIntervals` /
+// `toIntervals`) — never serialise a break list, and never re-derive breaks in
+// the wire layer. The working WINDOW, however, is now genuinely persisted: the
+// backend stores `windowStart`/`windowEnd` on the weekly-template day, the
+// per-date override and the effective day as DISPLAY-ONLY metadata (intervals
+// remain the sole canonical availability; no backend availability path reads
+// the window). So `schedule_mapper.dart` legitimately carries the window across
+// the boundary — it is a stored field, not reconstructed break logic. Breaks are
+// still computed here, from `window MINUS intervals`.
 
 import 'package:flutter/material.dart';
 
@@ -181,22 +187,31 @@ bool intervalsValid(List<WorkInterval> intervals) =>
 //     WorkInterval for each gap between the previous cursor and the next break
 //     start, then jump the cursor past the break end; a trailing WorkInterval
 //     covers window-end. Zero breaks ⇒ a single [window.start, window.end].
-//   • fromIntervals: the window is [firstStart, lastEnd]; each GAP between two
-//     consecutive intervals becomes a break range. This is exactly the inverse,
-//     so a load→edit→save cycle is lossless for any template the old multi-
-//     interval editor could produce.
+//   • fromIntervals: has TWO regimes, decided by whether a stored window came
+//     back from the wire.
 //
-// The round-trip is LOSSLESS IN AVAILABILITY, and NORMALIZING for edge-flush
-// breaks. A break flush against the window start or end carves working time off
-// that edge rather than splitting the window, so it leaves no gap for
-// [fromIntervals] to reconstruct: saving window 09:00–18:00 with a 09:00–10:00
-// break stores `[10:00–18:00]`, and reopening shows the window 10:00–18:00 with
-// zero breaks. The presentation differs; the bookable time does not — the two
-// states are semantically identical, which is exactly what the wire encodes.
+// REGIME 1 — WINDOW PRESENT (the current backend contract). The stored
+// `windowStart`/`windowEnd` IS the outer від–до, and
 //
-// So on the backend port nothing changes: the wire shape is still a list of
-// {startTime,endTime} working intervals per day. The window+breaks split is a
-// pure client-side affordance.
+//     breaks  =  window  MINUS  intervals
+//
+// recovers EVERY break in one pass: interior breaks, a break flush against the
+// window start, one flush against the end, or both. The round-trip is then
+// GENUINELY LOSSLESS — saving window 09:00–18:00 with a 09:00–10:00 break stores
+// intervals `[10:00–18:00]` PLUS window `09:00–18:00`, and reopening shows the
+// window 09:00–18:00 with the 09:00–10:00 break still rendered as a break.
+//
+// REGIME 2 — WINDOW ABSENT (`null`). Every pre-window row hits this legacy path,
+// and its behaviour is unchanged: the window is [firstStart, lastEnd] and each
+// GAP between two consecutive intervals becomes a break. That regime is lossless
+// in AVAILABILITY but NORMALIZING for edge-flush breaks — an edge-flush break
+// leaves no gap to reconstruct, so `[10:00–18:00]` reads back as the window
+// 10:00–18:00 with zero breaks. The presentation differs; the bookable time does
+// not, which is why the legacy encoding was never wrong, only lossy on display.
+//
+// The wire shape is still the list of {startTime,endTime} working intervals that
+// alone determines availability; `windowStart`/`windowEnd` ride alongside as
+// display-only metadata the backend stores but never reads for availability.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A single break range (start–end) carved out of the working window.
@@ -238,17 +253,44 @@ class DayHours {
   );
 
   /// Reconstruct a window+breaks view from the canonical working-interval list.
-  /// Window = [first start, last end]; every gap between consecutive intervals
-  /// becomes a break. Empty list → a default day (callers gate on day-off
-  /// separately, so this never represents "closed").
-  factory DayHours.fromIntervals(List<WorkInterval> intervals) {
+  ///
+  /// [window] is the STORED working window (`windowStart`/`windowEnd` off the
+  /// wire), when the backend has one for this day. It selects between the two
+  /// regimes documented in this file's header:
+  ///
+  ///   • [window] NON-NULL — the given window is the outer від–до and the breaks
+  ///     are exactly `window MINUS intervals`. This recovers every break shape,
+  ///     including one flush against the window start and/or end, which the
+  ///     gap-based reconstruction below cannot see. Intervals are clamped to the
+  ///     window first, so a malformed row (an interval poking outside a stored
+  ///     window) degrades to a sane view instead of an inverted break.
+  ///   • [window] NULL — legacy reconstruction, byte-for-byte the pre-window
+  ///     behaviour: window = [first start, last end], every gap between two
+  ///     consecutive intervals becomes a break. Edge-flush breaks are
+  ///     unrecoverable here because they left no gap.
+  ///
+  /// Empty [intervals] → a default day regardless of [window] (callers gate on
+  /// day-off separately, so this never represents "closed" — and the backend
+  /// never stores a window for a day with no intervals, so honouring one here
+  /// would only ever manufacture a whole-window break that
+  /// [validateDayHours] rejects).
+  factory DayHours.fromIntervals(
+    List<WorkInterval> intervals, {
+    WorkInterval? window,
+  }) {
     if (intervals.isEmpty) return DayHours.defaultDay();
     final List<WorkInterval> sorted = List<WorkInterval>.of(intervals)
       ..sort(
         (WorkInterval a, WorkInterval b) =>
             a.startMinutes.compareTo(b.startMinutes),
       );
-    final WorkInterval window = WorkInterval(
+    if (window != null && window.endMinutes > window.startMinutes) {
+      return DayHours(
+        window: window.clone(),
+        breaks: _breaksFromWindowMinusIntervals(window, sorted),
+      );
+    }
+    final WorkInterval derivedWindow = WorkInterval(
       start: sorted.first.start,
       end: sorted.last.end,
     );
@@ -257,15 +299,47 @@ class DayHours {
       final int gapStart = sorted[i - 1].endMinutes;
       final int gapEnd = sorted[i].startMinutes;
       if (gapEnd > gapStart) {
-        breaks.add(
-          BreakRange(
-            start: TimeOfDay(hour: gapStart ~/ 60, minute: gapStart % 60),
-            end: TimeOfDay(hour: gapEnd ~/ 60, minute: gapEnd % 60),
-          ),
-        );
+        breaks.add(_breakOf(gapStart, gapEnd));
       }
     }
-    return DayHours(window: window, breaks: breaks);
+    return DayHours(window: derivedWindow, breaks: breaks);
+  }
+
+  static BreakRange _breakOf(int startMinutes, int endMinutes) => BreakRange(
+    start: TimeOfDay(hour: startMinutes ~/ 60, minute: startMinutes % 60),
+    end: TimeOfDay(hour: endMinutes ~/ 60, minute: endMinutes % 60),
+  );
+
+  /// The exact inverse of [toIntervals] for a KNOWN window: walk [sorted]
+  /// (start-ordered, clamped to [window]) left→right and emit a [BreakRange] for
+  /// every stretch of the window no interval covers — leading, interior and
+  /// trailing alike.
+  static List<BreakRange> _breaksFromWindowMinusIntervals(
+    WorkInterval window,
+    List<WorkInterval> sorted,
+  ) {
+    final List<BreakRange> breaks = <BreakRange>[];
+    int cursor = window.startMinutes;
+    for (final WorkInterval w in sorted) {
+      final int end = w.endMinutes.clamp(
+        window.startMinutes,
+        window.endMinutes,
+      );
+      // Fully behind the cursor / entirely before the window.
+      if (end <= cursor) {
+        continue;
+      }
+      final int start = w.startMinutes.clamp(
+        window.startMinutes,
+        window.endMinutes,
+      );
+      if (start > cursor) breaks.add(_breakOf(cursor, start));
+      cursor = end;
+    }
+    if (cursor < window.endMinutes) {
+      breaks.add(_breakOf(cursor, window.endMinutes));
+    }
+    return breaks;
   }
 
   /// Collapse back to the canonical working-interval list (window minus breaks).
@@ -277,8 +351,16 @@ class DayHours {
   /// Clamping (never skipping) is what makes a break flush against the window
   /// edge carve real time off the day: a 09:00–10:00 break in a 09:00–18:00
   /// window emits `[10:00–18:00]`, not the unbroken window. An edge-flush break
-  /// therefore yields no leading / trailing block at all — see the round-trip
-  /// note above for why that is availability-lossless.
+  /// therefore yields no leading / trailing block at all — the break survives a
+  /// reload because [window] is persisted alongside these intervals and
+  /// [DayHours.fromIntervals] re-derives it as `window MINUS intervals` (see the
+  /// two regimes in this file's header).
+  ///
+  /// Every emitted interval is contained in [window] by construction (the walk
+  /// starts at `window.startMinutes`, never emits past `window.endMinutes`, and
+  /// clamps each break to both edges). That is what lets the mapper send the
+  /// window alongside these intervals without tripping the backend's
+  /// "window must contain every interval" 400.
   List<WorkInterval> toIntervals() {
     final List<BreakRange> sorted = List<BreakRange>.of(breaks)
       ..sort(
@@ -551,6 +633,7 @@ class TemplateDay {
     required this.intervals,
     this.mode = WeekdayMode.interval,
     this.times = const <TimeOfDay>[],
+    this.window,
   });
 
   final int dayOfWeek; // 1=Mon … 7=Sun (ISO)
@@ -569,6 +652,14 @@ class TemplateDay {
   /// empty for [WeekdayMode.interval]. The opposite-shape field must stay
   /// cleared (see [setMode]).
   List<TimeOfDay> times;
+
+  /// The stored working window (`windowStart`/`windowEnd`) for an INTERVAL day —
+  /// DISPLAY-ONLY metadata that lets [DayHours.fromIntervals] recover a break
+  /// flush against a window edge. `null` means "no stored window": a day-off, an
+  /// [WeekdayMode.explicitTimes] day, or any legacy row saved before the backend
+  /// persisted the field — all of which take the gap-reconstruction regime.
+  /// [intervals] stays the sole source of availability either way.
+  WorkInterval? window;
 
   /// A day-off is empty in whichever shape the [mode] selects.
   bool get isDayOff =>
@@ -589,6 +680,9 @@ class TemplateDay {
     mode = next;
     if (next == WeekdayMode.explicitTimes) {
       intervals = <WorkInterval>[];
+      // The stored window describes an INTERVAL day's від–до; it is meaningless
+      // (and rejected by the backend) for EXPLICIT_TIMES.
+      window = null;
     } else {
       times = const <TimeOfDay>[];
     }
@@ -618,12 +712,14 @@ class ScheduleOverride {
     : kind = OverrideKind.dayOff,
       mode = WeekdayMode.interval,
       intervals = const <WorkInterval>[],
-      times = const <TimeOfDay>[];
+      times = const <TimeOfDay>[],
+      window = null;
 
   ScheduleOverride.custom({
     required this.start,
     required this.end,
     required this.intervals,
+    this.window,
   }) : kind = OverrideKind.custom,
        mode = WeekdayMode.interval,
        times = const <TimeOfDay>[];
@@ -637,7 +733,8 @@ class ScheduleOverride {
   }) : kind = OverrideKind.custom,
        mode = WeekdayMode.explicitTimes,
        intervals = const <WorkInterval>[],
-       times = sortDedupeTimes(times);
+       times = sortDedupeTimes(times),
+       window = null;
 
   final OverrideKind kind;
   final DateTime start;
@@ -652,6 +749,14 @@ class ScheduleOverride {
 
   /// Custom-hours EXPLICIT_TIMES shape only — discrete start times.
   final List<TimeOfDay> times;
+
+  /// The stored working window (`windowStart`/`windowEnd`) of a CUSTOM_HOURS
+  /// INTERVAL override — DISPLAY-ONLY metadata, exactly like [TemplateDay.window]
+  /// (see that field for the null semantics). Always `null` for a day-off and for
+  /// an EXPLICIT_TIMES override. Deliberately NOT part of [key]: two overrides on
+  /// the same date can never coexist, so the window would only churn list
+  /// identity without disambiguating anything.
+  final WorkInterval? window;
 
   bool get isSingleDay =>
       start.year == end.year &&

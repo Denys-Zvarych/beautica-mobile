@@ -75,13 +75,22 @@ class _$WeeklyScheduleDayResponse extends WeeklyScheduleDayResponse {
   final BuiltList<WorkIntervalDto>? intervals;
   @override
   final BuiltList<String>? times;
+  @override
+  final String? windowStart;
+  @override
+  final String? windowEnd;
 
   factory _$WeeklyScheduleDayResponse(
           [void Function(WeeklyScheduleDayResponseBuilder)? updates]) =>
       (WeeklyScheduleDayResponseBuilder()..update(updates))._build();
 
   _$WeeklyScheduleDayResponse._(
-      {this.dayOfWeek, this.mode, this.intervals, this.times})
+      {this.dayOfWeek,
+      this.mode,
+      this.intervals,
+      this.times,
+      this.windowStart,
+      this.windowEnd})
       : super._();
   @override
   WeeklyScheduleDayResponse rebuild(
@@ -99,7 +108,9 @@ class _$WeeklyScheduleDayResponse extends WeeklyScheduleDayResponse {
         dayOfWeek == other.dayOfWeek &&
         mode == other.mode &&
         intervals == other.intervals &&
-        times == other.times;
+        times == other.times &&
+        windowStart == other.windowStart &&
+        windowEnd == other.windowEnd;
   }
 
   @override
@@ -109,6 +120,8 @@ class _$WeeklyScheduleDayResponse extends WeeklyScheduleDayResponse {
     _$hash = $jc(_$hash, mode.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
     _$hash = $jc(_$hash, times.hashCode);
+    _$hash = $jc(_$hash, windowStart.hashCode);
+    _$hash = $jc(_$hash, windowEnd.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -119,7 +132,9 @@ class _$WeeklyScheduleDayResponse extends WeeklyScheduleDayResponse {
           ..add('dayOfWeek', dayOfWeek)
           ..add('mode', mode)
           ..add('intervals', intervals)
-          ..add('times', times))
+          ..add('times', times)
+          ..add('windowStart', windowStart)
+          ..add('windowEnd', windowEnd))
         .toString();
   }
 }
@@ -147,6 +162,14 @@ class WeeklyScheduleDayResponseBuilder
   ListBuilder<String> get times => _$this._times ??= ListBuilder<String>();
   set times(ListBuilder<String>? times) => _$this._times = times;
 
+  String? _windowStart;
+  String? get windowStart => _$this._windowStart;
+  set windowStart(String? windowStart) => _$this._windowStart = windowStart;
+
+  String? _windowEnd;
+  String? get windowEnd => _$this._windowEnd;
+  set windowEnd(String? windowEnd) => _$this._windowEnd = windowEnd;
+
   WeeklyScheduleDayResponseBuilder() {
     WeeklyScheduleDayResponse._defaults(this);
   }
@@ -158,6 +181,8 @@ class WeeklyScheduleDayResponseBuilder
       _mode = $v.mode;
       _intervals = $v.intervals?.toBuilder();
       _times = $v.times?.toBuilder();
+      _windowStart = $v.windowStart;
+      _windowEnd = $v.windowEnd;
       _$v = null;
     }
     return this;
@@ -185,6 +210,8 @@ class WeeklyScheduleDayResponseBuilder
             mode: mode,
             intervals: _intervals?.build(),
             times: _times?.build(),
+            windowStart: windowStart,
+            windowEnd: windowEnd,
           );
     } catch (_) {
       late String _$failedField;

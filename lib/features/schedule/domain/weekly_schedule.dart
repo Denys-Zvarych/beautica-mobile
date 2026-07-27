@@ -75,6 +75,13 @@ abstract class WeeklySchedule with _$WeeklySchedule {
 /// day. The wire `EffectiveDayResponse` carries no `mode`, so [isExplicitTimes]
 /// is derived from a non-empty [times] list. [source] tags how the day was
 /// resolved.
+///
+/// [window] is the resolved DISPLAY-ONLY working window the backend projects
+/// (TEMPLATE → the template day's stored window; OVERRIDE_CUSTOM → the
+/// override's; `null` for a day-off, a no-schedule day, an EXPLICIT_TIMES day,
+/// and every legacy row that has no stored window). It never affects
+/// availability — [intervals] alone does — it exists so the per-date editor can
+/// re-render a break flush against a window edge (see [DayHours.fromIntervals]).
 @freezed
 abstract class EffectiveDay with _$EffectiveDay {
   const factory EffectiveDay({
@@ -82,6 +89,7 @@ abstract class EffectiveDay with _$EffectiveDay {
     required EffectiveSource source,
     required List<WorkInterval> intervals,
     @Default(<TimeOfDay>[]) List<TimeOfDay> times,
+    WorkInterval? window,
   }) = _EffectiveDay;
 
   const EffectiveDay._();

@@ -131,6 +131,7 @@ Future<void> _pumpSheet(
   WidgetTester tester, {
   required ScheduleRepository repo,
   List<WorkInterval>? initialIntervals,
+  WorkInterval? initialWindow,
   bool hasExistingOverride = false,
   bool initialDayOff = false,
 }) async {
@@ -155,6 +156,7 @@ Future<void> _pumpSheet(
                   dateLabel: '21 червня',
                   range: _range,
                   initialIntervals: initialIntervals ?? _currentIntervals(),
+                  initialWindow: initialWindow,
                   hasExistingOverride: hasExistingOverride,
                   initialDayOff: initialDayOff,
                   clock: _testToday,
@@ -1828,6 +1830,218 @@ void main() {
       expect(find.text(l10n.scheduleOverrideErrorsBanner), findsOneWidget);
     });
   });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 2026-07-27 — `initialWindow`: the STORED working window seeds the sheet.
+  //
+  // `master_schedule_screen.dart` passes `initialWindow: day.window` off the
+  // resolved `EffectiveDay`, exactly as it already passes `initialIntervals:
+  // day.intervals`. With a window the sheet seeds through the lossless regime
+  // (`breaks = window MINUS intervals`), so a break flush against a window
+  // edge re-renders as a BREAK ROW instead of collapsing into a shortened
+  // working day.
+  //
+  // INTENDED BEHAVIOUR, PINNED DELIBERATELY (mobile-dev flagged it, and it is
+  // NOT a bug): when the date's hours come from the TEMPLATE (no override yet),
+  // the `EffectiveDay` carries the TEMPLATE's window — so saving an override
+  // for that date persists that template-derived window onto the brand-new
+  // override row. That mirrors `initialIntervals`, which has always seeded a
+  // new override from the template's intervals: the sheet persists what the
+  // master SEES, and what they see is the template's shape. Do not "fix" this
+  // into null-on-template-source without changing `initialIntervals` too — the
+  // two must stay consistent or the saved override would show a break the
+  // sheet never drew.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  group('DayHoursSheet — stored working window (initialWindow)', () {
+    testWidgets(
+      'a stored window seeds a BREAK ROW: intervals [10:00–18:00] + window '
+      '09:00–18:00 renders від 09:00 with a 09:00–10:00 break',
+      (tester) async {
+        final repo = _happyRepo();
+        await _pumpSheet(
+          tester,
+          repo: repo,
+          initialIntervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+          initialWindow: _interval(9, 0, 18, 0),
+        );
+
+        expect(
+          _wellText(tester, 'override-work-start'),
+          '09:00',
+          reason:
+              'THE BUG: 10:00 here means the stored window was ignored and the '
+              'break was normalised into a shortened working day',
+        );
+        expect(_wellText(tester, 'override-work-end'), '18:00');
+        expect(
+          find.byKey(const Key('override-break-0-start')),
+          findsOneWidget,
+          reason: 'the edge-flush break must reappear as a break row',
+        );
+        expect(_wellText(tester, 'override-break-0-start'), '09:00');
+        expect(_wellText(tester, 'override-break-0-end'), '10:00');
+
+        await _drainKeepAliveTimers(tester);
+      },
+    );
+
+    testWidgets(
+      'INTENDED: saving an unedited template-sourced day persists the '
+      'TEMPLATE-derived window onto the new override row (mirrors '
+      'initialIntervals)',
+      (tester) async {
+        final repo = _happyRepo();
+        await _pumpSheet(
+          tester,
+          repo: repo,
+          // No override exists for this date yet — the screen seeded the sheet
+          // from the TEMPLATE-resolved effective day.
+          hasExistingOverride: false,
+          initialIntervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+          initialWindow: _interval(9, 0, 18, 0),
+        );
+
+        await tester.ensureVisible(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+
+        final ScheduleOverride saved =
+            verify(
+                  () => repo.putOverride(
+                    captureAny(),
+                    cancelOverlapping: any(named: 'cancelOverlapping'),
+                  ),
+                ).captured.single
+                as ScheduleOverride;
+
+        expect(saved.kind, OverrideKind.custom);
+        expect(
+          saved.window,
+          isNotNull,
+          reason:
+              'a null window here would re-lose the break on the NEXT reload — '
+              'the override row would come back as a shortened 10:00 day',
+        );
+        expect(saved.window!.start, const TimeOfDay(hour: 9, minute: 0));
+        expect(saved.window!.end, const TimeOfDay(hour: 18, minute: 0));
+        // Availability is untouched — the window is display-only metadata that
+        // rides ALONGSIDE the canonical intervals.
+        expect(saved.intervals, hasLength(1));
+        expect(
+          saved.intervals.single.start,
+          const TimeOfDay(hour: 10, minute: 0),
+        );
+        expect(
+          saved.intervals.single.end,
+          const TimeOfDay(hour: 18, minute: 0),
+        );
+
+        await _drainKeepAliveTimers(tester);
+      },
+    );
+
+    testWidgets('LEGACY (initialWindow == null): the sheet falls back to gap '
+        'reconstruction — no break row, від 10:00', (tester) async {
+      final repo = _happyRepo();
+      await _pumpSheet(
+        tester,
+        repo: repo,
+        initialIntervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+      );
+
+      expect(
+        _wellText(tester, 'override-work-start'),
+        '10:00',
+        reason: 'a legacy row keeps the historical normalising display',
+      );
+      expect(
+        find.byKey(const Key('override-break-0-start')),
+        findsNothing,
+        reason:
+            'an edge-flush break is unrecoverable without a stored window — '
+            'the legacy regime must stay byte-identical',
+      );
+
+      await _drainKeepAliveTimers(tester);
+    });
+
+    testWidgets(
+      'a legacy-seeded save still persists the DRAWN window, so the NEXT '
+      'reload is lossless (the legacy row heals itself on first re-save)',
+      (tester) async {
+        final repo = _happyRepo();
+        await _pumpSheet(
+          tester,
+          repo: repo,
+          initialIntervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+        );
+
+        await tester.ensureVisible(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+
+        final ScheduleOverride saved =
+            verify(
+                  () => repo.putOverride(
+                    captureAny(),
+                    cancelOverlapping: any(named: 'cancelOverlapping'),
+                  ),
+                ).captured.single
+                as ScheduleOverride;
+
+        // The sheet always knows the window it DREW, even when none was stored
+        // — so the save is never window-less, and the row stops being legacy.
+        expect(saved.window, isNotNull);
+        expect(saved.window!.start, const TimeOfDay(hour: 10, minute: 0));
+        expect(saved.window!.end, const TimeOfDay(hour: 18, minute: 0));
+
+        await _drainKeepAliveTimers(tester);
+      },
+    );
+
+    testWidgets('a DAY-OFF save carries no window (nothing to contain)', (
+      tester,
+    ) async {
+      final repo = _happyRepo();
+      await _pumpSheet(
+        tester,
+        repo: repo,
+        initialDayOff: true,
+        initialIntervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+        initialWindow: _interval(9, 0, 18, 0),
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('override-save')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('override-save')));
+      await tester.pumpAndSettle();
+
+      final ScheduleOverride saved =
+          verify(
+                () => repo.putOverride(
+                  captureAny(),
+                  cancelOverlapping: any(named: 'cancelOverlapping'),
+                ),
+              ).captured.single
+              as ScheduleOverride;
+
+      expect(saved.kind, OverrideKind.dayOff);
+      expect(saved.window, isNull);
+
+      await _drainKeepAliveTimers(tester);
+    });
+  });
+}
+
+/// Reads the `HH:MM` rendered inside any keyed [TimeWell] in the sheet.
+String _wellText(WidgetTester tester, String key) {
+  final Finder well = find.byKey(Key(key));
+  expect(well, findsOneWidget, reason: 'time well "$key" must be rendered');
+  final Finder txt = find.descendant(of: well, matching: find.byType(Text));
+  return tester.widget<Text>(txt.first).data!;
 }
 
 /// One velvet-time-picker wheel item extent (px) — matches the picker's fixed

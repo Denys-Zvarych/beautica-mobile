@@ -200,6 +200,9 @@ class OverridesNotifier extends _$OverridesNotifier {
           intervals: span.intervals
               .map((w) => w.clone())
               .toList(growable: false),
+          // The span's display-only window is held constant across every
+          // expanded date, exactly like its intervals.
+          window: span.window?.clone(),
         );
       }
 

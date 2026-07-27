@@ -838,4 +838,474 @@ void main() {
       expect(o.narrowedHoursLabel, '09:00–15:00');
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2026-07-27 — STORED WORKING WINDOW (`windowStart`/`windowEnd`).
+  //
+  // THE USER-REPORTED BUG. A master with hours 09:00–18:00 adds a «Перерва»
+  // 09:00–10:00 (flush against the window START). Only working INTERVALS were
+  // persisted and breaks were reconstructed from the GAPS BETWEEN them, so an
+  // edge-flush break left no gap to see: `[10:00–18:00]` read back as "window
+  // 10:00–18:00, no breaks". The break was not lost from AVAILABILITY (an
+  // earlier fix on this branch already stopped it being discarded — that was
+  // the overbooking exposure), but it VANISHED FROM THE SCREEN: the master
+  // reopened the editor and their break was gone, silently normalised into a
+  // shortened working day.
+  //
+  // The backend now stores the outer window alongside the intervals, so
+  // `DayHours.fromIntervals` gets a second regime:
+  //
+  //     window present  →  breaks = window MINUS intervals   (lossless)
+  //     window absent   →  legacy gap reconstruction         (unchanged)
+  //
+  // EVERY pre-existing test in this file exercises the LEGACY regime (none of
+  // them pass a window), so the window-present regime had ZERO coverage before
+  // this group. The `window == null` rows below are therefore not decoration:
+  // they are what protects every already-shipped legacy template row from being
+  // re-interpreted by the new code path.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Asserts [got] matches [want] break-for-break, in order.
+  void expectBreaks(List<BreakRange> got, List<BreakRange> want) {
+    expect(
+      got,
+      hasLength(want.length),
+      reason:
+          'expected ${want.length} break(s), got '
+          '${got.map((b) => '${formatTime(b.start)}–${formatTime(b.end)}').join(', ')}',
+    );
+    for (int i = 0; i < want.length; i++) {
+      expect(
+        got[i].start,
+        want[i].start,
+        reason: 'break $i start (${formatTime(want[i].start)} expected)',
+      );
+      expect(
+        got[i].end,
+        want[i].end,
+        reason: 'break $i end (${formatTime(want[i].end)} expected)',
+      );
+    }
+  }
+
+  group('DayHours.fromIntervals — WINDOW PRESENT (breaks = window MINUS '
+      'intervals)', () {
+    // Every row shares the SAME stored window 09:00–18:00; only the saved
+    // interval list varies. `wantWithWindow` is what the master must SEE on
+    // reload; `wantLegacy` is what the SAME intervals produce with no stored
+    // window — the byte-identical pre-window behaviour, pinned side by side so
+    // the two regimes can never silently converge.
+    final List<
+      ({
+        String name,
+        List<WorkInterval> intervals,
+        List<BreakRange> wantWithWindow,
+        WorkInterval legacyWindow,
+        List<BreakRange> wantLegacy,
+      })
+    >
+    cases =
+        <
+          ({
+            String name,
+            List<WorkInterval> intervals,
+            List<BreakRange> wantWithWindow,
+            WorkInterval legacyWindow,
+            List<BreakRange> wantLegacy,
+          })
+        >[
+          (
+            // ── THE USER'S EXACT BUG ────────────────────────────────────────
+            name:
+                'start-flush: [10:00–18:00] + window 09:00–18:00 → break '
+                '09:00–10:00',
+            intervals: <WorkInterval>[_wi(10, 0, 18, 0)],
+            wantWithWindow: <BreakRange>[_br(9, 0, 10, 0)],
+            legacyWindow: _wi(10, 0, 18, 0),
+            wantLegacy: <BreakRange>[],
+          ),
+          (
+            name:
+                'end-flush: [09:00–17:00] + window 09:00–18:00 → break '
+                '17:00–18:00',
+            intervals: <WorkInterval>[_wi(9, 0, 17, 0)],
+            wantWithWindow: <BreakRange>[_br(17, 0, 18, 0)],
+            legacyWindow: _wi(9, 0, 17, 0),
+            wantLegacy: <BreakRange>[],
+          ),
+          (
+            name:
+                'both edges flush: [10:00–17:00] + window 09:00–18:00 → breaks '
+                '09:00–10:00 + 17:00–18:00',
+            intervals: <WorkInterval>[_wi(10, 0, 17, 0)],
+            wantWithWindow: <BreakRange>[_br(9, 0, 10, 0), _br(17, 0, 18, 0)],
+            legacyWindow: _wi(10, 0, 17, 0),
+            wantLegacy: <BreakRange>[],
+          ),
+          (
+            name:
+                'both edges flush + an interior break: '
+                '[10:00–13:00, 14:00–17:00] + window 09:00–18:00 → three breaks',
+            intervals: <WorkInterval>[_wi(10, 0, 13, 0), _wi(14, 0, 17, 0)],
+            wantWithWindow: <BreakRange>[
+              _br(9, 0, 10, 0),
+              _br(13, 0, 14, 0),
+              _br(17, 0, 18, 0),
+            ],
+            legacyWindow: _wi(10, 0, 17, 0),
+            // Legacy sees only the ONE gap between the two intervals.
+            wantLegacy: <BreakRange>[_br(13, 0, 14, 0)],
+          ),
+          (
+            // CONTROL — the interior-only case never regressed. Both regimes
+            // must agree here, which is precisely why the bug went unnoticed.
+            name:
+                'interior only (control): [09:00–13:00, 14:00–18:00] + window '
+                '09:00–18:00 → break 13:00–14:00, identical to legacy',
+            intervals: <WorkInterval>[_wi(9, 0, 13, 0), _wi(14, 0, 18, 0)],
+            wantWithWindow: <BreakRange>[_br(13, 0, 14, 0)],
+            legacyWindow: _wi(9, 0, 18, 0),
+            wantLegacy: <BreakRange>[_br(13, 0, 14, 0)],
+          ),
+        ];
+
+    for (final c in cases) {
+      test('WINDOW PRESENT — ${c.name}', () {
+        final DayHours day = DayHours.fromIntervals(
+          c.intervals,
+          window: _wi(9, 0, 18, 0),
+        );
+
+        // The stored window is honoured verbatim — never re-derived from the
+        // intervals.
+        _expectInterval(day.window, 9, 0, 18, 0);
+        expectBreaks(day.breaks, c.wantWithWindow);
+
+        // Property: the reconstructed view must collapse back to EXACTLY the
+        // intervals it came from. This is the whole point of the feature — the
+        // display gains a break without the availability changing by a minute.
+        expect(
+          summariseIntervals(day.toIntervals()),
+          summariseIntervals(c.intervals),
+          reason:
+              'window+breaks must collapse back to the saved intervals — a '
+              'difference here is an availability change smuggled in by a '
+              'display-only field',
+        );
+      });
+
+      test('WINDOW NULL (legacy, byte-identical) — ${c.name}', () {
+        // The SAME intervals with no stored window must behave exactly as they
+        // did before this change: window = [firstStart, lastEnd], breaks = the
+        // gaps between consecutive intervals, edge-flush breaks unrecoverable.
+        final DayHours legacy = DayHours.fromIntervals(c.intervals);
+
+        _expectInterval(
+          legacy.window,
+          c.legacyWindow.start.hour,
+          c.legacyWindow.start.minute,
+          c.legacyWindow.end.hour,
+          c.legacyWindow.end.minute,
+        );
+        expectBreaks(legacy.breaks, c.wantLegacy);
+
+        // And an explicit `window: null` is the same call as omitting it — the
+        // named parameter must not change the default path.
+        final DayHours explicitNull = DayHours.fromIntervals(
+          c.intervals,
+          window: null,
+        );
+        expect(explicitNull.window.startMinutes, legacy.window.startMinutes);
+        expect(explicitNull.window.endMinutes, legacy.window.endMinutes);
+        expectBreaks(explicitNull.breaks, legacy.breaks);
+      });
+    }
+
+    test('the start-flush bug: WITHOUT a window the break disappears, WITH one '
+        'it survives — the two regimes differ on exactly this input', () {
+      // Stated as one assertion pair so the regression is unmistakable: this
+      // is the before/after of the reported defect on the reported input.
+      final List<WorkInterval> saved = <WorkInterval>[_wi(10, 0, 18, 0)];
+
+      final DayHours legacy = DayHours.fromIntervals(saved);
+      expect(
+        legacy.breaks,
+        isEmpty,
+        reason: 'legacy gap reconstruction cannot see an edge-flush break',
+      );
+      expect(
+        formatTime(legacy.window.start),
+        '10:00',
+        reason: 'legacy collapses the break into a shortened working window',
+      );
+
+      final DayHours withWindow = DayHours.fromIntervals(
+        saved,
+        window: _wi(9, 0, 18, 0),
+      );
+      expect(
+        formatTime(withWindow.window.start),
+        '09:00',
+        reason:
+            'THE BUG: a 10:00 window start here means the stored window was '
+            'ignored and the break was re-normalised away',
+      );
+      expect(withWindow.breaks, hasLength(1));
+      expect(formatTime(withWindow.breaks.single.start), '09:00');
+      expect(formatTime(withWindow.breaks.single.end), '10:00');
+    });
+  });
+
+  // ── The property the whole feature exists to provide ────────────────────────
+  group('DayHours — full round-trip fromIntervals(toIntervals(day), '
+      'window: day.window)', () {
+    final List<({String name, List<BreakRange> breaks})> shapes =
+        <({String name, List<BreakRange> breaks})>[
+          (name: 'no breaks', breaks: <BreakRange>[]),
+          (name: 'start-flush break', breaks: <BreakRange>[_br(9, 0, 10, 0)]),
+          (name: 'end-flush break', breaks: <BreakRange>[_br(17, 0, 18, 0)]),
+          (
+            name: 'both edges flush',
+            breaks: <BreakRange>[_br(9, 0, 10, 0), _br(17, 0, 18, 0)],
+          ),
+          (name: 'interior break', breaks: <BreakRange>[_br(13, 0, 14, 0)]),
+          (
+            name: 'both edges + interior',
+            breaks: <BreakRange>[
+              _br(9, 0, 10, 0),
+              _br(13, 0, 14, 0),
+              _br(17, 0, 18, 0),
+            ],
+          ),
+          (
+            name: 'two interior breaks',
+            breaks: <BreakRange>[_br(11, 0, 11, 30), _br(14, 0, 15, 0)],
+          ),
+        ];
+
+    for (final s in shapes) {
+      test('${s.name} — window + breaks survive a save→load cycle exactly', () {
+        final DayHours original = DayHours(
+          window: _wi(9, 0, 18, 0),
+          breaks: s.breaks,
+        );
+        // Sanity: the shape the editor would let the master save.
+        expect(
+          validateDayHours(original),
+          isNull,
+          reason: 'fixture must be a legal day',
+        );
+
+        // SAVE — the wire carries the collapsed intervals PLUS the window.
+        final List<WorkInterval> wireIntervals = original.toIntervals();
+        final WorkInterval wireWindow = original.window.clone();
+
+        // LOAD — reconstruct from exactly what the wire carried.
+        final DayHours reloaded = DayHours.fromIntervals(
+          wireIntervals,
+          window: wireWindow,
+        );
+
+        _expectInterval(reloaded.window, 9, 0, 18, 0);
+        expectBreaks(reloaded.breaks, s.breaks);
+
+        // And a SECOND save must be a byte-identical no-op — the property the
+        // weekly editor's dirty-diff depends on (an idempotent reload must
+        // never look like an edit).
+        expect(
+          summariseIntervals(reloaded.toIntervals()),
+          summariseIntervals(wireIntervals),
+        );
+      });
+    }
+  });
+
+  group('DayHours.fromIntervals — window regime degenerate inputs', () {
+    test('empty intervals → defaultDay REGARDLESS of a supplied window (never '
+        'a whole-window break)', () {
+      // The backend never stores a window for a day with no intervals; if one
+      // ever arrived, honouring it would manufacture a 09:00–18:00 break that
+      // validateDayHours immediately rejects — an unsaveable day.
+      final DayHours day = DayHours.fromIntervals(
+        const <WorkInterval>[],
+        window: _wi(9, 0, 18, 0),
+      );
+
+      expect(day.breaks, isEmpty);
+      _expectInterval(day.window, 9, 0, 18, 0); // the default day, not a break
+      expect(validateDayHours(day), isNull);
+    });
+
+    test('a degenerate stored window (end <= start) falls back to the LEGACY '
+        'regime rather than inverting the day', () {
+      final DayHours day = DayHours.fromIntervals(<WorkInterval>[
+        _wi(10, 0, 18, 0),
+      ], window: _wi(18, 0, 9, 0));
+
+      _expectInterval(
+        day.window,
+        10,
+        0,
+        18,
+        0,
+      ); // derived, not the bad stored pair
+      expect(day.breaks, isEmpty);
+    });
+
+    test('a zero-length stored window (end == start) also falls back to '
+        'LEGACY', () {
+      final DayHours day = DayHours.fromIntervals(<WorkInterval>[
+        _wi(10, 0, 18, 0),
+      ], window: _wi(9, 0, 9, 0));
+
+      _expectInterval(day.window, 10, 0, 18, 0);
+      expect(day.breaks, isEmpty);
+    });
+
+    test('an interval poking OUTSIDE the stored window is clamped — no '
+        'inverted or negative-length break is produced', () {
+      // A malformed row (window narrower than its own intervals) must degrade
+      // to a sane view, never to a break with end < start.
+      final DayHours day = DayHours.fromIntervals(<WorkInterval>[
+        _wi(8, 0, 12, 0), // starts an hour before the window
+        _wi(14, 0, 19, 0), // ends an hour after the window
+      ], window: _wi(9, 0, 18, 0));
+
+      _expectInterval(day.window, 9, 0, 18, 0);
+      for (final BreakRange b in day.breaks) {
+        expect(
+          b.endMinutes,
+          greaterThan(b.startMinutes),
+          reason: 'no reconstructed break may be zero-length or inverted',
+        );
+        expect(b.startMinutes, greaterThanOrEqualTo(day.window.startMinutes));
+        expect(b.endMinutes, lessThanOrEqualTo(day.window.endMinutes));
+      }
+      // Concretely: 08:00–12:00 clamps to 09:00–12:00, leaving 12:00–14:00 as
+      // the only in-window uncovered stretch; 14:00–19:00 clamps to the end.
+      expectBreaks(day.breaks, <BreakRange>[_br(12, 0, 14, 0)]);
+    });
+
+    test('unsorted intervals are ordered before the window walk', () {
+      final DayHours day = DayHours.fromIntervals(<WorkInterval>[
+        _wi(14, 0, 17, 0),
+        _wi(10, 0, 13, 0),
+      ], window: _wi(9, 0, 18, 0));
+
+      expectBreaks(day.breaks, <BreakRange>[
+        _br(9, 0, 10, 0),
+        _br(13, 0, 14, 0),
+        _br(17, 0, 18, 0),
+      ]);
+    });
+
+    test('intervals exactly filling the window → no breaks at all', () {
+      final DayHours day = DayHours.fromIntervals(<WorkInterval>[
+        _wi(9, 0, 18, 0),
+      ], window: _wi(9, 0, 18, 0));
+
+      expect(day.breaks, isEmpty);
+    });
+  });
+
+  // ── The window is INTERVAL-shape metadata only ──────────────────────────────
+  group('TemplateDay.window — cleared on the flip to EXPLICIT_TIMES', () {
+    TemplateDay intervalDay() => TemplateDay(
+      dayOfWeek: 1,
+      label: 'Понеділок',
+      intervals: <WorkInterval>[_wi(10, 0, 18, 0)],
+      window: _wi(9, 0, 18, 0),
+    );
+
+    test('setMode(explicitTimes) drops the window along with the intervals', () {
+      final TemplateDay day = intervalDay();
+      expect(day.window, isNotNull, reason: 'precondition');
+
+      day.setMode(WeekdayMode.explicitTimes);
+
+      expect(day.intervals, isEmpty);
+      expect(
+        day.window,
+        isNull,
+        reason:
+            'a window describes an INTERVAL day\'s від–до; the backend rejects '
+            'it on an EXPLICIT_TIMES day, so the flip must clear it',
+      );
+    });
+
+    test('flipping BACK to interval does not resurrect the dropped window', () {
+      final TemplateDay day = intervalDay();
+
+      day.setMode(WeekdayMode.explicitTimes);
+      day.setMode(WeekdayMode.interval);
+
+      expect(
+        day.window,
+        isNull,
+        reason:
+            'the window is gone for good once cleared — the editor re-seeds it '
+            'from the redrawn intervals, never from stale state',
+      );
+    });
+
+    test('a no-op setMode (already in that mode) leaves the window intact', () {
+      final TemplateDay day = intervalDay();
+
+      day.setMode(WeekdayMode.interval);
+
+      expect(day.window, isNotNull);
+      expect(day.window!.startMinutes, 9 * 60);
+    });
+
+    test('TemplateDay defaults window to null (a legacy / unset row)', () {
+      final TemplateDay day = TemplateDay(
+        dayOfWeek: 1,
+        label: 'Понеділок',
+        intervals: <WorkInterval>[_wi(9, 0, 18, 0)],
+      );
+      expect(day.window, isNull);
+    });
+  });
+
+  group('ScheduleOverride.window — only the CUSTOM_HOURS INTERVAL shape has '
+      'one', () {
+    test('custom INTERVAL override carries the given window', () {
+      final ScheduleOverride o = ScheduleOverride.custom(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        intervals: <WorkInterval>[_wi(10, 0, 18, 0)],
+        window: _wi(9, 0, 18, 0),
+      );
+
+      expect(o.window, isNotNull);
+      expect(o.window!.startMinutes, 9 * 60);
+      expect(o.window!.endMinutes, 18 * 60);
+    });
+
+    test('custom INTERVAL override without a window is null (legacy row)', () {
+      final ScheduleOverride o = ScheduleOverride.custom(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        intervals: <WorkInterval>[_wi(10, 0, 18, 0)],
+      );
+      expect(o.window, isNull);
+    });
+
+    test('a day-off override has no window', () {
+      final ScheduleOverride o = ScheduleOverride.dayOff(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+      );
+      expect(o.window, isNull);
+    });
+
+    test('an EXPLICIT_TIMES override has no window', () {
+      final ScheduleOverride o = ScheduleOverride.explicitTimes(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        times: <TimeOfDay>[_t(9, 0), _t(11, 0)],
+      );
+      expect(o.window, isNull);
+    });
+  });
 }

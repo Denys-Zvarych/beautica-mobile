@@ -26,6 +26,11 @@ ScheduleOverride _spanDayOff(DateTime start, DateTime end) =>
 ScheduleOverride _explicit(DateTime date, List<TimeOfDay> times) =>
     ScheduleOverride.explicitTimes(start: date, end: date, times: times);
 
+WorkInterval _wi(int sh, int sm, int eh, int em) => WorkInterval(
+  start: TimeOfDay(hour: sh, minute: sm),
+  end: TimeOfDay(hour: eh, minute: em),
+);
+
 void main() {
   late _MockScheduleRepository repo;
   final range = ScheduleRange(
@@ -456,6 +461,140 @@ void main() {
         for (int i = 1; i < captured.length; i += 2) captured[i] as bool,
       ];
       expect(flags.every((f) => f == false), isTrue);
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 2026-07-27 — the stored working window across a MULTI-DAY span fan-out.
+  //
+  // `putSpan` expands a span into one single-date PUT per calendar date. The
+  // per-date rebuild (`perDayFor`) constructs a FRESH `ScheduleOverride` for
+  // each date — so any field it forgets to carry is silently dropped on every
+  // date but the caller's own copy. Before the window was threaded through,
+  // a multi-day «однакові години» span would have persisted its display-only
+  // window on NO date at all, and the master's edge-flush break would vanish
+  // from the whole span on reload (the exact user-visible bug, multiplied).
+  // ═════════════════════════════════════════════════════════════════════════
+
+  group('putSpan — stored working window fan-out', () {
+    test('EVERY expanded per-date PUT carries the span\'s window', () async {
+      when(() => repo.putOverride(any(), cancelOverlapping: false)).thenAnswer(
+        (inv) async => inv.positionalArguments.first as ScheduleOverride,
+      );
+
+      final container = makeContainer();
+      await container.read(overridesProvider(range).future);
+
+      // A 3-day span: intervals [10:00–18:00] with the outer window
+      // 09:00–18:00 (a break 09:00–10:00 carved off the start edge).
+      final span = ScheduleOverride.custom(
+        start: DateTime(2026, 6, 10),
+        end: DateTime(2026, 6, 12),
+        intervals: <WorkInterval>[_wi(10, 0, 18, 0)],
+        window: _wi(9, 0, 18, 0),
+      );
+
+      await container.read(overridesProvider(range).notifier).putSpan(span);
+
+      expect(container.read(overridesProvider(range)).hasError, isFalse);
+      final captured = verify(
+        () => repo.putOverride(captureAny(), cancelOverlapping: false),
+      ).captured.cast<ScheduleOverride>();
+
+      expect(captured, hasLength(3));
+      for (final ScheduleOverride o in captured) {
+        expect(
+          o.window,
+          isNotNull,
+          reason:
+              'date ${o.start} lost the span window on the fan-out — its '
+              'edge-flush break would vanish on reload',
+        );
+        expect(o.window!.startMinutes, 9 * 60);
+        expect(o.window!.endMinutes, 18 * 60);
+        // Availability is unchanged by the window; the intervals must ride
+        // alongside it untouched.
+        expect(o.intervals.single.startMinutes, 10 * 60);
+      }
+    });
+
+    test('each expanded date gets its OWN window instance (no shared mutable '
+        'state across the fan-out)', () async {
+      when(() => repo.putOverride(any(), cancelOverlapping: false)).thenAnswer(
+        (inv) async => inv.positionalArguments.first as ScheduleOverride,
+      );
+
+      final container = makeContainer();
+      await container.read(overridesProvider(range).future);
+
+      final window = _wi(9, 0, 18, 0);
+      await container
+          .read(overridesProvider(range).notifier)
+          .putSpan(
+            ScheduleOverride.custom(
+              start: DateTime(2026, 6, 10),
+              end: DateTime(2026, 6, 11),
+              intervals: <WorkInterval>[_wi(10, 0, 18, 0)],
+              window: window,
+            ),
+          );
+
+      final captured = verify(
+        () => repo.putOverride(captureAny(), cancelOverlapping: false),
+      ).captured.cast<ScheduleOverride>();
+
+      // `WorkInterval` is MUTABLE (the editors repoint pickers in place), so a
+      // shared instance would let one date's later edit rewrite every other
+      // date's persisted window.
+      expect(identical(captured[0].window, window), isFalse);
+      expect(identical(captured[0].window, captured[1].window), isFalse);
+    });
+
+    test('a DAY_OFF span carries no window on any date', () async {
+      when(() => repo.putOverride(any(), cancelOverlapping: false)).thenAnswer(
+        (inv) async => inv.positionalArguments.first as ScheduleOverride,
+      );
+
+      final container = makeContainer();
+      await container.read(overridesProvider(range).future);
+
+      await container
+          .read(overridesProvider(range).notifier)
+          .putSpan(_spanDayOff(DateTime(2026, 6, 10), DateTime(2026, 6, 12)));
+
+      final captured = verify(
+        () => repo.putOverride(captureAny(), cancelOverlapping: false),
+      ).captured.cast<ScheduleOverride>();
+      expect(captured, hasLength(3));
+      expect(captured.every((o) => o.window == null), isTrue);
+    });
+
+    test('an EXPLICIT_TIMES span carries no window on any date', () async {
+      when(() => repo.putOverride(any(), cancelOverlapping: false)).thenAnswer(
+        (inv) async => inv.positionalArguments.first as ScheduleOverride,
+      );
+
+      final container = makeContainer();
+      await container.read(overridesProvider(range).future);
+
+      await container
+          .read(overridesProvider(range).notifier)
+          .putSpan(
+            ScheduleOverride.explicitTimes(
+              start: DateTime(2026, 6, 10),
+              end: DateTime(2026, 6, 11),
+              times: <TimeOfDay>[
+                const TimeOfDay(hour: 9, minute: 0),
+                const TimeOfDay(hour: 11, minute: 0),
+              ],
+            ),
+          );
+
+      final captured = verify(
+        () => repo.putOverride(captureAny(), cancelOverlapping: false),
+      ).captured.cast<ScheduleOverride>();
+      expect(captured, hasLength(2));
+      expect(captured.every((o) => o.window == null), isTrue);
     });
   });
 }

@@ -3870,6 +3870,144 @@ void main() {
       },
     );
   });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 2026-07-27 — the SCREEN forwards `EffectiveDay.window` into the sheet.
+  //
+  // `master_schedule_screen.dart` passes `initialWindow: day.window` next to
+  // `initialIntervals: day.intervals`. That single line is the only thing that
+  // carries the backend's stored window from the resolved effective day to the
+  // per-date editor — drop it and the sheet silently falls back to the legacy
+  // gap reconstruction, so a break flush against a window edge disappears the
+  // moment the master opens the pencil. `day_hours_sheet_test.dart` covers the
+  // sheet's own behaviour given a window; this covers the WIRING that supplies
+  // it.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  group('MasterScheduleScreen — stored window reaches the override sheet', () {
+    testWidgets(
+      'a day whose effective window is 09:00–18:00 with intervals '
+      '[10:00–18:00] opens the sheet від 09:00 WITH a 09:00–10:00 break row',
+      (tester) async {
+        // The effective day the backend now projects for the reported bug's
+        // template: the break was carved off the window START.
+        final Map<DateTime, EffectiveDay> effective = <DateTime, EffectiveDay>{
+          for (int i = 0; i < 7; i++)
+            _dateOnly(_weekStart.add(Duration(days: i))): EffectiveDay(
+              date: _dateOnly(_weekStart.add(Duration(days: i))),
+              source: EffectiveSource.template,
+              intervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+              window: _interval(9, 0, 18, 0),
+            ),
+        };
+        final repo = _StatefulFakeScheduleRepository(effective);
+
+        final container = ProviderContainer(
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            scheduleRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('schedule-day-pencil')));
+        await tester.pumpAndSettle();
+
+        expect(
+          _overrideWellText(tester, 'override-work-start'),
+          '09:00',
+          reason:
+              'THE BUG: 10:00 here means the screen never forwarded '
+              'EffectiveDay.window, so the sheet fell back to gap '
+              'reconstruction and swallowed the break',
+        );
+        expect(_overrideWellText(tester, 'override-work-end'), '18:00');
+        expect(
+          find.byKey(const Key('override-break-0-start')),
+          findsOneWidget,
+          reason: 'the edge-flush break must render as a break row',
+        );
+        expect(_overrideWellText(tester, 'override-break-0-start'), '09:00');
+        expect(_overrideWellText(tester, 'override-break-0-end'), '10:00');
+
+        await _drainKeepAliveTimers(tester);
+      },
+    );
+
+    testWidgets(
+      'a LEGACY effective day (window == null) opens the sheet unchanged — '
+      'від 10:00 with no break row',
+      (tester) async {
+        final Map<DateTime, EffectiveDay> effective = <DateTime, EffectiveDay>{
+          for (int i = 0; i < 7; i++)
+            _dateOnly(_weekStart.add(Duration(days: i))): EffectiveDay(
+              date: _dateOnly(_weekStart.add(Duration(days: i))),
+              source: EffectiveSource.template,
+              intervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+            ),
+        };
+        final repo = _StatefulFakeScheduleRepository(effective);
+
+        final container = ProviderContainer(
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            scheduleRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('schedule-day-pencil')));
+        await tester.pumpAndSettle();
+
+        expect(_overrideWellText(tester, 'override-work-start'), '10:00');
+        expect(
+          find.byKey(const Key('override-break-0-start')),
+          findsNothing,
+          reason: 'the legacy regime must stay byte-identical',
+        );
+
+        await _drainKeepAliveTimers(tester);
+      },
+    );
+  });
+}
+
+/// Reads the `HH:MM` rendered inside a keyed [TimeWell] in the override sheet.
+String _overrideWellText(WidgetTester tester, String key) {
+  final Finder well = find.byKey(Key(key));
+  expect(well, findsOneWidget, reason: 'time well "$key" must be rendered');
+  final Finder txt = find.descendant(of: well, matching: find.byType(Text));
+  return tester.widget<Text>(txt.first).data!;
 }
 
 // ───────────────────────────────────────────────────────────────────────────

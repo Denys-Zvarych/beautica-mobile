@@ -556,6 +556,7 @@ class _BreakRow extends StatelessWidget {
               button: true,
               label: removeSemanticLabel,
               child: GestureDetector(
+                key: prefix == null ? null : Key('$prefix-break-$index-remove'),
                 onTap: onRemove,
                 child: Container(
                   height: 38,

@@ -258,6 +258,10 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       dateLabel: formatDay(day.date),
       range: editedRange,
       initialIntervals: day.intervals,
+      // Stored display-only window (may be null on a legacy row) — lets the
+      // sheet re-render a break flush against a window edge instead of losing it
+      // to gap reconstruction.
+      initialWindow: day.window,
       hasExistingOverride: hasOverride,
       initialDayOff: dayOff,
       // Phase 15.8: seed the work-mode sub-toggle from the resolved effective day.

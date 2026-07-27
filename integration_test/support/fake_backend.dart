@@ -552,6 +552,54 @@ final class FakeBackend {
   /// assert ZERO upserts on a back-without-save and exactly ONE on a Save.
   void seedNoWeeklySchedule() => _weeklySchedule = <Map<String, dynamic>>[];
 
+  /// Reseeds the weekly schedule so MONDAY carries a STORED WORKING WINDOW
+  /// (`windowStart`/`windowEnd`, added to the contract 2026-07-27).
+  ///
+  /// Monday's canonical intervals are `[10:00–18:00]` while its stored window is
+  /// `09:00–18:00` — i.e. the master saved a «Перерва» 09:00–10:00 flush against
+  /// the window START. That is the exact row the backend now persists, and the
+  /// row the editor must re-render as a WINDOW + BREAK rather than as a
+  /// shortened 10:00–18:00 working day.
+  ///
+  /// Tuesday stays an ordinary LEGACY row (intervals only, no window) so the
+  /// same run also proves the legacy regime still renders unchanged, and so
+  /// closing Monday never trips the all-off DELETE path.
+  void seedWeeklyScheduleWithStoredWindow() =>
+      _weeklySchedule = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'schedule-1',
+          'validFrom': '2026-06-14',
+          'validTo': null,
+          'days': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'dayOfWeek': 1,
+              'intervals': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'startTime': '10:00:00',
+                  'endTime': '18:00:00',
+                },
+              ],
+              'windowStart': '09:00:00',
+              'windowEnd': '18:00:00',
+            },
+            <String, dynamic>{
+              'dayOfWeek': 2,
+              'intervals': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'startTime': '09:00:00',
+                  'endTime': '18:00:00',
+                },
+              ],
+            },
+            <String, dynamic>{'dayOfWeek': 3, 'intervals': <dynamic>[]},
+            <String, dynamic>{'dayOfWeek': 4, 'intervals': <dynamic>[]},
+            <String, dynamic>{'dayOfWeek': 5, 'intervals': <dynamic>[]},
+            <String, dynamic>{'dayOfWeek': 6, 'intervals': <dynamic>[]},
+            <String, dynamic>{'dayOfWeek': 7, 'intervals': <dynamic>[]},
+          ],
+        },
+      ];
+
   // ── Call-count telemetry (for assertions in tests) ────────────────────────
 
   int loginCalls = 0;
