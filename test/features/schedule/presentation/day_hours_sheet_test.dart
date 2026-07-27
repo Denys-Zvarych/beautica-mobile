@@ -1659,6 +1659,215 @@ void main() {
       },
     );
   });
+
+  // ── REGRESSION (CRITICAL availability data-loss) — edge-flush break ─────────
+  //
+  // THE BUG: window 09:00–18:00, master drags a «Перерва» start down so the
+  // break sits FLUSH against the window start (09:00–10:00). Validation passed,
+  // Save stayed enabled — and `DayHours.toIntervals()` then silently DISCARDED
+  // the break, so the override persisted a full 09:00–18:00 day. The blocked
+  // hour was advertised as bookable.
+  //
+  // WHY THIS TEST LIVES HERE AND NOT ONLY IN THE DOMAIN SUITE: a domain test
+  // for `toIntervals()` already existed — and asserted the WRONG expectation,
+  // so it locked the defect in instead of catching it. The end-to-end capture
+  // of the argument the sheet actually hands the repository is the guard that
+  // could not have been written around the bug: it reads the persisted wire
+  // payload, not the helper's internals.
+  //
+  // RED-ON-PRE-FIX: before the fix the captured intervals were
+  // `[09:00–18:00]`, so the `10:00` start assertion fails.
+  group('DayHoursSheet — a break flush against the window start is PERSISTED '
+      '(availability data-loss regression)', () {
+    testWidgets(
+      'dragging a break start down onto the window start saves intervals '
+      '[10:00–18:00] — the blocked hour must NOT reappear as 09:00–18:00',
+      (tester) async {
+        final repo = _happyRepo();
+        // Seeded day: works 09:00–09:30, break 09:30–10:00, works 10:00–18:00.
+        // `DayHours.fromIntervals` reconstructs window 09:00–18:00 + one break
+        // 09:30–10:00, so the break start is ONE 15-min step away from being
+        // flush against the window start — exactly the reported edit.
+        await _pumpSheet(
+          tester,
+          repo: repo,
+          initialIntervals: <WorkInterval>[
+            _interval(9, 0, 9, 30),
+            _interval(10, 0, 18, 0),
+          ],
+        );
+
+        // Sanity: the reconstructed break renders with its 09:30 start (the
+        // finder below targets that value, so a seed change fails loudly).
+        expect(
+          find.widgetWithText(TimeWell, '09:30'),
+          findsOneWidget,
+          reason: 'the seeded break start well must render 09:30',
+        );
+
+        // ACT — drag the break-start picker back two 15-min steps: 09:30 →
+        // 09:00, i.e. flush against the working-window start.
+        await _editTimeWell(
+          tester,
+          well: find.widgetWithText(TimeWell, '09:30'),
+          minuteSteps: -2,
+        );
+
+        // The editor now shows the flush break (both the window start well and
+        // the break start well read 09:00) and reports NO validation error —
+        // this is a legal day, which is why the discard was silent.
+        expect(find.widgetWithText(TimeWell, '09:00'), findsNWidgets(2));
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(DayHoursSheet)),
+        );
+        expect(
+          find.text(l10n.intervalEditorErrBreakCoversWholeDay),
+          findsNothing,
+        );
+
+        await tester.ensureVisible(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+
+        // ASSERT — the persisted payload. This is the whole point of the test:
+        // the intervals the repository receives must exclude the break window.
+        final captured = verify(
+          () => repo.putOverride(
+            captureAny(),
+            cancelOverlapping: any(named: 'cancelOverlapping'),
+          ),
+        ).captured.cast<ScheduleOverride>();
+        expect(captured, hasLength(1));
+        final List<WorkInterval> intervals = captured.single.intervals;
+
+        expect(
+          intervals,
+          hasLength(1),
+          reason:
+              'a start-flush break leaves exactly one working block; two '
+              'blocks would mean the 09:00–09:30 sliver survived',
+        );
+        expect(
+          intervals.single.start,
+          const TimeOfDay(hour: 10, minute: 0),
+          reason:
+              'THE BUG: a 09:00 start means the break was discarded and the '
+              'day was persisted as fully available 09:00–18:00',
+        );
+        expect(intervals.single.end, const TimeOfDay(hour: 18, minute: 0));
+        // Belt-and-braces on the exact wire shape.
+        expect(summariseIntervals(intervals), '10:00–18:00');
+      },
+    );
+
+    testWidgets('a break stretched over the WHOLE window surfaces the new '
+        'intervalEditorErrBreakCoversWholeDay error and BLOCKS save — nothing '
+        'is persisted (the old code saved FULL availability here)', (
+      tester,
+    ) async {
+      final repo = _happyRepo();
+      await _pumpSheet(
+        tester,
+        repo: repo,
+        initialIntervals: <WorkInterval>[
+          _interval(9, 0, 9, 30),
+          _interval(10, 0, 18, 0),
+        ],
+      );
+
+      // Break 09:30–10:00 → drag its start to 09:00 (flush at the window
+      // start) …
+      await _editTimeWell(
+        tester,
+        well: find.widgetWithText(TimeWell, '09:30'),
+        minuteSteps: -2,
+      );
+      // … then drag its end from 10:00 up to 18:00 (flush at the window end),
+      // so the single break now spans the entire working window.
+      await _editTimeWell(
+        tester,
+        well: find.widgetWithText(TimeWell, '10:00'),
+        hourSteps: 8,
+      );
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(DayHoursSheet)),
+      );
+
+      // The typed error surfaces inline in Ukrainian, resolved through
+      // AppLocalizations (M2/M11 — never a raw literal in the finder).
+      expect(
+        find.text(l10n.intervalEditorErrBreakCoversWholeDay),
+        findsOneWidget,
+        reason:
+            'a whole-window break must be rejected up front — the old code '
+            'let it through and persisted the bare window (overbooking)',
+      );
+      expect(
+        l10n.intervalEditorErrBreakCoversWholeDay,
+        'Перерва не може займати весь робочий день',
+        reason: 'the uk ARB value is part of the shipped contract',
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('override-save')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('override-save')));
+      await tester.pumpAndSettle();
+
+      // Save is a validation bail: nothing persisted, sheet stays open, the
+      // errors banner is shown.
+      verifyNever(
+        () => repo.putOverride(
+          any(),
+          cancelOverlapping: any(named: 'cancelOverlapping'),
+        ),
+      );
+      verifyNever(() => repo.previewConflicts(any()));
+      expect(find.byKey(const Key('override-save')), findsOneWidget);
+      expect(find.text(l10n.scheduleOverrideErrorsBanner), findsOneWidget);
+    });
+  });
+}
+
+/// One velvet-time-picker wheel item extent (px) — matches the picker's fixed
+/// `_itemExtent` (see `velvet_time_picker.dart`). Dragging N extents UP (a
+/// negative dy) advances N rows; dragging DOWN goes back N rows.
+const double _kItemExtent = 46.0;
+
+/// Opens the wheel time picker behind [well], moves the hours wheel by
+/// [hourSteps] rows and the minutes wheel by [minuteSteps] rows (positive =
+/// later, negative = earlier), then confirms.
+///
+/// The break rows' [TimeWell]s carry no `Key` in the production widget, so they
+/// are targeted by their rendered `HH:MM` VALUE — a data value, never localised
+/// copy (M2) and never an order-dependent `.first` (the anti-pattern list). The
+/// callers keep those values unambiguous.
+Future<void> _editTimeWell(
+  WidgetTester tester, {
+  required Finder well,
+  int hourSteps = 0,
+  int minuteSteps = 0,
+}) async {
+  await tester.ensureVisible(well);
+  await tester.pumpAndSettle();
+  await tester.tap(well);
+  await tester.pumpAndSettle();
+
+  final Finder wheels = find.byType(ListWheelScrollView);
+  expect(wheels, findsNWidgets(2), reason: 'hours + minutes wheels');
+
+  if (hourSteps != 0) {
+    await tester.drag(wheels.at(0), Offset(0, -_kItemExtent * hourSteps));
+    await tester.pumpAndSettle();
+  }
+  if (minuteSteps != 0) {
+    await tester.drag(wheels.at(1), Offset(0, -_kItemExtent * minuteSteps));
+    await tester.pumpAndSettle();
+  }
+
+  await tester.tap(find.byKey(const Key('btn-velvet-time-picker-confirm')));
+  await tester.pumpAndSettle();
 }
 
 /// Pumps the sheet over an externally-built [container] (so the caller can hold

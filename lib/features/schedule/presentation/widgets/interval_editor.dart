@@ -51,6 +51,7 @@ class IntervalEditorStrings {
     required this.errBreakEndBeforeStart,
     required this.errBreakOutsideWindow,
     required this.errBreaksOverlap,
+    required this.errBreakCoversWholeWindow,
     required this.errTimeNotAligned,
   });
 
@@ -74,6 +75,7 @@ class IntervalEditorStrings {
   final String errBreakEndBeforeStart;
   final String errBreakOutsideWindow;
   final String errBreaksOverlap;
+  final String errBreakCoversWholeWindow;
   final String errTimeNotAligned;
 
   /// Resolves a [DayHoursError] to the matching localised message.
@@ -82,6 +84,7 @@ class IntervalEditorStrings {
     DayHoursErrorKind.breakEndBeforeStart => errBreakEndBeforeStart,
     DayHoursErrorKind.breakOutsideWindow => errBreakOutsideWindow,
     DayHoursErrorKind.breaksOverlap => errBreaksOverlap,
+    DayHoursErrorKind.breakCoversWholeWindow => errBreakCoversWholeWindow,
     DayHoursErrorKind.notAligned => errTimeNotAligned,
   };
 }
@@ -238,9 +241,11 @@ class IntervalEditor extends StatelessWidget {
   /// All localised copy, resolved by the host.
   final IntervalEditorStrings strings;
 
-  /// When set, the working-window wells and add-break action get stable keys
-  /// (`$prefix-work-start`, `$prefix-work-end`, `$prefix-add-break`) so widget
-  /// tests can target a specific day's editor without relying on Ukrainian copy.
+  /// When set, the working-window wells, add-break action and each break row's
+  /// start/end wells get stable keys (`$prefix-work-start`, `$prefix-work-end`,
+  /// `$prefix-add-break`, `$prefix-break-<i>-start`, `$prefix-break-<i>-end`)
+  /// so widget tests can target a specific day's editor without relying on
+  /// Ukrainian copy or positional finders.
   final String? fieldKeyPrefix;
 
   Future<void> _pick(
@@ -371,6 +376,7 @@ class IntervalEditor extends StatelessWidget {
             _BreakRow(
               range: day.breaks[i],
               index: i,
+              fieldKeyPrefix: prefix,
               hasError: error?.breakIndex == i,
               startSemanticLabel: strings.breakStartSemantic(i + 1),
               endSemanticLabel: strings.breakEndSemantic(i + 1),
@@ -476,6 +482,7 @@ class _BreakRow extends StatelessWidget {
     required this.onPickStart,
     required this.onPickEnd,
     required this.onRemove,
+    this.fieldKeyPrefix,
   });
 
   final BreakRange range;
@@ -488,8 +495,15 @@ class _BreakRow extends StatelessWidget {
   final VoidCallback onPickEnd;
   final VoidCallback onRemove;
 
+  /// When set, this row's start/end wells get stable keys
+  /// (`$prefix-break-$index-start` / `$prefix-break-$index-end`), mirroring the
+  /// working-window wells' `$prefix-work-start` / `$prefix-work-end`.
+  final String? fieldKeyPrefix;
+
   @override
   Widget build(BuildContext context) {
+    final String? prefix = fieldKeyPrefix;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
       child: Container(
@@ -519,6 +533,7 @@ class _BreakRow extends StatelessWidget {
             const SizedBox(width: VelvetSpacing.sm),
             Expanded(
               child: TimeWell(
+                key: prefix == null ? null : Key('$prefix-break-$index-start'),
                 time: range.start,
                 onTap: onPickStart,
                 semanticLabel: startSemanticLabel,
@@ -530,6 +545,7 @@ class _BreakRow extends StatelessWidget {
             ),
             Expanded(
               child: TimeWell(
+                key: prefix == null ? null : Key('$prefix-break-$index-end'),
                 time: range.end,
                 onTap: onPickEnd,
                 semanticLabel: endSemanticLabel,

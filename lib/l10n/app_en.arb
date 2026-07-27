@@ -2301,6 +2301,10 @@
   "@intervalEditorErrBreaksOverlap": {
     "description": "Inline validation: two breaks may not overlap (Phase 15.5)."
   },
+  "intervalEditorErrBreakCoversWholeDay": "A break cannot cover the entire working day",
+  "@intervalEditorErrBreakCoversWholeDay": {
+    "description": "Inline validation: the breaks consume the entire working window, leaving zero bookable time."
+  },
   "scheduleOverrideSheetSubtitle": "Override the schedule for this day",
   "@scheduleOverrideSheetSubtitle": {
     "description": "Subtitle under the date heading in the per-date override sheet (Phase 15.4)."

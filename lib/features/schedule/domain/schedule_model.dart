@@ -186,6 +186,14 @@ bool intervalsValid(List<WorkInterval> intervals) =>
 //     so a load→edit→save cycle is lossless for any template the old multi-
 //     interval editor could produce.
 //
+// The round-trip is LOSSLESS IN AVAILABILITY, and NORMALIZING for edge-flush
+// breaks. A break flush against the window start or end carves working time off
+// that edge rather than splitting the window, so it leaves no gap for
+// [fromIntervals] to reconstruct: saving window 09:00–18:00 with a 09:00–10:00
+// break stores `[10:00–18:00]`, and reopening shows the window 10:00–18:00 with
+// zero breaks. The presentation differs; the bookable time does not — the two
+// states are semantically identical, which is exactly what the wire encodes.
+//
 // So on the backend port nothing changes: the wire shape is still a list of
 // {startTime,endTime} working intervals per day. The window+breaks split is a
 // pure client-side affordance.
@@ -262,8 +270,15 @@ class DayHours {
 
   /// Collapse back to the canonical working-interval list (window minus breaks).
   /// This is what the host stores and what the backend port serialises. Assumes
-  /// the day is valid (caller gates on [validate]); on a still-invalid state it
-  /// degrades gracefully by skipping out-of-window / inverted breaks.
+  /// the day is valid (caller gates on [validateDayHours]); on a still-invalid
+  /// state it degrades gracefully by CLAMPING each break to the remaining window
+  /// and skipping the ones that fall entirely outside it.
+  ///
+  /// Clamping (never skipping) is what makes a break flush against the window
+  /// edge carve real time off the day: a 09:00–10:00 break in a 09:00–18:00
+  /// window emits `[10:00–18:00]`, not the unbroken window. An edge-flush break
+  /// therefore yields no leading / trailing block at all — see the round-trip
+  /// note above for why that is availability-lossless.
   List<WorkInterval> toIntervals() {
     final List<BreakRange> sorted = List<BreakRange>.of(breaks)
       ..sort(
@@ -273,20 +288,24 @@ class DayHours {
     final List<WorkInterval> result = <WorkInterval>[];
     int cursor = window.startMinutes;
     for (final BreakRange b in sorted) {
-      // Ignore breaks that don't sit cleanly inside the remaining window.
-      if (b.startMinutes <= cursor || b.endMinutes >= window.endMinutes) {
-        continue;
-      }
-      if (b.endMinutes <= b.startMinutes) continue;
-      if (b.startMinutes > cursor) {
+      if (b.endMinutes <= b.startMinutes) continue; // inverted / empty
+      if (b.endMinutes <= cursor) continue; // fully behind the cursor
+      // Fully past the window.
+      if (b.startMinutes >= window.endMinutes) continue;
+      final int start = b.startMinutes < cursor ? cursor : b.startMinutes;
+      final int end = b.endMinutes > window.endMinutes
+          ? window.endMinutes
+          : b.endMinutes;
+      if (start > cursor) {
         result.add(
           WorkInterval(
             start: TimeOfDay(hour: cursor ~/ 60, minute: cursor % 60),
-            end: b.start,
+            end: TimeOfDay(hour: start ~/ 60, minute: start % 60),
           ),
         );
       }
-      cursor = b.endMinutes;
+      // Always advance — a clamped break still consumes its span.
+      cursor = end;
     }
     if (cursor < window.endMinutes) {
       result.add(
@@ -296,11 +315,11 @@ class DayHours {
         ),
       );
     }
-    // A window with no valid working time left collapses to the bare window so
-    // the day is never silently emptied.
-    if (result.isEmpty) {
-      result.add(WorkInterval(start: window.start, end: window.end));
-    }
+    // NOTE: no "collapse to the bare window" fallback. A break set that eats the
+    // whole window is rejected up-front by [validateDayHours]
+    // ([DayHoursErrorKind.breakCoversWholeWindow]), so an empty result can only
+    // mean the caller ignored validation — and emitting FULL availability there
+    // is the exact inverse of what the master asked for (an overbooking hazard).
     return result;
   }
 
@@ -313,7 +332,7 @@ class DayHours {
 /// The distinct validation problems a [DayHours] can carry. Lets the editor
 /// localise the message via `AppLocalizations` instead of string-matching the
 /// (domain-string) [DayHoursError.message]. Each value maps 1:1 to one of the
-/// four `validateDayHours` return cases.
+/// `validateDayHours` return cases.
 enum DayHoursErrorKind {
   /// The working window's end is not strictly after its start.
   windowEndBeforeStart,
@@ -326,6 +345,12 @@ enum DayHoursErrorKind {
 
   /// Two breaks overlap.
   breaksOverlap,
+
+  /// The breaks consume the ENTIRE working window, leaving zero bookable time.
+  /// Saving such a day would either publish full availability (the exact
+  /// inverse of the intent) or an empty interval list indistinguishable from a
+  /// day off — the master must shorten a break or close the day instead.
+  breakCoversWholeWindow,
 
   /// A time edge (window or break start/end) is not a multiple of 15 minutes.
   /// The editor snaps new picks to 15-min steps, but a legacy / loaded schedule
@@ -415,6 +440,26 @@ DayHoursError? validateDayHours(DayHours day) {
         'Перерви не можуть перетинатися',
         DayHoursErrorKind.breaksOverlap,
         breakIndex: originalIndex,
+      );
+    }
+  }
+
+  // Every break is individually sound by now (inside the window, non-inverted,
+  // non-overlapping), so their union covers the window iff walking them in
+  // start order never leaves a gap. Zero working time left is rejected here so
+  // [DayHours.toIntervals] may assume at least one working block survives —
+  // without this gate a whole-window break would save FULL availability.
+  if (indexed.isNotEmpty) {
+    int cursor = day.window.startMinutes;
+    for (final MapEntry<int, BreakRange> entry in indexed) {
+      if (entry.value.startMinutes > cursor) break; // a working block survives
+      cursor = entry.value.endMinutes;
+    }
+    if (cursor >= day.window.endMinutes) {
+      return DayHoursError(
+        'Перерва не може займати весь робочий день',
+        DayHoursErrorKind.breakCoversWholeWindow,
+        breakIndex: indexed.last.key,
       );
     }
   }
