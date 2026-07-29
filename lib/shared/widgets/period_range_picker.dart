@@ -22,7 +22,8 @@
 //   • `monthNames` joins `weekdayShort` in [PeriodRangePickerStrings], so this
 //     surface no longer imports `schedule/domain/schedule_model.dart` (a
 //     `shared/` widget must not reach into a feature's `domain/`). The table
-//     itself now lives in `shared/formatters/month_names.dart`.
+//     itself now lives in `shared/formatters/uk_calendar.dart` (moved there
+//     from its former single-purpose home, retired in Phase 23.2).
 //   • [monthCount] is a parameter rather than a private constant — bookings
 //     reach into the PAST, so the booking caller renders months on both sides
 //     of today while the schedule caller keeps its forward-only 24.
@@ -105,7 +106,7 @@ class PeriodRangePickerStrings {
   final List<String> weekdayShort;
 
   /// Twelve nominative month names in calendar order (Січень … Грудень) —
-  /// `monthNamesNominative` from `shared/formatters/month_names.dart`. Passed
+  /// `monthNamesNominative` from `shared/formatters/uk_calendar.dart`. Passed
   /// in rather than imported so this widget stays free of any feature's copy
   /// tables, exactly like [weekdayShort].
   final List<String> monthNames;

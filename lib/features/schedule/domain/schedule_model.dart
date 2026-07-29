@@ -24,53 +24,29 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+
 // Phase 7.7 — the nominative month table moved to `shared/formatters/` when the
 // range calendar was promoted to `shared/widgets/` and gained a second (booking)
 // caller. Re-exported so every existing `monthNominative(...)` call site in the
 // schedule feature keeps resolving through this file unchanged.
-export 'package:beautica_mobile/shared/formatters/month_names.dart'
+//
+// Phase 23.2 — retargeted at the canonical `uk_calendar.dart` module (the
+// former single-purpose name-table file it pointed at is now retired); the
+// export itself stays so no call site needs to change.
+export 'package:beautica_mobile/shared/formatters/uk_calendar.dart'
     show monthNominative;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Calendar / time formatting helpers (Ukrainian).
-// Shared verbatim with the TimeOffScreen preview's month tables so the two
-// screens speak the same calendar language.
+//
+// Phase 23.2 — the two local month-name tables this file used to carry are
+// retired in favour of the canonical `uk_calendar.dart` module (track 23);
+// the function below preserves its exact pre-migration output.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const List<String> _monthsShort = <String>[
-  'СІЧ',
-  'ЛЮТ',
-  'БЕР',
-  'КВІ',
-  'ТРА',
-  'ЧЕР',
-  'ЛИП',
-  'СЕР',
-  'ВЕР',
-  'ЖОВ',
-  'ЛИС',
-  'ГРУ',
-];
-
-const List<String> _monthsGenitive = <String>[
-  'січня',
-  'лютого',
-  'березня',
-  'квітня',
-  'травня',
-  'червня',
-  'липня',
-  'серпня',
-  'вересня',
-  'жовтня',
-  'листопада',
-  'грудня',
-];
-
-String monthShort(int month) => _monthsShort[month - 1];
-
 /// Long human date — e.g. "29 травня".
-String formatDay(DateTime d) => '${d.day} ${_monthsGenitive[d.month - 1]}';
+String formatDay(DateTime d) => '${d.day} ${monthGenitive(d.month)}';
 
 /// `HH:MM` with zero padding.
 String formatTime(TimeOfDay t) =>

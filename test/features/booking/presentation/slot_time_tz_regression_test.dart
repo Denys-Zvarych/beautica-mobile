@@ -43,6 +43,7 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/features/booking/data/booking_mapper.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -190,8 +191,8 @@ void main() {
 
         expect(out, contains('01:00–02:00'));
         expect(out, contains('18')); // Kyiv day, not the raw UTC "17"
-        expect(out, contains(kWeekdaysUkShort[kyivDate.weekday - 1]));
-        expect(out, contains(kMonthsUkShort[kyivDate.month - 1]));
+        expect(out, contains(weekdayAbbrev(kyivDate.weekday)));
+        expect(out, contains(monthAbbrev(kyivDate.month)));
         expect(
           out,
           isNot(contains('22:00')),
@@ -202,8 +203,8 @@ void main() {
       test('formatBookingDayHeader → Kyiv weekday/day/short-month', () {
         expect(
           formatBookingDayHeader(crossing),
-          '${kWeekdaysUkShort[kyivDate.weekday - 1]}, '
-          '${kyivDate.day} ${kMonthsUkShort[kyivDate.month - 1]}',
+          '${weekdayAbbrev(kyivDate.weekday)}, '
+          '${kyivDate.day} ${monthAbbrev(kyivDate.month)}',
         );
         expect(formatBookingDayHeader(crossing), contains('18'));
       });
@@ -212,8 +213,8 @@ void main() {
           '«Дата» row)', () {
         expect(
           formatFullDate(crossing),
-          '${kWeekdaysUkFull[kyivDate.weekday - 1]}, '
-          '${kyivDate.day} ${kMonthsUkGenitive[kyivDate.month - 1]}',
+          '${weekdayName(kyivDate.weekday)}, '
+          '${kyivDate.day} ${monthGenitive(kyivDate.month)}',
         );
         expect(formatFullDate(crossing), contains('18'));
       });
@@ -222,8 +223,8 @@ void main() {
           'Bookings card date stub)', () {
         expect(
           formatStubDayLine(crossing),
-          '${kMonthsUkGenitive[kyivDate.month - 1]}, '
-          '${kWeekdaysUkShort[kyivDate.weekday - 1]}',
+          '${monthGenitive(kyivDate.month)}, '
+          '${weekdayAbbrev(kyivDate.weekday)}',
         );
       });
     },

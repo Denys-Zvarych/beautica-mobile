@@ -38,7 +38,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 
 /// The pinned Monday-first weekday header bar, shown once above the single
 /// month grid.
@@ -59,9 +59,11 @@ class CalendarWeekdayBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Row(
         children: <Widget>[
-          for (final String w in kWeekdaysUkShort)
+          for (int day = 1; day <= 7; day++)
             Expanded(
-              child: Center(child: Text(w, style: VelvetText.label11)),
+              child: Center(
+                child: Text(weekdayAbbrev(day), style: VelvetText.label11),
+              ),
             ),
         ],
       ),
@@ -161,7 +163,7 @@ class _MonthHeader extends StatelessWidget {
         Expanded(
           child: Center(
             child: Text(
-              '${kMonthsUk[month.month - 1]} ${month.year}',
+              '${monthNominative(month.month)} ${month.year}',
               style: VelvetText.subheading(),
               textAlign: TextAlign.center,
             ),

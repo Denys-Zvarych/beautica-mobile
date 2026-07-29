@@ -33,6 +33,7 @@ import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
@@ -72,15 +73,16 @@ class MasterScheduleScreen extends ConsumerStatefulWidget {
 class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   static const _tag = 'feature.schedule.masterschedule';
 
-  static const List<String> _weekdayShort = <String>[
-    'Пн',
-    'Вт',
-    'Ср',
-    'Чт',
-    'Пт',
-    'Сб',
-    'Нд',
-  ];
+  /// Capitalized weekday abbreviations for the week-strip / weekly-pill
+  /// captions, Monday-first — computed ONCE (perf carry-over from the 23.1
+  /// audit: `ukCapitalize` is not memoized, so this must not re-run per cell
+  /// or per frame on a scrolling week strip). Byte-identical to the retired
+  /// hard-coded 7-entry list this replaces (Phase 23.2).
+  static final List<String> _weekdayCaptions = List<String>.unmodifiable(
+    <String>[
+      for (int day = 1; day <= 7; day++) ukCapitalize(weekdayAbbrev(day)),
+    ],
+  );
 
   /// "Today" resolved LIVE from the injected clock (or the device date in
   /// production), date-only — recomputed on every read so the past-day gate
@@ -624,7 +626,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
             key: ValueKey<String>(
               'schedule-weekly-pills-${template.map((b) => b ? '1' : '0').join()}',
             ),
-            labels: _weekdayShort,
+            labels: _weekdayCaptions,
             active: template,
           ),
         ],
@@ -877,7 +879,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                           builder:
                               (BuildContext context, DateTime selected, _) =>
                                   WeekStripDay(
-                                    weekdayLabel: _weekdayShort[i],
+                                    weekdayLabel: _weekdayCaptions[i],
                                     day: d.day,
                                     selected: _sameDate(d, selected),
                                     working: working,
@@ -885,12 +887,12 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                                     hasOverride: index.hasOverride(d),
                                     past: _isPast(d),
                                     plainSemanticLabel: l10n.scheduleStripDay(
-                                      _weekdayShort[i],
+                                      _weekdayCaptions[i],
                                       d.day,
                                     ),
                                     pastSemanticLabel: l10n
                                         .scheduleStripDayPast(
-                                          _weekdayShort[i],
+                                          _weekdayCaptions[i],
                                           d.day,
                                         ),
                                     onTap: () => _selectDate(d),

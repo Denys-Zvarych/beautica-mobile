@@ -82,7 +82,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
-import 'package:beautica_mobile/shared/formatters/month_names.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:dio/dio.dart';
@@ -1087,8 +1087,7 @@ void main() {
       //      renders the month, and that is precisely why the card no longer
       //      needs to. An unscoped probe would fail on the rail and prove
       //      nothing about the card. ────────────────────────────────────────
-      final String monthToken =
-          kMonthsUkShort[toBeauticaTime(wireStart).month - 1];
+      final String monthToken = monthAbbrev(toBeauticaTime(wireStart).month);
       expect(
         find.descendant(of: card, matching: find.textContaining(monthToken)),
         findsNothing,
