@@ -44,8 +44,11 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
+import 'package:beautica_mobile/features/rating/presentation/my_rating_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -53,6 +56,37 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+
+/// Scrolls the Home Hub body until [finder] is BUILT and on screen.
+///
+/// WHY EVERY BELOW-THE-FOLD ASSERTION MUST GO THROUGH THIS
+/// -------------------------------------------------------
+/// `_HomeHubBody` renders `ListView(children: [...])`, which is lazy: it builds
+/// a `SliverList` whose children are instantiated on demand as the viewport
+/// reaches them. On the 800×600 test surface — further reduced by the shell's
+/// `ClientTopBar` and `ClientBottomNav` — everything from the favourites
+/// section down is outside the viewport AND outside the default 250 px
+/// `cacheExtent`, so those widgets are not in the element tree at all.
+///
+/// `findsNothing` for such a widget therefore means "not built yet", NOT "not
+/// rendered by the app" — asserting on it without scrolling tests the viewport
+/// height, not the screen. Measured at HEAD: `next_appointment_empty` is built,
+/// `favorite_masters_empty` and `timeline_empty` are not; after one scroll all
+/// three resolve.
+Future<void> _scrollHubTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    300,
+    scrollable: find
+        .descendant(
+          of: find.byType(HomeHubScreen),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+    maxScrolls: 30,
+  );
+  await tester.pumpAndSettle();
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -103,8 +137,15 @@ void main() {
         findsOneWidget,
         reason: 'bell button must be present in the top bar',
       );
+      // The burger lives on the SHELL-owned ClientTopBar, not on HomeHubScreen,
+      // and carries `Key('btn-menu-client')`. The old `home_hub_menu_button`
+      // key was deliberately retired in 759149f ("3-tile quick-links +
+      // master-style burger menu"), which re-shaped the hub burger to match the
+      // master profile's `btn-menu-master`; `client_shell.dart::_configFor`
+      // documents `btn-menu-client` as the preserved finder target. This
+      // assertion was simply never updated — it is not a missing button.
       expect(
-        find.byKey(const Key('home_hub_menu_button')),
+        find.byKey(const Key('btn-menu-client')),
         findsOneWidget,
         reason: 'burger menu button must be present in the top bar',
       );
@@ -126,15 +167,39 @@ void main() {
 
       // These are intentional English brand constants — the only raw-string
       // assertions in this file.
+      //
+      // SCOPED ON PURPOSE (not a relaxed assertion). "BEAUTY PASSPORT" renders
+      // TWICE on this screen, and both renders are correct:
+      //   1. `PassportPreviewCard` — the in-page stat tile (the literal at
+      //      passport_preview_card.dart:92), which is what this test is about;
+      //   2. `ClientBottomNav` tab 4's label — `kBeautyPassportLabel`
+      //      (client_bottom_nav.dart:32), rendered for every tab regardless of
+      //      selection, and mounted on every CLIENT branch including Home.
+      // They live in different visual regions (page body vs. bottom nav), so
+      // this is the intended design, not a duplicate-render bug. An unscoped
+      // `findsOneWidget` was asserting something the app never promised;
+      // scoping to `PassportPreviewCard` is exactly what the reason string
+      // below already claimed, and it can no longer be satisfied by the nav.
       expect(
-        find.textContaining('BEAUTY PASSPORT'),
+        find.descendant(
+          of: find.byType(PassportPreviewCard),
+          matching: find.textContaining('BEAUTY PASSPORT'),
+        ),
         findsOneWidget,
         reason:
             'PassportPreviewCard must render the "BEAUTY PASSPORT" brand literal '
             '(intentionally untranslated per product decision)',
       );
+
+      // The timeline section is below the fold and lazily built — scroll it in
+      // before asserting (see `_scrollHubTo`). Asserted AFTER the passport tile
+      // so that tile is still on screen for its own assertion above.
+      await _scrollHubTo(tester, find.byType(BeautyTimelineSection));
       expect(
-        find.textContaining('BEAUTY TIMELINE'),
+        find.descendant(
+          of: find.byType(BeautyTimelineSection),
+          matching: find.textContaining('BEAUTY TIMELINE'),
+        ),
         findsOneWidget,
         reason:
             'BeautyTimelineSection must render the "BEAUTY TIMELINE" brand literal '
@@ -196,7 +261,9 @@ void main() {
           'bookings endpoint (backend 19.3) is not yet wired',
     );
 
-    // FavoriteMastersCard empty state key.
+    // FavoriteMastersCard empty state key. Below the fold on the test surface
+    // and lazily built, so it must be scrolled in first — see `_scrollHubTo`.
+    await _scrollHubTo(tester, find.byKey(const Key('favorite_masters_empty')));
     expect(
       find.byKey(const Key('favorite_masters_empty')),
       findsOneWidget,
@@ -205,7 +272,8 @@ void main() {
           'favorites endpoint (backend 19.1) is not yet wired',
     );
 
-    // BeautyTimelineSection empty state key.
+    // BeautyTimelineSection empty state key — likewise below the fold.
+    await _scrollHubTo(tester, find.byKey(const Key('timeline_empty')));
     expect(
       find.byKey(const Key('timeline_empty')),
       findsOneWidget,
@@ -301,7 +369,20 @@ void main() {
     (tester) async {
       final fb = FakeBackend()
         ..currentRole = UserRole.client
-        // Bug condition: authoritative FK present, denormalized name absent.
+        // Bug condition: authoritative FKs present, denormalized name absent.
+        //
+        // BOTH FKs must be seeded. `_resolveCityName`
+        // (home_hub_notifier.dart:124) bails to '' unless `cityId` AND
+        // `oblastId` are non-null, because the taxonomy lookup goes through
+        // `cityListProvider(oblastId)` — the city list is fetched PER OBLAST
+        // (`GET /locations/oblasts/{oblastId}/cities`), so a cityId alone is
+        // not resolvable by construction. `FakeBackend.clientOblastId` starts
+        // null, and this fixture previously seeded only `clientCityId`, so the
+        // lookup short-circuited and the card fell to its placeholder — the
+        // test failed for a missing fixture field, never reaching the
+        // regression it guards. Seeding 'oblast-kyiv' matches the seeded
+        // cities route, which returns city 'city-kyiv' named 'Київ'.
+        ..clientOblastId = 'oblast-kyiv'
         ..clientCityId = 'city-kyiv'
         ..clientCityName = null;
 
@@ -459,6 +540,97 @@ void main() {
         reason:
             'the home pill must drive an actual GET /users/me/rating call — the '
             'authoritative source, distinct from GET /users/me',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test 9 — hub → «Мій рейтинг» → back, end to end ──────────────────────
+  //
+  // WHY THIS EXISTS (QA, house-header migration)
+  // --------------------------------------------
+  // Test 5 above only asserts the stat pill RENDERS; Test 6 only asserts the
+  // NEGATIVE (an INDEPENDENT_MASTER never reaches /rating). Nothing in this
+  // suite ever TAPPED the pill and came back — the hub → /rating → back edge
+  // was untraversed end to end, even though
+  // `home_hub_screen_test.dart` explicitly defers to this file for it
+  // ("navigation correctness through GoRouter is covered by
+  // client_home_hub_flow_test.dart"). That deferral was stale.
+  //
+  // It matters now because MyRatingScreen's back affordance changed widget
+  // type — a Material `AppBar` `IconButton` became a `NeumorphicIconButton`
+  // inside the shared `VelvetTopBar`. The widget-tier pop test drives a
+  // synthetic two-route GoRouter; it cannot prove the pop behaves inside the
+  // REAL router, where `/rating` is a TOP-LEVEL route pushed imperatively ON
+  // TOP of the CLIENT StatefulShellRoute. That push/pop shape is precisely the
+  // one this repo has been bitten by before (an ImperativeRouteMatch is
+  // excluded from `currentConfiguration.fullPath`), so it is asserted through
+  // AppHarness.location, which unwraps it.
+  testWidgets(
+    'hub → «Мій рейтинг» → back: the stat pill opens MyRatingScreen under the '
+    'shared VelvetTopBar and its back arrow returns to /home',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..myRatingAvgRating = 4.7
+        ..myRatingReviewCount = 12;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      AppHarness.expectLocation(router, RouteNames.clientHome);
+
+      // ACT 1 — tap the real pill (own widget type, not a framework widget).
+      final Finder pill = find.byType(MyRatingStatCard);
+      await tester.ensureVisible(pill);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(pill);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      AppHarness.expectLocation(router, RouteNames.myRating);
+      expect(find.byType(MyRatingScreen), findsOneWidget);
+
+      // The house header is what the user sees on arrival — asserted inside
+      // the MyRatingScreen subtree so the hub's own chrome cannot satisfy it.
+      expect(
+        find.descendant(
+          of: find.byType(MyRatingScreen),
+          matching: find.byType(VelvetTopBar),
+        ),
+        findsOneWidget,
+        reason: 'the rating screen must arrive wearing the house header',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(MyRatingScreen),
+          matching: find.byType(AppBar),
+        ),
+        findsNothing,
+        reason:
+            'the Material AppBar must be gone in the real app, not just '
+            'in the widget test',
+      );
+      // The screen really loaded its data over the fake backend, so the header
+      // is being asserted on a fully-rendered screen, not an empty shell.
+      expect(find.byKey(const Key('my_rating_display')), findsOneWidget);
+
+      // ACT 2 — the NEW NeumorphicIconButton back arrow must pop the push.
+      await tester.tap(find.byKey(const Key('my_rating_back_button')));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      AppHarness.expectLocation(router, RouteNames.clientHome);
+      expect(
+        find.byType(MyRatingScreen),
+        findsNothing,
+        reason:
+            'the back arrow must POP the imperatively-pushed /rating route — '
+            'a screen left mounted over the shell is the failure mode a '
+            'widget-tier pop test cannot see',
+      );
+      expect(
+        find.byType(HomeHubScreen),
+        findsOneWidget,
+        reason: 'the client lands back on the hub, not a blank shell branch',
       );
     },
     timeout: const Timeout(Duration(seconds: 45)),

@@ -27,6 +27,7 @@ class VelvetTopBar extends StatelessWidget {
     this.onBack,
     this.backSemanticLabel = 'Назад',
     this.trailing,
+    this.backKey,
   });
 
   /// Title rendered centred in the 48 dp strip.
@@ -41,6 +42,13 @@ class VelvetTopBar extends StatelessWidget {
 
   /// Optional right-aligned widget (edit button, overflow menu, etc.).
   final Widget? trailing;
+
+  /// Optional key for the back [NeumorphicIconButton] (used by widget tests).
+  ///
+  /// Mirrors [SectionScaffold.backKey] so a screen migrating from a Material
+  /// `AppBar` can keep its existing back-button test contract. Defaults to null
+  /// — existing call sites are unaffected.
+  final Key? backKey;
 
   @override
   Widget build(BuildContext context) {
@@ -60,6 +68,7 @@ class VelvetTopBar extends StatelessWidget {
               Align(
                 alignment: Alignment.centerLeft,
                 child: NeumorphicIconButton(
+                  key: backKey,
                   icon: Icons.arrow_back_ios_new_rounded,
                   semanticLabel: backSemanticLabel,
                   onTap: onBack!,

@@ -11,8 +11,8 @@
 // Tests cover:
 //   1. Empty state renders (HubEmptyState with the AppIcon star SVG) when
 //      avgRating is null.
-//   2. AppBar back button has the correct key.
-//   3. AppBar title renders via l10n.myRatingTitle.
+//   2. VelvetTopBar back button has the correct key.
+//   3. VelvetTopBar title renders via l10n.myRatingTitle (and no AppBar).
 //   4. Back button triggers context.pop() — verified via router pop.
 //   5. Rated state: big number + RatingStar visible (Key my_rating_display).
 //   6. Empty state: Key my_rating_empty_state is present when avgRating null.
@@ -31,11 +31,16 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/rating/presentation/my_rating_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -370,9 +375,9 @@ void main() {
     });
   });
 
-  // ── AppBar tests ─────────────────────────────────────────────────────────
+  // ── Top-bar tests ────────────────────────────────────────────────────────
 
-  group('MyRatingScreen — AppBar', () {
+  group('MyRatingScreen — VelvetTopBar', () {
     testWidgets('back button has correct key', (tester) async {
       await _pump(tester, rating: () async => const ClientRating());
       await tester.pump();
@@ -384,11 +389,26 @@ void main() {
       );
     });
 
-    testWidgets('AppBar is present', (tester) async {
+    testWidgets('renders the shared VelvetTopBar, not a Material AppBar', (
+      tester,
+    ) async {
+      // House header convergence: the page title lives in the shared 48 dp
+      // VelvetTopBar (centred, VelvetText.subheading(), NeumorphicIconButton
+      // back arrow) — NOT a Material AppBar with a left-aligned title.
       await _pump(tester, rating: () async => const ClientRating());
       await tester.pump();
 
-      expect(find.byType(AppBar), findsOneWidget);
+      expect(find.byType(VelvetTopBar), findsOneWidget);
+      expect(
+        find.byType(AppBar),
+        findsNothing,
+        reason: 'MyRatingScreen must not fall back to a Material AppBar',
+      );
+
+      final VelvetTopBar bar = tester.widget<VelvetTopBar>(
+        find.byType(VelvetTopBar),
+      );
+      expect(bar.title, equals(_l10n(tester).myRatingTitle));
     });
 
     testWidgets('back button pops the route', (tester) async {
@@ -425,6 +445,273 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('base_page')), findsOneWidget);
+    });
+  });
+
+  // ── QA: house-header regression contract ─────────────────────────────────
+  //
+  // The dev's test above asserts a VelvetTopBar EXISTS and an AppBar does not.
+  // That guard would still pass if the title regressed to left-aligned, or to
+  // the old `VelvetText.heading18`, or if the back affordance stayed a Material
+  // IconButton — i.e. it does not pin the thing that was actually broken.
+  //
+  // Before: `AppBar(title: Text(l10n.myRatingTitle, style: heading18),
+  //          centerTitle: false, leading: IconButton(...))`
+  // After:  the shared 48 dp VelvetTopBar — CENTRED title at
+  //          `VelvetText.subheading()`, NeumorphicIconButton back arrow.
+  //
+  // The centring assertion is geometric because a property assertion on
+  // `textAlign` cannot distinguish "centred in the strip" from "centred inside
+  // a Row cell that sits to the right of the arrow" — the latter is exactly
+  // what the old AppBar rendered.
+
+  group('MyRatingScreen — house header (centred subheading title)', () {
+    Finder titleFinder() => find.descendant(
+      of: find.byType(VelvetTopBar),
+      matching: find.byType(Text),
+    );
+
+    testWidgets('the title is CENTRED on screen, not left-aligned', (
+      tester,
+    ) async {
+      await _pump(tester, rating: () async => const ClientRating());
+      await tester.pumpAndSettle();
+
+      final double screenCentre =
+          tester.getSize(find.byType(Scaffold)).width / 2;
+
+      expect(
+        tester.getCenter(titleFinder()).dx,
+        closeTo(screenCentre, 0.5),
+        reason:
+            'THE FIX: the page title must be horizontally centred like every '
+            'other ProfileScaffold / SectionScaffold screen. The old '
+            'AppBar(centerTitle: false) rendered it hard-left beside the back '
+            'arrow — that is the regression this assertion exists to catch',
+      );
+    });
+
+    testWidgets('the title renders at VelvetText.subheading(), not heading18', (
+      tester,
+    ) async {
+      await _pump(tester, rating: () async => const ClientRating());
+      await tester.pumpAndSettle();
+
+      final TextStyle? style = tester.widget<Text>(titleFinder()).style;
+
+      expect(
+        style,
+        equals(VelvetText.subheading()),
+        reason:
+            'the house header title style is VelvetText.subheading() — this is '
+            'what makes the title match every other page',
+      );
+      expect(
+        style,
+        isNot(equals(VelvetText.heading18)),
+        reason:
+            'VelvetText.heading18 was the deleted AppBar-era _titleStyle; '
+            'regressing to it reintroduces the mismatched title',
+      );
+    });
+
+    testWidgets('the back affordance is a NeumorphicIconButton, not IconButton', (
+      tester,
+    ) async {
+      await _pump(tester, rating: () async => const ClientRating());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(NeumorphicIconButton),
+        findsOneWidget,
+        reason: 'the house back arrow is a NeumorphicIconButton',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(MyRatingScreen),
+          matching: find.byType(IconButton),
+        ),
+        findsNothing,
+        reason:
+            'the Material IconButton path (the old AppBar leading) is gone and '
+            'must not creep back',
+      );
+      expect(
+        tester.widget(find.byKey(const Key('my_rating_back_button'))),
+        isA<NeumorphicIconButton>(),
+        reason:
+            'my_rating_back_button must name the NeumorphicIconButton itself, '
+            'so every tap-by-key nav assertion actually hits the new button',
+      );
+    });
+
+    // The header used to be a Scaffold `appBar:` — structurally OUTSIDE the
+    // body, so no async branch could ever swallow it. It is now a Column
+    // sibling of the `async.when(...)` body, so "the header survives every
+    // state" became a real (previously unpinned) invariant. One test per state:
+    // re-pumping several ProviderScopes inside a single body reuses the same
+    // container, so a per-pump `retry` knob would not take effect.
+
+    testWidgets('the header renders in the LOADING state', (tester) async {
+      await tester.pumpApp(
+        const MyRatingScreen(),
+        overrides: <Object>[
+          myRatingProvider.overrideWith(
+            (ref) => Completer<ClientRating>().future,
+          ),
+        ],
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('my_rating_loading')), findsOneWidget);
+      expect(
+        find.byType(VelvetTopBar),
+        findsOneWidget,
+        reason: 'the header must sit outside async.when(), not inside loading',
+      );
+    });
+
+    testWidgets('the header renders in the ERROR state', (tester) async {
+      await tester.pumpApp(
+        const MyRatingScreen(),
+        overrides: <Object>[
+          myRatingProvider.overrideWith((ref) async {
+            throw const NetworkFailure();
+          }),
+        ],
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_rating_error_state')), findsOneWidget);
+      expect(
+        find.byType(VelvetTopBar),
+        findsOneWidget,
+        reason:
+            'a failed fetch must never strand the user without a back arrow',
+      );
+      expect(
+        find.byKey(const Key('my_rating_back_button')),
+        findsOneWidget,
+        reason: 'the error state must remain escapable via the back arrow',
+      );
+    });
+
+    testWidgets('the header renders in the DATA state', (tester) async {
+      await _pump(
+        tester,
+        rating: () async => const ClientRating(avgRating: 4.7, reviewCount: 12),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_rating_display')), findsOneWidget);
+      expect(find.byType(VelvetTopBar), findsOneWidget);
+    });
+
+    testWidgets('the body starts VelvetSpacing.md below the top bar', (
+      tester,
+    ) async {
+      // Body top padding moved lg → md so this screen matches ProfileScaffold /
+      // SectionScaffold, whose bodies sit directly beneath the same bar (the
+      // bar already contributes its own xs bottom padding). Measured
+      // geometrically rather than by reading the EdgeInsets, so the assertion
+      // describes what the user sees.
+      await _pump(tester, rating: () async => const ClientRating());
+      await tester.pumpAndSettle();
+
+      final double gap =
+          tester.getRect(find.byType(HubFlatCard)).top -
+          tester.getRect(find.byType(VelvetTopBar)).bottom;
+
+      expect(
+        gap,
+        closeTo(VelvetSpacing.md, 0.5),
+        reason:
+            'ProfileScaffold / SectionScaffold parity: md (16) between the bar '
+            'and the body card, not the pre-migration lg (24)',
+      );
+    });
+  });
+
+  group('MyRatingScreen — back affordance behaviour', () {
+    testWidgets('the back button carries the LOCALISED semantic label', (
+      tester,
+    ) async {
+      // dispose() INSIDE the body: flutter_test verifies semantics handles
+      // before addTearDown callbacks run.
+      final SemanticsHandle handle = tester.ensureSemantics();
+
+      await _pump(tester, rating: () async => const ClientRating());
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = _l10n(tester);
+      expect(
+        find.bySemanticsLabel(l10n.registerBackStep),
+        findsOneWidget,
+        reason:
+            'a11y: the NeumorphicIconButton back arrow is an unlabelled glyph '
+            'to a screen reader unless backSemanticLabel reaches the semantics '
+            'tree — and the label must come from l10n, never a raw literal '
+            '(the bar\'s own fallback is the hardcoded «Назад»)',
+      );
+      expect(
+        tester
+            .widget<NeumorphicIconButton>(find.byType(NeumorphicIconButton))
+            .semanticLabel,
+        equals(l10n.registerBackStep),
+        reason:
+            'the screen must pass its localised label, not rely on the '
+            'VelvetTopBar default',
+      );
+
+      handle.dispose();
+    });
+
+    testWidgets('popping works when the arrow is found BY TYPE, not by key', (
+      tester,
+    ) async {
+      // Deliberately does NOT use my_rating_back_button: this proves the pop
+      // wiring lives on the NeumorphicIconButton itself, so moving `onBack` to
+      // some other node while leaving the key behind still fails.
+      final GoRouter router = GoRouter(
+        initialLocation: '/base',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/base',
+            builder: (context, state) =>
+                const Scaffold(body: Text('base', key: Key('base_page'))),
+            routes: <RouteBase>[
+              GoRoute(
+                path: 'rating',
+                builder: (context, state) => const MyRatingScreen(),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          myRatingProvider.overrideWith((ref) async => const ClientRating()),
+        ],
+      );
+      // ignore: unawaited_futures
+      router.push('/base/rating');
+      await tester.pumpAndSettle();
+      expect(find.byType(MyRatingScreen), findsOneWidget);
+
+      await tester.tap(find.byType(NeumorphicIconButton));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('base_page')), findsOneWidget);
+      expect(
+        find.byType(MyRatingScreen),
+        findsNothing,
+        reason:
+            'context.pop() from the NeumorphicIconButton must unmount the '
+            'rating screen',
+      );
     });
   });
 }
