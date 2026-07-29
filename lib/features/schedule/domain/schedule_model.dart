@@ -42,10 +42,8 @@ export 'package:beautica_mobile/shared/formatters/uk_calendar.dart'
 //
 // Phase 23.2 — the two local month-name tables this file used to carry are
 // retired in favour of the canonical `uk_calendar.dart` module (track 23);
-// both public functions below preserve their exact pre-migration output.
+// the function below preserves its exact pre-migration output.
 // ─────────────────────────────────────────────────────────────────────────────
-
-String monthShort(int month) => ukUpper(monthAbbrev(month));
 
 /// Long human date — e.g. "29 травня".
 String formatDay(DateTime d) => '${d.day} ${monthGenitive(d.month)}';

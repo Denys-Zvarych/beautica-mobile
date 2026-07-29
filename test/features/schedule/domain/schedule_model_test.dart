@@ -1319,11 +1319,11 @@ void main() {
   // `_monthsGenitive[d.month - 1]` table lookup onto
   // `monthGenitive(d.month)` in the canonical `shared/formatters/
   // uk_calendar.dart` module. The phase doc's Step 5 claimed this file
-  // "Pins `monthShort` and `formatDay`" and must stay green unchanged — that
-  // claim was false (grep confirms neither was ever referenced here before
-  // this group), so a wrong-month regression in the rewiring would have
-  // shipped invisibly. This group closes that gap; it is a genuine addition,
-  // not the "unchanged" verification the phase doc described.
+  // "Pins `formatDay`" and must stay green unchanged — that claim was false
+  // (grep confirms it was never referenced here before this group), so a
+  // wrong-month regression in the rewiring would have shipped invisibly.
+  // This group closes that gap; it is a genuine addition, not the
+  // "unchanged" verification the phase doc described.
   // ───────────────────────────────────────────────────────────────────────────
   group('formatDay — long human date via the canonical uk_calendar module', () {
     test('29 травня (the phase-doc pinned example)', () {
