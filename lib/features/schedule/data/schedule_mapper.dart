@@ -54,24 +54,13 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
 
 /// Number of ISO days in a week (1 = Monday … 7 = Sunday).
 const int _kDaysInWeek = 7;
-
-/// Ukrainian ISO-weekday labels, ordered Monday(1) … Sunday(7). Ported from the
-/// approved MasterSchedule preview (`_weekdayFull`). Domain strings (used to
-/// label a [TemplateDay]); they are not widget-arg literals.
-const List<String> _kWeekdayLabels = <String>[
-  'Понеділок',
-  'Вівторок',
-  'Середа',
-  'Четвер',
-  'П’ятниця',
-  'Субота',
-  'Неділя',
-];
 
 /// Translates generated schedule DTOs to / from the domain model.
 ///
@@ -253,7 +242,7 @@ abstract final class ScheduleMapper {
         for (var day = 1; day <= _kDaysInWeek; day++)
           TemplateDay(
             dayOfWeek: day,
-            label: _kWeekdayLabels[day - 1],
+            label: ukCapitalize(weekdayName(day)),
             mode: byDay[day]!.mode,
             intervals: byDay[day]!.intervals,
             times: byDay[day]!.times,

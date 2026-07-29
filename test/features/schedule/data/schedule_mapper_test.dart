@@ -185,6 +185,66 @@ void main() {
     });
   });
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Phase 23.2 — weekday labels migrated off the local `_kWeekdayLabels`
+  // Monday-first `[isoDay - 1]` table onto `ukCapitalize(weekdayName(isoDay))`.
+  //
+  // The off-by-one trap: `weekdayName` takes the SAME 1-based Monday-first ISO
+  // day the old table indexed with `- 1`, so the subtraction must disappear
+  // entirely, not shift. Monday and Sunday are asserted explicitly because
+  // they are the two ends an off-by-one would corrupt (Monday would read as
+  // Sunday's label with a `+1` shift, or crash / read out of range with a
+  // stray double-subtraction). Friday is asserted by codepoint: this phase's
+  // one deliberate rendered change is the apostrophe glyph (U+2019 → U+02BC).
+  // ───────────────────────────────────────────────────────────────────────────
+  group('weeklyScheduleFromResponse — weekday labels (no index shift)', () {
+    WeeklySchedule schedule() => ScheduleMapper.weeklyScheduleFromResponse(
+      WeeklyScheduleResponse((b) => b..validFrom = Date(2026, 6, 1)),
+    );
+
+    test('Monday (ISO day 1) labels "Понеділок"', () {
+      final TemplateDay monday = schedule().days.firstWhere(
+        (TemplateDay d) => d.dayOfWeek == 1,
+      );
+      expect(monday.label, 'Понеділок');
+    });
+
+    test('Sunday (ISO day 7) labels "Неділя"', () {
+      final TemplateDay sunday = schedule().days.firstWhere(
+        (TemplateDay d) => d.dayOfWeek == 7,
+      );
+      expect(sunday.label, 'Неділя');
+    });
+
+    test('all seven ISO weekdays resolve to the correct capitalized label, '
+        'in order, with no index shift', () {
+      final List<String> labels = schedule().days
+          .map((TemplateDay d) => d.label)
+          .toList();
+      expect(labels, <String>[
+        'Понеділок',
+        'Вівторок',
+        'Середа',
+        'Четвер',
+        'Пʼятниця',
+        'Субота',
+        'Неділя',
+      ]);
+    });
+
+    test('Friday (ISO day 5) is spelled with U+02BC (MODIFIER LETTER '
+        'APOSTROPHE), not U+2019 (RIGHT SINGLE QUOTATION MARK) — verified by '
+        'codepoint, since the two glyphs are visually indistinguishable', () {
+      final TemplateDay friday = schedule().days.firstWhere(
+        (TemplateDay d) => d.dayOfWeek == 5,
+      );
+      expect(friday.label, 'Пʼятниця');
+      // 'П', 'ʼ', 'я', 'т', 'н', 'и', 'ц', 'я'
+      expect(friday.label.codeUnitAt(1), 0x02bc);
+      expect(friday.label.runes.elementAt(1), 0x02bc);
+    });
+  });
+
   group('weeklyScheduleToRequest — round-trips through fromResponse', () {
     test('request days survive a request→response→domain cycle unchanged', () {
       final domain = WeeklySchedule(

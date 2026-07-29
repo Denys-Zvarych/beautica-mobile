@@ -58,10 +58,46 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // The day cards for ISO 1–7 have keys 'weekly-day-1' through 'weekly-day-7'.
+      final Finder day1 = find.byKey(const Key('weekly-day-1'));
       expect(
-        find.byKey(const Key('weekly-day-1')),
+        day1,
         findsOneWidget,
         reason: 'WeeklyTemplateEditorScreen must render day-1 (Monday) card',
+      );
+
+      // mobile-qa (2026-07-29, Phase 23.2 audit) — REGRESSION GUARD: this is
+      // the ONLY test in the whole suite that renders a weekday label
+      // through the REAL pipeline (FakeBackend's HTTP-level JSON response →
+      // `ScheduleMapper.weeklyScheduleFromResponse` → `ukCapitalize
+      // (weekdayName(isoDay))` → `TemplateDay.label` → this screen's
+      // `Text(widget.label)`). Every widget/golden test for this screen
+      // fabricates `TemplateDay(label: 'd$dow', ...)` directly, bypassing the
+      // mapper entirely — so a weekday off-by-one shipped in
+      // `uk_calendar.dart` or the mapper would be invisible to the whole
+      // widget-test layer. Asserting the rendered strings for BOTH ISO
+      // week-ends here (Monday and Sunday — the two indices an off-by-one
+      // corrupts first) is what makes this integration test the one place
+      // that regression cannot hide.
+      expect(
+        find.descendant(of: day1, matching: find.text('Понеділок')),
+        findsOneWidget,
+        reason:
+            'day-1 must render the Ukrainian label "Понеділок" end-to-end '
+            'through the real mapper — a weekday off-by-one would silently '
+            'relabel this without any widget test catching it',
+      );
+
+      final Finder day7 = find.byKey(const Key('weekly-day-7'));
+      await tester.scrollUntilVisible(
+        day7,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: day7, matching: find.text('Неділя')),
+        findsOneWidget,
+        reason: 'day-7 must render "Неділя" — the other end of the ISO week',
       );
 
       expect(

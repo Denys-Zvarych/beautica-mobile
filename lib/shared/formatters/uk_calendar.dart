@@ -1,8 +1,9 @@
 // Phase 23.1 — canonical Ukrainian calendar vocabulary (months + weekdays).
 //
-// Five tables existed, scattered across `month_names.dart`, `schedule_model.dart`,
-// `schedule_mapper.dart`, `master_schedule_screen.dart` and
-// `booking_date_labels.dart`, reducing to five distinct datasets once compared
+// Five tables existed, scattered across a `shared/formatters/` name-table
+// file, `schedule_model.dart`, `schedule_mapper.dart`,
+// `master_schedule_screen.dart` and `booking_date_labels.dart`, reducing to
+// five distinct datasets once compared
 // literally (see the phase doc, `docs/mobile-phases/phase-214-23.1-uk-calendar-module.md`,
 // for the full comparison table). This module is the single canonical home for
 // all five, seeded VERBATIM from those sources — lowercase wins wherever two
@@ -102,6 +103,15 @@ String monthNominative(int month) => _monthsNominative[month - 1];
 /// The genitive Ukrainian name of [month] ("14 січня"), indexed by the
 /// 1-based [DateTime.month]. Throws [RangeError] on an out-of-range index.
 String monthGenitive(int month) => _monthsGenitive[month - 1];
+
+/// All twelve nominative month names, in calendar order.
+///
+/// Moved here from its former single-purpose `shared/formatters/` home,
+/// retired in Phase 23.2. This is the shape [PeriodRangePickerStrings] wants: the picker
+/// takes resolved copy rather than importing a name table itself, exactly as
+/// it already does for its weekday captions.
+List<String> get monthNamesNominative =>
+    List<String>.unmodifiable(_monthsNominative);
 
 /// The 3-letter lowercase Ukrainian abbreviation of [month] ("січ"), indexed
 /// by the 1-based [DateTime.month]. Throws [RangeError] on an out-of-range

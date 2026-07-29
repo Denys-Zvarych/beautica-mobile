@@ -1308,4 +1308,55 @@ void main() {
       expect(o.window, isNull);
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // mobile-qa (2026-07-29) — Phase 23.2 audit regression: `formatDay` had ZERO
+  // test coverage anywhere in the suite (not here, not in any widget/golden
+  // test — the screens that call it locate elements by `Key`, never by the
+  // rendered date string), despite being an actively-used public function
+  // (`master_schedule_screen.dart`, `apply_schedule_sheet.dart` — 3 call
+  // sites) whose implementation this phase rewired from a local
+  // `_monthsGenitive[d.month - 1]` table lookup onto
+  // `monthGenitive(d.month)` in the canonical `shared/formatters/
+  // uk_calendar.dart` module. The phase doc's Step 5 claimed this file
+  // "Pins `monthShort` and `formatDay`" and must stay green unchanged — that
+  // claim was false (grep confirms neither was ever referenced here before
+  // this group), so a wrong-month regression in the rewiring would have
+  // shipped invisibly. This group closes that gap; it is a genuine addition,
+  // not the "unchanged" verification the phase doc described.
+  // ───────────────────────────────────────────────────────────────────────────
+  group('formatDay — long human date via the canonical uk_calendar module', () {
+    test('29 травня (the phase-doc pinned example)', () {
+      expect(formatDay(DateTime(2026, 5, 29)), '29 травня');
+    });
+
+    test('January 1 — lower month boundary, single-digit day, no zero-pad', () {
+      expect(formatDay(DateTime(2026, 1, 1)), '1 січня');
+    });
+
+    test('December 31 — upper month boundary', () {
+      expect(formatDay(DateTime(2026, 12, 31)), '31 грудня');
+    });
+
+    test('every month resolves its own distinct genitive name, in order', () {
+      final List<String> resolved = List<String>.generate(
+        12,
+        (int i) => formatDay(DateTime(2026, i + 1, 15)),
+      );
+      expect(resolved, <String>[
+        '15 січня',
+        '15 лютого',
+        '15 березня',
+        '15 квітня',
+        '15 травня',
+        '15 червня',
+        '15 липня',
+        '15 серпня',
+        '15 вересня',
+        '15 жовтня',
+        '15 листопада',
+        '15 грудня',
+      ]);
+    });
+  });
 }
