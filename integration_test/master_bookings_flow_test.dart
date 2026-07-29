@@ -1087,8 +1087,7 @@ void main() {
       //      renders the month, and that is precisely why the card no longer
       //      needs to. An unscoped probe would fail on the rail and prove
       //      nothing about the card. ────────────────────────────────────────
-      final String monthToken =
-          kMonthsUkShort[toBeauticaTime(wireStart).month - 1];
+      final String monthToken = monthAbbrev(toBeauticaTime(wireStart).month);
       expect(
         find.descendant(of: card, matching: find.textContaining(monthToken)),
         findsNothing,

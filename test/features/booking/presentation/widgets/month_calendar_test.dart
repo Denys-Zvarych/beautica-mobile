@@ -12,7 +12,7 @@
 //      (no `GestureDetector`) and never invokes `onSelectDay`.
 
 import 'package:beautica_mobile/features/booking/presentation/widgets/month_calendar.dart';
-import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -148,16 +148,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // `CalendarWeekdayBar` renders `kWeekdaysUkShort` verbatim (a hardcoded
-      // Monday-first constant, not an `AppLocalizations` lookup — see
-      // `booking_date_labels.dart`), so locating by that same constant
-      // (rather than a duplicated Cyrillic literal) tracks the widget's real
-      // source of truth instead of coupling the test to a copy of it.
+      // `CalendarWeekdayBar` renders `weekdayAbbrev` verbatim (a hardcoded
+      // Monday-first lookup, not an `AppLocalizations` lookup — see
+      // `shared/formatters/uk_calendar.dart`), so locating by that same
+      // accessor (rather than a duplicated Cyrillic literal) tracks the
+      // widget's real source of truth instead of coupling the test to a copy
+      // of it.
       final double mondayHeaderX = tester
-          .getCenter(find.text(kWeekdaysUkShort[0]))
+          .getCenter(find.text(weekdayAbbrev(1)))
           .dx;
       final double sundayHeaderX = tester
-          .getCenter(find.text(kWeekdaysUkShort[6]))
+          .getCenter(find.text(weekdayAbbrev(7)))
           .dx;
       final double mondayGridX = tester
           .getCenter(find.byKey(Key('booking-calendar-day-$mondayDay')))

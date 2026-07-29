@@ -57,7 +57,7 @@
 // naive "the range renders" check would miss:
 //
 //   * NO DATE anywhere on the card — checked against the fixture's own
-//     `kMonthsUkShort` token rather than a Cyrillic literal, so it survives
+//     `monthAbbrev` token rather than a Cyrillic literal, so it survives
 //     both the i18n-finder gate and a change of fixture date.
 //   * The range comes from `endAt`, NOT from `startAt + durationMinutes`. The
 //     "endAt is the source of truth" case below deliberately hands the
@@ -74,6 +74,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/booking_st
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 // `rendering.dart` (for RenderParagraph) re-exports `semantics.dart`, which
@@ -96,7 +97,7 @@ Booking _shortBooking({
   // prints, its measured dp width in the narrow-lane sweeps below (a
   // now-relative anchor makes the label 1-2 glyphs wider or narrower
   // depending on the hour it lands on, which silently moves every measured
-  // overflow floor), and the `kMonthsUkShort` no-date probe in
+  // overflow floor), and the `monthAbbrev` no-date probe in
   // `_expectNoDateOnCard`. Expiry cannot change any outcome either:
   // `MasterBookingCard` renders nothing off `BookingDisplayX.isPast` — the
   // status indicator maps from `booking.status` alone and `showsPrice` is a
@@ -3721,7 +3722,7 @@ void main() {
 /// a RANGE" header section).
 ///
 /// Probes the fixture's own Kyiv short-month token (`лип` for a July booking)
-/// via [kMonthsUkShort] rather than a hard-coded Cyrillic literal: that keeps
+/// via [monthAbbrev] rather than a hard-coded Cyrillic literal: that keeps
 /// it clear of the `forbid_cyrillic_finder.sh` gate AND re-derives itself if
 /// the fixture's date ever moves. The month is the strongest single probe —
 /// the retired «12 лип, 14:30» caption was the ONLY place a date reached this
@@ -3732,8 +3733,7 @@ void main() {
 /// does: a booking in the last two hours of a UTC day is already the NEXT
 /// Kyiv day, so the raw UTC month is not always the rendered one.
 void _expectNoDateOnCard(Booking booking) {
-  final String month =
-      kMonthsUkShort[toBeauticaTime(booking.startAt).month - 1];
+  final String month = monthAbbrev(toBeauticaTime(booking.startAt).month);
   expect(
     find.textContaining(month),
     findsNothing,
