@@ -184,38 +184,6 @@ void main() {
     });
   });
 
-  group('ukUpper', () {
-    // Pins the exact strings `schedule_model.dart`'s `_monthsShort` table
-    // ('СІЧ'…'ГРУ') will migrate onto in 23.2.
-    const List<String> expectedUpper = <String>[
-      'СІЧ',
-      'ЛЮТ',
-      'БЕР',
-      'КВІ',
-      'ТРА',
-      'ЧЕР',
-      'ЛИП',
-      'СЕР',
-      'ВЕР',
-      'ЖОВ',
-      'ЛИС',
-      'ГРУ',
-    ];
-
-    test('ukUpper(monthAbbrev(m)) matches the existing _monthsShort table '
-        'for all 12 months', () {
-      final List<String> resolved = List<String>.generate(
-        12,
-        (int i) => ukUpper(monthAbbrev(i + 1)),
-      );
-      expect(resolved, expectedUpper);
-    });
-
-    test('empty string is returned unchanged rather than throwing', () {
-      expect(ukUpper(''), '');
-    });
-  });
-
   group('ukCapitalize', () {
     // Pins the exact strings `master_schedule_screen.dart`'s `_weekdayShort`
     // table ('Пн'…'Нд') will migrate onto in 23.2.

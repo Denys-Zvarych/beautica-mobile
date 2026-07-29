@@ -128,11 +128,6 @@ String weekdayName(int weekday) => _weekdaysFull[weekday - 1];
 /// out-of-range index.
 String weekdayAbbrev(int weekday) => _weekdaysAbbrev[weekday - 1];
 
-/// Upper-cases [s] in full ("січ" -> "СІЧ"). Applied at the call site that
-/// needs the upper variant — deliberately not baked into a separate
-/// accessor; see this file's header note.
-String ukUpper(String s) => s.toUpperCase();
-
 /// Capitalizes only the first character of [s] ("пн" -> "Пн"), leaving the
 /// rest untouched. Applied at the call site that needs the capitalized
 /// variant — deliberately not baked into a separate accessor; see this
