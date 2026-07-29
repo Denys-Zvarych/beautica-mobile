@@ -59,16 +59,33 @@ class NextAppointmentCard extends StatelessWidget {
         children: <Widget>[
           HubSectionTitle(title: l10n.homeHubNextAppointmentTitle),
           const SizedBox(height: VelvetSpacing.md),
-          HubFlatCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.lg,
-            ),
-            child: HubEmptyState(
-              icon: Icons.event_busy_rounded,
-              message: l10n.homeHubNoUpcomingAppointments,
-              ctaLabel: l10n.homeHubFindMaster,
-              onCta: () => context.push(RouteNames.clientSearch),
+          // Width is pinned to the full content width on purpose — same
+          // structural hazard as the favourites / BEAUTY TIMELINE empty states.
+          // The outer Column uses CrossAxisAlignment.start, which hands children
+          // LOOSE width constraints, so an unpinned HubFlatCard sizes itself to
+          // its widest child. Unlike those two, this card does NOT currently
+          // depend on its copy length — it renders full-width only because
+          // HubEmptyState's CTA (HubFilledButton wraps an aligned Container,
+          // which expands to the loose max) happens to fill the row. That makes
+          // the correct width an accident of a *different* widget: drop the CTA
+          // here, or make HubFilledButton intrinsically sized, and this card
+          // would silently shrink to its message width exactly as the timeline
+          // card did. Pin it explicitly so all three siblings state the same
+          // invariant instead of two stating it and one inheriting it by luck.
+          SizedBox(
+            width: double.infinity,
+            child: HubFlatCard(
+              key: const Key('next_appointment_empty_card'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: VelvetSpacing.md,
+                vertical: VelvetSpacing.lg,
+              ),
+              child: HubEmptyState(
+                icon: Icons.event_busy_rounded,
+                message: l10n.homeHubNoUpcomingAppointments,
+                ctaLabel: l10n.homeHubFindMaster,
+                onCta: () => context.push(RouteNames.clientSearch),
+              ),
             ),
           ),
         ],

@@ -16,7 +16,7 @@
 # widget itself builds a cached TextStyle internally (see hub_widgets.dart).
 lib/features/passport/presentation/passport_screen.dart:409          # HubAvatar(fontSize:) ctor arg
 lib/features/home/presentation/widgets/home_profile_card.dart:58     # HubAvatar(fontSize:) ctor arg
-lib/features/home/presentation/widgets/favorite_masters_card.dart:161 # HubPhoto(fontSize:) ctor arg
+lib/features/home/presentation/widgets/favorite_masters_card.dart:171 # HubPhoto(fontSize:) ctor arg
 #
 # --- Runtime-computed (cannot be a compile-time VelvetText token) ------------
 lib/features/salon/presentation/widgets/salon_cover_widgets.dart:83  # diameter * 0.44 monogram glyph
