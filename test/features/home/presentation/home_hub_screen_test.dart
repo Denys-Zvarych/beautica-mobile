@@ -51,6 +51,8 @@ import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.d
 import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/quick_links_card.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -218,10 +220,16 @@ List<Object> _overrides({
     <FavoriteMasterItem>[],
   ),
   AsyncValue<List<TimelineEntry>> timeline = const AsyncData(<TimelineEntry>[]),
+  // The rating pill sources from the authoritative myRatingProvider (same as
+  // MyRatingScreen), not the profile summary's clientRating slice. Overriding
+  // it also avoids the real loader's 5-min keepAlive Timer leaking past
+  // teardown.
+  ClientRating rating = const ClientRating(),
 }) {
   return [
     // Bypass native ScreenProtector
     screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+    myRatingProvider.overrideWith((ref) async => rating),
     if (profile != null)
       clientProfileProvider.overrideWith(
         (ref) async => profile.when(

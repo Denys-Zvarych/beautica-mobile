@@ -63,6 +63,7 @@ import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
 import 'client_my_bookings_pagination_sort_flow_test.dart'
     as client_my_bookings_pagination_sort;
+import 'client_visit_render_flow_test.dart' as client_visit_render;
 import 'booking_price_band_flow_test.dart' as booking_price_band;
 import 'booking_unknown_status_readonly_flow_test.dart'
     as booking_unknown_status_readonly;
@@ -84,8 +85,14 @@ import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
+import 'master_appointment_child_booking_actions_flow_test.dart'
+    as master_appointment_child_booking_actions;
+import 'master_booking_provider_actions_flow_test.dart'
+    as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
+import 'master_leave_client_feedback_flow_test.dart'
+    as master_leave_client_feedback;
 import 'master_received_reviews_flow_test.dart' as master_received_reviews;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
@@ -97,7 +104,10 @@ import 'salon_booking_flow_test.dart' as salon_booking;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
+import 'schedule_override_conflict_flow_test.dart'
+    as schedule_override_conflict;
 import 'service_crud_flow_test.dart' as service_crud;
+import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
@@ -134,6 +144,11 @@ void main() {
     'client_my_bookings_pagination_sort_flow',
     client_my_bookings_pagination_sort.main,
   );
+  // MO-5 — multi-service VISIT render/detail/cancel (Step 2.7 Rule 3b): a
+  // visit's per-service `/bookings/me` rows collapse into ONE grouped card, its
+  // detail loads via getAppointment, and cancel routes to cancelAppointment
+  // (never the per-booking cancelBooking on a child).
+  group('client_visit_render_flow', client_visit_render.main);
   // Frozen RANGE price band end-to-end (Step 2.7 Rule 3b, mobile-qa) — a wire
   // `priceMaxAtBooking` surviving deserialization → BookingMapper →
   // Booking.priceMax → priceLabel onto the CLIENT list card, «Деталі запису»
@@ -191,7 +206,25 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  // Track 27.x Wave A — the PROVIDER decline/complete round trip against a
+  // real HTTP boundary (Step 2.7 Rule 3b).
+  group(
+    'master_booking_provider_actions_flow',
+    master_booking_provider_actions.main,
+  );
+  // Track 27.x/MO-6 — the same PROVIDER decline/complete round trip, but for
+  // an appointment-child (multi-service visit) booking: routes to
+  // AppointmentRepository instead of the per-booking endpoints, reschedule
+  // hidden (Step 2.7 Rule 3b).
+  group(
+    'master_appointment_child_booking_actions_flow',
+    master_appointment_child_booking_actions.main,
+  );
   group('master_home_add_services_flow', master_home_add_services.main);
+  // Track 7.x Wave B — the PROVIDER leave-client-feedback journey (detail →
+  // «ВІДГУК ПРО КЛІЄНТА» → submit) against a real HTTP boundary (Step 2.7
+  // Rule 3b).
+  group('master_leave_client_feedback_flow', master_leave_client_feedback.main);
   group('master_received_reviews_flow', master_received_reviews.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
@@ -205,7 +238,16 @@ void main() {
   group('salon_service_filter_flow', salon_service_filter.main);
   group('schedule_edit_flow', schedule_edit.main);
   group('schedule_first_create_flow', schedule_first_create.main);
+  // 2026-07-26 booking-conflict design (Step 2.7 Rule 3b) — save a day-off
+  // through the REAL conflict-preview → confirm → write pipeline: no
+  // conflicts saves straight through, a conflict gates behind
+  // DayOffConflictDialog, confirming declines the conflicting booking,
+  // backing out persists nothing at all.
+  group('schedule_override_conflict_flow', schedule_override_conflict.main);
   group('service_crud_flow', service_crud.main);
+  // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays
+  // open, never errServer (Step 2.7 Rule 3b — the catalogue duplicate fix E2E).
+  group('service_duplicate_flow', service_duplicate.main);
   group('service_edit_category_type', service_edit_category_type.main);
   // Search service-filter → booking pre-selection (Step 2.7 Rule 3b) — exact
   // serviceTypeSlug pre-check on the master + salon booking catalogues.

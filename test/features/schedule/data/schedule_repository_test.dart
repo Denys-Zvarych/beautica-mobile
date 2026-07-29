@@ -91,6 +91,22 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(Date(2026, 1, 1));
+    registerFallbackValue(
+      ScheduleOverrideRequest(
+        (b) => b
+          ..date = Date(2026, 1, 1)
+          ..cancelOverlapping = false
+          ..kind = ScheduleOverrideRequestKindEnum.DAY_OFF,
+      ),
+    );
+    registerFallbackValue(
+      OverrideConflictQueryRequest(
+        (b) => b
+          ..from = Date(2026, 1, 1)
+          ..to = Date(2026, 1, 1)
+          ..kind = OverrideConflictQueryRequestKindEnum.DAY_OFF,
+      ),
+    );
   });
 
   setUp(() {
@@ -601,5 +617,252 @@ void main() {
         );
       },
     );
+  });
+
+  // ── 2026-07-26 booking-conflict design ──────────────────────────────────
+  //
+  // Zero coverage existed for `previewConflicts` or the `putOverride` 409/429
+  // mapping before this audit (mobile-qa, 2026-07-26). Both are wire-boundary
+  // behaviour no widget test (which mocks `ScheduleRepository`, never
+  // `MasterControllerApi`) can reach.
+  group('previewConflicts — happy path', () {
+    test('maps the response envelope to OverrideConflictCheck', () async {
+      final row = OverrideConflictResponse(
+        (b) => b
+          ..bookingId = 'b1'
+          ..date = Date(2026, 6, 10)
+          ..startsAt = DateTime.utc(2026, 6, 10, 10)
+          ..endsAt = DateTime.utc(2026, 6, 10, 11)
+          ..clientDisplayName = 'Клієнт'
+          ..serviceName = 'Послуга',
+      );
+      final envelope = ApiResponseOverrideConflictPreviewResponse(
+        (b) => b
+          ..success = true
+          ..data.replace(
+            OverrideConflictPreviewResponse(
+              (d) => d
+                ..conflicts.replace(<OverrideConflictResponse>[row])
+                ..totalCount = 1
+                ..truncated = false
+                ..scanTruncated = false,
+            ),
+          ),
+      );
+      when(
+        () => masterApi.previewOverrideConflicts(
+          masterId: any(named: 'masterId'),
+          overrideConflictQueryRequest: any(
+            named: 'overrideConflictQueryRequest',
+          ),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseOverrideConflictPreviewResponse>(
+          data: envelope,
+          requestOptions: RequestOptions(path: _path),
+          statusCode: 200,
+        ),
+      );
+
+      final span = ScheduleOverride.dayOff(
+        start: DateTime(2026, 6, 10),
+        end: DateTime(2026, 6, 10),
+      );
+      final check = await repository.previewConflicts(span);
+
+      expect(check.conflicts, hasLength(1));
+      expect(check.conflicts.single.bookingId, 'b1');
+      expect(check.totalCount, 1);
+    });
+
+    test('a span wider than kMaxScheduleRangeDays rejects BEFORE any API '
+        'call', () async {
+      // Mirrors the "bounded-range guard" group above: asserts run in test
+      // mode, so the debug AssertionError fires before the release
+      // ValidationFailure path would.
+      final span = ScheduleOverride.dayOff(
+        start: DateTime(2026, 1, 1),
+        end: DateTime(2028, 1, 1),
+      );
+      await expectLater(
+        repository.previewConflicts(span),
+        throwsA(anyOf(isA<AssertionError>(), isA<ValidationFailure>())),
+      );
+      verifyNever(
+        () => masterApi.previewOverrideConflicts(
+          masterId: any(named: 'masterId'),
+          overrideConflictQueryRequest: any(
+            named: 'overrideConflictQueryRequest',
+          ),
+        ),
+      );
+    });
+
+    test('empty masterId → UnauthorizedFailure, no API call', () async {
+      final unauthRepo = HttpScheduleRepository(
+        masterApi: masterApi,
+        masterId: '',
+      );
+      final span = ScheduleOverride.dayOff(
+        start: DateTime(2026, 6, 10),
+        end: DateTime(2026, 6, 10),
+      );
+      await expectLater(
+        unauthRepo.previewConflicts(span),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+      verifyNever(
+        () => masterApi.previewOverrideConflicts(
+          masterId: any(named: 'masterId'),
+          overrideConflictQueryRequest: any(
+            named: 'overrideConflictQueryRequest',
+          ),
+        ),
+      );
+    });
+  });
+
+  group('putOverride — 2026-07-26 conflict-write status mapping', () {
+    test(
+      '409 (conflict set changed since preview) → ConflictFailure',
+      () async {
+        when(
+          () => masterApi.upsertOverride(
+            masterId: any(named: 'masterId'),
+            date: any(named: 'date'),
+            scheduleOverrideRequest: any(named: 'scheduleOverrideRequest'),
+          ),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: _path),
+            type: DioExceptionType.badResponse,
+            response: Response<dynamic>(
+              requestOptions: RequestOptions(path: _path),
+              statusCode: 409,
+            ),
+          ),
+        );
+
+        final override = ScheduleOverride.dayOff(
+          start: DateTime(2026, 6, 10),
+          end: DateTime(2026, 6, 10),
+        );
+        await expectLater(
+          repository.putOverride(override, cancelOverlapping: true),
+          throwsA(isA<ConflictFailure>()),
+        );
+      },
+    );
+
+    test(
+      '429 (write rate limit / aggregate decline budget) → '
+      'ScheduleOverrideRateLimitedFailure carrying the parsed Retry-After',
+      () async {
+        when(
+          () => masterApi.upsertOverride(
+            masterId: any(named: 'masterId'),
+            date: any(named: 'date'),
+            scheduleOverrideRequest: any(named: 'scheduleOverrideRequest'),
+          ),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: _path),
+            type: DioExceptionType.badResponse,
+            response: Response<dynamic>(
+              requestOptions: RequestOptions(path: _path),
+              statusCode: 429,
+              headers: Headers.fromMap(<String, List<String>>{
+                'retry-after': <String>['30'],
+              }),
+            ),
+          ),
+        );
+
+        final override = ScheduleOverride.dayOff(
+          start: DateTime(2026, 6, 10),
+          end: DateTime(2026, 6, 10),
+        );
+
+        await expectLater(
+          repository.putOverride(override, cancelOverlapping: true),
+          throwsA(
+            isA<ScheduleOverrideRateLimitedFailure>().having(
+              (f) => f.retryAfterSeconds,
+              'retryAfterSeconds',
+              30,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      '429 with no Retry-After header → retryAfterSeconds is null (the UI '
+      'falls back to a static "try later" message, not a broken countdown)',
+      () async {
+        when(
+          () => masterApi.upsertOverride(
+            masterId: any(named: 'masterId'),
+            date: any(named: 'date'),
+            scheduleOverrideRequest: any(named: 'scheduleOverrideRequest'),
+          ),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: _path),
+            type: DioExceptionType.badResponse,
+            response: Response<dynamic>(
+              requestOptions: RequestOptions(path: _path),
+              statusCode: 429,
+            ),
+          ),
+        );
+
+        final override = ScheduleOverride.dayOff(
+          start: DateTime(2026, 6, 10),
+          end: DateTime(2026, 6, 10),
+        );
+
+        await expectLater(
+          repository.putOverride(override, cancelOverlapping: true),
+          throwsA(
+            isA<ScheduleOverrideRateLimitedFailure>().having(
+              (f) => f.retryAfterSeconds,
+              'retryAfterSeconds',
+              isNull,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('a plain 500 on putOverride still falls through to the generic mapper '
+        '(the 409/429 special-casing does not swallow every status)', () async {
+      when(
+        () => masterApi.upsertOverride(
+          masterId: any(named: 'masterId'),
+          date: any(named: 'date'),
+          scheduleOverrideRequest: any(named: 'scheduleOverrideRequest'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _path),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: _path),
+            statusCode: 500,
+          ),
+        ),
+      );
+
+      final override = ScheduleOverride.dayOff(
+        start: DateTime(2026, 6, 10),
+        end: DateTime(2026, 6, 10),
+      );
+
+      await expectLater(
+        repository.putOverride(override, cancelOverlapping: true),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
   });
 }

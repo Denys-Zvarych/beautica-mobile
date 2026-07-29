@@ -94,6 +94,56 @@ WeeklySchedule _rangedTemplate({String? id = 'sched-1'}) => WeeklySchedule(
   ],
 );
 
+/// A persisted template whose MONDAY carries a STORED WORKING WINDOW: the
+/// canonical intervals are `[10:00–18:00]` but the window is `09:00–18:00`,
+/// i.e. the master saved a «Перерва» 09:00–10:00 flush against the window
+/// start. Tue–Fri are ordinary legacy 09:00–18:00 days (no stored window), so
+/// closing Monday never trips the all-off DELETE path.
+WeeklySchedule _windowTemplate({String? id = 'sched-1'}) => WeeklySchedule(
+  id: id,
+  validFrom: _clock,
+  validTo: null,
+  days: <TemplateDay>[
+    TemplateDay(
+      dayOfWeek: 1,
+      label: 'd1',
+      intervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+      window: _interval(9, 0, 18, 0),
+    ),
+    for (int dow = 2; dow <= 7; dow++)
+      TemplateDay(
+        dayOfWeek: dow,
+        label: 'd$dow',
+        intervals: dow <= 5
+            ? <WorkInterval>[_interval(9, 0, 18, 0)]
+            : <WorkInterval>[],
+      ),
+  ],
+);
+
+/// A persisted PRE-WINDOW (legacy) template: Monday carries [mondayIntervals]
+/// and NO stored window, so the editor seeds it through the historical
+/// gap-reconstruction regime and `_baselineWindows[0]` is `null`.
+WeeklySchedule _legacyTemplate(
+  List<WorkInterval> mondayIntervals, {
+  String? id = 'sched-1',
+}) => WeeklySchedule(
+  id: id,
+  validFrom: _clock,
+  validTo: null,
+  days: <TemplateDay>[
+    TemplateDay(dayOfWeek: 1, label: 'd1', intervals: mondayIntervals),
+    for (int dow = 2; dow <= 7; dow++)
+      TemplateDay(
+        dayOfWeek: dow,
+        label: 'd$dow',
+        intervals: dow <= 5
+            ? <WorkInterval>[_interval(9, 0, 18, 0)]
+            : <WorkInterval>[],
+      ),
+  ],
+);
+
 // ───────────────────────────────────────────────────────────────────────────
 // Recording WeeklySchedule notifier fake.
 //
@@ -263,6 +313,73 @@ String _workEndText(WidgetTester tester, int dayOfWeek) {
   final Finder well = find.byKey(Key('weekly-day-$dayOfWeek-work-end'));
   final Finder txt = find.descendant(of: well, matching: find.byType(Text));
   return tester.widget<Text>(txt.first).data!;
+}
+
+/// Reads the `HH:MM` rendered inside any keyed [TimeWell] (`…-work-start`,
+/// `…-work-end`, `…-break-N-start`, …).
+String _wellText(WidgetTester tester, String key) {
+  final Finder well = find.byKey(Key(key));
+  expect(well, findsOneWidget, reason: 'time well "$key" must be rendered');
+  final Finder txt = find.descendant(of: well, matching: find.byType(Text));
+  return tester.widget<Text>(txt.first).data!;
+}
+
+/// One velvet-time-picker wheel item extent (px) — matches the picker's fixed
+/// `_itemExtent`. Dragging N extents UP (negative dy) advances N rows.
+const double _kItemExtent = 46.0;
+
+/// Opens the wheel time picker behind the keyed [key] well, moves the hours
+/// wheel by [hourSteps] rows and the minutes wheel by [minuteSteps] rows
+/// (positive = later), then confirms.
+///
+/// The IntervalEditor opens its picker with `minuteStep: 15`, so ONE minute
+/// row is 15 minutes.
+Future<void> _dragWorkWell(
+  WidgetTester tester, {
+  required String key,
+  int hourSteps = 0,
+  int minuteSteps = 0,
+}) async {
+  final Finder well = find.byKey(Key(key));
+  await tester.ensureVisible(well);
+  await tester.pumpAndSettle();
+  await tester.tap(well);
+  await tester.pumpAndSettle();
+
+  final Finder wheels = find.byType(ListWheelScrollView);
+  expect(wheels, findsNWidgets(2), reason: 'hours + minutes wheels');
+  if (hourSteps != 0) {
+    await tester.drag(wheels.at(0), Offset(0, -_kItemExtent * hourSteps));
+    await tester.pumpAndSettle();
+  }
+  if (minuteSteps != 0) {
+    await tester.drag(wheels.at(1), Offset(0, -_kItemExtent * minuteSteps));
+    await tester.pumpAndSettle();
+  }
+
+  await tester.tap(find.byKey(const Key('btn-velvet-time-picker-confirm')));
+  await tester.pumpAndSettle();
+}
+
+/// Taps the remove ("×") action on the FIRST break row of [dayOfWeek].
+///
+/// The remove control carries no `Key` in `interval_editor.dart`'s `_BreakRow`,
+/// so it is located by its icon SCOPED to the day card — never an
+/// order-dependent `.first` across the tree, and never a localised string (M2).
+Future<void> _removeBreak(WidgetTester tester, {required int dayOfWeek}) async {
+  final Finder remove = find.descendant(
+    of: find.byKey(Key('weekly-day-$dayOfWeek')),
+    matching: find.byIcon(Icons.close_rounded),
+  );
+  expect(
+    remove,
+    findsOneWidget,
+    reason: 'day $dayOfWeek must render exactly one break-remove action',
+  );
+  await tester.ensureVisible(remove);
+  await tester.pumpAndSettle();
+  await tester.tap(remove);
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -2174,6 +2291,496 @@ void main() {
       },
     );
   });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 2026-07-27 — STORED WORKING WINDOW in the dirty-diff (`_baselineWindows`).
+  //
+  // THE SUBTLE PART. Two DIFFERENT persisted day shapes collapse to the SAME
+  // canonical interval list:
+  //
+  //     window 09:00–18:00 + break 09:00–10:00  →  [10:00–18:00]
+  //     window 10:00–18:00 + no break           →  [10:00–18:00]
+  //
+  // The dirty-diff used to compare intervals ONLY, so editing a day from the
+  // first shape into the second read as "no changes": the Save button stayed
+  // DISABLED on a day the master had visibly just edited. `_baselineWindows`
+  // adds the window to the comparison and closes that hole.
+  //
+  // The pristine-load contract on the other side: merely OPENING an untouched
+  // LEGACY (pre-window) template must NOT enable Save, even though
+  // `DayHours.fromIntervals` always derives SOME window for display. That holds
+  // by VALUE-EQUALITY, not by skipping the comparison: `_seed` baselines the
+  // window it actually drew (`seededDay.window`, the derived
+  // `[first start, last end]` for a legacy row), so the seeded draft window IS
+  // the baseline until the master moves it.
+  //
+  // An earlier shape of this fix baselined only the STORED window
+  // (`d.window?.clone()`), leaving the baseline `null` on every legacy row and
+  // the window leg of the diff skipped entirely. That left one edit invisible —
+  // see the COMPENSATING-EDIT test below, which is the case this audit
+  // originally argued away as unreachable and got wrong.
+  //
+  // Driven purely through observable UI: the Save button's enabled flag, the
+  // keyed no-changes hint, and the rendered window/break wells.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  group('WeeklyTemplateEditorScreen — stored-window dirty-diff '
+      '(_baselineWindows)', () {
+    testWidgets('a stored window seeds the day as WINDOW + BREAK (not a '
+        'shortened working day) and the load stays PRISTINE', (tester) async {
+      final ProviderContainer c = await _pumpLoaded(tester, _windowTemplate());
+      addTearDown(c.dispose);
+
+      // The window well shows the STORED 09:00 start, not the 10:00 the
+      // intervals alone would imply.
+      expect(
+        _wellText(tester, 'weekly-day-1-work-start'),
+        '09:00',
+        reason:
+            'THE BUG: 10:00 here means the stored window was ignored and the '
+            'break was normalised into a shortened working day',
+      );
+      expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
+
+      // …and the carved hour is rendered as a real break row.
+      expect(
+        find.byKey(const Key('weekly-day-1-break-0-start')),
+        findsOneWidget,
+        reason: 'the edge-flush break must reappear as a break row',
+      );
+      expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
+      expect(_wellText(tester, 'weekly-day-1-break-0-end'), '10:00');
+
+      // Reconstructing a break out of the stored window is a pure DISPLAY
+      // change — it must not register as an edit.
+      expect(
+        _saveButton(tester).onPressed,
+        isNull,
+        reason:
+            'seeding the window-present regime must keep the Phase 6.2 '
+            'pristine-load contract — Save stays disabled until a real edit',
+      );
+    });
+
+    testWidgets(
+      'THE REGRESSION: a WINDOW-ONLY edit that collapses to the SAME interval '
+      'list still ENABLES Save',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _windowTemplate(),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        expect(_saveButton(tester).onPressed, isNull, reason: 'precondition');
+
+        // ── The master's edit: "I don't want a break at the start, I just
+        // want to begin at 10:00." Remove the break, then move the window
+        // start 09:00 → 10:00.
+        await _removeBreak(tester, dayOfWeek: 1);
+        // Intermediate state (window 09:00–18:00, no break) collapses to
+        // [09:00–18:00] ≠ the baseline [10:00–18:00], so the interval diff
+        // alone already reads dirty here — that is NOT the case under test.
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-start',
+          hourSteps: 1,
+        );
+
+        // The draft is now window 10:00–18:00 with no breaks → toIntervals()
+        // is [10:00–18:00], BYTE-IDENTICAL to the persisted baseline. Only the
+        // stored WINDOW differs (09:00 → 10:00).
+        expect(_wellText(tester, 'weekly-day-1-work-start'), '10:00');
+        expect(
+          find.byKey(const Key('weekly-day-1-break-0-start')),
+          findsNothing,
+          reason: 'the break row was removed',
+        );
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'THE BUG: with an interval-only diff this state equals the '
+              'baseline, so Save stayed DISABLED on a visibly-edited day — the '
+              'master could not persist the change at all',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsNothing,
+          reason:
+              'the gate must be `saveable`, not `noChanges` — a "no changes" '
+              'hint on an edited day is the user-facing symptom',
+        );
+      },
+    );
+
+    testWidgets(
+      'the window-only edit PERSISTS: the saved day-1 carries the NEW window '
+      'alongside the unchanged intervals',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _windowTemplate(),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        await _removeBreak(tester, dayOfWeek: 1);
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-start',
+          hourSteps: 1,
+        );
+
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        final TemplateDay saved = weekly.savedSchedule!.days.firstWhere(
+          (TemplateDay d) => d.dayOfWeek == 1,
+        );
+        expect(saved.window, isNotNull);
+        expect(
+          saved.window!.start,
+          const TimeOfDay(hour: 10, minute: 0),
+          reason: 'the edited від–до must be persisted, not the stale 09:00',
+        );
+        expect(saved.window!.end, const TimeOfDay(hour: 18, minute: 0));
+        // Availability is unchanged by this edit — that is exactly why the
+        // interval-only diff could not see it.
+        expect(summariseIntervals(saved.intervals), '10:00–18:00');
+      },
+    );
+
+    testWidgets(
+      'a break edit inside a window-present day still enables Save (the '
+      'ordinary path is not broken by the added window comparison)',
+      (tester) async {
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _windowTemplate(),
+        );
+        addTearDown(c.dispose);
+
+        await _removeBreak(tester, dayOfWeek: 1);
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'removing a break widens the working day — a real edit',
+        );
+      },
+    );
+
+    // ── The legacy pristine-load contract ───────────────────────────────────
+
+    testWidgets(
+      'LEGACY: opening an untouched pre-window template stays PRISTINE even '
+      'though the seeded day derives a display window',
+      (tester) async {
+        // Persisted with intervals ONLY (window == null) — every row saved
+        // before the backend stored the field. `DayHours.fromIntervals` still
+        // derives a window (10:00–18:00) for display, and `_seed` baselines
+        // that SAME derived value, so the window leg of the diff compares
+        // 10:00–18:00 against 10:00–18:00 and finds no change.
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _legacyTemplate(<WorkInterval>[_interval(10, 0, 18, 0)]),
+        );
+        addTearDown(c.dispose);
+
+        expect(
+          _wellText(tester, 'weekly-day-1-work-start'),
+          '10:00',
+          reason: 'legacy rows keep the historical gap-reconstruction display',
+        );
+        expect(
+          find.byKey(const Key('weekly-day-1-break-0-start')),
+          findsNothing,
+          reason:
+              'an edge-flush break is unrecoverable without a stored window — '
+              'the legacy regime must stay byte-identical',
+        );
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason:
+              'the seeded draft window EQUALS the baselined derived window '
+              'until the master moves it — merely OPENING an untouched '
+              'template must never enable Save',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsOneWidget,
+          reason: 'the pristine gate is `noChanges`',
+        );
+      },
+    );
+
+    testWidgets(
+      'LEGACY: a split legacy day (two intervals → a derived window WIDER than '
+      'either) is also pristine on load',
+      (tester) async {
+        // Derived window 09:00–18:00 + an interior 13:00–14:00 break, from a
+        // row that stored no window at all — the shape most likely to be
+        // mistaken for an edit if `_seed` baselined anything other than the
+        // window it just drew.
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _legacyTemplate(<WorkInterval>[
+            _interval(9, 0, 13, 0),
+            _interval(14, 0, 18, 0),
+          ]),
+        );
+        addTearDown(c.dispose);
+
+        expect(_wellText(tester, 'weekly-day-1-work-start'), '09:00');
+        expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
+        expect(_wellText(tester, 'weekly-day-1-break-0-start'), '13:00');
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason:
+              'the derived 09:00–18:00 window is ALSO what `_seed` baselined, '
+              'so the window leg finds no change on a pure load',
+        );
+      },
+    );
+
+    testWidgets(
+      'a legacy day still enables Save on a REAL edit (a shortened day moves '
+      'BOTH the intervals and the window off their baselines)',
+      (tester) async {
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _legacyTemplate(<WorkInterval>[_interval(10, 0, 18, 0)]),
+        );
+        addTearDown(c.dispose);
+
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-end',
+          hourSteps: -1,
+        ); // 18:00 → 17:00
+
+        expect(_wellText(tester, 'weekly-day-1-work-end'), '17:00');
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'shortening a legacy day moves its collapsed intervals AND its '
+              'window off the seeded baselines — either leg alone is enough',
+        );
+      },
+    );
+
+    // ── THE COMPENSATING EDIT — the case this audit originally argued away ──
+    //
+    // My first pass filed this as "verified NOT reachable", reasoning that on a
+    // legacy (break-less) day the derived window always equals
+    // `[firstStart, lastEnd]`, so any window drag necessarily moves the
+    // collapsed intervals too and the interval leg fires anyway.
+    //
+    // That is true of a LONE window drag. It is FALSE the moment the master
+    // makes a COMPENSATING edit — widening the window and carving the widened
+    // part straight back out as a break:
+    //
+    //     persisted (legacy):  [10:00–18:00],  no stored window
+    //     seeded:              window 10:00–18:00, no breaks
+    //     master edits to:     window 09:00–18:00 + break 09:00–10:00
+    //     toIntervals():       [10:00–18:00]   ← IDENTICAL to the baseline
+    //
+    // The interval leg sees no change. With the earlier `d.window?.clone()`
+    // baseline the window leg was skipped on legacy rows, so `_isDirty` was
+    // false and Save sat DISABLED on a day the master had visibly just edited —
+    // the same user-facing symptom as the window-present regression above, on
+    // the far larger population of already-shipped legacy rows.
+    //
+    // `_seed` now baselines the window it DREW, so the window leg always has an
+    // operand and this edit registers.
+
+    testWidgets(
+      'THE REGRESSION (legacy rows): a COMPENSATING edit — widen the від, carve '
+      'the widened hour back out as a break — collapses to the SAME interval '
+      'list and must still ENABLE Save',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _legacyTemplate(<WorkInterval>[_interval(10, 0, 18, 0)]),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason: 'precondition: an untouched legacy load is pristine',
+        );
+
+        // 1. Widen the working window 10:00 → 09:00. On its own this already
+        //    moves the intervals to [09:00–18:00], so the interval leg is
+        //    dirty here — that is NOT the case under test.
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-start',
+          hourSteps: -1,
+        );
+        expect(_wellText(tester, 'weekly-day-1-work-start'), '09:00');
+
+        // 2. Add a break. With a 09:00–18:00 window and no existing breaks the
+        //    editor seeds 09:15–10:15 (window start + 15-min gap, 1 h long).
+        final Finder addBreak = find.byKey(const Key('weekly-day-1-add-break'));
+        await tester.ensureVisible(addBreak);
+        await tester.pumpAndSettle();
+        await tester.tap(addBreak);
+        await tester.pumpAndSettle();
+        expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:15');
+
+        // 3. Pull the break flush onto the window start and back to a round
+        //    hour: 09:15–10:15 → 09:00–10:00. The minute wheel steps by 15.
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-break-0-start',
+          minuteSteps: -1,
+        );
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-break-0-end',
+          minuteSteps: -1,
+        );
+
+        // The day is now VISIBLY different from the one that loaded …
+        expect(_wellText(tester, 'weekly-day-1-work-start'), '09:00');
+        expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
+        expect(_wellText(tester, 'weekly-day-1-break-0-end'), '10:00');
+        // … while collapsing to BYTE-IDENTICAL availability: window 09:00–18:00
+        // minus a 09:00–10:00 break is exactly the persisted [10:00–18:00].
+        expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'THE BUG: the collapsed intervals equal the baseline, so with a '
+              'null legacy window baseline the diff found nothing and Save sat '
+              'DISABLED — the master could not persist a break they had just '
+              'drawn, on any pre-window row',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsNothing,
+          reason:
+              'a "no changes" hint on a day showing a brand-new break row is '
+              'the user-facing symptom',
+        );
+      },
+    );
+
+    testWidgets(
+      'the compensating edit PERSISTS: the saved legacy day gains a window '
+      '09:00–18:00 while its intervals stay [10:00–18:00]',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _legacyTemplate(<WorkInterval>[_interval(10, 0, 18, 0)]),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-start',
+          hourSteps: -1,
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('weekly-day-1-add-break')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('weekly-day-1-add-break')));
+        await tester.pumpAndSettle();
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-break-0-start',
+          minuteSteps: -1,
+        );
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-break-0-end',
+          minuteSteps: -1,
+        );
+
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        final TemplateDay saved = weekly.savedSchedule!.days.firstWhere(
+          (TemplateDay d) => d.dayOfWeek == 1,
+        );
+        // Availability is unchanged — which is exactly why the interval-only
+        // diff could not see this edit.
+        expect(summariseIntervals(saved.intervals), '10:00–18:00');
+        // …but the row is no longer legacy: it now carries the window that
+        // makes the break survive the NEXT reload.
+        expect(
+          saved.window,
+          isNotNull,
+          reason:
+              'the compensating edit is only meaningful if the widened від is '
+              'persisted — otherwise the break vanishes again on reload',
+        );
+        expect(saved.window!.start, const TimeOfDay(hour: 9, minute: 0));
+        expect(saved.window!.end, const TimeOfDay(hour: 18, minute: 0));
+      },
+    );
+
+    testWidgets(
+      'toggling a window-present day OFF and back ON is a no-op → Save '
+      're-disables (the window survives the stash round-trip)',
+      (tester) async {
+        // `_toggleDay` stashes and restores the window with its intervals. If
+        // the restore dropped the window, the restored day would seed from
+        // gap-reconstruction, its від–до would collapse to 10:00 and the
+        // no-op toggle would leave Save stuck ENABLED.
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _windowTemplate(),
+        );
+        addTearDown(c.dispose);
+
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        expect(_saveButton(tester).onPressed, isNotNull, reason: 'day closed');
+
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+
+        expect(
+          _wellText(tester, 'weekly-day-1-work-start'),
+          '09:00',
+          reason: 'the stored window must survive the off→on stash restore',
+        );
+        expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason:
+              'a toggle that restores the day exactly is a no-op → Save must '
+              're-disable (Phase 6.2 contract)',
+        );
+      },
+    );
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -2308,6 +2915,7 @@ IntervalEditorStrings _intervalStrings(AppLocalizations l10n) =>
       errBreakEndBeforeStart: l10n.intervalEditorErrBreakEndAfterStart,
       errBreakOutsideWindow: l10n.intervalEditorErrBreakInsideWindow,
       errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
+      errBreakCoversWholeWindow: l10n.intervalEditorErrBreakCoversWholeDay,
       errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
     );
 

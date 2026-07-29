@@ -36,6 +36,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/media/beautica_image.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage_provider.dart';
@@ -836,6 +837,26 @@ class AuthNotifier extends _$AuthNotifier {
       }
     }
     await ref.read(secureStorageProvider).deleteAll();
+    // Security (mobile-security MEDIUM-1, 2026-07-24) — purge the shared media
+    // disk cache. The loader (core/media/beautica_image.dart) disk-caches
+    // remote avatars/photos for 7 days; the client faces this account viewed
+    // are PII and must not survive an explicit or forced sign-out onto a
+    // shared/reassigned device. Best-effort like the rest of the wipe: any
+    // error (e.g. a wedged sqflite store) is tolerated so it can never abort
+    // the unconditional local wipe below. Routed through the top-level
+    // `purgeBeauticaMediaCache()` so it hits the override-aware ACTIVE cache
+    // manager (never the raw handle) and stays testable.
+    try {
+      await purgeBeauticaMediaCache();
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Media cache purge on logout failed (tolerated): ${e.runtimeType}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    }
     // Security (mobile-security MEDIUM) — force-clear the screen-protection
     // reference count and tear down FLAG_SECURE / the iOS app-switcher blur.
     // Without this, a logout triggered while a PII screen's dialog is still

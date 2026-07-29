@@ -379,8 +379,12 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('footer slot', () {
+    // Track 27.x Wave A filled the provider footer with its OWN actions
+    // (reschedule/decline/complete — see `booking_detail_provider_footer_test
+    // .dart`). What stays pinned HERE is narrower but still load-bearing: no
+    // CLIENT-keyed action ever leaks into a provider viewer, at any status.
     testWidgets(
-      'the provider footer is EMPTY in 7.2 — no client actions leak through',
+      'CONFIRMED never leaks a CLIENT action to the provider footer',
       (tester) async {
         // CONFIRMED is the status with the richest client footer, so it is the
         // one that would most visibly leak.
@@ -796,6 +800,73 @@ void main() {
         expect(
           containerOf(tester, _clientBriefNote),
           isNot(containerOf(tester, _providerDeclineNote)),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Branch 5 — the CONFIRMED reminder subline is CLIENT-ONLY
+  // (mobile-qa, 2026-07-26)
+  // -------------------------------------------------------------------------
+  //
+  // `_subline`'s CONFIRMED branch returns `l10n.bookingDetailSublineConfirmed`
+  // («Нагадаємо про запис напередодні.») — a promise the APP makes to the
+  // CLIENT: it will remind them the day before. The PROVIDER makes no such
+  // promise to themselves, so the branch now short-circuits to `null` when
+  // `viewer.isProvider`, and the master no longer reads a reminder addressed to
+  // the client. The role is resolved through `bookingViewerRoleProvider`, so a
+  // session that fails to resolve fails CLOSED to the client (who is entitled
+  // to the reminder), never the other way.
+  //
+  // The fixture is a FUTURE CONFIRMED booking on purpose: `_subline` has a
+  // SECOND `null` gate for an elapsed booking (`b.isPast`), so an accidentally
+  // past fixture would make the provider assertion pass for the wrong reason
+  // and turn the client twin vacuous. `_booking()` defaults to
+  // `futureBookingStart()`, keeping the role half the only thing under test.
+  //
+  // Both halves are asserted: absent-for-provider alone would also pass if the
+  // subline vanished for EVERYONE, so the client twin pins that the reminder
+  // still ships at all.
+
+  group('CONFIRMED reminder subline is client-only', () {
+    testWidgets('the PROVIDER does not see the day-before reminder subline', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _booking(status: BookingStatus.confirmed),
+        role: UserRole.independentMaster,
+      );
+
+      expect(
+        find.text(_l10n(tester).bookingDetailSublineConfirmed),
+        findsNothing,
+        reason:
+            'The provider view rendered «Нагадаємо про запис напередодні.» — '
+            'a reminder the app promises the CLIENT, not the master. The '
+            '`viewer.isProvider` short-circuit in `_subline`\'s CONFIRMED '
+            'branch has been removed.',
+      );
+    });
+
+    testWidgets(
+      'the CLIENT still sees it (control — suppression is role-scoped, not a '
+      'blanket removal)',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(status: BookingStatus.confirmed),
+          role: UserRole.client,
+        );
+
+        expect(
+          find.text(_l10n(tester).bookingDetailSublineConfirmed),
+          findsOneWidget,
+          reason:
+              'The reminder vanished for the CLIENT too, so the provider-side '
+              'assertion above is no longer evidence of anything. Suspect the '
+              'CONFIRMED branch or the isPast gate rather than the role half.',
         );
       },
     );

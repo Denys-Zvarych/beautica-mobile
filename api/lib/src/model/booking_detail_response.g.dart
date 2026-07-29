@@ -236,6 +236,12 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? categoryName;
   @override
   final bool? canReview;
+  @override
+  final bool? providerCanReviewClient;
+  @override
+  final String? appointmentId;
+  @override
+  final String? clientAvatarUrl;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -271,7 +277,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.buildingNo,
       this.locationNote,
       this.categoryName,
-      this.canReview})
+      this.canReview,
+      this.providerCanReviewClient,
+      this.appointmentId,
+      this.clientAvatarUrl})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -315,7 +324,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
         categoryName == other.categoryName &&
-        canReview == other.canReview;
+        canReview == other.canReview &&
+        providerCanReviewClient == other.providerCanReviewClient &&
+        appointmentId == other.appointmentId &&
+        clientAvatarUrl == other.clientAvatarUrl;
   }
 
   @override
@@ -351,6 +363,9 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, canReview.hashCode);
+    _$hash = $jc(_$hash, providerCanReviewClient.hashCode);
+    _$hash = $jc(_$hash, appointmentId.hashCode);
+    _$hash = $jc(_$hash, clientAvatarUrl.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -387,7 +402,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
           ..add('categoryName', categoryName)
-          ..add('canReview', canReview))
+          ..add('canReview', canReview)
+          ..add('providerCanReviewClient', providerCanReviewClient)
+          ..add('appointmentId', appointmentId)
+          ..add('clientAvatarUrl', clientAvatarUrl))
         .toString();
   }
 }
@@ -532,6 +550,21 @@ class BookingDetailResponseBuilder
   bool? get canReview => _$this._canReview;
   set canReview(bool? canReview) => _$this._canReview = canReview;
 
+  bool? _providerCanReviewClient;
+  bool? get providerCanReviewClient => _$this._providerCanReviewClient;
+  set providerCanReviewClient(bool? providerCanReviewClient) =>
+      _$this._providerCanReviewClient = providerCanReviewClient;
+
+  String? _appointmentId;
+  String? get appointmentId => _$this._appointmentId;
+  set appointmentId(String? appointmentId) =>
+      _$this._appointmentId = appointmentId;
+
+  String? _clientAvatarUrl;
+  String? get clientAvatarUrl => _$this._clientAvatarUrl;
+  set clientAvatarUrl(String? clientAvatarUrl) =>
+      _$this._clientAvatarUrl = clientAvatarUrl;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -569,6 +602,9 @@ class BookingDetailResponseBuilder
       _locationNote = $v.locationNote;
       _categoryName = $v.categoryName;
       _canReview = $v.canReview;
+      _providerCanReviewClient = $v.providerCanReviewClient;
+      _appointmentId = $v.appointmentId;
+      _clientAvatarUrl = $v.clientAvatarUrl;
       _$v = null;
     }
     return this;
@@ -620,6 +656,9 @@ class BookingDetailResponseBuilder
           locationNote: locationNote,
           categoryName: categoryName,
           canReview: canReview,
+          providerCanReviewClient: providerCanReviewClient,
+          appointmentId: appointmentId,
+          clientAvatarUrl: clientAvatarUrl,
         );
     replace(_$result);
     return _$result;

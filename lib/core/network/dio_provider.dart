@@ -67,6 +67,12 @@
 // If pinning is ever tightened, ALL of these must be resolved first — see the
 // Pre-release checklist row in docs/mobile-phases/mobile-backlog.md.
 //
+// NOTE — the PUBLIC MEDIA path (avatars / portfolio photos from Cloudflare R2)
+// deliberately does NOT use this pinned context. It uses the system trust
+// store on purpose — see the ADR header in `core/media/beautica_image.dart`
+// for why pinning the R2 origin would brick every avatar on a silent
+// Cloudflare CA rotation. Do NOT "fix the asymmetry" by pinning media too.
+//
 // ---------------------------------------------------------------------------
 // WHY TWO ROOTS  (this is the part that was actually broken)
 // ---------------------------------------------------------------------------

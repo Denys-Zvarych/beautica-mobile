@@ -67,6 +67,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
@@ -165,6 +166,40 @@ Future<void> _scrollRailTo(WidgetTester tester, DateTime day) async {
         .first,
     maxScrolls: 200,
   );
+}
+
+/// Scrolls the timeline grid VERTICALLY until [card] is built.
+///
+/// [BookingsTimelineGrid] culls every card whose `plannedTop` falls below
+/// `scrollOffset + 1.5 × viewport` (`_cullingWindowBottom`, the mobile-perf
+/// fix that stopped a `SingleChildScrollView` painting a whole 24-hour day).
+/// Culling is bottom-only, so scrolling down brings a late card into the band
+/// WITHOUT evicting the earlier ones — every card stays laid out for a
+/// subsequent `getRect`.
+///
+/// A card late in the day is therefore simply ABSENT from the tree until the
+/// grid is scrolled to it: `findsOneWidget` on a 17:00 booking fails on a
+/// short viewport even though nothing is wrong with the layout. Call this
+/// before asserting on any card that is not near the top of the day.
+///
+/// This is vertical only — it says nothing about, and must never be used to
+/// paper over, the HORIZONTAL lane placement these tests assert.
+Future<void> _scrollTimelineTo(WidgetTester tester, Finder card) async {
+  await tester.scrollUntilVisible(
+    card,
+    200,
+    // The grid nests a horizontal `SingleChildScrollView` inside the vertical
+    // one; `.first` is the outer (vertical) scrollable, which is the axis the
+    // culling band tracks.
+    scrollable: find
+        .descendant(
+          of: find.byType(BookingsTimelineGrid),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+    maxScrolls: 60,
+  );
+  await AppHarness.settle(tester);
 }
 
 Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
@@ -833,23 +868,23 @@ void main() {
       // ── R2 — neither card is clipped: each one renders at least its
       //      layout's FULL natural height, not a truncated sliver. ──────────
       //
-      // The bound is `MasterBookingCard.estimatedNaturalHeight` — the card's
-      // own published constant for the compact body's natural size — not a
-      // hand-picked number. These are 20-minute bookings, so the grid floors
-      // them at one 30-minute slot (`_cardMinHeightFor`: max(proportional,
-      // hourHeight / 2)) and `MasterBookingCard` correctly renders its
-      // COMPACT branch, well below `fullLayoutMinHeight` (112dp). They
-      // measure 57dp on a real handset.
+      // The bound is `MasterBookingCard.microLayoutNaturalHeight` — the card's
+      // own published constant for the SHORTEST body it can render — not a
+      // hand-picked number, and deliberately the shortest of the three rather
+      // than the layout these particular fixtures happen to select.
       //
-      // The original `greaterThan(120)` here was unsatisfiable by
-      // construction: it is the FULL layout's bound (`fullLayoutNaturalHeight`
-      // is 117dp) applied to a card that, by its own duration, must render
-      // compact — a threshold this very file proves elsewhere ("a 45-minute
-      // booking renders the COMPACT card and a 60-minute one the FULL card").
-      // Asserting against the card's own natural-height constant keeps R2's
-      // real meaning — nothing is truncated — while agreeing with the layout
-      // the app is specified to choose. A card clipped to a sliver, which is
-      // the field bug this guards, still fails it.
+      // R2's real meaning is "nothing is truncated", which is a statement
+      // about the card's own natural height, not about which density it
+      // chose. Two earlier revisions of this bound tracked a specific layout
+      // and both went stale within one scale change: `greaterThan(120)` (the
+      // FULL body's bound applied to cards that must render compact,
+      // unsatisfiable by construction), then
+      // `MasterBookingCard.estimatedNaturalHeight` (56dp, the COMPACT body's)
+      // — which ADDENDUM 8 broke in turn, because at 120dp/hour these
+      // 20-minute bookings floor at 40dp and correctly select the MICRO row.
+      // The shortest natural is the one bound that stays true across every
+      // scale and density pass while still failing on a clipped sliver, which
+      // is the field bug this guards.
       final double earlyHeight = tester
           .getSize(
             find.byKey(const ValueKey<String>('timeline-card-booking-1')),
@@ -864,11 +899,11 @@ void main() {
           .height;
       expect(
         earlyHeight,
-        greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
+        greaterThanOrEqualTo(MasterBookingCard.microLayoutNaturalHeight),
       );
       expect(
         laterHeight,
-        greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
+        greaterThanOrEqualTo(MasterBookingCard.microLayoutNaturalHeight),
       );
 
       // ── R3 — the two rendered Rects do not intersect, and the later card
@@ -1079,7 +1114,7 @@ void main() {
   // harness-shape gap:
   //
   //   `master_booking_card_test.dart` selects a layout by HANDING THE WIDGET A
-  //   `minHeight:` LITERAL (`minHeight: 84` / `minHeight: 112`). That literal
+  //   `minHeight:` LITERAL (e.g. `minHeight: 90` / `minHeight: 120`). That
   //   is the test author's own transcription of what
   //   `bookings_timeline_grid.dart`'s `_cardMinHeightFor` is believed to
   //   compute. Nothing in that file executes `_cardMinHeightFor`. So the
@@ -1101,6 +1136,18 @@ void main() {
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
+      // The row-1 mark's guard moved from an inline `scheme == 'https'` check
+      // to the shared `isAllowedMediaUrl` (host allowlist, 2026-07-24). That
+      // allowlist is EMPTY unless `BEAUTICA_MEDIA_ORIGIN` is defined — which no
+      // integration build passes — so the seeded `127.0.0.1` avatar host would
+      // now be refused BEFORE any fetch and the mark would short-circuit to the
+      // glyph, constructing no `Image` and silently gutting the assertion below.
+      // Open the allowlist to exactly the seeded host so the guard lets the URL
+      // through and the mark really builds its `Image` (whose fetch still fails
+      // against the discard port, exercising the errorBuilder for real).
+      MediaConfig.debugAllowedHosts = <String>{'127.0.0.1'};
+      addTearDown(() => MediaConfig.debugAllowedHosts = null);
+
       // Same Kyiv day as the fake's booked-days seed, derived from
       // `fb.bookingStartsAt` rather than hand-typed — see the "two back-to-back"
       // test above for the incident that idiom prevents.
@@ -1114,11 +1161,14 @@ void main() {
       );
 
       // 45 minutes and 60 minutes, back to back with a gap, so both land in the
-      // SAME lane column and neither can be nudged by collision handling. The
-      // durations are the whole fixture: `_cardMinHeightFor(45, 112)` = 84dp
-      // (below `_kFullLayoutMinHeight`) and `_cardMinHeightFor(60, 112)` = 112dp
-      // (exactly at it). Nothing here passes a `minHeight` — the grid derives
-      // both from `durationMinutesAtBooking` as decoded off the wire.
+      // SAME lane column. The durations are the whole fixture: at ADDENDUM 8's
+      // 120dp/hour, `_cardMinHeightFor(45, 120)` = 90dp (below
+      // `_kFullLayoutMinHeight`, 118 since the card's ROW-1 GLYPH pass) and
+      // `_cardMinHeightFor(60, 120)` = 120dp
+      // (just above it). Nothing here passes a `minHeight` — the grid derives
+      // both from `durationMinutesAtBooking` as decoded off the wire, which is
+      // exactly why this test survived a scale change that invalidated the
+      // dp literals in the widget tier.
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[
         fb.datasetBookingRow(
           id: 'forty-five',
@@ -1126,12 +1176,38 @@ void main() {
           startsAt: firstStart, // 09:00–09:45 Kyiv
           duration: const Duration(minutes: 45),
         ),
-        fb.datasetBookingRow(
-          id: 'sixty',
-          status: 'CONFIRMED',
-          startsAt: firstStart.add(const Duration(minutes: 60)),
-          duration: const Duration(minutes: 60), // 10:00–11:00 Kyiv
-        ),
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'sixty',
+            status: 'CONFIRMED',
+            startsAt: firstStart.add(const Duration(minutes: 60)),
+            duration: const Duration(minutes: 60), // 10:00–11:00 Kyiv
+          ),
+          // THE FULL CARD IS THE ONLY ONE WITH A ROW-1 CLIENT PHOTO
+          // (`_ClientAvatarMark`, 2026-07-24), so this is the one row in the
+          // suite that can carry `clientAvatarUrl` end to end: JSON key ->
+          // @BuiltValueField(wireName:) -> BookingDetailResponse -> the real
+          // repository deserializer -> BookingMapper -> Booking -> the card,
+          // over the real HTTP boundary rather than a hand-built fixture.
+          //
+          // WHY THIS IS NOT JUST A DUPLICATE OF THE WIDGET TIER. The widget
+          // tests SIMULATE a failed fetch with `_FailingHttpClient` +
+          // `debugNetworkImageHttpClientProvider`. On a device there is no
+          // `HttpOverrides` at all: `Image.network` builds a real `HttpClient`
+          // and really fails, so the mark's frameBuilder/errorBuilder path runs
+          // for real inside a real scrolling timeline. What must survive that
+          // is the height — see the assertions below.
+          //
+          // 127.0.0.1:9 (discard) rather than a hostname: connection refused
+          // immediately, no DNS, no packet leaves the handset, no dependence
+          // on whether the device has internet. https AND — since 2026-07-24 —
+          // its host `127.0.0.1` is opened on `MediaConfig.debugAllowedHosts`
+          // at the top of this test, so the mark's `isAllowedMediaUrl` guard
+          // lets it through and an `Image` is actually constructed. An http://
+          // URL, or any host absent from that allowlist, would be rejected
+          // before the network and would prove nothing.
+          'clientAvatarUrl': 'https://127.0.0.1:9/avatars/client-1.png',
+        },
       ]);
 
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -1202,8 +1278,11 @@ void main() {
         find.byKey(const Key('master-booking-card-divider-sixty')),
         findsOneWidget,
         reason:
-            'a 60-minute booking derives a 112dp floor, exactly at the '
-            'threshold — it must render the full divided layout',
+            'a 60-minute booking derives a 120dp floor at ADDENDUM 8\'s '
+            '120dp/hour, just above the full body\'s natural-height threshold '
+            '(118dp since the ROW-1 GLYPH pass, 117 before it) — it must '
+            'render the '
+            'full divided layout',
       );
       expect(
         find.byKey(const Key('master-booking-card-compact-divider-sixty')),
@@ -1222,28 +1301,149 @@ void main() {
       );
 
       // ── The real rendered boxes, so a "compact layout inside an oversized
-      //      box" regression cannot pass the key checks above. 84dp is the
-      //      45-minute floor met EXACTLY (the compact body's 56dp of content
-      //      leaves 28dp of intentional blank room); the 60-minute card is at
-      //      or above its own 112dp floor because the full body out-measures
-      //      it. ────────────────────────────────────────────────────────────
+      //      box" regression cannot pass the key checks above.
+      //
+      // THESE LITERALS WERE STALE AND THIS TEST WAS RED (mobile-qa,
+      // 2026-07-24). They were `84` and `>= 112`, derived from the retired
+      // 112dp/hour scale. ADDENDUM 8 moved `_kHourH` to 120, so the 45-minute
+      // floor is `45/60 × 120 = 90` and the 60-minute floor is `120` — the
+      // `expect(shortHeight, 84)` below could not pass. Nothing caught it
+      // because `integration_test/` needs an emulator and is not part of the
+      // CI gate, so a scale change silently broke a test no one runs.
+      //
+      // Hence the RATIO assertion that follows the two absolute ones: it is
+      // the only one of the three that survives the next scale change without
+      // an edit, and it is the property actually under test — that a card's
+      // box tracks its DURATION proportionally rather than rounding to a
+      // fixed unit per layout.
       final double shortHeight = tester.getSize(shortCard).height;
       final double longHeight = tester.getSize(longCard).height;
       expect(
         shortHeight,
-        84,
+        closeTo(90, 0.5),
         reason:
-            'the 45-minute card measured ${shortHeight}dp against its 84dp '
-            'duration-derived floor — either _cardMinHeightFor drifted or the '
-            'compact body no longer fits the slot its duration owns',
+            'the 45-minute card measured ${shortHeight}dp against its 90dp '
+            'duration-derived floor (45/60 × 120) — either _cardMinHeightFor '
+            'drifted or the compact body no longer fits the slot its duration '
+            'owns',
+      );
+      expect(
+        shortHeight,
+        greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
+        reason:
+            'the 45-minute card selects the COMPACT body, so its box can '
+            'never be shorter than that body\'s own natural height',
+      );
+      // WHY THIS IS A RANGE AND NOT `closeTo(120, 0.5)`:
+      //
+      // `fullLayoutNaturalHeight` (118dp) is measured under the WIDGET-TEST
+      // font, whose metrics are not the device's. This tier renders with the
+      // real platform font, where the same body measures a little taller —
+      // CI (pixel_6, API 34) reports 122.0dp. The card's box is a FLOOR
+      // (`BoxConstraints.minHeight`), never an exact height, so when the
+      // natural body exceeds the duration-derived floor the body wins by
+      // design and the card ends up marginally past its end-time line.
+      //
+      // So the invariant this tier can honestly assert is TWO-SIDED: the
+      // floor is never undercut, and the card never spills far enough past
+      // it to read as belonging to the following slot. Asserting the exact
+      // 120 here pinned a device render to a test-font constant with only
+      // 2dp of headroom — it measured layout drift AND font drift, and only
+      // the first is under test. The tight, font-independent version of this
+      // assertion lives at the widget tier
+      // (`master_booking_card_client_avatar_test.dart`), which pins the
+      // natural height to 118dp exactly.
+      //
+      // These two bounds are shared by every numeric assertion on `longHeight`
+      // below — including the proportionality one — so a future scale change
+      // moves them in exactly one place and cannot leave the three disagreeing.
+      const double longBand = 120;
+      const double longCeiling = longBand + 6;
+      expect(
+        longHeight,
+        greaterThanOrEqualTo(longBand - 0.5),
+        reason:
+            'the 60-minute card measured ${longHeight}dp and must never fall '
+            'BELOW its 120dp floor (60/60 × 120) — under-running the floor '
+            'means _cardMinHeightFor drifted and the card no longer fills '
+            'the slot its duration owns',
       );
       expect(
         longHeight,
-        greaterThanOrEqualTo(112),
+        lessThanOrEqualTo(longCeiling),
         reason:
-            'the 60-minute card measured ${longHeight}dp — the full body is '
-            'taller than its own 112dp floor, so anything below it means the '
-            'compact body was selected after all',
+            'the 60-minute card measured ${longHeight}dp against its 120dp '
+            'floor — a few dp of real-font overshoot is expected, but more '
+            'than 6dp means the full body genuinely outgrew the slot and the '
+            'card now bleeds into the next hour rather than landing on its '
+            'end-time line',
+      );
+      expect(
+        longHeight,
+        greaterThanOrEqualTo(MasterBookingCard.fullLayoutNaturalHeight),
+        reason:
+            'the 60-minute card measured ${longHeight}dp — below the full '
+            'body\'s own natural means the compact body was selected after '
+            'all, whatever the divider keys above reported',
+      );
+      // ── THE CLIENT PHOTO SURVIVED THE WIRE, AND COST NOTHING. ─────────────
+      // The `sixty` row seeds an https `clientAvatarUrl` (see the fixture),
+      // so if the field made it through the real deserializer and the real
+      // mapper the full card's row-1 mark built an `Image`; if any hop dropped
+      // it, the mark short-circuits to the glyph and constructs none. That is
+      // the single observable difference between "carried" and "dropped" —
+      // the picture itself can never render here, because the URL is a
+      // deliberately-refused local port.
+      expect(
+        find.descendant(of: longCard, matching: find.byType(Image)),
+        findsOneWidget,
+        reason:
+            'clientAvatarUrl was seeded on this row, so the FULL card must '
+            'have constructed a network Image for it. Zero here means a hop '
+            'between the JSON key and Booking.clientAvatarUrl dropped the '
+            'field — a total, silent feature loss that looks exactly like '
+            '"this client has no photo" everywhere else in the suite.',
+      );
+      expect(
+        find.descendant(of: shortCard, matching: find.byType(Image)),
+        findsNothing,
+        reason:
+            'the COMPACT card has no row-1 mark at all, so no seeded URL can '
+            'put an Image in it — this keeps the assertion above honest',
+      );
+      // The height re-assertion that makes the two above worth running: the
+      // real, really-failing fetch must not move the box off its hour line.
+      // `longHeight` was measured with the photo in flight or already errored.
+      expect(
+        longHeight,
+        inInclusiveRange(longBand - 0.5, longCeiling),
+        reason:
+            'the 60-minute card measured ${longHeight}dp WITH a client photo '
+            'in its row-1 slot. The mark is 16dp in every one of its four '
+            'states by construction; a number outside the band this tier '
+            'allows means a real network image resized the row in a way no '
+            'mocked widget test could observe.',
+      );
+
+      // THE SCALE-FREE INVARIANT: the 45-minute box clears the compact body's
+      // natural height comfortably, so it equals its wall-clock band exactly.
+      // The 60-minute box only just clears the FULL body's natural — under the
+      // device font it does not clear it at all — so it is natural-governed,
+      // and the ratio carries that overshoot rather than landing on 60/45.
+      //
+      // The invariant is therefore one-and-a-half sided: the ratio may never
+      // drop BELOW the duration ratio (that would mean the long card hit a
+      // floor beneath its own band — the proportionality regression this
+      // guards), and may exceed it only by the same overshoot `longCeiling`
+      // already allows. A scale pass that breaks proportionality still fails
+      // here, at any dp-per-hour.
+      expect(
+        longHeight / shortHeight,
+        inInclusiveRange(60 / 45 - 0.02, longCeiling / shortHeight),
+        reason:
+            'a 60-minute card (${longHeight}dp) must be at least 60/45 of a '
+            '45-minute one (${shortHeight}dp); a smaller ratio means one of '
+            'the two hit a floor or a layout natural instead of its own band',
       );
     },
   );
@@ -1394,9 +1594,17 @@ void main() {
         );
       }
 
-      // …and within row 1 the lighter range LEADS the heavier client name, and
-      // the dot is hard right of both — the diagonal the compact layout's
+      // …and within row 1 the heavier client name LEADS the lighter range,
+      // with the dot hard right of both — the diagonal the compact layout's
       // legibility rests on.
+      //
+      // SWAPPED 2026-07-24 (`_buildCompactBody`'s row 1 only). This assertion
+      // previously read `rangeX < nameX` and pinned the OLD order; it was
+      // stale-AND-FAILING after the swap, not stale-but-passing, because the
+      // widget-tier scope the swap was verified against does not run
+      // `integration_test/`. Kept (rather than deleted as duplicated by the
+      // widget-tier geometry pin) because this is the only place the order is
+      // asserted on a card built from data that actually crossed the wire.
       final double rangeX = tester
           .getTopLeft(inCard(find.text(expectedRange)))
           .dx;
@@ -1406,8 +1614,14 @@ void main() {
       final double dotX = tester
           .getTopLeft(inCard(find.byType(TimelineStatusDot)))
           .dx;
-      expect(rangeX, lessThan(nameX));
-      expect(nameX, lessThan(dotX));
+      expect(
+        nameX,
+        lessThan(rangeX),
+        reason:
+            'the client name must LEAD row 1 — name at ${nameX}dp against '
+            'the range at ${rangeX}dp',
+      );
+      expect(rangeX, lessThan(dotX));
 
       // The compact card never draws the labelled pill — the label lives in
       // the dot's Semantics/Tooltip channel instead (pinned per status at the
@@ -1855,6 +2069,321 @@ void main() {
         reason:
             'the retry must have succeeded and rendered the seeded '
             'booking',
+      );
+    },
+  );
+
+  // ── 2026-07-26 — status-aware lane assignment: a CANCELLED booking must
+  //      never hide the live CONFIRMED booking that replaced it ────────────
+  //
+  // Step 2.7 Rule 3b: `booking_lane_layout_test.dart` (unit tier) now proves
+  // `assignLanes` itself demotes a cancelled-class booking behind an
+  // overlapping active one — but that is a pure function fed a hand-built
+  // `List<Booking>`. It cannot prove the demotion survives the real chain
+  // this bug was actually reported against: `GET /bookings/me` (server
+  // `startsAt` order — the cancelled/live pair does NOT arrive pre-sorted by
+  // "which one is live") → `BookingMapper` → `BookingsDayNotifier` →
+  // `BookingsTimelineGrid`, which is the only caller of `assignLanes` in the
+  // app and the surface the master actually looks at. A regression that
+  // dropped the status-aware split at any one of those hops (e.g. the grid
+  // re-sorting its input before calling `assignLanes`, or the mapper losing
+  // `status` off the wire) would leave the unit test green while the master
+  // still sees the dead booking up front.
+  //
+  // No `integration_test/patrol/` case is needed here — nothing in this flow
+  // touches a native surface (no OS permission dialog, deep link, push
+  // notification, WebView, or biometric prompt); it is pure Flutter
+  // widget/HTTP plumbing, fully reachable through the existing fake-backed
+  // `integration_test/` harness.
+  testWidgets(
+    'a CANCELLED booking overlapping a live CONFIRMED one at the same slot: '
+    'the CONFIRMED card renders in the leftmost lane, and the cancelled one '
+    'is still present (reachable, not filtered), through a real GET '
+    '/bookings/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // Same Kyiv day as the fake's booked-days seed, derived from
+      // `fb.bookingStartsAt` rather than hand-typed — see the "two
+      // back-to-back" test above for the incident that idiom prevents.
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
+      final DateTime cancelledStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+      // The confirmed replacement starts a few minutes LATER than the
+      // cancelled booking it replaced, but still genuinely overlaps it —
+      // exactly the fixture shape that pins the bug: under the pre-fix pure
+      // `startAt` sort, the EARLIER-starting cancelled booking would sort
+      // first and win lane 0, pushing the live confirmed booking off-screen
+      // to the right (see `booking_lane_layout_test.dart`'s "user-reported
+      // bug" case, which was confirmed to fail against that exact algorithm
+      // before this fix landed).
+      final DateTime confirmedStart = cancelledStart.add(
+        const Duration(minutes: 5),
+      );
+
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'cancelled-slot',
+          status: 'CANCELLED',
+          startsAt: cancelledStart,
+          duration: const Duration(minutes: 60),
+        ),
+        fb.datasetBookingRow(
+          id: 'confirmed-slot',
+          status: 'CONFIRMED',
+          startsAt: confirmedStart,
+          duration: const Duration(minutes: 60),
+        ),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await _selectRailDay(tester, bookedDay);
+
+      expect(
+        fb.getMyBookingsCalls,
+        greaterThan(0),
+        reason: 'both cards must be served by the real endpoint',
+      );
+
+      // ── Both bookings actually reached the screen over the real wire —
+      //      the cancelled one is REACHABLE, not filtered out of the
+      //      response or dropped by the mapper. ─────────────────────────────
+      final Finder confirmedCard = find.byKey(
+        const Key('master-booking-card-confirmed-slot'),
+      );
+      final Finder cancelledCard = find.byKey(
+        const Key('master-booking-card-cancelled-slot'),
+      );
+      expect(
+        confirmedCard,
+        findsOneWidget,
+        reason:
+            'the live confirmed booking must be found WITHOUT any '
+            'horizontal scroll — it must be in the leftmost lane',
+      );
+      expect(
+        cancelledCard,
+        findsOneWidget,
+        reason:
+            'the cancelled booking must still be present in the widget '
+            'tree — demotion moves it to a further-right lane, it must '
+            'never be filtered out of the render entirely',
+      );
+
+      // ── The CONFIRMED card is the one in the leftmost lane — the real
+      //      rendered geometry, not a declared property. ─────────────────────
+      final Rect confirmedRect = _masterCardRect(tester, 'confirmed-slot');
+      final Rect cancelledRect = _masterCardRect(tester, 'cancelled-slot');
+      expect(
+        confirmedRect.left,
+        lessThan(cancelledRect.left),
+        reason:
+            'confirmed-slot $confirmedRect must render strictly to the '
+            'LEFT of cancelled-slot $cancelledRect — this is the exact '
+            'field bug: a master cancels a booking, a new confirmed one is '
+            'made for the same slot, and the dead cancelled card must never '
+            'occupy the one lane visible without scrolling',
+      );
+      expect(
+        confirmedRect.overlaps(cancelledRect),
+        isFalse,
+        reason:
+            'the two cards genuinely overlap in wall-clock time, so they '
+            'must land in two DIFFERENT lanes and never intersect on '
+            'screen',
+      );
+    },
+  );
+
+  // ── mobile-qa (2026-07-26) — status-aware lane assignment: an ISOLATED
+  //      cancelled booking (overlapping NOTHING) must also render in the
+  //      leftmost lane — not just the overlap-demotion case above ─────────
+  //
+  // Step 2.7 Rule 3b. The unit tier's minimal repro
+  // (`booking_lane_layout_test.dart`'s "an ISOLATED cancelled booking
+  // sandwiched between two unrelated active bookings...") proves
+  // `assignLanes` itself no longer reads pass 1's stale `laneEnd` watermark
+  // for a cancelled booking that overlaps nothing — but it is fed a
+  // hand-built `List<Booking>`. It cannot prove the fix survives the real
+  // `GET /bookings/me` (server `startsAt` order) -> `BookingMapper` ->
+  // `BookingsDayNotifier` -> `BookingsTimelineGrid` chain this bug was
+  // actually reported against, which is exactly the gap the sibling
+  // overlap-demotion test directly above closes for the OVERLAP shape of
+  // this same fix. This closes it for the ISOLATED shape: a regression
+  // specific to how the grid feeds `assignLanes` its day-scoped,
+  // server-ordered list (e.g. a future edit that re-sorted or filtered
+  // before the call, or reintroduced a shared occupancy array at a layer
+  // above `assignLanes` itself) would not be caught by the unit tier alone.
+  //
+  // No `integration_test/patrol/` case is needed here — nothing in this
+  // flow touches a native surface (no OS permission dialog, deep link, push
+  // notification, WebView, or biometric prompt); it is pure Flutter
+  // widget/HTTP plumbing, fully reachable through the existing fake-backed
+  // `integration_test/` harness.
+  testWidgets(
+    'a CANCELLED booking overlapping NOTHING, sandwiched between an early '
+    'and a late active booking, still renders in the leftmost lane — '
+    'left-aligned with both active cards — through a real GET /bookings/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // Same Kyiv day as the fake's booked-days seed, derived from
+      // `fb.bookingStartsAt` rather than hand-typed — see the "two
+      // back-to-back" test above for the incident that idiom prevents.
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time) — the same
+      // 09:00/14:00/17:00 Kyiv shape as the unit tier's minimal repro,
+      // carried onto the wire.
+      final DateTime earlyStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+      // 11:00 UTC == 14:00 Kyiv — clear of the early booking's 10:00 Kyiv
+      // end and well before the late booking's 17:00 Kyiv start, so it
+      // genuinely overlaps NEITHER of them.
+      final DateTime isolatedCancelledStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        11,
+      );
+      // 14:00 UTC == 17:00 Kyiv.
+      final DateTime lateStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        14,
+      );
+
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'early-active',
+          status: 'CONFIRMED',
+          startsAt: earlyStart,
+          duration: const Duration(hours: 1),
+        ),
+        fb.datasetBookingRow(
+          id: 'isolated-cancelled',
+          status: 'CANCELLED',
+          startsAt: isolatedCancelledStart,
+          duration: const Duration(hours: 1),
+        ),
+        fb.datasetBookingRow(
+          id: 'late-active',
+          status: 'CONFIRMED',
+          startsAt: lateStart,
+          duration: const Duration(hours: 1),
+        ),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await _selectRailDay(tester, bookedDay);
+
+      expect(
+        fb.getMyBookingsCalls,
+        greaterThan(0),
+        reason: 'all three bookings must be served by the real endpoint',
+      );
+
+      // ── All three reached the screen over the real wire, WITHOUT any
+      //      horizontal scroll — this is the assertion the field bug broke:
+      //      a cancelled booking that overlaps nothing must never need the
+      //      grid scrolled right to be found. ─────────────────────────────
+      final Finder earlyCard = find.byKey(
+        const Key('master-booking-card-early-active'),
+      );
+      final Finder cancelledCard = find.byKey(
+        const Key('master-booking-card-isolated-cancelled'),
+      );
+      final Finder lateCard = find.byKey(
+        const Key('master-booking-card-late-active'),
+      );
+      // The late booking starts at 17:00 Kyiv — 960dp down a grid that begins
+      // at 09:00 (8h × the 120dp hour) — so on a phone viewport it sits below
+      // the grid's culling band and is not built until the grid is scrolled
+      // to it. That is vertical culling, not the lane bug under test; scroll
+      // it into the band so all three cards are laid out, then assert. The
+      // band is bottom-only, so the early card stays built.
+      await _scrollTimelineTo(tester, lateCard);
+
+      expect(
+        earlyCard,
+        findsOneWidget,
+        reason:
+            'the early active booking must still be built after the '
+            'vertical scroll — the culling band evicts nothing above it',
+      );
+      expect(
+        cancelledCard,
+        findsOneWidget,
+        reason:
+            'the isolated cancelled booking must be visible WITHOUT any '
+            'horizontal scroll — this is the exact real-device report: a '
+            'master reading a cancelled card off-screen as "still blocking '
+            'the slot"',
+      );
+      expect(
+        lateCard,
+        findsOneWidget,
+        reason:
+            'the late active booking must be reachable by VERTICAL '
+            'scroll alone — no horizontal scroll may be needed to find it',
+      );
+
+      // ── The cancelled card is LEFT-ALIGNED with both active cards — real
+      //      rendered geometry, not a declared property. Nothing here
+      //      overlaps anything else, so all three sit in lane 0 and their
+      //      LEFT edges must coincide exactly. ─────────────────────────────
+      final Rect earlyRect = _masterCardRect(tester, 'early-active');
+      final Rect cancelledRect = _masterCardRect(tester, 'isolated-cancelled');
+      final Rect lateRect = _masterCardRect(tester, 'late-active');
+      expect(
+        cancelledRect.left,
+        earlyRect.left,
+        reason:
+            'the isolated cancelled card must be LEFT-ALIGNED with the '
+            'early active card — both in lane 0 — not shifted right by a '
+            "stale watermark left over from processing the LATE active "
+            "booking in pass 1 (the fe018d3 bug's exact shape)",
+      );
+      expect(
+        cancelledRect.left,
+        lateRect.left,
+        reason:
+            'the isolated cancelled card must also align with the LATE '
+            'active card — the very booking whose end time was the source '
+            'of the fe018d3 watermark leak',
       );
     },
   );

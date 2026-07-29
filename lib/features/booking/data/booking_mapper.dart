@@ -114,6 +114,13 @@ abstract final class BookingMapper {
       clientId: dto.clientId?.toString(),
       clientFirstName: dto.clientFirstName,
       clientLastName: dto.clientLastName,
+      // NOT coalesced to '' for the same reason as the two names above, and
+      // one more: the empty string is not a URL, so defaulting would hand
+      // `Image.network` a value it would try to fetch. Null stays null all the
+      // way to the card, where it selects the fallback glyph. See
+      // `Booking.clientAvatarUrl` — null here is "no photo", never "not
+      // permitted to see it".
+      clientAvatarUrl: dto.clientAvatarUrl,
       serviceId: dto.masterServiceId ?? '',
       serviceName: dto.serviceName ?? '',
       categoryName: dto.categoryName,
@@ -134,11 +141,20 @@ abstract final class BookingMapper {
       endAt: endsAt,
       status: status,
       canReview: dto.canReview ?? false,
+      // Real value only on GET /bookings/{id}; both GET /bookings/me listing
+      // paths hardcode false server-side, so a null/false wire value here is
+      // the expected shape there, not a missing-field defect. See
+      // `Booking.providerCanReviewClient`'s doc.
+      providerCanReviewClient: dto.providerCanReviewClient ?? false,
       clientComment: dto.clientComment,
       providerComment: dto.providerComment,
       clientCancellationNote: dto.clientCancellationNote,
       masterProfessionalTitle: dto.masterProfessionalTitle,
       locationNote: dto.locationNote,
+      // Additive (MO-1): null on a standalone single-service booking, set when
+      // this booking is one line of a multi-service visit. Carried through for
+      // MO-5's list grouping — nothing keys off it yet.
+      appointmentId: dto.appointmentId,
     );
   }
 

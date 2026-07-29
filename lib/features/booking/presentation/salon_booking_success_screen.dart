@@ -1,47 +1,18 @@
-// Phase 14.18 — SalonBookingSuccessScreen: salon booking flow step 4b, the
-// post-submit celebration. Mirrors the independent-master
-// `BookingSuccessScreen` (`booking_success_screen.dart`) — animated success
-// badge → "Записано!" headline → reassuring subline → the booking recap →
-// a single pinned "На головну" — extended to LIST every created appointment
-// via the SAME generalized `BookingSummaryCards` the independent success
-// screen uses (`BookingSummaryCards.fromSchedule` — see that widget's file
-// header), one per master, plus a shared salon-address card and a grand
-// total.
+// MO-4 (single-master single-visit rework) — SalonBookingSuccessScreen: salon
+// booking flow step 4b, the post-submit celebration.
 //
-// The shared celebration structure lives in
-// `widgets/booking_success_scaffold.dart` (composed by both success screens);
-// this screen just supplies its copy and its recap cards. The scaffold wraps
-// each recap card in the same staggered reveal.
+// The salon flow now books ONE visit, so this mirrors the independent-master
+// `BookingSuccessScreen` — animated badge → «Записано!» → subline → the visit
+// recap → a single pinned «На головну» — via the SAME shared
+// [BookingSummaryCards] recap. A single shared salon-address card sits above
+// the visit card.
 //
-// INFORMATION PARITY (salon booking rework): the independent success
-// screen's `BookingSummaryCards.fromMaster` call hides the master card
-// (`showMasterCard: false`) because there is exactly one master the client
-// just booked with. Here, with N masters, the master card is the only thing
-// distinguishing one appointment's recap from another — so this screen keeps
-// it VISIBLE (`showMasterCard: true`, the default). The salon address is
-// identical for every appointment (all N masters work at the SAME salon), so
-// — same as the confirm screen — it is shown ONCE at the top rather than
-// repeated per card (`showAddress: false` on each per-appointment card); a
-// grand total across every master's services closes the picture, suppressed
-// when N == 1 (it would just repeat that one card's own subtotal).
+// Reached ONLY via `SalonBookingConfirmScreen`'s `pushReplacement` once the
+// single `POST /appointments` succeeded, so the recap here is always the
+// confirmed visit. The scaffold's `PopScope(canPop: false)` blocks back.
 //
-// DELIBERATE OMISSION — no "Додати в календар" link: the independent success
-// screen's link is a documented no-op `TODO` (see
-// `booking_success_screen.dart`'s file header — no `add_2_calendar`
-// dependency in `pubspec.yaml`). Replicating a dead affordance N times would
-// add no value, so it is intentionally not carried over here.
-//
-// Reached ONLY via `SalonBookingConfirmScreen`'s `pushReplacement` once EVERY
-// appointment's `POST /bookings` succeeded (partial failures keep the client
-// on the confirm screen), so the recap here is always the full, confirmed
-// set. The scaffold's `PopScope(canPop: false)` blocks back like the
-// independent success screen — the pinned "На головну" is the only way
-// forward.
-//
-// The salon's ADDRESS is a secondary read via
-// `publicSalonProfileProvider(salonId)` — see `salon_booking_confirm_screen
-// .dart`'s file header DATA SOURCE note for the full rationale (5-minute
-// keepAlive cache, never blocks/errors this screen).
+// The salon's ADDRESS is a secondary read via `publicSalonProfileProvider`
+// (never blocks/errors this screen).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -57,21 +28,13 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 
 import '../domain/salon_booking_confirm_args.dart';
-import 'widgets/booking_recap.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/labelled_row.dart';
 import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/section_rule.dart';
 
-/// Salon booking flow step 4b — the confirmed N-appointment recap.
-///
-/// `ConsumerStatefulWidget` (rather than the original `ConsumerWidget`) so it
-/// can acquire the app-wide [ScreenProtectionManager] for its lifetime — see
-/// [_SalonBookingSuccessScreenState.initState]. This mirrors the ONLY
-/// acquire-idiom this codebase has for that manager (every other PII screen —
-/// `PublicSalonProfileScreen`, `SalonBookingConfirmScreen`, etc. — is also a
-/// `ConsumerStatefulWidget` acquiring in `initState`/releasing in `dispose`).
+/// Salon booking flow step 4b — the confirmed visit recap.
 class SalonBookingSuccessScreen extends ConsumerStatefulWidget {
   const SalonBookingSuccessScreen({super.key, required this.args});
 
@@ -84,26 +47,11 @@ class SalonBookingSuccessScreen extends ConsumerStatefulWidget {
 
 class _SalonBookingSuccessScreenState
     extends ConsumerState<SalonBookingSuccessScreen> {
-  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
-  // throws on a post-dispose `ref` read).
   late final ScreenProtectionManager _screenProtection;
-
-  // `widget.args.appointments` never changes for this screen's lifetime, so
-  // the flattened grand-total selection list is computed once here instead of
-  // on every build() (mobile-perf MEDIUM, Phase 14.18 salon-confirm audit).
-  late final List<BookingSelection> _allSelections = widget.args.appointments
-      .expand((SalonBookingAppointment a) => a.schedule.services)
-      .map(BookingSelection.fromSalonCatalogService)
-      .toList();
 
   @override
   void initState() {
     super.initState();
-    // SEC: this screen renders the salon's address (PII: street/buildingNo/
-    // city + free-text locationNote) — guard against screenshots /
-    // app-switcher snapshots while it is mounted. Mirrors the INTENTIONAL
-    // PRODUCT DECISION on `PublicSalonProfileScreen` — do not remove in a
-    // future audit pass.
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
@@ -116,13 +64,8 @@ class _SalonBookingSuccessScreenState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final List<SalonBookingAppointment> appointments = widget.args.appointments;
 
-    // Secondary read — never blocks or errors the whole screen. Scoped via
-    // `select` to just the resolved salon so a still-loading/resolving family
-    // instance rebuilds only this read, not the whole celebration screen —
-    // mobile-perf MEDIUM, Phase 14.18 audit. See
-    // `salon_booking_confirm_screen.dart`'s file header DATA SOURCE note.
+    // Secondary read — never blocks/errors the whole screen.
     final Salon? salon = ref.watch(
       publicSalonProfileProvider(
         widget.args.salonId,
@@ -139,9 +82,6 @@ class _SalonBookingSuccessScreenState
         (salon?.locationNote?.trim().isNotEmpty ?? false)
         ? salon!.locationNote!.trim()
         : null;
-    // Confirms WHERE the booking was made — same secondary
-    // `publicSalonProfileProvider` salon the address block reads (no extra
-    // fetch). Null while loading/failed → the card renders address alone.
     final String? salonName = (salon?.name.trim().isNotEmpty ?? false)
         ? salon!.name.trim()
         : null;
@@ -166,10 +106,6 @@ class _SalonBookingSuccessScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // «Салон» identity line above the address — confirms which salon
-              // this booking was made with. Dense/compact rhythm matches the
-              // rest of the success recap; same composition as the confirm
-              // screen and «Деталі запису».
               if (salonName != null) ...<Widget>[
                 LabelledRow(
                   key: const Key('salon-success-salon-name'),
@@ -190,30 +126,15 @@ class _SalonBookingSuccessScreenState
             ],
           ),
         ),
-        for (int i = 0; i < appointments.length; i++)
-          BookingSummaryCards.fromSchedule(
-            key: ValueKey<String>(
-              'salon-success-appt-${appointments[i].schedule.masterId}',
-            ),
-            schedule: appointments[i].schedule,
-            start: appointments[i].startAt,
-            avatarGradient: salonAvatarGradient(i),
-            dense: true,
-            showBorder: true,
-            compactText: true,
-          ),
-        if (appointments.length > 1)
-          NeumorphicCard(
-            key: const Key('salon-success-grand-total-card'),
-            showBorder: true,
-            padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-            child: BookingRecap(
-              selections: _allSelections,
-              totalOnly: true,
-              dense: true,
-              compactText: true,
-            ),
-          ),
+        BookingSummaryCards.fromSchedule(
+          key: const Key('salon-success-visit-card'),
+          schedule: widget.args.visit,
+          start: widget.args.startAt,
+          avatarGradient: salonAvatarGradient(0),
+          dense: true,
+          showBorder: true,
+          compactText: true,
+        ),
       ],
     );
   }

@@ -48,12 +48,11 @@ import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
-import '../features/booking/presentation/booking_time_screen.dart';
+import '../features/booking/presentation/leave_client_feedback_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
-import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
 import '../features/booking/presentation/salon_booking_success_screen.dart';
 import '../features/booking/presentation/salon_master_selection_screen.dart';
@@ -458,6 +457,21 @@ GoRouter appRouter(Ref ref) {
                 pageBuilder: (context, state) =>
                     _instantPage(state, const MyBookingsScreen()),
                 routes: [
+                  // MO-8 [mobile-security MEDIUM] — the `visit/:appointmentId`
+                  // GoRoute (and its nested `review` child) was REMOVED here.
+                  // It backed `VisitDetailScreen`'s whole-visit cancel
+                  // (`AppointmentRepository.cancelAppointment`, cascading every
+                  // leg) via a path with no UI entry point since MO-7 deleted
+                  // `VisitCard` — but `MainActivity` is `exported="true"` with
+                  // `flutter_deeplinking_enabled="true"`, so a co-installed app
+                  // could still reach it with an explicit, component-targeted
+                  // intent (bypassing `intent-filter` data matching) and
+                  // force-navigate an authenticated session to the whole-visit
+                  // cancel the locked product decision ("cancel just that one
+                  // service") removed. `VisitDetailScreen` / the nested
+                  // `AppointmentReviewScreen` are NOT deleted — see their file
+                  // headers — only unregistered. Re-adding a UI entry point
+                  // requires re-registering a route here.
                   // /bookings/:bookingId — «Деталі запису» (14.3/14.4),
                   // pushed onto this branch's own navigator (swipe-back
                   // returns to the still-scrolled list) from a BookingCard
@@ -617,20 +631,18 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             ServiceSelectorSheet(masterId: state.extra! as String),
       ),
-      // Booking flow Step 2 — the per-service TIME picker
-      // (`BookingTimeScreen`): a horizontal PageView, one slide per service
-      // selected in Step 1, each picking its OWN date + time (the confirmed
-      // salon-parity multi-service UX). Reached from `ServiceSelectorSheet`'s
-      // «Далі» CTA with a `BookingSlotPickerArgs` in `extra`.
+      // Booking flow Step 2 — the single date→time picker for the WHOLE visit
+      // (MO-3). The client picks ONE date then ONE start time; availability is
+      // fetched for the full ordered service selection (summed-duration block)
+      // and the whole visit is submitted as ONE `POST /appointments`.
       //
-      //   • bookingSlots      → BookingTimeScreen (primary multi-service flow)
-      //   • bookingSlots/time → SlotTimeScreen — the RETAINED single-service /
-      //     Phase 14.8 reschedule picker (a two-phase date→time screen sharing
-      //     `slotPickerProvider`). Not reached from the sheet today; kept
-      //     registered for the reschedule surface and its direct-pump tests.
-      // Both require a `BookingSlotPickerArgs` in `extra`; a missing/invalid
-      // extra redirects back to [RouteNames.bookingNew] rather than crashing on
-      // a bad cast.
+      //   • bookingSlots      → SlotDateScreen — «Оберіть дату»
+      //   • bookingSlots/time → SlotTimeScreen — «Оберіть час»
+      // Both share `slotPickerProvider` and require a `BookingSlotPickerArgs` in
+      // `extra` (reached from `ServiceSelectorSheet`'s «Далі», and from the
+      // reschedule surface with a non-null `rescheduleBookingId`); a missing/
+      // invalid extra redirects back to [RouteNames.bookingNew] rather than
+      // crashing on a bad cast.
       GoRoute(
         path: RouteNames.bookingSlots,
         redirect: (context, state) {
@@ -642,7 +654,7 @@ GoRouter appRouter(Ref ref) {
           return null;
         },
         builder: (context, state) =>
-            BookingTimeScreen(args: state.extra! as BookingSlotPickerArgs),
+            SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
         routes: [
           GoRoute(
             path: 'time',
@@ -749,12 +761,12 @@ GoRouter appRouter(Ref ref) {
           args: state.extra! as SalonBookingMasterSelectionArgs,
         ),
       ),
-      // Phase 14.16/14.17 — Salon booking flow step 3 (per-master date/time
-      // picker). `SalonMasterSelectionScreen`'s «Підтвердити» CTA now pushes
-      // here (with a `SalonBookingTimeArgs` in `extra`) instead of directly
-      // hopping to [salonBookingComingSoon] — same "no natural upstream
-      // extra" fallback shape as [salonBookingMasters] above, since a
-      // missing/wrong-typed extra has nothing to chain-redirect through.
+      // MO-4 — Salon booking flow step 3 (single date/time picker).
+      // `SalonMasterSelectionScreen`'s «Далі» CTA pushes here with a
+      // `SalonBookingTimeArgs` (the resolved single-master visit) in `extra` —
+      // same "no natural upstream extra" fallback shape as [salonBookingMasters]
+      // above, since a missing/wrong-typed extra has nothing to chain-redirect
+      // through.
       GoRoute(
         path: RouteNames.salonBookingTime,
         redirect: (context, state) {
@@ -768,33 +780,13 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             SalonTimeScreen(args: state.extra! as SalonBookingTimeArgs),
       ),
-      // Phase 14.13 — Salon booking flow step 4 PLACEHOLDER. Step 4
-      // (confirmation/submit) is unscoped; `SalonTimeScreen`'s «Підтвердити»
-      // CTA (Phase 14.17) routes here instead — carrying the salon id (a
-      // bare String) in `extra` for the "back to profile" action — never
-      // into the independent-master `SlotPickerScreen` (single-master flow,
-      // wrong model for a salon booking), and never a `POST /bookings` call.
-      GoRoute(
-        path: RouteNames.salonBookingComingSoon,
-        redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
-          final Object? extra = state.extra;
-          if (extra is! String || extra.isEmpty) {
-            return RouteNames.clientHome;
-          }
-          return null;
-        },
-        builder: (context, state) =>
-            SalonBookingComingSoonScreen(salonId: state.extra! as String),
-      ),
-      // Phase 14.18 — Salon booking flow step 4 (confirmation + submit).
+      // MO-4 — Salon booking flow step 4 (confirmation + submit).
       // `SalonTimeScreen`'s «Підтвердити» CTA pushes here with a
-      // `SalonBookingConfirmArgs` (the N resolved per-master appointments) in
-      // `extra`; this screen submits one `POST /bookings` per master. A
-      // missing/wrong-typed extra has no natural upstream to chain through, so
-      // it bounces to the CLIENT home shell — same fallback shape as
-      // [salonBookingMasters]/[salonBookingTime] above.
+      // `SalonBookingConfirmArgs` (the single resolved visit) in `extra`; this
+      // screen submits ONE `POST /appointments` via the shared
+      // `AppointmentSubmit`. A missing/wrong-typed extra has no natural upstream
+      // to chain through, so it bounces to the CLIENT home shell — same
+      // fallback shape as [salonBookingMasters]/[salonBookingTime] above.
       GoRoute(
         path: RouteNames.salonBookingConfirm,
         redirect: (context, state) {
@@ -885,6 +877,21 @@ GoRouter appRouter(Ref ref) {
             builder: (context, state) => BookingDetailScreen(
               bookingId: state.pathParameters['bookingId']!,
             ),
+            routes: [
+              // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-
+              // feedback), nested under the detail so it pushes onto the
+              // master's own stack (swipe-back returns to the detail).
+              // Reached from the detail's COMPLETED-provider-booking entry
+              // CTA. `builder:` (not `pageBuilder: _instantPage`) so the
+              // default Material transition + left-edge swipe-back apply,
+              // matching the detail route and its CLIENT-side `review` twin.
+              GoRoute(
+                path: 'review',
+                builder: (context, state) => LeaveClientFeedbackScreen(
+                  bookingId: state.pathParameters['bookingId']!,
+                ),
+              ),
+            ],
           ),
         ],
       ),

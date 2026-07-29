@@ -5,11 +5,21 @@
         <exclude domain="sharedpref" path="FlutterSecureStorage"/>
         <exclude domain="database" path="FlutterSecureStorageDatabase"/>
         <exclude domain="file" path=".flutter_secure_storage"/>
+        <!-- Media loader's flutter_cache_manager metadata store (avatar/photo URLs
+             with R2 keys embedding avatars/<userId>/…) — excluded so cloud backup
+             cannot leak which users a device viewed. Written to
+             getApplicationSupportDirectory() (Android getFilesDir(), "file" domain)
+             as beauticaImages.db; the cached bytes live in the cache dir, already
+             backup-excluded by default. -->
+        <exclude domain="file" path="beauticaImages.db"/>
     </cloud-backup>
     <device-transfer>
         <!-- Allow device-to-device transfer for non-sensitive preferences only -->
         <exclude domain="sharedpref" path="FlutterSecureStorage"/>
         <exclude domain="database" path="FlutterSecureStorageDatabase"/>
         <exclude domain="file" path=".flutter_secure_storage"/>
+        <!-- Same media metadata store — excluded from device-to-device transfer so a
+             new owner of a reassigned device does not inherit which users were viewed. -->
+        <exclude domain="file" path="beauticaImages.db"/>
     </device-transfer>
 </data-extraction-rules>

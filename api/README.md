@@ -47,14 +47,14 @@ Please follow the [installation procedure](#installation--usage) and then run th
 import 'package:beautica_api/beautica_api.dart';
 
 
-final api = BeauticaApi().getAuthControllerApi();
-final InviteAcceptRequest inviteAcceptRequest = ; // InviteAcceptRequest | 
+final api = BeauticaApi().getAppointmentControllerApi();
+final String appointmentId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final AppointmentCancelRequest appointmentCancelRequest = ; // AppointmentCancelRequest | 
 
 try {
-    final response = await api.acceptInvite(inviteAcceptRequest);
-    print(response);
+    api.cancelAppointment(appointmentId, appointmentCancelRequest);
 } catch on DioException (e) {
-    print("Exception when calling AuthControllerApi->acceptInvite: $e\n");
+    print("Exception when calling AppointmentControllerApi->cancelAppointment: $e\n");
 }
 
 ```
@@ -65,6 +65,14 @@ All URIs are relative to *http://localhost:8080*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointment**](doc/AppointmentControllerApi.md#cancelappointment) | **PATCH** /api/v1/appointments/{appointmentId}/cancel | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**completeAppointment**](doc/AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**createAppointment**](doc/AppointmentControllerApi.md#createappointment) | **POST** /api/v1/appointments | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointment**](doc/AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointmentItem**](doc/AppointmentControllerApi.md#declineappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/decline | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**getAppointment**](doc/AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**notCompleteAppointment**](doc/AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointment**](doc/AppointmentControllerApi.md#rescheduleappointment) | **PATCH** /api/v1/appointments/{appointmentId}/reschedule | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**acceptInvite**](doc/AuthControllerApi.md#acceptinvite) | **POST** /api/v1/auth/invite/accept | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**forgotPassword**](doc/AuthControllerApi.md#forgotpassword) | **POST** /api/v1/auth/forgot-password | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**login**](doc/AuthControllerApi.md#login) | **POST** /api/v1/auth/login | 
@@ -91,6 +99,7 @@ Class | Method | HTTP request | Description
 [*CategoryRequestControllerApi*](doc/CategoryRequestControllerApi.md) | [**submitRequest**](doc/CategoryRequestControllerApi.md#submitrequest) | **POST** /api/v1/service-categories/requests | 
 [*ClientControllerApi*](doc/ClientControllerApi.md) | [**getPassport**](doc/ClientControllerApi.md#getpassport) | **GET** /api/v1/clients/me/passport | 
 [*ClientControllerApi*](doc/ClientControllerApi.md) | [**getTimeline**](doc/ClientControllerApi.md#gettimeline) | **GET** /api/v1/clients/me/timeline | 
+[*ClientReviewControllerApi*](doc/ClientReviewControllerApi.md) | [**create**](doc/ClientReviewControllerApi.md#create) | **POST** /api/v1/client-reviews | 
 [*DashboardControllerApi*](doc/DashboardControllerApi.md) | [**getRevenueSummary**](doc/DashboardControllerApi.md#getrevenuesummary) | **GET** /api/v1/dashboard/revenue | 
 [*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**registerToken**](doc/DeviceControllerApi.md#registertoken) | **POST** /api/v1/devices/token | 
 [*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**unregisterToken**](doc/DeviceControllerApi.md#unregistertoken) | **DELETE** /api/v1/devices/token | 
@@ -118,6 +127,7 @@ Class | Method | HTTP request | Description
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getOverrides**](doc/MasterControllerApi.md#getoverrides) | **GET** /api/v1/masters/{masterId}/overrides | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWeeklySchedules**](doc/MasterControllerApi.md#getweeklyschedules) | **GET** /api/v1/masters/{masterId}/weekly-schedules | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWorkingDays**](doc/MasterControllerApi.md#getworkingdays) | **GET** /api/v1/masters/{masterId}/working-days | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**previewOverrideConflicts**](doc/MasterControllerApi.md#previewoverrideconflicts) | **POST** /api/v1/masters/{masterId}/overrides/conflicts | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**rotateMasterSalon**](doc/MasterControllerApi.md#rotatemastersalon) | **PATCH** /api/v1/masters/{masterId}/salon | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateMyProfile**](doc/MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateWeeklySchedule**](doc/MasterControllerApi.md#updateweeklyschedule) | **PUT** /api/v1/masters/{masterId}/weekly-schedules/{scheduleId} | 
@@ -136,6 +146,7 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancel**](doc/PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancelInfo**](doc/PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**info**](doc/PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
+[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createAppointmentReview**](doc/ReviewControllerApi.md#createappointmentreview) | **POST** /api/v1/appointments/{appointmentId}/review | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -173,6 +184,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
+[*UserControllerApi*](doc/UserControllerApi.md) | [**getMyRating**](doc/UserControllerApi.md#getmyrating) | **GET** /api/v1/users/me/rating | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**requestChangePasswordOtp**](doc/UserControllerApi.md#requestchangepasswordotp) | **POST** /api/v1/users/me/change-password/request-otp | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**updateMe**](doc/UserControllerApi.md#updateme) | **PATCH** /api/v1/users/me | 
 
@@ -180,12 +192,13 @@ Class | Method | HTTP request | Description
 ## Documentation For Models
 
  - [AddFavoriteRequest](doc/AddFavoriteRequest.md)
+ - [ApiResponseAppointmentDetailResponse](doc/ApiResponseAppointmentDetailResponse.md)
  - [ApiResponseAuthResponse](doc/ApiResponseAuthResponse.md)
  - [ApiResponseAvailableSlotsResponse](doc/ApiResponseAvailableSlotsResponse.md)
  - [ApiResponseAvatarResponse](doc/ApiResponseAvatarResponse.md)
  - [ApiResponseBookingDetailResponse](doc/ApiResponseBookingDetailResponse.md)
- - [ApiResponseBookingResponse](doc/ApiResponseBookingResponse.md)
  - [ApiResponseCategoryRequestResponse](doc/ApiResponseCategoryRequestResponse.md)
+ - [ApiResponseClientReviewResponse](doc/ApiResponseClientReviewResponse.md)
  - [ApiResponseContactSupportResponse](doc/ApiResponseContactSupportResponse.md)
  - [ApiResponseFavoriteResponse](doc/ApiResponseFavoriteResponse.md)
  - [ApiResponseGuestTokenResponse](doc/ApiResponseGuestTokenResponse.md)
@@ -213,6 +226,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseMasterServiceResponse](doc/ApiResponseMasterServiceResponse.md)
  - [ApiResponseMasterSummaryResponse](doc/ApiResponseMasterSummaryResponse.md)
  - [ApiResponseMediaFileResponse](doc/ApiResponseMediaFileResponse.md)
+ - [ApiResponseOverrideConflictPreviewResponse](doc/ApiResponseOverrideConflictPreviewResponse.md)
  - [ApiResponsePageMediaFileResponse](doc/ApiResponsePageMediaFileResponse.md)
  - [ApiResponsePageResponseBookingDetailResponse](doc/ApiResponsePageResponseBookingDetailResponse.md)
  - [ApiResponsePageResponseBookingResponse](doc/ApiResponsePageResponseBookingResponse.md)
@@ -238,9 +252,15 @@ Class | Method | HTTP request | Description
  - [ApiResponseScheduleOverrideResponse](doc/ApiResponseScheduleOverrideResponse.md)
  - [ApiResponseServiceDefinitionResponse](doc/ApiResponseServiceDefinitionResponse.md)
  - [ApiResponseUserProfileResponse](doc/ApiResponseUserProfileResponse.md)
+ - [ApiResponseUserRatingResponse](doc/ApiResponseUserRatingResponse.md)
  - [ApiResponseVerifyPasswordResetOtpResponse](doc/ApiResponseVerifyPasswordResetOtpResponse.md)
  - [ApiResponseVoid](doc/ApiResponseVoid.md)
  - [ApiResponseWeeklyScheduleResponse](doc/ApiResponseWeeklyScheduleResponse.md)
+ - [AppointmentCancelRequest](doc/AppointmentCancelRequest.md)
+ - [AppointmentDetailResponse](doc/AppointmentDetailResponse.md)
+ - [AppointmentItemResponse](doc/AppointmentItemResponse.md)
+ - [AppointmentProviderNoteRequest](doc/AppointmentProviderNoteRequest.md)
+ - [AppointmentRescheduleRequest](doc/AppointmentRescheduleRequest.md)
  - [ApprovedCategoryResponse](doc/ApprovedCategoryResponse.md)
  - [AssignServiceToMasterRequest](doc/AssignServiceToMasterRequest.md)
  - [AuthResponse](doc/AuthResponse.md)
@@ -260,14 +280,20 @@ Class | Method | HTTP request | Description
  - [CategoryRequestResponse](doc/CategoryRequestResponse.md)
  - [CityDistrictResponse](doc/CityDistrictResponse.md)
  - [CityResponse](doc/CityResponse.md)
+ - [ClientReviewResponse](doc/ClientReviewResponse.md)
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
  - [ContactSupportResponse](doc/ContactSupportResponse.md)
+ - [CreateAppointmentRequest](doc/CreateAppointmentRequest.md)
+ - [CreateAppointmentReviewRequest](doc/CreateAppointmentReviewRequest.md)
  - [CreateBookingRequest](doc/CreateBookingRequest.md)
  - [CreateCategoryRequestRequest](doc/CreateCategoryRequestRequest.md)
+ - [CreateClientReviewRequest](doc/CreateClientReviewRequest.md)
  - [CreatePlatformCategoryRequest](doc/CreatePlatformCategoryRequest.md)
  - [CreateReviewRequest](doc/CreateReviewRequest.md)
  - [CreateSalonRequest](doc/CreateSalonRequest.md)
  - [CreateServiceDefinitionRequest](doc/CreateServiceDefinitionRequest.md)
+ - [DuplicateServiceErrorResponse](doc/DuplicateServiceErrorResponse.md)
+ - [DuplicateServiceResponse](doc/DuplicateServiceResponse.md)
  - [EffectiveDayResponse](doc/EffectiveDayResponse.md)
  - [FavoriteMasterResponse](doc/FavoriteMasterResponse.md)
  - [FavoriteResponse](doc/FavoriteResponse.md)
@@ -295,6 +321,9 @@ Class | Method | HTTP request | Description
  - [MediaFileResponse](doc/MediaFileResponse.md)
  - [MyReviewResponse](doc/MyReviewResponse.md)
  - [OblastResponse](doc/OblastResponse.md)
+ - [OverrideConflictPreviewResponse](doc/OverrideConflictPreviewResponse.md)
+ - [OverrideConflictQueryRequest](doc/OverrideConflictQueryRequest.md)
+ - [OverrideConflictResponse](doc/OverrideConflictResponse.md)
  - [PageMediaFileResponse](doc/PageMediaFileResponse.md)
  - [PageResponseBookingDetailResponse](doc/PageResponseBookingDetailResponse.md)
  - [PageResponseBookingResponse](doc/PageResponseBookingResponse.md)
@@ -355,6 +384,7 @@ Class | Method | HTTP request | Description
  - [UpdateServicePhotoRequest](doc/UpdateServicePhotoRequest.md)
  - [UploadPortfolioPhotoRequest](doc/UploadPortfolioPhotoRequest.md)
  - [UserProfileResponse](doc/UserProfileResponse.md)
+ - [UserRatingResponse](doc/UserRatingResponse.md)
  - [VerifyEmailRequest](doc/VerifyEmailRequest.md)
  - [VerifyPasswordResetOtpRequest](doc/VerifyPasswordResetOtpRequest.md)
  - [VerifyPasswordResetOtpResponse](doc/VerifyPasswordResetOtpResponse.md)

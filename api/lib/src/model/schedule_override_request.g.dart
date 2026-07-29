@@ -137,7 +137,15 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
   @override
   final BuiltList<String>? times;
   @override
+  final bool? cancelOverlapping;
+  @override
+  final String? windowStart;
+  @override
+  final String? windowEnd;
+  @override
   final bool? kindConsistent;
+  @override
+  final bool? windowConsistent;
 
   factory _$ScheduleOverrideRequest(
           [void Function(ScheduleOverrideRequestBuilder)? updates]) =>
@@ -149,7 +157,11 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
       this.mode,
       this.intervals,
       this.times,
-      this.kindConsistent})
+      this.cancelOverlapping,
+      this.windowStart,
+      this.windowEnd,
+      this.kindConsistent,
+      this.windowConsistent})
       : super._();
   @override
   ScheduleOverrideRequest rebuild(
@@ -169,7 +181,11 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
         mode == other.mode &&
         intervals == other.intervals &&
         times == other.times &&
-        kindConsistent == other.kindConsistent;
+        cancelOverlapping == other.cancelOverlapping &&
+        windowStart == other.windowStart &&
+        windowEnd == other.windowEnd &&
+        kindConsistent == other.kindConsistent &&
+        windowConsistent == other.windowConsistent;
   }
 
   @override
@@ -180,7 +196,11 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     _$hash = $jc(_$hash, mode.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
     _$hash = $jc(_$hash, times.hashCode);
+    _$hash = $jc(_$hash, cancelOverlapping.hashCode);
+    _$hash = $jc(_$hash, windowStart.hashCode);
+    _$hash = $jc(_$hash, windowEnd.hashCode);
     _$hash = $jc(_$hash, kindConsistent.hashCode);
+    _$hash = $jc(_$hash, windowConsistent.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -193,7 +213,11 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
           ..add('mode', mode)
           ..add('intervals', intervals)
           ..add('times', times)
-          ..add('kindConsistent', kindConsistent))
+          ..add('cancelOverlapping', cancelOverlapping)
+          ..add('windowStart', windowStart)
+          ..add('windowEnd', windowEnd)
+          ..add('kindConsistent', kindConsistent)
+          ..add('windowConsistent', windowConsistent))
         .toString();
   }
 }
@@ -225,10 +249,28 @@ class ScheduleOverrideRequestBuilder
   ListBuilder<String> get times => _$this._times ??= ListBuilder<String>();
   set times(ListBuilder<String>? times) => _$this._times = times;
 
+  bool? _cancelOverlapping;
+  bool? get cancelOverlapping => _$this._cancelOverlapping;
+  set cancelOverlapping(bool? cancelOverlapping) =>
+      _$this._cancelOverlapping = cancelOverlapping;
+
+  String? _windowStart;
+  String? get windowStart => _$this._windowStart;
+  set windowStart(String? windowStart) => _$this._windowStart = windowStart;
+
+  String? _windowEnd;
+  String? get windowEnd => _$this._windowEnd;
+  set windowEnd(String? windowEnd) => _$this._windowEnd = windowEnd;
+
   bool? _kindConsistent;
   bool? get kindConsistent => _$this._kindConsistent;
   set kindConsistent(bool? kindConsistent) =>
       _$this._kindConsistent = kindConsistent;
+
+  bool? _windowConsistent;
+  bool? get windowConsistent => _$this._windowConsistent;
+  set windowConsistent(bool? windowConsistent) =>
+      _$this._windowConsistent = windowConsistent;
 
   ScheduleOverrideRequestBuilder() {
     ScheduleOverrideRequest._defaults(this);
@@ -242,7 +284,11 @@ class ScheduleOverrideRequestBuilder
       _mode = $v.mode;
       _intervals = $v.intervals?.toBuilder();
       _times = $v.times?.toBuilder();
+      _cancelOverlapping = $v.cancelOverlapping;
+      _windowStart = $v.windowStart;
+      _windowEnd = $v.windowEnd;
       _kindConsistent = $v.kindConsistent;
+      _windowConsistent = $v.windowConsistent;
       _$v = null;
     }
     return this;
@@ -273,7 +319,11 @@ class ScheduleOverrideRequestBuilder
             mode: mode,
             intervals: _intervals?.build(),
             times: _times?.build(),
+            cancelOverlapping: cancelOverlapping,
+            windowStart: windowStart,
+            windowEnd: windowEnd,
             kindConsistent: kindConsistent,
+            windowConsistent: windowConsistent,
           );
     } catch (_) {
       late String _$failedField;

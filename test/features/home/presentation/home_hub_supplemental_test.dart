@@ -32,6 +32,8 @@ import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart'
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/quick_links_card.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -93,10 +95,17 @@ List<Object> _overrides({
   ),
   AsyncValue<List<TimelineEntry>> timeline = const AsyncData(<TimelineEntry>[]),
   ScreenProtectionManager? protection,
+  // The rating pill now sources from the authoritative myRatingProvider (same
+  // as MyRatingScreen), NOT the profile summary's clientRating slice. Default
+  // is an empty ClientRating (avgRating null → "—"). Overriding it here also
+  // suppresses the real loader's 5-min keepAlive Timer, which would otherwise
+  // leave a pending timer at test teardown.
+  ClientRating rating = const ClientRating(),
 }) {
   final prot = protection ?? _NoOpScreenProtection();
   return [
     screenProtectionProvider.overrideWithValue(prot),
+    myRatingProvider.overrideWith((ref) async => rating),
     clientProfileProvider.overrideWith(
       (ref) async => profile.when(
         data: (v) => v,
@@ -206,6 +215,7 @@ void main() {
         const HomeHubScreen(),
         overrides: [
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          myRatingProvider.overrideWith((ref) async => const ClientRating()),
           // Override the profile to throw a StateError so AsyncNotifier gets it.
           clientProfileProvider.overrideWith(
             (ref) => Future<ClientProfileSummary>.error(

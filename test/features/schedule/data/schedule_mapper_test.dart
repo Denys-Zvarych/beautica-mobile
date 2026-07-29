@@ -1044,4 +1044,869 @@ void main() {
       expect(wire, Date(2024, 2, 29));
     });
   });
+
+  // ── 2026-07-26 booking-conflict design — POST /overrides/conflicts wire ───
+  //
+  // Zero coverage existed for this mapper surface before this audit
+  // (mobile-qa, 2026-07-26): `conflictQueryRequestForSpan` builds the request
+  // body every save now sends BEFORE any write; `overrideConflictFromResponse`
+  // / `overrideConflictCheckFromResponse` decode the response the day-off-
+  // conflict dialog renders. A silent field-name drift here would go
+  // undetected by every existing widget test (they all construct the domain
+  // types directly, never round-trip the wire).
+  group('conflictQueryRequestForSpan', () {
+    test('DAY_OFF span carries kind=DAY_OFF, no mode/intervals/times', () {
+      final span = ScheduleOverride.dayOff(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 29),
+      );
+      final req = ScheduleMapper.conflictQueryRequestForSpan(span);
+
+      expect(req.from, Date(2026, 7, 27));
+      expect(req.to, Date(2026, 7, 29));
+      expect(req.kind, OverrideConflictQueryRequestKindEnum.DAY_OFF);
+      expect(req.mode, isNull);
+      expect(req.intervals, isNull);
+      expect(req.times, isNull);
+    });
+
+    test('CUSTOM_HOURS/INTERVAL span carries kind=CUSTOM_HOURS, mode=INTERVAL, '
+        'the serialised intervals — never times', () {
+      final span = ScheduleOverride.custom(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        intervals: <WorkInterval>[
+          WorkInterval(
+            start: const TimeOfDay(hour: 9, minute: 0),
+            end: const TimeOfDay(hour: 18, minute: 0),
+          ),
+        ],
+      );
+      final req = ScheduleMapper.conflictQueryRequestForSpan(span);
+
+      expect(req.kind, OverrideConflictQueryRequestKindEnum.CUSTOM_HOURS);
+      expect(req.mode, OverrideConflictQueryRequestModeEnum.INTERVAL);
+      expect(req.intervals, hasLength(1));
+      expect(req.intervals!.first.startTime, '09:00:00');
+      expect(req.times, isNull);
+    });
+
+    test('CUSTOM_HOURS/EXPLICIT_TIMES span carries mode=EXPLICIT_TIMES, the '
+        'serialised times — never intervals', () {
+      final span = ScheduleOverride.explicitTimes(
+        start: DateTime(2026, 7, 27),
+        end: DateTime(2026, 7, 27),
+        times: <TimeOfDay>[
+          const TimeOfDay(hour: 9, minute: 0),
+          const TimeOfDay(hour: 15, minute: 0),
+        ],
+      );
+      final req = ScheduleMapper.conflictQueryRequestForSpan(span);
+
+      expect(req.mode, OverrideConflictQueryRequestModeEnum.EXPLICIT_TIMES);
+      expect(req.times, <String>['09:00:00', '15:00:00']);
+      expect(req.intervals, isNull);
+    });
+
+    test(
+      'a CUSTOM_HOURS override with zero working slots collapses to '
+      'DAY_OFF on the wire — mirrors overrideToRequestForDate\'s '
+      'kindConsistent contract so the two request builders never disagree',
+      () {
+        final span = ScheduleOverride.custom(
+          start: DateTime(2026, 7, 27),
+          end: DateTime(2026, 7, 27),
+          intervals: const <WorkInterval>[],
+        );
+        final req = ScheduleMapper.conflictQueryRequestForSpan(span);
+        expect(req.kind, OverrideConflictQueryRequestKindEnum.DAY_OFF);
+      },
+    );
+  });
+
+  group('overrideConflictFromResponse', () {
+    test('maps every field 1:1, UTC instants kept canonical (no .toLocal)', () {
+      final dto = OverrideConflictResponse(
+        (b) => b
+          ..bookingId = 'booking-42'
+          ..appointmentId = 'appt-7'
+          ..date = Date(2026, 7, 27)
+          ..startsAt = DateTime.utc(2026, 7, 27, 10)
+          ..endsAt = DateTime.utc(2026, 7, 27, 11)
+          ..clientDisplayName = 'Олена Гриценко'
+          ..serviceName = 'Манікюр з покриттям',
+      );
+
+      final c = ScheduleMapper.overrideConflictFromResponse(dto);
+
+      expect(c.bookingId, 'booking-42');
+      expect(c.appointmentId, 'appt-7');
+      expect(c.date, DateTime(2026, 7, 27));
+      expect(c.startsAt, DateTime.utc(2026, 7, 27, 10));
+      expect(c.endsAt, DateTime.utc(2026, 7, 27, 11));
+      expect(c.clientDisplayName, 'Олена Гриценко');
+      expect(c.serviceName, 'Манікюр з покриттям');
+      expect(c.durationMinutes, 60);
+    });
+
+    test(
+      'a null appointmentId (standalone booking, not a visit child) survives '
+      'as null — never coerced to empty string',
+      () {
+        final dto = OverrideConflictResponse(
+          (b) => b
+            ..bookingId = 'booking-1'
+            ..date = Date(2026, 7, 27)
+            ..startsAt = DateTime.utc(2026, 7, 27, 10)
+            ..endsAt = DateTime.utc(2026, 7, 27, 11)
+            ..clientDisplayName = 'Клієнт'
+            ..serviceName = 'Послуга',
+        );
+        final c = ScheduleMapper.overrideConflictFromResponse(dto);
+        expect(c.appointmentId, isNull);
+      },
+    );
+
+    test(
+      'a malformed row (every optional field absent) never throws — '
+      'defensive fallbacks keep one bad row from crashing the whole preview',
+      () {
+        final dto = OverrideConflictResponse(
+          (b) => b..date = Date(2026, 7, 27),
+        );
+        expect(
+          () => ScheduleMapper.overrideConflictFromResponse(dto),
+          returnsNormally,
+        );
+        final c = ScheduleMapper.overrideConflictFromResponse(dto);
+        expect(c.bookingId, '');
+        expect(c.clientDisplayName, '');
+        expect(c.serviceName, '');
+        expect(c.startsAt, DateTime.fromMillisecondsSinceEpoch(0));
+      },
+    );
+  });
+
+  group('overrideConflictCheckFromResponse', () {
+    test('maps conflicts + totalCount + truncated + scanTruncated 1:1', () {
+      final row = OverrideConflictResponse(
+        (b) => b
+          ..bookingId = 'b1'
+          ..date = Date(2026, 7, 27)
+          ..startsAt = DateTime.utc(2026, 7, 27, 10)
+          ..endsAt = DateTime.utc(2026, 7, 27, 11)
+          ..clientDisplayName = 'Клієнт'
+          ..serviceName = 'Послуга',
+      );
+      final dto = OverrideConflictPreviewResponse(
+        (b) => b
+          ..conflicts.replace(<OverrideConflictResponse>[row])
+          ..totalCount = 8
+          ..truncated = true
+          ..scanTruncated = false,
+      );
+
+      final check = ScheduleMapper.overrideConflictCheckFromResponse(dto);
+
+      expect(check.conflicts, hasLength(1));
+      expect(
+        check.totalCount,
+        8,
+        reason:
+            'the AUTHORITATIVE count must come from the wire totalCount, '
+            'never re-derived from conflicts.length',
+      );
+      expect(check.truncated, isTrue);
+      expect(check.scanTruncated, isFalse);
+      expect(check.isCountExact, isTrue);
+    });
+
+    test('a null totalCount falls back to conflicts.length (defensive — the '
+        'backend always sends it for a real response)', () {
+      final dto = OverrideConflictPreviewResponse(
+        (b) => b..conflicts.replace(const <OverrideConflictResponse>[]),
+      );
+      final check = ScheduleMapper.overrideConflictCheckFromResponse(dto);
+      expect(check.totalCount, 0);
+      expect(check.truncated, isFalse);
+      expect(check.scanTruncated, isFalse);
+    });
+
+    test('an absent conflicts list maps to an empty list, not a crash', () {
+      final dto = OverrideConflictPreviewResponse((b) => b..totalCount = 0);
+      final check = ScheduleMapper.overrideConflictCheckFromResponse(dto);
+      expect(check.conflicts, isEmpty);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2026-07-27 — STORED WORKING WINDOW (`windowStart` / `windowEnd`).
+  //
+  // The backend now persists the outer working window on the weekly-template
+  // day, the per-date override and the effective day as DISPLAY-ONLY metadata,
+  // so `DayHours.fromIntervals` can re-render a break flush against a window
+  // edge instead of normalising it into a shortened working day. Intervals
+  // remain the sole canonical availability.
+  //
+  // Two contracts this mapper must honour, both asserted here against the
+  // GENERATED request/response models (never a hand-rolled map — a wire-NAME
+  // mismatch is exactly the drift these tests exist to catch):
+  //
+  //   READ  — BOTH-OR-NEITHER. One edge alone, an empty string, or a
+  //           degenerate pair (`end <= start`) all yield `null`, i.e. "no
+  //           stored window" → the legacy gap-reconstruction regime. The window
+  //           is NEVER synthesised from `min(start)..max(end)`; a missing
+  //           window must stay missing, because synthesising one would silently
+  //           promote every legacy row into the new regime and change what
+  //           already-shipped schedules display.
+  //   WRITE — sent on INTERVAL branches only: `null` for a day-off and for
+  //           EXPLICIT_TIMES (the backend ignores it there; the mapper does not
+  //           rely on that leniency).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// One weekly-day response row with an optional stored window.
+  WeeklyScheduleDayResponse weeklyDayDto({
+    int dayOfWeek = 1,
+    List<WorkIntervalDto> intervals = const <WorkIntervalDto>[],
+    String? windowStart,
+    String? windowEnd,
+  }) => WeeklyScheduleDayResponse(
+    (b) => b
+      ..dayOfWeek = dayOfWeek
+      ..intervals = ListBuilder<WorkIntervalDto>(intervals)
+      ..windowStart = windowStart
+      ..windowEnd = windowEnd,
+  );
+
+  /// A one-day weekly response wrapping [day], mapped to its TemplateDay.
+  TemplateDay mapWeeklyDay(WeeklyScheduleDayResponse day) =>
+      ScheduleMapper.weeklyScheduleFromResponse(
+        WeeklyScheduleResponse(
+          (b) => b
+            ..validFrom = Date(2026, 6, 1)
+            ..days = ListBuilder<WeeklyScheduleDayResponse>(
+              <WeeklyScheduleDayResponse>[day],
+            ),
+        ),
+      ).days.firstWhere((TemplateDay d) => d.dayOfWeek == day.dayOfWeek);
+
+  group('windowStart/windowEnd — READ (both-or-neither, never synthesised)', () {
+    test('BOTH present on a weekly day → the window is carried verbatim', () {
+      // The user\'s bug shape: intervals start at 10:00 but the stored window
+      // starts at 09:00, because a 09:00–10:00 break was carved off the edge.
+      final TemplateDay day = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[_dto('10:00:00', '18:00:00')],
+          windowStart: '09:00:00',
+          windowEnd: '18:00:00',
+        ),
+      );
+
+      expect(day.window, isNotNull);
+      expect(day.window!.start, const TimeOfDay(hour: 9, minute: 0));
+      expect(day.window!.end, const TimeOfDay(hour: 18, minute: 0));
+      // The intervals are untouched — the window rides alongside, it does not
+      // replace or widen availability.
+      expect(day.intervals, hasLength(1));
+      expect(day.intervals.single.start, const TimeOfDay(hour: 10, minute: 0));
+    });
+
+    test('BOTH ABSENT → null, and the window is NOT synthesised from '
+        'min(start)..max(end)', () {
+      // THE ANTI-SYNTHESIS GUARD. A legacy row carries intervals only. If the
+      // mapper invented a window here, every pre-window template would jump to
+      // the new regime and `[09:00–13:00, 14:00–18:00]` would suddenly render
+      // its lunch break differently — a silent behaviour change on shipped
+      // data.
+      final TemplateDay day = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[
+            _dto('09:00:00', '13:00:00'),
+            _dto('14:00:00', '18:00:00'),
+          ],
+        ),
+      );
+
+      expect(
+        day.window,
+        isNull,
+        reason:
+            'an absent window is a real, meaningful null — the legacy '
+            'gap-reconstruction regime — never a value derived from the '
+            'intervals',
+      );
+    });
+
+    test('ONLY windowStart present → null (both-or-neither)', () {
+      final TemplateDay day = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[_dto('10:00:00', '18:00:00')],
+          windowStart: '09:00:00',
+        ),
+      );
+
+      expect(
+        day.window,
+        isNull,
+        reason:
+            'half a window is not a window — a lone edge must not be paired '
+            'with a fabricated counterpart',
+      );
+    });
+
+    test('ONLY windowEnd present → null (both-or-neither)', () {
+      final TemplateDay day = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[_dto('10:00:00', '18:00:00')],
+          windowEnd: '18:00:00',
+        ),
+      );
+
+      expect(day.window, isNull);
+    });
+
+    test('an EMPTY-STRING edge is treated as absent, not as midnight', () {
+      // `parseTime('')` degrades to 00:00; without the empty-string guard an
+      // empty windowStart would become a 00:00 window start and manufacture a
+      // nine-hour phantom break.
+      final TemplateDay day = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[_dto('10:00:00', '18:00:00')],
+          windowStart: '',
+          windowEnd: '18:00:00',
+        ),
+      );
+
+      expect(day.window, isNull);
+    });
+
+    test('a degenerate window (end <= start) → null', () {
+      final TemplateDay inverted = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[_dto('10:00:00', '18:00:00')],
+          windowStart: '18:00:00',
+          windowEnd: '09:00:00',
+        ),
+      );
+      expect(inverted.window, isNull, reason: 'end before start');
+
+      final TemplateDay zeroLength = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[_dto('10:00:00', '18:00:00')],
+          windowStart: '09:00:00',
+          windowEnd: '09:00:00',
+        ),
+      );
+      expect(zeroLength.window, isNull, reason: 'end equal to start');
+    });
+
+    // ── CONTAINMENT (2026-07-27 audit) ──────────────────────────────────────
+    //
+    // The window must CONTAIN every interval of its own row, else it is
+    // rejected and the row falls back to the legacy gap regime. The backend
+    // enforces containment on write, but the client must not RELY on that: a
+    // backend regression or tampered row could ship a window narrower than its
+    // intervals, and `DayHours._breaksFromWindowMinusIntervals` CLAMPS
+    // intervals into the window rather than rejecting them.
+    //
+    // The damage is not cosmetic. `intervals=[08:00–18:00]` with
+    // `window=09:00–10:00` would render a one-hour day with no warning, and the
+    // master's very next save collapses `toIntervals()` to `[09:00–10:00]` —
+    // writing away 8 hours of genuinely bookable time, with the backend
+    // blessing the now self-consistent result. Falling back to `null` keeps the
+    // intervals authoritative.
+    test('a window NARROWER than its own intervals is REJECTED → null, so the '
+        'intervals stay authoritative (availability data-loss guard)', () {
+      final TemplateDay day = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[_dto('08:00:00', '18:00:00')],
+          windowStart: '09:00:00',
+          windowEnd: '10:00:00',
+        ),
+      );
+
+      expect(
+        day.window,
+        isNull,
+        reason:
+            'a non-containing window must not be honoured — clamping to it '
+            'would render a 09:00–10:00 day and the next save would discard 8 '
+            'bookable hours',
+      );
+      // The intervals are untouched, and the legacy regime derives the window
+      // from THEM — the day still reads 08:00–18:00.
+      final DayHours redrawn = DayHours.fromIntervals(
+        day.intervals,
+        window: day.window,
+      );
+      expect(redrawn.window.start, const TimeOfDay(hour: 8, minute: 0));
+      expect(redrawn.window.end, const TimeOfDay(hour: 18, minute: 0));
+    });
+
+    test(
+      'a window that misses containment by ONE EDGE only is also rejected',
+      () {
+        // Late start: the window begins after the first interval does.
+        expect(
+          mapWeeklyDay(
+            weeklyDayDto(
+              intervals: <WorkIntervalDto>[_dto('08:00:00', '18:00:00')],
+              windowStart: '09:00:00',
+              windowEnd: '18:00:00',
+            ),
+          ).window,
+          isNull,
+          reason: 'the interval starts before the window',
+        );
+
+        // Early end: the window closes before the last interval does.
+        expect(
+          mapWeeklyDay(
+            weeklyDayDto(
+              intervals: <WorkIntervalDto>[_dto('09:00:00', '19:00:00')],
+              windowStart: '09:00:00',
+              windowEnd: '18:00:00',
+            ),
+          ).window,
+          isNull,
+          reason: 'the interval ends after the window',
+        );
+      },
+    );
+
+    test('containment is checked across ALL intervals, not just the first', () {
+      // The first block fits; the SECOND pokes past the window end.
+      expect(
+        mapWeeklyDay(
+          weeklyDayDto(
+            intervals: <WorkIntervalDto>[
+              _dto('10:00:00', '13:00:00'),
+              _dto('14:00:00', '19:00:00'),
+            ],
+            windowStart: '09:00:00',
+            windowEnd: '18:00:00',
+          ),
+        ).window,
+        isNull,
+      );
+    });
+
+    test('an EXACTLY-flush window (edges touching the intervals) is ACCEPTED — '
+        'containment is inclusive, not strict', () {
+      // The commonest real shape: window == the outer bounds of the intervals.
+      // A strict (>/<) check here would reject every ordinary day.
+      final TemplateDay day = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: <WorkIntervalDto>[
+            _dto('09:00:00', '13:00:00'),
+            _dto('14:00:00', '18:00:00'),
+          ],
+          windowStart: '09:00:00',
+          windowEnd: '18:00:00',
+        ),
+      );
+
+      expect(day.window, isNotNull);
+      expect(day.window!.start, const TimeOfDay(hour: 9, minute: 0));
+      expect(day.window!.end, const TimeOfDay(hour: 18, minute: 0));
+    });
+
+    test('containment applies to overrides and effective days too', () {
+      final ScheduleOverride override = ScheduleMapper.overrideFromResponse(
+        ScheduleOverrideResponse(
+          (b) => b
+            ..date = Date(2026, 6, 10)
+            ..kind = ScheduleOverrideResponseKindEnum.CUSTOM_HOURS
+            ..intervals = ListBuilder<WorkIntervalDto>(<WorkIntervalDto>[
+              _dto('08:00:00', '18:00:00'),
+            ])
+            ..windowStart = '09:00:00'
+            ..windowEnd = '10:00:00',
+        ),
+      );
+      expect(override.window, isNull);
+
+      final EffectiveDay effective = ScheduleMapper.effectiveDayFromResponse(
+        EffectiveDayResponse(
+          (b) => b
+            ..date = Date(2026, 6, 5)
+            ..source_ = EffectiveDayResponseSource_Enum.TEMPLATE
+            ..intervals = ListBuilder<WorkIntervalDto>(<WorkIntervalDto>[
+              _dto('08:00:00', '18:00:00'),
+            ])
+            ..windowStart = '09:00:00'
+            ..windowEnd = '10:00:00',
+        ),
+      );
+      expect(effective.window, isNull);
+    });
+
+    test(
+      'an EMPTY intervals list satisfies containment vacuously (day-off)',
+      () {
+        // A day-off row: no interval can violate containment. Every reader
+        // ignores the window there anyway, so the mapper need not special-case
+        // it — this pins that the containment loop does not accidentally reject
+        // the empty case.
+        final ScheduleOverride override = ScheduleMapper.overrideFromResponse(
+          ScheduleOverrideResponse(
+            (b) => b
+              ..date = Date(2026, 6, 10)
+              ..kind = ScheduleOverrideResponseKindEnum.CUSTOM_HOURS
+              ..windowStart = '09:00:00'
+              ..windowEnd = '18:00:00',
+          ),
+        );
+
+        expect(override.intervals, isEmpty);
+        expect(override.window, isNotNull);
+      },
+    );
+
+    test('an EXPLICIT_TIMES weekly day never carries a window, even if the '
+        'wire sent one', () {
+      final TemplateDay day = mapWeeklyDay(
+        WeeklyScheduleDayResponse(
+          (b) => b
+            ..dayOfWeek = 1
+            ..mode = WeeklyScheduleDayResponseModeEnum.EXPLICIT_TIMES
+            ..times = ListBuilder<String>(<String>['09:00:00', '11:00:00'])
+            ..windowStart = '09:00:00'
+            ..windowEnd = '18:00:00',
+        ),
+      );
+
+      expect(day.mode, WeekdayMode.explicitTimes);
+      expect(day.window, isNull);
+    });
+
+    test('a gap-filled (absent) weekly day is a day-off with no window', () {
+      final WeeklySchedule schedule = ScheduleMapper.weeklyScheduleFromResponse(
+        WeeklyScheduleResponse((b) => b..validFrom = Date(2026, 6, 1)),
+      );
+
+      expect(schedule.days, hasLength(7));
+      expect(schedule.days.every((TemplateDay d) => d.window == null), isTrue);
+    });
+
+    test('overrideFromResponse — BOTH present → window; one alone → null', () {
+      ScheduleOverride mapOverride({String? start, String? end}) =>
+          ScheduleMapper.overrideFromResponse(
+            ScheduleOverrideResponse(
+              (b) => b
+                ..date = Date(2026, 6, 10)
+                ..kind = ScheduleOverrideResponseKindEnum.CUSTOM_HOURS
+                ..intervals = ListBuilder<WorkIntervalDto>(<WorkIntervalDto>[
+                  _dto('10:00:00', '18:00:00'),
+                ])
+                ..windowStart = start
+                ..windowEnd = end,
+            ),
+          );
+
+      final ScheduleOverride both = mapOverride(
+        start: '09:00:00',
+        end: '18:00:00',
+      );
+      expect(both.window, isNotNull);
+      expect(both.window!.start, const TimeOfDay(hour: 9, minute: 0));
+      expect(both.window!.end, const TimeOfDay(hour: 18, minute: 0));
+
+      expect(mapOverride(start: '09:00:00').window, isNull);
+      expect(mapOverride(end: '18:00:00').window, isNull);
+      expect(mapOverride().window, isNull);
+      expect(
+        mapOverride(start: '18:00:00', end: '09:00:00').window,
+        isNull,
+        reason: 'degenerate pair',
+      );
+    });
+
+    test(
+      'effectiveDayFromResponse — BOTH present → window; one alone → null',
+      () {
+        EffectiveDay mapEffective({String? start, String? end}) =>
+            ScheduleMapper.effectiveDayFromResponse(
+              EffectiveDayResponse(
+                (b) => b
+                  ..date = Date(2026, 6, 5)
+                  ..source_ = EffectiveDayResponseSource_Enum.TEMPLATE
+                  ..intervals = ListBuilder<WorkIntervalDto>(<WorkIntervalDto>[
+                    _dto('10:00:00', '18:00:00'),
+                  ])
+                  ..windowStart = start
+                  ..windowEnd = end,
+              ),
+            );
+
+        final EffectiveDay both = mapEffective(
+          start: '09:00:00',
+          end: '18:00:00',
+        );
+        expect(both.window, isNotNull);
+        expect(both.window!.start, const TimeOfDay(hour: 9, minute: 0));
+        expect(both.window!.end, const TimeOfDay(hour: 18, minute: 0));
+
+        expect(mapEffective(start: '09:00:00').window, isNull);
+        expect(mapEffective(end: '18:00:00').window, isNull);
+        expect(
+          mapEffective().window,
+          isNull,
+          reason: 'a legacy / day-off / no-schedule day carries no window',
+        );
+      },
+    );
+  });
+
+  group('windowStart/windowEnd — WRITE (INTERVAL branches only)', () {
+    WeeklySchedule weekly(List<TemplateDay> days) => WeeklySchedule(
+      validFrom: DateTime(2026, 6, 1),
+      validTo: null,
+      days: days,
+    );
+
+    WorkInterval wi(int sh, int sm, int eh, int em) => WorkInterval(
+      start: TimeOfDay(hour: sh, minute: sm),
+      end: TimeOfDay(hour: eh, minute: em),
+    );
+
+    test('an INTERVAL day with a window sends BOTH keys, serialised '
+        'HH:mm:00', () {
+      final WeeklyScheduleRequest req = ScheduleMapper.weeklyScheduleToRequest(
+        weekly(<TemplateDay>[
+          TemplateDay(
+            dayOfWeek: 1,
+            label: 'd1',
+            intervals: <WorkInterval>[wi(10, 0, 18, 0)],
+            window: wi(9, 0, 18, 0),
+          ),
+        ]),
+      );
+
+      // Asserted on the GENERATED request model's own fields — if a regen
+      // renamed the wire field this would not compile, which is the point.
+      final WeeklyScheduleDayRequest day1 = req.days!.firstWhere(
+        (WeeklyScheduleDayRequest d) => d.dayOfWeek == 1,
+      );
+      expect(day1.mode, WeeklyScheduleDayRequestModeEnum.INTERVAL);
+      expect(day1.windowStart, '09:00:00');
+      expect(day1.windowEnd, '18:00:00');
+      // The window rides ALONGSIDE the intervals; it does not replace them.
+      expect(day1.intervals, hasLength(1));
+      expect(day1.intervals!.single.startTime, '10:00:00');
+    });
+
+    test('an INTERVAL day WITHOUT a window sends neither key (a legacy row '
+        'stays legacy on the way back out)', () {
+      final WeeklyScheduleRequest req = ScheduleMapper.weeklyScheduleToRequest(
+        weekly(<TemplateDay>[
+          TemplateDay(
+            dayOfWeek: 1,
+            label: 'd1',
+            intervals: <WorkInterval>[wi(9, 0, 18, 0)],
+          ),
+        ]),
+      );
+
+      final WeeklyScheduleDayRequest day1 = req.days!.firstWhere(
+        (WeeklyScheduleDayRequest d) => d.dayOfWeek == 1,
+      );
+      expect(day1.windowStart, isNull);
+      expect(day1.windowEnd, isNull);
+    });
+
+    test('a DAY-OFF day sends NO window even when the domain row still holds '
+        'one', () {
+      // A day toggled off keeps its stashed window in memory; the wire must not
+      // carry a window with nothing to contain.
+      final WeeklyScheduleRequest req = ScheduleMapper.weeklyScheduleToRequest(
+        weekly(<TemplateDay>[
+          TemplateDay(
+            dayOfWeek: 1,
+            label: 'd1',
+            intervals: <WorkInterval>[],
+            window: wi(9, 0, 18, 0),
+          ),
+        ]),
+      );
+
+      final WeeklyScheduleDayRequest day1 = req.days!.firstWhere(
+        (WeeklyScheduleDayRequest d) => d.dayOfWeek == 1,
+      );
+      expect(day1.intervals, isEmpty);
+      expect(day1.windowStart, isNull);
+      expect(day1.windowEnd, isNull);
+    });
+
+    test('an EXPLICIT_TIMES day sends NO window', () {
+      final TemplateDay day = TemplateDay(
+        dayOfWeek: 1,
+        label: 'd1',
+        intervals: <WorkInterval>[wi(10, 0, 18, 0)],
+        window: wi(9, 0, 18, 0),
+      );
+      // The real flip path: setMode clears the window (pinned in
+      // schedule_model_test.dart) — but assert the mapper independently by
+      // forcing a window back on after the flip.
+      day.setMode(WeekdayMode.explicitTimes);
+      day.times = <TimeOfDay>[const TimeOfDay(hour: 9, minute: 0)];
+      day.window = wi(9, 0, 18, 0);
+
+      final WeeklyScheduleRequest req = ScheduleMapper.weeklyScheduleToRequest(
+        weekly(<TemplateDay>[day]),
+      );
+
+      final WeeklyScheduleDayRequest day1 = req.days!.firstWhere(
+        (WeeklyScheduleDayRequest d) => d.dayOfWeek == 1,
+      );
+      expect(day1.mode, WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES);
+      expect(
+        day1.windowStart,
+        isNull,
+        reason:
+            'the backend rejects a window on an EXPLICIT_TIMES day; the mapper '
+            'must not rely on it being ignored',
+      );
+      expect(day1.windowEnd, isNull);
+    });
+
+    test(
+      'overrideToRequestForDate — CUSTOM_HOURS INTERVAL sends both keys',
+      () {
+        final ScheduleOverrideRequest req =
+            ScheduleMapper.overrideToRequestForDate(
+              ScheduleOverride.custom(
+                start: DateTime(2026, 7, 2),
+                end: DateTime(2026, 7, 2),
+                intervals: <WorkInterval>[wi(10, 0, 18, 0)],
+                window: wi(9, 0, 18, 0),
+              ),
+              DateTime(2026, 7, 2),
+            );
+
+        expect(req.kind, ScheduleOverrideRequestKindEnum.CUSTOM_HOURS);
+        expect(req.mode, ScheduleOverrideRequestModeEnum.INTERVAL);
+        expect(req.windowStart, '09:00:00');
+        expect(req.windowEnd, '18:00:00');
+      },
+    );
+
+    test('overrideToRequestForDate — a DAY_OFF override sends no window', () {
+      final ScheduleOverrideRequest req =
+          ScheduleMapper.overrideToRequestForDate(
+            ScheduleOverride.dayOff(
+              start: DateTime(2026, 7, 1),
+              end: DateTime(2026, 7, 1),
+            ),
+            DateTime(2026, 7, 1),
+          );
+
+      expect(req.kind, ScheduleOverrideRequestKindEnum.DAY_OFF);
+      expect(req.windowStart, isNull);
+      expect(req.windowEnd, isNull);
+    });
+
+    test('overrideToRequestForDate — an EMPTY-intervals CUSTOM override '
+        'collapses to DAY_OFF and sends no window', () {
+      // `_wireShapeOf` collapses a no-work custom override to DAY_OFF before
+      // the INTERVAL branch is reached, so the window is unreachable there.
+      final ScheduleOverrideRequest req =
+          ScheduleMapper.overrideToRequestForDate(
+            ScheduleOverride.custom(
+              start: DateTime(2026, 7, 2),
+              end: DateTime(2026, 7, 2),
+              intervals: <WorkInterval>[],
+              window: wi(9, 0, 18, 0),
+            ),
+            DateTime(2026, 7, 2),
+          );
+
+      expect(req.kind, ScheduleOverrideRequestKindEnum.DAY_OFF);
+      expect(req.windowStart, isNull);
+      expect(req.windowEnd, isNull);
+    });
+
+    test('overrideToRequestForDate — an EXPLICIT_TIMES override sends no '
+        'window', () {
+      final ScheduleOverrideRequest req =
+          ScheduleMapper.overrideToRequestForDate(
+            ScheduleOverride.explicitTimes(
+              start: DateTime(2026, 7, 2),
+              end: DateTime(2026, 7, 2),
+              times: <TimeOfDay>[const TimeOfDay(hour: 9, minute: 0)],
+            ),
+            DateTime(2026, 7, 2),
+          );
+
+      expect(req.mode, ScheduleOverrideRequestModeEnum.EXPLICIT_TIMES);
+      expect(req.windowStart, isNull);
+      expect(req.windowEnd, isNull);
+    });
+  });
+
+  group('windowStart/windowEnd — request→response→domain round-trip', () {
+    test('the user\'s bug shape survives a full wire cycle and re-renders as a '
+        'BREAK, not a shortened window', () {
+      // Editor state: window 09:00–18:00 with a 09:00–10:00 break.
+      final DayHours edited = DayHours(
+        window: WorkInterval(
+          start: const TimeOfDay(hour: 9, minute: 0),
+          end: const TimeOfDay(hour: 18, minute: 0),
+        ),
+        breaks: <BreakRange>[
+          BreakRange(
+            start: const TimeOfDay(hour: 9, minute: 0),
+            end: const TimeOfDay(hour: 10, minute: 0),
+          ),
+        ],
+      );
+
+      // SAVE — through the real request mapper.
+      final WeeklyScheduleRequest req = ScheduleMapper.weeklyScheduleToRequest(
+        WeeklySchedule(
+          validFrom: DateTime(2026, 6, 1),
+          validTo: null,
+          days: <TemplateDay>[
+            TemplateDay(
+              dayOfWeek: 1,
+              label: 'd1',
+              intervals: edited.toIntervals(),
+              window: edited.window.clone(),
+            ),
+          ],
+        ),
+      );
+
+      final WeeklyScheduleDayRequest sent = req.days!.firstWhere(
+        (WeeklyScheduleDayRequest d) => d.dayOfWeek == 1,
+      );
+      expect(sent.intervals!.single.startTime, '10:00:00');
+      expect(sent.windowStart, '09:00:00');
+
+      // LOAD — echo the request shape back as a response and map it home.
+      final TemplateDay reloaded = mapWeeklyDay(
+        weeklyDayDto(
+          intervals: sent.intervals!.toList(),
+          windowStart: sent.windowStart,
+          windowEnd: sent.windowEnd,
+        ),
+      );
+
+      final DayHours redrawn = DayHours.fromIntervals(
+        reloaded.intervals,
+        window: reloaded.window,
+      );
+
+      expect(
+        ScheduleMapper.formatTimeWire(redrawn.window.start),
+        '09:00:00',
+        reason:
+            'THE BUG: a 10:00 window start means the break was normalised into '
+            'a shortened working day and vanished from the editor',
+      );
+      expect(redrawn.breaks, hasLength(1));
+      expect(redrawn.breaks.single.start, const TimeOfDay(hour: 9, minute: 0));
+      expect(redrawn.breaks.single.end, const TimeOfDay(hour: 10, minute: 0));
+    });
+  });
 }

@@ -196,6 +196,44 @@ abstract interface class BookingRepository {
   /// HTTP 429 (per-user booking-write rate limit).
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt);
 
+  /// Declines a booking on behalf of the authenticated PROVIDER (an
+  /// independent master, or a salon owner/admin with authority over it —
+  /// track 27.x Wave A).
+  ///
+  /// Wraps `PATCH /bookings/{bookingId}/decline`. `StatusUpdateRequest
+  /// .cancellationReason` is `@NotNull` on the backend; this repository
+  /// always sends `PROVIDER_UNAVAILABLE` — the provider-initiated-decline
+  /// reason — mirroring how [cancelBooking] always bakes in
+  /// `CLIENT_CANCELLED` for the client's own cancel. `CLIENT_NO_SHOW`/
+  /// `CLIENT_CANCELLED` are the client-side reasons; `DUPLICATE`/`OTHER` are
+  /// not offered by this UI (see `cancel_booking_dialog.dart`'s "DO NOT BUILD
+  /// A PICKER OUT OF THE ENUM" warning — the same reasoning applies here: a
+  /// machine-facing taxonomy code has no business in front of a provider
+  /// declining an appointment).
+  ///
+  /// [comment] is the OPTIONAL free-text `providerComment`, mutually visible
+  /// to the client once the booking reads `DECLINED` (see CLAUDE.md booking-
+  /// notes rule — symmetric, mutual visibility, no audience suppression).
+  ///
+  /// Throws [ProviderDeclineWindowClosedFailure] on HTTP 409 — the backend's
+  /// Phase 27.1 `assertFutureForProviderCancel` guard: the booking's
+  /// `startsAt` is no longer strictly in the future (SERVER clock
+  /// authoritative; `Booking.hasStarted` is the UX-only mirror).
+  Future<void> declineBooking(String id, {String? comment});
+
+  /// Marks a booking COMPLETED on behalf of the authenticated PROVIDER
+  /// (track 27.x Wave A).
+  ///
+  /// Wraps `PATCH /bookings/{bookingId}/complete` — no request body; the
+  /// endpoint records no free-text account of the visit (unlike decline,
+  /// which writes `providerComment`).
+  ///
+  /// Throws [ProviderCompleteNotStartedFailure] on HTTP 409 — the backend's
+  /// Phase 27.1 `assertElapsedForComplete` guard: the booking's `startsAt` is
+  /// still in the future (SERVER clock authoritative; `Booking.hasStarted` is
+  /// the UX-only mirror).
+  Future<void> completeBooking(String id);
+
   /// Leaves a review for a COMPLETED booking on behalf of the authenticated
   /// client (Phase 14.6).
   ///
@@ -530,6 +568,64 @@ final class HttpBookingRepository implements BookingRepository {
   }
 
   @override
+  Future<void> declineBooking(String id, {String? comment}) async {
+    final String? trimmed = comment?.trim();
+    final String? effectiveComment = (trimmed == null || trimmed.isEmpty)
+        ? null
+        : trimmed;
+    try {
+      await _bookingApi.declineBooking(
+        bookingId: id,
+        statusUpdateRequest: StatusUpdateRequest(
+          (b) => b
+            ..cancellationReason =
+                StatusUpdateRequestCancellationReasonEnum.PROVIDER_UNAVAILABLE
+            ..comment = effectiveComment,
+        ),
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'declineBooking failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapProviderActionException(
+        e,
+        onConflict: (DioException e) =>
+            ProviderDeclineWindowClosedFailure(cause: e),
+      );
+    }
+  }
+
+  @override
+  Future<void> completeBooking(String id) async {
+    try {
+      await _bookingApi.completeBooking(bookingId: id);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'completeBooking failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapProviderActionException(
+        e,
+        onConflict: (DioException e) =>
+            ProviderCompleteNotStartedFailure(cause: e),
+      );
+    }
+  }
+
+  @override
   Future<void> createReview({
     required String bookingId,
     required int rating,
@@ -695,6 +791,21 @@ final class HttpBookingRepository implements BookingRepository {
     if (e.response?.statusCode == 409 && _isBookingAlreadyElapsed(e)) {
       return BookingAlreadyElapsedFailure(cause: e);
     }
+    return _mapDioException(e);
+  }
+
+  /// Maps a [DioException] from `PATCH /bookings/{id}/decline` or
+  /// `PATCH /bookings/{id}/complete` to a typed [Failure] (track 27.x Wave
+  /// A). Every 409 from either endpoint means the backend's Phase 27.1
+  /// `BookingTemporalGuard` rejected the action's timing — there is no typed
+  /// `data.code` envelope to decode (see [ProviderDeclineWindowClosedFailure]
+  /// 's doc for why), so [onConflict] resolves it PURELY by call site.
+  /// Everything else defers to [_mapDioException].
+  Failure _mapProviderActionException(
+    DioException e, {
+    required Failure Function(DioException e) onConflict,
+  }) {
+    if (e.response?.statusCode == 409) return onConflict(e);
     return _mapDioException(e);
   }
 

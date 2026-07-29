@@ -18,6 +18,8 @@ import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -61,6 +63,9 @@ final NextAppointment _appt = NextAppointment(
 
 List<Object> _overrides() => <Object>[
   screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+  // Rating pill now sources from myRatingProvider; override it so the widget
+  // test makes no real network call and leaks no keepAlive Timer.
+  myRatingProvider.overrideWith((ref) async => const ClientRating()),
   clientProfileProvider.overrideWith((ref) async => _profile),
   nextAppointmentProvider.overrideWith((ref) async => _appt),
   favoriteMastersProvider.overrideWith(

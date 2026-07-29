@@ -24,6 +24,7 @@ part 'booking_response.g.dart';
 /// * [priceMaxAtBooking] - The range ceiling agreed AT BOOKING TIME, present ONLY when the master left this service's price as a genuine RANGE (no priceOverride) when the booking was made. Null means a single price — render priceAtBooking alone. The client must never re-derive this from priceType/priceOverride; the decision is made server-side, once.
 /// * [durationMinutesAtBooking]
 /// * [createdAt]
+/// * [appointmentId] - The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). When non-null, N booking rows sharing this id are ONE client-facing visit — the mobile My Bookings list collapses them into a single card and fetches the full visit via GET /appointments/{appointmentId}. A client that ignores this field is unaffected (strictly additive).
 @BuiltValue()
 abstract class BookingResponse
     implements Built<BookingResponse, BookingResponseBuilder> {
@@ -64,6 +65,10 @@ abstract class BookingResponse
 
   @BuiltValueField(wireName: r'createdAt')
   DateTime? get createdAt;
+
+  /// The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). When non-null, N booking rows sharing this id are ONE client-facing visit — the mobile My Bookings list collapses them into a single card and fetches the full visit via GET /appointments/{appointmentId}. A client that ignores this field is unaffected (strictly additive).
+  @BuiltValueField(wireName: r'appointmentId')
+  String? get appointmentId;
 
   BookingResponse._();
 
@@ -175,6 +180,13 @@ class _$BookingResponseSerializer
         specifiedType: const FullType(DateTime),
       );
     }
+    if (object.appointmentId != null) {
+      yield r'appointmentId';
+      yield serializers.serialize(
+        object.appointmentId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -284,6 +296,14 @@ class _$BookingResponseSerializer
             specifiedType: const FullType(DateTime),
           ) as DateTime;
           result.createdAt = valueDes;
+          break;
+        case r'appointmentId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.appointmentId = valueDes;
           break;
         default:
           unhandled.add(key);

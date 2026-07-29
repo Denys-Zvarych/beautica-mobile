@@ -1390,6 +1390,59 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(find.byType(VelvetBottomNavBar), findsOne);
+
+        // ADDENDUM 9 (`bookings_timeline_grid.dart`): the timeline culls cards
+        // planned more than 1.5 viewports below the scroll offset, replacing
+        // them with an identically-sized placeholder. At this deliberately
+        // tiny 375x667 viewport — shrunk further by the app bar and the nav
+        // bar this test exists to stress — the day's last card falls past that
+        // edge, which is the optimisation working as intended and not what
+        // this case is about. Scroll the timeline to the bottom first, so the
+        // assertion below stays about the card being REACHABLE rather than
+        // about where the culling window happens to land on one device size.
+        final ScrollableState timelineScroll = tester.state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(BookingsTimelineGrid),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+
+        // PIN THE REASON b5 IS ABSENT, NOT JUST THAT SCROLLING BRINGS IT BACK.
+        // Scrolling first would otherwise let this case keep passing for the
+        // WRONG reason — a card that stopped being built at all, or one lost
+        // to a clip, also "appears" once you scroll to it. Asserting the
+        // placeholder is present, and that it sits BELOW the fold, says
+        // exactly what the ADDENDUM 9 window is supposed to have done: the
+        // card is off-screen and deliberately deferred, not missing.
+        final Finder culledB5 = find.byKey(
+          const ValueKey<String>('timeline-card-culled-b5'),
+        );
+        expect(
+          culledB5,
+          findsOneWidget,
+          reason:
+              'b5 should be absent at rest ONLY because the culling window '
+              'deferred it. If this fails, the card is missing for some other '
+              'reason and the scroll below would mask it — do not "fix" this '
+              'by deleting the assertion.',
+        );
+        expect(
+          tester.getRect(culledB5).top,
+          greaterThanOrEqualTo(
+            tester.getRect(find.byType(BookingsTimelineGrid)).bottom - 0.5,
+          ),
+          reason:
+              'b5 was culled while still inside the timeline viewport — a '
+              'blank box on screen at 375x667. Culling must only ever defer '
+              'what is already below the fold.',
+        );
+
+        timelineScroll.position.jumpTo(timelineScroll.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
         expect(
           find.byKey(const Key('master-booking-card-b5')),
           findsOneWidget,

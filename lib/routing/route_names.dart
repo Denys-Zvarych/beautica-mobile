@@ -93,6 +93,36 @@ abstract final class RouteNames {
   static String bookingReview(String bookingId) =>
       '$clientBookings/${Uri.encodeComponent(bookingId)}/review';
 
+  /// MO-5 — «Деталі запису» for a multi-service VISIT, formerly nested under
+  /// [clientBookings]. Distinct `visit/` segment so it never collides with the
+  /// single-booking [bookingDetail]'s `:bookingId` param.
+  ///
+  /// MO-8 [mobile-security MEDIUM, fixed] — the `GoRoute` this path used to
+  /// resolve to is NO LONGER REGISTERED in [app_router] (see
+  /// `app_router.dart`'s MO-8 comment in the `/bookings` branch). MO-7 already
+  /// removed `VisitCard`, `VisitDetailScreen`'s only UI entry point, but the
+  /// route stayed live and — because `MainActivity` is `exported="true"` with
+  /// `flutter_deeplinking_enabled="true"` — remained reachable from a
+  /// co-installed app via an explicit, component-targeted intent, straight to
+  /// `VisitDetailScreen`'s whole-visit cancel. The constant is retained ONLY
+  /// because `VisitDetailScreen`/`AppointmentReviewScreen` (kept, not deleted —
+  /// see their file headers) and their widget tests still build this path for
+  /// their own self-contained test routers; `test/routing/
+  /// navigation_links_test.dart`'s NL-R01 asserts it stays unregistered in the
+  /// PRODUCTION router (`deliberatelyUnregistered`). Do not wire a GoRoute back
+  /// onto it without also resolving the open product question these files'
+  /// headers describe.
+  static String appointmentDetail(String appointmentId) =>
+      '$clientBookings/visit/${Uri.encodeComponent(appointmentId)}';
+
+  /// MO-5 — the VISIT review path, nested under [appointmentDetail]. The visit
+  /// detail's «Залишити відгук» CTA still builds this path (never routed
+  /// anywhere in production — see [appointmentDetail]'s MO-8 doc); a visit is
+  /// reviewed once as a whole (`POST /appointments/{id}/review`), never the
+  /// per-booking review of a child.
+  static String appointmentReview(String appointmentId) =>
+      '$clientBookings/visit/${Uri.encodeComponent(appointmentId)}/review';
+
   /// Phase 13.3 — discovery results. Reached from the Пошук filters screen's
   /// «Показати майстрів» CTA via `context.push(..., extra: SearchFilters)`. A
   /// `push` (not a branch hop) so the swipe-back gesture returns to the filters
@@ -180,36 +210,24 @@ abstract final class RouteNames {
   /// `SalonMasterSelectionScreen`, CLIENT-guarded.
   static const String salonBookingMasters = '/booking/salon/masters';
 
-  /// Step 3 placeholder — the per-master time picker
-  /// (`docs/signup-designs/SalonBookingTime/`) is deferred; this minimal
-  /// stub is where «Підтвердити» on `SalonMasterSelectionScreen` routes
-  /// instead, carrying the salon id (a bare `String`) in `extra` so the
-  /// placeholder can offer a "back to profile" action. Never routes into the
-  /// independent-master `SlotPickerScreen` — that flow assumes one master,
-  /// not the salon's N-appointments-per-master model.
-  static const String salonBookingComingSoon = '/booking/salon/coming-soon';
-
-  /// Step 3 — per-master date/time picker ("Час"), Phase 14.16/14.17. Pushed
-  /// from `SalonMasterSelectionScreen`'s «Підтвердити» CTA with a
-  /// `SalonBookingTimeArgs` in `extra`. Renders `SalonTimeScreen`,
-  /// CLIENT-guarded. [salonBookingComingSoon] stays in the route tree
-  /// unchanged — it is now THIS screen's own «Підтвердити» hand-off target
-  /// (standing in for the not-yet-scoped step 4), not the direct target of
-  /// step 2's confirm CTA anymore.
+  /// Step 3 — single date/time picker ("Час"), MO-4. Pushed from
+  /// `SalonMasterSelectionScreen`'s «Далі» CTA with a `SalonBookingTimeArgs`
+  /// (the resolved single-master visit) in `extra`. Renders `SalonTimeScreen`,
+  /// CLIENT-guarded. (The pre-MO-4 `/booking/salon/coming-soon` placeholder
+  /// route is retired.)
   static const String salonBookingTime = '/booking/salon/time';
 
-  /// Step 4 — salon booking confirmation (review + submit), Phase 14.18.
-  /// Pushed from `SalonTimeScreen`'s «Підтвердити» CTA with a
-  /// `SalonBookingConfirmArgs` (the N resolved per-master appointments) in
-  /// `extra`. Renders `SalonBookingConfirmScreen`, CLIENT-guarded; submits one
-  /// `POST /bookings` per master. Replaces [salonBookingComingSoon] as the
-  /// step-3 «Підтвердити» hand-off target — the coming-soon stub is retired
-  /// (no longer routed to, but its route stays registered harmlessly).
+  /// Step 4 — salon booking confirmation (review + submit), MO-4. Pushed from
+  /// `SalonTimeScreen`'s «Далі» CTA with a `SalonBookingConfirmArgs` (the
+  /// single resolved visit) in `extra`. Renders `SalonBookingConfirmScreen`,
+  /// CLIENT-guarded; submits ONE `POST /appointments` via the shared
+  /// `AppointmentSubmit`.
   static const String salonBookingConfirm = '/booking/salon/confirm';
 
-  /// Step 4b — salon booking success recap, Phase 14.18. Reached ONLY via
-  /// `SalonBookingConfirmScreen`'s `pushReplacement` once EVERY appointment's
-  /// booking succeeded, carrying a `SalonBookingSuccessArgs` in `extra`.
+  /// Step 4b — salon booking success recap, MO-4. Reached ONLY via
+  /// `SalonBookingConfirmScreen`'s `pushReplacement` once the single
+  /// `POST /appointments` succeeded, carrying a `SalonBookingSuccessArgs` in
+  /// `extra`.
   /// Renders `SalonBookingSuccessScreen` (`PopScope(canPop: false)`),
   /// CLIENT-guarded; a missing/invalid `extra` bounces to [clientHome].
   static const String salonBookingSuccess = '/booking/salon/success';
@@ -263,6 +281,20 @@ abstract final class RouteNames {
   /// `leaf.matches.fullPath` instead.
   static String masterBookingDetail(String bookingId) =>
       '$masterBookings/${Uri.encodeComponent(bookingId)}';
+
+  /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback), nested
+  /// under [masterBookingDetail] so it pushes onto the master's own stack and
+  /// pops back to the detail — mirrors [bookingReview]'s nesting for the
+  /// opposite (CLIENT→MASTER) direction.
+  ///
+  /// Reached from the detail's COMPLETED-provider-booking entry CTA
+  /// (`_DetailBody._providerActions`). Unlike [bookingReview] there is no
+  /// server-computed canReview-equivalent flag for the provider side yet, so
+  /// the CTA is offered on every COMPLETED provider booking; a duplicate
+  /// submit's 409 is handled ON the destination screen (see
+  /// `LeaveClientFeedbackScreen`'s file header).
+  static String clientReview(String bookingId) =>
+      '${masterBookingDetail(bookingId)}/review';
 
   // Master profile settings hub (INDEPENDENT_MASTER). Pushed from the profile
   // screen's top-right menu icon. Lists edit sections, each pushing its own

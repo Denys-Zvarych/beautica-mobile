@@ -76,6 +76,12 @@ class _$WeeklyScheduleDayRequest extends WeeklyScheduleDayRequest {
   @override
   final BuiltList<String>? times;
   @override
+  final String? windowStart;
+  @override
+  final String? windowEnd;
+  @override
+  final bool? windowConsistent;
+  @override
   final bool? modeConsistent;
 
   factory _$WeeklyScheduleDayRequest(
@@ -87,6 +93,9 @@ class _$WeeklyScheduleDayRequest extends WeeklyScheduleDayRequest {
       this.mode,
       this.intervals,
       this.times,
+      this.windowStart,
+      this.windowEnd,
+      this.windowConsistent,
       this.modeConsistent})
       : super._();
   @override
@@ -106,6 +115,9 @@ class _$WeeklyScheduleDayRequest extends WeeklyScheduleDayRequest {
         mode == other.mode &&
         intervals == other.intervals &&
         times == other.times &&
+        windowStart == other.windowStart &&
+        windowEnd == other.windowEnd &&
+        windowConsistent == other.windowConsistent &&
         modeConsistent == other.modeConsistent;
   }
 
@@ -116,6 +128,9 @@ class _$WeeklyScheduleDayRequest extends WeeklyScheduleDayRequest {
     _$hash = $jc(_$hash, mode.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
     _$hash = $jc(_$hash, times.hashCode);
+    _$hash = $jc(_$hash, windowStart.hashCode);
+    _$hash = $jc(_$hash, windowEnd.hashCode);
+    _$hash = $jc(_$hash, windowConsistent.hashCode);
     _$hash = $jc(_$hash, modeConsistent.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -128,6 +143,9 @@ class _$WeeklyScheduleDayRequest extends WeeklyScheduleDayRequest {
           ..add('mode', mode)
           ..add('intervals', intervals)
           ..add('times', times)
+          ..add('windowStart', windowStart)
+          ..add('windowEnd', windowEnd)
+          ..add('windowConsistent', windowConsistent)
           ..add('modeConsistent', modeConsistent))
         .toString();
   }
@@ -156,6 +174,19 @@ class WeeklyScheduleDayRequestBuilder
   ListBuilder<String> get times => _$this._times ??= ListBuilder<String>();
   set times(ListBuilder<String>? times) => _$this._times = times;
 
+  String? _windowStart;
+  String? get windowStart => _$this._windowStart;
+  set windowStart(String? windowStart) => _$this._windowStart = windowStart;
+
+  String? _windowEnd;
+  String? get windowEnd => _$this._windowEnd;
+  set windowEnd(String? windowEnd) => _$this._windowEnd = windowEnd;
+
+  bool? _windowConsistent;
+  bool? get windowConsistent => _$this._windowConsistent;
+  set windowConsistent(bool? windowConsistent) =>
+      _$this._windowConsistent = windowConsistent;
+
   bool? _modeConsistent;
   bool? get modeConsistent => _$this._modeConsistent;
   set modeConsistent(bool? modeConsistent) =>
@@ -172,6 +203,9 @@ class WeeklyScheduleDayRequestBuilder
       _mode = $v.mode;
       _intervals = $v.intervals?.toBuilder();
       _times = $v.times?.toBuilder();
+      _windowStart = $v.windowStart;
+      _windowEnd = $v.windowEnd;
+      _windowConsistent = $v.windowConsistent;
       _modeConsistent = $v.modeConsistent;
       _$v = null;
     }
@@ -200,6 +234,9 @@ class WeeklyScheduleDayRequestBuilder
             mode: mode,
             intervals: _intervals?.build(),
             times: _times?.build(),
+            windowStart: windowStart,
+            windowEnd: windowEnd,
+            windowConsistent: windowConsistent,
             modeConsistent: modeConsistent,
           );
     } catch (_) {

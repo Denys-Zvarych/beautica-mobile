@@ -19,6 +19,8 @@ part 'schedule_override_response.g.dart';
 /// * [mode]
 /// * [intervals]
 /// * [times]
+/// * [windowStart]
+/// * [windowEnd]
 @BuiltValue()
 abstract class ScheduleOverrideResponse
     implements
@@ -39,6 +41,12 @@ abstract class ScheduleOverrideResponse
 
   @BuiltValueField(wireName: r'times')
   BuiltList<String>? get times;
+
+  @BuiltValueField(wireName: r'windowStart')
+  String? get windowStart;
+
+  @BuiltValueField(wireName: r'windowEnd')
+  String? get windowEnd;
 
   ScheduleOverrideResponse._();
 
@@ -105,6 +113,20 @@ class _$ScheduleOverrideResponseSerializer
         specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
+    if (object.windowStart != null) {
+      yield r'windowStart';
+      yield serializers.serialize(
+        object.windowStart,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.windowEnd != null) {
+      yield r'windowEnd';
+      yield serializers.serialize(
+        object.windowEnd,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -165,6 +187,20 @@ class _$ScheduleOverrideResponseSerializer
             specifiedType: const FullType(BuiltList, [FullType(String)]),
           ) as BuiltList<String>;
           result.times.replace(valueDes);
+          break;
+        case r'windowStart':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.windowStart = valueDes;
+          break;
+        case r'windowEnd':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.windowEnd = valueDes;
           break;
         default:
           unhandled.add(key);

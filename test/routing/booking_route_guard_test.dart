@@ -64,15 +64,13 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/slot_picker_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/booking_time_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
@@ -82,6 +80,8 @@ import 'package:beautica_mobile/features/master/application/public_master_profil
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -143,24 +143,16 @@ BookingSlotPickerArgs _validArgs() => const BookingSlotPickerArgs(
 BookingConfirmArgs _validConfirmArgs() => BookingConfirmArgs(
   masterId: _kMasterId,
   master: _kMaster,
-  appointments: <BookingAppointment>[
-    BookingAppointment(
-      serviceId: _kService.id,
-      startAt: DateTime(2026, 7, 20, 10),
-      idempotencyKey: 'guard-key-1',
-    ),
-  ],
+  services: <MasterService>[_kService],
+  startAt: DateTime(2026, 7, 20, 10),
+  idempotencyKey: 'guard-key-1',
 );
 
 /// A valid `BookingSuccessArgs` extra for `/booking/success`.
 BookingSuccessArgs _validSuccessArgs() => BookingSuccessArgs(
   master: _kMaster,
-  appointments: <BookingSuccessAppointment>[
-    BookingSuccessAppointment(
-      service: _kService,
-      start: DateTime(2026, 7, 20, 10),
-    ),
-  ],
+  services: <MasterService>[_kService],
+  startAt: DateTime(2026, 7, 20, 10),
 );
 
 // Phase 14.12/14.13 — salon booking flow fixtures.
@@ -204,10 +196,24 @@ const _kSalonMaster = SalonMasterSummary(
 
 SalonBookingTimeArgs _validSalonTimeArgs() => const SalonBookingTimeArgs(
   salonId: _kSalonId,
-  selectedServiceIds: <String>['svc-1'],
-  assignedServiceIdsByMaster: <String, List<String>>{
-    _kSalonMasterId: <String>['svc-1'],
-  },
+  visit: SalonMasterSchedule(
+    masterId: _kSalonMasterId,
+    firstName: 'Salon',
+    lastName: 'Master',
+    type: MasterType.salonMaster,
+    services: <SalonCatalogService>[
+      SalonCatalogService(
+        id: 'svc-1',
+        name: 'Манікюр',
+        durationLabel: '1 год',
+        priceDisplay: '500 ₴',
+        durationMinutes: 60,
+        priceType: ServicePriceType.fixed,
+        priceMin: 500,
+      ),
+    ],
+    orderedMasterServiceIds: <String>['assign-svc-1'],
+  ),
 );
 
 const _clientUser = User(
@@ -382,6 +388,22 @@ void main() {
               _kSalonMasterId: <String, String>{'svc-1': 'svc-1'},
             },
           ),
+          // Malformed/guard-redirect cases land the CLIENT session on
+          // `RouteNames.clientHome` (HomeHubScreen), whose `_StatPillsRow`
+          // watches `myRatingProvider`. `myRating`'s build (`my_rating_
+          // notifier.dart`) unconditionally starts a 5-minute
+          // `ref.keepAlive()` TTL `Timer` — correctly cancelled via
+          // `ref.onDispose` on provider disposal, but disposal only happens
+          // when `container.dispose()` runs (`addTearDown`, AFTER a test
+          // body returns), which is AFTER the `!timersPending` tear-down
+          // check. The `retry: null` knob above does not help here — that
+          // only suppresses Riverpod's error-retry backoff, not this
+          // explicit application Timer. Same leaked-timer shape as the
+          // other overrides in this list; settling with an override
+          // (bypassing `myRating`'s build body, and the Timer, entirely) is
+          // the fix, mirroring `role_landing_chrome_test.dart`'s identical
+          // fix for the same screen.
+          myRatingProvider.overrideWith((ref) async => const ClientRating()),
         ],
       );
       addTearDown(container.dispose);
@@ -437,7 +459,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.masterProfile));
-        expect(find.byType(BookingTimeScreen), findsNothing);
+        expect(find.byType(SlotDateScreen), findsNothing);
       });
 
       testWidgets('/booking/slots/time (extra: valid args) → /master/profile', (
@@ -502,19 +524,6 @@ void main() {
         },
       );
 
-      testWidgets(
-        '/booking/salon/coming-soon (extra: salonId) → /master/profile',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _masterSession);
-
-          router.go(RouteNames.salonBookingComingSoon, extra: _kSalonId);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.masterProfile));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
-
       testWidgets('/booking/salon/time (extra: valid args) → /master/profile', (
         tester,
       ) async {
@@ -546,7 +555,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.bookingSlots));
-        expect(find.byType(BookingTimeScreen), findsOneWidget);
+        expect(find.byType(SlotDateScreen), findsOneWidget);
       });
 
       testWidgets('/booking/slots/time (extra: valid args)', (tester) async {
@@ -607,18 +616,6 @@ void main() {
         expect(find.byType(SalonMasterSelectionScreen), findsOneWidget);
       });
 
-      testWidgets('/booking/salon/coming-soon (extra: salonId)', (
-        tester,
-      ) async {
-        final router = await pumpRouterAs(tester, _clientSession);
-
-        router.go(RouteNames.salonBookingComingSoon, extra: _kSalonId);
-        await tester.pumpAndSettle();
-
-        expect(locationOf(router), equals(RouteNames.salonBookingComingSoon));
-        expect(find.byType(SalonBookingComingSoonScreen), findsOneWidget);
-      });
-
       testWidgets('/booking/salon/time (extra: valid args)', (tester) async {
         final router = await pumpRouterAs(tester, _clientSession);
 
@@ -672,7 +669,7 @@ void main() {
           await tester.pumpAndSettle();
 
           expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(BookingTimeScreen), findsNothing);
+          expect(find.byType(SlotDateScreen), findsNothing);
         },
       );
 
@@ -819,33 +816,6 @@ void main() {
 
       // Phase 14.13 — /booking/salon/coming-soon requires a non-empty String
       // (salonId) extra, mirroring /booking/salon/services' guard shape.
-      testWidgets(
-        '/booking/salon/coming-soon with a missing extra redirects to /home '
-        '(clientHome)',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _clientSession);
-
-          router.go(RouteNames.salonBookingComingSoon);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
-
-      testWidgets(
-        '/booking/salon/coming-soon with a wrong-typed extra redirects to '
-        '/home (clientHome)',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _clientSession);
-
-          router.go(RouteNames.salonBookingComingSoon, extra: 42);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
 
       // Phase 14.16 — /booking/salon/time has no natural upstream salon id
       // to chain-redirect through either — same "no natural upstream"

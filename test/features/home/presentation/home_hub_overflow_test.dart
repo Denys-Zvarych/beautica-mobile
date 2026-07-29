@@ -45,6 +45,8 @@ import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -125,6 +127,9 @@ const _sampleTimeline = <TimelineEntry>[
 List<Object> _populatedOverrides() {
   return [
     screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+    // Rating pill now sources from myRatingProvider; override it so the widget
+    // test makes no real network call and leaks no keepAlive Timer.
+    myRatingProvider.overrideWith((ref) async => const ClientRating()),
     clientProfileProvider.overrideWith((ref) async => _sampleProfile),
     nextAppointmentProvider.overrideWith((ref) async => _sampleAppointment),
     favoriteMastersProvider.overrideWith((ref) async => _sampleMasters),

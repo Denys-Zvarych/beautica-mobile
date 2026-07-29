@@ -22,6 +22,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -31,13 +32,30 @@ import 'booking_mapper.dart';
 
 const String _tag = 'feature.booking.slot_repository';
 
+/// Max services in one multi-service availability query — mirrors the backend
+/// `MAX_SERVICES_PER_VISIT` (`@Size(max = 10)` on the now-repeatable
+/// `serviceId` query param). The booking UI (MO-3/MO-4) caps the visit
+/// selection at this; the [SlotRepository] methods assert on it as a
+/// fail-fast, dev-time guard so a malformed caller is caught before the wasted
+/// round-trip that the backend would otherwise reject with a 400.
+const int maxServicesPerVisit = 10;
+
 /// Contract for the master-availability read layer.
 ///
 /// Every method either resolves successfully or throws a [Failure] subclass
 /// from `core/errors/failures.dart`. Raw [DioException]s never escape.
 abstract interface class SlotRepository {
-  /// Fetches the bookable time slots for [masterId] + [serviceId] on the
+  /// Fetches the bookable time slots for [masterId] + [serviceIds] on the
   /// given calendar [date] (time-of-day component discarded).
+  ///
+  /// [serviceIds] is an ORDERED, non-empty list of ≤ [maxServicesPerVisit] ids
+  /// (MO-2): the backend sizes each returned slot to the SUMMED duration of
+  /// the listed services, performed back-to-back by this one master. Order is
+  /// significant (it is the back-to-back running order) and is preserved on
+  /// the wire as repeated `serviceId=` params in list order. A single-element
+  /// list is the single-service path — byte-for-byte identical to the pre-MO-2
+  /// one-`serviceId=` request. The multi-service flow screens are wired in
+  /// MO-3/MO-4; today every caller passes exactly one id.
   ///
   /// Wraps `GET /masters/{masterId}/slots`. Returns an empty list when the
   /// master has no availability that day (a valid, non-error result — the
@@ -48,7 +66,7 @@ abstract interface class SlotRepository {
   /// resolves, so rapid day-switching never stacks N concurrent requests.
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   });
@@ -59,19 +77,22 @@ abstract interface class SlotRepository {
   /// Wraps `GET /masters/{masterId}/working-days`. Callers (the Phase 14.14
   /// calendar day-availability gate) MUST keep the span bounded — the backend
   /// rejects an over-wide window: ~365 days in schedule-shape mode, but only
-  /// 62 days once [serviceId] is supplied (400 beyond that).
+  /// 62 days once [serviceIds] is supplied (400 beyond that).
   ///
-  /// When [serviceId] is non-null the returned `working` flag is
-  /// AVAILABILITY-AWARE (Phase 14.20): true iff a free range fits that
-  /// service's full duration with start >= now+15min — the same computation as
-  /// `getMasterSlots`, so the calendar's day gate agrees with the time grid.
-  /// When null the flag is the older schedule-shape signal (master has
-  /// intervals that day, duration-blind).
+  /// When [serviceIds] is non-null it is an ORDERED, non-empty list of ≤
+  /// [maxServicesPerVisit] ids and the returned `working` flag is
+  /// AVAILABILITY-AWARE (Phase 14.20 / MO-2): true iff a free range fits the
+  /// SUMMED duration of the listed services with start >= now+15min — the same
+  /// computation as [getMasterSlots], so the calendar's day gate agrees with
+  /// the time grid. A single-element list is byte-for-byte identical to the
+  /// pre-MO-2 one-`serviceId=` request. When null the flag is the older
+  /// schedule-shape signal (master has intervals that day, duration-blind) and
+  /// the query param is omitted entirely.
   Future<List<WorkingDay>> getWorkingDays({
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   });
 }
@@ -88,14 +109,27 @@ final class HttpSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async {
+    assert(
+      serviceIds.isNotEmpty && serviceIds.length <= maxServicesPerVisit,
+      'serviceIds must be a non-empty ordered list of at most '
+      '$maxServicesPerVisit ids (got ${serviceIds.length}) — mirrors the '
+      'backend MAX_SERVICES_PER_VISIT; fail fast before the wasted round-trip.',
+    );
     try {
       final res = await _masterApi.getAvailableSlots(
         masterId: masterId,
-        serviceId: serviceId,
+        // `serviceId` is a REPEATABLE query param on the backend
+        // (feat/multi-service-appointments — the generated param is a
+        // `BuiltList<String>` for multi-service availability). The ordered
+        // [serviceIds] pass straight through; a single-element list serialises
+        // to exactly the one `serviceId=` param the pre-MO-2 code sent —
+        // byte-for-byte identical. N ids serialise as N ordered `serviceId=`
+        // params, and the backend sizes each slot to their summed duration.
+        serviceId: BuiltList<String>(serviceIds),
         // Date-only wire param (year-month-day only; time-of-day discarded) —
         // mirrors `ScheduleMapper.dateToWire`.
         date: Date(date.year, date.month, date.day),
@@ -123,9 +157,16 @@ final class HttpSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
+    assert(
+      serviceIds == null ||
+          (serviceIds.isNotEmpty && serviceIds.length <= maxServicesPerVisit),
+      'serviceIds, when non-null, must be a non-empty ordered list of at most '
+      '$maxServicesPerVisit ids (got ${serviceIds.length}) — mirrors the '
+      'backend MAX_SERVICES_PER_VISIT; fail fast before the wasted round-trip.',
+    );
     try {
       final res = await _masterApi.getWorkingDays(
         masterId: masterId,
@@ -133,8 +174,12 @@ final class HttpSlotRepository implements SlotRepository {
         from: Date(from.year, from.month, from.day),
         to: Date(to.year, to.month, to.day),
         // Availability-aware mode when non-null; the generated client omits
-        // the query param entirely when null (schedule-shape mode).
-        serviceId: serviceId,
+        // the query param entirely when null (schedule-shape mode). The
+        // ordered [serviceIds] pass straight through the REPEATABLE
+        // `BuiltList<String>` param (see `getMasterSlots`) — a single-element
+        // list serialises to exactly the one `serviceId=` param the pre-MO-2
+        // code sent.
+        serviceId: serviceIds == null ? null : BuiltList<String>(serviceIds),
         cancelToken: cancelToken,
       );
       final days = res.data?.data ?? const <MasterWorkingDayResponse>[];

@@ -71,6 +71,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -570,6 +571,25 @@ class _MasterPhoto extends StatelessWidget {
 
   static const double size = 52;
 
+  /// The lit (non-`dimmed`) disc's neumorphic pair. Hoisted to a static field
+  /// — MO-7 made this widget one instance PER SERVICE CARD (was once per
+  /// VISIT under the old grouped `VisitCard`), so a per-build allocation here
+  /// is now N× more frequent. Mirrors `_BookingCardState._deadShadows`'s
+  /// treatment for the same reason. `static final`, not `static const`:
+  /// `Color.withValues` is not a const constructor.
+  static final List<BoxShadow> _liftedShadows = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkCard.withValues(alpha: 0.75),
+      offset: const Offset(3, 3),
+      blurRadius: 8,
+    ),
+    const BoxShadow(
+      color: BrandColors.shadowLightStrong,
+      offset: Offset(-3, -3),
+      blurRadius: 8,
+    ),
+  ];
+
   static const List<Color> _gradient = <Color>[
     BrandColors.accentLogo,
     BrandColors.accent,
@@ -600,40 +620,24 @@ class _MasterPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? url = avatarUrl;
-    final bool isHttps =
-        url != null && url.isNotEmpty && Uri.tryParse(url)?.scheme == 'https';
-
     final Widget disc = Container(
       height: size,
       width: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        boxShadow: dimmed
-            ? null
-            : <BoxShadow>[
-                BoxShadow(
-                  color: BrandColors.shadowDarkCard.withValues(alpha: 0.75),
-                  offset: const Offset(3, 3),
-                  blurRadius: 8,
-                ),
-                const BoxShadow(
-                  color: BrandColors.shadowLightStrong,
-                  offset: Offset(-3, -3),
-                  blurRadius: 8,
-                ),
-              ],
+        boxShadow: dimmed ? null : _liftedShadows,
       ),
-      child: ClipOval(
-        child: isHttps
-            ? Image.network(
-                url,
-                fit: BoxFit.cover,
-                cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
-                    .round(),
-                errorBuilder: (_, _, _) => _initialsDisc(),
-              )
-            : _initialsDisc(),
+      // Shared media loader: the https-only + host-allowlist guard, the disk
+      // cache, the socket-level TLS controls and the animated-WebP pin all
+      // live in RemoteImage now (see core/media/beautica_image.dart). The
+      // circular clip + gradient-initials fallback are unchanged.
+      child: RemoteImage(
+        url: avatarUrl,
+        width: size,
+        height: size,
+        shape: RemoteImageShape.circle,
+        excludeFromSemantics: true,
+        fallback: _initialsDisc(),
       ),
     );
     // A cancelled booking's photo desaturates toward the base tone — the

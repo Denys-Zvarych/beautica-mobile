@@ -552,6 +552,54 @@ final class FakeBackend {
   /// assert ZERO upserts on a back-without-save and exactly ONE on a Save.
   void seedNoWeeklySchedule() => _weeklySchedule = <Map<String, dynamic>>[];
 
+  /// Reseeds the weekly schedule so MONDAY carries a STORED WORKING WINDOW
+  /// (`windowStart`/`windowEnd`, added to the contract 2026-07-27).
+  ///
+  /// Monday's canonical intervals are `[10:00–18:00]` while its stored window is
+  /// `09:00–18:00` — i.e. the master saved a «Перерва» 09:00–10:00 flush against
+  /// the window START. That is the exact row the backend now persists, and the
+  /// row the editor must re-render as a WINDOW + BREAK rather than as a
+  /// shortened 10:00–18:00 working day.
+  ///
+  /// Tuesday stays an ordinary LEGACY row (intervals only, no window) so the
+  /// same run also proves the legacy regime still renders unchanged, and so
+  /// closing Monday never trips the all-off DELETE path.
+  void seedWeeklyScheduleWithStoredWindow() =>
+      _weeklySchedule = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'schedule-1',
+          'validFrom': '2026-06-14',
+          'validTo': null,
+          'days': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'dayOfWeek': 1,
+              'intervals': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'startTime': '10:00:00',
+                  'endTime': '18:00:00',
+                },
+              ],
+              'windowStart': '09:00:00',
+              'windowEnd': '18:00:00',
+            },
+            <String, dynamic>{
+              'dayOfWeek': 2,
+              'intervals': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'startTime': '09:00:00',
+                  'endTime': '18:00:00',
+                },
+              ],
+            },
+            <String, dynamic>{'dayOfWeek': 3, 'intervals': <dynamic>[]},
+            <String, dynamic>{'dayOfWeek': 4, 'intervals': <dynamic>[]},
+            <String, dynamic>{'dayOfWeek': 5, 'intervals': <dynamic>[]},
+            <String, dynamic>{'dayOfWeek': 6, 'intervals': <dynamic>[]},
+            <String, dynamic>{'dayOfWeek': 7, 'intervals': <dynamic>[]},
+          ],
+        },
+      ];
+
   // ── Call-count telemetry (for assertions in tests) ────────────────────────
 
   int loginCalls = 0;
@@ -763,6 +811,21 @@ final class FakeBackend {
   bool bulkRejectDurationField = false;
   int bulkRejectItemIndex = 0;
 
+  /// When true, the single-create route
+  /// (`POST /independent-masters/me/services`) replies HTTP 409 with the typed
+  /// `{ data: { code: "DUPLICATE_SERVICE", serviceName, existingServiceDefId } }`
+  /// envelope instead of the default 201 — the service the master tried to add is
+  /// already in their menu. Drives the repository's
+  /// `_mapServiceWriteException` → [ServiceDuplicateFailure] → inline
+  /// service-type error on the form (NOT the generic errServer snackbar, and NO
+  /// pop). Off by default so every other flow's create stays a clean 201.
+  bool createRejectDuplicate = false;
+
+  /// The `serviceName` the duplicate-409 envelope reports (the clashing service's
+  /// display name). Threaded through so a flow can assert the typed field survives
+  /// the decode; the form renders the localized copy regardless of its value.
+  String createDuplicateServiceName = 'Класичний манікюр';
+
   /// Test-support: empties the pre-seeded services list so
   /// `GET /api/v1/independent-masters/me/services` returns `[]`. Used by flows
   /// that must exercise the zero-services empty state (e.g. the master-home
@@ -858,6 +921,29 @@ final class FakeBackend {
   /// The most recent override PUT body — `{ date, kind, mode?, intervals?,
   /// times? }`. Lets a test assert the override the editor serialised.
   Map<String, dynamic>? lastOverrideBody;
+
+  // ── Override booking-conflict preview telemetry (2026-07-26 design) ────────
+  /// `POST /api/v1/masters/{masterId}/overrides/conflicts` call count.
+  int previewConflictsCalls = 0;
+
+  /// The most recent conflict-preview request body — `{ from, to, kind, mode?,
+  /// intervals?, times? }`.
+  Map<String, dynamic>? lastConflictQueryBody;
+
+  /// Conflicts the NEXT `previewConflicts` call(s) report — wire-shaped rows
+  /// `{ bookingId, appointmentId, date, startsAt, endsAt, clientDisplayName,
+  /// serviceName }`. Empty by default (no conflicts), so every flow that never
+  /// seeds this keeps the pre-existing "no gate to see" behaviour; a flow
+  /// driving the non-empty path sets this BEFORE booting.
+  List<Map<String, dynamic>> conflictPreviewRows = <Map<String, dynamic>>[];
+
+  /// `PUT /overrides/{date}` calls made with `cancelOverlapping: true` while
+  /// [conflictPreviewRows] was non-empty — the fake's stand-in for "the server
+  /// atomically declined every conflicting booking with this write" (D3). Also
+  /// flips the seeded `booking-1` fixture's [bookingStatus] to `DECLINED` so a
+  /// flow can assert the conflicting booking is gone from the source of truth
+  /// the app re-reads after the invalidation the sheet issues on confirm.
+  int overrideCancelOverlappingWrites = 0;
 
   // ── Internal helpers ───────────────────────────────────────────────────────
 
@@ -1740,6 +1826,33 @@ final class FakeBackend {
   String? lastReviewComment;
   String? lastReviewBookingId;
 
+  /// Server-computed `providerCanReviewClient` for the seeded booking (track
+  /// 7.x Wave B). Gates `BookingDetailScreen`'s own «Залишити відгук про
+  /// клієнта» CTA (see `_DetailBody._providerActions`) exactly like
+  /// [bookingCanReview] gates the CLIENT footer. A flow that exercises the
+  /// leave-client-feedback journey seeds this `true` (with [bookingStatus] =
+  /// `COMPLETED`); a successful `POST /client-reviews` flips it `false` so a
+  /// detail re-fetch (triggered by the screen's `bookingDetailProvider`
+  /// invalidation on success) re-resolves the CTA away, mirroring
+  /// [bookingCanReview]'s post-review flip.
+  bool bookingProviderCanReviewClient = true;
+
+  /// `POST /client-reviews` call count + the last rating/comment/bookingId
+  /// submitted (track 7.x Wave B — the PROVIDER→CLIENT «ВІДГУК ПРО КЛІЄНТА»
+  /// mirror of [createReviewCalls] above). Asserted by the
+  /// leave-client-feedback flow.
+  int createClientReviewCalls = 0;
+  int? lastClientReviewRating;
+  String? lastClientReviewComment;
+  String? lastClientReviewBookingId;
+
+  /// `GET /users/me/rating` fixture (track 7.x Wave B — «Мій рейтинг»). Null
+  /// [myRatingAvgRating] means no reviews yet (the empty state); a flow that
+  /// exercises the rated state overrides it before booting.
+  double? myRatingAvgRating;
+  int myRatingReviewCount = 0;
+  int getMyRatingCalls = 0;
+
   /// The client's free-text cancellation note, captured on cancel (may be null
   /// — a silent self-cancellation).
   String? bookingClientCancellationNote;
@@ -1796,10 +1909,76 @@ final class FakeBackend {
   int cancelBookingCalls = 0;
   String? lastCancelComment;
 
+  /// Track 27.x Wave A — `PATCH /bookings/{id}/decline` (PROVIDER decline)
+  /// call count + the last `StatusUpdateRequest` body the fake actually
+  /// received (`comment`/`cancellationReason`, wire keys as
+  /// `booking_repository.dart`'s `declineBooking` serialises them). Flips
+  /// [bookingStatus] to `DECLINED` on success — mirrors the client cancel
+  /// route above, but on the PROVIDER write path.
+  int declineBookingCalls = 0;
+  String? lastDeclineComment;
+  String? lastDeclineCancellationReason;
+
+  /// Track 27.x Wave A — `PATCH /bookings/{id}/complete` (PROVIDER complete,
+  /// no request body) call count. Flips [bookingStatus] to `COMPLETED` on
+  /// success.
+  int completeBookingCalls = 0;
+
   /// `PATCH /bookings/{id}/reschedule` call count + the last `newStartsAt`
   /// wire value the client submitted (track 24.x auto-confirm reschedule).
   int rescheduleBookingCalls = 0;
   String? lastRescheduleNewStartsAt;
+
+  /// Track 27.x/MO-6 — the seeded booking's `appointmentId`, `null` by
+  /// default (a plain single-service booking). A flow proving the
+  /// appointment-child provider-write routing (`BookingDetailScreen`'s
+  /// `_confirmDecline`/`_confirmComplete` routing to
+  /// `AppointmentRepository.completeAppointment`/`declineAppointment` instead
+  /// of the per-booking endpoints) sets this to a non-null id BEFORE booting
+  /// the harness, so `GET /bookings/booking-1` serves a booking whose
+  /// `appointmentId` is non-null — mirroring how `bookingPriceMax` is seeded
+  /// for the RANGE-price flow. The per-booking `/decline`/`/complete` ROUTES
+  /// below still exist and would still (unrealistically) succeed if hit — the
+  /// real backend's `assertNotAppointmentChild` 409 guard is NOT reproduced
+  /// here; the routing proof instead rests on the write count staying at 0 on
+  /// [declineBookingCalls]/[completeBookingCalls] while the hand-faked
+  /// `AppointmentRepository` (see
+  /// `master_appointment_child_booking_actions_flow_test.dart`) records the
+  /// call — the same "prove it went to the OTHER path" shape every other
+  /// appointment-vs-booking flow in this suite already uses.
+  String? bookingAppointmentId;
+
+  /// Track 27.x/MO-6 (PER-SERVICE decline) — a SIBLING service of the same
+  /// multi-service visit as `booking-1` (both carry [bookingAppointmentId]).
+  /// Served at the concrete `GET /bookings/booking-2` route below with its OWN
+  /// status ([siblingBookingStatus]), INDEPENDENT of `booking-1`'s
+  /// [bookingStatus]. This is the "reflect per-item status" surface the
+  /// per-service decline regression needs: declining ONE child
+  /// (`declineChild('booking-1')`) must leave this sibling CONFIRMED — the old
+  /// whole-visit decline flipped BOTH. A flow that exercises the sibling seeds
+  /// [bookingAppointmentId] before booting so `booking-2` reads as a real
+  /// visit child.
+  String siblingBookingStatus = 'CONFIRMED';
+
+  /// `GET /bookings/booking-2` (sibling detail) call count — non-zero proves
+  /// the sibling detail actually re-fetched through the real HTTP boundary
+  /// (not a stale cached CONFIRMED value).
+  int getSiblingBookingDetailCalls = 0;
+
+  /// Flips ONLY the tapped child's status to DECLINED, keyed on [bookingId] —
+  /// `booking-1` moves [bookingStatus], `booking-2` moves
+  /// [siblingBookingStatus]. Because the per-service decline fix passes THIS
+  /// child's own id (never the whole visit), declining `booking-1` here leaves
+  /// `booking-2` CONFIRMED. The old whole-visit `declineAppointment` would have
+  /// moved every child at once — this per-item routing is exactly what makes
+  /// the sibling assertion a genuine regression guard.
+  void declineChild(String bookingId) {
+    if (bookingId == 'booking-2') {
+      siblingBookingStatus = 'DECLINED';
+    } else {
+      bookingStatus = 'DECLINED';
+    }
+  }
 
   /// `GET /bookings/booking-1` (detail) + `GET /bookings/me` (list) call
   /// counts. A reschedule invalidates BOTH `bookingDetailProvider(id)` and
@@ -1870,11 +2049,54 @@ final class FakeBackend {
     'endsAt': bookingEndsAt,
     'status': bookingStatus,
     'canReview': bookingCanReview,
+    'providerCanReviewClient': bookingProviderCanReviewClient,
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': bookingClientCancellationNote,
     'masterProfessionalTitle': 'Майстриня манікюру',
     'locationNote': null,
+    'appointmentId': bookingAppointmentId,
+  };
+
+  /// The enriched `BookingDetailResponse` body for the SIBLING child
+  /// (`booking-2`) of the same visit as `booking-1` — a SECOND service of the
+  /// visit, carrying the same [bookingAppointmentId] but its OWN independent
+  /// [siblingBookingStatus]. Distinct `serviceName` so a rendered assertion
+  /// can tell the two children apart; same master/window as `booking-1` so its
+  /// provider footer offers the same CONFIRMED affordances until (and only if)
+  /// it is itself declined.
+  Map<String, dynamic> _seededSiblingBookingJson() => <String, dynamic>{
+    'id': 'booking-2',
+    'masterId': 'master-aaa',
+    'masterFirstName': 'Софія',
+    'masterLastName': 'Бондар',
+    'masterAvatarUrl': null,
+    'masterType': 'INDEPENDENT_MASTER',
+    'salonName': null,
+    'clientId': 'client-1',
+    'clientFirstName': clientFirstName,
+    'clientLastName': clientLastName,
+    'masterServiceId': 'pub-assign-2',
+    'serviceName': 'Дизайн нігтів',
+    'categoryName': 'Манікюр',
+    'cityLabel': 'Київ',
+    'districtLabel': 'Печерський',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'durationMinutesAtBooking': 60,
+    'priceAtBooking': 400,
+    'priceMaxAtBooking': null,
+    'startsAt': bookingStartsAt,
+    'endsAt': bookingEndsAt,
+    'status': siblingBookingStatus,
+    'canReview': false,
+    'providerCanReviewClient': false,
+    'clientComment': null,
+    'providerComment': null,
+    'clientCancellationNote': null,
+    'masterProfessionalTitle': 'Майстриня манікюру',
+    'locationNote': null,
+    'appointmentId': bookingAppointmentId,
   };
 
   /// The `ApiResponse<PageResponse<BookingDetailResponse>>` envelope for the
@@ -2219,6 +2441,24 @@ final class FakeBackend {
         return currentRole == UserRole.client
             ? _ok(_clientProfileBody())
             : _ok(userJsonForRole(currentRole));
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/users/me/rating — CLIENT's own aggregate two-sided rating
+    // (track 7.x Wave B, «Мій рейтинг»). A DISTINCT path from `/users/me`
+    // above — the mock router matches by exact path, so registration order
+    // relative to the sibling `/users/me` GET/PATCH routes does not matter
+    // here (unlike the `.../reviews` vs `.../reviews/summary` prefix case
+    // elsewhere in this file).
+    _adapter.onRoute(
+      '/api/v1/users/me/rating',
+      (server) => server.replyCallback(200, (_) {
+        getMyRatingCalls++;
+        return _ok(<String, dynamic>{
+          'avgRating': myRatingAvgRating,
+          'reviewCount': myRatingReviewCount,
+        });
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -2685,44 +2925,60 @@ final class FakeBackend {
     );
 
     // POST /api/v1/independent-masters/me/services
+    // Default: 201 echoing the created service. When [createRejectDuplicate] is
+    // set, replies HTTP 409 with the typed DUPLICATE_SERVICE envelope so the
+    // repository maps it to ServiceDuplicateFailure and the form flags the
+    // service-type field inline (never a pop / generic errServer snackbar).
     _adapter.onRoute(
       '/api/v1/independent-masters/me/services',
-      (server) => server.replyCallback(201, (req) {
-        createServiceCalls++;
-        final body = _decodeBody(req.data);
-        final defId = 'svc-$_nextServiceSeq';
-        final assignId = 'assign-$_nextServiceSeq';
-        final name = body['name'] as String? ?? 'New Service';
-        final priceType = body['priceType'] as String? ?? 'FIXED';
-        final newService = <String, dynamic>{
-          'id': assignId,
-          'masterId': 'user-master-1',
-          'isActive': true,
-          'priceType': priceType,
-          'priceMin': body['price'] ?? body['priceMin'] ?? 0,
-          'priceMax': body['priceMax'],
-          'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
-          'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
-          'serviceDefinition': <String, dynamic>{
-            'id': defId,
-            'name': name,
-            'description': null,
-            'category': body['categoryName'] ?? 'NAILS',
-            'baseDurationMinutes': body['durationMinutes'] ?? 60,
-            'bufferMinutesAfter': 0,
-            'isActive': true,
-            'priceType': priceType,
-            'priceMin': body['price'] ?? body['priceMin'] ?? 0,
-            'priceMax': body['priceMax'],
-            'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
-            'photoUrl': null,
-          },
-        };
-        _nextServiceSeq++;
-        _services.add(newService);
-        lastCreatedService = newService;
-        return _ok(newService);
-      }),
+      (server) =>
+          server.replyCallback(createRejectDuplicate ? 409 : 201, (req) {
+            createServiceCalls++;
+            if (createRejectDuplicate) {
+              return <String, dynamic>{
+                'success': false,
+                'data': <String, dynamic>{
+                  'code': 'DUPLICATE_SERVICE',
+                  'serviceName': createDuplicateServiceName,
+                  'existingServiceDefId': 'def-existing',
+                },
+                'message': 'This service already exists',
+              };
+            }
+            final body = _decodeBody(req.data);
+            final defId = 'svc-$_nextServiceSeq';
+            final assignId = 'assign-$_nextServiceSeq';
+            final name = body['name'] as String? ?? 'New Service';
+            final priceType = body['priceType'] as String? ?? 'FIXED';
+            final newService = <String, dynamic>{
+              'id': assignId,
+              'masterId': 'user-master-1',
+              'isActive': true,
+              'priceType': priceType,
+              'priceMin': body['price'] ?? body['priceMin'] ?? 0,
+              'priceMax': body['priceMax'],
+              'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
+              'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
+              'serviceDefinition': <String, dynamic>{
+                'id': defId,
+                'name': name,
+                'description': null,
+                'category': body['categoryName'] ?? 'NAILS',
+                'baseDurationMinutes': body['durationMinutes'] ?? 60,
+                'bufferMinutesAfter': 0,
+                'isActive': true,
+                'priceType': priceType,
+                'priceMin': body['price'] ?? body['priceMin'] ?? 0,
+                'priceMax': body['priceMax'],
+                'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
+                'photoUrl': null,
+              },
+            };
+            _nextServiceSeq++;
+            _services.add(newService);
+            lastCreatedService = newService;
+            return _ok(newService);
+          }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
@@ -2988,6 +3244,17 @@ final class FakeBackend {
           putOverrideCalls++;
           final body = _decodeBody(req.data);
           lastOverrideBody = body;
+          // 2026-07-26 booking-conflict design: a confirmed write carries
+          // `cancelOverlapping: true` — the real backend then atomically
+          // declines every conflicting CONFIRMED booking with the write. The
+          // fake mirrors that ONLY as a status flip on the seeded booking
+          // fixture (no per-booking id matching — this fake is not the
+          // preview endpoint's source of truth, `conflictPreviewRows` is).
+          if (body['cancelOverlapping'] == true &&
+              conflictPreviewRows.isNotEmpty) {
+            overrideCancelOverlappingWrites++;
+            bookingStatus = 'DECLINED';
+          }
           // Echo the request back as a response-shaped override so the read
           // mapper round-trips it (date/kind/mode/intervals/times).
           return _ok(<String, dynamic>{
@@ -2999,6 +3266,29 @@ final class FakeBackend {
           });
         }),
         request: const Request(method: RequestMethods.put, data: Matchers.any),
+      );
+    }
+
+    // POST /api/v1/masters/{masterId}/overrides/conflicts (2026-07-26
+    // booking-conflict design) — read-only preview of every CONFIRMED booking
+    // the pending override would leave without availability. Reports whatever
+    // a flow seeded in [conflictPreviewRows] (empty by default, so every flow
+    // that never sets it keeps the pre-existing "no gate to see" behaviour —
+    // `_noConflicts`-equivalent at the wire boundary).
+    for (final masterId in <String>['me', 'user-master-1']) {
+      _adapter.onRoute(
+        '/api/v1/masters/$masterId/overrides/conflicts',
+        (server) => server.replyCallback(200, (req) {
+          previewConflictsCalls++;
+          lastConflictQueryBody = _decodeBody(req.data);
+          return _ok(<String, dynamic>{
+            'conflicts': conflictPreviewRows,
+            'totalCount': conflictPreviewRows.length,
+            'truncated': false,
+            'scanTruncated': false,
+          });
+        }),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
       );
     }
 
@@ -3311,6 +3601,19 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
+    // the same multi-service visit (per-service decline regression). Reflects
+    // its OWN mutable [siblingBookingStatus] so a re-open after declining
+    // `booking-1` proves this sibling stayed CONFIRMED.
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-2',
+      (server) => server.replyCallback(200, (_) {
+        getSiblingBookingDetailCalls++;
+        return _ok(_seededSiblingBookingJson());
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // PATCH /api/v1/bookings/booking-1/reschedule — client reschedule (track
     // 24.x auto-confirm). Moves the seeded booking to the submitted
     // `newStartsAt`, keeps it CONFIRMED (a reschedule never changes status),
@@ -3354,6 +3657,42 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
 
+    // PATCH /api/v1/bookings/booking-1/decline — Track 27.x Wave A, the
+    // PROVIDER decline write path (`booking_repository.dart`'s
+    // `declineBooking`). Flips the seeded booking to DECLINED and captures the
+    // exact `StatusUpdateRequest` wire body — `cancellationReason` (always
+    // `PROVIDER_UNAVAILABLE` for this affordance) and the optional `comment` —
+    // so a flow can assert the REAL serialised shape reached the fake, not
+    // just that a mocked repository method was invoked with the right Dart
+    // arguments (that gap is exactly what the widget-tier
+    // `booking_detail_provider_footer_test.dart` cannot close).
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/decline',
+      (server) => server.replyCallback(200, (req) {
+        declineBookingCalls++;
+        final body = _decodeBody(req.data);
+        lastDeclineComment = body['comment'] as String?;
+        lastDeclineCancellationReason = body['cancellationReason'] as String?;
+        bookingStatus = 'DECLINED';
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // PATCH /api/v1/bookings/booking-1/complete — Track 27.x Wave A, the
+    // PROVIDER complete write path. No request body (`completeBooking`'s
+    // generated client call sends none) — flips the seeded booking to
+    // COMPLETED.
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/complete',
+      (server) => server.replyCallback(200, (_) {
+        completeBookingCalls++;
+        bookingStatus = 'COMPLETED';
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch),
+    );
+
     // POST /api/v1/reviews — CLIENT leave-review (Phase 14.6). Records the
     // submitted bookingId/rating/comment and flips [bookingCanReview] false so a
     // subsequent detail re-fetch (the notifier invalidates
@@ -3370,6 +3709,31 @@ final class FakeBackend {
         lastReviewRating = body['rating'] as int?;
         lastReviewComment = body['comment'] as String?;
         bookingCanReview = false;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // POST /api/v1/client-reviews — PROVIDER leave-client-feedback (track 7.x
+    // Wave B). Records the submitted bookingId/rating/comment and flips
+    // [bookingProviderCanReviewClient] false so a subsequent detail re-fetch
+    // (the screen invalidates `bookingDetailProvider` on success — the exact
+    // regression this flip exists to pin) re-resolves the provider footer's
+    // «Залишити відгук про клієнта» CTA away, mirroring `/api/v1/reviews`
+    // above flipping [bookingCanReview]. The generated
+    // `ClientReviewControllerApi.create` deserializes an
+    // `ApiResponse<ClientReviewResponse>`; a `data: null` envelope is valid
+    // (every `ClientReviewResponse` field is nullable) and the repository
+    // returns void anyway.
+    _adapter.onRoute(
+      '/api/v1/client-reviews',
+      (server) => server.replyCallback(200, (req) {
+        createClientReviewCalls++;
+        final body = _decodeBody(req.data);
+        lastClientReviewBookingId = body['bookingId'] as String?;
+        lastClientReviewRating = body['rating'] as int?;
+        lastClientReviewComment = body['comment'] as String?;
+        bookingProviderCanReviewClient = false;
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),

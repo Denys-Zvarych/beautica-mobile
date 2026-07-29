@@ -368,7 +368,7 @@ final class HttpServiceRepository implements ServiceRepository {
           stackTrace: st,
         );
       }
-      throw _mapDioException(e);
+      throw _mapServiceWriteException(e);
     }
   }
 
@@ -480,7 +480,70 @@ final class HttpServiceRepository implements ServiceRepository {
   /// re-map by status code here to surface the friendly message + routing.
   Failure _mapBulkCreateException(DioException e) {
     final statusCode = e.response?.statusCode;
-    if (statusCode == 409) return MasterAlreadyHasServicesFailure(cause: e);
+    if (statusCode == 409) {
+      // A 409 on the bulk path is ambiguous: it can be the typed
+      // `DUPLICATE_SERVICE` envelope (an individual item duplicates an existing
+      // service) OR the plain first-time-guard trip (the master already has
+      // services). Decode `data.code` first so the duplicate case surfaces the
+      // catalogue-specific copy; everything else keeps the existing
+      // "already has services" behaviour. `serviceName` is null on the bulk
+      // envelope, so [ServiceDuplicateFailure] renders its plain message.
+      if (_isDuplicateService(e)) return _extractDuplicateService(e);
+      return MasterAlreadyHasServicesFailure(cause: e);
+    }
+    if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
+  }
+
+  /// `true` when [e] is a 409 whose body is the
+  /// `{ "data": { "code": "DUPLICATE_SERVICE" } }` envelope — the service is
+  /// already in the master's menu (or a DB unique-index race caught a concurrent
+  /// add). Hand-decoded from the raw JSON body (this code is not part of the
+  /// generated client), mirroring
+  /// `HttpAppointmentRepository._isDuplicateService`.
+  bool _isDuplicateService(DioException e) {
+    final body = e.response?.data;
+    if (body is! Map<String, dynamic>) return false;
+    final data = body['data'];
+    if (data is! Map<String, dynamic>) return false;
+    return data['code'] == 'DUPLICATE_SERVICE';
+  }
+
+  /// Builds a [ServiceDuplicateFailure] from a 409 `DUPLICATE_SERVICE` body,
+  /// threading through the two nullable diagnostic fields. Both `serviceName`
+  /// (null on the bulk path) and `existingServiceDefId` (null on a DB
+  /// unique-index race) are read defensively — a non-string value degrades to
+  /// null so [ServiceDuplicateFailure.userMessage] still renders its plain copy.
+  /// Precondition: [_isDuplicateService] returned `true` for [e].
+  ServiceDuplicateFailure _extractDuplicateService(DioException e) {
+    String? readString(Object? value) => value is String ? value : null;
+    final body = e.response?.data;
+    final data = (body is Map<String, dynamic>) ? body['data'] : null;
+    final map = (data is Map<String, dynamic>)
+        ? data
+        : const <String, dynamic>{};
+    return ServiceDuplicateFailure(
+      serviceName: readString(map['serviceName']),
+      existingServiceDefId: readString(map['existingServiceDefId']),
+      cause: e,
+    );
+  }
+
+  /// Maps a [DioException] from a service-catalog WRITE (`create` / `update`) to
+  /// a typed [Failure], distinguishing the typed duplicate conflict:
+  ///   - **409** with `data.code == "DUPLICATE_SERVICE"` →
+  ///     [ServiceDuplicateFailure] (the service is already in the master's menu).
+  /// All other statuses defer to the shared [_mapDioException].
+  ///
+  /// The 409 decode runs BEFORE deferring to any [Failure] the
+  /// [ErrorMapperInterceptor] may have attached (it maps a non-auth 409 to a
+  /// generic [ServerFailure], which lacks the duplicate copy), so we hand-decode
+  /// here to surface the friendly message — mirroring
+  /// [_mapCategoryRequestException].
+  Failure _mapServiceWriteException(DioException e) {
+    if (e.response?.statusCode == 409 && _isDuplicateService(e)) {
+      return _extractDuplicateService(e);
+    }
     if (e.error is Failure) return e.error as Failure;
     return _mapDioException(e);
   }
@@ -532,7 +595,7 @@ final class HttpServiceRepository implements ServiceRepository {
           stackTrace: st,
         );
       }
-      throw _mapDioException(e);
+      throw _mapServiceWriteException(e);
     }
   }
 

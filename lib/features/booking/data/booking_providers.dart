@@ -23,7 +23,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 
+import 'appointment_repository.dart';
 import 'booking_repository.dart';
+import 'client_review_repository.dart';
 import 'slot_repository.dart';
 
 part 'booking_providers.g.dart';
@@ -32,6 +34,12 @@ part 'booking_providers.g.dart';
 @Riverpod(keepAlive: true)
 BookingControllerApi bookingApi(Ref ref) =>
     BookingControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [AppointmentControllerApi] singleton for the
+/// multi-service single-visit write/read path (MO-1).
+@Riverpod(keepAlive: true)
+AppointmentControllerApi appointmentApi(Ref ref) =>
+    AppointmentControllerApi(ref.watch(dioProvider), standardSerializers);
 
 /// Provides the generated [ReviewControllerApi] singleton for the CLIENT
 /// leave-review write path (`POST /reviews`, Phase 14.6).
@@ -55,6 +63,18 @@ BookingRepository bookingRepository(Ref ref) => HttpBookingRepository(
   ref.watch(bookingReviewApiProvider),
 );
 
+/// Provides the [AppointmentRepository] singleton backed by
+/// [appointmentApiProvider] (the visit write/read endpoints) and
+/// [bookingReviewApiProvider] (the shared `ReviewControllerApi`, reused for the
+/// `POST /appointments/{id}/review` write path). MO-1 — not yet consumed by any
+/// UI; wired for MO-2…MO-5.
+@Riverpod(keepAlive: true)
+AppointmentRepository appointmentRepository(Ref ref) =>
+    HttpAppointmentRepository(
+      ref.watch(appointmentApiProvider),
+      ref.watch(bookingReviewApiProvider),
+    );
+
 /// Provides the [SlotRepository] singleton backed by the CORE
 /// [masterApiProvider] (`core/network/api_client_provider.dart`) — reused
 /// rather than duplicated, since `MasterControllerApi` is already a
@@ -62,3 +82,18 @@ BookingRepository bookingRepository(Ref ref) => HttpBookingRepository(
 @Riverpod(keepAlive: true)
 SlotRepository slotRepository(Ref ref) =>
     HttpSlotRepository(ref.watch(masterApiProvider));
+
+/// Provides the generated [ClientReviewControllerApi] singleton for the
+/// PROVIDER→CLIENT leave-feedback write path (`POST /client-reviews`, track
+/// 7.x Wave B). A dedicated provider local to this feature — mirrors
+/// [bookingReviewApi] above — rather than importing another feature's data
+/// layer.
+@Riverpod(keepAlive: true)
+ClientReviewControllerApi clientReviewApi(Ref ref) =>
+    ClientReviewControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the [ClientReviewRepository] singleton backed by
+/// [clientReviewApiProvider].
+@Riverpod(keepAlive: true)
+ClientReviewRepository clientReviewRepository(Ref ref) =>
+    HttpClientReviewRepository(ref.watch(clientReviewApiProvider));

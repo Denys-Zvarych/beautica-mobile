@@ -135,6 +135,34 @@ extension BookingDisplayX on Booking {
   /// (`.hour`/`.minute`), not instant ORDERING, which is timezone-agnostic.
   bool get isPast => endAt.isBefore(DateTime.now());
 
+  /// Whether this booking's START instant is already at-or-past the device
+  /// clock — a PRESENTATION-ONLY signal for the PROVIDER footer (track 27.x
+  /// Wave A).
+  ///
+  /// Mirrors the backend's Phase 27.1 `BookingTemporalGuard` predicates,
+  /// which compare `startsAt` (never `endsAt`):
+  ///   * `assertFutureForProviderCancel` — decline requires `now < startsAt`
+  ///     (strictly future); once elapsed, 409.
+  ///   * `assertElapsedForComplete` — complete requires `now >= startsAt`;
+  ///     while still future, 409.
+  ///   * `assertCurrentNotElapsedForReschedule` — the provider arm of
+  ///     reschedule shares decline's predicate.
+  ///
+  /// This is deliberately a DIFFERENT field than [isPast] (which compares
+  /// `endAt`, for the CLIENT's own elapsed-guard question — a client may act
+  /// right up until the appointment has fully ENDED). Do not conflate the
+  /// two or reuse [isPast] for the provider footer: a booking can be
+  /// `hasStarted == true` while `isPast == false` (the appointment is
+  /// currently underway), and the provider footer must show «Завершити», not
+  /// «Перенести»/«Скасувати», for exactly that window.
+  ///
+  /// Like [isPast], this is UX-only — the SERVER clock is authoritative. A
+  /// stale screen or a rolled-back device clock can still let a tap through
+  /// to a 409 (`ProviderDeclineWindowClosedFailure` /
+  /// `ProviderCompleteNotStartedFailure`), which the screen catches and
+  /// resolves by refetching so the footer re-renders correctly.
+  bool get hasStarted => !startAt.isAfter(DateTime.now());
+
   /// The four location fields composed into one line, or `null` when the
   /// provider has no usable location on file. See [composeAddressLine].
   String? get addressLine => composeAddressLine(

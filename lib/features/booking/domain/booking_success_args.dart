@@ -1,17 +1,17 @@
 // Navigation payload for the `/booking/success` route.
 //
-// [BookingConfirmScreen]'s «Записатись» CTA `pushReplacement`s here once every
-// appointment's `POST /bookings` has succeeded, carrying the SAME [Master] +
-// the per-appointment ([MasterService], start) pairs the confirm screen
-// already had in hand (loaded once via `publicMasterProfileProvider`) — the
-// success screen never re-fetches, it re-renders the identical
-// [BookingSummaryCards] recap so the two screens can never visually drift.
+// [BookingConfirmScreen]'s «Записатись» CTA `pushReplacement`s here once the
+// single `POST /appointments` has succeeded, carrying the SAME [master] + the
+// ordered [services] selection + the visit [startAt] the confirm screen already
+// had in hand (loaded once via `publicMasterProfileProvider`) — the success
+// screen never re-fetches, it re-renders the identical [BookingSummaryCards]
+// recap so the two screens can never visually drift.
 //
-// MULTI-SERVICE (the multi-service booking rework): the independent-master
-// flow now books N services with a SEPARATE time each, so the success recap
-// lists one card per confirmed appointment ([appointments]) rather than a
-// single service/start — mirrors the salon success screen's per-appointment
-// recap, keyed by SERVICE.
+// MO-3 (single-visit rework): the independent-master flow now books the whole
+// selection as ONE visit with ONE start time (services run back-to-back), so
+// the success recap shows the ordered service list under a SINGLE visit window
+// (`startAt` → `startAt + summed duration`) and offers ONE «Додати в календар»
+// event for the whole arrival — not one card/event per service.
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 
@@ -22,31 +22,22 @@ import '../../services/domain/master_service.dart';
 
 part 'booking_success_args.freezed.dart';
 
-/// One confirmed appointment for the success recap: the service booked and its
-/// chosen start.
-@freezed
-abstract class BookingSuccessAppointment with _$BookingSuccessAppointment {
-  const factory BookingSuccessAppointment({
-    required MasterService service,
-    required DateTime start,
-  }) = _BookingSuccessAppointment;
-}
-
 /// Navigation extra for `RouteNames.bookingSuccess`.
 @freezed
 abstract class BookingSuccessArgs with _$BookingSuccessArgs {
   const factory BookingSuccessArgs({
     required Master master,
 
-    /// Every confirmed appointment, in the order they were booked. Always
-    /// non-empty (the success screen is only reached once every appointment
-    /// succeeded).
-    required List<BookingSuccessAppointment> appointments,
+    /// The confirmed visit's ordered services (1..10). Always non-empty (the
+    /// success screen is only reached once the visit was created).
+    required List<MasterService> services,
+
+    /// The confirmed visit's single start time.
+    required DateTime startAt,
 
     /// `true` when the flow was a RESCHEDULE (a single existing booking moved
-    /// to a new time) rather than a fresh booking — the success screen swaps
-    /// its celebration title/subline copy accordingly. Defaults to `false` for
-    /// the create flow.
+    /// to a new time) rather than a fresh visit — the success screen swaps its
+    /// celebration title/subline copy accordingly. Defaults to `false`.
     @Default(false) bool isReschedule,
   }) = _BookingSuccessArgs;
 }

@@ -162,6 +162,22 @@ class _WeeklyTemplateEditorScreenState
   /// Persisted baseline mode per weekday (indexed Mon..Sun).
   List<WeekdayMode>? _baselineModes;
 
+  /// Baseline display-only working window per weekday (indexed Mon..Sun) — the
+  /// window that was on screen at seed time. `null` only for a day-off or an
+  /// EXPLICIT_TIMES day, i.e. wherever no window is drawn at all.
+  ///
+  /// The window is persisted state, so the dirty-diff has to include it: two
+  /// different windows can collapse to the SAME interval list (window 09:00–18:00
+  /// with a 09:00–10:00 break, and window 10:00–18:00 with no break, both yield
+  /// `[10:00–18:00]`). Without this the second shape would read as "no changes"
+  /// and Save would stay disabled on a visibly-edited day.
+  ///
+  /// A LEGACY row (persisted `window == null`) is seeded with the window
+  /// `DayHours.fromIntervals` DERIVED from its intervals, not with `null` — see
+  /// [_seed]. Leaving it null skipped the window leg of the diff on exactly the
+  /// rows the window feature exists to make persistable.
+  List<WorkInterval?>? _baselineWindows;
+
   /// FIRST-CREATE validity-window draft (`_serverTemplate == null` only). Holds
   /// the window the master chose in the «Період дії графіка» sheet BEFORE the
   /// editor's Save is pressed — the single commit point on first create. `null`
@@ -225,6 +241,10 @@ class _WeeklyTemplateEditorScreenState
     final List<WeekdayMode> baselineModes = <WeekdayMode>[
       for (int i = 0; i < _kDaysInWeek; i++) WeekdayMode.interval,
     ];
+    final List<WorkInterval?> baselineWindows = List<WorkInterval?>.filled(
+      _kDaysInWeek,
+      null,
+    );
     if (template != null) {
       for (final TemplateDay d in template.days) {
         final int idx = d.dayOfWeek - 1;
@@ -248,13 +268,37 @@ class _WeeklyTemplateEditorScreenState
           // INTERVAL day — seed interval shape.
           baseline[idx] = d.cloneIntervals();
           if (d.intervals.isNotEmpty) {
-            seeded[idx] = DayHours.fromIntervals(d.intervals);
+            // Seed with the STORED window when the row has one: the lossless
+            // regime re-derives `breaks = window MINUS intervals`, so a break
+            // flush against a window edge reappears as a break instead of being
+            // swallowed. A legacy row (`window == null`) keeps the historical
+            // gap reconstruction.
+            final DayHours seededDay = DayHours.fromIntervals(
+              d.intervals,
+              window: d.window,
+            );
+            seeded[idx] = seededDay;
+            // Baseline the window that is actually ON SCREEN, not just the
+            // stored one. For a row WITH a stored window the two are identical.
+            // For a LEGACY row (`d.window == null`) this captures the DERIVED
+            // window `[first start, last end]` that `fromIntervals` just drew,
+            // so the dirty-diff has something to compare against instead of
+            // skipping the window leg entirely. Without it, a window-only edit
+            // on a legacy row is invisible: e.g. persisted `[10:00–18:00]`, the
+            // master drags від to 09:00 AND adds a compensating 09:00–10:00
+            // break — `toIntervals()` re-collapses to `[10:00–18:00]`, matching
+            // `_baseline`, so Save stayed disabled on a visibly-edited day.
+            // Seeding the derived window keeps the "merely OPENING an untouched
+            // legacy template is pristine" contract intact, because the seeded
+            // draft window IS this value until the master moves it.
+            baselineWindows[idx] = seededDay.window.clone();
             seededTemplate[idx] = TemplateDay(
               dayOfWeek: d.dayOfWeek,
               label: d.label,
               intervals: d.cloneIntervals(),
               mode: WeekdayMode.interval,
               times: const <TimeOfDay>[],
+              window: d.window?.clone(),
             );
           }
         }
@@ -271,6 +315,7 @@ class _WeeklyTemplateEditorScreenState
         _baseline = baseline;
         _baselineTimes = baselineTimes;
         _baselineModes = baselineModes;
+        _baselineWindows = baselineWindows;
       });
       // Pristine load: Save stays disabled until a real edit (Phase 6.2).
       _saveGateNotifier.value = _saveGate;
@@ -317,14 +362,17 @@ class _WeeklyTemplateEditorScreenState
   /// True when the draft differs from the PERSISTED server state. For INTERVAL
   /// days, compares the collapsed canonical interval list against [_baseline].
   /// For EXPLICIT_TIMES days, compares mode + sorted times against
-  /// [_baselineModes] / [_baselineTimes]. Phase 6.2 pristine-load contract
-  /// preserved: Save stays disabled until the user actually edits.
+  /// [_baselineModes] / [_baselineTimes], plus the display-only working window
+  /// against [_baselineWindows] (two windows can collapse to the same interval
+  /// list — see that field). Phase 6.2 pristine-load contract preserved: Save
+  /// stays disabled until the user actually edits.
   bool get _isDirty {
     final List<DayHours?>? days = _days;
     final List<TemplateDay?>? tDays = _templateDays;
     final List<List<WorkInterval>>? baseline = _baseline;
     final List<List<TimeOfDay>>? baselineTimes = _baselineTimes;
     final List<WeekdayMode>? baselineModes = _baselineModes;
+    final List<WorkInterval?>? baselineWindows = _baselineWindows;
     if (days == null || baseline == null) return false;
     for (int i = 0; i < _kDaysInWeek; i++) {
       final TemplateDay? td = tDays?[i];
@@ -353,6 +401,20 @@ class _WeeklyTemplateEditorScreenState
             ? const <WorkInterval>[]
             : days[i]!.toIntervals();
         if (!_sameIntervals(draftIntervals, baseline[i])) return true;
+        // …then the display-only window, which the intervals alone cannot
+        // distinguish. A day-off draft has no window to compare, and neither
+        // does a weekday that was never seeded as a working INTERVAL day
+        // (baseline `null`). A legacy row IS compared — [_seed] baselines its
+        // derived window — and merely OPENING an untouched legacy template is
+        // still pristine, because the seeded draft window equals that baseline.
+        final WorkInterval? persistedWindow = baselineWindows?[i];
+        final DayHours? draftDay = days[i];
+        if (draftDay != null &&
+            persistedWindow != null &&
+            (draftDay.window.startMinutes != persistedWindow.startMinutes ||
+                draftDay.window.endMinutes != persistedWindow.endMinutes)) {
+          return true;
+        }
       }
     }
     return false;
@@ -421,6 +483,11 @@ class _WeeklyTemplateEditorScreenState
         intervals: _stash[index].toIntervals(),
         mode: _modeStash[index],
         times: List<TimeOfDay>.of(_timesStash[index]),
+        // Keep the restored day's window paired with its restored intervals;
+        // an EXPLICIT_TIMES restore carries no window (setMode's contract).
+        window: _modeStash[index] == WeekdayMode.explicitTimes
+            ? null
+            : _stash[index].window.clone(),
       );
     } else {
       // Stash current state before clearing.
@@ -662,6 +729,11 @@ class _WeeklyTemplateEditorScreenState
             intervals: days[i]!.toIntervals(),
             mode: WeekdayMode.interval,
             times: const <TimeOfDay>[],
+            // Persist the edited від–до as display-only metadata so an
+            // edge-flush break survives the next load. `toIntervals()` walks
+            // this exact window and clamps to it, so the backend's
+            // "window contains every interval" check holds by construction.
+            window: days[i]!.window.clone(),
           );
         }(),
     ];
@@ -820,6 +892,7 @@ class _WeeklyTemplateEditorScreenState
       _baseline = null;
       _baselineTimes = null;
       _baselineModes = null;
+      _baselineWindows = null;
       _serverTemplate = null;
     });
     if (kDebugMode) {
@@ -971,6 +1044,7 @@ class _LoadedBody extends StatelessWidget {
     errBreakEndBeforeStart: l10n.intervalEditorErrBreakEndAfterStart,
     errBreakOutsideWindow: l10n.intervalEditorErrBreakInsideWindow,
     errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
+    errBreakCoversWholeWindow: l10n.intervalEditorErrBreakCoversWholeDay,
     errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
   );
 

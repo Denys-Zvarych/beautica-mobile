@@ -475,6 +475,83 @@ final class ConflictFailure extends Failure {
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errConflict;
 }
 
+/// Emitted when `POST /appointments` returns HTTP **409** with the typed
+/// `data.code == "DUPLICATE_SERVICE"` envelope (backend
+/// `feat/multi-service-appointments`): the multi-service visit payload carried
+/// the SAME `masterServiceId` more than once (or a conflicting service pairing
+/// the backend rejects).
+///
+/// The MO-3 selection UI dedupes the chosen services up-front (a service can be
+/// selected only once — the catalogue selection is a `Set` keyed by id), so a
+/// well-behaved client never reaches the server with a duplicate. This failure
+/// is the backstop for a stale/edge payload, mapped BEFORE the generic 409 →
+/// [ConflictFailure] fallback in
+/// `HttpAppointmentRepository._mapAppointmentWriteException` — mirroring the
+/// `CLIENT_BOOKING_CONFLICT` / `BOOKING_ALREADY_ELAPSED` hand-decode precedent.
+final class DuplicateServiceFailure extends Failure {
+  const DuplicateServiceFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrDuplicateService;
+}
+
+/// Emitted when a service-catalog WRITE (create / update / bulk-create) returns
+/// HTTP **409** with the typed `data.code == "DUPLICATE_SERVICE"` envelope: the
+/// master tried to add a service that is already in their menu (same service
+/// type / definition), or a DB unique-index race caught a concurrent add.
+///
+/// Distinct from the appointment-path [DuplicateServiceFailure] — that one is a
+/// booking payload naming the same `masterServiceId` twice ("a service can't be
+/// added twice" to ONE visit), which reads wrong for the catalogue's "already in
+/// your menu" case. This failure carries the two nullable diagnostic fields the
+/// backend returns:
+///   - [serviceName]: the clashing service's display name. **Null on the bulk
+///     path** (the bulk envelope omits it) — render the plain message then.
+///   - [existingServiceDefId]: the id of the already-present service definition.
+///     **Null when the DB unique-index race caught it** (no row id to report).
+///
+/// Expected backend envelope:
+/// ```json
+/// {
+///   "success": false,
+///   "data": {
+///     "code": "DUPLICATE_SERVICE",
+///     "serviceName": "Манікюр класичний" | null,
+///     "existingServiceDefId": "3f2a1c1e-…" | null
+///   },
+///   "message": "This service already exists"
+/// }
+/// ```
+/// The server-supplied top-level `message` is intentionally NEVER shown (it is
+/// untranslated internal English copy) — [userMessage] returns the Ukrainian
+/// catalogue-specific copy regardless of which fields are present.
+///
+/// Decoded by `HttpServiceRepository._mapServiceWriteException` (create / update)
+/// and `_mapBulkCreateException` (bulk) — checked BEFORE deferring to any
+/// [Failure] the [ErrorMapperInterceptor] may already have attached (it maps a
+/// non-auth 409 to a generic [ServerFailure]), mirroring the
+/// `CategoryAlreadyExistsFailure` precedent.
+final class ServiceDuplicateFailure extends Failure {
+  const ServiceDuplicateFailure({
+    this.serviceName,
+    this.existingServiceDefId,
+    super.cause,
+  });
+
+  /// The clashing service's display name, exactly as returned by the backend
+  /// (an untranslated catalogue value). Null on the bulk path.
+  final String? serviceName;
+
+  /// The id of the already-present service definition. Null when a DB
+  /// unique-index race caught the duplicate (no persisted row id to report).
+  final String? existingServiceDefId;
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).serviceErrDuplicate;
+}
+
 /// Emitted when a booking WRITE (create/reschedule) returns HTTP **409** with
 /// the typed `data.code == "CLIENT_BOOKING_CONFLICT"` envelope (backend
 /// commit f95d8fd): the authenticated CLIENT already has a PENDING/CONFIRMED
@@ -579,6 +656,60 @@ final class BookingAlreadyElapsedFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrorAlreadyElapsed;
 }
 
+/// Emitted when `PATCH /bookings/{id}/decline` returns HTTP **409**.
+///
+/// Historically the backend's Phase 27.1 `BookingTemporalGuard
+/// .assertFutureForProviderCancel` guard rejected a decline once a booking's
+/// `startsAt` was no longer strictly in the future — a since-reversed
+/// decision (the backend now allows a provider to decline a CONFIRMED
+/// booking at ANY time, elapsed or not, so a client no-show is recorded as a
+/// decline with a free-text reason rather than a separate status). This
+/// failure is kept as a defensive backstop only: some OTHER 409 shape on this
+/// endpoint is still plausible (e.g. a concurrent status change), and this is
+/// the generic "decline was rejected" fallback for it.
+///
+/// **Decode note — unlike [BookingAlreadyElapsedFailure]:** the backend's
+/// `BookingTemporalGuard`-family guards throw a plain
+/// `BusinessException(CONFLICT, "...")` with no typed `data.code` envelope
+/// (see `GlobalExceptionHandler.handleBusiness`, which genericises every
+/// CONFLICT body to `{"data": null}`), unlike the `BookingElapsedException` /
+/// `BOOKING_ALREADY_ELAPSED` shape [BookingAlreadyElapsedFailure] decodes.
+/// `HttpBookingRepository.declineBooking` therefore maps EVERY 409 from this
+/// endpoint to this failure directly, by CALL SITE rather than by body
+/// content — there is nothing else a decline 409 could mean.
+///
+/// The mobile UI now offers «Скасувати» (decline) on a CONFIRMED provider
+/// booking regardless of [BookingDisplayX.hasStarted], so this failure is
+/// not expected to fire in normal operation — the screen still catches it,
+/// shows [userMessage], and refetches the booking so the footer re-renders
+/// correctly, as defense-in-depth against an unforeseen server-side
+/// rejection.
+final class ProviderDeclineWindowClosedFailure extends Failure {
+  const ProviderDeclineWindowClosedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrorProviderDeclineWindowClosed;
+}
+
+/// Emitted when `PATCH /bookings/{id}/complete` returns HTTP **409** — the
+/// backend's Phase 27.1 `BookingTemporalGuard.assertElapsedForComplete`
+/// guard: the booking's `startsAt` is still in the future (`now < startsAt`),
+/// so a PROVIDER may not mark it COMPLETED yet.
+///
+/// Same decode note as [ProviderDeclineWindowClosedFailure] — the guard's
+/// `BusinessException` carries no typed `data.code`, so
+/// `HttpBookingRepository.completeBooking` maps every 409 from this endpoint
+/// to this failure by call site. Defensive backstop for a stale screen /
+/// rolled-back clock, mirroring that failure's doc.
+final class ProviderCompleteNotStartedFailure extends Failure {
+  const ProviderCompleteNotStartedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrorProviderCompleteNotStarted;
+}
+
 /// Emitted when `POST /bookings` or `PATCH /bookings/{id}/reschedule` returns
 /// HTTP **429** — the per-user booking-write rate limit (5 requests / 10 s,
 /// backend commit f95d8fd) is exhausted.
@@ -629,4 +760,81 @@ final class ReviewNotAllowedFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).reviewErrNotAllowed;
+}
+
+/// Emitted when `POST /client-reviews` returns HTTP **409 Conflict** because
+/// the authenticated PROVIDER has ALREADY left feedback about this booking's
+/// client (track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА», backend `POST
+/// /client-reviews`).
+///
+/// Unlike [ReviewAlreadyExistsFailure] (the CLIENT→MASTER direction), there is
+/// currently NO server-computed canReview-equivalent flag on
+/// `BookingDetailResponse` for the PROVIDER side — `BookingDetailScreen`
+/// offers the «Залишити відгук про клієнта» entry CTA on every COMPLETED
+/// provider booking, with no client-side way to know in advance whether
+/// feedback was already left. This failure is therefore the ONLY signal of a
+/// duplicate submit; `LeaveClientFeedbackScreen` surfaces it by swapping the
+/// form for the same not-reviewable info state the CLIENT flow shows on a
+/// stale deep link, rather than a silent no-op or a raw error.
+///
+/// Decoded by `HttpClientReviewRepository._mapClientReviewException` — the 409
+/// status check runs before deferring to any [Failure] the interceptor may
+/// have attached, mirroring the [ReviewAlreadyExistsFailure] precedent.
+final class ClientReviewAlreadyExistsFailure extends Failure {
+  const ClientReviewAlreadyExistsFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).clientReviewErrAlreadyReviewed;
+}
+
+/// Emitted when `POST /client-reviews` is rejected because the booking is not
+/// eligible for provider feedback (track 7.x Wave B): HTTP **403** (not the
+/// booking's provider), or any other **4xx** — e.g. the booking is not
+/// COMPLETED, or it is a guest/LINK booking with no registered client account
+/// to rate ([BookingDisplayX.isGuestBooking]). Both collapse into one friendly
+/// message; the provider never needs to distinguish the two.
+///
+/// Decoded by `HttpClientReviewRepository._mapClientReviewException` before
+/// deferring to the shared `_mapDioException`, mirroring
+/// [ReviewNotAllowedFailure].
+final class ClientReviewNotAllowedFailure extends Failure {
+  const ClientReviewNotAllowedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).clientReviewErrNotAllowed;
+}
+
+/// Emitted when `PUT /masters/{id}/overrides/{date}` returns HTTP **429**
+/// (2026-07-26 booking-conflict design). Two independent server-side buckets
+/// share this status: the flat per-actor write-rate limit (50 requests/60s)
+/// and the aggregate per-actor decline budget (1500 bookings/hour) — the
+/// mobile client does not need to distinguish which one tripped, only show a
+/// friendly throttle message with whatever `Retry-After` the server sent.
+///
+/// Decoded by `HttpScheduleRepository._logAndMapOverrideWrite` — the status
+/// check runs BEFORE deferring to any [Failure] the [ErrorMapperInterceptor]
+/// may have attached (that interceptor has no schedule-override-specific 429
+/// case), mirroring the [BookingRateLimitedFailure] / [ResendThrottledFailure]
+/// precedents.
+final class ScheduleOverrideRateLimitedFailure extends Failure {
+  const ScheduleOverrideRateLimitedFailure({
+    required this.retryAfterSeconds,
+    super.cause,
+  });
+
+  /// Seconds until the next write is allowed, parsed from the server's
+  /// `Retry-After` header. `null` when the header was absent or unparsable —
+  /// the UI then shows a static "try later" message instead of a countdown.
+  final int? retryAfterSeconds;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final seconds = retryAfterSeconds;
+    if (seconds == null) {
+      return AppLocalizations.of(ctx).cooldownTryLater;
+    }
+    return AppLocalizations.of(ctx).scheduleOverrideErrRateLimited(seconds);
+  }
 }

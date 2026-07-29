@@ -135,13 +135,16 @@ class _FakeSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async {
     callCount++;
     lastMasterId = masterId;
-    lastServiceId = serviceId;
+    // MO-2: these widget tests drive the single-service path (N=1), so the
+    // first (only) id is captured into the existing single-String? field —
+    // every assertion (`expect(fake.lastServiceId, _kService.id)`) is unchanged.
+    lastServiceId = serviceIds.isEmpty ? null : serviceIds.first;
     lastDate = date;
     final Object? err = errorToThrow;
     if (err != null) throw err;
@@ -153,13 +156,18 @@ class _FakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
     workingDaysCallCount++;
     lastWorkingDaysMasterId = masterId;
     lastWorkingDaysFrom = from;
     lastWorkingDaysTo = to;
+    // MO-2: single-service path — collapse the one-element list back to the
+    // String? discriminator these tests key the two working-days modes on.
+    final String? serviceId = serviceIds == null || serviceIds.isEmpty
+        ? null
+        : serviceIds.first;
     lastWorkingDaysServiceId = serviceId;
     final Completer<void>? gate = workingDaysGate;
     if (gate != null) await gate.future;
@@ -205,11 +213,10 @@ GoRouter _router({required Widget dateScreen}) => GoRouter(
       path: RouteNames.bookingConfirm,
       builder: (context, state) {
         final BookingConfirmArgs args = state.extra! as BookingConfirmArgs;
-        final appt = args.appointments.first;
         return Scaffold(
           body: Text(
-            'confirm-stub:${args.masterId}:${appt.serviceId}:'
-            '${appt.startAt.toIso8601String()}:${args.rescheduleBookingId}',
+            'confirm-stub:${args.masterId}:${args.services.first.id}:'
+            '${args.startAt.toIso8601String()}:${args.rescheduleBookingId}',
           ),
         );
       },

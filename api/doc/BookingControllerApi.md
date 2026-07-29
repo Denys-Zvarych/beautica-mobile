@@ -103,7 +103,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **createBooking**
-> ApiResponseBookingResponse createBooking(createBookingRequest, idempotencyKey)
+> ApiResponseBookingDetailResponse createBooking(createBookingRequest, idempotencyKey)
 
 
 
@@ -132,7 +132,7 @@ Name | Type | Description  | Notes
 
 ### Return type
 
-[**ApiResponseBookingResponse**](ApiResponseBookingResponse.md)
+[**ApiResponseBookingDetailResponse**](ApiResponseBookingDetailResponse.md)
 
 ### Authorization
 

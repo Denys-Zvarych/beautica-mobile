@@ -132,6 +132,27 @@
   "@bookingErrorAlreadyElapsed": {
     "description": "Error message shown when PATCH /bookings/{id}/reschedule or /cancel returns HTTP 409 with data.code == BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's slot is already past the server clock, so it can no longer be rescheduled or cancelled. Surfaced via BookingAlreadyElapsedFailure.userMessage on a stale-screen / clock-rollback tap."
   },
+  "bookingErrorProviderDeclineWindowClosed": "This booking has already started — it can no longer be declined.",
+  "@bookingErrorProviderDeclineWindowClosed": {
+    "description": "Error message shown when PATCH /bookings/{id}/decline returns HTTP 409 (backend Phase 27.1 BookingTemporalGuard.assertFutureForProviderCancel — the booking's startsAt is no longer strictly in the future). Surfaced via ProviderDeclineWindowClosedFailure.userMessage on a stale-screen / clock-rollback tap."
+  },
+  "bookingErrorProviderCompleteNotStarted": "This booking hasn't started yet — it can't be completed.",
+  "@bookingErrorProviderCompleteNotStarted": {
+    "description": "Error message shown when PATCH /bookings/{id}/complete returns HTTP 409 (backend Phase 27.1 BookingTemporalGuard.assertElapsedForComplete — the booking's startsAt is still in the future). Surfaced via ProviderCompleteNotStartedFailure.userMessage on a stale-screen / clock-rollback tap."
+  },
+  "bookingErrDuplicateService": "A service can't be added twice. Remove the duplicate and try again.",
+  "@bookingErrDuplicateService": {
+    "description": "Error message shown when POST /appointments returns HTTP 409 with data.code == DUPLICATE_SERVICE — the multi-service visit named the same service twice. Surfaced via DuplicateServiceFailure.userMessage (the selection UI dedupes up-front, so this is a backstop)."
+  },
+  "bookingMaxServicesReached": "You can pick at most {count} services per visit.",
+  "@bookingMaxServicesReached": {
+    "description": "SnackBar shown when the client tries to add more than MAX_SERVICES_PER_VISIT services to one booking visit in the service selector.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "errEmailAlreadyRegistered": "This email is already registered. Please sign in instead.",
   "@errEmailAlreadyRegistered": {
     "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."
@@ -2280,6 +2301,10 @@
   "@intervalEditorErrBreaksOverlap": {
     "description": "Inline validation: two breaks may not overlap (Phase 15.5)."
   },
+  "intervalEditorErrBreakCoversWholeDay": "A break cannot cover the entire working day",
+  "@intervalEditorErrBreakCoversWholeDay": {
+    "description": "Inline validation: the breaks consume the entire working window, leaving zero bookable time."
+  },
   "scheduleOverrideSheetSubtitle": "Override the schedule for this day",
   "@scheduleOverrideSheetSubtitle": {
     "description": "Subtitle under the date heading in the per-date override sheet (Phase 15.4)."
@@ -2323,6 +2348,111 @@
   "scheduleOverrideErrorsBanner": "Fix the hours highlighted in red",
   "@scheduleOverrideErrorsBanner": {
     "description": "Snackbar shown when trying to save custom hours with validation errors in the per-date override sheet (Phase 15.4)."
+  },
+  "dayOffConflictCountPhrase": "{count, plural, =1{1 booking} other{{count} bookings}}",
+  "@dayOffConflictCountPhrase": {
+    "description": "The exact affected-bookings count phrase used inside the day-off/pause booking-conflict dialog's title (2026-07-26 design).",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictCountPhraseApprox": "{count, plural, =1{at least 1 booking} other{at least {count} bookings}}",
+  "@dayOffConflictCountPhraseApprox": {
+    "description": "Same as dayOffConflictCountPhrase but prefixed 'at least' — used when the backend conflict scan itself was capped (OverrideConflictCheck.isCountExact == false), so the true count is only a lower bound.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictTitleSingleDay": "You have {countPhrase} that day",
+  "@dayOffConflictTitleSingleDay": {
+    "description": "Day-off-conflict dialog title when a single calendar date turned into a full day off. countPhrase comes from dayOffConflictCountPhrase(Approx).",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictTitleRange": "You have {countPhrase} on these days",
+  "@dayOffConflictTitleRange": {
+    "description": "Day-off-conflict dialog title when a span of dates turned into days off.",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictTitleNarrowedHours": "Outside the new hours — {countPhrase}",
+  "@dayOffConflictTitleNarrowedHours": {
+    "description": "Day-off-conflict dialog title when the date stays a working day but the hours were narrowed and some bookings fall outside the new window.",
+    "placeholders": {
+      "countPhrase": { "type": "String" }
+    }
+  },
+  "dayOffConflictSublineDayOff": "Day off · {date}",
+  "@dayOffConflictSublineDayOff": {
+    "description": "Day-off-conflict dialog subline restating a day-off change ('Day off · <date>'); used for both a single date and, with the day-count phrase appended, a date range.",
+    "placeholders": {
+      "date": { "type": "String" }
+    }
+  },
+  "dayOffConflictSublineDayCount": "{days, plural, =1{1 day} other{{days} days}}",
+  "@dayOffConflictSublineDayCount": {
+    "description": "Standalone inclusive day-count phrase appended after dayOffConflictSublineDayOff for a multi-date range change.",
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "dayOffConflictSublineNarrowedHours": "Working hours · {date} · {hours}",
+  "@dayOffConflictSublineNarrowedHours": {
+    "description": "Day-off-conflict dialog subline for a narrowed-hours change ('Working hours · <date> · <HH:mm–HH:mm>').",
+    "placeholders": {
+      "date": { "type": "String" },
+      "hours": { "type": "String" }
+    }
+  },
+  "dayOffConflictTroughCaption": "{count, plural, =1{This booking will be cancelled} other{These bookings will be cancelled}}",
+  "@dayOffConflictTroughCaption": {
+    "description": "Caption directly above the recessed conflict trough, naming what the list holds.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictConsequenceNote": "{count, plural, =1{The client will see the booking as \"Cancelled\".} other{The clients will see their bookings as \"Cancelled\".}}",
+  "@dayOffConflictConsequenceNote": {
+    "description": "Muted note under the conflict trough stating what the client(s) will see. Deliberately does NOT promise a notification — the 2026-07-26 backend design (D6) sends none for this path."
+  },
+  "dayOffConflictTruncatedNote": "{shown, plural, =1{Showing the first {shown} booking} other{Showing the first {shown} bookings}}",
+  "@dayOffConflictTruncatedNote": {
+    "description": "Shown only when OverrideConflictCheck.truncated is true — the returned row list was capped below the true count, so the trough is not showing every affected booking.",
+    "placeholders": {
+      "shown": { "type": "int" }
+    }
+  },
+  "dayOffConflictConfirmCta": "{count, plural, =1{Yes, cancel booking} other{Yes, cancel bookings}}",
+  "@dayOffConflictConfirmCta": {
+    "description": "The destructive confirm button label. Deliberately never shows the numeral itself (only used to pick the singular/plural noun) — 'Yes, cancel bookings', never 'Yes, cancel 3 bookings'.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "dayOffConflictKeepCta": "Leave as is",
+  "@dayOffConflictKeepCta": {
+    "description": "The day-off-conflict dialog's safe back-out action. Deliberately avoids the ambiguous verb 'Cancel' (which would read as either 'cancel the bookings' or 'cancel this dialog')."
+  },
+  "dayOffCheckErrorTitle": "Couldn't check your bookings",
+  "@dayOffCheckErrorTitle": {
+    "description": "Title of the fallback dialog shown when the booking-conflict preview request itself fails (network down / server error) — never saves blind."
+  },
+  "dayOffCheckErrorBody": "Nothing has been changed. Saving a day off isn't safe until we can see your bookings for these dates.",
+  "@dayOffCheckErrorBody": {
+    "description": "Body copy of the conflict-check-failed dialog."
+  },
+  "dayOffCheckErrorRetryCta": "Try again",
+  "@dayOffCheckErrorRetryCta": {
+    "description": "Retry action on the conflict-check-failed dialog."
+  },
+  "scheduleOverrideErrRateLimited": "Too many attempts. Wait {seconds}s and try again.",
+  "@scheduleOverrideErrRateLimited": {
+    "description": "Error message for ScheduleOverrideRateLimitedFailure (HTTP 429 on PUT /overrides/{date}) when the server sent a Retry-After header — either the per-minute write-rate limit or the aggregate per-hour decline budget.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
   },
   "applyScheduleTitle": "Schedule validity period",
   "@applyScheduleTitle": {
@@ -2501,6 +2631,10 @@
   "serviceSetupSuccess": "Services created",
   "@serviceSetupSuccess": {
     "description": "Snackbar shown after the first-time bulk service setup succeeds."
+  },
+  "serviceErrDuplicate": "This service is already in your menu.",
+  "@serviceErrDuplicate": {
+    "description": "Error shown when a service-catalog create/update/bulk write returns 409 DUPLICATE_SERVICE because the service is already in the master's menu."
   },
   "serviceSetupErrAlreadyHasServices": "You already have services",
   "@serviceSetupErrAlreadyHasServices": {
@@ -2944,6 +3078,16 @@
   "myRatingExplanation": "Your rating is based on scores from masters and salons after completed procedures.",
   "@myRatingExplanation": {
     "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
+  },
+  "myRatingReviewCount": "{count, plural, =0{0 reviews} =1{1 review} other{{count} reviews}}",
+  "@myRatingReviewCount": {
+    "description": "Review-count line under the client's average rating on the My Rating screen (track 7.x Wave B, GET /users/me/rating).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
   },
   "passportColumnProcedures": "Favourite procedures",
   "@passportColumnProcedures": {
@@ -3559,6 +3703,10 @@
   "@bookingMasterLabel": {
     "description": "Label above a master's display name — used by the client-booking-conflict dialog's clashing-booking recap."
   },
+  "bookingClientLabel": "Client",
+  "@bookingClientLabel": {
+    "description": "Label above a client's display name — used by the PROVIDER-facing DeclineBookingDialog's recap (track 27.x Wave A)."
+  },
   "bookingConflictClientTitle": "You already have a booking at this time",
   "@bookingConflictClientTitle": {
     "description": "Title of the modal shown when POST /bookings or PATCH /bookings/{id}/reschedule returns a CLIENT_BOOKING_CONFLICT 409 (ClientBookingConflictFailure)."
@@ -3843,6 +3991,58 @@
   "@cancelBookingKeepCta": {
     "description": "Safe back-out button on the cancel-booking dialog."
   },
+  "declineBookingDialogTitle": "Decline this client's booking?",
+  "@declineBookingDialogTitle": {
+    "description": "Track 27.x Wave A — title of the PROVIDER decline confirmation dialog."
+  },
+  "declineBookingDialogSubtitle": "This can't be undone. The client will be notified.",
+  "@declineBookingDialogSubtitle": {
+    "description": "Track 27.x Wave A — subtitle of the PROVIDER decline confirmation dialog."
+  },
+  "declineBookingNoteLabel": "Comment for the client (optional)",
+  "@declineBookingNoteLabel": {
+    "description": "Track 27.x Wave A — caption above the PROVIDER decline dialog's optional comment field. The value is mutually visible to the client once the booking reads DECLINED."
+  },
+  "declineBookingNoteHint": "E.g.: fell ill, emergency…",
+  "@declineBookingNoteHint": {
+    "description": "Track 27.x Wave A — placeholder text inside the PROVIDER decline dialog's optional comment field."
+  },
+  "declineBookingConfirmCta": "Yes, decline",
+  "@declineBookingConfirmCta": {
+    "description": "Track 27.x Wave A — the destructive confirm button on the PROVIDER decline confirmation dialog."
+  },
+  "declineBookingKeepCta": "Keep booking",
+  "@declineBookingKeepCta": {
+    "description": "Track 27.x Wave A — safe back-out button on the PROVIDER decline confirmation dialog."
+  },
+  "declineAppointmentDialogTitle": "Cancel the client's visit?",
+  "@declineAppointmentDialogTitle": {
+    "description": "Track 27.x/MO-6 — title of the PROVIDER decline confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the decline transitions every service in the visit, not just the one shown."
+  },
+  "declineAppointmentDialogSubtitle": "This action cannot be undone. Every service in this visit will be cancelled. The client will be notified.",
+  "@declineAppointmentDialogSubtitle": {
+    "description": "Track 27.x/MO-6 — subtitle of the PROVIDER decline confirmation dialog for a multi-service visit, making explicit that every service is affected."
+  },
+  "completeBookingDialogTitle": "Complete this booking?",
+  "@completeBookingDialogTitle": {
+    "description": "Track 27.x Wave A — title of the PROVIDER complete confirmation dialog."
+  },
+  "completeBookingDialogBody": "Confirm that the client's visit took place.",
+  "@completeBookingDialogBody": {
+    "description": "Track 27.x Wave A — body text of the PROVIDER complete confirmation dialog."
+  },
+  "completeAppointmentDialogTitle": "Complete the visit?",
+  "@completeAppointmentDialogTitle": {
+    "description": "Track 27.x/MO-6 — title of the PROVIDER complete confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the completion transitions every service in the visit, not just the one shown."
+  },
+  "completeAppointmentDialogBody": "Confirm that the client's visit took place. Every service in this visit will be marked complete.",
+  "@completeAppointmentDialogBody": {
+    "description": "Track 27.x/MO-6 — body text of the PROVIDER complete confirmation dialog for a multi-service visit, making explicit that every service is affected."
+  },
+  "completeBookingConfirmCta": "Yes, complete",
+  "@completeBookingConfirmCta": {
+    "description": "Track 27.x Wave A — the confirm button on the PROVIDER complete confirmation dialog."
+  },
   "bookingDetailBackSemantics": "Back to bookings list",
   "@bookingDetailBackSemantics": {
     "description": "Accessibility label for the booking detail screen's back button."
@@ -3885,6 +4085,14 @@
   "bookingDetailRebookCta": "Book again",
   "@bookingDetailRebookCta": {
     "description": "Pinned action on a COMPLETED/CANCELLED/DECLINED booking's detail screen."
+  },
+  "bookingDetailDeclineCta": "Decline",
+  "@bookingDetailDeclineCta": {
+    "description": "Track 27.x Wave A — PROVIDER footer secondary action on a CONFIRMED booking's detail screen (both not-yet-started and elapsed/Booking.hasStarted); opens the decline confirmation. Distinct from bookingDetailCancelCta (the CLIENT's «Cancel booking»)."
+  },
+  "bookingDetailCompleteCta": "Complete",
+  "@bookingDetailCompleteCta": {
+    "description": "Track 27.x Wave A — PROVIDER footer primary action on a CONFIRMED booking whose appointment has started (Booking.hasStarted), shown alongside bookingDetailDeclineCta; opens the complete confirmation."
   },
   "bookingDetailReviewCta": "Leave a review",
   "@bookingDetailReviewCta": {
@@ -3978,6 +4186,102 @@
   "@reviewMasterRoleIndependent": {
     "description": "Fallback role subtitle on the master feedback card when the master has no professional title and is not salon-employed."
   },
+  "bookingDetailClientReviewCta": "Leave feedback about the client",
+  "@bookingDetailClientReviewCta": {
+    "description": "Track 7.x Wave B — PROVIDER footer action on a COMPLETED booking's detail screen; opens the leave-client-feedback screen. Offered on every COMPLETED provider booking (no server-side canReview-equivalent gate exists yet)."
+  },
+  "clientReviewScreenTitle": "FEEDBACK ABOUT CLIENT",
+  "@clientReviewScreenTitle": {
+    "description": "Top-bar title of the leave-client-feedback screen (track 7.x Wave B)."
+  },
+  "clientReviewBackSemantics": "Back",
+  "@clientReviewBackSemantics": {
+    "description": "Accessibility label for the back button on the leave-client-feedback screen."
+  },
+  "clientReviewRatingSection": "CLIENT RATING",
+  "@clientReviewRatingSection": {
+    "description": "Section eyebrow above the required star-rating input on the leave-client-feedback screen."
+  },
+  "clientReviewRatingRequiredTag": "required",
+  "@clientReviewRatingRequiredTag": {
+    "description": "Small 'required' tag beside the rating section eyebrow on the leave-client-feedback screen."
+  },
+  "clientReviewCommentSection": "COMMENT ABOUT CLIENT",
+  "@clientReviewCommentSection": {
+    "description": "Section eyebrow above the optional comment field on the leave-client-feedback screen."
+  },
+  "clientReviewCommentOptionalTag": "optional",
+  "@clientReviewCommentOptionalTag": {
+    "description": "Small 'optional' tag beside the comment section eyebrow on the leave-client-feedback screen."
+  },
+  "clientReviewRatingPrompt": "Tap a star to rate",
+  "@clientReviewRatingPrompt": {
+    "description": "Prompt shown under the stars before any rating is selected on the leave-client-feedback screen."
+  },
+  "clientReviewStarsSemantics": "Client rating from 1 to 5 stars",
+  "@clientReviewStarsSemantics": {
+    "description": "Accessibility label for the 5-star rating input on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel1": "Poor",
+  "@clientReviewRatingLabel1": {
+    "description": "Descriptive label for a 1-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel2": "Fair",
+  "@clientReviewRatingLabel2": {
+    "description": "Descriptive label for a 2-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel3": "Okay",
+  "@clientReviewRatingLabel3": {
+    "description": "Descriptive label for a 3-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel4": "Good",
+  "@clientReviewRatingLabel4": {
+    "description": "Descriptive label for a 4-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewRatingLabel5": "Great",
+  "@clientReviewRatingLabel5": {
+    "description": "Descriptive label for a 5-star rating on the leave-client-feedback screen."
+  },
+  "clientReviewCommentHint": "Add a comment (optional)",
+  "@clientReviewCommentHint": {
+    "description": "Placeholder text inside the optional comment field on the leave-client-feedback screen."
+  },
+  "clientReviewCommentPrivacyNote": "The client will not see this comment",
+  "@clientReviewCommentPrivacyNote": {
+    "description": "Inline reminder beside the comment counter on the leave-client-feedback screen — the client never sees this text, only their aggregate rating number moves."
+  },
+  "clientReviewRoleLabel": "Client",
+  "@clientReviewRoleLabel": {
+    "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."
+  },
+  "clientReviewSubmitCta": "Send feedback",
+  "@clientReviewSubmitCta": {
+    "description": "Primary submit button on the leave-client-feedback screen; disabled until a star is selected."
+  },
+  "clientReviewSubmitSuccess": "Feedback saved",
+  "@clientReviewSubmitSuccess": {
+    "description": "Snackbar shown after client feedback is successfully submitted on the leave-client-feedback screen."
+  },
+  "clientReviewUnavailableTitle": "Feedback about this client was already left",
+  "@clientReviewUnavailableTitle": {
+    "description": "Title of the info state shown when feedback about this booking's client was already left, reached via the submit-time 409 (no client-side gate exists to pre-empt it)."
+  },
+  "clientReviewUnavailableBody": "Feedback about a client can only be left for a completed booking — and only once. It is added to the client's rating.",
+  "@clientReviewUnavailableBody": {
+    "description": "Body copy of the not-reviewable info state on the leave-client-feedback screen."
+  },
+  "clientReviewUnavailableCta": "Back to bookings",
+  "@clientReviewUnavailableCta": {
+    "description": "Button in the not-reviewable info state that returns to the provider's bookings list."
+  },
+  "clientReviewErrAlreadyReviewed": "You have already left feedback about this client.",
+  "@clientReviewErrAlreadyReviewed": {
+    "description": "Error message when POST /client-reviews returns 409 because feedback already exists for this booking's client."
+  },
+  "clientReviewErrNotAllowed": "This booking is not available for client feedback.",
+  "@clientReviewErrNotAllowed": {
+    "description": "Error message when POST /client-reviews is rejected (403 not the provider / 4xx booking not completed or guest booking) on the leave-client-feedback screen."
+  },
   "bookingRescheduleSubmitCta": "Reschedule booking",
   "@bookingRescheduleSubmitCta": {
     "description": "Primary CTA on the booking confirm screen when the flow is a reschedule (moving an existing booking) rather than a new booking."
@@ -3993,6 +4297,14 @@
   "bookingRescheduleUnavailable": "This booking can't be rescheduled.",
   "@bookingRescheduleUnavailable": {
     "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
+  },
+  "appointmentRescheduleUnavailable": "This visit can't be rescheduled.",
+  "@appointmentRescheduleUnavailable": {
+    "description": "Track 27.x/MO-6 — snackbar shown when startAppointmentReschedule short-circuits: the visit is no longer CONFIRMED, or one of its services is no longer in the master's catalogue."
+  },
+  "appointmentRescheduleWholeVisitNotice": "The whole visit moves together — every service keeps its order and duration.",
+  "@appointmentRescheduleWholeVisitNotice": {
+    "description": "Track 27.x/MO-6 — info banner on the booking confirm screen when the flow is a whole-visit reschedule (PATCH /appointments/{id}/reschedule), making explicit that every service listed below moves together."
   },
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {
@@ -4274,6 +4586,18 @@
   "salonBookingMastersIntro": "Choose the masters who will perform the selected services. Each master's services become a separate appointment — you'll pick the time next.",
   "@salonBookingMastersIntro": {
     "description": "Intro line under the top bar on the salon booking master-assignment screen."
+  },
+  "salonBookingPickMasterIntro": "Choose the master who will perform all selected services.",
+  "@salonBookingPickMasterIntro": {
+    "description": "Intro line on the salon booking master-selection screen (single covering master)."
+  },
+  "salonBookingNoCoveringMasterTitle": "No single master performs all selected services",
+  "@salonBookingNoCoveringMasterTitle": {
+    "description": "Empty-state title when no single master performs every selected service."
+  },
+  "salonBookingNoCoveringMasterHint": "Adjust your service selection to see available masters.",
+  "@salonBookingNoCoveringMasterHint": {
+    "description": "Empty-state hint guiding the client to adjust their service selection."
   },
   "salonBookingMastersSectionLabel": "Available masters",
   "@salonBookingMastersSectionLabel": {

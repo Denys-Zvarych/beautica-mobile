@@ -100,16 +100,48 @@ class OverridesNotifier extends _$OverridesNotifier {
 
   ScheduleRepository get _repo => ref.read(scheduleRepositoryProvider);
 
+  /// Read-only preview (2026-07-26 booking-conflict design) of every
+  /// CONFIRMED booking that saving [span] would leave without availability —
+  /// ONE call for the whole `[span.start, span.end]` range, never one per
+  /// expanded date. Does NOT touch [state] (no [AsyncLoading] flicker, no
+  /// reload): this is a pre-write check the caller (the sheet UI) runs
+  /// BEFORE deciding whether to show [DayOffConflictDialog], not a mutation.
+  ///
+  /// Callers: [putOverride]'s single-date host (`DayHoursSheet`) passes a
+  /// `start == end` [span]; a future multi-day span editor would pass the
+  /// whole span here and then call [putSpan] with the SAME
+  /// `cancelOverlapping` decision — the preview is always one call
+  /// regardless of which write method follows.
+  ///
+  /// A thrown [Failure] propagates directly (NOT wrapped in [AsyncValue]) —
+  /// the caller decides how to surface a failed check (e.g. a retryable
+  /// "couldn't check your bookings" dialog) without it disturbing this
+  /// provider's already-loaded override list.
+  Future<OverrideConflictCheck> checkConflicts(ScheduleOverride span) {
+    if (kDebugMode) {
+      log('checkConflicts for span=$span', name: _tag, level: 800);
+    }
+    return _repo.previewConflicts(span);
+  }
+
   /// Upserts a single-date [override] (its [ScheduleOverride.start] is the
   /// target date) and reloads this range. The effective-schedule notifier
   /// watches this provider, so the reload propagates to a fresh effective-
   /// schedule fetch automatically. A thrown [Failure] becomes an [AsyncError];
   /// the previously-resolved override list is left intact on failure.
-  Future<void> putOverride(ScheduleOverride override) =>
-      _mutate('putOverride', () {
-        _assertExplicitTimesValid(override);
-        return _repo.putOverride(override);
-      });
+  ///
+  /// [cancelOverlapping] forwards the booking-conflict design's write-time
+  /// consent flag — see [ScheduleRepository.putOverride]'s doc. Defaults to
+  /// `false`, so a caller that never calls [checkConflicts] gets byte-for-byte
+  /// the pre-existing behaviour. Pass `true` only after the master confirms
+  /// the conflict dialog for THIS exact [override].
+  Future<void> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) => _mutate('putOverride', () {
+    _assertExplicitTimesValid(override);
+    return _repo.putOverride(override, cancelOverlapping: cancelOverlapping);
+  });
 
   /// Applies one override across every date of a multi-day span — expanding the
   /// span into one PUT per calendar date (the repository stays 1 row = 1 date).
@@ -120,7 +152,17 @@ class OverridesNotifier extends _$OverridesNotifier {
   /// concurrency batches of [_kPutSpanChunkSize] rather than one serial round
   /// trip per day. On partial failure the surfaced error names the failing
   /// date(s); the post-op reload then reflects whatever actually persisted.
-  Future<void> putSpan(ScheduleOverride span) {
+  ///
+  /// [cancelOverlapping] is forwarded to EVERY expanded per-date PUT — same
+  /// consent flag as [putOverride], applied uniformly across the whole span.
+  /// Callers must run [checkConflicts] with `span` ONCE first (never once per
+  /// expanded date — that would multiply an O(days) count of network round
+  /// trips into what should be a single preview) and only pass `true` here
+  /// after the master confirms the resulting conflict list.
+  Future<void> putSpan(
+    ScheduleOverride span, {
+    bool cancelOverlapping = false,
+  }) {
     return _mutate('putSpan', () async {
       // Phase 15.7 — validate the span's discrete shape ONCE up-front (every
       // expanded per-date PUT shares it), before any network call.
@@ -158,6 +200,9 @@ class OverridesNotifier extends _$OverridesNotifier {
           intervals: span.intervals
               .map((w) => w.clone())
               .toList(growable: false),
+          // The span's display-only window is held constant across every
+          // expanded date, exactly like its intervals.
+          window: span.window?.clone(),
         );
       }
 
@@ -170,7 +215,10 @@ class OverridesNotifier extends _$OverridesNotifier {
         final results = await Future.wait(
           chunk.map(
             (date) => _repo
-                .putOverride(perDayFor(date))
+                .putOverride(
+                  perDayFor(date),
+                  cancelOverlapping: cancelOverlapping,
+                )
                 .then<Object?>((_) => null)
                 .catchError((Object e) => e),
           ),

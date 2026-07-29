@@ -220,16 +220,59 @@ void main() {
   });
 
   group('bulkCreate — error mapping', () {
-    test('409 → MasterAlreadyHasServicesFailure (first-time guard)', () async {
-      when(
-        () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
-      ).thenThrow(_dioWithStatus(409));
+    test(
+      '409 (no typed code) → MasterAlreadyHasServicesFailure (first-time guard)',
+      () async {
+        when(
+          () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
+        ).thenThrow(_dioWithStatus(409));
 
-      await expectLater(
-        repository.bulkCreate(<MasterServiceBulkItem>[_fixedItem]),
-        throwsA(isA<MasterAlreadyHasServicesFailure>()),
-      );
-    });
+        await expectLater(
+          repository.bulkCreate(<MasterServiceBulkItem>[_fixedItem]),
+          throwsA(isA<MasterAlreadyHasServicesFailure>()),
+        );
+      },
+    );
+
+    test(
+      '409 DUPLICATE_SERVICE → ServiceDuplicateFailure (serviceName null on bulk)',
+      () async {
+        // On the bulk path the typed 409 envelope must take precedence over the
+        // "already has services" default. `serviceName` is null on this path;
+        // `existingServiceDefId` may be present.
+        when(
+          () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: _bulkPath),
+            type: DioExceptionType.badResponse,
+            error: const ServerFailure(statusCode: 409),
+            response: Response<dynamic>(
+              requestOptions: RequestOptions(path: _bulkPath),
+              statusCode: 409,
+              data: <String, dynamic>{
+                'success': false,
+                'data': <String, dynamic>{
+                  'code': 'DUPLICATE_SERVICE',
+                  'serviceName': null,
+                  'existingServiceDefId': 'def-existing',
+                },
+                'message': 'This service already exists',
+              },
+            ),
+          ),
+        );
+
+        final failure = await repository
+            .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+            .then<Object?>((_) => null, onError: (Object e) => e);
+
+        expect(failure, isA<ServiceDuplicateFailure>());
+        final dup = failure! as ServiceDuplicateFailure;
+        expect(dup.serviceName, isNull);
+        expect(dup.existingServiceDefId, 'def-existing');
+      },
+    );
 
     test('400 → ValidationFailure', () async {
       when(

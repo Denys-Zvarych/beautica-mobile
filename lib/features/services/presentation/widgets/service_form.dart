@@ -818,6 +818,28 @@ class _ServiceFormState extends State<ServiceForm> {
       }
       // Swallow — the inline errors now communicate the problem; rethrowing
       // would also pop a redundant generic snackbar.
+    } on ServiceDuplicateFailure {
+      // Backend 409 DUPLICATE_SERVICE: the chosen service is already in the
+      // master's menu. Flag the service-type field inline (the offending choice)
+      // with the same localized copy, instead of only a generic snackbar — the
+      // service type is the field that determines the duplicate. Do not log the
+      // typed diagnostic fields (they can echo catalogue/user data).
+      if (kDebugMode) {
+        log(
+          'ServiceForm.onSubmit duplicate service (409 DUPLICATE_SERVICE)',
+          name: _tag,
+          level: 900,
+        );
+      }
+      if (mounted) {
+        setState(() {
+          _serverFieldErrors = Map<String, String>.unmodifiable(
+            <String, String>{'serviceTypeId': l10n.serviceErrDuplicate},
+          );
+        });
+      }
+      // Swallow — the inline error communicates the problem; rethrowing would
+      // pop a redundant generic snackbar.
     } catch (e) {
       if (kDebugMode) {
         // Log the runtime type only — never the exception object, which can

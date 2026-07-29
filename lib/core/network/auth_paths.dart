@@ -100,6 +100,19 @@ const Set<String> kPiiPaths = {
   // `clientComment` field on POST. The `{bookingId}` sub-routes (list/detail/
   // cancel/reschedule) are covered by the prefix in [kPiiPathPrefixes] below.
   '/api/v1/bookings',
+  // MO-1 — CLIENT appointment (multi-service visit) create endpoint. Exact
+  // match: the bare `/api/v1/appointments` path (no dynamic segment) carries
+  // the free-text `clientComment` field on POST. The `{id}` sub-routes
+  // (detail/cancel/decline/not-complete/review) are covered by the prefix in
+  // [kPiiPathPrefixes] below.
+  '/api/v1/appointments',
+  // Track 7.x Wave B — PROVIDER→CLIENT leave-feedback create endpoint. Exact
+  // match: the bare `/api/v1/client-reviews` path (no dynamic segment)
+  // carries the free-text `comment` field on POST — the provider's private
+  // note about the client, never shown to the client, but still free text
+  // that must not land in plain-text debug logs. Mirrors the `/api/v1/
+  // bookings` and `/api/v1/appointments` exact-match precedents above.
+  '/api/v1/client-reviews',
 };
 
 /// Path PREFIXES whose request/response bodies — and URL query strings — carry
@@ -134,6 +147,16 @@ const List<String> kPiiPathPrefixes = <String>[
   // `POST /bookings` create endpoint is covered separately by the exact-match
   // entry in [kPiiPaths] (no trailing dynamic segment to match a prefix).
   '/api/v1/bookings/',
+  // MO-1 — CLIENT appointment (multi-service visit) read/write endpoints.
+  // Covers `GET /appointments/{id}` (enriched master name/address/price +
+  // notes), `PATCH /appointments/{id}/cancel` (free-text clientCancellationNote),
+  // `PATCH /appointments/{id}/reschedule` (dual-actor, no note payload),
+  // `PATCH /appointments/{id}/decline` (providerComment) and
+  // `POST /appointments/{id}/review` (free-text review comment). The bare
+  // `POST /appointments` create endpoint is covered separately by the
+  // exact-match entry in [kPiiPaths] (no trailing dynamic segment to match a
+  // prefix).
+  '/api/v1/appointments/',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /
@@ -146,6 +169,15 @@ const List<String> kPiiPathPrefixes = <String>[
 const List<String> kPiiPathSegments = <String>[
   '/working-hours',
   '/weekly-schedules',
+  // Per-date schedule overrides — `PUT /api/v1/masters/{masterId}/overrides/
+  // {date}` (working intervals + the display-only window, same class of data as
+  // /weekly-schedules) and `POST /api/v1/masters/{masterId}/overrides/conflicts`
+  // (2026-07-26 booking-conflict preview, whose RESPONSE carries client display
+  // names and service names). Both sit behind a dynamic {masterId}, so neither
+  // exact membership nor a fixed prefix matches. Without this entry
+  // `LoggingInterceptor.onError` logs `err.response?.data` verbatim, so a 4xx on
+  // either route would spill a conflict payload with client identifiers.
+  '/overrides',
 ];
 
 /// Query-parameter keys whose VALUES must be masked in debug logs on ANY route

@@ -1,20 +1,22 @@
-// Phase 13.7 — HomeHub provider de-dup REGRESSION/BEHAVIOUR guard.
+// HomeHub rating-pill SOURCE + de-coupling REGRESSION/BEHAVIOUR guard.
 //
-// Refactor under test (home_hub_screen.dart):
-//   • `_HomeHubBody` no longer watches `clientProfileProvider` at all.
+// Wiring under test (home_hub_screen.dart):
 //   • `_ProfileSection` (leaf) watches the FULL clientProfileProvider for the
 //     name / city / phone card.
-//   • `_StatPillsRow` (leaf) watches a NARROW `.select` slice —
-//     `clientProfileProvider.select((v) => v.whenData((p) => p.clientRating))` —
-//     so the rating pill rebuilds only when the rating itself changes, not on a
-//     name / photo / city edit.
+//   • `_StatPillsRow` (leaf) watches the AUTHORITATIVE `myRatingProvider`
+//     (`GET /users/me/rating`) — the SAME source `MyRatingScreen` (the detail
+//     window opened by tapping the pill) reads. It no longer reads the profile
+//     summary's `clientRating` slice, which was unpopulated and rendered "—".
 //
-// These tests pin the BEHAVIOUR the de-dup must preserve: the rating pill still
-// renders the correct rating sourced from clientProfileProvider, and the
-// data / loading / error states of that provider still render the expected
-// leaf UI (no blank screen, no swapped state). They are the behaviour-
-// preservation net for the `.select` narrowing — they would go red if the slice
-// were wired to the wrong field or the leaf state mapping regressed.
+// These tests pin the behaviour the wiring must preserve:
+//   1. The pill renders the real rating from `myRatingProvider` — EVEN WHEN the
+//      profile summary's `clientRating` is null (proves the source switch: the
+//      pill and `MyRatingScreen` now agree on the real number).
+//   2. The pill is de-coupled from profile edits — a loading RATING shows the
+//      skeleton while the sibling profile card still renders its name.
+//   3. A failing `myRatingProvider` degrades to a graceful "—"
+//      (`MyRatingStatCard`, clientRating: null), without blanking siblings or
+//      escaping an exception.
 
 import 'dart:async';
 
@@ -23,6 +25,8 @@ import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -44,27 +48,30 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 }
 
 // ---------------------------------------------------------------------------
-// Sample data — a profile WITH a concrete rating so the pill value is unique.
+// Sample data — a profile whose OWN `clientRating` slice is null. The pill must
+// still show a real number, proving it reads `myRatingProvider`, not this field.
 // ---------------------------------------------------------------------------
 
-const _ratedProfile = ClientProfileSummary(
+const _profileNoRating = ClientProfileSummary(
   firstName: 'Олена',
   lastName: 'Тест',
   city: 'Львів',
   phone: '+380 97 000 00 00',
-  clientRating: 4.7,
+  clientRating: null,
   memberSinceYear: 2026,
 );
 
 /// Builds the override list for the home hub, parameterised by the
-/// clientProfileProvider override only — the other section providers are always
-/// settled to empty data so they cannot interfere with the rating-pill / profile
-/// assertions. `profileOverride` is the raw provider override (so callers can
-/// inject data / loading / error precisely).
-List<Object> _overrides(Object profileOverride) {
+/// `myRatingProvider` override only — the profile is always settled to
+/// [_profileNoRating] and the other section providers to empty data, so they
+/// cannot interfere with the rating-pill / profile assertions. `ratingOverride`
+/// is the raw provider override (so callers can inject data / loading / error
+/// precisely).
+List<Object> _overrides(Object ratingOverride) {
   return <Object>[
     screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
-    profileOverride,
+    ratingOverride,
+    clientProfileProvider.overrideWith((ref) async => _profileNoRating),
     nextAppointmentProvider.overrideWith((ref) async => null),
     favoriteMastersProvider.overrideWith(
       (ref) async => const <FavoriteMasterItem>[],
@@ -75,125 +82,124 @@ List<Object> _overrides(Object profileOverride) {
 }
 
 void main() {
-  group('HomeHub rating-pill de-dup (clientProfileProvider .select slice)', () {
-    testWidgets('data state: rating pill renders the rating sourced from '
-        'clientProfileProvider (and profile card still renders the name)', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const HomeHubScreen(),
-        overrides: _overrides(
-          clientProfileProvider.overrideWith((ref) async => _ratedProfile),
-        ),
-      );
-      // Settle the provider future, then run out the 1100 ms reveal.
-      await tester.pumpAndSettle();
-      // fixed-wait-ok: running out a time-driven CurvedAnimation — no condition to pump-until.
-      await tester.pump(const Duration(milliseconds: 1100));
+  group('HomeHub rating pill — sourced from myRatingProvider', () {
+    testWidgets(
+      'data state: rating pill renders the real rating from myRatingProvider '
+      'even when the profile summary clientRating is null',
+      (tester) async {
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          overrides: _overrides(
+            myRatingProvider.overrideWith(
+              (ref) async =>
+                  const ClientRating(avgRating: 4.7, reviewCount: 12),
+            ),
+          ),
+        );
+        // Settle the providers, then run out the 1100 ms reveal.
+        await tester.pumpAndSettle();
+        // fixed-wait-ok: running out a time-driven CurvedAnimation — no condition to pump-until.
+        await tester.pump(const Duration(milliseconds: 1100));
 
-      // The rating pill (leaf .select consumer) shows the rating value.
-      expect(find.byType(MyRatingStatCard), findsOneWidget);
-      expect(
-        find.text('4.7'),
-        findsOneWidget,
-        reason:
-            'the rating pill must render clientRating from the '
-            'clientProfileProvider.select((p) => p.clientRating) slice',
-      );
+        expect(find.byType(MyRatingStatCard), findsOneWidget);
+        expect(
+          find.text('4.7'),
+          findsOneWidget,
+          reason:
+              'the pill must render avgRating from myRatingProvider — the same '
+              'authoritative source MyRatingScreen reads — NOT the profile '
+              'summary clientRating slice (which is null here)',
+        );
+        expect(
+          tester
+              .widget<MyRatingStatCard>(find.byType(MyRatingStatCard))
+              .clientRating,
+          4.7,
+          reason:
+              'the pill value must come straight from ClientRating.avgRating',
+        );
 
-      // The profile leaf (full-provider consumer) still renders the name —
-      // proves the de-dup did not break the sibling profile card.
-      expect(
-        find.byKey(const Key('home_profile_name')),
-        findsOneWidget,
-        reason:
-            'the profile card leaf must still render from the full '
-            'clientProfileProvider after the body stopped watching it',
-      );
-      // i18n-finder-ok: client display name is fixture data, not UI copy
-      expect(find.text('Олена Тест'), findsOneWidget);
-    });
+        // The profile leaf still renders the name from clientProfileProvider —
+        // proves the rating source switch did not touch the sibling card.
+        expect(find.byKey(const Key('home_profile_name')), findsOneWidget);
+        // i18n-finder-ok: client display name is fixture data, not UI copy
+        expect(find.text('Олена Тест'), findsOneWidget);
+      },
+    );
 
     testWidgets(
-      'loading state: rating pill shows the skeleton (no MyRatingStatCard) '
-      'while clientProfileProvider is loading',
+      'de-coupling: a loading rating shows the skeleton while the sibling '
+      'profile card still renders its name',
       (tester) async {
-        // A never-completing future keeps the provider in AsyncLoading.
-        final completer = Completer<ClientProfileSummary>();
+        // A never-completing future keeps myRatingProvider in AsyncLoading.
+        final completer = Completer<ClientRating>();
         addTearDown(() {
-          if (!completer.isCompleted) completer.complete(_ratedProfile);
+          if (!completer.isCompleted) completer.complete(const ClientRating());
         });
 
         await tester.pumpApp(
           const HomeHubScreen(),
           overrides: _overrides(
-            clientProfileProvider.overrideWith((ref) => completer.future),
+            myRatingProvider.overrideWith((ref) => completer.future),
           ),
         );
-        // Run the reveal animation only; the profile future stays pending so
-        // we deliberately do NOT pumpAndSettle (it would hang).
+        // The profile future settles; the rating future stays pending, so we
+        // deliberately do NOT pumpAndSettle (it would hang on the completer).
         await tester.pump();
         // fixed-wait-ok: running out a time-driven CurvedAnimation — no condition to pump-until.
         await tester.pump(const Duration(milliseconds: 1100));
 
-        // The rating slice is AsyncLoading → the pill renders its skeleton, so
-        // the data widget must be ABSENT.
+        // Rating is AsyncLoading → the pill renders its skeleton, so the data
+        // widget must be ABSENT.
         expect(
           find.byType(MyRatingStatCard),
           findsNothing,
           reason:
-              'while clientProfileProvider is loading the rating pill must '
-              'render the skeleton, not the MyRatingStatCard data widget',
+              'while myRatingProvider is loading the pill must render the '
+              'skeleton, not the MyRatingStatCard data widget',
         );
-        // The profile leaf is also loading → its name is not shown.
-        expect(find.byKey(const Key('home_profile_name')), findsNothing);
+        // The profile card is settled and independent of the rating — its name
+        // still renders, proving the pill no longer couples the two.
+        expect(
+          find.byKey(const Key('home_profile_name')),
+          findsOneWidget,
+          reason:
+              'a loading RATING must not blank the profile card — the rating '
+              'pill is de-coupled from clientProfileProvider',
+        );
       },
     );
 
     testWidgets(
-      'error state: failing clientProfileProvider renders the rating pill as '
-      'a graceful "—" (MyRatingStatCard, clientRating: null) without blanking '
-      'siblings or escaping an exception',
+      'error state: a failing myRatingProvider renders the pill as a graceful '
+      '"—" (MyRatingStatCard, clientRating: null) without blanking siblings or '
+      'escaping an exception',
       (tester) async {
-        // The rating slice now PRESERVES the error state:
-        //   clientProfileProvider.select((v) => v.map(data/error/loading))
-        // — a production fix replaced the old `.whenData(...)` (which collapsed
-        // error→loading, leaving the `error:` branch dead code / a perpetual
-        // skeleton). With `.map`, an AsyncError in the source flows through to
-        // the pill's `error:` branch, which renders
-        // `MyRatingStatCard(clientRating: null)` → a graceful "—".
-        //
-        // To assert that settled-error render DETERMINISTICALLY we (a) throw
-        // SYNCHRONOUSLY in the override so the FutureProvider resolves to
-        // AsyncError on its very first build with no intervening AsyncLoading
-        // frame, and (b) DISABLE Riverpod 3.x's auto-retry via the ProviderScope
-        // `retry: (_, _) => null` knob so the error stays put and leaves no
-        // pending backoff Timer (which would otherwise make pumpAndSettle hang /
-        // fail the test on a dangling timer). Production keeps the default retry.
+        // Throw SYNCHRONOUSLY so the provider resolves to AsyncError on its
+        // first build (no intervening AsyncLoading frame), and DISABLE Riverpod
+        // 3.x auto-retry via `retry: (_, _) => null` so the error stays put and
+        // leaves no pending backoff Timer (which would hang pumpAndSettle).
         await tester.pumpApp(
           const HomeHubScreen(),
           retry: (_, _) => null,
           overrides: _overrides(
-            clientProfileProvider.overrideWith(
-              (ref) => throw Exception('profile boom'),
+            myRatingProvider.overrideWith(
+              (ref) => throw Exception('rating boom'),
             ),
           ),
         );
-        // Error is settled synchronously; settle the reveal animation, then run
-        // out the 1100 ms reveal exactly like the data case.
         await tester.pumpAndSettle();
         // fixed-wait-ok: running out a time-driven CurvedAnimation — no condition to pump-until.
         await tester.pump(const Duration(milliseconds: 1100));
 
-        // The rating pill now renders the DATA widget in its graceful empty
-        // form — MyRatingStatCard with a null rating, not a perpetual skeleton.
+        // The pill renders the DATA widget in its graceful empty form —
+        // MyRatingStatCard with a null rating, not a perpetual skeleton.
         final ratingFinder = find.byType(MyRatingStatCard);
         expect(
           ratingFinder,
           findsOneWidget,
           reason:
-              'a clientProfileProvider error must flow through the .select(map) '
-              'rating slice to the pill error branch → '
+              'a myRatingProvider error must flow to the pill error branch → '
               'MyRatingStatCard(clientRating: null), NOT a perpetual skeleton',
         );
         expect(
@@ -203,27 +209,21 @@ void main() {
               'the error branch must pass clientRating: null so the pill '
               'degrades gracefully',
         );
-        // null clientRating renders the "—" placeholder glyph. (Finding this is
-        // also implicit proof the loading skeleton was replaced: the data widget
-        // and the skeleton are mutually exclusive branches of the same `when`.)
         expect(
           find.text('—'),
           findsOneWidget,
           reason: 'a null rating renders the "—" graceful-empty value',
         );
 
-        // One failing provider must not blank the whole screen — a sibling
-        // card (next appointment empty state) still renders. This is the
-        // independent-card invariant the de-dup must preserve: each section is
-        // built from its own AsyncValue.
+        // One failing provider must not blank the whole screen — a sibling card
+        // (next appointment empty state) still renders.
         expect(
           find.byKey(const Key('next_appointment_empty')),
           findsOneWidget,
-          reason: 'a clientProfileProvider error must not blank sibling cards',
+          reason: 'a myRatingProvider error must not blank sibling cards',
         );
 
-        // The screen handles the failing provider gracefully — no exception
-        // bubbles out of any builder.
+        // No exception bubbles out of any builder.
         expect(tester.takeException(), isNull);
       },
     );

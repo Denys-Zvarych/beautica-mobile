@@ -378,4 +378,89 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );
+
+  // ── Test 9 — REGRESSION (Rule 3b): home «Мій рейтинг» pill shows the REAL ──
+  //             number served by GET /users/me/rating, not "—" ───────────────
+  //
+  // THE BUG THIS GUARDS
+  // -------------------
+  // The home-hub «Мій рейтинг» pill used to source its value from
+  // `clientProfileProvider.clientRating` — an UNPOPULATED slice of the
+  // `GET /users/me` profile body — so it always rendered "—", while the detail
+  // window (`MyRatingScreen`) correctly showed the real number from
+  // `myRatingProvider` (`GET /users/me/rating`). The fix re-wires `_StatPillsRow`
+  // to watch `myRatingProvider`, so home and detail agree on the real number.
+  //
+  // The widget tier (home_hub_rating_pill_dedup_test.dart) proves the SOURCE
+  // switch against an overridden provider. This flow proves the same fix over
+  // the FULL production stack: real appRouter + real auth session → real
+  // `myRatingProvider` → real `HttpRatingRepository` → real `UserControllerApi`
+  // → an actual `GET /users/me/rating` HTTP round-trip against the fake backend.
+  // The number-parity that was the whole bug is asserted end-to-end: the fake
+  // backend's rating endpoint serves avgRating 4.7 and the home pill must render
+  // "4.7" — NOT the "—" the old profile-summary source produced.
+  //
+  // NOT A NATIVE INTERACTION → no patrol flow is needed (no OS dialog, deep
+  // link, notification, WebView, or biometric surface is touched).
+  testWidgets(
+    'REGRESSION: home «Мій рейтинг» pill renders the REAL avgRating (4.7) from '
+    'GET /users/me/rating — the number-parity the source re-wire restored',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // The authoritative rating endpoint serves a real, non-null average so
+        // the assertion is meaningful — a null here would render "—" and could
+        // not distinguish the fixed wiring from the bug.
+        ..myRatingAvgRating = 4.7
+        ..myRatingReviewCount = 12;
+
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      // Allow the stagger reveal + the GET /users/me/rating fetch to settle so
+      // the resolved number is painted on the pill.
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // The pill must be the DATA widget (never the "—" empty form) and must
+      // carry the real average straight off ClientRating.avgRating.
+      final Finder pill = find.byType(MyRatingStatCard);
+      expect(pill, findsOneWidget);
+      expect(
+        tester.widget<MyRatingStatCard>(pill).clientRating,
+        4.7,
+        reason:
+            'the home pill value must come from GET /users/me/rating '
+            '(ClientRating.avgRating) — the same source MyRatingScreen reads — '
+            'not the unpopulated profile-summary clientRating slice',
+      );
+
+      // The rendered number is "4.7" (toStringAsFixed(1)) inside the pill, NOT
+      // the "—" the old clientProfileProvider source produced. Scope the finder
+      // to the pill so an unrelated "4.7" elsewhere could never false-pass.
+      expect(
+        find.descendant(of: pill, matching: find.text('4.7')),
+        findsOneWidget,
+        reason:
+            'the home «Мій рейтинг» pill must render the real "4.7", the exact '
+            'regression the source re-wire fixed (it used to show "—")',
+      );
+      expect(
+        find.descendant(of: pill, matching: find.text('—')),
+        findsNothing,
+        reason:
+            'the pill must NOT fall back to the "—" empty value when the rating '
+            'endpoint serves a real average',
+      );
+
+      // The real HTTP round-trip actually happened — proves the pill is backed
+      // by the rating endpoint, not a static profile field.
+      expect(
+        fb.getMyRatingCalls,
+        greaterThanOrEqualTo(1),
+        reason:
+            'the home pill must drive an actual GET /users/me/rating call — the '
+            'authoritative source, distinct from GET /users/me',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
 }
