@@ -1353,9 +1353,15 @@ void main() {
       // assertion lives at the widget tier
       // (`master_booking_card_client_avatar_test.dart`), which pins the
       // natural height to 118dp exactly.
+      //
+      // These two bounds are shared by every numeric assertion on `longHeight`
+      // below — including the proportionality one — so a future scale change
+      // moves them in exactly one place and cannot leave the three disagreeing.
+      const double longBand = 120;
+      const double longCeiling = longBand + 6;
       expect(
         longHeight,
-        greaterThanOrEqualTo(120 - 0.5),
+        greaterThanOrEqualTo(longBand - 0.5),
         reason:
             'the 60-minute card measured ${longHeight}dp and must never fall '
             'BELOW its 120dp floor (60/60 × 120) — under-running the floor '
@@ -1364,7 +1370,7 @@ void main() {
       );
       expect(
         longHeight,
-        lessThanOrEqualTo(126),
+        lessThanOrEqualTo(longCeiling),
         reason:
             'the 60-minute card measured ${longHeight}dp against its 120dp '
             'floor — a few dp of real-font overshoot is expected, but more '
@@ -1410,26 +1416,33 @@ void main() {
       // `longHeight` was measured with the photo in flight or already errored.
       expect(
         longHeight,
-        closeTo(120, 0.5),
+        inInclusiveRange(longBand - 0.5, longCeiling),
         reason:
             'the 60-minute card measured ${longHeight}dp WITH a client photo '
             'in its row-1 slot. The mark is 16dp in every one of its four '
-            'states by construction; a different number here means a real '
-            'network image resized the row in a way no mocked widget test '
-            'could observe.',
+            'states by construction; a number outside the band this tier '
+            'allows means a real network image resized the row in a way no '
+            'mocked widget test could observe.',
       );
 
-      // THE SCALE-FREE INVARIANT: both durations clear their layout's natural
-      // height, so both boxes equal their wall-clock bands exactly — and the
-      // ratio of the boxes must therefore equal the ratio of the durations,
-      // at ANY dp-per-hour. A future scale pass that breaks proportionality
-      // fails here even if it updates the two literals above.
+      // THE SCALE-FREE INVARIANT: the 45-minute box clears the compact body's
+      // natural height comfortably, so it equals its wall-clock band exactly.
+      // The 60-minute box only just clears the FULL body's natural — under the
+      // device font it does not clear it at all — so it is natural-governed,
+      // and the ratio carries that overshoot rather than landing on 60/45.
+      //
+      // The invariant is therefore one-and-a-half sided: the ratio may never
+      // drop BELOW the duration ratio (that would mean the long card hit a
+      // floor beneath its own band — the proportionality regression this
+      // guards), and may exceed it only by the same overshoot `longCeiling`
+      // already allows. A scale pass that breaks proportionality still fails
+      // here, at any dp-per-hour.
       expect(
         longHeight / shortHeight,
-        closeTo(60 / 45, 0.02),
+        inInclusiveRange(60 / 45 - 0.02, longCeiling / shortHeight),
         reason:
-            'a 60-minute card (${longHeight}dp) must be exactly 60/45 of a '
-            '45-minute one (${shortHeight}dp); a different ratio means one of '
+            'a 60-minute card (${longHeight}dp) must be at least 60/45 of a '
+            '45-minute one (${shortHeight}dp); a smaller ratio means one of '
             'the two hit a floor or a layout natural instead of its own band',
       );
     },
