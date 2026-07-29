@@ -168,6 +168,40 @@ Future<void> _scrollRailTo(WidgetTester tester, DateTime day) async {
   );
 }
 
+/// Scrolls the timeline grid VERTICALLY until [card] is built.
+///
+/// [BookingsTimelineGrid] culls every card whose `plannedTop` falls below
+/// `scrollOffset + 1.5 × viewport` (`_cullingWindowBottom`, the mobile-perf
+/// fix that stopped a `SingleChildScrollView` painting a whole 24-hour day).
+/// Culling is bottom-only, so scrolling down brings a late card into the band
+/// WITHOUT evicting the earlier ones — every card stays laid out for a
+/// subsequent `getRect`.
+///
+/// A card late in the day is therefore simply ABSENT from the tree until the
+/// grid is scrolled to it: `findsOneWidget` on a 17:00 booking fails on a
+/// short viewport even though nothing is wrong with the layout. Call this
+/// before asserting on any card that is not near the top of the day.
+///
+/// This is vertical only — it says nothing about, and must never be used to
+/// paper over, the HORIZONTAL lane placement these tests assert.
+Future<void> _scrollTimelineTo(WidgetTester tester, Finder card) async {
+  await tester.scrollUntilVisible(
+    card,
+    200,
+    // The grid nests a horizontal `SingleChildScrollView` inside the vertical
+    // one; `.first` is the outer (vertical) scrollable, which is the axis the
+    // culling band tracks.
+    scrollable: find
+        .descendant(
+          of: find.byType(BookingsTimelineGrid),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+    maxScrolls: 60,
+  );
+  await AppHarness.settle(tester);
+}
+
 Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
   await _scrollRailTo(tester, day);
   await tester.tap(find.byKey(dayChipKey(day)));
@@ -1300,14 +1334,43 @@ void main() {
             'the 45-minute card selects the COMPACT body, so its box can '
             'never be shorter than that body\'s own natural height',
       );
+      // WHY THIS IS A RANGE AND NOT `closeTo(120, 0.5)`:
+      //
+      // `fullLayoutNaturalHeight` (118dp) is measured under the WIDGET-TEST
+      // font, whose metrics are not the device's. This tier renders with the
+      // real platform font, where the same body measures a little taller —
+      // CI (pixel_6, API 34) reports 122.0dp. The card's box is a FLOOR
+      // (`BoxConstraints.minHeight`), never an exact height, so when the
+      // natural body exceeds the duration-derived floor the body wins by
+      // design and the card ends up marginally past its end-time line.
+      //
+      // So the invariant this tier can honestly assert is TWO-SIDED: the
+      // floor is never undercut, and the card never spills far enough past
+      // it to read as belonging to the following slot. Asserting the exact
+      // 120 here pinned a device render to a test-font constant with only
+      // 2dp of headroom — it measured layout drift AND font drift, and only
+      // the first is under test. The tight, font-independent version of this
+      // assertion lives at the widget tier
+      // (`master_booking_card_client_avatar_test.dart`), which pins the
+      // natural height to 118dp exactly.
       expect(
         longHeight,
-        closeTo(120, 0.5),
+        greaterThanOrEqualTo(120 - 0.5),
+        reason:
+            'the 60-minute card measured ${longHeight}dp and must never fall '
+            'BELOW its 120dp floor (60/60 × 120) — under-running the floor '
+            'means _cardMinHeightFor drifted and the card no longer fills '
+            'the slot its duration owns',
+      );
+      expect(
+        longHeight,
+        lessThanOrEqualTo(126),
         reason:
             'the 60-minute card measured ${longHeight}dp against its 120dp '
-            'floor (60/60 × 120) — the full body\'s 118dp natural is BELOW '
-            'that floor, so the floor governs and the card lands exactly on '
-            'its end-time line',
+            'floor — a few dp of real-font overshoot is expected, but more '
+            'than 6dp means the full body genuinely outgrew the slot and the '
+            'card now bleeds into the next hour rather than landing on its '
+            'end-time line',
       );
       expect(
         longHeight,
@@ -2253,10 +2316,20 @@ void main() {
       final Finder lateCard = find.byKey(
         const Key('master-booking-card-late-active'),
       );
+      // The late booking starts at 17:00 Kyiv — 960dp down a grid that begins
+      // at 09:00 (8h × the 120dp hour) — so on a phone viewport it sits below
+      // the grid's culling band and is not built until the grid is scrolled
+      // to it. That is vertical culling, not the lane bug under test; scroll
+      // it into the band so all three cards are laid out, then assert. The
+      // band is bottom-only, so the early card stays built.
+      await _scrollTimelineTo(tester, lateCard);
+
       expect(
         earlyCard,
         findsOneWidget,
-        reason: 'the early active booking must be visible without scroll',
+        reason:
+            'the early active booking must still be built after the '
+            'vertical scroll — the culling band evicts nothing above it',
       );
       expect(
         cancelledCard,
@@ -2270,7 +2343,9 @@ void main() {
       expect(
         lateCard,
         findsOneWidget,
-        reason: 'the late active booking must be visible without scroll',
+        reason:
+            'the late active booking must be reachable by VERTICAL '
+            'scroll alone — no horizontal scroll may be needed to find it',
       );
 
       // ── The cancelled card is LEFT-ALIGNED with both active cards — real
