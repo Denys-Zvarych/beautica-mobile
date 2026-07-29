@@ -9,9 +9,10 @@
 //
 // Not localised, deliberately and consistently with the rest of this layer:
 // the app is UA-primary and every sibling date formatter in `schedule_model`
-// is a hard-coded Ukrainian table. Promoting all of them to `.arb` is a
-// separate sweep (tracked with the «грн»→«₴» migration), not something to do
-// halfway inside a filter-sheet phase.
+// is a hard-coded Ukrainian table. This table is superseded by the canonical
+// `shared/formatters/uk_calendar.dart` (track 23, phase 23.1); this file is
+// retired once its callers migrate (23.2), not promoted to `.arb` — track 23
+// ends at 23.3, and the calendar tables stay hand-authored permanently.
 //
 // Pure Dart: no Flutter imports.
 
