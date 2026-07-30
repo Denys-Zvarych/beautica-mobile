@@ -47,6 +47,9 @@ import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart'
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/rating/presentation/my_rating_screen.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
@@ -566,6 +569,16 @@ void main() {
   // one this repo has been bitten by before (an ImperativeRouteMatch is
   // excluded from `currentConfiguration.fullPath`), so it is asserted through
   // AppHarness.location, which unwraps it.
+  //
+  // QA follow-up (wordmark house-header revision): the widget tier
+  // (`my_rating_screen_test.dart`) already pins that the centred slot renders
+  // the "beautica" wordmark instead of the localised "МІЙ РЕЙТИНГ" title, but
+  // only against a synthetic pump. This flow re-asserts BOTH sides of that
+  // swap (wordmark present, old title glyph absent) scoped inside the REAL
+  // `MyRatingScreen` subtree mounted by the production router, so a
+  // regression that only shows up under the real `AppHarness`/GoRouter stack
+  // (e.g. a route-level rebuild reintroducing the old `title:`-only render)
+  // cannot hide behind a widget-tier false pass.
   testWidgets(
     'hub → «Мій рейтинг» → back: the stat pill opens MyRatingScreen under the '
     'shared VelvetTopBar and its back arrow returns to /home',
@@ -573,7 +586,17 @@ void main() {
       final fb = FakeBackend()
         ..currentRole = UserRole.client
         ..myRatingAvgRating = 4.7
-        ..myRatingReviewCount = 12;
+        ..myRatingReviewCount = 12
+        // QA (Rule 3b): a single bucket, deliberately not covering all five
+        // stars — proves the REAL `GET /users/me/rating` round-trip both
+        // resolves the 5★ bucket by its `rating` value AND zero-fills the
+        // other four slots (the repository's default-to-0 branch), not a
+        // synthetic ClientRating built in a widget test. The count (23) is
+        // chosen to be unambiguous against the fixed 5/4/3/2/1 star-number
+        // labels `RatingSummaryCard` always renders in the same column.
+        ..myRatingDistribution = <Map<String, dynamic>>[
+          <String, dynamic>{'rating': 5, 'count': 23},
+        ];
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 2));
@@ -613,6 +636,80 @@ void main() {
       // The screen really loaded its data over the fake backend, so the header
       // is being asserted on a fully-rendered screen, not an empty shell.
       expect(find.byKey(const Key('my_rating_display')), findsOneWidget);
+
+      // QA (Rule 3b) — the rated table actually renders over the REAL HTTP
+      // round-trip, not just a synthetic ClientRating (that contract is
+      // already pinned at the widget tier in my_rating_screen_test.dart).
+      // Scoped to the RatingSummaryCard subtree throughout so nothing
+      // elsewhere on the hub/screen chrome could false-pass any assertion.
+      final Finder summaryCard = find.byType(RatingSummaryCard);
+      expect(
+        summaryCard,
+        findsOneWidget,
+        reason:
+            'MyRatingScreen must render the shared RatingSummaryCard table '
+            'once GET /users/me/rating resolves to a non-null avgRating',
+      );
+
+      // The per-star bucket count served by the fake backend's real HTTP
+      // response must reach the screen through the FULL stack: real
+      // UserControllerApi → HttpRatingRepository._distributionFromBuckets →
+      // ClientRating.distribution → RatingSummaryCard's distribution table.
+      // "23" cannot collide with the fixed 5/4/3/2/1 star-number labels the
+      // card always renders in the adjacent column, so this proves the
+      // COUNT column specifically, not just that some digit is on screen.
+      expect(
+        find.descendant(of: summaryCard, matching: find.text('23')),
+        findsOneWidget,
+        reason:
+            'the 5★ bucket\'s real wire count (23) must render in the '
+            'distribution table — proves the fold survives the real HTTP '
+            'round-trip, not only a synthetic provider override',
+      );
+
+      // The locked product rule, re-asserted end to end: a CLIENT never sees
+      // individual comments about them, on ANY provider-served payload shape
+      // — the widget tier already pins this against a synthetic ClientRating
+      // (my_rating_screen_test.dart); this proves it survives the real
+      // GET /users/me/rating round-trip too.
+      expect(
+        find.byType(ReviewCard),
+        findsNothing,
+        reason:
+            'ReviewCard/comment content must never render on the real '
+            'MyRatingScreen — the client sees only the aggregate table, '
+            'never individual master/salon comments about them',
+      );
+
+      // The centred slot renders the "beautica" wordmark, not the localised
+      // "МІЙ РЕЙТИНГ" title — asserted on the REAL router-mounted screen, not
+      // a synthetic widget-test pump (see `my_rating_screen_test.dart` for the
+      // widget-tier twin of this assertion).
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(MyRatingScreen)),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(MyRatingScreen),
+          matching: find.text('beautica'),
+        ),
+        findsOneWidget,
+        reason:
+            'the real MyRatingScreen must render the "beautica" wordmark in '
+            'its house header',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(MyRatingScreen),
+          matching: find.text(l10n.myRatingTitle),
+        ),
+        findsNothing,
+        reason:
+            'the old localised "МІЙ РЕЙТИНГ" title must NOT render visually '
+            'anywhere under the real MyRatingScreen — regressing to it (e.g. '
+            'a route-level rebuild dropping titleWidget) is exactly the '
+            'failure this flow-level assertion catches',
+      );
 
       // ACT 2 — the NEW NeumorphicIconButton back arrow must pop the push.
       await tester.tap(find.byKey(const Key('my_rating_back_button')));

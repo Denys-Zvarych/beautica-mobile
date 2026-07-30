@@ -3075,10 +3075,6 @@
   "@myRatingEmpty": {
     "description": "Empty state message on the My Rating screen when no rating has been assigned yet."
   },
-  "myRatingExplanation": "Your rating is based on scores from masters and salons after completed procedures.",
-  "@myRatingExplanation": {
-    "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
-  },
   "myRatingReviewCount": "{count, plural, =0{0 reviews} =1{1 review} other{{count} reviews}}",
   "@myRatingReviewCount": {
     "description": "Review-count line under the client's average rating on the My Rating screen (track 7.x Wave B, GET /users/me/rating).",

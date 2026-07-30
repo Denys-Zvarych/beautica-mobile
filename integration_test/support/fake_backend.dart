@@ -1873,6 +1873,16 @@ final class FakeBackend {
   int myRatingReviewCount = 0;
   int getMyRatingCalls = 0;
 
+  /// Wire `{rating, count}` buckets for the rated-state distribution table
+  /// (QA follow-up — the two-column `RatingSummaryCard` breakdown). Null
+  /// means the route omits `ratingDistribution` entirely (the repository's
+  /// null-list branch — all-zero distribution). Deliberately scrambled wire
+  /// order by default (matches `_masterReviewSummaryEnvelope`'s sibling
+  /// fixture): a flow asserting the per-star counts render must prove the
+  /// REAL `GET /users/me/rating` HTTP round-trip folds this correctly, not
+  /// just a synthetic ClientRating built in a widget test.
+  List<Map<String, dynamic>>? myRatingDistribution;
+
   /// The client's free-text cancellation note, captured on cancel (may be null
   /// — a silent self-cancellation).
   String? bookingClientCancellationNote;
@@ -2478,6 +2488,8 @@ final class FakeBackend {
         return _ok(<String, dynamic>{
           'avgRating': myRatingAvgRating,
           'reviewCount': myRatingReviewCount,
+          if (myRatingDistribution != null)
+            'ratingDistribution': myRatingDistribution,
         });
       }),
       request: const Request(method: RequestMethods.get),

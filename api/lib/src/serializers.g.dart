@@ -390,6 +390,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(RatingBucket)]),
           () => ListBuilder<RatingBucket>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(RatingBucket)]),
+          () => ListBuilder<RatingBucket>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(RevenueByMasterDto)]),
           () => ListBuilder<RevenueByMasterDto>())
       ..addBuilderFactory(

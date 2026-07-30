@@ -283,6 +283,84 @@ void main() {
     });
   });
 
+  // ── titleWidget (new parameter) ───────────────────────────────────────────
+  //
+  // Added for MyRatingScreen's "beautica" wordmark (branch-root parity). Must
+  // be purely additive: the default (null) renders EXACTLY the pre-existing
+  // `Text(title, style: VelvetText.subheading())` in the same centred slot —
+  // pinned by the two groups above, which never pass `titleWidget` and must
+  // keep passing unmodified.
+
+  group('VelvetTopBar — titleWidget (new parameter)', () {
+    testWidgets('omitted → falls back to Text(title) exactly as before', (
+      tester,
+    ) async {
+      await _pump(tester, VelvetTopBar(title: _kTitle, onBack: () {}));
+
+      expect(
+        _titleFinder,
+        findsOneWidget,
+        reason:
+            'the default-null titleWidget must not disturb the existing '
+            'Text(title) rendering pinned by the groups above',
+      );
+    });
+
+    testWidgets(
+      'supplied → renders in the centred slot INSTEAD of Text(title)',
+      (tester) async {
+        const Key wordmarkKey = Key('vtb_titleWidget_sentinel');
+        await _pump(
+          tester,
+          VelvetTopBar(
+            title: _kTitle,
+            onBack: () {},
+            titleWidget: const Text('beautica', key: wordmarkKey),
+          ),
+        );
+
+        expect(
+          find.byKey(wordmarkKey),
+          findsOneWidget,
+          reason: 'titleWidget must render in the bar\'s centred title slot',
+        );
+        expect(
+          _titleFinder,
+          findsNothing,
+          reason:
+              'when titleWidget is supplied, the default Text(title) must NOT '
+              'also render — title stops being a visible node, not merely '
+              'shadowed by an overlay',
+        );
+      },
+    );
+
+    testWidgets('supplied → titleWidget stays centred like the default title', (
+      tester,
+    ) async {
+      const Key wordmarkKey = Key('vtb_titleWidget_centred_sentinel');
+      await _pump(
+        tester,
+        VelvetTopBar(
+          title: _kTitle,
+          onBack: () {},
+          titleWidget: const Text('beautica', key: wordmarkKey),
+        ),
+      );
+
+      final double titleCentre = tester.getCenter(find.byKey(wordmarkKey)).dx;
+      final double barCentre = tester.getCenter(find.byType(VelvetTopBar)).dx;
+
+      expect(
+        titleCentre,
+        closeTo(barCentre, 0.5),
+        reason:
+            'titleWidget occupies the SAME Stack slot as the default title, '
+            'so it inherits the identical centring guarantee',
+      );
+    });
+  });
+
   // ── Back-affordance accessibility ─────────────────────────────────────────
 
   group('VelvetTopBar — back affordance semantics', () {

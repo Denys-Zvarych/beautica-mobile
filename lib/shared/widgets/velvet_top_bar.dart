@@ -14,8 +14,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 
-/// A 48 dp fixed-height top bar with an optional back arrow, a centred title,
-/// and an optional trailing widget.
+/// A 48 dp fixed-height top bar with an optional back arrow, a centred title
+/// (or [titleWidget] override), and an optional trailing widget.
 ///
 /// Drop this as the **first child** of a `SafeArea → Column`. The surrounding
 /// `Padding` (fromLTRB lg / md / lg / xs) is baked in, matching
@@ -28,10 +28,30 @@ class VelvetTopBar extends StatelessWidget {
     this.backSemanticLabel = 'Назад',
     this.trailing,
     this.backKey,
+    this.titleWidget,
   });
 
-  /// Title rendered centred in the 48 dp strip.
+  /// Title rendered centred in the 48 dp strip via `Text(title,
+  /// style: VelvetText.subheading())` — UNLESS [titleWidget] is supplied, in
+  /// which case [titleWidget] is rendered in that exact slot instead and
+  /// [title] is used only as this bar's accessible identity (kept required
+  /// so every call site still states its screen's semantic title even when
+  /// swapping in custom title content).
   final String title;
+
+  /// Optional replacement for the default centred `Text(title, ...)` — e.g.
+  /// the "beautica" wordmark on [MyRatingScreen]. Purely additive: omitted
+  /// (the default) renders EXACTLY the pre-existing `Text(title,
+  /// style: VelvetText.subheading())`, so all 5 pre-existing call sites are
+  /// byte-identical. When supplied, [title] no longer renders visually but
+  /// still documents the screen's identity at the call site.
+  ///
+  /// Content contract: this slot must carry only static, bounded,
+  /// non-user-controlled content — brand marks or other fixed labels known
+  /// at build time. Never pass server- or user-derived text here; [title]
+  /// remains this bar's accessible identity regardless of what (if anything)
+  /// is rendered visually.
+  final Widget? titleWidget;
 
   /// Tap handler for the back arrow. When null the arrow is not shown.
   final VoidCallback? onBack;
@@ -74,11 +94,12 @@ class VelvetTopBar extends StatelessWidget {
                   onTap: onBack!,
                 ),
               ),
-            Text(
-              title,
-              style: VelvetText.subheading(),
-              textAlign: TextAlign.center,
-            ),
+            titleWidget ??
+                Text(
+                  title,
+                  style: VelvetText.subheading(),
+                  textAlign: TextAlign.center,
+                ),
             if (trailing != null)
               Align(alignment: Alignment.centerRight, child: trailing),
           ],

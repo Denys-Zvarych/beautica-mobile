@@ -58,6 +58,7 @@ final class HttpRatingRepository implements RatingRepository {
       return ClientRating(
         avgRating: dto.avgRating?.toDouble(),
         reviewCount: dto.reviewCount ?? 0,
+        distribution: _distributionFromBuckets(dto.ratingDistribution),
       );
     } on Failure {
       rethrow;
@@ -72,6 +73,24 @@ final class HttpRatingRepository implements RatingRepository {
       }
       throw _mapDioException(e);
     }
+  }
+
+  /// Folds the wire `ratingDistribution` buckets (`{rating, count}`, the
+  /// backend zero-fills all five, order not guaranteed) into a fixed
+  /// highest-first `List<int>` (index 0 = 5★ … index 4 = 1★) — identical
+  /// folding to `MasterReviewMapper.summaryFromDto`. Placement is by each
+  /// bucket's own `rating` VALUE, never by wire position, so a contract
+  /// change can't silently transpose the chart. A null/absent list, or a
+  /// bucket with a null/out-of-range `rating`, is defended against rather
+  /// than thrown: missing buckets default to 0.
+  List<int> _distributionFromBuckets(Iterable<RatingBucket>? buckets) {
+    final List<int> distribution = List<int>.filled(5, 0);
+    for (final RatingBucket bucket in buckets ?? const <RatingBucket>[]) {
+      final int? star = bucket.rating;
+      if (star == null || star < 1 || star > 5) continue;
+      distribution[5 - star] = bucket.count ?? 0;
+    }
+    return distribution;
   }
 
   /// Maps a [DioException] to a typed [Failure]. If [ErrorMapperInterceptor]
