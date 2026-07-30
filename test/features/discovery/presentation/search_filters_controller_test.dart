@@ -8,7 +8,13 @@
 // Coverage:
 //   SearchFiltersController
 //     • initial state is const SearchFilters()
-//     • setQuery — trims, blank/whitespace → null, real value kept
+//     • setQuery — NORMALISES then decides. Normalisation is control-strip →
+//       trim → cap at kSearchMaxQueryLength UTF-16 CODE UNITS (rune-walked, so
+//       a surrogate pair is never bisected). The decision is three-way:
+//       blank → CLEAR to null; 1 … kSearchMinQueryLength-1 → HOLD the
+//       previously applied query untouched (the backend answers a below-minimum
+//       `q` with an empty page, so promoting it would re-key the results family
+//       for a guaranteed-useless round trip); 3+ → APPLY.
 //     • selectCity — sets cityId (+ districtId); clearing cityId clears district
 //     • toggleServiceType — single-select replaces prior; re-tap clears
 //     • setMaxPrice — sets maxPrice; >= kSearchPriceCeiling → null boundary;
@@ -145,11 +151,263 @@ void main() {
 
     test('normalises a null query to null', () {
       final c = _make().container;
-      _filters(c).setQuery('х');
+      // Priming MUST use a 3+ character term: a 1-character one is HELD, not
+      // applied, so it would leave `query` null and this test would pass
+      // vacuously — it would no longer prove that null CLEARS anything.
+      _filters(c).setQuery('манікюр');
+      expect(_state(c).query, 'манікюр', reason: 'priming must have taken');
 
       _filters(c).setQuery(null);
 
       expect(_state(c).query, isNull);
+    });
+  });
+
+  // ── setQuery normalisation ────────────────────────────────────────────────
+  //
+  // Everything below pins ORDERING and UNIT choices that are load-bearing. Each
+  // has a cheaper-looking implementation that is wrong in a way no other test in
+  // this repo would notice:
+  //
+  //   • strip-before-trim — Dart's `trim()` whitespace set does NOT include the
+  //     C0 control characters, so trimming first leaves a stray space behind.
+  //   • rune-walk truncation — `substring(0, 100)` can bisect a surrogate pair
+  //     and emit a LONE SURROGATE, which is not valid text on the wire.
+  //   • code-unit cap — the widget's `maxLength` counts GRAPHEMES; the backend's
+  //     `@Size(max = 100)` counts UTF-16 code units, exactly as Dart's
+  //     `String.length` does. 51 astral emoji are 51 graphemes but 102 units:
+  //     under a grapheme cap they sail past the widget and 400 at the backend.
+  group('SearchFiltersController.setQuery normalisation', () {
+    test('control characters are stripped BEFORE trimming', () {
+      final c = _make().container;
+
+      // A leading control character shields the space that follows it from
+      // `trim()`. Strip first and the space becomes leading, so trim removes it;
+      // trim first and the value keeps a stray leading space forever.
+      _filters(c).setQuery('\u0001 abc');
+
+      expect(
+        _state(c).query,
+        'abc',
+        reason:
+            'trim-first would yield " abc" — U+0001 is not in Dart trim()s '
+            'whitespace set, so it shields the space from being trimmed',
+      );
+    });
+
+    test('interior control characters are removed, not replaced', () {
+      final c = _make().container;
+
+      _filters(c).setQuery('ма\u0009ні\u000Aкюр');
+
+      expect(_state(c).query, 'манікюр');
+    });
+
+    test('a term of exactly kSearchMaxQueryLength units is untouched', () {
+      final c = _make().container;
+      final String exact = 'a' * kSearchMaxQueryLength;
+
+      _filters(c).setQuery(exact);
+
+      expect(_state(c).query, exact);
+      expect(_state(c).query!.length, kSearchMaxQueryLength);
+    });
+
+    test('an over-long ASCII term is capped at kSearchMaxQueryLength', () {
+      final c = _make().container;
+
+      _filters(c).setQuery('a' * 250);
+
+      expect(_state(c).query!.length, kSearchMaxQueryLength);
+    });
+
+    test('truncation drops a boundary-straddling emoji WHOLE — never a lone '
+        'surrogate', () {
+      final c = _make().container;
+      // 99 ASCII + one astral emoji = 101 UTF-16 code units. The cut lands
+      // INSIDE the surrogate pair.
+      final String input = '${'a' * 99}😀';
+      expect(input.length, 101, reason: 'fixture sanity: 99 + 2 units');
+
+      _filters(c).setQuery(input);
+
+      final String applied = _state(c).query!;
+
+      expect(
+        applied.length,
+        99,
+        reason:
+            'the emoji cannot fit in the remaining single unit, so the whole '
+            'rune is dropped',
+      );
+      expect(applied, 'a' * 99);
+
+      // The counterfactual — this is what makes the test discriminate. A
+      // `substring(0, 100)` implementation WOULD produce a lone high
+      // surrogate, so asserting only the length above would not catch it.
+      final String viaSubstring = input.substring(0, kSearchMaxQueryLength);
+      expect(
+        viaSubstring.length,
+        kSearchMaxQueryLength,
+        reason: 'substring hits the cap exactly…',
+      );
+      expect(
+        viaSubstring.codeUnits.last,
+        allOf(greaterThanOrEqualTo(0xD800), lessThanOrEqualTo(0xDBFF)),
+        reason:
+            '…but its last unit is an UNPAIRED HIGH SURROGATE — the exact '
+            'corruption the rune walk exists to prevent',
+      );
+      expect(
+        applied.codeUnits.any((int u) => u >= 0xD800 && u <= 0xDFFF),
+        isFalse,
+        reason: 'the real implementation emits no surrogate at all here',
+      );
+    });
+
+    test(
+      'the cap counts UTF-16 CODE UNITS, not graphemes — 51 astral emoji are '
+      'capped to 50',
+      () {
+        final c = _make().container;
+        const String emoji = '😀';
+        expect(emoji.length, 2, reason: 'fixture sanity: astral = 2 units');
+
+        final String input = emoji * 51;
+        expect(input.runes.length, 51, reason: '51 graphemes…');
+        expect(input.length, 102, reason: '…but 102 code units');
+
+        _filters(c).setQuery(input);
+
+        final String applied = _state(c).query!;
+        expect(
+          applied.length,
+          lessThanOrEqualTo(kSearchMaxQueryLength),
+          reason:
+              'THE point of the fix: a grapheme cap would let all 51 through '
+              'at 102 units and the backend @Size(max = 100) would 400',
+        );
+        expect(applied.runes.length, 50);
+        expect(applied.length, 100);
+      },
+    );
+
+    test('a cut that exposes trailing whitespace is trimmed again', () {
+      final c = _make().container;
+
+      // 99 chars, then a space at unit 100, then more — the cap lands on the
+      // space, which must not survive as a trailing character.
+      _filters(c).setQuery('${'a' * 99} bbbb');
+
+      expect(_state(c).query, 'a' * 99);
+      expect(
+        _state(c).query!.endsWith(' '),
+        isFalse,
+        reason: 'the post-cap trim exists exactly for this',
+      );
+    });
+  });
+
+  // ── setQuery HOLD semantics (below the backend minimum) ───────────────────
+  group('SearchFiltersController.setQuery hold semantics', () {
+    test('a 1-character term HOLDS the previously applied query', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('м');
+
+      expect(
+        _state(c).query,
+        'манікюр',
+        reason:
+            'the backend answers a below-minimum q with an empty page — '
+            'promoting it would re-key the results family for nothing AND wipe '
+            'the results the user is looking at',
+      );
+    });
+
+    test('a 2-character term HOLDS the previously applied query', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('ма');
+
+      expect(_state(c).query, 'манікюр');
+    });
+
+    test('a padded 2-character term HOLDS (normalisation runs first)', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('  ма  ');
+
+      expect(
+        _state(c).query,
+        'манікюр',
+        reason:
+            'the hold decision is made on the NORMALISED term — the padding '
+            'must not inflate it past the minimum',
+      );
+    });
+
+    test('a\u0009b normalises to 2 characters and therefore HOLDS', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('a\u0009b');
+
+      expect(
+        _state(c).query,
+        'манікюр',
+        reason:
+            'intentional: the tab is stripped, leaving "ab" — a 2-character '
+            'term, which is held. A raw-length check would have applied it.',
+      );
+    });
+
+    test('a below-minimum term with NO prior query leaves it null', () {
+      final c = _make().container;
+
+      _filters(c).setQuery('ма');
+
+      expect(_state(c).query, isNull);
+    });
+
+    test('a 2-character Cyrillic term HOLDS (no locale-specific shortcut)', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('ма');
+
+      expect(_state(c).query, 'манікюр');
+    });
+
+    test('exactly kSearchMinQueryLength characters APPLIES', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('ман');
+
+      expect(
+        _state(c).query,
+        'ман',
+        reason: 'the minimum is inclusive — 3 is enough',
+      );
+    });
+
+    test('blank CLEARS even when a query is currently applied', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('   ');
+
+      expect(
+        _state(c).query,
+        isNull,
+        reason:
+            'clearing is a deliberate action and must NOT be swallowed by the '
+            'hold rule — an empty box never narrows anything',
+      );
     });
   });
 

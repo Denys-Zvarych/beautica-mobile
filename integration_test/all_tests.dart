@@ -74,6 +74,8 @@ import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
+import 'client_search_query_with_filters_flow_test.dart'
+    as client_search_query_with_filters;
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
@@ -186,6 +188,15 @@ void main() {
   group('client_logout_flow', client_logout.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
+  // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`
+  // reaching /search/masters + /search/salons TOGETHER with location.cityId,
+  // category and a price bound on the SAME request, plus the results
+  // screen's live-search refinement keeping those filters (and honouring the
+  // below-minimum HOLD rule).
+  group(
+    'client_search_query_with_filters_flow',
+    client_search_query_with_filters.main,
+  );
   // Search prefill survives a mid-session name edit (refreshUser) — the
   // `.select(user.id)` narrowing regression (Step 2.7 Rule 3b).
   group(

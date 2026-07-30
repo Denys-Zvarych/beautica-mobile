@@ -57,10 +57,16 @@ abstract interface class SearchRepository {
   /// Wraps `GET /api/v1/search/masters`. [page] is zero-based; [size] caps the
   /// page (default [kSearchPageSize]). Returns an empty page (not a throw) when
   /// nothing matches.
+  ///
+  /// [cancelToken] lets the caller abort a request that has been SUPERSEDED —
+  /// live search re-keys the results provider on every settled term, and without
+  /// this the obsolete socket runs to completion (see the `cancelToken` note on
+  /// [HttpSearchRepository]).
   Future<SearchPage<MasterSearchItem>> searchMasters({
     required SearchFilters filters,
     required int page,
     int size = kSearchPageSize,
+    CancelToken? cancelToken,
   });
 
   /// Searches salons matching [filters].
@@ -69,10 +75,13 @@ abstract interface class SearchRepository {
   /// free-text `q`, the `sort` ordering, and the `minPrice`/`maxPrice` band.
   /// The salon endpoint carries no rating filter, so [SearchFilters.minRating]
   /// is not forwarded here.
+  ///
+  /// [cancelToken] behaves exactly as on [searchMasters].
   Future<SearchPage<SalonSearchItem>> searchSalons({
     required SearchFilters filters,
     required int page,
     int size = kSearchPageSize,
+    CancelToken? cancelToken,
   });
 }
 
@@ -86,6 +95,16 @@ abstract interface class SearchRepository {
 /// bracket-nests the params and silently drops every filter server-side. The
 /// generated `standardSerializers` is still used to deserialize the response
 /// envelope, so domain-model parsing is unchanged.
+///
+/// CANCELLATION (perf/sec MEDIUM-1). Both methods accept an optional
+/// [CancelToken] which is forwarded verbatim to Dio. The discovery results
+/// notifier creates one per family member and cancels it from `ref.onDispose`,
+/// so a search superseded by the next settled keystroke aborts its two in-flight
+/// GETs instead of running them to completion and discarding the payload. A
+/// cancelled request raises `DioExceptionType.cancel`, which [_mapDioException]
+/// maps to a [ServerFailure] like any other transport fault — it never reaches
+/// the UI, because Riverpod drops the result of a disposed/recomputed provider's
+/// future (see the notifier's cancellation note).
 final class HttpSearchRepository implements SearchRepository {
   HttpSearchRepository(this._dio, this._serializers);
 
@@ -102,11 +121,13 @@ final class HttpSearchRepository implements SearchRepository {
     required SearchFilters filters,
     required int page,
     int size = kSearchPageSize,
+    CancelToken? cancelToken,
   }) async {
     try {
       final res = await _dio.get<Object>(
         _mastersPath,
         queryParameters: _toMasterQuery(filters, page: page, size: size),
+        cancelToken: cancelToken,
       );
       final envelope = _deserialize<ApiResponsePageResponseMasterSearchResult>(
         res.data,
@@ -146,11 +167,13 @@ final class HttpSearchRepository implements SearchRepository {
     required SearchFilters filters,
     required int page,
     int size = kSearchPageSize,
+    CancelToken? cancelToken,
   }) async {
     try {
       final res = await _dio.get<Object>(
         _salonsPath,
         queryParameters: _toSalonQuery(filters, page: page, size: size),
+        cancelToken: cancelToken,
       );
       final envelope = _deserialize<ApiResponsePageResponseSalonSearchResult>(
         res.data,
@@ -206,8 +229,16 @@ final class HttpSearchRepository implements SearchRepository {
 
   /// Normalises the free-text query for the `q` wire param: trims surrounding
   /// whitespace and collapses an empty/blank value to null (so the key is
-  /// omitted). The backend further normalises a `q` shorter than 3 chars to null
-  /// server-side; the client forwards a non-empty term as-is.
+  /// omitted).
+  ///
+  /// A below-minimum term never gets this far: [SearchFilters.query] only ever
+  /// holds null or a term of at least [kSearchMinQueryLength] characters (the
+  /// presentation controller holds anything shorter — see
+  /// `SearchFiltersController.setQuery`). Should one arrive anyway (a stale
+  /// `extra`, a deep link), it is forwarded as-is and the backend answers with
+  /// an empty page plus a "type at least 3 characters" envelope message; that
+  /// degrades cleanly into the existing `ResultsEmpty` state, so no extra
+  /// handling is needed here.
   static String? _normalizeQuery(String? raw) {
     final String? trimmed = raw?.trim();
     return (trimmed == null || trimmed.isEmpty) ? null : trimmed;

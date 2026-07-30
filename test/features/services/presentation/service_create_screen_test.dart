@@ -1350,10 +1350,13 @@ void main() {
   // ---------------------------------------------------------------------------
   // 11. ScreenProtector lifecycle (security MS — anti-screenshot).
   //
-  // ServiceCreateScreen is a ConsumerStatefulWidget that calls
-  // ScreenProtector.preventScreenshotOn() in initState and ...Off() in dispose,
-  // both guarded by !kDebugMode. Because kDebugMode == true under the test
-  // binding, the platform-channel calls are intentionally skipped — so the
+  // ServiceCreateScreen is a ConsumerStatefulWidget that does NOT call
+  // ScreenProtector directly. It captures the app-wide ref-counted
+  // ScreenProtectionManager in initState
+  // (`ref.read(screenProtectionProvider)..acquire()`) and calls `release()` in
+  // dispose; the manager is the single owner that talks to the screen_protector
+  // plugin, and it is internally `!kDebugMode`-guarded. Because kDebugMode ==
+  // true under the test binding, the platform-channel calls are skipped — so the
   // assertion is that mount AND unmount complete with no platform-channel
   // exception (the screen_protector MethodChannel is never invoked, mirroring
   // the DoneScreen ScreenProtector test pattern). This guards against a

@@ -2,17 +2,19 @@
 // [SearchStaggeredReveal], the one-shot staggered fade-up entrance.
 //
 // The widget drives a single 1000 ms controller on mount; each child reveals on
-// its own [Interval] slice (opacity 0→1 + an 18 px slide-up). Once the entrance
-// completes, the gate flips and `reveal(...)` returns the BARE child with no
-// animation wrappers — so steady-state rebuilds allocate nothing.
+// its own [Interval] slice (opacity 0→1 + an 18 px slide-up). The wrappers are
+// UNCONDITIONAL — the same shape running and completed — so the revealed
+// subtree's elements (and any `State` inside them) are never re-inflated.
 //
 // Coverage:
 //   • the wrapped child is always present in the tree and reaches full opacity
 //     after the 1000 ms entrance (revealed, not stuck hidden);
 //   • mid-entrance the child is wrapped in a FadeTransition (animation machinery
 //     is live while running);
-//   • post-completion `reveal` returns the bare child — NO FadeTransition
-//     wrapper remains (the gate short-circuit).
+//   • post-completion the FadeTransition wrapper is STILL there — the structural
+//     stability that keeps the search field's focus + keyboard alive (defect F).
+//     An earlier build short-circuited to the bare child here, which changed the
+//     slot's widget runtimeType and unmounted the EditableText underneath.
 //
 // No providers / network. Hosted under a BARE Directionality (NOT MaterialApp)
 // so the only FadeTransition / Transform in the tree is the one the reveal
@@ -93,20 +95,49 @@ void main() {
     });
 
     testWidgets(
-      'post-completion the gate returns the bare child (no FadeTransition)',
+      'post-completion the wrapper shape is unchanged (element identity holds)',
       (tester) async {
         await _pumpReveal(tester);
+
+        // Element identity of the revealed child, captured mid-entrance.
+        final Element before = tester.element(
+          find.byKey(const Key('reveal_probe')),
+        );
+
         await tester.pumpAndSettle(const Duration(milliseconds: 1200));
 
-        // The status listener flips the gate on completion + setState; the next
-        // build returns the child directly with no animation wrappers.
+        // FORCE A POST-COMPLETION PARENT REBUILD.
+        //
+        // Without this the test has a hole: `reveal(...)` is only ever invoked
+        // while the controller is still running, so re-introducing JUST the
+        // `if (_controller.isCompleted) return child;` early-return — without
+        // the status listener that used to trigger the rebuild — would leave
+        // this test green. In production the branch IS reached, because the real
+        // search screen rebuilds constantly on provider changes. Re-pumping the
+        // tree reproduces exactly that.
+        await _pumpReveal(tester);
+        await tester.pump();
+
+        // Same wrappers, same element — the completed entrance must NOT swap the
+        // slot's widget type, or every State beneath it (an EditableText, say)
+        // would be torn down and rebuilt.
         expect(
           find.ancestor(
             of: find.byKey(const Key('reveal_probe')),
             matching: find.byType(FadeTransition),
           ),
-          findsNothing,
-          reason: 'the completed gate must short-circuit to the bare child',
+          findsOneWidget,
+          reason:
+              'the wrapper shape must be identical running and completed — '
+              'including on a rebuild that happens AFTER completion',
+        );
+        expect(
+          identical(
+            tester.element(find.byKey(const Key('reveal_probe'))),
+            before,
+          ),
+          isTrue,
+          reason: 'the revealed child element must survive the entrance',
         );
       },
     );

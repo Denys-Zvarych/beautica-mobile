@@ -925,6 +925,96 @@ void main() {
 
   // ── Mapper-level edge cases ──────────────────────────────────────────────────
 
+  // ── cancelToken forwarding (perf/sec MEDIUM-1) ─────────────────────────────
+  //
+  // The results notifier owns one CancelToken per family member and cancels it
+  // from `ref.onDispose`, so a superseded search aborts its two in-flight GETs.
+  // That only reaches a socket if the repository hands the token to Dio. Every
+  // widget-tier test matches the token with `any(named: 'cancelToken')`, so
+  // dropping `cancelToken: cancelToken` at either call site would keep the whole
+  // suite green while restoring the request storm. These assert token IDENTITY.
+  group('cancelToken forwarding', () {
+    void stubMastersToken(Response<Object> response) {
+      when(
+        () => dio.get<Object>(
+          _masterPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => response);
+    }
+
+    void stubSalonsToken(Response<Object> response) {
+      when(
+        () => dio.get<Object>(
+          _salonPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => response);
+    }
+
+    CancelToken? capturedToken(String path) =>
+        verify(
+              () => dio.get<Object>(
+                path,
+                queryParameters: any(named: 'queryParameters'),
+                cancelToken: captureAny(named: 'cancelToken'),
+              ),
+            ).captured.single
+            as CancelToken?;
+
+    test('searchMasters hands the caller token to Dio verbatim', () async {
+      stubMastersToken(_masterResponse([_buildMasterDto()]));
+      final CancelToken token = CancelToken();
+
+      await repository.searchMasters(
+        filters: filters,
+        page: 0,
+        cancelToken: token,
+      );
+
+      expect(
+        capturedToken(_masterPath),
+        same(token),
+        reason:
+            'a token that never reaches Dio cannot abort anything — cancelling '
+            'it would be a no-op and the superseded GET would run to completion',
+      );
+    });
+
+    test('searchSalons hands the caller token to Dio verbatim', () async {
+      stubSalonsToken(_salonResponse([_buildSalonDto()]));
+      final CancelToken token = CancelToken();
+
+      await repository.searchSalons(
+        filters: filters,
+        page: 0,
+        cancelToken: token,
+      );
+
+      expect(capturedToken(_salonPath), same(token));
+    });
+
+    test(
+      'an omitted cancelToken reaches Dio as null (no repo-minted token)',
+      () async {
+        stubMastersToken(_masterResponse([_buildMasterDto()]));
+
+        await repository.searchMasters(filters: filters, page: 0);
+
+        expect(
+          capturedToken(_masterPath),
+          isNull,
+          reason:
+              'the repository must not invent its own token — cancellation is '
+              'owned by the notifier, which is the only layer that knows when a '
+              'search became irrelevant',
+        );
+      },
+    );
+  });
+
   group('SalonSearchMapper', () {
     test('carries equal priceMin/priceMax through unchanged', () {
       final item = SalonSearchMapper.fromDto(

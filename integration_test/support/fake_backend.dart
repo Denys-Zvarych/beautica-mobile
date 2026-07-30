@@ -889,6 +889,21 @@ final class FakeBackend {
   /// cross-category slug was dropped on a category switch.
   List<String>? lastSearchMastersServiceTypeSlugs;
 
+  /// The FULL decoded FLAT query map from the most recent `/search/masters`
+  /// request — every key the backend's `@ModelAttribute` binder would see in
+  /// ONE place (`q`, `sort`, `category`, `location.cityId`,
+  /// `location.districtId`, `minPrice`, `maxPrice`, `minRating`,
+  /// `serviceTypeSlugs`, `page`, `size`). The individual `lastSearchMasters*`
+  /// fields above each capture a single facet in isolation, which is enough to
+  /// prove a facet reached the wire AT ALL, but NOT that several facets
+  /// travelled TOGETHER on the SAME request — two flows could each set one
+  /// field on two different calls and a test comparing them would be
+  /// comparing across requests, not within one. This field exists so a single
+  /// assertion block can pull `q` + `location.cityId` + `category` +
+  /// `maxPrice` off ONE map and prove simultaneity (the "search term resets my
+  /// other filters" regression class).
+  Map<String, dynamic>? lastSearchMastersQueryMap;
+
   /// `GET /api/v1/search/salons` call count + the last `page` requested.
   int searchSalonsCalls = 0;
   int? lastSearchSalonsPage;
@@ -905,6 +920,11 @@ final class FakeBackend {
   /// The last `serviceTypeSlugs` multi-valued param on a `/search/salons`
   /// request. See [lastSearchMastersServiceTypeSlugs].
   List<String>? lastSearchSalonsServiceTypeSlugs;
+
+  /// The FULL decoded FLAT query map from the most recent `/search/salons`
+  /// request. See [lastSearchMastersQueryMap] — the salon-endpoint twin, used
+  /// to prove the SAME set of facets travelled together on this endpoint too.
+  Map<String, dynamic>? lastSearchSalonsQueryMap;
 
   // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
   /// `POST /api/v1/favorites` (add) call count + the most recent body.
@@ -3441,6 +3461,10 @@ final class FakeBackend {
         lastSearchMastersCityId = reqJson['location.cityId'] as String?;
         lastSearchMastersDistrictId = reqJson['location.districtId'] as String?;
         lastSearchMastersServiceTypeSlugs = _slugsFrom(reqJson);
+        // Snapshot the WHOLE flat map so a test can prove several facets
+        // (q + location.cityId + category + minPrice/maxPrice) arrived on
+        // this SAME request — see [lastSearchMastersQueryMap].
+        lastSearchMastersQueryMap = Map<String, dynamic>.from(reqJson);
         if (page <= 0) {
           return _searchEnvelope(
             _withMatchedNames(
@@ -3480,6 +3504,8 @@ final class FakeBackend {
         lastSearchSalonsCityId = reqJson['location.cityId'] as String?;
         lastSearchSalonsDistrictId = reqJson['location.districtId'] as String?;
         lastSearchSalonsServiceTypeSlugs = _slugsFrom(reqJson);
+        // Snapshot the WHOLE flat map — see [lastSearchSalonsQueryMap].
+        lastSearchSalonsQueryMap = Map<String, dynamic>.from(reqJson);
         // Salons have a single page: page 0 carries the row, any later page is
         // empty (the notifier only re-requests salons while salonHasMore).
         if (page <= 0) {

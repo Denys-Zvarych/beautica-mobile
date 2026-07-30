@@ -862,9 +862,12 @@ void main() {
     // -----------------------------------------------------------------------
     // Test 14 — ScreenProtector guard: kDebugMode skips preventScreenshotOn/Off
     //
-    // LoginScreen calls ScreenProtector.preventScreenshotOn() in initState and
-    // preventScreenshotOff() in dispose, both inside `if (!kDebugMode)` guards.
-    // In the test runner kDebugMode == true, so the platform-channel calls are
+    // LoginScreen does NOT call ScreenProtector directly. It captures the
+    // app-wide ref-counted ScreenProtectionManager in initState
+    // (`ref.read(screenProtectionProvider)..acquire()`) and calls `release()`
+    // in dispose; the manager is the single owner that talks to the
+    // screen_protector plugin, and it is internally `!kDebugMode`-guarded. In
+    // the test runner kDebugMode == true, so the platform-channel calls are
     // intentionally suppressed.
     //
     // This test exists to catch the regression where the guard is removed (e.g.

@@ -381,15 +381,86 @@ class SearchFiltersController extends _$SearchFiltersController {
     }
   }
 
-  /// Sets the free-text name / service query.
+  /// Every character the backend's `^[^\p{Cntrl}]*$` guard rejects — Java's
+  /// `\p{Cntrl}` verbatim (ASCII C0 plus DEL). Identical to the pattern
+  /// `SearchQueryField`'s input formatter denies at the keyboard; repeated here
+  /// because the funnel cannot assume its caller is that widget.
+  static final RegExp _controlCharacters = RegExp(r'[\x00-\x1F\x7F]');
+
+  /// Normalises a raw term into a value the backend will accept verbatim.
   ///
-  /// Forwarded to the backend `q` param by the repository. A blank/whitespace
-  /// value is normalised to null so an empty box never narrows anything (and the
-  /// param is omitted). The value is carried in `extra` to the results screen.
+  /// Three passes, in order:
+  ///   1. control characters removed (backend `^[^\p{Cntrl}]*$`);
+  ///   2. trimmed — AFTER the strip, so a leading control character that was
+  ///      shielding whitespace from `trim()` cannot leave a stray space behind;
+  ///   3. capped at [kSearchMaxQueryLength] **UTF-16 code units** (backend
+  ///      `@Size(max = 100)`), then trimmed once more in case the cut exposed a
+  ///      trailing space.
+  ///
+  /// The unit in pass 3 is the whole point. `SearchQueryField`'s `maxLength`
+  /// truncates by GRAPHEME CLUSTER, so 51 astral-plane emoji — or 51 base +
+  /// combining-mark pairs — measure 51 graphemes but 102 code units: they clear
+  /// the widget's cap and then fail the backend's, producing exactly the hard
+  /// 400 whose Retry button can only re-issue the identical doomed request.
+  /// Dart's `String.length` counts UTF-16 code units, precisely as Java's
+  /// `String.length()` does, so the comparison below is made in the same unit
+  /// the server validates.
+  ///
+  /// Truncation walks whole RUNES (code points) instead of calling `substring`,
+  /// so the cut can never bisect a surrogate pair into a lone invalid surrogate.
+  static String _normalizeQuery(String raw) {
+    final String cleaned = raw.replaceAll(_controlCharacters, '').trim();
+    if (cleaned.length <= kSearchMaxQueryLength) return cleaned;
+
+    final StringBuffer capped = StringBuffer();
+    int units = 0;
+    for (final int rune in cleaned.runes) {
+      final String character = String.fromCharCode(rune);
+      if (units + character.length > kSearchMaxQueryLength) break;
+      capped.write(character);
+      units += character.length;
+    }
+    return capped.toString().trim();
+  }
+
+  /// Sets the APPLIED free-text name / service query.
+  ///
+  /// The raw term is first put through [_normalizeQuery] — control characters
+  /// stripped, trimmed, capped at [kSearchMaxQueryLength] UTF-16 code units — so
+  /// BOTH backend bounds are enforced here, at the single funnel, rather than at
+  /// one leaf widget's `TextField` configuration. `SearchQueryField`'s
+  /// `maxLength` and input formatters stay in place as the first line of defence
+  /// (they give the user immediate feedback while typing); this is the
+  /// correctness backstop that every other caller — a recent-searches chip,
+  /// voice input, a seeded `extra`, a test — inherits for free.
+  ///
+  /// Then three cases, in order, decided on the NORMALISED term:
+  ///   • null / blank → cleared to null. An empty box never narrows anything and
+  ///     the `q` param is omitted entirely.
+  ///   • 1 … [kSearchMinQueryLength] - 1 characters → **held**: the state is left
+  ///     exactly as it was. The backend does not honour a below-minimum `q` (it
+  ///     answers with an empty page plus a "type at least 3 characters"
+  ///     message), so promoting it here would re-key `searchResultsProvider` and
+  ///     buy a guaranteed-useless round trip. The user's partial text still lives
+  ///     in the field's `TextEditingController`, and the field renders the
+  ///     min-length helper beneath itself, so nothing is silently swallowed —
+  ///     the last applied query simply stays applied until the term is either
+  ///     completed or cleared.
+  ///   • [kSearchMinQueryLength] or more characters → applied.
+  ///
+  /// [SearchFilters.query] is consequently ALWAYS wire-ready: null, or a term
+  /// the backend will actually act on — long enough to be honoured, short enough
+  /// to satisfy `@Size(max = 100)`, and free of the control characters
+  /// `^[^\p{Cntrl}]*$` rejects.
   void setQuery(String? query) {
-    final String? trimmed = query?.trim();
-    final String? next = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
-    state = state.copyWith(query: next);
+    final String normalized = _normalizeQuery(query ?? '');
+    if (normalized.isEmpty) {
+      state = state.copyWith(query: null);
+      return;
+    }
+    // Below the backend minimum — hold the previously applied query.
+    if (normalized.length < kSearchMinQueryLength) return;
+    state = state.copyWith(query: normalized);
   }
 
   /// Sets the result ordering. Re-keys the results provider on the results

@@ -3154,6 +3154,10 @@
   "@searchFieldHint": {
     "description": "Placeholder text in the free-text search field on the Пошук screen."
   },
+  "searchQueryMinLengthHint": "Введіть щонайменше 3 символи",
+  "@searchQueryMinLengthHint": {
+    "description": "Quiet helper line shown under the free-text search field while the typed term is 1–2 characters long. The backend ignores a `q` shorter than 3 characters (it answers with an empty page and this same message), so the client holds the term instead of searching. Copy must match the backend's envelope message exactly."
+  },
   "searchCityLabel": "Місто",
   "@searchCityLabel": {
     "description": "Label above the city-select row on the Пошук screen."

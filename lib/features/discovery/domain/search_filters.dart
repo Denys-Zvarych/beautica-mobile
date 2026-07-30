@@ -17,6 +17,35 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'search_filters.freezed.dart';
 
+/// Shortest free-text term the backend will actually honour on `q`.
+///
+/// A `q` of 1–2 characters is NOT a narrowing search server-side: the backend
+/// answers it with an empty page plus an envelope `message` telling the user to
+/// type at least this many characters. The client therefore treats a below
+/// minimum term as "still being typed" — it is never written into
+/// [SearchFilters.query] and never reaches the wire (see
+/// `SearchFiltersController.setQuery`), and the UI surfaces a helper line under
+/// the search field instead.
+const int kSearchMinQueryLength = 3;
+
+/// Longest free-text term the backend will accept on `q`.
+///
+/// Mirrors the backend's `@Size(max = 100)` on `MasterSearchRequest.q` /
+/// `SalonSearchRequest.q`. A longer term is not a wider search — it is a hard
+/// 400, and the results screen's retry button would re-issue the identical
+/// doomed request forever. Trimming alone does not help, since trim only strips
+/// the ENDS of a pasted string.
+///
+/// Counted in **UTF-16 code units**, the unit Java's `String.length()` — and so
+/// `@Size` — measures. That distinction is load-bearing: the search field's
+/// `maxLength` truncates by GRAPHEME CLUSTER, so emoji or combining-mark pairs
+/// can sit under the widget's cap at twice this many code units. The cap is
+/// therefore enforced twice (sec LOW-1 / NEW-2): `SearchQueryField` clamps as
+/// the user types, for immediate feedback, and `SearchFiltersController
+/// .setQuery` re-clamps in code units as the correctness backstop every caller
+/// inherits.
+const int kSearchMaxQueryLength = 100;
+
 /// Allow-listed sort orderings for the discovery endpoints.
 ///
 /// Maps 1:1 onto the backend `SearchSort` enum
@@ -54,10 +83,15 @@ enum SearchSort {
 @freezed
 abstract class SearchFilters with _$SearchFilters {
   const factory SearchFilters({
-    /// Free-text name / service query. Trimmed + forwarded to the backend `q`
-    /// param by the repository (empty/blank → omitted). The backend normalises a
-    /// `q` shorter than 3 characters to null (location-scoped results) — the
-    /// client sends it verbatim.
+    /// The APPLIED free-text name / service query — trimmed, and either null
+    /// ("no term") or at least [kSearchMinQueryLength] characters long. Never
+    /// holds a 1–2 character term: `SearchFiltersController.setQuery` holds the
+    /// previous value for those (the backend answers a below-minimum `q` with an
+    /// empty page + a "type at least 3 characters" message, so sending it is a
+    /// pointless round trip). The raw text the user is mid-way through typing
+    /// lives in the field's `TextEditingController`, not here.
+    ///
+    /// Forwarded to the backend `q` param by the repository (null → omitted).
     String? query,
 
     /// Platform category key/slug to filter by (e.g. "HAIR"), or null for all.
@@ -121,9 +155,17 @@ abstract class SearchFilters with _$SearchFilters {
   ///
   /// Each facet contributes at most 1: region, city, district, category, the
   /// per-service selection (any number of slugs counts once), and the price
-  /// band (a min and/or a max counts once). [query] and [sort] are NOT facets —
-  /// they are not surfaced as clearable filters on the results screen — so the
-  /// count maxes out at 6.
+  /// band (a min and/or a max counts once). [query] and [sort] are NOT facets,
+  /// so the count maxes out at 6.
+  ///
+  /// Why [query] stays OUT even though the results screen now hosts a live
+  /// search field: the badge exists to summarise the facets that are otherwise
+  /// INVISIBLE on the results screen — the ones that live behind the filter
+  /// icon. The query is the one facet that is fully visible there, echoed both
+  /// as the field's text and as the applied-query chip beneath it. Counting it
+  /// would report the same state twice and make «(1)» ambiguous between "a
+  /// hidden filter is on" and "you typed something". [sort] is excluded for the
+  /// same reason (it has its own always-visible pill).
   int get activeFilterCount {
     var count = 0;
     if (oblastId != null) count++;

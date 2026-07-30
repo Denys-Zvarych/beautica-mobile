@@ -8,8 +8,15 @@
 // Layout (scrollable body + sticky CTA):
 //   1. Top bar — shared [ClientTopBar] (wordmark · bell · burger). Branch root,
 //      so no back button.
-//   2. Pill search field — «Пошук майстра або послуги» (free-text; INERT
-//      backend-side in v1 but wired forward via the controller).
+//   2. Pill search field — «Пошук майстра або послуги». LIVE end-to-end: the
+//      text is written onto [SearchFilters.query] and forwarded to the backend
+//      `q` param by the repository on BOTH `/search/masters` and
+//      `/search/salons`. (An older comment here claimed the field was "inert
+//      backend-side in v1" — that was never true of the shipped backend and is
+//      corrected.) A term of 1–2 characters is below the backend minimum, so it
+//      is held rather than applied and the field shows a helper line instead.
+//      Salon-employed masters are deliberately NOT name-searchable — search
+//      covers independent masters + salons — so the field never promises them.
 //   3. «Місто» — recessed select row → opens the existing locality picker
 //      (oblast → city cascade) and writes the chosen city onto SearchFilters.
 //   4. «Категорія» — a horizontal rail of ALL approved categories
@@ -51,6 +58,7 @@ import '../domain/category_service_option.dart';
 import '../domain/search_filters.dart';
 import 'state/search_filters_controller.dart';
 import 'widgets/category_rail.dart';
+import 'widgets/search_query_field.dart';
 import 'widgets/service_chip_drawer.dart';
 import 'widgets/service_type_tile.dart';
 import 'widgets/staggered_reveal.dart';
@@ -243,9 +251,28 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     context.push(RouteNames.clientSearchResults, extra: filters);
   }
 
+  /// Mirrors an APPLIED query written elsewhere (the results screen's live
+  /// search field) back into this screen's text box.
+  ///
+  /// `context.push` leaves this screen MOUNTED under the results screen, so its
+  /// `initState` re-hydration never runs on a pop back — without this the two
+  /// fields would silently drift apart. The write is a no-op whenever the box
+  /// already shows the applied term, so typing here never fights its own
+  /// caret (a trailing-space edit trims to the same term and is left alone).
+  void _syncQueryField(String? applied) {
+    final String target = applied ?? '';
+    if (_searchController.text.trim() == target) return;
+    _searchController.text = target;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+
+    ref.listen<String?>(
+      searchFiltersControllerProvider.select((SearchFilters f) => f.query),
+      (String? _, String? next) => _syncQueryField(next),
+    );
 
     return Scaffold(
       // Stable branch key carried over from the placeholder this screen
@@ -468,9 +495,14 @@ class _SearchFiltersBody extends ConsumerWidget {
             reveal(
               start: 0.0,
               end: 0.4,
-              child: _SearchField(
+              // No debounce here: this screen never fetches — it only writes the
+              // applied query onto the keepAlive controller. The debounce lives
+              // on the results screen, which is where a query change re-keys
+              // `searchResultsProvider` and costs a request.
+              child: SearchQueryField(
                 controller: searchController,
                 hintText: l10n.searchFieldHint,
+                minLengthHint: l10n.searchQueryMinLengthHint,
                 onChanged: (String value) => ref
                     .read(searchFiltersControllerProvider.notifier)
                     .setQuery(value),
@@ -502,65 +534,6 @@ class _SearchFiltersBody extends ConsumerWidget {
           ],
         );
       },
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Pill search field (recessed inset, leading magnifier).
-// ---------------------------------------------------------------------------
-
-class _SearchField extends StatelessWidget {
-  const _SearchField({
-    required this.controller,
-    required this.hintText,
-    required this.onChanged,
-  });
-
-  final TextEditingController controller;
-  final String hintText;
-  final ValueChanged<String> onChanged;
-
-  static final TextStyle _hintStyle = VelvetText.input().copyWith(
-    color: BrandColors.placeholder,
-    fontWeight: FontWeight.w600,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return NeumorphicInset(
-      radius: 28,
-      child: SizedBox(
-        height: VelvetSizes.field,
-        child: Row(
-          children: <Widget>[
-            const SizedBox(width: VelvetSpacing.md + 2),
-            const Icon(
-              Icons.search_rounded,
-              color: BrandColors.muted,
-              size: 21,
-            ),
-            const SizedBox(width: VelvetSpacing.sm),
-            Expanded(
-              child: TextField(
-                key: const Key('search_query_field'),
-                controller: controller,
-                onChanged: onChanged,
-                textInputAction: TextInputAction.search,
-                style: VelvetText.input(),
-                cursorColor: BrandColors.accent,
-                decoration: InputDecoration(
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  hintText: hintText,
-                  hintStyle: _hintStyle,
-                ),
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.md),
-          ],
-        ),
-      ),
     );
   }
 }

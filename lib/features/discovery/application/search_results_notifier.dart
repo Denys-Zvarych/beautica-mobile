@@ -19,12 +19,22 @@
 //   • AsyncData (empty)             → the empty state,
 //   • AsyncError                    → the retry state.
 //
+// Cancellation (perf/sec MEDIUM-1): every family member owns a [CancelToken]
+// that `ref.onDispose` cancels, so a search superseded by the next settled
+// keystroke aborts its in-flight GETs rather than running them to completion on
+// unthrottled `permitAll` endpoints. A cancelled request CANNOT surface as a
+// user-visible error: Riverpod's `handleFuture` flips its internal `running`
+// flag off when the element is disposed or recomputed, so the rejected future is
+// swallowed inside `.catchError` and never becomes an AsyncError — and the
+// element it would have belonged to is gone from the tree anyway.
+//
 // Error path note (mobile-backlog row 236): the repository throws a typed
 // [Failure] (an Error-like sealed type implementing Exception). A widget test
 // that wants a synchronous pure AsyncError can override the repo to throw a
 // `StateError` and pump once; the build() future then completes with an error
 // on the first frame rather than lingering in seamless AsyncLoading.
 
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -98,17 +108,38 @@ class SearchResultsState {
 /// page 0.
 @riverpod
 class SearchResultsNotifier extends _$SearchResultsNotifier {
+  /// Aborts every request issued by THIS family member.
+  ///
+  /// Live search re-keys the family on each settled term, so a superseded search
+  /// used to leave its two GETs running to completion — ~20 unthrottled requests
+  /// for one typed phrase, ~18 obsolete on arrival, each a wildcard-LIKE scan
+  /// across masters AND salons on `permitAll` endpoints (perf/sec MEDIUM-1).
+  /// autoDispose frees the cache entry but never touched the socket; this token
+  /// does. Recreated on every [build] because a cancelled [CancelToken] cannot
+  /// be reused.
+  CancelToken? _cancelToken;
+
   @override
   Future<SearchResultsState> build(SearchFilters filters) async {
-    return _fetchFirstPage(filters);
+    final CancelToken token = CancelToken();
+    _cancelToken = token;
+    // Fires when this family member is disposed OR recomputed — i.e. exactly
+    // when its results became irrelevant.
+    ref.onDispose(() {
+      if (!token.isCancelled) token.cancel('search superseded');
+    });
+    return _fetchFirstPage(filters, token);
   }
 
   /// Fetches page 0 of BOTH endpoints in parallel and merges them.
-  Future<SearchResultsState> _fetchFirstPage(SearchFilters filters) async {
+  Future<SearchResultsState> _fetchFirstPage(
+    SearchFilters filters,
+    CancelToken cancelToken,
+  ) async {
     final SearchRepository repo = ref.read(searchRepositoryProvider);
     final results = await Future.wait(<Future<dynamic>>[
-      repo.searchMasters(filters: filters, page: 0),
-      repo.searchSalons(filters: filters, page: 0),
+      repo.searchMasters(filters: filters, page: 0, cancelToken: cancelToken),
+      repo.searchSalons(filters: filters, page: 0, cancelToken: cancelToken),
     ]);
     final masters = results[0] as SearchPage<MasterSearchItem>;
     final salons = results[1] as SearchPage<SalonSearchItem>;
@@ -137,6 +168,9 @@ class SearchResultsNotifier extends _$SearchResultsNotifier {
     state = AsyncData(current.copyWith(isLoadingMore: true));
 
     final SearchRepository repo = ref.read(searchRepositoryProvider);
+    // Same token as the first page: a pop mid-pagination aborts the next-page
+    // fetch too, instead of paying for a page nobody will ever see.
+    final CancelToken? token = _cancelToken;
 
     try {
       final int nextMasterPage = current.masterPage + 1;
@@ -144,14 +178,26 @@ class SearchResultsNotifier extends _$SearchResultsNotifier {
 
       final results = await Future.wait(<Future<dynamic>>[
         if (current.masterHasMore)
-          repo.searchMasters(filters: filters, page: nextMasterPage)
+          repo.searchMasters(
+            filters: filters,
+            page: nextMasterPage,
+            cancelToken: token,
+          )
         else
           Future<SearchPage<MasterSearchItem>?>.value(null),
         if (current.salonHasMore)
-          repo.searchSalons(filters: filters, page: nextSalonPage)
+          repo.searchSalons(
+            filters: filters,
+            page: nextSalonPage,
+            cancelToken: token,
+          )
         else
           Future<SearchPage<SalonSearchItem>?>.value(null),
       ]);
+      // The notifier can be disposed (screen popped, filters re-keyed) while the
+      // page is in flight — which cancellation now makes the COMMON case, not a
+      // rare race. Writing `state` on a disposed element throws, so bail out.
+      if (!ref.mounted) return;
 
       final masters = results[0] as SearchPage<MasterSearchItem>?;
       final salons = results[1] as SearchPage<SalonSearchItem>?;
@@ -175,6 +221,10 @@ class SearchResultsNotifier extends _$SearchResultsNotifier {
       // A failed load-more must not blow away the already-rendered list (that is
       // the first-page error state's job). Just clear the spinner and keep the
       // current page so the user can scroll to retry the next page.
+      //
+      // A CANCELLED load-more lands here too; there is nothing to render, so the
+      // mounted guard short-circuits before touching `state`.
+      if (!ref.mounted) return;
       state = AsyncData(current.copyWith(isLoadingMore: false));
     }
   }
