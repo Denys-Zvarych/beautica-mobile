@@ -2,12 +2,20 @@
 //
 // WHY THIS FILE EXISTS
 // --------------------
-// Refining a search re-keys `searchResultsProvider`, so `.when(loading:)` fires
-// with a family member that has no cached value. Returning a SKELETON there
-// unmounts the whole rendered list: 20 neumorphic cards are thrown away and
-// re-inflated, and — the bug users actually felt — the scroll offset snaps back
-// to 0, so refining a term while halfway down the results teleports you to the
-// top.
+// Re-keying a search points `searchResultsProvider` at a family member with no
+// cached value, so `.when(loading:)` fires. Returning a SKELETON there unmounts
+// the whole rendered list: 20 neumorphic cards are thrown away and re-inflated,
+// and — the bug users actually felt — the scroll offset snaps back to 0, so
+// re-keying while halfway down the results teleports you to the top.
+//
+// THE RE-KEY TRIGGER
+// ------------------
+// Changing the SORT ordering, which is the only re-key path the results screen
+// still owns: the live search field was removed from this screen, so free-text
+// entry (and therefore a query re-key) happens on the FILTERS screen only, and
+// arriving here is always a fresh mount rather than an in-place re-key. The
+// retention mechanism itself is `_applyFilters`, shared by every trigger, so
+// driving it through sort exercises exactly the code the query path used to.
 //
 // The fix is structural, not cosmetic: BOTH the `loading:` and the `data:`
 // branch return the SAME widget type (`_ResultsView`), whose Stack child 0 is
@@ -52,11 +60,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/overflow_guard.dart';
 
-const Duration _debounce = Duration(milliseconds: 500);
-const Key _queryField = Key('results_query_field');
+const Key _sortButton = Key('results_sort_button');
 const Key _resultsList = Key('results_list');
 
-/// How far down the list the user is when they refine the search.
+/// The ordering picked to force a re-key (the seed is [SearchSort.ratingDesc],
+/// and `_setSort` no-ops on an unchanged selection).
+const SearchSort _newSort = SearchSort.priceAsc;
+
+/// How far down the list the user is when the search is re-keyed.
 const double _scrollOffset = 680;
 
 // ---------------------------------------------------------------------------
@@ -190,12 +201,24 @@ void main() {
     return listScrollable(tester).position;
   }
 
-  /// Types a NEW term and lets the debounce fire, WITHOUT settling — the
-  /// re-keyed fetch is deliberately still pending afterwards.
-  Future<void> refineQuery(WidgetTester tester, String term) async {
-    await tester.enterText(find.byKey(_queryField), term);
-    await tester.pump(_debounce + const Duration(milliseconds: 50));
-    await tester.pump();
+  /// Picks a NEW sort ordering, WITHOUT settling afterwards — the re-keyed
+  /// fetch is deliberately left pending, which is the window the retained page
+  /// exists to cover.
+  ///
+  /// `pumpAndSettle` cannot follow the pick: the retained branch renders an
+  /// indeterminate `LinearProgressIndicator` that never settles. The sheet's
+  /// exit transition (after which `showModalBottomSheet`'s future resolves and
+  /// `_setSort` re-keys) is therefore stepped across with bounded pumps.
+  Future<void> reSort(WidgetTester tester) async {
+    await tester.tap(find.byKey(_sortButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('sort_option_${_newSort.name}')));
+    for (int i = 0; i < 20; i++) {
+      // The retained page renders an indeterminate progress bar, so a
+      // settle here would hang.
+      // fixed-wait-ok: steps the modal sheet's exit transition instead.
+      await tester.pump(const Duration(milliseconds: 50));
+    }
   }
 
   group('a re-key keeps the outgoing page mounted', () {
@@ -207,7 +230,7 @@ void main() {
 
       final Element before = tester.element(find.byKey(_resultsList));
 
-      await refineQuery(tester, 'педикюр');
+      await reSort(tester);
 
       expect(
         find.byKey(_resultsList),
@@ -228,7 +251,7 @@ void main() {
       await pumpScreen(tester);
       final ScrollPosition before = await scrollDown(tester);
 
-      await refineQuery(tester, 'педикюр');
+      await reSort(tester);
 
       expect(
         identical(listScrollable(tester).position, before),
@@ -244,13 +267,13 @@ void main() {
       await scrollDown(tester);
       expect(listScrollable(tester).position.pixels, _scrollOffset);
 
-      await refineQuery(tester, 'педикюр');
+      await reSort(tester);
 
       expect(
         listScrollable(tester).position.pixels,
         _scrollOffset,
         reason:
-            'THE user-visible bug: refining a term halfway down the results '
+            'THE user-visible bug: re-keying halfway down the results '
             'used to teleport back to the top',
       );
     });
@@ -263,7 +286,7 @@ void main() {
       final Finder card = find.byType(MasterResultCard).first;
       final Element cardBefore = tester.element(card);
 
-      await refineQuery(tester, 'педикюр');
+      await reSort(tester);
 
       expect(find.byType(MasterResultCard), findsWidgets);
       expect(
@@ -273,7 +296,7 @@ void main() {
         ),
         isTrue,
         reason:
-            're-inflating 20 neumorphic cards on every refined keystroke is the '
+            're-inflating 20 neumorphic cards on every re-key is the '
             'cost this retention exists to avoid',
       );
     });
@@ -282,7 +305,7 @@ void main() {
       await pumpScreen(tester);
       await scrollDown(tester);
 
-      await refineQuery(tester, 'педикюр');
+      await reSort(tester);
 
       expect(
         find.byKey(const Key('results_refreshing_bar')),
@@ -299,7 +322,7 @@ void main() {
       await pumpScreen(tester);
       await scrollDown(tester);
 
-      await refineQuery(tester, 'педикюр');
+      await reSort(tester);
 
       expect(
         find.byType(ResultsSkeleton),
@@ -314,7 +337,7 @@ void main() {
     ) async {
       final repo = await pumpScreen(tester);
       await scrollDown(tester);
-      await refineQuery(tester, 'педикюр');
+      await reSort(tester);
 
       repo.releaseSecond();
       await tester.pumpAndSettle();
@@ -355,9 +378,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byKey(_queryField), 'педикюр');
-      await tester.pump(_debounce + const Duration(milliseconds: 50));
-      await tester.pump();
+      await reSort(tester);
 
       expect(find.byType(ResultsSkeleton), findsOneWidget);
     });

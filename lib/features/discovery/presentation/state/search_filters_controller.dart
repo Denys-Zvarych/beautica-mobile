@@ -172,6 +172,60 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
   void reset() => state = const SearchFilterLabels();
 }
 
+/// The RAW free-text term the user has typed, normalised but NOT gated on
+/// [kSearchMinQueryLength] — `''` when the box is empty.
+///
+/// Exists because [SearchFilters.query] deliberately cannot hold a below-minimum
+/// term: that field is the wire model, and its "null, or something the backend
+/// will honour" invariant is load-bearing for `SearchRepository`. A 1–2
+/// character term therefore has nowhere to live on the filter set, yet the
+/// filters screen needs to observe it in three places:
+///
+///   1. the «Показати майстрів» CTA, which must be BLOCKED while the box holds a
+///      sub-minimum term (a user must not be able to reach results with one —
+///      this gate is also what guarantees the results screen never receives a
+///      below-minimum term, so it needs no blocked state of its own);
+///   2. the «Скинути фільтри» link, which must stay offered while the box holds
+///      text the user may want gone, even though the applied query is null;
+///   3. the text box itself on a pop back from the results screen — the chip
+///      there clears the query through this same funnel, so the box must come
+///      back empty to match.
+///
+/// Written by exactly one place — [SearchFiltersController.setQuery] — so the
+/// draft and the applied query can never disagree about the same keystroke.
+///
+/// keepAlive + auth-watched for the same reasons as [SearchFiltersController]:
+/// the draft must survive the `context.push` to the results screen and back, and
+/// must not leak across a session change.
+@Riverpod(keepAlive: true)
+class SearchQueryDraftController extends _$SearchQueryDraftController {
+  @override
+  String build() {
+    // Same per-user self-clear as the sibling controllers: narrowed with
+    // `.select` to the settled user id so a same-user session emission (e.g.
+    // `refreshUser()` after a profile edit) does NOT re-run `build()` and wipe
+    // the term the user is mid-way through typing.
+    ref.watch(
+      authProvider.select((AsyncValue<AuthSession> s) {
+        final AuthSession? v = s.value;
+        return v is Authenticated ? v.user.id : null;
+      }),
+    );
+    return '';
+  }
+
+  /// Records the normalised raw term (`''` clears it).
+  ///
+  /// Not named `set` — that is a Dart setter keyword and cannot be a method
+  /// name. Idempotent writes are dropped so a keystroke that normalises to the
+  /// same term (a trailing space, a stripped control character) does not emit
+  /// and rebuild every watcher.
+  void setDraft(String raw) {
+    if (raw == state) return;
+    state = raw;
+  }
+}
+
 /// The Пошук screen's filter state — IS a [SearchFilters]. The screen watches
 /// this and the CTA forwards `state` to the results screen.
 @Riverpod(keepAlive: true)
@@ -423,7 +477,7 @@ class SearchFiltersController extends _$SearchFiltersController {
     return capped.toString().trim();
   }
 
-  /// Sets the APPLIED free-text name / service query.
+  /// Sets the APPLIED free-text name / service query, and reports what happened.
   ///
   /// The raw term is first put through [_normalizeQuery] — control characters
   /// stripped, trimmed, capped at [kSearchMaxQueryLength] UTF-16 code units — so
@@ -434,33 +488,53 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// correctness backstop that every other caller — a recent-searches chip,
   /// voice input, a seeded `extra`, a test — inherits for free.
   ///
+  /// The normalised term is ALWAYS mirrored onto the sibling
+  /// [searchQueryDraftControllerProvider], whatever the outcome. That draft — not
+  /// [SearchFilters.query] — is the observable "what the user typed", and it is
+  /// what survives the filters ↔ results round trip. Keeping it here means every
+  /// caller of this one funnel gets the cross-screen sync for free.
+  ///
   /// Then three cases, in order, decided on the NORMALISED term:
-  ///   • null / blank → cleared to null. An empty box never narrows anything and
-  ///     the `q` param is omitted entirely.
-  ///   • 1 … [kSearchMinQueryLength] - 1 characters → **held**: the state is left
-  ///     exactly as it was. The backend does not honour a below-minimum `q` (it
-  ///     answers with an empty page plus a "type at least 3 characters"
-  ///     message), so promoting it here would re-key `searchResultsProvider` and
-  ///     buy a guaranteed-useless round trip. The user's partial text still lives
-  ///     in the field's `TextEditingController`, and the field renders the
-  ///     min-length helper beneath itself, so nothing is silently swallowed —
-  ///     the last applied query simply stays applied until the term is either
-  ///     completed or cleared.
-  ///   • [kSearchMinQueryLength] or more characters → applied.
+  ///   • null / blank → [SearchQueryOutcome.cleared]. `query` becomes null and
+  ///     the `q` param is omitted. NOT an error: a filters-only search is
+  ///     legitimate, so the UI must show no error line and no block.
+  ///   • 1 … [kSearchMinQueryLength] - 1 characters →
+  ///     [SearchQueryOutcome.belowMinimum]. `query` is **cleared**, NOT held.
+  ///     This is the whole point of the contract: the backend does not honour a
+  ///     below-minimum `q` (it answers with an empty page plus a "type at least
+  ///     3 characters" message), so the term cannot be promoted — but leaving
+  ///     the PREVIOUS term applied is worse than useless. It leaves a result set
+  ///     and an applied-query chip on screen for a term the user has already
+  ///     shortened, with no signal that anything was rejected (the original
+  ///     defect: a bare `return`). Clearing plus a distinguishable outcome lets
+  ///     every host surface a real, blocking error state.
+  ///   • [kSearchMinQueryLength] or more characters → [SearchQueryOutcome
+  ///     .applied].
   ///
   /// [SearchFilters.query] is consequently ALWAYS wire-ready: null, or a term
   /// the backend will actually act on — long enough to be honoured, short enough
   /// to satisfy `@Size(max = 100)`, and free of the control characters
-  /// `^[^\p{Cntrl}]*$` rejects.
-  void setQuery(String? query) {
+  /// `^[^\p{Cntrl}]*$` rejects. The below-minimum term is observable, but only
+  /// through the draft — it never touches the wire model.
+  SearchQueryOutcome setQuery(String? query) {
     final String normalized = _normalizeQuery(query ?? '');
+    // Mirror the draft first, so a host reacting to the outcome (or to the
+    // filter-state emission below) already sees the matching raw term.
+    ref.read(searchQueryDraftControllerProvider.notifier).setDraft(normalized);
+
     if (normalized.isEmpty) {
       state = state.copyWith(query: null);
-      return;
+      return SearchQueryOutcome.cleared;
     }
-    // Below the backend minimum — hold the previously applied query.
-    if (normalized.length < kSearchMinQueryLength) return;
+    if (normalized.length < kSearchMinQueryLength) {
+      // Below the backend minimum: drop the applied query rather than holding
+      // it. Holding is what silently swallowed the keystroke and left stale
+      // results + a stale chip behind the user's shortened term.
+      state = state.copyWith(query: null);
+      return SearchQueryOutcome.belowMinimum;
+    }
     state = state.copyWith(query: normalized);
+    return SearchQueryOutcome.applied;
   }
 
   /// Sets the result ordering. Re-keys the results provider on the results
@@ -600,6 +674,10 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// Clears every filter back to an empty [SearchFilters].
   void reset() {
     state = const SearchFilters();
+    // The typed term goes with it — otherwise a below-minimum draft would keep
+    // the search field's error state (and the blocked CTA) alive over a filter
+    // set that no longer carries a query at all.
+    ref.read(searchQueryDraftControllerProvider.notifier).setDraft('');
     // Drop any pending booking pre-selection carried from a prior search — a
     // cleared filter must never leak a stale service pre-check into a booking.
     ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
@@ -647,6 +725,10 @@ class SearchFiltersController extends _$SearchFiltersController {
       sort: SearchSort.ratingDesc,
       // oblastId / cityId / districtId intentionally omitted → preserved.
     );
+    // The typed term goes with the applied one: «Скинути фільтри» must leave the
+    // search box genuinely empty, not sitting on a below-minimum draft that
+    // would keep the field's error state and the disabled CTA alive.
+    ref.read(searchQueryDraftControllerProvider.notifier).setDraft('');
     // Clear only the category label; the oblast / city / district labels stay.
     ref
         .read(searchFilterLabelsControllerProvider.notifier)

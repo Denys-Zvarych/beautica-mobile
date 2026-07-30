@@ -95,6 +95,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
   final BuiltList<String>? serviceTypeSlugs;
   @override
   final bool? priceRangeValid;
+  @override
+  final bool? withinResultWindow;
 
   factory _$SalonSearchRequest(
           [void Function(SalonSearchRequestBuilder)? updates]) =>
@@ -110,7 +112,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
       this.page,
       this.size,
       this.serviceTypeSlugs,
-      this.priceRangeValid})
+      this.priceRangeValid,
+      this.withinResultWindow})
       : super._();
   @override
   SalonSearchRequest rebuild(
@@ -134,7 +137,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
         page == other.page &&
         size == other.size &&
         serviceTypeSlugs == other.serviceTypeSlugs &&
-        priceRangeValid == other.priceRangeValid;
+        priceRangeValid == other.priceRangeValid &&
+        withinResultWindow == other.withinResultWindow;
   }
 
   @override
@@ -150,6 +154,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
     _$hash = $jc(_$hash, size.hashCode);
     _$hash = $jc(_$hash, serviceTypeSlugs.hashCode);
     _$hash = $jc(_$hash, priceRangeValid.hashCode);
+    _$hash = $jc(_$hash, withinResultWindow.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -166,7 +171,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
           ..add('page', page)
           ..add('size', size)
           ..add('serviceTypeSlugs', serviceTypeSlugs)
-          ..add('priceRangeValid', priceRangeValid))
+          ..add('priceRangeValid', priceRangeValid)
+          ..add('withinResultWindow', withinResultWindow))
         .toString();
   }
 }
@@ -219,6 +225,11 @@ class SalonSearchRequestBuilder
   set priceRangeValid(bool? priceRangeValid) =>
       _$this._priceRangeValid = priceRangeValid;
 
+  bool? _withinResultWindow;
+  bool? get withinResultWindow => _$this._withinResultWindow;
+  set withinResultWindow(bool? withinResultWindow) =>
+      _$this._withinResultWindow = withinResultWindow;
+
   SalonSearchRequestBuilder() {
     SalonSearchRequest._defaults(this);
   }
@@ -236,6 +247,7 @@ class SalonSearchRequestBuilder
       _size = $v.size;
       _serviceTypeSlugs = $v.serviceTypeSlugs?.toBuilder();
       _priceRangeValid = $v.priceRangeValid;
+      _withinResultWindow = $v.withinResultWindow;
       _$v = null;
     }
     return this;
@@ -269,6 +281,7 @@ class SalonSearchRequestBuilder
             size: size,
             serviceTypeSlugs: _serviceTypeSlugs?.build(),
             priceRangeValid: priceRangeValid,
+            withinResultWindow: withinResultWindow,
           );
     } catch (_) {
       late String _$failedField;

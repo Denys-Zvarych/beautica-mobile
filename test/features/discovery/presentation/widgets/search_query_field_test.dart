@@ -17,16 +17,25 @@
 //     `\n` — a pasted interior TAB would sail straight through it and 400.
 //     `an interior TAB is stripped` is the test that stops anyone
 //     "simplifying" this back to singleLineFormatter.
-//  3. The MIN-LENGTH HELPER's visibility window (1 … kSearchMinQueryLength-1)
+//  3. The MIN-LENGTH ERROR's visibility window (1 … kSearchMinQueryLength-1)
 //     and the fact that it tracks PROGRAMMATIC controller writes, not just
 //     keystrokes («Скинути фільтри» clearing the box).
-//  4. LISTENER HYGIENE — removed on dispose, and swapped when the parent hands
+//  4. The ERROR TREATMENT itself. The window used to render as an 11 sp muted
+//     `discCaptionMuted` line with no ring — it read as a hint while the
+//     keystroke was being silently swallowed upstream. It is now the canonical
+//     `MessageArea` error: a red `NeumorphicInset` ring, an `Icons.error_outline`
+//     glyph, `BrandColors.error` copy, and a `Semantics(liveRegion: true)` so a
+//     screen reader announces it. Asserting the TONE (not just the presence) is
+//     what stops a future refactor from quietly demoting it back to a hint.
+//  5. LISTENER HYGIENE — removed on dispose, and swapped when the parent hands
 //     down a different controller instance (`didUpdateWidget`). A leaked
 //     listener on a disposed State calls setState after unmount.
 //
-// House rules: finders are Key-based; the helper is asserted through its
+// House rules: finders are Key-based; the error line is asserted through its
 // `Key('search_query_min_length_hint')`, never through its UA copy.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/search_query_field.dart';
 import 'package:flutter/material.dart';
@@ -37,7 +46,7 @@ const Key _fieldKey = Key('test_query_field');
 const Key _hintKey = Key('search_query_min_length_hint');
 
 const String _hintText = 'Пошук майстра або послуги';
-const String _minLengthHint = 'Введіть щонайменше 3 символи';
+const String _minLengthError = 'Введіть щонайменше 3 символи для пошуку';
 
 /// A [TextEditingController] that exposes whether anything is subscribed to it.
 ///
@@ -67,7 +76,7 @@ void main() {
             fieldKey: _fieldKey,
             controller: controller,
             hintText: _hintText,
-            minLengthHint: _minLengthHint,
+            minLengthError: _minLengthError,
             onChanged: (_) {},
           ),
         ),
@@ -224,9 +233,9 @@ void main() {
     });
   });
 
-  // ── min-length helper ─────────────────────────────────────────────────────
+  // ── min-length error ──────────────────────────────────────────────────────
 
-  group('min-length helper', () {
+  group('min-length error', () {
     testWidgets('absent when the field is empty', (tester) async {
       await pumpField(tester, makeController());
 
@@ -255,8 +264,8 @@ void main() {
       expect(find.byKey(_hintKey), findsOneWidget);
       expect(
         tester.widget<Text>(find.byKey(_hintKey)).data,
-        _minLengthHint,
-        reason: 'the helper renders the localised copy it was handed',
+        _minLengthError,
+        reason: 'the error line renders the localised copy it was handed',
       );
     });
 
@@ -332,7 +341,7 @@ void main() {
       expect(find.byKey(_hintKey), findsNothing);
     });
 
-    testWidgets('seeded below-minimum text shows the helper on first frame', (
+    testWidgets('seeded below-minimum text shows the error on first frame', (
       tester,
     ) async {
       await pumpField(tester, makeController('ма'));
@@ -341,6 +350,124 @@ void main() {
         find.byKey(_hintKey),
         findsOneWidget,
         reason: 'initState must seed _belowMinimum from the incoming text',
+      );
+    });
+  });
+
+  // ── error TONE ────────────────────────────────────────────────────────────
+  //
+  // A 1–2 character term is rejected outright: the applied query is cleared,
+  // the results area is blocked and the «Показати майстрів» CTA is disabled.
+  // The field must therefore look and sound like an error, not like a hint.
+  // These assertions pin the tone, so demoting it back to `discCaptionMuted`
+  // (which is what shipped, and what made the whole rejection invisible) fails
+  // here rather than in review.
+
+  group('below-minimum error treatment', () {
+    NeumorphicInset insetOf(WidgetTester tester) =>
+        tester.widget<NeumorphicInset>(
+          find
+              .ancestor(
+                of: find.byKey(_fieldKey),
+                matching: find.byType(NeumorphicInset),
+              )
+              .first,
+        );
+
+    testWidgets('the inset ring goes to hasError below the minimum', (
+      tester,
+    ) async {
+      final _ProbeController c = makeController();
+      await pumpField(tester, c);
+      expect(insetOf(tester).hasError, isFalse);
+
+      await tester.enterText(find.byKey(_fieldKey), 'ма');
+      await tester.pump();
+
+      expect(
+        insetOf(tester).hasError,
+        isTrue,
+        reason:
+            'NeumorphicInset paints the 2 dp BrandColors.error ring off this '
+            'flag — the field passed only `radius` before, so the well looked '
+            'identical whether or not the term was rejected',
+      );
+    });
+
+    testWidgets('the ring clears once the term reaches the minimum', (
+      tester,
+    ) async {
+      final _ProbeController c = makeController('ма');
+      await pumpField(tester, c);
+      expect(insetOf(tester).hasError, isTrue);
+
+      await tester.enterText(find.byKey(_fieldKey), 'ман');
+      await tester.pump();
+
+      expect(insetOf(tester).hasError, isFalse);
+    });
+
+    testWidgets('an EMPTY box is not an error', (tester) async {
+      final _ProbeController c = makeController('ма');
+      await pumpField(tester, c);
+      expect(insetOf(tester).hasError, isTrue);
+
+      await tester.enterText(find.byKey(_fieldKey), '');
+      await tester.pump();
+
+      expect(
+        insetOf(tester).hasError,
+        isFalse,
+        reason:
+            'searching on the locality / category / price facets alone is '
+            'legitimate — only 1–2 characters is an error',
+      );
+      expect(find.byKey(_hintKey), findsNothing);
+    });
+
+    testWidgets('the error line renders in BrandColors.error, not muted', (
+      tester,
+    ) async {
+      final _ProbeController c = makeController('ма');
+      await pumpField(tester, c);
+
+      expect(
+        tester.widget<Text>(find.byKey(_hintKey)).style?.color,
+        BrandColors.error,
+        reason:
+            'the copy shipped in BrandColors.muted (#9A8367) at 11 sp and read '
+            'as a hint',
+      );
+    });
+
+    testWidgets('the error line carries an error icon', (tester) async {
+      final _ProbeController c = makeController('ма');
+      await pumpField(tester, c);
+
+      final Finder icon = find.byIcon(Icons.error_outline);
+      expect(icon, findsOneWidget);
+      expect(tester.widget<Icon>(icon).color, BrandColors.error);
+    });
+
+    testWidgets('the error line is announced as a live region', (tester) async {
+      final _ProbeController c = makeController();
+      await pumpField(tester, c);
+
+      await tester.enterText(find.byKey(_fieldKey), 'ма');
+      await tester.pump();
+
+      final Finder live = find.ancestor(
+        of: find.byKey(_hintKey),
+        matching: find.byWidgetPredicate(
+          (Widget w) => w is Semantics && w.properties.liveRegion == true,
+        ),
+      );
+      expect(
+        live,
+        findsOneWidget,
+        reason:
+            'a blocking error that only exists visually is invisible to a '
+            'screen-reader user mid-typing (message_area.dart:150-167)',
       );
     });
   });

@@ -21,12 +21,55 @@ part 'search_filters.freezed.dart';
 ///
 /// A `q` of 1–2 characters is NOT a narrowing search server-side: the backend
 /// answers it with an empty page plus an envelope `message` telling the user to
-/// type at least this many characters. The client therefore treats a below
-/// minimum term as "still being typed" — it is never written into
-/// [SearchFilters.query] and never reaches the wire (see
-/// `SearchFiltersController.setQuery`), and the UI surfaces a helper line under
-/// the search field instead.
+/// type at least this many characters. The client therefore treats a
+/// below-minimum term as a BLOCKING ERROR, not as "still being typed": it is
+/// never written into [SearchFilters.query] and never reaches the wire (see
+/// `SearchFiltersController.setQuery`), the previously applied query is CLEARED
+/// so no stale result set survives it, and the filters screen renders a red
+/// error line under the search field AND disables «Показати майстрів». That CTA
+/// gate is the containment boundary: because the search box exists only on the
+/// filters screen, a below-minimum term can never travel to the results screen,
+/// which therefore needs no blocked state of its own.
 const int kSearchMinQueryLength = 3;
+
+/// What `SearchFiltersController.setQuery` did with a raw term.
+///
+/// The three cases are deliberately distinguishable at the call site, because
+/// the wire invariant on [SearchFilters.query] (null, or a term the backend will
+/// honour) collapses [cleared] and [belowMinimum] into the same `null` — and the
+/// UI must treat them very differently: an empty box is a perfectly valid
+/// filters-only search, while a 1–2 character box is an error that blocks.
+enum SearchQueryOutcome {
+  /// The term was blank (or null) — [SearchFilters.query] is now null and the
+  /// `q` param is omitted. NOT an error: searching on the other facets alone is
+  /// legitimate.
+  cleared,
+
+  /// The term normalised to 1 … [kSearchMinQueryLength] - 1 characters — below
+  /// what the backend honours. [SearchFilters.query] is CLEARED (an applied
+  /// query must never outlive the term that produced it), the raw term is kept
+  /// on `searchQueryDraftControllerProvider`, and the UI must surface a blocking
+  /// error.
+  belowMinimum,
+
+  /// The term normalised to [kSearchMinQueryLength] or more characters and is
+  /// now applied on [SearchFilters.query].
+  applied,
+}
+
+/// Whether [raw] is a non-empty term that is still too short for the backend to
+/// honour — i.e. the [SearchQueryOutcome.belowMinimum] predicate, evaluated
+/// without touching any state.
+///
+/// Single-sourced here beside [kSearchMinQueryLength] so the controller, the
+/// search field's error chrome and the «Показати майстрів» CTA gate can never
+/// drift apart on where the threshold sits. Trimmed before measuring, exactly as
+/// `SearchFiltersController._normalizeQuery` does, so «  ма  » is 2 characters
+/// and not 6.
+bool isBelowSearchMinimum(String? raw) {
+  final int length = (raw ?? '').trim().length;
+  return length > 0 && length < kSearchMinQueryLength;
+}
 
 /// Longest free-text term the backend will accept on `q`.
 ///
@@ -85,11 +128,15 @@ abstract class SearchFilters with _$SearchFilters {
   const factory SearchFilters({
     /// The APPLIED free-text name / service query — trimmed, and either null
     /// ("no term") or at least [kSearchMinQueryLength] characters long. Never
-    /// holds a 1–2 character term: `SearchFiltersController.setQuery` holds the
-    /// previous value for those (the backend answers a below-minimum `q` with an
-    /// empty page + a "type at least 3 characters" message, so sending it is a
-    /// pointless round trip). The raw text the user is mid-way through typing
-    /// lives in the field's `TextEditingController`, not here.
+    /// holds a 1–2 character term: `SearchFiltersController.setQuery` CLEARS
+    /// this field for those and reports [SearchQueryOutcome.belowMinimum]
+    /// instead (the backend answers a below-minimum `q` with an empty page + a
+    /// "type at least 3 characters" message, so sending it is a pointless round
+    /// trip — and keeping the PREVIOUS term applied would leave stale results
+    /// and a stale chip on screen under a term the user has already shortened).
+    /// The raw text the user is mid-way through typing lives in the field's
+    /// `TextEditingController` and, cross-screen, on
+    /// `searchQueryDraftControllerProvider` — never here.
     ///
     /// Forwarded to the backend `q` param by the repository (null → omitted).
     String? query,

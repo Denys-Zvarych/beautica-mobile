@@ -3156,7 +3156,11 @@
   },
   "searchQueryMinLengthHint": "Enter at least 3 characters",
   "@searchQueryMinLengthHint": {
-    "description": "Quiet helper line shown under the free-text search field while the typed term is 1–2 characters long. The backend ignores a `q` shorter than 3 characters (it answers with an empty page and this same message), so the client holds the term instead of searching. Copy must match the backend's envelope message exactly."
+    "description": "The backend's own envelope message for a below-minimum `q`. Copy must match the backend's envelope message exactly — do NOT reword it to match the client-side error line (that is searchQueryMinLengthError). Retained for surfaces that echo the server message verbatim."
+  },
+  "searchQueryMinLengthError": "Enter at least 3 characters to search",
+  "@searchQueryMinLengthError": {
+    "description": "Blocking ERROR line (red, with an error icon) shown under the free-text search field while the typed term is 1–2 characters long. In that state the applied query is cleared, the results area is blocked and «Show masters» is disabled — so this is an error voice, not a hint. Client-side copy: it is free to differ from the backend's envelope message (searchQueryMinLengthHint)."
   },
   "searchCityLabel": "City",
   "@searchCityLabel": {

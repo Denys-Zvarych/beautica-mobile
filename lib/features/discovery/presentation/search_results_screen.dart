@@ -6,9 +6,8 @@
 //     (SVG funnel) that re-opens the 13.3 filter controls (pops back to the
 //     still-populated filters screen), with a «(N)» active-filter-count badge
 //     beside it when one or more facets are applied;
-//   • a LIVE search field ([SearchQueryField], the very same pill control the
-//     filters screen hosts) directly under the top bar, plus an applied-query
-//     chip beneath it;
+//   • an applied-query chip directly under the top bar (tap to clear), shown
+//     only while [SearchFilters.query] carries a term;
 //   • a scrolling list of master + salon result cards, infinite-scroll via a
 //     ScrollController calling loadMore() near the end + a bottom spinner;
 //   • the four AsyncValue states (skeleton / cards / empty / error).
@@ -18,18 +17,23 @@
 // [searchResultsProvider] — a fresh page-0 fetch. The active-filter count is
 // derived directly from [SearchFilters.activeFilterCount].
 //
-// LIVE SEARCH (defect G). Typing used to change nothing until «Показати
-// майстрів» was tapped again, and the results screen showed neither the query
-// nor a field to change it. It now re-runs the search as the user types, behind
-// a hard 500 ms DEBOUNCE: `query` participates in freezed's `==`/`hashCode` and
-// therefore in the [searchResultsProvider] family key, so an undebounced write
-// would fire one full page-0 request per keystroke. Below-minimum terms (1–2
-// characters) are additionally suppressed at the controller — see
-// [kSearchMinQueryLength] — so they never reach the wire at all. Whatever DOES
-// settle and is then superseded has its two GETs cancelled by the notifier's
-// CancelToken (perf/sec MEDIUM-1).
+// THERE IS NO SEARCH FIELD HERE. The free-text input lives on the filters screen
+// ONLY — this screen displays what that term produced and offers exactly one
+// query affordance: clearing it via the chip. Editing the term means going back
+// (the top bar's back / filter buttons both pop to the still-populated filters
+// screen, where the box is re-seeded from the keepAlive draft).
 //
-// RE-KEYING KEEPS THE PREVIOUS PAGE ON SCREEN (perf LOW-2). A settled query
+// Consequently this screen can never observe a below-minimum term. It renders
+// [_filters], and [SearchFilters.query] is wire-ready BY INVARIANT — null, or a
+// term of at least [kSearchMinQueryLength] characters (`setQuery` is the only
+// writer and clears anything shorter). Nothing on this page can move it below
+// that: the only two mutations are [_setSort] (leaves `query` untouched) and
+// [_clearQuery] (nulls it). The «Показати майстрів» CTA is disabled while the
+// filters screen's box holds 1–2 characters, so a sub-minimum term cannot be
+// carried in through `extra` either. That is why there is no blocked state to
+// render.
+//
+// RE-KEYING KEEPS THE PREVIOUS PAGE ON SCREEN (perf LOW-2). A changed filter set
 // points [searchResultsProvider] at a virgin family member with no cached value,
 // so `.when(loading:)` fires and would otherwise unmount the whole rendered
 // list — skeleton flash, 20 neumorphic cards re-inflated on one frame, scroll
@@ -40,14 +44,8 @@
 // (`_ResultsView`), which is what actually preserves the ListView's element and
 // its scroll position.
 //
-// The field shows what is being TYPED; the chip shows what is currently
-// APPLIED. They diverge exactly while a term is too short to search, which is
-// precisely when the field's min-length helper is explaining why.
-//
 // go_router only — the back/filter affordances use context.pop(); cards push the
 // public-profile routes. No Navigator anywhere.
-
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -69,7 +67,6 @@ import 'state/search_filters_controller.dart';
 import 'widgets/master_result_card.dart';
 import 'widgets/results_states.dart';
 import 'widgets/salon_result_card.dart';
-import 'widgets/search_query_field.dart';
 import 'widgets/service_chip_drawer.dart';
 import 'widgets/sort_options_sheet.dart';
 
@@ -91,26 +88,8 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   /// Pixels-from-bottom threshold that triggers the next-page fetch.
   static const double _loadMoreThreshold = 320;
 
-  /// Quiet window after the last keystroke before the query is applied.
-  ///
-  /// MANDATORY, not a nicety: applying per-keystroke would re-key
-  /// [searchResultsProvider] (query is part of [SearchFilters]'s `==`/`hashCode`)
-  /// and issue a page-0 request for every character typed.
-  ///
-  /// 500 ms, not 400 (perf MEDIUM-1): each settled term costs a TWO-endpoint
-  /// fan-out of wildcard-LIKE scans, and 400 ms does not cover a normal
-  /// inter-word pause — it fired a full search mid-phrase.
-  static const Duration _queryDebounce = Duration(milliseconds: 500);
-
   late SearchFilters _filters;
   final ScrollController _scrollController = ScrollController();
-
-  /// Raw text of the live search field — the term being TYPED, which may be
-  /// shorter than [kSearchMinQueryLength] and therefore not yet applied.
-  final TextEditingController _queryController = TextEditingController();
-
-  /// Pending debounced apply; cancelled on every new keystroke and on dispose.
-  Timer? _queryDebounceTimer;
 
   /// The page rendered by the OUTGOING filter set, kept on screen while the new
   /// family member resolves (perf LOW-2), paired with the filters that produced
@@ -126,16 +105,11 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   void initState() {
     super.initState();
     _filters = widget.initialFilters ?? const SearchFilters();
-    // Seed the live field from the query the search was launched with, so the
-    // user can refine it rather than retype it.
-    _queryController.text = _filters.query ?? '';
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    _queryDebounceTimer?.cancel();
-    _queryController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -161,33 +135,6 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     ref.read(searchResultsProvider(_filters).notifier).loadMore();
   }
 
-  /// Keystroke handler for the live search field. Restarts the debounce window;
-  /// nothing is applied (and no request is issued) until it elapses.
-  void _onQueryChanged(String raw) {
-    _queryDebounceTimer?.cancel();
-    _queryDebounceTimer = Timer(_queryDebounce, () => _applyQuery(raw));
-  }
-
-  /// Commits a settled query — the ONLY path that re-keys the results provider
-  /// from the search field.
-  ///
-  /// Normalisation is delegated wholesale to [SearchFiltersController.setQuery]
-  /// (trim → blank clears, 1–2 characters are HELD, 3+ applies), so the
-  /// below-minimum rule lives in exactly one place. Whatever it settles on is
-  /// then read back and compared: an unchanged applied query means the keystroke
-  /// was a hold or a no-op, and no `setState` — hence no re-key, hence no
-  /// request — happens.
-  ///
-  /// Writing through the keepAlive controller also keeps the filters screen in
-  /// sync, so popping back shows the query that is actually applied.
-  void _applyQuery(String raw) {
-    if (!mounted) return;
-    ref.read(searchFiltersControllerProvider.notifier).setQuery(raw);
-    final String? applied = ref.read(searchFiltersControllerProvider).query;
-    if (applied == _filters.query) return;
-    _applyFilters(_filters.copyWith(query: applied));
-  }
-
   /// The single re-key path: swaps [_filters] (and therefore the
   /// [searchResultsProvider] family member) after snapshotting the page that is
   /// about to be discarded.
@@ -197,27 +144,39 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   /// (perf LOW-2). Taking it here — in the handler, from the still-live provider
   /// — keeps `build()` free of side effects; the outgoing member is autoDisposed
   /// immediately afterwards and its in-flight requests cancelled.
+  ///
+  /// Reading the outgoing member is unconditionally safe here because `build`
+  /// always watches it: this screen has no state in which the results area is
+  /// unsubscribed, so `ref.read` can never revive a disposed family member.
   void _applyFilters(SearchFilters next) {
     if (next == _filters) return;
     final SearchResultsState? outgoing = ref
         .read(searchResultsProvider(_filters))
         .value;
-    // `?? _retained` — NOT a reload-detection gate (that is `ref.watch`'s job),
-    // just a placeholder fallback: refining twice inside one round trip leaves
-    // the outgoing member itself value-less, and dropping to a skeleton there
-    // would defeat the whole point. Keep the last page we actually rendered.
+    // NOT a reload-detection gate (that is `ref.watch`'s job), just a
+    // placeholder fallback: re-keying twice inside one round trip leaves the
+    // outgoing member itself value-less, and dropping to a skeleton there would
+    // defeat the whole point. Keep the last page we rendered.
     if (outgoing != null) {
       _retained = (filters: _filters, data: outgoing);
     }
     setState(() => _filters = next);
   }
 
-  /// Clears the applied query from the chip — empties the field and applies
-  /// immediately (no point debouncing an explicit, single-shot action).
+  /// Clears the applied query — the chip's tap action, and the ONLY query
+  /// mutation this screen offers now that the search box lives solely on the
+  /// filters screen.
+  ///
+  /// Routed through [SearchFiltersController.setQuery] rather than a local
+  /// `copyWith` so the one funnel stays the single writer: it nulls the applied
+  /// query AND mirrors the empty term onto the keepAlive draft, which is what
+  /// leaves the filters screen's box genuinely empty on a pop back (its
+  /// `ref.listen` on the draft syncs the field). Re-keying `_filters` in the
+  /// same beat swaps the results to the filters-only search.
   void _clearQuery() {
-    _queryDebounceTimer?.cancel();
-    _queryController.clear();
-    _applyQuery('');
+    if (_filters.query == null) return;
+    ref.read(searchFiltersControllerProvider.notifier).setQuery('');
+    _applyFilters(_filters.copyWith(query: null));
   }
 
   /// Re-opens the filter controls — pops back to the 13.3 filters screen, where
@@ -252,17 +211,13 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final AsyncValue<SearchResultsState> resultsAsync = ref.watch(
-      searchResultsProvider(_filters),
-    );
 
     // Evaluate the active-filter count once and reuse it for both the badge and
     // the screen-reader label (the getter walks the filter facets each call).
     final int activeFilterCount = _filters.activeFilterCount;
 
     // The query is deliberately NOT part of `activeFilterCount` — it has its own
-    // always-visible representation right below the badge (see the getter's
-    // doc comment).
+    // representation right below the badge (see the getter's doc comment).
     final String? appliedQuery = _filters.query;
 
     return Scaffold(
@@ -293,87 +248,77 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 onFilter: _openFilters,
               ),
             ),
-            // Live search — the same pill field the filters screen hosts, so
-            // typing has somewhere to happen without a round trip through the
-            // previous screen. Below it, the APPLIED query echoed as a chip
-            // (tap to clear), reusing the selected-[ServiceChip] treatment
-            // verbatim so an active query reads exactly like any other active
-            // selection in this feature.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                0,
-                VelvetSpacing.lg,
-                VelvetSpacing.sm,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  SearchQueryField(
-                    fieldKey: const Key('results_query_field'),
-                    controller: _queryController,
-                    hintText: l10n.searchFieldHint,
-                    minLengthHint: l10n.searchQueryMinLengthHint,
-                    onChanged: _onQueryChanged,
-                  ),
-                  if (appliedQuery != null) ...<Widget>[
-                    const SizedBox(height: VelvetSpacing.sm),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: ServiceChip(
-                        key: const Key('results_query_chip'),
-                        label: appliedQuery,
-                        selected: true,
-                        onTap: _clearQuery,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            Expanded(
-              // All four states stay explicit. The only change from a plain
-              // `.when` is that `loading:` prefers the retained page over the
-              // skeleton when one exists, and routes it through the SAME
-              // `_ResultsView` the data branch uses — identical widget shape, so
-              // the ListView element (and its scroll offset) survives the
-              // re-key. See the file header, perf LOW-2.
-              child: resultsAsync.when(
-                loading: () {
-                  final retained = _retained;
-                  if (retained == null || retained.data.items.isEmpty) {
-                    return const ResultsSkeleton();
-                  }
-                  return _ResultsView(
-                    scrollController: _scrollController,
-                    data: retained.data,
-                    // The filters the retained cards were fetched WITH, not the
-                    // pending ones — a card tapped mid-transition must still
-                    // preselect the services its own search matched.
-                    activeFilters: retained.filters,
-                    onFavoriteError: _showFavoriteError,
-                    refreshing: true,
-                  );
-                },
-                error: (Object e, _) => ResultsError(
-                  error: e,
-                  onRetry: () =>
-                      ref.invalidate(searchResultsProvider(_filters)),
+            // The APPLIED query echoed as a chip (tap to clear), reusing the
+            // selected-[ServiceChip] treatment verbatim so an active query
+            // reads exactly like any other active selection in this feature.
+            // It is the only on-page indication of what term produced these
+            // results, and the only way to drop it without going back.
+            //
+            // The whole padded slot is conditional — an always-present wrapper
+            // would leave its `VelvetSpacing.sm` bottom inset behind as a gap
+            // between the top bar and the list on every query-less search.
+            if (appliedQuery != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  0,
+                  VelvetSpacing.lg,
+                  VelvetSpacing.sm,
                 ),
-                data: (SearchResultsState data) {
-                  if (data.items.isEmpty) {
-                    return ResultsEmpty(onEditFilters: _openFilters);
-                  }
-                  return _ResultsView(
-                    scrollController: _scrollController,
-                    data: data,
-                    activeFilters: _filters,
-                    onFavoriteError: _showFavoriteError,
-                    refreshing: false,
-                  );
-                },
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: ServiceChip(
+                    key: const Key('results_query_chip'),
+                    label: appliedQuery,
+                    selected: true,
+                    onTap: _clearQuery,
+                  ),
+                ),
               ),
+            Expanded(
+              // All four AsyncValue states stay explicit. The one deviation
+              // from a plain `.when`: `loading:` prefers the retained page over
+              // the skeleton when one exists, and routes it through the SAME
+              // `_ResultsView` the data branch uses — identical widget shape,
+              // so the ListView element (and its scroll offset) survives the
+              // re-key. See the file header, perf LOW-2.
+              child: ref
+                  .watch(searchResultsProvider(_filters))
+                  .when(
+                    loading: () {
+                      final retained = _retained;
+                      if (retained == null || retained.data.items.isEmpty) {
+                        return const ResultsSkeleton();
+                      }
+                      return _ResultsView(
+                        scrollController: _scrollController,
+                        data: retained.data,
+                        // The filters the retained cards were fetched WITH, not
+                        // the pending ones — a card tapped mid-transition must
+                        // still preselect the services its own search matched.
+                        activeFilters: retained.filters,
+                        onFavoriteError: _showFavoriteError,
+                        refreshing: true,
+                      );
+                    },
+                    error: (Object e, _) => ResultsError(
+                      error: e,
+                      onRetry: () =>
+                          ref.invalidate(searchResultsProvider(_filters)),
+                    ),
+                    data: (SearchResultsState data) {
+                      if (data.items.isEmpty) {
+                        return ResultsEmpty(onEditFilters: _openFilters);
+                      }
+                      return _ResultsView(
+                        scrollController: _scrollController,
+                        data: data,
+                        activeFilters: _filters,
+                        onFavoriteError: _showFavoriteError,
+                        refreshing: false,
+                      );
+                    },
+                  ),
             ),
           ],
         ),

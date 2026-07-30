@@ -10,10 +10,10 @@
 // existing tests and still ships. This file drives ONE journey that sets all four
 // facets and asserts them off a SINGLE captured query map per endpoint.
 //
-// It also covers the results screen's live-search refinement — a DIFFERENT term
-// typed after landing on /search/results, past the 500 ms debounce — which
-// neither existing flow reaches at all. That is the "search resets my filters"
-// regression class.
+// Free text is entered in exactly ONE place — the Пошук screen's search box.
+// The results screen hosts no field (it only echoes the applied term as a
+// clearable chip), so the term this journey types is the term that must survive
+// the push intact, alongside every other facet.
 //
 // PUMPING POLICY (measured — do not "simplify" back to pumpAndSettle)
 // -------------------------------------------------------------------
@@ -21,9 +21,8 @@
 // subtree keeps the frame pipeline non-quiescent, so settling never completes and
 // the test dies on its own timeout with `_pendingFrame == null`. Every wait after
 // the CTA push therefore uses BOUNDED `pump(Duration)` calls via [settleResults].
-// This is not the banned pump-as-sleep idiom — the debounce window is part of the
-// contract being pinned, and a bounded pump is the only deterministic way to step
-// across it.
+// This is not the banned pump-as-sleep idiom — a bounded pump is the only
+// deterministic way to advance a screen that never goes quiescent.
 //
 // PRICE BOUND: the slider drag sets `minPrice` (measured: 5500.0 for a -160 dx
 // drag), NOT `maxPrice`. The assertions derive the expected bound from the filter
@@ -50,9 +49,6 @@ void main() {
 
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
-
-  /// The results screen's production debounce window.
-  const Duration debounce = Duration(milliseconds: 500);
 
   /// Bounded replacement for `pumpAndSettle` on the results screen (see header).
   Future<void> settleResults(WidgetTester tester) async {
@@ -262,125 +258,6 @@ void main() {
         reason:
             'the CLIENT search journey must not touch GET /masters/me '
             '(403 decoupling regression)',
-      );
-    },
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
-
-  testWidgets(
-    'refining the term on the results screen re-queries and KEEPS the other '
-    'filters',
-    (tester) async {
-      final fb = FakeBackend()..currentRole = UserRole.client;
-      final GoRouter router = await AppHarness.boot(tester, fb);
-
-      await AppHarness.loginAs(tester, fb, UserRole.client);
-      // Real-async app boot: FakeBackend socket + secure storage + router
-      // redirect, with no single settle condition to key a pump-until off.
-      // fixed-wait-ok: real-async boot; no single pump-until condition exists.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-
-      await tester.tap(find.byKey(const Key('client-nav-search-center')));
-      // The shell-branch switch fans out to the real locality +
-      // approved-category fetches before Пошук becomes interactive.
-      // fixed-wait-ok: multi-endpoint fan-out precedes an interactive screen.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      AppHarness.expectLocation(router, RouteNames.clientSearch);
-
-      await assembleAndPush(tester, term: 'манікюр');
-      expect(find.byKey(const Key('client-search-results')), findsOneWidget);
-
-      final SearchFilters filters = receivedFilters(tester);
-      // Baseline the refinement must not regress.
-      expect(fb.lastSearchMastersQueryMap!['location.cityId'], 'city-kyiv');
-      expect(fb.lastSearchMastersQueryMap!['category'], isNotNull);
-
-      // ── Refine on the results screen's OWN live field ────────────────────
-      await tester.enterText(
-        find.byKey(const Key('results_query_field')),
-        'педикюр',
-      );
-      // Step across the production debounce window, then let the re-keyed fetch
-      // land. Bounded pumps only — see the header.
-      await tester.pump(debounce + const Duration(milliseconds: 100));
-      await settleResults(tester);
-
-      final Map<String, dynamic> mastersMap = fb.lastSearchMastersQueryMap!;
-      final Map<String, dynamic> salonsMap = fb.lastSearchSalonsQueryMap!;
-
-      expect(
-        mastersMap['q'],
-        'педикюр',
-        reason:
-            'the settled refinement must re-query /search/masters with the NEW '
-            'term',
-      );
-      expect(
-        salonsMap['q'],
-        'педикюр',
-        reason: 'and /search/salons too — it is a separate call',
-      );
-
-      // THE REGRESSION ASSERTIONS. A refinement that re-keys off a filter set
-      // built from scratch instead of `_filters.copyWith(query:)` would drop the
-      // city/category the user picked on Пошук, leaving only the query.
-      for (final String endpoint in <String>[
-        '/search/masters',
-        '/search/salons',
-      ]) {
-        final Map<String, dynamic> map = endpoint == '/search/masters'
-            ? mastersMap
-            : salonsMap;
-        expect(
-          map['location.cityId'],
-          'city-kyiv',
-          reason:
-              'refining the query must NOT drop the city filter on $endpoint — '
-              'losing it here is the "search resets my filters" regression',
-        );
-        expect(
-          map['category'],
-          filters.categoryKey,
-          reason:
-              'refining the query must NOT drop the category filter on '
-              '$endpoint — same regression class',
-        );
-        expectPriceBounds(map, filters, endpoint);
-      }
-
-      // ── HOLD rule — a below-minimum refinement must not re-query at all ──
-      final int mastersBefore = fb.searchMastersCalls;
-      final int salonsBefore = fb.searchSalonsCalls;
-
-      await tester.enterText(
-        find.byKey(const Key('results_query_field')),
-        'пе',
-      );
-      // Same deliberate window advance: proves the ABSENCE of a request is the
-      // HOLD rule, not merely "the debounce has not fired yet".
-      await tester.pump(debounce + const Duration(milliseconds: 100));
-      await settleResults(tester);
-
-      expect(
-        fb.searchMastersCalls,
-        mastersBefore,
-        reason:
-            'a 2-character refinement is below kSearchMinQueryLength and must '
-            'be HELD — the backend answers a below-minimum `q` with an empty '
-            'page, so re-keying buys a guaranteed-useless round trip AND blanks '
-            'the results already on screen',
-      );
-      expect(
-        fb.searchSalonsCalls,
-        salonsBefore,
-        reason: 'the same HOLD rule must apply to /search/salons',
-      );
-      expect(
-        fb.lastSearchMastersQueryMap!['q'],
-        'педикюр',
-        reason:
-            'the previously applied term must remain applied — a held term must '
-            'not clear it either',
       );
     },
     timeout: const Timeout(Duration(seconds: 120)),

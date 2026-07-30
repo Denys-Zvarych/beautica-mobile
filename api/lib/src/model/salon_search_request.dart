@@ -23,6 +23,7 @@ part 'salon_search_request.g.dart';
 /// * [size]
 /// * [serviceTypeSlugs]
 /// * [priceRangeValid]
+/// * [withinResultWindow]
 @BuiltValue()
 abstract class SalonSearchRequest
     implements Built<SalonSearchRequest, SalonSearchRequestBuilder> {
@@ -56,6 +57,9 @@ abstract class SalonSearchRequest
 
   @BuiltValueField(wireName: r'priceRangeValid')
   bool? get priceRangeValid;
+
+  @BuiltValueField(wireName: r'withinResultWindow')
+  bool? get withinResultWindow;
 
   SalonSearchRequest._();
 
@@ -153,6 +157,13 @@ class _$SalonSearchRequestSerializer
         specifiedType: const FullType(bool),
       );
     }
+    if (object.withinResultWindow != null) {
+      yield r'withinResultWindow';
+      yield serializers.serialize(
+        object.withinResultWindow,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -247,6 +258,13 @@ class _$SalonSearchRequestSerializer
             specifiedType: const FullType(bool),
           ) as bool;
           result.priceRangeValid = valueDes;
+          break;
+        case r'withinResultWindow':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.withinResultWindow = valueDes;
           break;
         default:
           unhandled.add(key);

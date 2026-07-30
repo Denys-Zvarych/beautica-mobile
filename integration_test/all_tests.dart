@@ -76,6 +76,8 @@ import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
 import 'client_search_query_with_filters_flow_test.dart'
     as client_search_query_with_filters;
+import 'client_search_query_shrink_flow_test.dart'
+    as client_search_query_shrink;
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
@@ -191,12 +193,19 @@ void main() {
   // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`
   // reaching /search/masters + /search/salons TOGETHER with location.cityId,
   // category and a price bound on the SAME request, plus the results
-  // screen's live-search refinement keeping those filters (and honouring the
-  // below-minimum HOLD rule).
+  // screen receiving them intact. (The results screen no longer hosts a search
+  // field; the shrink/below-minimum contract lives in the flow below.)
   group(
     'client_search_query_with_filters_flow',
     client_search_query_with_filters.main,
   );
+  // Search-query SHRINK round trip (Step 2.7 Rule 3b) — the direction every
+  // other search test misses. Applies «манікюр», renders its results, goes
+  // back, shortens to «ма» and asserts the error state, the blocked CTA, the
+  // surviving typed characters and — the original defect — that the stale
+  // result set is genuinely unreachable (no second GET for the pre-shrink
+  // term). Plus the empty-box escape hatch.
+  group('client_search_query_shrink_flow', client_search_query_shrink.main);
   // Search prefill survives a mid-session name edit (refreshUser) — the
   // `.select(user.id)` narrowing regression (Step 2.7 Rule 3b).
   group(

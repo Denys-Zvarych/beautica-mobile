@@ -8,13 +8,24 @@
 // Coverage:
 //   SearchFiltersController
 //     • initial state is const SearchFilters()
-//     • setQuery — NORMALISES then decides. Normalisation is control-strip →
-//       trim → cap at kSearchMaxQueryLength UTF-16 CODE UNITS (rune-walked, so
-//       a surrogate pair is never bisected). The decision is three-way:
-//       blank → CLEAR to null; 1 … kSearchMinQueryLength-1 → HOLD the
-//       previously applied query untouched (the backend answers a below-minimum
-//       `q` with an empty page, so promoting it would re-key the results family
-//       for a guaranteed-useless round trip); 3+ → APPLY.
+//     • setQuery — NORMALISES, decides, and REPORTS. Normalisation is
+//       control-strip → trim → cap at kSearchMaxQueryLength UTF-16 CODE UNITS
+//       (rune-walked, so a surrogate pair is never bisected). The decision is
+//       three-way and now returns a SearchQueryOutcome:
+//         blank                        → CLEAR to null   (outcome: cleared)
+//         1 … kSearchMinQueryLength-1  → CLEAR to null   (outcome: belowMinimum)
+//         kSearchMinQueryLength+       → APPLY           (outcome: applied)
+//       A sub-minimum term is still NEVER promoted onto the wire model (the
+//       backend answers a below-minimum `q` with an empty page), but it no
+//       longer HOLDS the previous term either: holding it is precisely what
+//       left stale results + a stale applied-query chip on screen under a term
+//       the user had already shortened. The rejected term stays observable on
+//       the sibling SearchQueryDraftController, which is what the field's error
+//       ring, the disabled «Показати майстрів» CTA and the filters ↔ results
+//       field sync all read.
+//     • the draft mirror — setQuery writes the normalised term onto
+//       searchQueryDraftControllerProvider on EVERY call; clearFilters/reset
+//       empty it.
 //     • selectCity — sets cityId (+ districtId); clearing cityId clears district
 //     • toggleServiceType — single-select replaces prior; re-tap clears
 //     • setMaxPrice — sets maxPrice; >= kSearchPriceCeiling → null boundary;
@@ -151,8 +162,8 @@ void main() {
 
     test('normalises a null query to null', () {
       final c = _make().container;
-      // Priming MUST use a 3+ character term: a 1-character one is HELD, not
-      // applied, so it would leave `query` null and this test would pass
+      // Priming MUST use a 3+ character term: a 1-character one is REJECTED,
+      // not applied, so it would leave `query` null and this test would pass
       // vacuously — it would no longer prove that null CLEARS anything.
       _filters(c).setQuery('манікюр');
       expect(_state(c).query, 'манікюр', reason: 'priming must have taken');
@@ -308,9 +319,19 @@ void main() {
     });
   });
 
-  // ── setQuery HOLD semantics (below the backend minimum) ───────────────────
-  group('SearchFiltersController.setQuery hold semantics', () {
-    test('a 1-character term HOLDS the previously applied query', () {
+  // ── setQuery BELOW-MINIMUM semantics ──────────────────────────────────────
+  //
+  // This group used to pin the exact opposite contract ("HOLD the previously
+  // applied query"), and that contract WAS the defect: a bare `return` left the
+  // state untouched, so the results screen read back an unchanged applied query,
+  // never re-keyed, and kept the previous term's cards plus its applied-query
+  // chip on screen with no signal that the keystroke had been rejected. The
+  // wire invariant it protected is still intact — a sub-minimum term is STILL
+  // never promoted onto SearchFilters.query — but the previous term now goes
+  // with it, and the caller is told which of the two null-producing cases it
+  // got.
+  group('SearchFiltersController.setQuery below-minimum semantics', () {
+    test('a 1-character term CLEARS the previously applied query', () {
       final c = _make().container;
       _filters(c).setQuery('манікюр');
 
@@ -318,96 +339,213 @@ void main() {
 
       expect(
         _state(c).query,
-        'манікюр',
+        isNull,
         reason:
-            'the backend answers a below-minimum q with an empty page — '
-            'promoting it would re-key the results family for nothing AND wipe '
-            'the results the user is looking at',
+            'holding it is what left stale results and a stale chip under a '
+            'term the user had already deleted',
       );
     });
 
-    test('a 2-character term HOLDS the previously applied query', () {
+    test('a 1-character term reports belowMinimum', () {
       final c = _make().container;
       _filters(c).setQuery('манікюр');
 
-      _filters(c).setQuery('ма');
-
-      expect(_state(c).query, 'манікюр');
+      expect(_filters(c).setQuery('м'), SearchQueryOutcome.belowMinimum);
     });
 
-    test('a padded 2-character term HOLDS (normalisation runs first)', () {
-      final c = _make().container;
-      _filters(c).setQuery('манікюр');
-
-      _filters(c).setQuery('  ма  ');
-
-      expect(
-        _state(c).query,
-        'манікюр',
-        reason:
-            'the hold decision is made on the NORMALISED term — the padding '
-            'must not inflate it past the minimum',
-      );
-    });
-
-    test('a\u0009b normalises to 2 characters and therefore HOLDS', () {
-      final c = _make().container;
-      _filters(c).setQuery('манікюр');
-
-      _filters(c).setQuery('a\u0009b');
-
-      expect(
-        _state(c).query,
-        'манікюр',
-        reason:
-            'intentional: the tab is stripped, leaving "ab" — a 2-character '
-            'term, which is held. A raw-length check would have applied it.',
-      );
-    });
-
-    test('a below-minimum term with NO prior query leaves it null', () {
-      final c = _make().container;
-
-      _filters(c).setQuery('ма');
-
-      expect(_state(c).query, isNull);
-    });
-
-    test('a 2-character Cyrillic term HOLDS (no locale-specific shortcut)', () {
+    test('a 2-character term CLEARS the previously applied query', () {
       final c = _make().container;
       _filters(c).setQuery('манікюр');
 
       _filters(c).setQuery('ма');
 
-      expect(_state(c).query, 'манікюр');
+      expect(_state(c).query, isNull);
+      expect(_filters(c).setQuery('ма'), SearchQueryOutcome.belowMinimum);
     });
 
-    test('exactly kSearchMinQueryLength characters APPLIES', () {
+    test('a sub-minimum term is NEVER promoted onto the wire model', () {
       final c = _make().container;
-      _filters(c).setQuery('манікюр');
 
-      _filters(c).setQuery('ман');
-
-      expect(
-        _state(c).query,
-        'ман',
-        reason: 'the minimum is inclusive — 3 is enough',
-      );
-    });
-
-    test('blank CLEARS even when a query is currently applied', () {
-      final c = _make().container;
-      _filters(c).setQuery('манікюр');
-
-      _filters(c).setQuery('   ');
+      _filters(c).setQuery('ма');
 
       expect(
         _state(c).query,
         isNull,
         reason:
-            'clearing is a deliberate action and must NOT be swallowed by the '
-            'hold rule — an empty box never narrows anything',
+            'SearchFilters.query is the wire model: null, or something the '
+            'backend will honour. The below-minimum term lives on the draft.',
       );
+    });
+
+    test('the below-minimum term IS observable, on the draft', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('ма');
+
+      expect(
+        c.read(searchQueryDraftControllerProvider),
+        'ма',
+        reason:
+            'the whole point of the fix: the term is not silently swallowed, '
+            'it is just kept OUT of the wire model — the CTA gate, the field '
+            'error and the cross-screen sync all read it here',
+      );
+    });
+
+    test(
+      'a padded 2-character term is below-minimum (normalisation first)',
+      () {
+        final c = _make().container;
+        _filters(c).setQuery('манікюр');
+
+        expect(
+          _filters(c).setQuery('  ма  '),
+          SearchQueryOutcome.belowMinimum,
+          reason:
+              'the decision is made on the NORMALISED term — the padding must '
+              'not inflate it past the minimum',
+        );
+        expect(_state(c).query, isNull);
+        expect(
+          c.read(searchQueryDraftControllerProvider),
+          'ма',
+          reason: 'the draft carries the NORMALISED term, not the raw padding',
+        );
+      },
+    );
+
+    test('a\u0009b normalises to 2 chars and is therefore below-minimum', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      expect(
+        _filters(c).setQuery('a\u0009b'),
+        SearchQueryOutcome.belowMinimum,
+        reason:
+            'intentional: the tab is stripped, leaving "ab" — a 2-character '
+            'term. A raw-length check would have applied it.',
+      );
+      expect(_state(c).query, isNull);
+    });
+
+    test('a below-minimum term with NO prior query leaves it null', () {
+      final c = _make().container;
+
+      expect(_filters(c).setQuery('ма'), SearchQueryOutcome.belowMinimum);
+      expect(_state(c).query, isNull);
+    });
+
+    test(
+      'a 2-character Cyrillic term is below-minimum (no locale shortcut)',
+      () {
+        final c = _make().container;
+        _filters(c).setQuery('манікюр');
+
+        expect(_filters(c).setQuery('ма'), SearchQueryOutcome.belowMinimum);
+        expect(_state(c).query, isNull);
+      },
+    );
+
+    test('exactly kSearchMinQueryLength characters APPLIES', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      expect(
+        _filters(c).setQuery('ман'),
+        SearchQueryOutcome.applied,
+        reason: 'the minimum is inclusive — 3 is enough',
+      );
+      expect(_state(c).query, 'ман');
+    });
+
+    test('blank CLEARS, and is reported as cleared — NOT as an error', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      final SearchQueryOutcome outcome = _filters(c).setQuery('   ');
+
+      expect(_state(c).query, isNull);
+      expect(
+        outcome,
+        SearchQueryOutcome.cleared,
+        reason:
+            'an empty box is a perfectly good filters-only search. Collapsing '
+            'it into belowMinimum would put a red error under an empty field '
+            'and disable the CTA for a legitimate query-less search.',
+      );
+      expect(c.read(searchQueryDraftControllerProvider), '');
+    });
+
+    test('cleared and belowMinimum are distinguishable despite both nulling '
+        'query', () {
+      final c = _make().container;
+
+      expect(_filters(c).setQuery(''), SearchQueryOutcome.cleared);
+      expect(_state(c).query, isNull);
+
+      expect(_filters(c).setQuery('ма'), SearchQueryOutcome.belowMinimum);
+      expect(_state(c).query, isNull);
+
+      // Same wire model, opposite UI treatment — the outcome is the ONLY way a
+      // caller can tell "no term" from "term rejected".
+    });
+
+    test('completing the term re-applies it and clears the error state', () {
+      final c = _make().container;
+      _filters(c).setQuery('ма');
+      expect(_state(c).query, isNull);
+
+      expect(_filters(c).setQuery('манікюр'), SearchQueryOutcome.applied);
+      expect(_state(c).query, 'манікюр');
+      expect(c.read(searchQueryDraftControllerProvider), 'манікюр');
+    });
+  });
+
+  // ── the draft mirror ──────────────────────────────────────────────────────
+  group('SearchQueryDraftController', () {
+    test('starts empty', () {
+      final c = _make().container;
+      expect(c.read(searchQueryDraftControllerProvider), '');
+    });
+
+    test('setQuery mirrors the normalised term whatever the outcome', () {
+      final c = _make().container;
+
+      _filters(c).setQuery('  манікюр  ');
+      expect(c.read(searchQueryDraftControllerProvider), 'манікюр');
+
+      _filters(c).setQuery('ма');
+      expect(c.read(searchQueryDraftControllerProvider), 'ма');
+
+      _filters(c).setQuery('');
+      expect(c.read(searchQueryDraftControllerProvider), '');
+    });
+
+    test('clearFilters empties the draft as well as the applied query', () {
+      final c = _make().container;
+      _filters(c).setQuery('ма');
+      expect(c.read(searchQueryDraftControllerProvider), 'ма');
+
+      _filters(c).clearFilters();
+
+      expect(
+        c.read(searchQueryDraftControllerProvider),
+        '',
+        reason:
+            '«Скинути фільтри» must leave the box genuinely empty — a surviving '
+            'below-minimum draft would keep the field red and the CTA disabled '
+            'over a filter set that carries no query at all',
+      );
+    });
+
+    test('reset empties the draft as well as the applied query', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).reset();
+
+      expect(c.read(searchQueryDraftControllerProvider), '');
     });
   });
 
