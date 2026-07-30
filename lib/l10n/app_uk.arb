@@ -2692,13 +2692,13 @@
   "@masterLocationSubheading": {
     "description": "Subheading on the independent master location edit page, explaining that the location is used for client search."
   },
-  "masterLocationNoteShowMore": "більше",
-  "@masterLocationNoteShowMore": {
-    "description": "Expand toggle shown under a clamped (maxLines: 3) master profile location note when it overflows its line budget."
+  "expandableNoteShowMore": "більше",
+  "@expandableNoteShowMore": {
+    "description": "Expand toggle shown under a clamped (maxLines: 3) note (e.g. a master or salon location note) when it overflows its line budget."
   },
-  "masterLocationNoteShowLess": "згорнути",
-  "@masterLocationNoteShowLess": {
-    "description": "Collapse toggle shown under an expanded master profile location note."
+  "expandableNoteShowLess": "згорнути",
+  "@expandableNoteShowLess": {
+    "description": "Collapse toggle shown under an expanded note (e.g. a master or salon location note)."
   },
   "accountTitle": "Акаунт",
   "@accountTitle": {
@@ -4388,6 +4388,10 @@
   "salonAboutEmpty": "Опис салону поки не додано",
   "@salonAboutEmpty": {
     "description": "Empty state on the \"Про салон\" tab when the salon has no description yet."
+  },
+  "salonLocationNoteLabel": "Як дістатись",
+  "@salonLocationNoteLabel": {
+    "description": "Section heading on the \"Про салон\" tab above the salon's locationNote (entrance/floor instructions), rendered via ExpandableNote."
   },
   "salonServicesEmpty": "У салоні поки немає послуг",
   "@salonServicesEmpty": {

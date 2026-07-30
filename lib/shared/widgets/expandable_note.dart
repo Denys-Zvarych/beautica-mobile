@@ -1,25 +1,32 @@
-// Phase 221 — tap-to-expand affordance for the identity card's location note.
+// Phase 221 — tap-to-expand affordance, originally built for the master
+// identity card's location note.
 //
-// `Master.locationNote` accepts up to 1000 characters (backend
+// Phase 223 (a) — promoted from `features/master/presentation/widgets/
+// master_location_note.dart` to `shared/widgets/` (renamed `MasterLocationNote`
+// -> `ExpandableNote`): the salon feature's public profile needed the exact
+// same clamp+expand contract for its own `locationNote` field (About tab), and
+// this codebase's architecture forbids a feature from importing another
+// feature's `presentation/` — only `domain/` and `shared/` cross feature
+// boundaries. Nothing about the widget's behaviour changed in the move; only
+// its address, its class name, and the l10n keys it reads
+// (`expandableNoteShowMore`/`expandableNoteShowLess`, previously
+// `masterLocationNoteShowMore`/`masterLocationNoteShowLess`).
+//
+// A provider-authored free-text field (e.g. `Master.locationNote` /
+// `Salon.locationNote`) accepts up to 1000 characters (backend
 // `@Size(max = 1000)`, `TEXT` column) — entrance/floor instructions like
-// "Вхід у двір з боку вулиці Хрещатик, повз кав'ярню на розі…". Phase 219 (A)
-// clamped it to `maxLines: 3` so it can no longer collapse to a single
-// ellipsized line or grow the identity card unboundedly tall, but a 3-line
-// clamp on a 1000-char field WILL still truncate real notes. This widget adds
-// a «більше» / «згорнути» toggle so the full note stays reachable without
+// "Вхід у двір з боку вулиці Хрещатик, повз кав'ярню на розі…". Clamping it to
+// `maxLines: 3` keeps a card from growing unboundedly tall, but a 3-line clamp
+// on a 1000-char field WILL still truncate real notes. This widget adds a
+// «більше» / «згорнути» toggle so the full note stays reachable without
 // permanently reserving the height for it.
 //
 // Mirrors the `ClampedNote` pattern already shipped in
 // `lib/features/booking/presentation/widgets/booking_notes.dart` (LayoutBuilder
 // + TextPainter `didExceedMaxLines` measurement, cached across rebuilds that
-// don't change text/style/width) — NOT re-imported directly because
-// `booking_notes.dart` lives in a different feature's `presentation/` layer,
-// and this codebase's architecture forbids cross-feature `presentation/`
-// imports (only `domain/` and `shared/` cross feature boundaries). A shared
-// extraction is a reasonable follow-up once a THIRD call site appears (see the
-// DRY house rule — two occurrences don't yet meet the "extract to `shared/`"
-// bar) — tracked as a mobile-dev backlog note, not done here to keep this
-// change's diff scoped to the master feature.
+// don't change text/style/width) — NOT consolidated with it here: that is
+// tracked separately as phase 224 (a real consolidation opportunity, but
+// scoped out of this chain — see the phase 223 doc).
 //
 // frontend-design guidance (Phase 221): the toggle is a QUIET metadata
 // affordance, not a CTA — same 11 sp size as the note it extends, camel
@@ -30,14 +37,15 @@
 // Phase 221 audit fix (mobile-security MEDIUM): `widget.text` is
 // provider-authored free text with no character-class validation at the
 // backend, so it is run through `sanitizeDisplayText` (strips Unicode bidi
-// override/format + zero-width controls — see `master_text_sanitizer.dart`)
-// before EITHER the `TextPainter` overflow measurement or the rendered
-// `Text` sees it. Both paths must consume the identical sanitized string —
-// measuring the raw string while rendering the sanitized one (or vice versa)
-// would desync the overflow decision from what's actually on screen.
+// override/format + zero-width controls — see
+// `shared/util/sanitize_display_text.dart`) before EITHER the `TextPainter`
+// overflow measurement or the rendered `Text` sees it. Both paths must
+// consume the identical sanitized string — measuring the raw string while
+// rendering the sanitized one (or vice versa) would desync the overflow
+// decision from what's actually on screen.
 //
 // Phase 221 audit fix (mobile-perf LOW): the expand/collapse `AnimatedSize`
-// gets its own `RepaintBoundary` here. Both call sites
+// gets its own `RepaintBoundary` here. The master profile call sites
 // (`master_profile_screen.dart` / `public_master_profile_screen.dart`) nest
 // this widget inside a shared `_revealWith`/`_reveal`-provided
 // `RepaintBoundary` that also covers the identity card's `ProfileAvatar` —
@@ -46,36 +54,32 @@
 // frames of the note's 220 ms expand/collapse forces that single shared
 // layer to repaint, which re-runs the avatar's blur paint too even though
 // only the note's text is changing size. Isolating the animating subtree in
-// its own layer confines those repaints to just this widget. This is NOT a
-// redundant boundary: today there is no `RepaintBoundary` between the
-// animating `AnimatedSize` and the shared card-level one, so this is a new
-// isolation point, not a duplicate of an existing one.
+// its own layer confines those repaints to just this widget.
 
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
-import 'master_text_sanitizer.dart';
+import '../util/sanitize_display_text.dart';
 
-/// The identity card's location-note row: clamped to [maxLines] with a
-/// «більше»/«згорнути» toggle that appears ONLY when the note actually
-/// overflows that budget — an inert toggle on a short note is a small lie.
-class MasterLocationNote extends StatefulWidget {
-  const MasterLocationNote({super.key, required this.text, this.maxLines = 3});
+/// A note row clamped to [maxLines] with a «більше»/«згорнути» toggle that
+/// appears ONLY when the note actually overflows that budget — an inert
+/// toggle on a short note is a small lie.
+class ExpandableNote extends StatefulWidget {
+  const ExpandableNote({super.key, required this.text, this.maxLines = 3});
 
   /// The note text — up to 1000 chars per the backend contract.
   final String text;
 
-  /// Collapsed-state line budget (Phase 219 (A) — matches the plain `Text`
-  /// this widget replaces).
+  /// Collapsed-state line budget.
   final int maxLines;
 
   @override
-  State<MasterLocationNote> createState() => _MasterLocationNoteState();
+  State<ExpandableNote> createState() => _ExpandableNoteState();
 }
 
-class _MasterLocationNoteState extends State<MasterLocationNote> {
+class _ExpandableNoteState extends State<ExpandableNote> {
   bool _expanded = false;
 
   // Sanitized once per `widget.text` change (not per `build()`, which also
@@ -103,7 +107,7 @@ class _MasterLocationNoteState extends State<MasterLocationNote> {
   }
 
   @override
-  void didUpdateWidget(covariant MasterLocationNote oldWidget) {
+  void didUpdateWidget(covariant ExpandableNote oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.text != widget.text) {
       _sanitizedText = sanitizeDisplayText(widget.text);
@@ -170,8 +174,8 @@ class _MasterLocationNoteState extends State<MasterLocationNote> {
           children: <Widget>[
             // RepaintBoundary isolates the animating note from the shared
             // card-level boundary (see the class-level doc comment above)
-            // so the identity card's blurred `ProfileAvatar` does not
-            // repaint on every expand/collapse frame.
+            // so an ancestor's blurred/expensive paint does not repaint on
+            // every expand/collapse frame.
             RepaintBoundary(
               child: AnimatedSize(
                 // Matches the codebase's established accordion expand/collapse
@@ -218,14 +222,14 @@ class _NoteExpandToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String label = expanded
-        ? l10n.masterLocationNoteShowLess
-        : l10n.masterLocationNoteShowMore;
+        ? l10n.expandableNoteShowLess
+        : l10n.expandableNoteShowMore;
 
     return Semantics(
       button: true,
       label: label,
       child: GestureDetector(
-        key: const Key('master-profile-location-note-toggle'),
+        key: const Key('expandable-note-toggle'),
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Padding(

@@ -45,9 +45,11 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -56,8 +58,6 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
 import 'master_profile_notifier.dart';
-import 'widgets/master_address_lines.dart';
-import 'widgets/master_location_note.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
@@ -337,8 +337,11 @@ class _ProfileBody extends StatelessWidget {
     // the identity card's Text widgets never contain inline ternary chains.
     // Each line gets its own independent budget instead of one combined
     // string crammed into the ~150px right-hand column.
-    final String? localityLine = buildMasterLocalityLine(master);
-    final String? streetLine = buildMasterStreetLine(master);
+    final String? localityLine = buildLocalityLine(master.city);
+    final String? streetLine = buildStreetLine(
+      master.street,
+      master.buildingNo,
+    );
     final String? noteText = (master.locationNote?.isNotEmpty ?? false)
         ? master.locationNote
         : null;
@@ -460,7 +463,7 @@ class _ProfileBody extends StatelessWidget {
                           const SizedBox(height: 2),
                           Padding(
                             padding: const EdgeInsets.only(left: 16),
-                            child: MasterLocationNote(
+                            child: ExpandableNote(
                               key: const Key('master-profile-location-note'),
                               text: noteText,
                             ),

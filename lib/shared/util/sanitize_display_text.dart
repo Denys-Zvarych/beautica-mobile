@@ -24,13 +24,16 @@
 //   - Zero-width characters: U+200B-U+200D (ZWSP/ZWNJ/ZWJ), U+FEFF
 //     (BOM / ZWNBSP)
 //
-// Pure Dart - no Flutter import - co-located in `master/presentation/widgets`
-// per the established convention for provider-authored text helpers already
-// used by this feature (`master_address_lines.dart`) and by the discovery
-// feature's `result_card_text.dart`: both are feature-local rather than
-// `lib/shared/`, because each is consumed by exactly one feature today. Move
-// this to `lib/shared/utils/` if a THIRD consumer appears outside `master/`
-// - `review/presentation/widgets/review_card.dart` has the same defect class
+// Pure Dart - no Flutter import.
+//
+// Phase 223 (a) - promoted from `features/master/presentation/widgets/
+// master_text_sanitizer.dart` to `shared/util/` now that the salon feature's
+// public profile needs the same sanitization for its own `locationNote`
+// field - a second consumer outside `master/` meets the DRY "extract to
+// `shared/`" bar this file's original comment was waiting on. The function
+// itself is unchanged.
+//
+// `review/presentation/widgets/review_card.dart` has the same defect class
 // but is explicitly out of scope for this fix (already resolved-by-decision,
 // backlog rows 65/66); do not fold it in here.
 final RegExp _bidiAndZeroWidthPattern = RegExp(

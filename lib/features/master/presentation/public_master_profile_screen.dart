@@ -46,13 +46,13 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
-import 'widgets/master_address_lines.dart';
-import 'widgets/master_text_sanitizer.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
@@ -293,14 +293,18 @@ class _PublicProfileBody extends StatelessWidget {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String displayName = '${master.firstName} ${master.lastName}'.trim();
     final String roleLabel = _roleLabel(master.type, l10n);
-    final String? localityLine = buildMasterLocalityLine(master);
-    final String? streetLine = buildMasterStreetLine(master);
-    // Phase 221 audit fix (mobile-security MEDIUM) — `locationNote` is
-    // provider-authored free text with no character-class validation at the
-    // backend; sanitized here (same helper `MasterLocationNote` uses
-    // internally) before this plain `Text` render site below ever sees it.
+    final String? localityLine = buildLocalityLine(master.city);
+    final String? streetLine = buildStreetLine(
+      master.street,
+      master.buildingNo,
+    );
+    // Phase 222 — sanitization now happens INSIDE `ExpandableNote` (it
+    // must run on the exact same string the widget measures for overflow AND
+    // renders — see that widget's class doc). Pre-sanitizing here too would
+    // be a redundant no-op pass (sanitize is idempotent) that only obscures
+    // which layer owns the invariant; kept single-sourced in the widget.
     final String? noteText = (master.locationNote?.isNotEmpty ?? false)
-        ? sanitizeDisplayText(master.locationNote!)
+        ? master.locationNote
         : null;
     final bool hasReviews = master.reviewCount > 0;
     // Instagram + portfolio are an INDEPENDENT_MASTER-only affordance — a
@@ -368,7 +372,7 @@ class _PublicProfileBody extends StatelessWidget {
                         // Phase 220 (C) — same split as the own-profile
                         // screen: locality (city) first, then street +
                         // building, then the note — see
-                        // `master_address_lines.dart`.
+                        // `shared/formatters/address_lines.dart`.
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
@@ -423,13 +427,11 @@ class _PublicProfileBody extends StatelessWidget {
                           const SizedBox(height: 2),
                           Padding(
                             padding: const EdgeInsets.only(left: 16),
-                            child: Text(
-                              noteText,
-                              style: VelvetText.feedbackMutedNote,
-                              // Phase 219 (A) — same fix as the own-profile
-                              // screen's note row.
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
+                            child: ExpandableNote(
+                              key: const Key(
+                                'public-master-profile-location-note',
+                              ),
+                              text: noteText,
                             ),
                           ),
                         ],

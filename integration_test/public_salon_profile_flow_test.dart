@@ -57,6 +57,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -145,20 +146,26 @@ void main() {
       // (no legacy city/address) — the real shape of every salon
       // created/edited since Phase 10.6. This proves the taxonomy fields
       // survive the REAL wire round trip (JSON → generated PublicSalonResponse
-      // → SalonMapper.fromDto → Salon → _buildLocationLine), which the widget
+      // → SalonMapper.fromDto → Salon → buildStreetLine), which the widget
       // tier's hand-built Salon fixtures cannot: a mapper that silently
       // dropped these fields (the actual pre-fix bug) would leave this text
       // absent/empty here even though the widget tests already passed.
+      //
+      // Phase 223 (b) UPDATE: this line used to also fold `locationNote`
+      // onto the SAME string (the stale expectation this assertion carried
+      // until this pass) — that behaviour is GONE. `locationNote` now
+      // renders on its own About-tab `ExpandableNote` (asserted below); this
+      // line must carry ONLY the street + building number.
       final Text addressText = tester.widget<Text>(
         find.byKey(const Key('salon-profile-address-text')),
       );
       expect(
         addressText.data,
-        'вул. Хрещатик, 12, 2 поверх',
+        'вул. Хрещатик, 12',
         reason:
-            'the taxonomy street/buildingNo/locationNote must reach the '
-            'rendered address line through the real mapper, not just a '
-            'widget-level Salon fixture',
+            'the taxonomy street/buildingNo must reach the rendered address '
+            'line through the real mapper, not just a widget-level Salon '
+            'fixture — and locationNote must NOT be folded onto it anymore',
       );
 
       // ── Tab 0 «Про салон» — default tab, description + Instagram contact ──
@@ -202,6 +209,39 @@ void main() {
       expect(
         find.byKey(const Key('salon-portfolio-photo-media-3')),
         findsOneWidget,
+      );
+
+      // ── About tab: locationNote (Phase 223 (b)) ────────────────────────────
+      // Moved OFF the hero card onto its own `ExpandableNote` here — proves
+      // the REAL wire's `locationNote` field (`'2 поверх'`, short — no
+      // overflow) survives `SalonMapper.fromDto` all the way to THIS widget,
+      // a boundary the widget tier's fake repository bypasses entirely (mobile
+      // -security LOW follow-up: the widget tier had zero coverage of this
+      // render site before this pass; see
+      // `public_salon_profile_screen_test.dart`'s new "About tab — location
+      // note" group for the isolated widget-level coverage of every case).
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(PublicSalonProfileScreen)),
+      );
+      expect(
+        find.text(l10n.salonLocationNoteLabel),
+        findsOneWidget,
+        reason:
+            'a non-empty locationNote must render its «Як дістатись» '
+            'heading',
+      );
+      expect(
+        find.byKey(const Key('salon-about-location-note')),
+        findsOneWidget,
+      );
+      // i18n-finder-ok: salon-xyz's real GET /salons/{id} locationNote fixture value, not UI copy.
+      expect(find.text('2 поверх'), findsOneWidget);
+      expect(
+        find.byKey(const Key('expandable-note-toggle')),
+        findsNothing,
+        reason:
+            'this short note fits within the 3-line clamp — no expand '
+            'affordance should render for it',
       );
 
       // ── Tab 1 «Майстри» — the real 8-master roster from the wire, capped to
@@ -533,5 +573,164 @@ void main() {
       );
     },
     timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 223 (b) — locationNote address-eviction regression pin + sanitize.
+  //
+  // WHY THESE TESTS NAVIGATE VIA A DIRECT `router.push` (not through the real
+  // search-results screen the main journey test above uses)
+  // -------------------------------------------------------------------------
+  // The two tests below deliberately reuse the CLIENT-only route guard test's
+  // navigation shape (`router.push(RouteNames.salonPublicProfile(...))`
+  // straight after login) instead of the main journey test's
+  // search-screen-first path. Both reach the exact same destination
+  // (`PublicSalonProfileScreen` backed by a real `GET /salons/salon-xyz`), so
+  // nothing about THIS regression's coverage is weaker for skipping the
+  // search leg — that leg is already proven once by the main journey test.
+  //
+  // Step 2.7 Rule 3b — this is a real user journey (salon profile screen +
+  // locationNote wiring), so E2E coverage is mandatory; it just does not need
+  // to be re-derived through search every time.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /// A ~1000-char note (the backend's `@Size(max = 1000)` ceiling) — long
+  /// enough that, under the OLD pre-Phase-223(b) hero layout (locationNote
+  /// appended onto the SAME `maxLines: 2` line as the street address), it
+  /// would have evicted the address text off the hero card entirely. Built by
+  /// repeating a realistic entrance-instructions sentence and trimming to
+  /// exactly 1000 chars.
+  String buildRegressionNote() {
+    const String sentence =
+        "Вхід у двір з боку вулиці Хрещатик, повз кав'ярню на розі, минаєте "
+        'дитячий майданчик, підіймаєтесь трьома сходинками до скляних дверей. ';
+    final StringBuffer buffer = StringBuffer();
+    while (buffer.length < 1000) {
+      buffer.write(sentence);
+    }
+    return buffer.toString().substring(0, 1000);
+  }
+
+  testWidgets(
+    'Phase 223 (b) regression pin: a 1000-char locationNote never evicts '
+    'the hero address again — it renders on the About tab instead, behind '
+    'an expand toggle, through a REAL GET /salons/{id} response',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final String longNote = buildRegressionNote();
+        final fb = FakeBackend()
+          ..currentRole = UserRole.client
+          ..salonLocationNote = longNote;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+        // fixed-wait-ok: settles the real async route-push step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        AppHarness.expectLocation(router, '/salons/salon-xyz');
+        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+
+        // ── The regression itself: the hero address must survive ────────────
+        // Pre-Phase-223(b), this SAME 1000-char note appended onto the SAME
+        // clamped hero line pushed the street address clean off the visible
+        // `maxLines: 2` budget — losing the address, not just the note.
+        final Finder addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(
+          addressFinder,
+          findsOneWidget,
+          reason:
+              'the street address must survive on the hero card no matter '
+              'how long the locationNote is — it now lives on a SEPARATE '
+              "widget (the About tab), so it can no longer compete for the "
+              "hero's fixed line budget",
+        );
+        final Text addressText = tester.widget<Text>(addressFinder);
+        expect(addressText.data, 'вул. Хрещатик, 12');
+
+        // ── The note itself lives on the About tab, clamped with a toggle ────
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        await tester.ensureVisible(toggle);
+        expect(
+          toggle,
+          findsOneWidget,
+          reason:
+              'a 1000-char note must overflow the 3-line clamp and show the '
+              'expand affordance',
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(PublicSalonProfileScreen)),
+        );
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+
+        final Size collapsedSize = tester.getSize(find.text(longNote));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+        final Size expandedSize = tester.getSize(find.text(longNote));
+        expect(
+          expandedSize.height,
+          greaterThan(collapsedSize.height),
+          reason: 'tapping the toggle must reveal the FULL 1000-char note',
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  testWidgets(
+    'a locationNote containing an RLO (U+202E) override renders SANITIZED '
+    'on the About tab through a REAL GET /salons/{id} response',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        // U+202E = Right-to-Left Override. Backend validation on
+        // `locationNote` is `@Size(max = 1000)` only — no character-class
+        // check — so a hostile salon owner could push this into a
+        // client-facing note. Built via `String.fromCharCode` (never a
+        // literal control byte in this source file).
+        final String rlo = String.fromCharCode(0x202E);
+        final String rawNote = 'кв. 3$rlo, 2 поверх';
+        const String sanitizedNote = 'кв. 3, 2 поверх';
+
+        final fb = FakeBackend()
+          ..currentRole = UserRole.client
+          ..salonLocationNote = rawNote;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+        // fixed-wait-ok: settles the real async route-push step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-about-location-note')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(sanitizedNote),
+          findsOneWidget,
+          reason:
+              'the rendered note must carry the SANITIZED string, proven '
+              'through a REAL wire round trip (SalonMapper.fromDto → Salon '
+              '→ ExpandableNote), not just a widget-tier fixture',
+        );
+        expect(
+          find.text(rawNote),
+          findsNothing,
+          reason: 'the raw control character must never reach a real render',
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 }

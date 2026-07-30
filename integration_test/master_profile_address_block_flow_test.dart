@@ -9,8 +9,9 @@
 //       `maxLines: null` + `overflow: ellipsis` combo can never again
 //       silently collapse a long note to one line;
 //   (B) a tap-to-expand «більше»/«згорнути» affordance on the OWN profile's
-//       location note (MasterLocationNote), absent from the read-only public
-//       profile by design;
+//       location note (`ExpandableNote`, `lib/shared/widgets/
+//       expandable_note.dart`) — Phase 222 later ported the same affordance
+//       to the read-only public profile too;
 //   (C) the combined "street, building, city" string split into independent
 //       locality / street+building lines.
 //
@@ -30,7 +31,7 @@
 // + generated MasterControllerApi stack.
 //
 // KEY POLICY: navigation/interaction taps are key-based
-// (master-profile-location-note-toggle); `find.text` is used only for
+// (expandable-note-toggle); `find.text` is used only for
 // content assertions on backend-sourced data (city/street/note strings),
 // never as a tap driver.
 
@@ -111,9 +112,7 @@ void main() {
       expect(find.text('вул. Хрещатик, 22, Київ'), findsNothing);
 
       // ── (A)+(B) Long note clamps with the «більше» toggle collapsed ──────
-      final Finder toggle = find.byKey(
-        const Key('master-profile-location-note-toggle'),
-      );
+      final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
       await tester.ensureVisible(toggle);
       await tester.pumpAndSettle();
       expect(
@@ -127,8 +126,8 @@ void main() {
       final l10n = AppLocalizations.of(
         tester.element(find.byType(MasterProfileScreen)),
       );
-      expect(find.text(l10n.masterLocationNoteShowMore), findsOneWidget);
-      expect(find.text(l10n.masterLocationNoteShowLess), findsNothing);
+      expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+      expect(find.text(l10n.expandableNoteShowLess), findsNothing);
 
       final Size collapsedSize = tester.getSize(find.text(_kLongLocationNote));
 
@@ -136,8 +135,8 @@ void main() {
       await tester.tap(toggle);
       await tester.pumpAndSettle();
 
-      expect(find.text(l10n.masterLocationNoteShowLess), findsOneWidget);
-      expect(find.text(l10n.masterLocationNoteShowMore), findsNothing);
+      expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+      expect(find.text(l10n.expandableNoteShowMore), findsNothing);
       final Size expandedSize = tester.getSize(find.text(_kLongLocationNote));
       expect(
         expandedSize.height,
@@ -149,8 +148,8 @@ void main() {
       await tester.tap(toggle);
       await tester.pumpAndSettle();
 
-      expect(find.text(l10n.masterLocationNoteShowMore), findsOneWidget);
-      expect(find.text(l10n.masterLocationNoteShowLess), findsNothing);
+      expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+      expect(find.text(l10n.expandableNoteShowLess), findsNothing);
       final Size reCollapsedSize = tester.getSize(
         find.text(_kLongLocationNote),
       );

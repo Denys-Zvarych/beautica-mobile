@@ -328,7 +328,7 @@ void main() {
     // (master_profile_screen_test.dart, group "location line — edge-matrix
     // gap-fill") — a building number must never render as its own line, even
     // on the read-only public profile. The exhaustive pure-function matrix
-    // lives in master_address_lines_test.dart; this pins the wiring on THIS
+    // lives in test/shared/formatters/address_lines_test.dart; this pins the wiring on THIS
     // screen's production Row/Text tree too.
     testWidgets(
       'buildingNo ALONE (no city, no street): the whole location row is '
@@ -476,6 +476,136 @@ void main() {
         expect(
           find.byKey(const Key('public-master-profile-locality-text')),
           findsOneWidget,
+        );
+      },
+    );
+  });
+
+  // ── mobile-qa gap-fill: Phase 222's tap-to-expand affordance was UNTESTED
+  // on this screen — the "location lines" group above only pins the 3-line
+  // CLAMP (a leftover from the pre-222 direct-TextPainter test, never updated
+  // for the `ExpandableNote` swap), never the toggle itself. The owner-side
+  // `MasterProfileScreen` has had this exact coverage since Phase 221 B
+  // (`master_profile_screen_test.dart`, group "location note — tap-to-expand
+  // toggle") — this mirrors it here so the read-only public profile's
+  // affordance is provably wired too, not just assumed identical.
+  group('location note — tap-to-expand toggle (Phase 222)', () {
+    const Master masterShortNote = Master(
+      id: _kMasterId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      city: 'Київ',
+      street: 'вул. Хрещатик',
+      buildingNo: '22',
+      locationNote: 'кв. 3, 2 поверх',
+      avgRating: 4.8,
+      reviewCount: 47,
+      type: MasterType.independentMaster,
+    );
+
+    const String kLongLocationNote =
+        'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+        'плутайте з сусіднім під\'їздом, там кодовий замок не працює. '
+        'Тримайтеся правої стіни, минаєте дитячий майданчик, підіймаєтесь '
+        'трьома сходинками до скляних дверей із синьою наклейкою. Домофон '
+        'код 45В, дзвоніть двічі коротко. Якщо домофон не відповідає — '
+        'телефонуйте адміністратору, номер вказано на вивісці біля дверей. '
+        'Кабінет на другому поверсі, одразу ліворуч від сходів, третій '
+        'номер за рахунком.';
+    const Master masterLongNote = Master(
+      id: _kMasterId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      city: 'Київ',
+      street: 'вул. Хрещатик',
+      buildingNo: '22',
+      locationNote: kLongLocationNote,
+      avgRating: 4.8,
+      reviewCount: 47,
+      type: MasterType.independentMaster,
+    );
+
+    testWidgets(
+      'a SHORT note (fits within maxLines: 3) shows NO toggle affordance',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (masterShortNote, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        // i18n-finder-ok: master.locationNote fixture data, not UI copy.
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+        expect(
+          find.byKey(const Key('expandable-note-toggle')),
+          findsNothing,
+          reason:
+              'an inert toggle on a note that already fits is a small lie '
+              '— it must not render at all',
+        );
+      },
+    );
+
+    testWidgets(
+      'a LONG note (overflows maxLines: 3) shows the «більше» toggle, '
+      'collapsed by default',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (masterLongNote, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        expect(toggle, findsOneWidget);
+        final l10n = AppLocalizations.of(tester.element(toggle));
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'tapping «більше» expands the note to its FULL text and flips the '
+      'toggle to «згорнути»; tapping again re-collapses it',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (masterLongNote, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        expect(toggle, findsOneWidget);
+        final l10n = AppLocalizations.of(tester.element(toggle));
+
+        final Size collapsedSize = tester.getSize(find.text(kLongLocationNote));
+
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowMore), findsNothing);
+        final Size expandedSize = tester.getSize(find.text(kLongLocationNote));
+        expect(
+          expandedSize.height,
+          greaterThan(collapsedSize.height),
+          reason:
+              'expanding must grow the note to its full untruncated '
+              'height',
+        );
+
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsNothing);
+        final Size reCollapsedSize = tester.getSize(
+          find.text(kLongLocationNote),
+        );
+        expect(
+          reCollapsedSize.height,
+          moreOrLessEquals(collapsedSize.height, epsilon: 0.5),
         );
       },
     );

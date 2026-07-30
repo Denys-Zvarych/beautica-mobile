@@ -1,4 +1,11 @@
-// Phase 221 (B) — widget tests for [MasterLocationNote] in isolation.
+// Phase 221 (B) — widget tests for [ExpandableNote] in isolation.
+//
+// Phase 223 (a) — moved from `test/features/master/presentation/widgets/
+// master_location_note_test.dart` alongside the widget's promotion to
+// `lib/shared/widgets/expandable_note.dart` (renamed `MasterLocationNote` ->
+// `ExpandableNote`). References below updated to match: the toggle's `Key`
+// (`expandable-note-toggle`) and the l10n getters
+// (`expandableNoteShowMore`/`expandableNoteShowLess`).
 //
 // WHY THIS FILE EXISTS
 // --------------------
@@ -8,7 +15,7 @@
 // clamp at `maxLines`, show a «більше»/«згорнути» toggle ONLY when the note
 // actually overflows that budget, expand/collapse it on tap. This file pins
 // that contract directly, PLUS the accessibility regression this audit found
-// and fixed in `master_location_note.dart`:
+// and fixed in the widget:
 //
 // `_measureOverflow` built its `TextPainter` WITHOUT passing the ambient
 // `MediaQuery.textScalerOf(context)` — a bare `TextPainter` defaults to
@@ -31,12 +38,12 @@
 // fits within 3 lines at scale 1.0 (no toggle) but needs more than 3 lines at
 // scale 2.0 (toggle must appear) — the exact scenario the fix targets.
 
-import 'package:beautica_mobile/features/master/presentation/widgets/master_location_note.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../../../helpers/overflow_guard.dart';
+import '../../helpers/overflow_guard.dart';
 
 /// Calibrated borderline note: fits within `maxLines: 3` at textScaler 1.0 on
 /// a 140dp column, but overflows it at textScaler 2.0 (verified via a
@@ -87,7 +94,7 @@ Future<void> _pump(
           child: Scaffold(
             body: SizedBox(
               width: width,
-              child: MasterLocationNote(key: _kNoteKey, text: note),
+              child: ExpandableNote(key: _kNoteKey, text: note),
             ),
           ),
         ),
@@ -97,8 +104,7 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-Finder get _toggle =>
-    find.byKey(const Key('master-profile-location-note-toggle'));
+Finder get _toggle => find.byKey(const Key('expandable-note-toggle'));
 
 void main() {
   // This file pumps via a bare `MaterialApp`/`tester.pumpWidget` (not the
@@ -108,7 +114,7 @@ void main() {
   // installed in `flutter_test_config.dart`.
   setUp(installOverflowGuard);
 
-  group('MasterLocationNote — baseline toggle visibility', () {
+  group('ExpandableNote — baseline toggle visibility', () {
     testWidgets('a short note shows NO toggle', (tester) async {
       await _pump(tester, _kShortNote);
 
@@ -122,8 +128,8 @@ void main() {
 
       expect(_toggle, findsOneWidget);
       final l10n = AppLocalizations.of(tester.element(_toggle));
-      expect(find.text(l10n.masterLocationNoteShowMore), findsOneWidget);
-      expect(find.text(l10n.masterLocationNoteShowLess), findsNothing);
+      expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+      expect(find.text(l10n.expandableNoteShowLess), findsNothing);
     });
 
     testWidgets('tapping the toggle expands the note and flips the label; '
@@ -136,15 +142,15 @@ void main() {
       await tester.tap(_toggle);
       await tester.pumpAndSettle();
 
-      expect(find.text(l10n.masterLocationNoteShowLess), findsOneWidget);
-      expect(find.text(l10n.masterLocationNoteShowMore), findsNothing);
+      expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+      expect(find.text(l10n.expandableNoteShowMore), findsNothing);
       final Size expandedSize = tester.getSize(find.text(_kLongNote));
       expect(expandedSize.height, greaterThan(collapsedSize.height));
 
       await tester.tap(_toggle);
       await tester.pumpAndSettle();
 
-      expect(find.text(l10n.masterLocationNoteShowMore), findsOneWidget);
+      expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
       final Size reCollapsedSize = tester.getSize(find.text(_kLongNote));
       expect(
         reCollapsedSize.height,
@@ -154,7 +160,7 @@ void main() {
   });
 
   // ── REGRESSION — ambient textScaler must feed the overflow measurement ────
-  group('MasterLocationNote — textScaler-aware overflow measurement '
+  group('ExpandableNote — textScaler-aware overflow measurement '
       '(accessibility regression)', () {
     testWidgets(
       'the borderline note shows NO toggle at textScaler 1.0 (it genuinely '
@@ -198,7 +204,7 @@ void main() {
         final Size collapsedSize = tester.getSize(find.text(_kBorderlineNote));
         await tester.tap(_toggle);
         await tester.pumpAndSettle();
-        expect(find.text(l10n.masterLocationNoteShowLess), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
         final Size expandedSize = tester.getSize(find.text(_kBorderlineNote));
         expect(expandedSize.height, greaterThan(collapsedSize.height));
       },
@@ -206,7 +212,7 @@ void main() {
   });
 
   // ── Phase 221 audit fix (mobile-security MEDIUM) — bidi/zero-width strip ──
-  group('MasterLocationNote — sanitizes provider-authored control chars', () {
+  group('ExpandableNote — sanitizes provider-authored control chars', () {
     testWidgets(
       'a note containing a RLO (U+202E) override renders with the control '
       'character stripped, not the raw payload',
@@ -241,7 +247,7 @@ void main() {
 
   // ── REGRESSION — sanitize + overflow must recompute on didUpdateWidget ────
   //
-  // All groups above only ever pump a FRESH `MasterLocationNote`, so they
+  // All groups above only ever pump a FRESH `ExpandableNote`, so they
   // exercise `initState` exclusively. `_sanitizedText` is instead recomputed
   // in TWO places (`initState` AND `didUpdateWidget`) precisely because a
   // mounted profile screen can receive a NEW note on the SAME widget instance
@@ -249,97 +255,94 @@ void main() {
   // Reusing `_pump` with `_kNoteKey` at the same tree position across two
   // calls in one test drives the widget through `didUpdateWidget` instead of
   // remounting — see the `_kNoteKey` doc comment above.
-  group(
-    'MasterLocationNote — didUpdateWidget recompute (regression guard)',
-    () {
-      const String otherShortNote = 'кв. 7, 4 поверх';
+  group('ExpandableNote — didUpdateWidget recompute (regression guard)', () {
+    const String otherShortNote = 'кв. 7, 4 поверх';
 
-      testWidgets(
-        'updating `text` on an already-mounted widget renders the NEW note, '
-        'not the stale original',
-        (tester) async {
-          await _pump(tester, _kShortNote);
-          expect(find.text(_kShortNote), findsOneWidget);
-
-          await _pump(tester, otherShortNote);
-
-          expect(
-            find.text(otherShortNote),
-            findsOneWidget,
-            reason: 'the update must render the NEW note text',
-          );
-          expect(
-            find.text(_kShortNote),
-            findsNothing,
-            reason: 'the stale original note must not linger after the update',
-          );
-        },
-      );
-
-      testWidgets('an updated note is sanitized too — an RLO delivered via '
-          'didUpdateWidget is stripped, not just text set in initState', (
-        tester,
-      ) async {
+    testWidgets(
+      'updating `text` on an already-mounted widget renders the NEW note, '
+      'not the stale original',
+      (tester) async {
         await _pump(tester, _kShortNote);
         expect(find.text(_kShortNote), findsOneWidget);
 
-        // U+202E = Right-to-Left Override, built via `String.fromCharCode`
-        // (never a literal control byte in source — see the earlier
-        // sanitization group's comment).
-        final String rlo = String.fromCharCode(0x202E);
-        final String rawUpdatedNote = 'кв. 9$rlo, 5 поверх';
-        const String sanitizedUpdatedNote = 'кв. 9, 5 поверх';
-
-        await _pump(tester, rawUpdatedNote);
+        await _pump(tester, otherShortNote);
 
         expect(
-          find.text(sanitizedUpdatedNote),
+          find.text(otherShortNote),
+          findsOneWidget,
+          reason: 'the update must render the NEW note text',
+        );
+        expect(
+          find.text(_kShortNote),
+          findsNothing,
+          reason: 'the stale original note must not linger after the update',
+        );
+      },
+    );
+
+    testWidgets('an updated note is sanitized too — an RLO delivered via '
+        'didUpdateWidget is stripped, not just text set in initState', (
+      tester,
+    ) async {
+      await _pump(tester, _kShortNote);
+      expect(find.text(_kShortNote), findsOneWidget);
+
+      // U+202E = Right-to-Left Override, built via `String.fromCharCode`
+      // (never a literal control byte in source — see the earlier
+      // sanitization group's comment).
+      final String rlo = String.fromCharCode(0x202E);
+      final String rawUpdatedNote = 'кв. 9$rlo, 5 поверх';
+      const String sanitizedUpdatedNote = 'кв. 9, 5 поверх';
+
+      await _pump(tester, rawUpdatedNote);
+
+      expect(
+        find.text(sanitizedUpdatedNote),
+        findsOneWidget,
+        reason:
+            'didUpdateWidget must re-sanitize the new text, not reuse '
+            'the initState-computed value or leak the raw control char',
+      );
+      expect(
+        find.text(rawUpdatedNote),
+        findsNothing,
+        reason: 'the raw payload from the update must never reach Text',
+      );
+    });
+
+    testWidgets(
+      'the overflow toggle re-derives after a text update: short -> long '
+      'shows the toggle; long -> short hides it again',
+      (tester) async {
+        await _pump(tester, _kShortNote);
+        expect(
+          _toggle,
+          findsNothing,
+          reason: 'sanity check on the starting state',
+        );
+
+        await _pump(tester, _kLongNote);
+        expect(
+          _toggle,
           findsOneWidget,
           reason:
-              'didUpdateWidget must re-sanitize the new text, not reuse '
-              'the initState-computed value or leak the raw control char',
+              'switching to a long note must recompute overflow and show '
+              'the toggle — a stale "no toggle" verdict measured for the '
+              'previous short note would contradict the now-clamped text',
         );
+        expect(find.text(_kLongNote), findsOneWidget);
+
+        await _pump(tester, _kShortNote);
         expect(
-          find.text(rawUpdatedNote),
+          _toggle,
           findsNothing,
-          reason: 'the raw payload from the update must never reach Text',
+          reason:
+              'switching back to a short note must recompute overflow too '
+              '— a stale "toggle" verdict measured for the previous long '
+              'note would leave an inert toggle on text that no longer '
+              'overflows',
         );
-      });
-
-      testWidgets(
-        'the overflow toggle re-derives after a text update: short -> long '
-        'shows the toggle; long -> short hides it again',
-        (tester) async {
-          await _pump(tester, _kShortNote);
-          expect(
-            _toggle,
-            findsNothing,
-            reason: 'sanity check on the starting state',
-          );
-
-          await _pump(tester, _kLongNote);
-          expect(
-            _toggle,
-            findsOneWidget,
-            reason:
-                'switching to a long note must recompute overflow and show '
-                'the toggle — a stale "no toggle" verdict measured for the '
-                'previous short note would contradict the now-clamped text',
-          );
-          expect(find.text(_kLongNote), findsOneWidget);
-
-          await _pump(tester, _kShortNote);
-          expect(
-            _toggle,
-            findsNothing,
-            reason:
-                'switching back to a short note must recompute overflow too '
-                '— a stale "toggle" verdict measured for the previous long '
-                'note would leave an inert toggle on text that no longer '
-                'overflows',
-          );
-        },
-      );
-    },
-  );
+      },
+    );
+  });
 }

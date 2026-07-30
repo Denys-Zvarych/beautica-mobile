@@ -48,9 +48,11 @@ import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/public_salon_profile_notifier.dart';
@@ -547,7 +549,17 @@ class _SalonHeroCard extends StatelessWidget {
         ? null
         : salon.name.trim()[0].toUpperCase();
     final String ratingLabel = salon.avgRating?.toStringAsFixed(1) ?? '—';
-    final String? locationLine = _buildLocationLine(salon);
+    // Phase 223 (b) — locality + street/building, each its own line, NEVER
+    // `locationNote` (moved to the About tab's `ExpandableNote` — see
+    // `_AboutTab`). A `locationNote` up to 1000 chars long previously
+    // appended onto this SAME line was what pushed the street address out of
+    // the visible `maxLines: 2` budget below — losing the address itself,
+    // not just the note. Splitting into a FIXED two-line budget (one line
+    // per helper, both `maxLines: 1`) means this row can never grow past
+    // exactly the two lines it occupied before, protecting
+    // `_heroProtrusion`'s budget.
+    final String? localityLine = _localityLine(salon);
+    final String? streetLine = _streetLine(salon);
 
     return NeumorphicCard(
       key: const Key('salon-profile-hero-card'),
@@ -605,7 +617,7 @@ class _SalonHeroCard extends StatelessWidget {
               ),
             ],
           ),
-          if (locationLine != null) ...<Widget>[
+          if (localityLine != null || streetLine != null) ...<Widget>[
             // Tight gap (matches the name→rating spacing above) rather than
             // the old VelvetSpacing.md (16px): the location line is a
             // tightly-coupled continuation of the rating row, not a loosely
@@ -633,18 +645,41 @@ class _SalonHeroCard extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.xs + 1),
                 Expanded(
-                  child: Text(
-                    locationLine,
-                    key: const Key('salon-profile-address-text'),
-                    style: VelvetText.bookFeedbackSec13,
-                    // Defensive cap (mobile-debugger fix): a pathologically
-                    // long street/buildingNo/locationNote combination must
-                    // not be allowed to keep growing the hero card's height
-                    // unbounded — that's what let it blow past
-                    // `_heroProtrusion`'s budget and overlap the cover's
-                    // controls in the first place.
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      // Line 1: locality, or the street line promoted here
+                      // when there is no locality (mirrors the master
+                      // identity card's promotion convention in
+                      // `shared/formatters/address_lines.dart`). `maxLines: 1`
+                      // (not 2, as the pre-223 combined line allowed) is what
+                      // makes the budget FIXED rather than variable — this
+                      // row can occupy at most 2 lines total, ever.
+                      Text(
+                        localityLine ?? streetLine!,
+                        key: localityLine != null
+                            ? const Key('salon-profile-locality-text')
+                            : const Key('salon-profile-address-text'),
+                        style: VelvetText.bookFeedbackSec13,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      // Line 2: street + building — only when a locality is
+                      // ALSO present (otherwise it was already promoted to
+                      // line 1 above).
+                      if (localityLine != null &&
+                          streetLine != null) ...<Widget>[
+                        const SizedBox(height: 2),
+                        Text(
+                          streetLine,
+                          key: const Key('salon-profile-address-text'),
+                          style: VelvetText.bookFeedbackSec13,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
@@ -657,59 +692,44 @@ class _SalonHeroCard extends StatelessWidget {
 
   static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
 
-  /// Composes the hero card's locality/address line, or `null` when nothing
-  /// is available so the caller hides the row.
-  ///
-  /// Prefers the structured taxonomy fields (`street` / `buildingNo` /
-  /// `locationNote`, Phase 10.6+) over the legacy free-text `city`/`address`
-  /// pair — the backend stopped writing the legacy fields once a salon
-  /// re-saves its location under the taxonomy, so relying on them alone would
-  /// blank the row for every salon created/edited since then (mobile-side fix
-  /// for `PublicSalonResponse` commit `ef96845`).
+  /// The hero card's locality (city) line, or `null` when unavailable.
   ///
   /// Unlike [Master]'s identity card, this never resolves `cityId` to a
   /// human-readable name: [Salon] carries no `oblastId`, and
   /// `LocationRepository.fetchCities` requires one to list cities — so a raw
-  /// `cityId` alone cannot be looked up client-side. The taxonomy branch
-  /// below therefore renders only the parts that already arrive as plain
-  /// text (`street`/`buildingNo`/`locationNote`).
+  /// `cityId` alone cannot be looked up client-side. When the taxonomy
+  /// `street` field is set, this method deliberately returns `null` rather
+  /// than falling back to the legacy `city` field: the backend stopped
+  /// writing legacy `city`/`address` once a salon re-saves its location under
+  /// the taxonomy (Phase 10.6+), so a still-populated `city` alongside a
+  /// fresh `street` would be a STALE value the mapper never clears (mirrors
+  /// the pre-Phase-223 `_buildLocationLine`'s taxonomy branch, which never
+  /// rendered `city` once `street` was present).
+  static String? _localityLine(Salon salon) {
+    if (salon.street?.isNotEmpty ?? false) return null;
+    return buildLocalityLine(salon.city);
+  }
+
+  /// The hero card's street/building (or legacy address) line, or `null`
+  /// when unavailable.
   ///
-  /// Falls back to the legacy `city`/`address` pair only when none of the
-  /// taxonomy fields are set (a salon that predates Phase 10.6, or has never
-  /// been re-saved since).
-  static String? _buildLocationLine(Salon salon) {
-    final String? street = (salon.street?.isNotEmpty ?? false)
-        ? salon.street
-        : null;
-    final String? buildingNo = (salon.buildingNo?.isNotEmpty ?? false)
-        ? salon.buildingNo
-        : null;
-    final String? locationNote = (salon.locationNote?.isNotEmpty ?? false)
-        ? salon.locationNote
-        : null;
-
-    if (street != null) {
-      final StringBuffer buf = StringBuffer(street);
-      if (buildingNo != null) {
-        buf
-          ..write(', ')
-          ..write(buildingNo);
-      }
-      if (locationNote != null) {
-        buf
-          ..write(', ')
-          ..write(locationNote);
-      }
-      return buf.toString();
+  /// Prefers the structured taxonomy fields (`street` + `buildingNo`,
+  /// Phase 10.6+) over the legacy free-text `address` field — see
+  /// [_localityLine] for why the two are never mixed. Falls back to the
+  /// legacy `address` (a pre-composed free-text string with no separate
+  /// building-number component of its own, so it is passed through as this
+  /// line's sole content) only when the salon predates Phase 10.6 or has
+  /// never been re-saved since (mobile-side fix for `PublicSalonResponse`
+  /// commit `ef96845`).
+  ///
+  /// Never includes `locationNote` — that field moved to the About tab's
+  /// [ExpandableNote] in Phase 223 (b) so it can no longer evict this line
+  /// from the hero card's fixed two-line budget.
+  static String? _streetLine(Salon salon) {
+    if (salon.street?.isNotEmpty ?? false) {
+      return buildStreetLine(salon.street, salon.buildingNo);
     }
-
-    final String? city = (salon.city?.isNotEmpty ?? false) ? salon.city : null;
-    final String? address = (salon.address?.isNotEmpty ?? false)
-        ? salon.address
-        : null;
-    if (city == null && address == null) return null;
-    if (address != null && city != null) return '$city, $address';
-    return address ?? city;
+    return buildStreetLine(salon.address);
   }
 }
 
@@ -731,6 +751,16 @@ class _AboutTab extends StatelessWidget {
     final String? instagram = (salon.instagramUrl?.isNotEmpty ?? false)
         ? salon.instagramUrl
         : null;
+    // Phase 223 (b) — `locationNote` moved here from the hero card, which
+    // used to append it onto the SAME clamped line as the street address —
+    // a long note could push the address itself out of the hero's
+    // `maxLines: 2` budget, losing the address rather than just the note.
+    // `ExpandableNote` sanitizes internally (see that widget's class doc),
+    // so the raw field is passed through unsanitized here — sanitizing it
+    // again at this call site would be a redundant no-op pass.
+    final String? locationNote = (salon.locationNote?.isNotEmpty ?? false)
+        ? salon.locationNote
+        : null;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
@@ -745,6 +775,20 @@ class _AboutTab extends StatelessWidget {
                 : VelvetText.bodyStrong(),
           ),
           _SalonPortfolioRail(salonId: salon.id),
+          if (locationNote != null) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.xl),
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+              child: Text(
+                l10n.salonLocationNoteLabel,
+                style: VelvetText.sectionLabel(),
+              ),
+            ),
+            ExpandableNote(
+              key: const Key('salon-about-location-note'),
+              text: locationNote,
+            ),
+          ],
           if (instagram != null) ...<Widget>[
             const SizedBox(height: VelvetSpacing.xl),
             Padding(
@@ -818,8 +862,8 @@ class _AboutTab extends StatelessWidget {
 /// Renders NOTHING — no heading, no empty rail, no error chrome — whenever
 /// the salon has zero photos, the read is still loading, or the read fails:
 /// this is fully optional chrome on top of the description, the same way the
-/// hero card's location line hides entirely when absent (see
-/// [_SalonHeroCard._buildLocationLine]).
+/// hero card's address lines hide entirely when absent (see
+/// [_SalonHeroCard._localityLine] / [_SalonHeroCard._streetLine]).
 /// How many portfolio photos render up front before the "show all"
 /// affordance is needed (mobile-perf MEDIUM fix, mirrors
 /// [kSalonMastersInitialCount]'s "show all" precedent exactly). The rail

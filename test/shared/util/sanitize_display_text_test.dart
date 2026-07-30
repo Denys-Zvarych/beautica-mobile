@@ -1,6 +1,11 @@
 // Phase 221 re-audit fix (mobile-security LOW) — unit tests for
 // `sanitizeDisplayText`'s bidi/zero-width control-character coverage.
 //
+// Phase 223 (a) — moved from `test/features/master/presentation/widgets/
+// master_text_sanitizer_test.dart` alongside the function's promotion to
+// `lib/shared/util/sanitize_display_text.dart`. The function itself and its
+// name are unchanged, so only the import below moved.
+//
 // WHY THIS FILE EXISTS
 // --------------------
 // The original Phase 221 regex only covered the bidi OVERRIDE/ISOLATE
@@ -20,7 +25,7 @@
 //   - the target control character IS stripped
 //   - the adjacent Cyrillic address text survives INTACT (no over-stripping)
 
-import 'package:beautica_mobile/features/master/presentation/widgets/master_text_sanitizer.dart';
+import 'package:beautica_mobile/shared/util/sanitize_display_text.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

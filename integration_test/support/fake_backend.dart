@@ -804,6 +804,16 @@ final class FakeBackend {
   int getSalonPortfolioCalls = 0;
   String? lastGetSalonPortfolioId;
 
+  /// `salon-xyz`'s `locationNote` on the PUBLIC salon-detail envelope
+  /// (`_publicSalonDetailEnvelope`). Mutable (mirrors [masterLocationNote])
+  /// so a flow can swap in an oversized note BEFORE boot to pin the Phase
+  /// 223 (b) regression — a `locationNote` long enough to have evicted the
+  /// street address off the OLD combined hero line must no longer be able to
+  /// do so now that it renders only on the About tab. Defaults to the
+  /// original short fixture value so every existing assertion against it is
+  /// unaffected.
+  String salonLocationNote = '2 поверх';
+
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
@@ -1345,26 +1355,25 @@ final class FakeBackend {
   /// mapper-level unit-test counterpart and
   /// `public_salon_profile_flow_test.dart` for the assertion that reads the
   /// rendered address text.
-  static Map<String, dynamic> _publicSalonDetailEnvelope() =>
-      _ok(<String, dynamic>{
-        'id': 'salon-xyz',
-        'name': 'Студія Краси «Камелія»',
-        'description':
-            'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
-            'та стрижки — довірливий сервіс з 2018 року.',
-        'region': 'Київська',
-        'cityId': 'city-uuid-kyiv',
-        'street': 'вул. Хрещатик',
-        'buildingNo': '12',
-        'locationNote': '2 поверх',
-        'instagramUrl': '@kamelia_salon',
-        'avatarUrl': null,
-        'coverImageUrl': null,
-        // Matches the review-summary aggregate below ((5+4+3)/3 = 4.0) so the
-        // hero card's ★ rating and the "Відгуки" tab's headline average agree.
-        'avgRating': 4.0,
-        'reviewCount': 3,
-      });
+  Map<String, dynamic> _publicSalonDetailEnvelope() => _ok(<String, dynamic>{
+    'id': 'salon-xyz',
+    'name': 'Студія Краси «Камелія»',
+    'description':
+        'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
+        'та стрижки — довірливий сервіс з 2018 року.',
+    'region': 'Київська',
+    'cityId': 'city-uuid-kyiv',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'locationNote': salonLocationNote,
+    'instagramUrl': '@kamelia_salon',
+    'avatarUrl': null,
+    'coverImageUrl': null,
+    // Matches the review-summary aggregate below ((5+4+3)/3 = 4.0) so the
+    // hero card's ★ rating and the "Відгуки" tab's headline average agree.
+    'avgRating': 4.0,
+    'reviewCount': 3,
+  });
 
   /// PUBLIC masters rail for `salon-xyz` — EIGHT masters, deliberately over
   /// [kSalonMastersInitialCount] (6, see `public_salon_profile_screen.dart`),

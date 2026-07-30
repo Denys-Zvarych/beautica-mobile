@@ -778,8 +778,9 @@ void main() {
     );
 
     testWidgets(
-      'legacy-only salon (city/address set, no taxonomy fields) still '
-      'renders a location line (backward compat)',
+      'legacy-only salon (city/address set, no taxonomy fields) renders '
+      'the city on its own locality line and the address on its own '
+      'street line (backward compat, Phase 223 (b) two-line split)',
       (tester) async {
         await _pumpTall(tester);
         const legacySalon = Salon(
@@ -799,14 +800,20 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        final localityFinder = find.byKey(
+          const Key('salon-profile-locality-text'),
+        );
         final addressFinder = find.byKey(
           const Key('salon-profile-address-text'),
         );
+        expect(localityFinder, findsOneWidget);
         expect(addressFinder, findsOneWidget);
+        final Text localityWidget = tester.widget<Text>(localityFinder);
         final Text addressWidget = tester.widget<Text>(addressFinder);
+        expect(localityWidget.data, 'Київ');
         expect(addressWidget.data, isNotNull);
         expect(addressWidget.data, isNotEmpty);
-        expect(addressWidget.data, contains('Київ'));
+        expect(addressWidget.data, contains('вул. Велика Васильківська, 44'));
       },
     );
 
@@ -1039,16 +1046,22 @@ void main() {
   // Regression (mobile-debugger diagnosis): the "Обкладинка" cover-edit pill
   // used to be `Positioned(left, bottom: VelvetSpacing.md)` inside the
   // cover's OWN stack, on the assumption the bottom-left corner sits "clear
-  // of the hero". The hero card's height is variable — a 2-line name plus an
-  // uncapped address line already pushes it past `_heroProtrusion`'s 116px
-  // budget, eating into the cover's bottom edge and overlapping the pill.
-  // This pumps the worst case (2-line name + full street/buildingNo/
-  // locationNote address) and asserts the pill's rendered Rect never
-  // intersects the hero card's Rect, regardless of how tall the hero grows.
+  // of the hero". The hero card's height is variable — a 2-line name
+  // already pushes it past `_heroProtrusion`'s 116px budget, eating into the
+  // cover's bottom edge and overlapping the pill.
+  //
+  // Phase 223 (b) capped the address block to a FIXED 2-line budget
+  // (locality + street/building, each `maxLines: 1`) and moved
+  // `locationNote` to the About tab — so it can no longer grow the hero
+  // past that budget either. This fixture still sets `locationNote` (now
+  // rendered only on the About tab) precisely to prove that: even with a
+  // note present, the hero must not grow past the fixed address budget.
+  // This pumps the worst case (2-line name + the fixed 2-line address) and
+  // asserts the pill's rendered Rect never intersects the hero card's Rect.
   group('cover edit pill layout', () {
     testWidgets(
       'cover edit pill never overlaps the hero card, even at worst-case '
-      'hero height (2-line name + street/buildingNo/locationNote address)',
+      'hero height (2-line name + the fixed 2-line locality/street address)',
       (tester) async {
         const String longName =
             'Салон краси «Незабутня Досконалість Стилю та Гармонії»';
@@ -1091,8 +1104,333 @@ void main() {
           reason:
               'the "Обкладинка" edit pill must never overlap the hero '
               'card, even when the hero grows past its 116px protrusion '
-              'budget (2-line name + full street/buildingNo/locationNote '
-              'address)',
+              'budget (2-line name + the fixed 2-line locality/street '
+              'address, locationNote excluded)',
+        );
+      },
+    );
+  });
+
+  // ── mobile-qa regression pin: the actual bug Phase 223 (b) fixed ──────────
+  //
+  // Pre-223(b), `_buildLocationLine` joined street + buildingNo + locationNote
+  // into ONE string clamped to `maxLines: 2`, so a long note could push the
+  // street address itself out of the visible budget — losing the address, not
+  // just the note. This directly pins the fix at the widget tier (the
+  // integration tier's `public_salon_profile_flow_test.dart` pins the same
+  // regression through a REAL wire response): with a 1000-char locationNote
+  // set, the hero must still show BOTH the locality line and the street line,
+  // and the note text itself must never leak onto the hero card.
+  group('locationNote never evicts the hero address (Phase 223 (b) '
+      'regression pin)', () {
+    testWidgets(
+      'a 1000-char locationNote still leaves BOTH the locality line and the '
+      'street/building line visible on the hero card',
+      (tester) async {
+        await _pumpTall(tester);
+        final String longNote = ('Вхід у двір з боку вулиці Хрещатик. ' * 30)
+            .substring(0, 1000);
+        final Salon salon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Київ',
+          address: 'вул. Велика Васильківська, 44',
+          locationNote: longNote,
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => salon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder localityFinder = find.byKey(
+          const Key('salon-profile-locality-text'),
+        );
+        final Finder addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(
+          localityFinder,
+          findsOneWidget,
+          reason: 'a 1000-char locationNote must not evict the locality line',
+        );
+        expect(
+          addressFinder,
+          findsOneWidget,
+          reason: 'a 1000-char locationNote must not evict the street line',
+        );
+        final Text localityWidget = tester.widget<Text>(localityFinder);
+        final Text addressWidget = tester.widget<Text>(addressFinder);
+        expect(localityWidget.data, 'Київ');
+        expect(addressWidget.data, contains('вул. Велика Васильківська, 44'));
+        // The note itself must never leak onto the HERO CARD specifically —
+        // it now lives exclusively on the About tab (see the group below),
+        // which the default-tab pump also renders further down the same
+        // scroll view, so the negative assertion must be scoped to the hero
+        // card's own subtree rather than the whole screen.
+        final Finder heroCard = find.byKey(
+          const Key('salon-profile-hero-card'),
+        );
+        expect(
+          find.descendant(
+            of: heroCard,
+            // i18n-finder-ok: negative assertion against the note fixture's
+            // own opening words, not localised UI copy.
+            matching: find.textContaining('Вхід у двір'),
+          ),
+          findsNothing,
+          reason:
+              'the locationNote text must never appear INSIDE the hero '
+              'card, even though it legitimately renders on the About tab',
+        );
+      },
+    );
+  });
+
+  // ── mobile-security LOW fix: About tab — locationNote / ExpandableNote ────
+  //
+  // Phase 223 (b) moved `locationNote` off the hero card onto the About tab,
+  // rendered via the shared `ExpandableNote` under the `salonLocationNoteLabel`
+  // («Як дістатись») heading — but until this pass, NOTHING in this file
+  // exercised that render site directly. This group closes that gap:
+  // presence/absence of the heading + note by locationNote state, the
+  // expand/collapse interaction, and the bidi/RLO sanitize contract at this
+  // specific call site (a second, distinct consumer of
+  // `ExpandableNote`/`sanitizeDisplayText` from the master profile's — see
+  // `expandable_note_test.dart` / `sanitize_display_text_test.dart` for the
+  // widget/util-level exhaustive coverage this pins the WIRING of, on THIS
+  // screen's actual Row/Column tree).
+  group('About tab — location note', () {
+    testWidgets('a non-empty locationNote renders the «Як дістатись» heading + '
+        'ExpandableNote with the (sanitized) text', (tester) async {
+      await _pumpTall(tester);
+      const noteSalon = Salon(
+        id: _kSalonId,
+        name: 'Салон «Вельвет»',
+        description: 'Затишний салон краси в серці Печерська.',
+        locationNote: 'кв. 3, 2 поверх',
+        avgRating: 4.9,
+        reviewCount: 128,
+      );
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => noteSalon),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(find.text(l10n.salonLocationNoteLabel), findsOneWidget);
+      expect(
+        find.byKey(const Key('salon-about-location-note')),
+        findsOneWidget,
+      );
+      // i18n-finder-ok: locationNote fixture data, not UI copy.
+      expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+    });
+
+    testWidgets(
+      'locationNote null → neither the heading nor the note row renders',
+      (tester) async {
+        await _pumpTall(tester);
+        const noNoteSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => noNoteSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        expect(find.text(l10n.salonLocationNoteLabel), findsNothing);
+        expect(
+          find.byKey(const Key('salon-about-location-note')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'locationNote blank ("") → neither the heading nor the note row '
+      'renders',
+      (tester) async {
+        await _pumpTall(tester);
+        const blankNoteSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          locationNote: '',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => blankNoteSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        expect(find.text(l10n.salonLocationNoteLabel), findsNothing);
+        expect(
+          find.byKey(const Key('salon-about-location-note')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'a SHORT locationNote (fits within maxLines: 3) shows NO expand '
+      'affordance',
+      (tester) async {
+        await _pumpTall(tester);
+        const shortNoteSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          locationNote: 'кв. 3, 2 поверх',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => shortNoteSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('expandable-note-toggle')),
+          findsNothing,
+          reason:
+              'an inert toggle on a note that already fits is a small lie — '
+              'it must not render at all',
+        );
+      },
+    );
+
+    testWidgets(
+      'a LONG locationNote (overflows maxLines: 3) shows the affordance; '
+      'tapping it reveals the full text and flips the label; tapping again '
+      're-collapses it',
+      (tester) async {
+        const String longNote =
+            'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+            'плутайте з сусіднім під\'їздом, там кодовий замок не працює. '
+            'Тримайтеся правої стіни, минаєте дитячий майданчик, підіймаєтесь '
+            'трьома сходинками до скляних дверей із синьою наклейкою. '
+            'Домофон код 45В, дзвоніть двічі коротко. Якщо домофон не '
+            'відповідає — телефонуйте адміністратору, номер вказано на '
+            'вивісці біля дверей.';
+        const longNoteSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          locationNote: longNote,
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        // Constrained to a narrow phone width (unlike the sibling `_pumpTall`
+        // tests above): the About tab's note column spans nearly the FULL
+        // screen width, so this ~430-char fixture (calibrated to overflow a
+        // narrow 140dp identity-card column in `expandable_note_test.dart`)
+        // needs a narrow surface here too to genuinely exceed the 3-line
+        // clamp — at the default 800dp width it comfortably fits in 3 lines.
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => longNoteSalon),
+          ),
+          width: 320,
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        expect(toggle, findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+
+        final Size collapsedSize = tester.getSize(find.text(longNote));
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+        final Size expandedSize = tester.getSize(find.text(longNote));
+        expect(
+          expandedSize.height,
+          greaterThan(collapsedSize.height),
+          reason: 'expanding must grow the note to its FULL untruncated height',
+        );
+
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        final Size reCollapsedSize = tester.getSize(find.text(longNote));
+        expect(
+          reCollapsedSize.height,
+          moreOrLessEquals(collapsedSize.height, epsilon: 0.5),
+        );
+      },
+    );
+
+    testWidgets(
+      'a locationNote containing a RLO (U+202E) override renders with the '
+      'control character stripped, not the raw payload',
+      (tester) async {
+        await _pumpTall(tester);
+        // U+202E = Right-to-Left Override. Backend validation on
+        // `locationNote` is `@Size(max = 1000)` only — no character-class
+        // check — so a hostile salon owner could push this into a
+        // client-facing note. Built via `String.fromCharCode` (rather than a
+        // literal character in this source file) so this test file never
+        // embeds the raw control byte it exists to strip.
+        final String rlo = String.fromCharCode(0x202E);
+        final String rawNote = 'кв. 3$rlo, 2 поверх';
+        const String sanitizedNote = 'кв. 3, 2 поверх';
+        final Salon rloSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          locationNote: rawNote,
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => rloSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(sanitizedNote),
+          findsOneWidget,
+          reason: 'the rendered Text must carry the SANITIZED string',
+        );
+        expect(
+          find.text(rawNote),
+          findsNothing,
+          reason:
+              'the raw string (with the RLO control char) must never reach '
+              'the Text widget',
         );
       },
     );

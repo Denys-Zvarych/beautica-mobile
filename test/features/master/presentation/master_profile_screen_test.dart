@@ -203,7 +203,7 @@ const _stubMasterNoLocation = Master(
 // widget tier never exercised: city+buildingNo with NO street, street+
 // buildingNo with NO city (promotion WITH a building number), and buildingNo
 // ALONE. The pure-function matrix lives in
-// `test/features/master/presentation/widgets/master_address_lines_test.dart`;
+// `test/shared/formatters/address_lines_test.dart`;
 // these three pin the same combos through the REAL production Row/Text tree.
 // ---------------------------------------------------------------------------
 
@@ -1075,7 +1075,7 @@ void main() {
   // city+buildingNo with NO street, street+buildingNo with NO city
   // (promotion WITH a building number), and buildingNo ALONE. Mirrors the
   // exhaustive pure-function matrix in
-  // `master_address_lines_test.dart`, but through the REAL production
+  // `test/shared/formatters/address_lines_test.dart`, but through the REAL production
   // Row/Text tree so a wiring regression (e.g. the caller's `if` gate or key
   // assignment) is caught here even if the pure function stays correct.
 
@@ -1287,13 +1287,13 @@ void main() {
         );
         expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
         expect(
-          find.byKey(const Key('master-profile-location-note-toggle')),
+          find.byKey(const Key('expandable-note-toggle')),
           findsNothing,
           reason:
               'An inert toggle on a note that already fits is a small lie — '
               'it must not render at all.',
         );
-        expect(find.text(l10n.masterLocationNoteShowMore), findsNothing);
+        expect(find.text(l10n.expandableNoteShowMore), findsNothing);
       },
     );
 
@@ -1314,12 +1314,9 @@ void main() {
         final l10n = AppLocalizations.of(
           tester.element(find.byKey(const Key('master-profile-name'))),
         );
-        expect(
-          find.byKey(const Key('master-profile-location-note-toggle')),
-          findsOneWidget,
-        );
-        expect(find.text(l10n.masterLocationNoteShowMore), findsOneWidget);
-        expect(find.text(l10n.masterLocationNoteShowLess), findsNothing);
+        expect(find.byKey(const Key('expandable-note-toggle')), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsNothing);
       },
     );
 
@@ -1340,9 +1337,7 @@ void main() {
         final l10n = AppLocalizations.of(
           tester.element(find.byKey(const Key('master-profile-name'))),
         );
-        final Finder toggle = find.byKey(
-          const Key('master-profile-location-note-toggle'),
-        );
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
         expect(toggle, findsOneWidget);
 
         // Collapsed: the note Text renders with maxLines: 3 — its measured
@@ -1356,8 +1351,8 @@ void main() {
         await tester.tap(toggle);
         await tester.pumpAndSettle();
 
-        expect(find.text(l10n.masterLocationNoteShowLess), findsOneWidget);
-        expect(find.text(l10n.masterLocationNoteShowMore), findsNothing);
+        expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowMore), findsNothing);
 
         final Size expandedSize = tester.getSize(find.text(_kLongLocationNote));
         expect(
@@ -1371,8 +1366,8 @@ void main() {
         await tester.tap(toggle);
         await tester.pumpAndSettle();
 
-        expect(find.text(l10n.masterLocationNoteShowMore), findsOneWidget);
-        expect(find.text(l10n.masterLocationNoteShowLess), findsNothing);
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsNothing);
         final Size reCollapsedSize = tester.getSize(
           find.text(_kLongLocationNote),
         );
@@ -1413,16 +1408,11 @@ void main() {
           find.byKey(const Key('master-profile-locality-text')),
           findsOneWidget,
         );
-        expect(
-          find.byKey(const Key('master-profile-location-note-toggle')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('expandable-note-toggle')), findsOneWidget);
 
         // Exercise the expand/collapse toggle too — the widest content state
         // this block can be in.
-        final Finder toggle = find.byKey(
-          const Key('master-profile-location-note-toggle'),
-        );
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
         await tester.ensureVisible(toggle);
         await tester.tap(toggle, warnIfMissed: false);
         await tester.pumpAndSettle();
