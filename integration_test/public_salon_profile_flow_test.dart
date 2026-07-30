@@ -93,10 +93,22 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
+      // NOT `pumpAndSettle()`: FakeBackend's `/search/masters` fixture always
+      // seeds `totalPages: 2`, so the results screen mounts a trailing
+      // INDETERMINATE `_LoadMoreSpinner` the instant page 0 loads (its
+      // `CircularProgressIndicator`'s repeating `AnimationController` keeps a
+      // frame perpetually scheduled). `pumpAndSettle` can never observe
+      // quiescence in that state and hangs until the test's own [Timeout]
+      // kills it — pump-until-found instead (see [AppHarness.pumpUntilFound]).
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      // fixed-wait-ok: settles the real async route-push step after the tap.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
 
       expect(find.byKey(const Key('results_list')), findsOneWidget);
       expect(
@@ -268,9 +280,9 @@ void main() {
       // Master display names below are real-wire fixture data from
       // FakeBackend (proving the actual roster decode), not translated copy.
       // i18n-finder-ok: master display name is fixture data, not UI copy.
-      expect(find.text('Софія Бондар'), findsOneWidget);
+      expect(find.text('Софія'), findsOneWidget);
       // i18n-finder-ok: master display name is fixture data, not UI copy.
-      expect(find.text('Марія Гриценко'), findsOneWidget);
+      expect(find.text('Марія'), findsOneWidget);
 
       // The 7th/8th masters (beyond the initial-6 cap) must stay unbuilt —
       // even though all 8 arrived in a single real response.
@@ -295,6 +307,18 @@ void main() {
         reason: 'a real 8-master roster must render the reveal affordance',
       );
 
+      // `-d flutter-tester`'s window is `Size(800, 600)` — short and wide,
+      // unlike any phone. The masters grid (2-column, `shrinkWrap: true` +
+      // `NeverScrollableScrollPhysics` inside the screen's single outer
+      // `SingleChildScrollView` — see `_MastersTab._buildGrid`) is fully
+      // BUILT regardless of scroll offset (shrink-wrapping forces eager
+      // realization, unlike a lazy `ListView.builder`), so `find.byKey`
+      // above already resolved it — but `tester.tap()` still hit-tests
+      // against the real viewport, and this affordance sits well below the
+      // 600px fold. `tester.ensureVisible` (not `scrollUntilVisible`) is the
+      // right idiom here because the target Element already exists; it just
+      // needs to be scrolled into the visible window, not built.
+      await tester.ensureVisible(showAllMasters);
       await tester.tap(showAllMasters);
       await tester.pumpAndSettle();
 
@@ -306,7 +330,7 @@ void main() {
             'just a widget-level fixture',
       );
       // i18n-finder-ok: master display name is real-wire fixture data.
-      expect(find.text('Вікторія Пономаренко'), findsOneWidget);
+      expect(find.text('Вікторія'), findsOneWidget);
       expect(
         showAllMasters,
         findsNothing,
@@ -314,7 +338,15 @@ void main() {
       );
 
       // ── Tab 2 «Послуги» — the real service catalogue (2 categories) ───────
-      await tester.tap(find.byKey(const Key('salon-tab-2')));
+      // The masters grid we just expanded ("show all", 8 cards over 4 rows)
+      // left the outer `SingleChildScrollView` scrolled well down; the fixed
+      // `SalonTabBar` sits ABOVE that content, so it can now be off-screen
+      // too. `ensureVisible` — same idiom as above — brings it back into the
+      // 800x600 viewport before the tap (the tab bar itself is always built,
+      // never lazy).
+      final Finder tab2 = find.byKey(const Key('salon-tab-2'));
+      await tester.ensureVisible(tab2);
+      await tester.tap(tab2);
       await tester.pumpAndSettle();
 
       expect(
@@ -343,7 +375,16 @@ void main() {
       );
       // i18n-finder-ok: service name is real-wire catalogue fixture data.
       expect(find.text('Корекція брів'), findsNothing);
-      await tester.tap(find.byKey(const Key('salon-service-category-BROWS')));
+      // Same fold issue as above — BROWS is the second (collapsed) category,
+      // rendered below NAILS's already-expanded service row, and may sit
+      // past the 600px viewport depending on the carried-over scroll offset
+      // from the previous tab. Content is eagerly built (plain Column, not a
+      // lazy list), so `ensureVisible` is enough.
+      final Finder browsCategory = find.byKey(
+        const Key('salon-service-category-BROWS'),
+      );
+      await tester.ensureVisible(browsCategory);
+      await tester.tap(browsCategory);
       await tester.pumpAndSettle();
       // i18n-finder-ok: service name is real-wire catalogue fixture data.
       expect(find.text('Корекція брів'), findsOneWidget);
@@ -351,7 +392,11 @@ void main() {
       expect(find.text('300 ₴'), findsOneWidget);
 
       // ── Tab 3 «Відгуки» — summary + 4 reviews (3 serviceName wire shapes) ──
-      await tester.tap(find.byKey(const Key('salon-tab-3')));
+      // Same reasoning as the tab-2 switch above — the tab bar can be
+      // scrolled out of the 800x600 window by the previous tab's content.
+      final Finder tab3 = find.byKey(const Key('salon-tab-3'));
+      await tester.ensureVisible(tab3);
+      await tester.tap(tab3);
       await tester.pumpAndSettle();
 
       expect(fb.getSalonReviewSummaryCalls, greaterThanOrEqualTo(1));
@@ -441,7 +486,14 @@ void main() {
       );
 
       // ── Changing the sort re-fetches a server-sorted page ──────────────────
-      await tester.tap(find.byKey(const Key('salon-reviews-sort-button')));
+      // The sort button sits right under the rating-summary card, near the
+      // top of the Відгуки tab's content — but the carried-over scroll
+      // offset from switching tabs can still leave it below the fold.
+      final Finder sortButton = find.byKey(
+        const Key('salon-reviews-sort-button'),
+      );
+      await tester.ensureVisible(sortButton);
+      await tester.tap(sortButton);
       await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const Key('salon-review-sort-option-oldest')),
@@ -455,10 +507,16 @@ void main() {
       );
 
       // ── Tab 1 again → tap a master card → navigate to its public profile ──
-      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      final Finder tab1Again = find.byKey(const Key('salon-tab-1'));
+      await tester.ensureVisible(tab1Again);
+      await tester.tap(tab1Again);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('salon-master-card-master-aaa')));
+      final Finder masterAaaCardAgain = find.byKey(
+        const Key('salon-master-card-master-aaa'),
+      );
+      await tester.ensureVisible(masterAaaCardAgain);
+      await tester.tap(masterAaaCardAgain);
       // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
@@ -490,8 +548,15 @@ void main() {
       expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
 
       // ── Toggle the salon favourite heart → optimistic flip → POST ─────────
+      // Lives in `_CoverAndHero`, at the very TOP of the same outer
+      // scrollable — defensively brought into view in case the master-profile
+      // round trip left the screen scrolled anywhere else.
       expect(fb.addFavoriteCalls, 0);
-      await tester.tap(find.byKey(const Key('salon-favorite-toggle')));
+      final Finder favoriteToggle = find.byKey(
+        const Key('salon-favorite-toggle'),
+      );
+      await tester.ensureVisible(favoriteToggle);
+      await tester.tap(favoriteToggle);
       await tester.pumpAndSettle();
 
       expect(

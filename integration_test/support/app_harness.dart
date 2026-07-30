@@ -143,6 +143,52 @@ abstract final class AppHarness {
     );
   }
 
+  // ── Bounded pump-until (spinner-safe) ───────────────────────────────────────
+
+  /// Pumps in small, bounded steps until [finder] resolves to at least one
+  /// widget, or [timeout] elapses.
+  ///
+  /// Every discovery-results submit can render a trailing INDETERMINATE
+  /// `_LoadMoreSpinner` the instant `SearchResultsState.hasMore` is true —
+  /// which it always is on the very first page against [FakeBackend], whose
+  /// `/search/masters` fixture deliberately seeds `totalPages: 2` so a
+  /// `loadMore` scroll has a genuine second page to fetch (search_results_
+  /// screen.dart's `_ResultsList`). An indeterminate `CircularProgressIndicator`
+  /// drives its own `AnimationController.repeat()`, which keeps
+  /// `SchedulerBinding.hasScheduledFrame` permanently true — so
+  /// `pumpAndSettle()` can never observe "no more frames scheduled" and hangs
+  /// until the enclosing `testWidgets` [Timeout] kills it (typically ~90 s,
+  /// tripping `LiveTestWidgetsFlutterBinding`'s `'_pendingFrame == null'`
+  /// invariant in `postTest`). Do NOT reach for `pumpAndSettle()` after any
+  /// action that can leave that spinner mounted (a filters submit, a sort
+  /// change, a re-search) — use this instead.
+  ///
+  /// Polls every [step] (default 100 ms — well inside [FakeBackend]'s
+  /// sub-second in-memory response time) up to [timeout] (default 10 s, a
+  /// generous multiple of that). Ends with one extra plain [WidgetTester.pump]
+  /// so the frame that just made [finder] match is fully built/laid out before
+  /// the caller inspects it. Throws a [TestFailure] (not a raw hang) when
+  /// [finder] never appears, so a genuine regression still fails fast and
+  /// legibly instead of riding the full per-test timeout.
+  static Future<void> pumpUntilFound(
+    WidgetTester tester,
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration step = const Duration(milliseconds: 100),
+  }) async {
+    final DateTime deadline = DateTime.now().add(timeout);
+    while (finder.evaluate().isEmpty) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw TestFailure(
+          'AppHarness.pumpUntilFound timed out after $timeout waiting for '
+          '$finder to appear (polled every $step).',
+        );
+      }
+      await tester.pump(step);
+    }
+    await tester.pump();
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.
@@ -395,6 +441,67 @@ abstract final class AppHarness {
         .last
         .matchedLocation;
   }
+
+  /// Resolves the current location for a route reached via `context.push`
+  /// that is NESTED under the currently-active [StatefulShellRoute] branch's
+  /// OWN route tree — e.g. `/search/results`, declared in app_router.dart as
+  /// a child `GoRoute` of `/search` inside the CLIENT shell's search branch
+  /// ("Nested under the search branch so it pushes onto that branch's
+  /// navigator"), as opposed to a route declared entirely outside the shell.
+  ///
+  /// Neither [location] nor [shellLocation] resolves this shape:
+  ///  * [location]'s only special case is "the TOP-level match IS an
+  ///    [ImperativeRouteMatch]". But [RouteMatchList.push] (go_router's
+  ///    `match.dart`, `_createNewMatchUntilIncompatible`) recurses INTO the
+  ///    existing top-level [ShellRouteMatch] — rather than appending a new
+  ///    top-level entry — whenever the freshly-matched target's own top
+  ///    segment is the SAME shell route already active. So `matches.last`
+  ///    stays a [ShellRouteMatch], the special case never fires, and
+  ///    [location] falls back to the stale pre-push `configuration.uri`
+  ///    (confirmed empirically: it keeps reading `/search` after a push to
+  ///    `/search/results`).
+  ///  * [shellLocation] reads `matches.last.matchedLocation` — but
+  ///    [ShellRouteMatch.copyWith] (what `push` uses to graft the new leaf
+  ///    in) never updates `matchedLocation`; it stays whatever it was when
+  ///    THIS [ShellRouteMatch] was first created (the branch's own root), so
+  ///    it is equally stale for this shape (also confirmed empirically —
+  ///    both resolvers report `/search`, never `/search/results`).
+  ///
+  /// This mirrors go_router's OWN internal recovery for exactly this shape
+  /// (`GoRouteInformationParser.restoreRouteInformation`): drill through
+  /// [ShellRouteMatch.matches] until an [ImperativeRouteMatch] surfaces, then
+  /// read ITS OWN freshly-matched nested `RouteMatchList.uri` — which [push]
+  /// DOES set correctly, it is only the outer wrapper(s) that go stale.
+  /// Falls back to [location] if no nested [ImperativeRouteMatch] is found
+  /// (a plain, non-nested case — behaves identically to [location] there).
+  static String nestedPushLocation(GoRouter router) {
+    RouteMatchBase match =
+        router.routerDelegate.currentConfiguration.matches.last;
+    while (match is! ImperativeRouteMatch) {
+      if (match is ShellRouteMatch && match.matches.isNotEmpty) {
+        match = match.matches.last;
+      } else {
+        break;
+      }
+    }
+    if (match case final ImperativeRouteMatch imperative) {
+      // router-location-ok: reading the resolved push's OWN nested match
+      // list (not the stale outer `currentConfiguration.uri`) is exactly
+      // what this drill-down resolver exists to do.
+      return imperative.matches.uri.toString();
+    }
+    return location(router);
+  }
+
+  /// [expectLocation] for a route reached via [nestedPushLocation]'s shape —
+  /// a `context.push` nested under the currently-active shell branch's own
+  /// route tree (see [nestedPushLocation]'s doc comment).
+  static void expectNestedPushLocation(GoRouter router, String expected) =>
+      _expectPath(
+        nestedPushLocation(router),
+        expected,
+        'AppHarness.expectNestedPushLocation',
+      );
 
   /// Convenience assertion built on [location]. See [expectShellLocation] for
   /// the [StatefulShellRoute] variant.
