@@ -2692,6 +2692,14 @@
   "@masterLocationSubheading": {
     "description": "Subheading on the independent master location edit page, explaining that the location is used for client search."
   },
+  "masterLocationNoteShowMore": "більше",
+  "@masterLocationNoteShowMore": {
+    "description": "Expand toggle shown under a clamped (maxLines: 3) master profile location note when it overflows its line budget."
+  },
+  "masterLocationNoteShowLess": "згорнути",
+  "@masterLocationNoteShowLess": {
+    "description": "Collapse toggle shown under an expanded master profile location note."
+  },
   "accountTitle": "Акаунт",
   "@accountTitle": {
     "description": "Top-bar title of the account page."

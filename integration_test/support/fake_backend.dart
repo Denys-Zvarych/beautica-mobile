@@ -266,6 +266,18 @@ final class FakeBackend {
   /// BEFORE [_wire] if you need the initial profile to carry a title.
   String? masterProfessionalTitle;
 
+  /// Optional address fields on `GET /masters/me` (the AUTHENTICATED master's
+  /// OWN profile, distinct from the PUBLIC `_publicMasterDetailEnvelope()`
+  /// used by the CLIENT-facing journey). All start null so every existing
+  /// flow that hits `GET /masters/me` keeps seeing a clean, location-less
+  /// seed — no location row renders on `MasterProfileScreen` for them. A flow
+  /// exercising Phase 219/220/221 (the split address lines + tap-to-expand
+  /// note) sets these BEFORE login/boot.
+  String? masterCity;
+  String? masterStreet;
+  String? masterBuildingNo;
+  String? masterLocationNote;
+
   // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
   //
   // The CLIENT `GET /users/me` echoes these mutable fields so a save made by the
@@ -1102,6 +1114,13 @@ final class FakeBackend {
     // set so flows that do not exercise this field see a clean seed.
     if (masterProfessionalTitle != null)
       'professionalTitle': masterProfessionalTitle,
+    // Address fields (Phase 219/220/221) — same "omit when null" shape as
+    // professionalTitle above, so flows that never set these keep seeing the
+    // pre-existing location-less seed (no location row on MasterProfileScreen).
+    if (masterCity != null) 'city': masterCity,
+    if (masterStreet != null) 'street': masterStreet,
+    if (masterBuildingNo != null) 'buildingNo': masterBuildingNo,
+    if (masterLocationNote != null) 'locationNote': masterLocationNote,
     'avgRating': 4.8,
     'reviewCount': 10,
     'masterType': 'INDEPENDENT_MASTER',

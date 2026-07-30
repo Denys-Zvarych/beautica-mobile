@@ -16,6 +16,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -237,6 +238,247 @@ void main() {
       );
       expect(servicesValue.data, '${_stubServices.length}');
     });
+  });
+
+  // ── Location lines (Phase 219/220 A + C) ──────────────────────────────────
+  //
+  // Mirrors the own-profile screen's location-line coverage: an explicit
+  // `maxLines` budget on every address/note site (219 A) and locality (city)
+  // + street/building split onto independent lines (220 C).
+  group('location lines — split address + long note', () {
+    const Master masterWithFullAddress = Master(
+      id: _kMasterId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      city: 'Київ',
+      street: 'вул. Хрещатик',
+      buildingNo: '22',
+      locationNote: 'кв. 3, 2 поверх',
+      avgRating: 4.8,
+      reviewCount: 47,
+      type: MasterType.independentMaster,
+    );
+
+    testWidgets(
+      'renders locality, street+building, and note on independent lines',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides(
+            (ref) => (masterWithFullAddress, _stubServices),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsOneWidget,
+        );
+        // i18n-finder-ok: master.city is fixture data, not localised UI copy
+        expect(find.text('Київ'), findsOneWidget);
+        expect(
+          find.byKey(const Key('public-master-profile-address-text')),
+          findsOneWidget,
+        );
+        // i18n-finder-ok: master.street/buildingNo are fixture data, not UI copy
+        expect(find.text('вул. Хрещатик, 22'), findsOneWidget);
+        // The OLD combined "street, building, city" string must not appear.
+        // i18n-finder-ok: same fixture data as above, negated
+        expect(find.text('вул. Хрещатик, 22, Київ'), findsNothing);
+        // i18n-finder-ok: master.locationNote is fixture data, not UI copy
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'promotes the street line to the address-text key when there is no '
+      'locality',
+      (tester) async {
+        const Master streetOnly = Master(
+          id: _kMasterId,
+          firstName: 'Олена',
+          lastName: 'Ковальчук',
+          street: 'вул. Хрещатик',
+          avgRating: 4.8,
+          reviewCount: 47,
+          type: MasterType.independentMaster,
+        );
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (streetOnly, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-address-text')),
+          findsOneWidget,
+        );
+        // i18n-finder-ok: master.street is fixture data, not localised UI copy
+        expect(find.text('вул. Хрещатик'), findsOneWidget);
+      },
+    );
+
+    // ── mobile-qa gap-fill: buildingNo ALONE (no city, no street) ───────────
+    //
+    // Mirrors the same edge-matrix gap closed on the own-profile screen
+    // (master_profile_screen_test.dart, group "location line — edge-matrix
+    // gap-fill") — a building number must never render as its own line, even
+    // on the read-only public profile. The exhaustive pure-function matrix
+    // lives in master_address_lines_test.dart; this pins the wiring on THIS
+    // screen's production Row/Text tree too.
+    testWidgets(
+      'buildingNo ALONE (no city, no street): the whole location row is '
+      'hidden on the public profile too',
+      (tester) async {
+        const Master buildingOnly = Master(
+          id: _kMasterId,
+          firstName: 'Олена',
+          lastName: 'Ковальчук',
+          buildingNo: '22',
+          avgRating: 4.8,
+          reviewCount: 47,
+          type: MasterType.independentMaster,
+        );
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (buildingOnly, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-address-text')),
+          findsNothing,
+        );
+        expect(find.text('22'), findsNothing);
+      },
+    );
+
+    // ── Phase 221 audit fix (mobile-security MEDIUM) — bidi/zero-width strip
+    testWidgets(
+      'a locationNote containing a RLO (U+202E) override renders with the '
+      'control character stripped, not the raw payload',
+      (tester) async {
+        // U+202E = Right-to-Left Override. Backend validation on
+        // `locationNote` is `@Size(max = 1000)` only — no character-class
+        // check — so a hostile master could push this into a client-facing
+        // note. Built via `String.fromCharCode` (rather than a literal
+        // character in this source file) so the test file itself never
+        // embeds the raw control byte it exists to strip.
+        final String rlo = String.fromCharCode(0x202E);
+        final String rawNote = 'кв. 3$rlo, 2 поверх';
+        const String sanitizedNote = 'кв. 3, 2 поверх';
+        final Master noteMaster = masterWithFullAddress.copyWith(
+          locationNote: rawNote,
+        );
+
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (noteMaster, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(sanitizedNote),
+          findsOneWidget,
+          reason: 'the rendered Text must carry the SANITIZED string',
+        );
+        expect(
+          find.text(rawNote),
+          findsNothing,
+          reason:
+              'the raw string (with the RLO control char) must never '
+              'reach the Text widget',
+        );
+      },
+    );
+
+    testWidgets('a long note clamps to 3 lines instead of collapsing to 1', (
+      tester,
+    ) async {
+      const String longNote =
+          'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+          'плутайте з сусіднім під\'їздом, там кодовий замок не працює. '
+          'Тримайтеся правої стіни, минаєте дитячий майданчик, підіймаєтесь '
+          'трьома сходинками до скляних дверей із синьою наклейкою. '
+          'Домофон код 45В, дзвоніть двічі коротко. Якщо домофон не '
+          'відповідає — телефонуйте адміністратору, номер вказано на '
+          'вивісці біля дверей. Кабінет на другому поверсі, одразу '
+          'ліворуч від сходів, третій номер за рахунком.';
+      final Master longNoteMaster = masterWithFullAddress.copyWith(
+        locationNote: longNote,
+      );
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (longNoteMaster, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder noteFinder = find.text(longNote);
+      expect(noteFinder, findsOneWidget);
+
+      final Size actual = tester.getSize(noteFinder);
+      final TextPainter oneLine = TextPainter(
+        text: TextSpan(text: longNote, style: VelvetText.feedbackMutedNote),
+        maxLines: 1,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: actual.width);
+      final double oneLineHeight = oneLine.size.height;
+      oneLine.dispose();
+
+      final TextPainter fullWrap = TextPainter(
+        text: TextSpan(text: longNote, style: VelvetText.feedbackMutedNote),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: actual.width);
+      final double fullWrapHeight = fullWrap.size.height;
+      fullWrap.dispose();
+
+      // Sanity: the fixture needs more than 3 lines at the measured width.
+      expect(fullWrapHeight, greaterThan(oneLineHeight * 3));
+      // The fix: clamped well short of the full height, but taller than 1
+      // line — proving it wraps up to its 3-line budget instead of
+      // collapsing.
+      expect(actual.height, greaterThan(oneLineHeight * 1.5));
+      expect(actual.height, lessThan(fullWrapHeight));
+    });
+
+    // `pumpApp`'s `textScaleFactor` knob + the suite-wide overflow guard turn
+    // any RenderFlex overflow at this stress scale into a hard test failure
+    // via tearDown — no explicit overflow assertion needed.
+    testWidgets(
+      'full address + long note produces no overflow at textScaler 2.0 on a '
+      'narrow (320dp) surface',
+      (tester) async {
+        const String longNote =
+            'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+            'плутайте з сусіднім під\'їздом, там кодовий замок не працює. '
+            'Тримайтеся правої стіни, минаєте дитячий майданчик, підіймаєтесь '
+            'трьома сходинками до скляних дверей із синьою наклейкою. '
+            'Домофон код 45В, дзвоніть двічі коротко.';
+        final Master longNoteMaster = masterWithFullAddress.copyWith(
+          locationNote: longNote,
+        );
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (longNoteMaster, _stubServices)),
+          width: 320,
+          textScaleFactor: 2.0,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('error state', () {

@@ -51,6 +51,8 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import 'widgets/master_address_lines.dart';
+import 'widgets/master_text_sanitizer.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
@@ -291,16 +293,27 @@ class _PublicProfileBody extends StatelessWidget {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String displayName = '${master.firstName} ${master.lastName}'.trim();
     final String roleLabel = _roleLabel(master.type, l10n);
-    final String? locationLine = _buildLocationLine(master);
+    final String? localityLine = buildMasterLocalityLine(master);
+    final String? streetLine = buildMasterStreetLine(master);
+    // Phase 221 audit fix (mobile-security MEDIUM) — `locationNote` is
+    // provider-authored free text with no character-class validation at the
+    // backend; sanitized here (same helper `MasterLocationNote` uses
+    // internally) before this plain `Text` render site below ever sees it.
     final String? noteText = (master.locationNote?.isNotEmpty ?? false)
-        ? master.locationNote
+        ? sanitizeDisplayText(master.locationNote!)
         : null;
     final bool hasReviews = master.reviewCount > 0;
     // Instagram + portfolio are an INDEPENDENT_MASTER-only affordance — a
-    // salon-affiliated master's public profile hides both, mirroring the
-    // backend's `MasterDetailResponse.fromPublic` address-masking rule for the
-    // same `MasterType` distinction. Purely a display decision: the payload
-    // still carries the raw fields for every type.
+    // salon-affiliated master's public profile hides both. This is a
+    // client-side-only decision for THIS pair specifically: the backend's
+    // `MasterDetailResponse.fromPublic` never masks `instagram` (it — like
+    // `bio` — is returned unmasked for every `MasterType`). The backend DOES
+    // null out `street` / `buildingNo` / `locationNote` / `cityId` /
+    // `oblastId` / `districtId` for `SALON_MASTER` / `SALON_OWNER` — only
+    // `INDEPENDENT_MASTER` receives those on this public path — so for the
+    // ADDRESS fields (not instagram/bio) this screen's `isIndependent` gate
+    // is redundant with, not a substitute for, an already-enforced backend
+    // rule.
     final bool isIndependent = master.type == MasterType.independentMaster;
     final String? instagram =
         (isIndependent && (master.instagram?.isNotEmpty ?? false))
@@ -349,8 +362,13 @@ class _PublicProfileBody extends StatelessWidget {
                             : roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
-                      if (locationLine != null) ...<Widget>[
+                      if (localityLine != null ||
+                          streetLine != null) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs),
+                        // Phase 220 (C) — same split as the own-profile
+                        // screen: locality (city) first, then street +
+                        // building, then the note — see
+                        // `master_address_lines.dart`.
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
@@ -362,16 +380,45 @@ class _PublicProfileBody extends StatelessWidget {
                             const SizedBox(width: 3),
                             Flexible(
                               child: Text(
-                                locationLine,
-                                key: const Key(
-                                  'public-master-profile-address-text',
-                                ),
+                                localityLine ?? streetLine!,
+                                key: localityLine != null
+                                    ? const Key(
+                                        'public-master-profile-locality-text',
+                                      )
+                                    : const Key(
+                                        'public-master-profile-address-text',
+                                      ),
                                 style: VelvetText.feedbackMutedXs,
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
+                        if (localityLine != null &&
+                            streetLine != null) ...<Widget>[
+                          const SizedBox(height: 2),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 16),
+                            child: Text(
+                              streetLine,
+                              key: const Key(
+                                'public-master-profile-address-text',
+                              ),
+                              style: VelvetText.feedbackMutedXs,
+                              // Phase 219 (A) — this site already had
+                              // `overflow: ellipsis` with NO `maxLines`,
+                              // the exact combination that silently
+                              // collapses the whole paragraph to a single
+                              // line instead of wrapping (see the
+                              // reproduction test on the own-profile
+                              // screen). Aligned with the own-profile
+                              // version's maxLines: 2.
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                         if (noteText != null) ...<Widget>[
                           const SizedBox(height: 2),
                           Padding(
@@ -379,6 +426,9 @@ class _PublicProfileBody extends StatelessWidget {
                             child: Text(
                               noteText,
                               style: VelvetText.feedbackMutedNote,
+                              // Phase 219 (A) — same fix as the own-profile
+                              // screen's note row.
+                              maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -669,40 +719,6 @@ class _PublicProfileBody extends StatelessWidget {
       case MasterType.salonOwner:
         return l10n.masterRoleSalonOwner;
     }
-  }
-
-  /// Composes the identity-card address line (street + buildingNo + city), or
-  /// `null` when nothing is available so the caller hides the row.
-  static String? _buildLocationLine(Master master) {
-    final String? street = (master.street?.isNotEmpty ?? false)
-        ? master.street
-        : null;
-    final String? building = (master.buildingNo?.isNotEmpty ?? false)
-        ? master.buildingNo
-        : null;
-    final String? city = (master.city?.isNotEmpty ?? false)
-        ? master.city
-        : null;
-
-    if (street == null && city == null) return null;
-
-    final StringBuffer buf = StringBuffer();
-    if (street != null) {
-      buf.write(street);
-      if (building != null) {
-        buf
-          ..write(', ')
-          ..write(building);
-      }
-      if (city != null) {
-        buf
-          ..write(', ')
-          ..write(city);
-      }
-    } else {
-      buf.write(city);
-    }
-    return buf.toString();
   }
 }
 

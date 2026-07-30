@@ -174,11 +174,101 @@ const _stubMasterFullAddress = Master(
   type: MasterType.independentMaster,
 );
 
+/// Street only, no city, no buildingNo — Phase 220 (C) promotion case: with
+/// no locality, the street line is promoted to the primary (icon-bearing)
+/// row and keyed `master-profile-address-text`, matching the promotion rule
+/// in `result_address_block.dart`.
+const _stubMasterStreetOnly = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  street: 'вул. Хрещатик',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
 /// No city, no street — location row must be hidden entirely.
 const _stubMasterNoLocation = Master(
   id: 'user-1',
   firstName: 'Тест',
   lastName: 'Майстер',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+// ---------------------------------------------------------------------------
+// mobile-qa gap-fill (Phase 219/220 QA audit) — three edge-matrix combos the
+// widget tier never exercised: city+buildingNo with NO street, street+
+// buildingNo with NO city (promotion WITH a building number), and buildingNo
+// ALONE. The pure-function matrix lives in
+// `test/features/master/presentation/widgets/master_address_lines_test.dart`;
+// these three pin the same combos through the REAL production Row/Text tree.
+// ---------------------------------------------------------------------------
+
+/// City + buildingNo, NO street — the building number must be dropped
+/// entirely (never leaked beside the city with a dangling comma).
+/// Expected: locality line "Київ" only; no address-text line at all.
+const _stubMasterCityAndBuildingNoStreet = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: 'Київ',
+  buildingNo: '22',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// Street + buildingNo, NO city — promotion path WITH a building number
+/// attached. Expected: no locality line; the promoted address line reads
+/// "вул. Хрещатик, 22".
+const _stubMasterStreetAndBuildingNoCity = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  street: 'вул. Хрещатик',
+  buildingNo: '22',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// buildingNo ALONE — no city, no street. The whole location row (icon +
+/// both lines) must be hidden; a building number must never render on its
+/// own.
+const _stubMasterBuildingNoOnly = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  buildingNo: '22',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// A ~400-character [locationNote] — a realistic long entrance-instructions
+/// note within the backend's `@Size(max = 1000)` bound. Phase 219 reproduction
+/// fixture: proves the `maxLines: null` + `overflow: ellipsis` combination
+/// collapses the note instead of wrapping it across its available width.
+const String _kLongLocationNote =
+    'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+    'плутайте з сусіднім під\'їздом, там кодовий замок не працює. Тримайтеся '
+    'правої стіни, минаєте дитячий майданчик, підіймаєтесь трьома сходинками '
+    'до скляних дверей із синьою наклейкою. Домофон код 45В, дзвоніть двічі '
+    'коротко. Якщо домофон не відповідає — телефонуйте адміністратору, номер '
+    'вказано на вивісці біля дверей. Кабінет на другому поверсі, одразу '
+    'ліворуч від сходів, третій номер за рахунком.';
+
+const _stubMasterLongNote = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: 'Київ',
+  street: 'вул. Хрещатик',
+  buildingNo: '22',
+  locationNote: _kLongLocationNote,
   avgRating: 4.5,
   reviewCount: 0,
   type: MasterType.independentMaster,
@@ -779,8 +869,17 @@ void main() {
 
       // Location icon must be present (the locationMarker AppIcon is in the Row).
       expect(_locationIcon, findsOneWidget);
-      // The combined address text must equal just the city.
+      // Phase 220 (C): city-only renders on the LOCALITY line (no street
+      // line at all — there is nothing to promote).
       expect(find.text('Київ'), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-locality-text')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-profile-address-text')),
+        findsNothing,
+      );
     });
 
     testWidgets('does not render a note row when locationNote is null', (
@@ -800,7 +899,7 @@ void main() {
       expect(find.text('кв. 3, 2 поверх'), findsNothing);
     });
 
-    testWidgets('address text widget uses VelvetText.feedbackMutedXs style', (
+    testWidgets('locality text widget uses VelvetText.feedbackMutedXs style', (
       tester,
     ) async {
       await tester.pumpApp(
@@ -813,8 +912,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Phase 220 (C): city-only renders on `master-profile-locality-text`
+      // — `master-profile-address-text` is reserved for the street line.
       final addressText = tester.widget<Text>(
-        find.byKey(const Key('master-profile-address-text')),
+        find.byKey(const Key('master-profile-locality-text')),
       );
       expect(addressText.style, VelvetText.feedbackMutedXs);
     });
@@ -823,9 +924,8 @@ void main() {
   // ── 10. Location line — street + city ─────────────────────────────────────
 
   group('location line — street and city, no building', () {
-    testWidgets('renders street comma city when buildingNo is absent', (
-      tester,
-    ) async {
+    testWidgets('renders locality (city) and street on independent lines when '
+        'buildingNo is absent', (tester) async {
       await tester.pumpApp(
         const MasterProfileScreen(),
         overrides: _buildOverrides(
@@ -836,31 +936,84 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('вул. Хрещатик, Київ'), findsOneWidget);
+      // Phase 220 (C): city and street each render as their own line — no
+      // longer joined into a single "street, city" string.
+      expect(
+        find.byKey(const Key('master-profile-locality-text')),
+        findsOneWidget,
+      );
+      expect(find.text('Київ'), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-address-text')),
+        findsOneWidget,
+      );
+      expect(find.text('вул. Хрещатик'), findsOneWidget);
+      // The OLD combined string must not appear anywhere.
+      expect(find.text('вул. Хрещатик, Київ'), findsNothing);
     });
+  });
+
+  // ── 10b. Location line — street only, no city (promotion) ─────────────────
+
+  group('location line — street only, no city', () {
+    testWidgets(
+      'promotes the street line to the icon-bearing row when there is no '
+      'locality',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterStreetOnly),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // No locality at all — the street line is promoted to the primary
+        // (icon-bearing) row and keyed as the address line, not orphaned
+        // under a blank locality line.
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsOneWidget,
+        );
+        expect(find.text('вул. Хрещатик'), findsOneWidget);
+        // The pin icon must still be present beside the promoted line.
+        expect(_locationIcon, findsOneWidget);
+      },
+    );
   });
 
   // ── 11. Location line — full address (street + building + city + note) ─────
 
   group('location line — full address', () {
-    testWidgets('renders street comma building comma city and note row', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const MasterProfileScreen(),
-        overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(_stubMasterFullAddress),
-          repo: repo,
-          serviceRepo: mockServiceRepo,
-        ),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'renders locality, street+building, and note on independent lines',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterFullAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Combined address line must include street, building and city.
-      expect(find.text('вул. Хрещатик, 22, Київ'), findsOneWidget);
-      // Note row must be rendered beneath the location line.
-      expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
-    });
+        // Phase 220 (C): locality (city) and street+building each render on
+        // their own line rather than one joined "street, building, city"
+        // string.
+        expect(find.text('Київ'), findsOneWidget);
+        expect(find.text('вул. Хрещатик, 22'), findsOneWidget);
+        expect(find.text('вул. Хрещатик, 22, Київ'), findsNothing);
+        // Note row must still render beneath the address lines.
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+      },
+    );
 
     testWidgets('location icon is present with full address', (tester) async {
       await tester.pumpApp(
@@ -914,6 +1067,373 @@ void main() {
       expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
       expect(_locationIcon, findsNothing);
     });
+  });
+
+  // ── 12a. Location line — edge-matrix gap-fill (mobile-qa audit) ───────────
+  //
+  // Three combinations the widget tier never exercised before this audit:
+  // city+buildingNo with NO street, street+buildingNo with NO city
+  // (promotion WITH a building number), and buildingNo ALONE. Mirrors the
+  // exhaustive pure-function matrix in
+  // `master_address_lines_test.dart`, but through the REAL production
+  // Row/Text tree so a wiring regression (e.g. the caller's `if` gate or key
+  // assignment) is caught here even if the pure function stays correct.
+
+  group('location line — edge-matrix gap-fill', () {
+    testWidgets('city + buildingNo, NO street: building is dropped — only the '
+        'locality line renders, no address-text line, no dangling comma', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(
+            _stubMasterCityAndBuildingNoStreet,
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_locationIcon, findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-locality-text')),
+        findsOneWidget,
+      );
+      expect(find.text('Київ'), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-address-text')),
+        findsNothing,
+        reason:
+            'a building number with no street must never render its own '
+            'line, even when a city is present',
+      );
+      // The lone buildingNo value must never leak onto the locality line.
+      expect(find.text('Київ, 22'), findsNothing);
+      expect(find.textContaining(', 22'), findsNothing);
+    });
+
+    testWidgets('street + buildingNo, NO city: promotes the combined "street, '
+        'building" line to the icon-bearing row with no locality line', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(
+            _stubMasterStreetAndBuildingNoCity,
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_locationIcon, findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-locality-text')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('master-profile-address-text')),
+        findsOneWidget,
+      );
+      expect(find.text('вул. Хрещатик, 22'), findsOneWidget);
+      // No stray leading/trailing comma variant renders instead.
+      expect(find.text(', вул. Хрещатик, 22'), findsNothing);
+      expect(find.text('вул. Хрещатик, 22,'), findsNothing);
+    });
+
+    testWidgets(
+      'buildingNo ALONE (no city, no street): the whole location row is '
+      'hidden — a building number never renders on its own',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterBuildingNoOnly),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(_locationIcon, findsNothing);
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsNothing,
+        );
+        expect(find.text('22'), findsNothing);
+        // Name still renders — only the location row is suppressed.
+        expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
+      },
+    );
+  });
+
+  // ── 12b. Location note — long-text reproduction (Phase 219) ───────────────
+  //
+  // ORIGINALLY opened this fix with a reproduction test pinning the PRE-FIX
+  // rendering of a long `locationNote`: the widget then had `maxLines: null`
+  // + `overflow: ellipsis`, and the measured rendered height came back
+  // near-single-line (well under `oneLineHeight * 1.5`) versus a
+  // `fullWrapHeight` more than 7x taller — proving the paragraph collapsed
+  // instead of wrapping, confirming the diagnosis rather than assuming it.
+  //
+  // Now flipped to the CORRECTED expectation (Phase 219 A): `maxLines: 3` +
+  // `overflow: ellipsis` clamps the note to (at most) 3 lines — taller than
+  // one line, but still well short of the full ~400-char height.
+  group('location note — long text (maxLines: 3 clamp)', () {
+    testWidgets(
+      'AFTER FIX: a ~400-char note renders at ~3-line height, not 1 line '
+      'and not its full unclamped height',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongNote),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder noteFinder = find.text(_kLongLocationNote);
+        expect(
+          noteFinder,
+          findsOneWidget,
+          reason:
+              'The Text widget always carries the full string as its `data` '
+              'regardless of visual clipping — this only proves the widget '
+              'exists, not that it is fully VISIBLE.',
+        );
+
+        final Size actual = tester.getSize(noteFinder);
+
+        // Reference layout #1: capped to exactly one line.
+        final TextPainter oneLine = TextPainter(
+          text: TextSpan(
+            text: _kLongLocationNote,
+            style: VelvetText.feedbackMutedNote,
+          ),
+          maxLines: 1,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: actual.width);
+        final double oneLineHeight = oneLine.size.height;
+        oneLine.dispose();
+
+        // Reference layout #2: capped to exactly 3 lines — what the fixed
+        // widget's `maxLines: 3` should produce.
+        final TextPainter threeLines = TextPainter(
+          text: TextSpan(
+            text: _kLongLocationNote,
+            style: VelvetText.feedbackMutedNote,
+          ),
+          maxLines: 3,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: actual.width);
+        final double threeLineHeight = threeLines.size.height;
+        threeLines.dispose();
+
+        // Reference layout #3: NO cap at all — the height the paragraph
+        // would need to show the full ~400-char note with zero clipping.
+        final TextPainter fullWrap = TextPainter(
+          text: TextSpan(
+            text: _kLongLocationNote,
+            style: VelvetText.feedbackMutedNote,
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: actual.width);
+        final double fullWrapHeight = fullWrap.size.height;
+        fullWrap.dispose();
+
+        // Fixture sanity check: _kLongLocationNote must need more than 3
+        // lines at the measured width for this test to exercise the clamp.
+        expect(fullWrapHeight, greaterThan(threeLineHeight));
+
+        // The fix: rendered height matches the 3-line reference layout —
+        // more than a single line, but clamped well short of the full
+        // unclipped paragraph.
+        expect(actual.height, moreOrLessEquals(threeLineHeight, epsilon: 0.5));
+        expect(actual.height, greaterThan(oneLineHeight * 1.5));
+        expect(actual.height, lessThan(fullWrapHeight));
+      },
+    );
+  });
+
+  // ── 12c. Location note — tap-to-expand (Phase 221 B) ───────────────────────
+
+  group('location note — tap-to-expand toggle', () {
+    testWidgets(
+      'a SHORT note (fits within maxLines: 3) shows NO toggle affordance',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            // "кв. 3, 2 поверх" — well under 3 lines at any reasonable width.
+            masterState: const AsyncData<Master>(_stubMasterFullAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('master-profile-name'))),
+        );
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+        expect(
+          find.byKey(const Key('master-profile-location-note-toggle')),
+          findsNothing,
+          reason:
+              'An inert toggle on a note that already fits is a small lie — '
+              'it must not render at all.',
+        );
+        expect(find.text(l10n.masterLocationNoteShowMore), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a LONG note (overflows maxLines: 3) shows the «більше» toggle, '
+      'collapsed by default',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongNote),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('master-profile-name'))),
+        );
+        expect(
+          find.byKey(const Key('master-profile-location-note-toggle')),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.masterLocationNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.masterLocationNoteShowLess), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'tapping «більше» expands the note to its FULL text and flips the '
+      'toggle to «згорнути»; tapping again re-collapses it',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongNote),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('master-profile-name'))),
+        );
+        final Finder toggle = find.byKey(
+          const Key('master-profile-location-note-toggle'),
+        );
+        expect(toggle, findsOneWidget);
+
+        // Collapsed: the note Text renders with maxLines: 3 — its measured
+        // height must be far shorter than the fully-expanded height (proven
+        // in the group above). Expand it.
+        final Size collapsedSize = tester.getSize(
+          find.text(_kLongLocationNote),
+        );
+
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.masterLocationNoteShowLess), findsOneWidget);
+        expect(find.text(l10n.masterLocationNoteShowMore), findsNothing);
+
+        final Size expandedSize = tester.getSize(find.text(_kLongLocationNote));
+        expect(
+          expandedSize.height,
+          greaterThan(collapsedSize.height),
+          reason:
+              'Expanding must grow the note to its full untruncated height.',
+        );
+
+        // Collapse it back.
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.masterLocationNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.masterLocationNoteShowLess), findsNothing);
+        final Size reCollapsedSize = tester.getSize(
+          find.text(_kLongLocationNote),
+        );
+        expect(
+          reCollapsedSize.height,
+          moreOrLessEquals(collapsedSize.height, epsilon: 0.5),
+        );
+      },
+    );
+  });
+
+  // ── 12d. Location block — large text scale (textScaler 2.0) ───────────────
+  //
+  // `pumpApp`'s `textScaleFactor` knob + `installOverflowGuard()` (armed by
+  // `pumpApp` for every test) together turn any `RenderFlex` overflow at a
+  // stress scale into a hard test failure via `tearDown` — no manual
+  // assertion needed beyond letting the scenario pump/settle/interact.
+  group('location block — textScaler 2.0 stress', () {
+    testWidgets(
+      'full address + long note + expand/collapse produces no overflow at '
+      'textScaler 2.0 on a narrow (320dp) surface',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongNote),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 320,
+          textScaleFactor: 2.0,
+        );
+        await tester.pumpAndSettle();
+
+        // Sanity: the screen actually rendered the location block at this
+        // stress scale (not skipped/short-circuited).
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-profile-location-note-toggle')),
+          findsOneWidget,
+        );
+
+        // Exercise the expand/collapse toggle too — the widest content state
+        // this block can be in.
+        final Finder toggle = find.byKey(
+          const Key('master-profile-location-note-toggle'),
+        );
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle, warnIfMissed: false);
+        await tester.pumpAndSettle();
+        await tester.tap(toggle, warnIfMissed: false);
+        await tester.pumpAndSettle();
+
+        // No explicit overflow assertion needed here — installOverflowGuard()
+        // (wired into pumpApp) fails this test in tearDown if any
+        // RenderFlex overflow was reported during the pump/tap/settle above.
+      },
+    );
   });
 
   // ── 13. Services section states ──────────────────────────────────────────

@@ -151,6 +151,15 @@ abstract final class VelvetText {
     color: BrandColors.faint,
   );
 
+  /// Quiet camel-accent link — same 11 sp Nunito/700 weight as [link], but
+  /// `BrandColors.accent` (camel) instead of `accentDeep` (mocha). Phase 221
+  /// — used by the «більше»/«згорнути» note-expand toggle, which must read as
+  /// a subordinate metadata affordance (camel) rather than a primary link
+  /// (mocha is reserved for actionable CTAs/links elsewhere in this system).
+  static final TextStyle linkAccent = _linkStyle.copyWith(
+    color: BrandColors.accent,
+  );
+
   // ---------------------------------------------------------------------------
   // Pre-composed variants for PasswordChecklist _RuleRow (Batch-2 A5).
   //
