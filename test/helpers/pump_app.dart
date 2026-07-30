@@ -15,6 +15,15 @@
 // so narrow-phone / large-font overflows are reproduced. The overflow guard is
 // installed here too, so any RenderFlex overflow at the stress size fails the
 // test automatically (no manual assertion needed).
+//
+// mobile-qa (My Rating stretch-card regression) — `height` knob:
+//   await tester.pumpApp(MyWidget(), height: 2400);
+// pumps the widget under an exaggeratedly TALL viewport so an
+// Expanded/tight-constraint layout bug that stretches an opaque card to fill
+// the remaining height becomes an unmissable `tester.getSize(...)` outlier
+// instead of silently fitting inside the default 600dp test surface. Combine
+// with `width` when both dimensions need control; `width` alone still implies
+// height 2400 (unchanged legacy behaviour) for existing call sites.
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -33,6 +42,7 @@ extension PumpApp on WidgetTester {
     List<Object> overrides = const [],
     Locale locale = const Locale('uk'),
     double? width,
+    double? height,
     double? textScaleFactor,
     // Optional Riverpod failed-build retry policy for the ProviderScope. Default
     // null = Riverpod's default exponential-backoff retry (unchanged behaviour).
@@ -46,9 +56,12 @@ extension PumpApp on WidgetTester {
     // narrow-phone width without wrapping the widget in a SingleChildScrollView
     // (which would conflict with a Scaffold `home`). The tall default height
     // (2400) keeps a column from reporting a *vertical* overflow that would mask
-    // the horizontal one under test. Reset in a tearDown.
-    if (width != null) {
-      view.physicalSize = Size(width, 2400);
+    // the horizontal one under test. `height` is a separate knob (default 2400
+    // when only `width` is given, unchanged legacy behaviour) for tests that
+    // want an exaggeratedly tall viewport WITHOUT also constraining width — see
+    // the stretched-card regression note above. Reset in a tearDown.
+    if (width != null || height != null) {
+      view.physicalSize = Size(width ?? 800, height ?? 2400);
       view.devicePixelRatio = 1.0;
       addTearDown(view.resetPhysicalSize);
       addTearDown(view.resetDevicePixelRatio);

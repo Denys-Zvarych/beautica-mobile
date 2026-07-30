@@ -146,6 +146,30 @@ class MyRatingScreen extends ConsumerWidget {
                   // rating table". Loading / error / empty still need a card
                   // frame of their own (none of those three widgets paints
                   // one), so they keep the `HubFlatCard` wrapper.
+                  //
+                  // BUG NOTE (do not simplify away): the enclosing `Expanded`
+                  // above hands this subtree a TIGHT vertical constraint
+                  // (min == max == remaining screen height) — `Padding` only
+                  // deflates it, it stays tight. `RatingSummaryCard` (and
+                  // `HubFlatCard`) lay their content out at its true
+                  // intrinsic height but then report their OWN size via
+                  // `constraints.constrain(...)`, which under a tight
+                  // constraint forces the reported (and painted) height to
+                  // fill the whole viewport — the card's opaque background
+                  // stretches even though its content stays pinned at the
+                  // top. The `master_reviews_body.dart` /
+                  // `salon_reviews_section.dart` call sites don't show this
+                  // because they sit under a `SingleChildScrollView`, which
+                  // supplies unbounded height (`constrain()` becomes a
+                  // no-op). The `error:` and `data:` branches below each get
+                  // their own `SingleChildScrollView` wrapper for the same
+                  // reason — this also gives long localized error strings
+                  // overflow protection instead of a `RenderFlex` crash.
+                  // `loading:` is intentionally NOT wrapped: its centred
+                  // spinner relies on the tight constraint to stay
+                  // vertically centred in the full remaining height: an
+                  // unbounded height would let `Center` shrink-wrap it to a
+                  // small top-pinned indicator instead.
                   child: async.when(
                     loading: () => const HubFlatCard(
                       padding: _hubCardPadding,
@@ -156,37 +180,41 @@ class MyRatingScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    error: (Object e, StackTrace _) => HubFlatCard(
-                      padding: _hubCardPadding,
-                      child: _RatingError(
-                        error: e,
-                        onRetry: () => ref.invalidate(myRatingProvider),
+                    error: (Object e, StackTrace _) => SingleChildScrollView(
+                      child: HubFlatCard(
+                        padding: _hubCardPadding,
+                        child: _RatingError(
+                          error: e,
+                          onRetry: () => ref.invalidate(myRatingProvider),
+                        ),
                       ),
                     ),
-                    data: (ClientRating rating) => rating.avgRating != null
-                        ? RatingSummaryCard(
-                            key: const Key('my_rating_display'),
-                            avgRating: rating.avgRating,
-                            reviewCount: rating.reviewCount,
-                            distribution: rating.distribution,
-                            countLabel: l10n.myRatingReviewCount(
-                              rating.reviewCount,
-                            ),
-                            averageKey: const Key('my_rating_average'),
-                          )
-                        : HubFlatCard(
-                            padding: _hubCardPadding,
-                            child: HubEmptyState(
-                              key: const Key('my_rating_empty_state'),
-                              icon: Icons.star_outline_rounded,
-                              iconWidget: const AppIcon(
-                                BeauticaAssetIcons.star,
-                                size: 24,
-                                color: BrandColors.faint,
+                    data: (ClientRating rating) => SingleChildScrollView(
+                      child: rating.avgRating != null
+                          ? RatingSummaryCard(
+                              key: const Key('my_rating_display'),
+                              avgRating: rating.avgRating,
+                              reviewCount: rating.reviewCount,
+                              distribution: rating.distribution,
+                              countLabel: l10n.myRatingReviewCount(
+                                rating.reviewCount,
                               ),
-                              message: l10n.myRatingEmpty,
+                              averageKey: const Key('my_rating_average'),
+                            )
+                          : HubFlatCard(
+                              padding: _hubCardPadding,
+                              child: HubEmptyState(
+                                key: const Key('my_rating_empty_state'),
+                                icon: Icons.star_outline_rounded,
+                                iconWidget: const AppIcon(
+                                  BeauticaAssetIcons.star,
+                                  size: 24,
+                                  color: BrandColors.faint,
+                                ),
+                                message: l10n.myRatingEmpty,
+                              ),
                             ),
-                          ),
+                    ),
                   ),
                 ),
               ),
