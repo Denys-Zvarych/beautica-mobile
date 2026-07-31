@@ -25,11 +25,22 @@
 //      INLINE on the service-type row; the generic errServer snackbar is NOT
 //      shown; the route stays on /services/create (no pop / no infinite retry).
 //
-// This exercises the REAL HTTP path: in the harness `dioProvider` is the
-// FakeBackend's Dio, so `HttpServiceRepository.create` hits the fake 409 and its
-// `_mapServiceWriteException` decode runs through the real ErrorMapperInterceptor
-// (which attaches a generic ServerFailure(409)) — proving the typed decode wins
-// over the interceptor's fallthrough end-to-end, not just in the unit mock.
+// WHAT THIS COVERS (and what it does NOT)
+// ---------------------------------------
+// This exercises the real repository + HTTP path: in the harness `dioProvider`
+// is the FakeBackend's Dio, so `HttpServiceRepository.create` issues a real
+// request, gets the fake 409 back as a `DioException`, and its
+// `_mapServiceWriteException` decodes the typed envelope off the RAW response
+// body — end-to-end through the screen, notifier and form, not a unit mock.
+//
+// It does NOT cover the interceptor chain. FakeBackend's Dio installs no
+// interceptors at all (only a `DioAdapter` — see fake_backend.dart), so the
+// production `ErrorMapperInterceptor` never runs here and no generic
+// `ServerFailure(409)` is ever attached to the exception. The precedence
+// property — that the typed duplicate decode wins over the interceptor's
+// generic fallthrough, which holds because `_isDuplicateService` inspects the
+// raw body BEFORE the `e.error is Failure` check — is covered only by the
+// repository unit tests, not by this flow.
 //
 // KEY POLICY
 // ----------
@@ -103,27 +114,85 @@ void main() {
       await tester.ensureVisible(categoryField);
       await tester.tap(categoryField);
       final Finder nailsChip = find.byKey(const Key('chip-category-NAILS'));
-      await tester.pumpUntilFound(nailsChip);
+      // `.hitTestable()` — NOT bare existence. A `showModalBottomSheet` route
+      // mounts its whole subtree on frame 1 and THEN slides it up over ~300 ms,
+      // so a bare `pumpUntilFound` returns while the chip is still off the
+      // bottom of the 800×600 flutter-tester view. Tapping it there aims at a
+      // point outside the root render tree, which `hitTestWarningShouldBeFatal`
+      // (armed in AppHarness.boot) turns into a hard "would not hit test"
+      // failure. Waiting for hit-testability waits out the entrance animation
+      // by OBSERVING it rather than guessing a pump count.
+      await tester.pumpUntilFound(nailsChip.hitTestable());
       expect(nailsChip, findsOneWidget);
       await tester.tap(nailsChip);
 
-      // Selecting the category closes the sheet and reveals the
-      // (category-scoped) service-type selector — wait for it to appear before
-      // interacting with it.
+      // Selecting the category pops the sheet and reveals the (category-scoped)
+      // service-type selector. Wait for the category sheet to be genuinely GONE
+      // (its own chip unmounted ⇒ route disposed ⇒ modal barrier gone) before
+      // touching the form underneath: a tap that lands on a still-mounted
+      // barrier is SWALLOWED silently (a barrier hit IS a legitimate hit, so
+      // the `hitTestWarningShouldBeFatal` guard armed in AppHarness.boot says
+      // nothing about it). `service_crud_flow_test.dart` covers the same window
+      // with a hard-coded `6 × 100 ms` loop; this is that wait, OBSERVED rather
+      // than guessed (`scripts/forbid_fixed_wait.sh`).
       final Finder serviceTypeField = find.byKey(
         const Key('select-service-type-field'),
       );
       await tester.pumpUntilFound(serviceTypeField);
+      await tester.pumpUntilGone(nailsChip);
 
-      // Select a NAILS service type (mandatory on create).
+      // ── Select a NAILS service type (mandatory on create) ────────────────
+      //
+      // THE FLAKE THIS GUARDS — DO NOT REMOVE THE "PICKER IS READY" WAIT
+      // ---------------------------------------------------------------------
+      // This flow was red roughly 1 run in 4 with «Found 0 widgets with key
+      // chip-service-type-type-nails-classic», and the obvious reading — "the
+      // picker sheet never opened" — is WRONG. Instrumented at the point of
+      // failure, the sheet WAS open (2 `ModalBarrier`s), the fake backend HAD
+      // served the type list exactly once for the right category
+      // (`getServiceTypesCalls == 1`, `lastServiceTypesCategory == 'NAILS'`),
+      // and `serviceTypesProvider('NAILS')` was already `AsyncData` holding
+      // BOTH options. The sheet was nevertheless still rendering its spinner
+      // with zero option rows.
+      //
+      // Cause: `_ServiceTypeDropdown.build` (service_form.dart) resolves
+      // `options` + `fieldState` from `ref.watch(serviceTypesProvider(...))`
+      // and passes them as PLAIN VALUES into `SearchableSelectField`, which
+      // hands them to a `showModalBottomSheet` route. That route's content is
+      // built once, from whatever was captured when the menu opened — a later
+      // provider resolution rebuilds the FORM, not the already-pushed sheet. So
+      // opening the picker during the (usually sub-frame, occasionally slower)
+      // load window yields a sheet that is stuck on its loading state FOREVER,
+      // with no way out but closing and reopening it.
+      //
+      // That stale-sheet behaviour is a genuine product defect and is reported
+      // separately; it is NOT this flow's subject (the 409 duplicate mapping),
+      // and papering over it with a retry-tap would hide it. Instead the flow
+      // does what a user does: waits for the field to stop showing its loading
+      // affordance before opening the picker. The closed field's trailing slot
+      // renders a `CircularProgressIndicator` while `SelectFieldState.loading`
+      // and `Icons.keyboard_arrow_down_rounded` once idle
+      // (`searchable_select_field.dart` `_TrailingAffordance`), so that icon
+      // appearing IS "the type list has loaded and the picker will open
+      // populated". Waiting on the READY state — not on a pump count — is what
+      // makes this deterministic.
       await tester.ensureVisible(serviceTypeField);
+      await tester.pumpUntilFound(serviceTypeField.hitTestable());
+      await tester.pumpUntilFound(
+        find.descendant(
+          of: serviceTypeField,
+          matching: find.byIcon(Icons.keyboard_arrow_down_rounded),
+        ),
+      );
       await tester.tap(serviceTypeField);
       final Finder classicTypeChip = find.byKey(
         const Key('chip-service-type-type-nails-classic'),
       );
-      await tester.pumpUntilFound(classicTypeChip);
+      await tester.pumpUntilFound(classicTypeChip.hitTestable());
       expect(classicTypeChip, findsOneWidget);
       await tester.tap(classicTypeChip);
+      // Sheet fully dismissed (barrier gone) before touching the form again —
+      // otherwise the submit tap below is swallowed the same way.
       await tester.pumpUntilGone(classicTypeChip);
 
       // Arm the backend to reject the create with the 409 DUPLICATE_SERVICE
@@ -133,12 +202,31 @@ void main() {
       // Save → create POST → 409 → inline service-type error (no pop).
       final Finder submitBtn = find.byKey(const Key('btn-submit-service'));
       await tester.ensureVisible(submitBtn);
+      await tester.pumpUntilFound(submitBtn.hitTestable());
 
       // Read localized copy off a live context (locale-invariant) before the
       // tap rebuilds the row.
       final l10n = AppLocalizations.of(tester.element(submitBtn));
 
       await tester.tap(submitBtn);
+
+      // DIAGNOSE AT THE CAUSE — assert the POST fired BEFORE waiting for the
+      // inline copy. Everything upstream of the network (a swallowed picker
+      // tap, an unselected service type, a client-side guard bailing) shows up
+      // identically at the inline-copy finder: "the duplicate error never
+      // rendered", which reads as a bug in the ERROR-MAPPING code under test
+      // when it is really a bug in the JOURNEY. Checking the counter first
+      // splits those two failure modes apart.
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.createServiceCalls >= 1,
+        description:
+            'the create POST to reach the fake backend — if it never does, the '
+            'form was blocked CLIENT-SIDE (most likely the service type was '
+            'never actually selected because a picker tap was swallowed by a '
+            "closing bottom sheet's modal barrier), so the 409 mapping under "
+            'test was never exercised at all',
+      );
 
       // Wait for the inline duplicate error to render on the service-type row.
       // pump-until (not a fixed wait): the create screen's category shimmer
@@ -148,13 +236,6 @@ void main() {
         matching: find.text(l10n.serviceErrDuplicate),
       );
       await tester.pumpUntilFound(inlineDuplicate);
-
-      // The create genuinely reached the network (not blocked client-side).
-      expect(
-        fb.createServiceCalls,
-        greaterThanOrEqualTo(1),
-        reason: 'the valid payload must POST to the create endpoint',
-      );
 
       // The form did NOT pop — the master stays on the create screen so they can
       // correct the choice (the anti-"stuck re-hitting the same 409" guarantee).

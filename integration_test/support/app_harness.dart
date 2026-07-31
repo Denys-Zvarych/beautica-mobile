@@ -28,14 +28,24 @@
 // [authRedirectForLocation] therefore keeps re-routing to /splash forever,
 // so /login never mounts and find.byKey('login_email') finds nothing.
 //
-// Fix: [boot()] calls [AppStartTime.setStartForTest] with a timestamp 5 s in
-// the past, making elapsed() ≈ 5 s > 3 s. This unblocks the auth redirect on
-// the first pumpAndSettle(). [tearDownHarness()] resets it so state does not
-// bleed between tests. Tests that call [boot()] MUST register tearDownHarness
-// in their tearDown:
+// Fix: [boot()] applies [applyE2eBootPolicy], which backdates
+// [AppStartTime.setStartForTest] by 5 s, making elapsed() ≈ 5 s > 3 s. This
+// unblocks the auth redirect on the first pumpAndSettle(). [tearDownHarness()]
+// resets it so state does not bleed between tests. Tests that call [boot()]
+// MUST register tearDownHarness in their tearDown:
 //
 //   setUp(installOverflowGuard);
 //   tearDown(AppHarness.tearDownHarness);
+//
+// SHARED BOOT POLICY
+// ------------------
+// The rules that must hold for EVERY E2E boot — overflow guard, the
+// off-screen-tap guard, the text-input mock registration, the timezone
+// database, and the splash-gate priming above — are NOT defined in this file.
+// They live in `integration_test/support/e2e_boot_policy.dart` and are applied
+// by a single [applyE2eBootPolicy] call in [boot], because the patrol tier's
+// harness must apply the identical set and a hand-mirrored copy is guaranteed
+// to drift (it did — see that file's header). Add cross-tier policy there.
 //
 // KEY-BASED NAVIGATION POLICY (ENFORCED)
 // ----------------------------------------
@@ -86,22 +96,15 @@
 //     AppHarness.expectLocation(router, '/master/profile');
 //   });
 
-import 'package:beautica_mobile/core/app_start_time.dart';
-import 'package:beautica_mobile/core/network/dio_provider.dart';
-import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
-import 'package:beautica_mobile/core/theme/app_theme.dart';
-import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
-import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../test/helpers/fakes/fake_secure_storage.dart';
-import '../../test/helpers/overflow_guard.dart';
+import 'e2e_boot_policy.dart';
 import 'fake_backend.dart';
 
 export 'fake_backend.dart' show FakeBackend, kFixedNow;
@@ -189,6 +192,35 @@ abstract final class AppHarness {
     await tester.pump();
   }
 
+  /// Pumps until [condition] is true, or [timeout] elapses.
+  ///
+  /// The counterpart to [pumpUntilFound] for effects that are NOT in the widget
+  /// tree — a captured wire param, a POST counter, a repository call. Do NOT
+  /// smuggle these through `find.byWidgetPredicate((_) => <bool>)`: that finder
+  /// matches EVERY widget when the bool is true and NONE when it is false, so
+  /// it works by accident, walks the whole tree on every poll, and reports the
+  /// useless "Found 0 widgets with widget matching predicate: []" instead of
+  /// naming the condition that never came true.
+  static Future<void> pumpUntilCondition(
+    WidgetTester tester,
+    bool Function() condition, {
+    required String description,
+    Duration timeout = const Duration(seconds: 10),
+    Duration step = const Duration(milliseconds: 100),
+  }) async {
+    final DateTime deadline = DateTime.now().add(timeout);
+    while (!condition()) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw TestFailure(
+          'AppHarness.pumpUntilCondition timed out after $timeout waiting for '
+          '$description (polled every $step).',
+        );
+      }
+      await tester.pump(step);
+    }
+    await tester.pump();
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.
@@ -241,65 +273,19 @@ abstract final class AppHarness {
     List<Object> extraOverrides = const <Object>[],
     Duration? Function(int retryCount, Object error)? retry,
   }) async {
-    installOverflowGuard();
-
-    // ── TEXT-INPUT MOCK REGISTRATION — DO NOT DELETE ────────────────────────
+    // ── SHARED BOOT POLICY — ONE definition, BOTH E2E tiers ─────────────────
     //
-    // WITHOUT THIS LINE, `tester.enterText(...)` IS A SILENT NO-OP IN ANY
-    // NON-DEBUG BUILD (`flutter drive --profile` / `--release`). Every field
-    // stays empty, the form's own "required" validation correctly bails, and
-    // the failure surfaces far downstream as a confusing tap/navigation
-    // assertion. It looks redundant in a debug `flutter test` run — it is not.
-    //
-    // MECHANISM
-    // ---------
-    //  1. `WidgetTester.enterText` ultimately posts a
-    //     `TextInputClient.updateEditingState` platform message carrying the
-    //     connection id `TestTextInput._client ?? -1`.
-    //  2. `IntegrationTestWidgetsFlutterBinding` overrides
-    //     `registerTestTextInput => false`, so the binding never registers the
-    //     `TestTextInput` mock handler, `_client` is never assigned, and the id
-    //     posted is ALWAYS `-1`.
-    //  3. In `TextInput._handleTextInputInvocation`, the escape hatch that
-    //     accepts `-1` ("the framework is in a test") lives INSIDE an
-    //     `assert(() { ... }())` block.
-    //  4. Asserts are stripped in profile/release. The `-1` message therefore
-    //     falls through and the injected value is DISCARDED WITHOUT ERROR.
-    //
-    // Registering the mock assigns a real `_client` id, so the message routes
-    // through the normal (non-assert) path and the text actually lands in the
-    // field — identically in debug and profile.
-    //
-    // WHY PER-`boot()`, AND WHY UNCONDITIONAL
-    // ---------------------------------------
-    // The binding's `reset()` between tests clears `_client`, but it only
-    // re-registers when `registerTestTextInput` is true — which it never is
-    // here. So registration has to happen on every boot, not once per isolate.
-    // Keeping it unconditional (rather than `if (!kDebugMode)`) means debug and
-    // profile exercise ONE code path, so the debug suite actually covers what
-    // the profile drive runs. `register()` is idempotent.
-    //
-    // Regression-guarded by the post-`enterText` assertion in [loginAs] (which
-    // turns a silent drop into a one-line diagnosis) and structurally by
-    // `scripts/forbid_missing_test_text_input.sh`.
-    tester.binding.testTextInput.register();
-
-    // Load the IANA timezone database so booking/slot formatters can convert to
-    // the pinned Europe/Kyiv wall-clock. The E2E harness boots the real app tree
-    // via `_HarnessApp` (NOT `main()`), so main.dart's initBeauticaTimeZones()
-    // never runs here — do it explicitly. Idempotent across the aggregated
-    // per-test re-boots.
-    initBeauticaTimeZones();
-
-    // RC1 — prime the splash-duration gate so the auth redirect is not stuck
-    // on /splash. [AppStartTime.elapsed()] must return > [minSplashDuration]
-    // (3 000 ms) on the very first frame. We set the recorded start to 5 s
-    // ago — safely past the gate in every build mode. Without this call,
-    // elapsed() returns Duration.zero (null _start → fallback) and the guard
-    // loops back to /splash indefinitely.
-    AppStartTime.setStartForTest(
-      DateTime.now().subtract(const Duration(seconds: 5)),
-    );
+    // Overflow guard, off-screen-tap guard
+    // (`WidgetController.hitTestWarningShouldBeFatal`), text-input mock
+    // registration, timezone database, and the splash-gate priming all live in
+    // `e2e_boot_policy.dart` and are applied by this ONE call. They used to be
+    // inlined here AND hand-mirrored in
+    // `integration_test/patrol/support/patrol_harness.dart` — which drifted
+    // (the tap guard reached only this tier), so the whole patrol tier kept the
+    // flake class the guard removes. Add new cross-tier policy THERE, never
+    // here, or the mirror comes back. See that file's header for the full
+    // rationale and for what is deliberately NOT shared.
+    applyE2eBootPolicy(tester);
 
     final effectiveStorage = storage ?? FakeSecureStorage();
 
@@ -310,12 +296,13 @@ abstract final class AppHarness {
         // can pass a plain list without importing the internal Override type.
         // ignore: avoid_dynamic_calls
         overrides: <Object>[
-          dioProvider.overrideWithValue(fakeBackend.dio),
-          secureStorageProvider.overrideWithValue(effectiveStorage),
-          clockProvider.overrideWithValue(() => kFixedNow),
+          ...e2eProviderOverrides(
+            fakeBackend: fakeBackend,
+            storage: effectiveStorage,
+          ),
           ...extraOverrides,
         ].cast(),
-        child: const _HarnessApp(),
+        child: const E2eHarnessApp(),
       ),
     );
 
@@ -364,7 +351,7 @@ abstract final class AppHarness {
     // initialized after pumpAndSettle() because _HarnessApp calls
     // ref.watch(appRouterProvider) in its build().
     final container = ProviderScope.containerOf(
-      tester.element(find.byType(_HarnessApp)),
+      tester.element(find.byType(E2eHarnessApp)),
     );
     return container.read(appRouterProvider);
   }
@@ -572,29 +559,17 @@ abstract final class AppHarness {
 
   // ── Tear-down ─────────────────────────────────────────────────────────────
 
-  /// Resets [AppStartTime] to its pre-boot null state, then waits briefly
-  /// for the just-unmounted GL rendering surface to release host-side.
+  /// Undoes the per-test half of the shared boot policy — see
+  /// [resetE2eBootPolicy] for the full rationale (splash-gate reset + the
+  /// host-side GL settle delay the CI emulator needs between relaunches).
   ///
   /// Must be called in [tearDown] in every test file that uses [boot], so the
   /// splash-gate override does not leak into subsequent tests. Idempotent.
   ///
-  /// SETTLE DELAY (2026-07-07 — see docs/ci_investigation_notes.md in the
-  /// Beautifier monorepo for the full investigation). GitHub's headless CI
-  /// emulator (goldfish-opengl / swiftshader_indirect) crashes the WHOLE
-  /// emulator process (`Failed to find ColorBuffer` -> `adb: device
-  /// offline`, unrecoverable) when a 2nd+ [boot] starts immediately after
-  /// the previous test's own unmount. Confirmed by isolating flows down to
-  /// exactly one relaunch (always clean, 0 crashes) vs. two-or-more
-  /// back-to-back relaunches (crashed on every one of 9+ CI samples,
-  /// independent of flow content, API level 33/34, or test ordering) — the
-  /// crash fires specifically on the transition INTO the 2nd relaunch, not
-  /// on rendering itself. This pause gives the driver's async ColorBuffer
-  /// cleanup time to actually complete host-side before the next relaunch
-  /// allocates new buffers. `integration_test/`-only; no production effect.
-  static Future<void> tearDownHarness() async {
-    AppStartTime.resetForTest();
-    await Future<void>.delayed(const Duration(seconds: 2));
-  }
+  /// Delegates rather than reimplements: the patrol tier's own
+  /// `PatrolHarness.tearDownHarness` calls the SAME function, so the two can no
+  /// longer drift apart (they previously carried two hand-copied bodies).
+  static Future<void> tearDownHarness() => resetE2eBootPolicy();
 
   // ── Text-field introspection ──────────────────────────────────────────────
 
@@ -783,30 +758,7 @@ abstract final class AppHarness {
   }
 }
 
-// ---------------------------------------------------------------------------
-// _HarnessApp — the real MaterialApp.router without main()'s side-effects
-// ---------------------------------------------------------------------------
-
-/// Boots the real app using [appRouterProvider] from the enclosing ProviderScope.
-///
-/// Bypasses the main() entry-point side-effects that are incompatible with
-/// flutter_test (cert-pinning, FlutterNativeSplash, SystemChrome). All of
-/// those are platform-channel calls that flutter_test's binding does not route.
-/// The router, theme, and localisation delegates are identical to production.
-class _HarnessApp extends ConsumerWidget {
-  const _HarnessApp();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(appRouterProvider);
-    return MaterialApp.router(
-      debugShowCheckedModeBanner: false,
-      theme: velvetTheme(),
-      themeMode: ThemeMode.light,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      locale: const Locale('uk', 'UA'),
-      routerConfig: router,
-    );
-  }
-}
+// The real MaterialApp.router that this harness pumps is [E2eHarnessApp], in
+// `e2e_boot_policy.dart`. It used to be a private `_HarnessApp` here plus a
+// byte-identical private `_PatrolHarnessApp` in the patrol harness — one more
+// strand of the mirror this refactor removed.

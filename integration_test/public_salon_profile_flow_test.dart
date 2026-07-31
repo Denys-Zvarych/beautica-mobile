@@ -122,6 +122,16 @@ void main() {
       expect(salonCard, findsOneWidget);
 
       // ── Tap the salon card → push /salons/salon-xyz ────────────────────────
+      // `pumpUntilFound(results_list)` above returns when the DATA lands, which
+      // is unrelated to the route transition: /search/results is a plain
+      // MaterialPage (app_router.dart:441) and the app pins
+      // CupertinoPageTransitionsBuilder for every platform (app_theme.dart:37),
+      // so the page slides in from the right over 500 ms. Mid-slide the card is
+      // in the TREE (the findsOneWidget above passes) but its global centre can
+      // sit past the right edge of the 800x600 flutter-tester view, so tap()
+      // hits NOTHING and the push never happens. Gate on the card being
+      // genuinely hit-testable — a no-op once the page is home.
+      await AppHarness.pumpUntilFound(tester, salonCard.hitTestable());
       await tester.tap(salonCard);
       // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));

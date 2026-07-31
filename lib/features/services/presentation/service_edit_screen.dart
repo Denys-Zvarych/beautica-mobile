@@ -435,6 +435,13 @@ class _EditBodyState extends State<_EditBody>
                             // it shows a generic snackbar itself when no field
                             // matches, so onError is not invoked for 400s.
                             rethrow;
+                          } on ServiceDuplicateFailure {
+                            // Backend 409 DUPLICATE_SERVICE is mapped inline by
+                            // ServiceForm onto the service-type field. Rethrow
+                            // so it can claim it — routing it to onError would
+                            // show a transient snackbar and leave the offending
+                            // field unflagged, so the user re-hits the same 409.
+                            rethrow;
                           } catch (e) {
                             widget.onError(e);
                           }

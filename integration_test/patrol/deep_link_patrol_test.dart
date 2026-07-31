@@ -40,6 +40,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
 
 import '../../test/helpers/pump_app.dart';
+import '../support/e2e_boot_policy.dart';
 
 // The App Link host is locked to the production Railway domain in
 // AndroidManifest.xml's autoVerify intent-filter (pathPrefix /invite/accept). A
@@ -54,6 +55,24 @@ void main() {
   patrolTest(
     'deep link to invite-accept route opens the accept-invite screen',
     ($) async {
+      // ── SHARED BOOT POLICY ────────────────────────────────────────────────
+      //
+      // This flow does NOT use PatrolHarness (it drives the real app, not the
+      // fake-backend tree), so before 2026-07-31 it was the one patrol entry
+      // point that bypassed even the patrol harness's own mirrored setup —
+      // booting with the overflow guard off, the off-screen-tap guard off, the
+      // text-input mock unregistered, no timezone database, and an unprimed
+      // splash gate.
+      //
+      // "Uses a different tree" is not a reason to boot under different rules.
+      // Applying the shared policy here costs nothing this flow needs (it types
+      // no text, so the mock is inert; it asserts a screen-container key, which
+      // the splash priming only reaches sooner) and closes the last unguarded
+      // boot path. `addTearDown` undoes the splash-gate priming — this file has
+      // no PatrolHarness.tearDownHarness to do it.
+      applyE2eBootPolicy($.tester);
+      addTearDown(resetE2eBootPolicy);
+
       // Launch the REAL app tree. Under patrol native instrumentation the
       // platform channels main() touches (FlutterNativeSplash, SystemChrome,
       // cert-pinning) ARE available, but we pump BeauticaApp directly to keep

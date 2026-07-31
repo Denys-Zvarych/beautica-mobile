@@ -159,6 +159,13 @@ class _ServiceCreateScreenState extends ConsumerState<ServiceCreateScreen> {
                           // the failure had NO field this form renders — show
                           // the generic snackbar fallback.
                           rethrow;
+                        } on ServiceDuplicateFailure {
+                          // Backend 409 DUPLICATE_SERVICE is mapped inline by
+                          // ServiceForm onto the service-type field. Rethrow so
+                          // it can claim it — swallowing it here would show a
+                          // transient snackbar and leave the offending field
+                          // unflagged, so the user re-hits the same 409.
+                          rethrow;
                         } catch (e) {
                           if (context.mounted) {
                             _showFailureSnackbar(context, e);

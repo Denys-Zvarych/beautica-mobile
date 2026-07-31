@@ -830,7 +830,16 @@ final class FakeBackend {
   /// in [bulkRejectItemIndex], mirroring the backend's `@Max(480)` per-item
   /// validation. Off by default so every OTHER flow's bulk save (none today)
   /// stays a clean 201.
-  bool bulkRejectDurationField = false;
+  ///
+  /// RE-WIRES ON WRITE — see [createRejectDuplicate] for why a plain field
+  /// cannot work here (`onRoute` freezes the status code at registration time).
+  bool get bulkRejectDurationField => _bulkRejectDurationField;
+  set bulkRejectDurationField(bool value) {
+    _bulkRejectDurationField = value;
+    _wireBulkCreateServices();
+  }
+
+  bool _bulkRejectDurationField = false;
   int bulkRejectItemIndex = 0;
 
   /// When true, the single-create route
@@ -841,7 +850,34 @@ final class FakeBackend {
   /// `_mapServiceWriteException` → [ServiceDuplicateFailure] → inline
   /// service-type error on the form (NOT the generic errServer snackbar, and NO
   /// pop). Off by default so every other flow's create stays a clean 201.
-  bool createRejectDuplicate = false;
+  ///
+  /// RE-WIRES ON WRITE — DO NOT COLLAPSE BACK INTO A PLAIN FIELD
+  /// ------------------------------------------------------------
+  /// `DioAdapter.onRoute` invokes its `MockServerCallback` IMMEDIATELY, at
+  /// registration time (`http_mock_adapter/src/mixins/request_handling.dart`,
+  /// `requestHandlerCallback(matcher)`), and `replyCallback(statusCode, data)`
+  /// captures `statusCode` right there — only `data` stays lazy per-request.
+  /// So the original `replyCallback(createRejectDuplicate ? 409 : 201, …)`
+  /// evaluated the ternary inside [_wire] (called from the constructor), where
+  /// the flag is ALWAYS still false. Flipping it afterwards changed the BODY to
+  /// the DUPLICATE_SERVICE envelope but left the status at **201** — so
+  /// `HttpServiceRepository.create` saw a success, `_mapServiceWriteException`
+  /// never ran, and the flow could never observe [ServiceDuplicateFailure]. The
+  /// duplicate E2E was silently un-armed (it failed on the missing inline copy,
+  /// pointing at the screen rather than at this fake).
+  ///
+  /// Writing through a setter re-registers the route with the status the flag
+  /// now implies. `Recording.mockResponse` scans ALL matchers and keeps the
+  /// LAST one that matches, and `RequestMatcher` has no `==` override (identity
+  /// equality → `indexOf` returns the real index), so the freshly-appended
+  /// registration deterministically wins over the constructor's.
+  bool get createRejectDuplicate => _createRejectDuplicate;
+  set createRejectDuplicate(bool value) {
+    _createRejectDuplicate = value;
+    _wireCreateService();
+  }
+
+  bool _createRejectDuplicate = false;
 
   /// The `serviceName` the duplicate-409 envelope reports (the clashing service's
   /// display name). Threaded through so a flow can assert the typed field survives
@@ -2350,6 +2386,152 @@ final class FakeBackend {
 
   // ── Route wiring ───────────────────────────────────────────────────────────
 
+  // ── Status-flag routes (re-wired on every flag write) ─────────────────────
+  //
+  // `DioAdapter.onRoute` runs its `MockServerCallback` IMMEDIATELY (see
+  // `http_mock_adapter/src/mixins/request_handling.dart` → `onRoute`, which
+  // ends in `requestHandlerCallback(matcher)`), and `MockServer.replyCallback`
+  // captures `statusCode` at that moment — only the DATA callback is invoked
+  // per-request. Any route whose STATUS depends on a mutable [FakeBackend]
+  // flag therefore CANNOT be registered once from [_wire]: the flag is still
+  // at its default when the constructor runs, so the status is frozen there
+  // forever while the body silently switches to the error envelope. That is a
+  // fake that answers `201 {success:false, …}` / `200 {success:false, …}` — a
+  // shape no real backend ever emits and no repository error path can see, so
+  // the E2E asserting the error surface fails pointing at the SCREEN.
+  //
+  // These methods exist so the flag setters can re-register the route with the
+  // status the flag now implies. Re-registration wins because
+  // `Recording.mockResponse` keeps the LAST matcher that matches the request.
+  //
+  // RULE: never inline one of these back into [_wire], and never add a new
+  // `server.reply*(<flag> ? … : …, …)` directly in [_wire] — give it a
+  // `_wireX()` + re-wiring setter like these two.
+
+  /// (Re-)registers `POST /api/v1/independent-masters/me/services`.
+  /// See [createRejectDuplicate].
+  void _wireCreateService() {
+    _adapter.onRoute(
+      '/api/v1/independent-masters/me/services',
+      (server) =>
+          server.replyCallback(_createRejectDuplicate ? 409 : 201, (req) {
+            createServiceCalls++;
+            if (_createRejectDuplicate) {
+              return <String, dynamic>{
+                'success': false,
+                'data': <String, dynamic>{
+                  'code': 'DUPLICATE_SERVICE',
+                  'serviceName': createDuplicateServiceName,
+                  'existingServiceDefId': 'def-existing',
+                },
+                'message': 'This service already exists',
+              };
+            }
+            final body = _decodeBody(req.data);
+            final defId = 'svc-$_nextServiceSeq';
+            final assignId = 'assign-$_nextServiceSeq';
+            final name = body['name'] as String? ?? 'New Service';
+            final priceType = body['priceType'] as String? ?? 'FIXED';
+            final newService = <String, dynamic>{
+              'id': assignId,
+              'masterId': 'user-master-1',
+              'isActive': true,
+              'priceType': priceType,
+              'priceMin': body['price'] ?? body['priceMin'] ?? 0,
+              'priceMax': body['priceMax'],
+              'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
+              'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
+              'serviceDefinition': <String, dynamic>{
+                'id': defId,
+                'name': name,
+                'description': null,
+                'category': body['categoryName'] ?? 'NAILS',
+                'baseDurationMinutes': body['durationMinutes'] ?? 60,
+                'bufferMinutesAfter': 0,
+                'isActive': true,
+                'priceType': priceType,
+                'priceMin': body['price'] ?? body['priceMin'] ?? 0,
+                'priceMax': body['priceMax'],
+                'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
+                'photoUrl': null,
+              },
+            };
+            _nextServiceSeq++;
+            _services.add(newService);
+            lastCreatedService = newService;
+            return _ok(newService);
+          }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `POST /api/v1/independent-masters/me/services/bulk`.
+  /// See [bulkRejectDurationField].
+  void _wireBulkCreateServices() {
+    // POST /api/v1/independent-masters/me/services/bulk — first-time bulk setup.
+    // A DISTINCT path from the single-create route above (exact-string match, so
+    // no collision). Default: 201 echoing one created service per submitted item.
+    // When [bulkRejectDurationField] is set, replies 400 with the backend's
+    // per-field envelope keyed on `items[<bulkRejectItemIndex>].durationMinutes`
+    // — the shape ErrorMapperInterceptor maps to ValidationFailure.fieldErrors,
+    // driving the screen's inline per-row error (NOT the generic snackbar).
+    _adapter.onRoute(
+      '/api/v1/independent-masters/me/services/bulk',
+      (server) => server.replyCallback(_bulkRejectDurationField ? 400 : 200, (
+        req,
+      ) {
+        bulkCreateCalls++;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        lastBulkItems = items;
+        if (_bulkRejectDurationField) {
+          return <String, dynamic>{
+            'success': false,
+            'message': 'Validation failed',
+            'errors': <String, dynamic>{
+              'items[$bulkRejectItemIndex].durationMinutes':
+                  'Duration must be at most 480 minutes (8 hours)',
+            },
+          };
+        }
+        // Success: echo a created service per submitted item so the envelope
+        // shape matches ApiResponse<List<MasterServiceResponse>>.
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final defId = 'svc-bulk-$_nextServiceSeq';
+          created.add(<String, dynamic>{
+            'id': 'assign-bulk-$_nextServiceSeq',
+            'masterId': 'user-master-1',
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': defId,
+              'name': 'Bulk service $_nextServiceSeq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+              'photoUrl': null,
+            },
+          });
+          _nextServiceSeq++;
+        }
+        return _okList(created);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
   void _wire() {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
     _adapter.onRoute(
@@ -2984,126 +3166,9 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // POST /api/v1/independent-masters/me/services
-    // Default: 201 echoing the created service. When [createRejectDuplicate] is
-    // set, replies HTTP 409 with the typed DUPLICATE_SERVICE envelope so the
-    // repository maps it to ServiceDuplicateFailure and the form flags the
-    // service-type field inline (never a pop / generic errServer snackbar).
-    _adapter.onRoute(
-      '/api/v1/independent-masters/me/services',
-      (server) =>
-          server.replyCallback(createRejectDuplicate ? 409 : 201, (req) {
-            createServiceCalls++;
-            if (createRejectDuplicate) {
-              return <String, dynamic>{
-                'success': false,
-                'data': <String, dynamic>{
-                  'code': 'DUPLICATE_SERVICE',
-                  'serviceName': createDuplicateServiceName,
-                  'existingServiceDefId': 'def-existing',
-                },
-                'message': 'This service already exists',
-              };
-            }
-            final body = _decodeBody(req.data);
-            final defId = 'svc-$_nextServiceSeq';
-            final assignId = 'assign-$_nextServiceSeq';
-            final name = body['name'] as String? ?? 'New Service';
-            final priceType = body['priceType'] as String? ?? 'FIXED';
-            final newService = <String, dynamic>{
-              'id': assignId,
-              'masterId': 'user-master-1',
-              'isActive': true,
-              'priceType': priceType,
-              'priceMin': body['price'] ?? body['priceMin'] ?? 0,
-              'priceMax': body['priceMax'],
-              'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
-              'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
-              'serviceDefinition': <String, dynamic>{
-                'id': defId,
-                'name': name,
-                'description': null,
-                'category': body['categoryName'] ?? 'NAILS',
-                'baseDurationMinutes': body['durationMinutes'] ?? 60,
-                'bufferMinutesAfter': 0,
-                'isActive': true,
-                'priceType': priceType,
-                'priceMin': body['price'] ?? body['priceMin'] ?? 0,
-                'priceMax': body['priceMax'],
-                'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
-                'photoUrl': null,
-              },
-            };
-            _nextServiceSeq++;
-            _services.add(newService);
-            lastCreatedService = newService;
-            return _ok(newService);
-          }),
-      request: const Request(method: RequestMethods.post, data: Matchers.any),
-    );
+    _wireCreateService();
 
-    // POST /api/v1/independent-masters/me/services/bulk — first-time bulk setup.
-    // A DISTINCT path from the single-create route above (exact-string match, so
-    // no collision). Default: 201 echoing one created service per submitted item.
-    // When [bulkRejectDurationField] is set, replies 400 with the backend's
-    // per-field envelope keyed on `items[<bulkRejectItemIndex>].durationMinutes`
-    // — the shape ErrorMapperInterceptor maps to ValidationFailure.fieldErrors,
-    // driving the screen's inline per-row error (NOT the generic snackbar).
-    _adapter.onRoute(
-      '/api/v1/independent-masters/me/services/bulk',
-      (server) => server.replyCallback(bulkRejectDurationField ? 400 : 200, (
-        req,
-      ) {
-        bulkCreateCalls++;
-        final body = _decodeBody(req.data);
-        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
-        lastBulkItems = items;
-        if (bulkRejectDurationField) {
-          return <String, dynamic>{
-            'success': false,
-            'message': 'Validation failed',
-            'errors': <String, dynamic>{
-              'items[$bulkRejectItemIndex].durationMinutes':
-                  'Duration must be at most 480 minutes (8 hours)',
-            },
-          };
-        }
-        // Success: echo a created service per submitted item so the envelope
-        // shape matches ApiResponse<List<MasterServiceResponse>>.
-        final created = <Map<String, dynamic>>[];
-        for (final item in items) {
-          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
-          final defId = 'svc-bulk-$_nextServiceSeq';
-          created.add(<String, dynamic>{
-            'id': 'assign-bulk-$_nextServiceSeq',
-            'masterId': 'user-master-1',
-            'isActive': true,
-            'priceType': map['priceType'] ?? 'FIXED',
-            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
-            'priceMax': map['priceMax'],
-            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
-            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
-            'serviceDefinition': <String, dynamic>{
-              'id': defId,
-              'name': 'Bulk service $_nextServiceSeq',
-              'description': null,
-              'category': 'NAILS',
-              'baseDurationMinutes': map['durationMinutes'] ?? 60,
-              'bufferMinutesAfter': 0,
-              'isActive': true,
-              'priceType': map['priceType'] ?? 'FIXED',
-              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
-              'priceMax': map['priceMax'],
-              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
-              'photoUrl': null,
-            },
-          });
-          _nextServiceSeq++;
-        }
-        return _okList(created);
-      }),
-      request: const Request(method: RequestMethods.post, data: Matchers.any),
-    );
+    _wireBulkCreateServices();
 
     // GET /api/v1/independent-masters/me/services/:id
     // Wired for the two pre-seeded services (keyed by serviceDefId in the path).
