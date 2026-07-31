@@ -70,6 +70,7 @@
 
 import 'dart:convert';
 
+import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:dio/dio.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
@@ -229,6 +230,24 @@ final class FakeBackend {
     : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
+    // PARITY WITH PRODUCTION. `dioProvider` (lib/core/network/dio_provider.dart)
+    // installs ErrorMapperInterceptor on every real Dio; without it here the
+    // harness silently diverged from the app on EVERY non-2xx response.
+    //
+    // The interceptor is what parses a 400's `errors` map into
+    // `ValidationFailure.fieldErrors`. Missing it, a 400 reached the repository
+    // as a bare DioException with `error == null`, so `if (e.error is Failure)`
+    // was false, `_mapDioException` returned `ValidationFailure(fieldErrors:
+    // const {})`, and the per-field map was DISCARDED — screens that render
+    // inline field errors fell through to their generic snackbar instead. That
+    // made a working production path look broken in E2E (see
+    // service_setup_field_error_flow_test.dart).
+    //
+    // Only ErrorMapperInterceptor is installed. AuthInterceptor / RefreshInterceptor
+    // are deliberately omitted: FakeBackend accepts any token and never replies
+    // 401, and RefreshInterceptor would need a live refresh endpoint + retry
+    // queue that no flow exercises.
+    dio.interceptors.add(ErrorMapperInterceptor());
     _wire();
   }
 

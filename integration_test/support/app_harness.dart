@@ -624,6 +624,35 @@ abstract final class AppHarness {
     );
   }
 
+  /// Pumps until [FakeBackend.loginCalls] advances past [callsBefore], and
+  /// reports whether it did — WITHOUT throwing.
+  ///
+  /// The non-throwing contract is the point. [pumpUntilCondition] is the right
+  /// tool when a missing condition IS the failure, but here a negative result
+  /// is a legitimate branch: [loginAs] wants to retry the tap once and, failing
+  /// that, report through its own field-aware diagnostic (which names WHY the
+  /// submit did not take — dropped `enterText` vs. an absorbed tap). Throwing a
+  /// generic "condition never came true" here would pre-empt that far better
+  /// message.
+  ///
+  /// Bounded well under [settleTimeout] — [FakeBackend] serves from memory, so
+  /// anything approaching this bound is a genuine "the tap never landed", not
+  /// slowness.
+  static Future<bool> _pumpUntilLoginDispatched(
+    WidgetTester tester,
+    FakeBackend fakeBackend,
+    int callsBefore, {
+    Duration timeout = const Duration(seconds: 5),
+    Duration step = const Duration(milliseconds: 50),
+  }) async {
+    final DateTime deadline = DateTime.now().add(timeout);
+    while (fakeBackend.loginCalls == callsBefore) {
+      if (DateTime.now().isAfter(deadline)) return false;
+      await tester.pump(step);
+    }
+    return true;
+  }
+
   // ── Convenience: drive the login flow to completion ───────────────────────
 
   /// Drives the real login form with the fixture email for [role], taps Submit,
@@ -655,6 +684,23 @@ abstract final class AppHarness {
     // instead of corrupting the shared isolate's binding mid-frame.
     await settle(tester);
 
+    // READINESS, NOT EXISTENCE (phase 26.x flake fix). `settle` only proves no
+    // frame is scheduled — it does NOT prove the login form is mounted. Any
+    // change that shifts auth resolution by even one microtask (e.g. adding an
+    // interceptor to FakeBackend's Dio, which inserts an extra async hop into
+    // every response) can make the settle above return while the router is
+    // still on /splash, and the very next `enterText` then fails with
+    // "Found 0 widgets with key [<'login_email'>]". Wait on the widgets we are
+    // about to drive instead of assuming the settle implied them.
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('login_email')),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('login_password')),
+    );
+
     // We should be on the login screen — fill the fields and submit.
     await tester.enterText(
       find.byKey(const ValueKey<String>('login_email')),
@@ -684,12 +730,27 @@ abstract final class AppHarness {
     // Ensure the submit button is on-screen + interactive before tapping
     // (best-effort: only scrolls if the form has a Scrollable ancestor).
     final Finder submit = find.byKey(const ValueKey<String>('login_submit'));
+
+    // Existence first — otherwise `ensureVisible` throws "Found 0 widgets" and
+    // the bare `catch (_)` below SWALLOWS it, deferring the failure to the tap
+    // where it reads as an unrelated absorption problem.
+    await pumpUntilFound(tester, submit);
     try {
       await tester.ensureVisible(submit);
       await settle(tester);
     } catch (_) {
       // No scrollable ancestor / already fully visible — nothing to do.
     }
+
+    // …then INTERACTABILITY. `hitTestable()` is the readiness condition the
+    // plain finder cannot express: during an in-flight route transition the
+    // login subtree is mounted but sits under a RenderAbsorbPointer /
+    // RenderIgnorePointer / RenderOffstage, so it EXISTS while every tap on it
+    // is swallowed (see the flake-guard comment at the top of this method).
+    // Waiting on `.hitTestable()` — the idiom already used across the
+    // client_search / public_salon / service_duplicate flows — waits for the
+    // barrier to lift rather than retrying the tap and hoping.
+    await pumpUntilFound(tester, submit.hitTestable());
 
     // Tap submit and confirm it actually triggered _submit(). If the tap was
     // absorbed (loginCalls did not advance), settle and retry ONCE, then fail
@@ -698,13 +759,48 @@ abstract final class AppHarness {
     // loginAs() calls within one test stay correct.
     final int callsBefore = fakeBackend.loginCalls;
     await tester.tap(submit);
-    await tester.pump();
-    await tester.pump();
-    if (fakeBackend.loginCalls == callsBefore) {
+
+    // WAIT ON THE OBSERVABLE, NOT A PUMP COUNT.
+    //
+    // This used to be a bare `pump(); pump();` followed by
+    // `if (loginCalls == callsBefore) { retry }` — i.e. it treated "two frames
+    // elapsed" as "the request has definitely been dispatched". That is the
+    // same existence-vs-readiness assumption as the finders above, just
+    // expressed on a frame count instead of a widget, and it is FALSE the
+    // moment anything adds an async hop to the Dio pipeline. Installing
+    // ErrorMapperInterceptor on FakeBackend's Dio does exactly that: even an
+    // onError-only interceptor is walked by Dio's request chain, so the adapter
+    // handler (which increments [FakeBackend.loginCalls]) now lands one
+    // microtask later than it used to.
+    //
+    // The concrete failure that produced: tap #1 SUCCEEDS, `loginCalls` has not
+    // caught up after two pumps, the guard concludes "absorbed" and enters the
+    // retry branch — but its `settle()` lets the login complete and the router
+    // navigate to the authenticated home, so `login_submit` is gone and the
+    // retry `tap()` dies with "Found 0 widgets with key [<'login_submit'>]".
+    // A green login was reported as an absorbed tap.
+    //
+    // Polling the counter is not a sleep and not a retry mask: `loginCalls` IS
+    // the condition the guard wants to know about, and the bound is short
+    // (FakeBackend answers from memory in well under a frame). The retry below
+    // is now reachable ONLY when the call genuinely never happened.
+    final bool dispatched = await _pumpUntilLoginDispatched(
+      tester,
+      fakeBackend,
+      callsBefore,
+    );
+    if (!dispatched) {
       await settle(tester);
-      await tester.tap(submit);
-      await tester.pump();
-      await tester.pump();
+      // Re-check interactability before tapping again. Without this the retry
+      // can fire at a moment when the login screen has already been replaced,
+      // turning a recoverable situation into a raw "Found 0 widgets" crash that
+      // buries the honest diagnostic below.
+      if (submit.hitTestable().evaluate().isNotEmpty) {
+        await tester.tap(submit);
+        // Result deliberately not captured: the expect() below reads
+        // `loginCalls` directly and is the single authority on the outcome.
+        await _pumpUntilLoginDispatched(tester, fakeBackend, callsBefore);
+      }
     }
     // DIAGNOSE HONESTLY. The pre-2026-07-22 version of this guard asserted
     // "the button was absorbed by an in-flight overlay/route transition"
