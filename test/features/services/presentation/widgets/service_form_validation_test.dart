@@ -40,6 +40,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks + fallbacks
@@ -152,6 +153,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
           approvedCategoriesProvider.overrideWith((ref) async => categories),

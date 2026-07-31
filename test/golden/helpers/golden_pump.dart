@@ -55,6 +55,7 @@ export 'package:alchemist/alchemist.dart'
         onlyPumpAndSettle,
         pumpOnce;
 export 'package:flutter/material.dart' show BoxConstraints, Size;
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -123,6 +124,7 @@ PumpWidget goldenPumpWidget({
     // alchemistWidget (FlutterGoldenTestWrapper → scene).
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         // Cast mirrors pump_app.dart — ProviderScope.overrides accepts
         // List<Override>; callers pass plain override expressions without
         // needing to import the sealed Override type.

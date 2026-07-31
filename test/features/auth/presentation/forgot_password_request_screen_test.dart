@@ -44,6 +44,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 GoRouter _makeRouter() => GoRouter(
   initialLocation: RouteNames.forgotPassword,
@@ -72,6 +73,7 @@ Future<void> _pump(WidgetTester tester, FakeAuthRepository repo) async {
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),

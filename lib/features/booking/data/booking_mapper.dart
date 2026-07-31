@@ -10,10 +10,14 @@
 // Error contract (mirrors `SalonMapper.fromDto` — ServerFailure for a missing
 // required id):
 //   - [BookingMapper.fromDto] requires [BookingDetailResponse.id],
-//     [BookingDetailResponse.status], [BookingDetailResponse.startsAt], and
-//     [BookingDetailResponse.endsAt] — a null value on any of these means the
-//     backend contract is broken (a booking with no id/status/time makes no
-//     sense downstream) and surfaces as [ServerFailure]. All other nullable
+//     [BookingDetailResponse.startsAt], and [BookingDetailResponse.endsAt] — a
+//     null value on any of these means the backend contract is broken (a
+//     booking with no id/time makes no sense downstream) and surfaces as
+//     [ServerFailure]. [BookingDetailResponse.status] is NOT in that set: a
+//     null status decodes to [BookingStatus.unknown] and the row is kept, both
+//     because the backend omitting it is survivable and because that null is
+//     how `UnknownEnumTolerancePlugin` reports a status wire value this build
+//     does not recognise. All other nullable
 //     fields fall back to a safe default ('' / 0 / 0.0 / false), EXCEPT
 //     `priceMaxAtBooking`, whose null is a real signal ("single price") and is
 //     carried through as `Booking.priceMax == null` — see that field's doc.
@@ -52,23 +56,20 @@ import '../domain/working_day.dart';
 abstract final class BookingMapper {
   /// Maps a [BookingDetailResponse] DTO to the domain [Booking] model.
   ///
-  /// Throws [ServerFailure] (statusCode `null`) when [dto.id], [dto.status],
-  /// [dto.startsAt], or [dto.endsAt] is absent. An unrecognised [dto.status]
-  /// wire value does NOT throw — it decodes to [BookingStatus.unknown] and the
-  /// booking is returned — see the file header.
+  /// Throws [ServerFailure] (statusCode `null`) when [dto.id], [dto.startsAt],
+  /// or [dto.endsAt] is absent. [dto.status] is deliberately NOT in that set:
+  /// an unrecognised — or entirely absent — status does NOT throw, it decodes
+  /// to [BookingStatus.unknown] and the booking is returned. See the file
+  /// header.
   static Booking fromDto(BookingDetailResponse dto) {
     final id = dto.id;
     final statusDto = dto.status;
     final startsAt = dto.startsAt;
     final endsAt = dto.endsAt;
-    if (id == null ||
-        id.isEmpty ||
-        statusDto == null ||
-        startsAt == null ||
-        endsAt == null) {
+    if (id == null || id.isEmpty || startsAt == null || endsAt == null) {
       if (kDebugMode) {
         log(
-          'BookingDetailResponse missing id/status/startsAt/endsAt — broken '
+          'BookingDetailResponse missing id/startsAt/endsAt — broken '
           'backend contract',
           name: 'feature.booking.mapper',
           level: 1000,
@@ -96,7 +97,22 @@ abstract final class BookingMapper {
     // has been removed rather than left as dead reassurance. The resilience
     // loop below still guards every OTHER mapping failure (missing id /
     // startsAt / endsAt → ServerFailure).
-    final BookingStatus status = BookingStatus.fromWire(statusDto.name);
+    //
+    // A NULL `statusDto` also lands on [BookingStatus.unknown] rather than the
+    // `ServerFailure` above, and this is the wiring that finally makes the
+    // whole paragraph true on the real network path. The generated DTO enum
+    // has no unknown member and its serializer THREW on any sixth wire value,
+    // one layer BELOW this mapper — so `fromWire`'s fallback and
+    // [fromDtoList]'s resilience loop were both dead code on the wire.
+    // `UnknownEnumTolerancePlugin` (`core/network/`) now strips an
+    // unrecognised status out of the payload before it reaches that
+    // serializer, which surfaces here as `status == null`. Treating that as
+    // `unknown` is the same keep-and-deny trade the rest of this comment
+    // argues for, and it also covers the pre-existing "backend omitted status
+    // entirely" case, which used to drop the row outright.
+    final BookingStatus status = statusDto == null
+        ? BookingStatus.unknown
+        : BookingStatus.fromWire(statusDto.name);
 
     return Booking(
       id: id,

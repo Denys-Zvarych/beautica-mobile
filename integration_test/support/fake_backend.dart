@@ -727,6 +727,16 @@ final class FakeBackend {
   /// working-days query — the Phase 14.20 wiring under test.
   String? lastMasterAaaWorkingDaysServiceId;
 
+  /// The FULL, ordered `serviceId` list the most recent
+  /// `master-aaa/working-days` request carried (`null` when the param was
+  /// absent = schedule-shape mode). [lastMasterAaaWorkingDaysServiceId] is the
+  /// scalar view of the same read and is kept because existing assertions
+  /// depend on it; this field is what makes the MULTI-service selection
+  /// assertable — the generated client sends `serviceId` as a repeated param,
+  /// so a multi-service booking threads N ids and the scalar view silently
+  /// keeps only the first.
+  List<String>? lastMasterAaaWorkingDaysServiceIds;
+
   /// `GET /api/v1/salons/{salonId}/services/{serviceDefId}/masters` call
   /// count (Phase 23.x bookable-masters rewire) — the salon booking flow's
   /// `salonMasterServiceCoverageProvider` now calls this ONCE PER SELECTED
@@ -2334,6 +2344,68 @@ final class FakeBackend {
     return <String>[raw.toString()];
   }
 
+  /// Reads a multi-valued query param that the GENERATED api client sends via
+  /// [encodeCollectionQueryParameter] — i.e. as a Dio [ListParam], not as a
+  /// bare `List` and not as a scalar.
+  ///
+  /// This is the third shape this file has had to learn (see
+  /// [_bookingStatusesFrom]'s doc comment for the first two, and the
+  /// `TypeError`-inside-the-route-callback failure mode it describes — it is
+  /// IDENTICAL here). Since the `d42c7cf1` OpenAPI regen, `serviceId` on
+  /// `/masters/{id}/working-days` and `/masters/{id}/slots` is declared
+  /// list-valued, so `master_controller_api.dart` wraps it in
+  /// `ListParam<Object?>{value: [...], format: ListFormat.multi}`. Reading it
+  /// as `query['serviceId'] as String?` threw inside the callback, the request
+  /// failed, and `workingDaysProvider` went `AsyncError` — surfacing as
+  /// `_WorkingDaysErrorBody` instead of the calendar grid rather than as an
+  /// obviously-broken fake.
+  ///
+  /// Accepts all four shapes so the helper survives the next regen too:
+  /// [ListParam] → its `value`; raw `List` → itself; scalar → one-element
+  /// list; absent/null → null (no constraint).
+  static List<String>? _multiQueryParam(
+    Map<String, dynamic> query,
+    String key,
+  ) {
+    final Object? raw = query[key];
+    if (raw == null) return null;
+    if (raw is ListParam) {
+      return raw.value.map((Object? e) => e.toString()).toList(growable: false);
+    }
+    if (raw is List) {
+      return raw.map((Object? e) => e.toString()).toList(growable: false);
+    }
+    return <String>[raw.toString()];
+  }
+
+  /// The FIRST value of a query param that this fake treats as scalar, read
+  /// through the shape-tolerant [_multiQueryParam] rather than by casting.
+  ///
+  /// Use this for EVERY scalar query-param read instead of
+  /// `query['key'] as String?`. The direct cast is banned by
+  /// `scripts/forbid_raw_query_param_cast.sh` because it is a latent
+  /// `TypeError`-inside-the-route-callback bomb: a param that is scalar today
+  /// becomes a Dio [ListParam] the moment an OpenAPI regen re-declares it
+  /// list-valued, and the throw surfaces as an ERROR BODY in the widget tree
+  /// (or a silently-empty list), never as an obviously-broken fake. That exact
+  /// bug has landed three times in this file — `status`, then `serviceId` on
+  /// working-days, then `serviceId` on slots.
+  ///
+  /// Returns null when the param is absent or present-but-empty.
+  static String? _scalarQueryParam(Map<String, dynamic> query, String key) {
+    final List<String>? values = _multiQueryParam(query, key);
+    if (values == null || values.isEmpty) return null;
+    return values.first;
+  }
+
+  /// The single `serviceId` a request carried, for the (overwhelmingly common)
+  /// single-service case — `null` when the param is absent entirely. Callers
+  /// that care about the MULTI-service selection read [_multiQueryParam]
+  /// directly; this is the scalar convenience view that the pre-existing
+  /// `lastMaster…ServiceId` telemetry fields are typed for.
+  static String? _serviceIdFrom(Map<String, dynamic> query) =>
+      _scalarQueryParam(query, 'serviceId');
+
   /// Defensive int query-param read — mirrors `_pageFromRequest` elsewhere in
   /// this file: DioAdapter sometimes hands back the original Dart `int` dio
   /// was called with, sometimes a stringified value, depending on the
@@ -2358,7 +2430,7 @@ final class FakeBackend {
   Map<String, dynamic> _slicedBookingsPageEnvelope(Map<String, dynamic> query) {
     final List<Map<String, dynamic>> dataset = _bookingsDataset!;
     final List<String>? statuses = _bookingStatusesFrom(query);
-    final String sort = (query['sort'] as String?) ?? 'startsAt,desc';
+    final String sort = _scalarQueryParam(query, 'sort') ?? 'startsAt,desc';
     final bool ascending = sort.endsWith(',asc');
     final int page = _intQueryParam(query, 'page', 0);
     final int size = _intQueryParam(query, 'size', 20);
@@ -2807,7 +2879,10 @@ final class FakeBackend {
       '/api/v1/masters/$masterRowId/reviews',
       (server) => server.replyCallback(200, (req) {
         getMasterReviewsCalls++;
-        lastGetMasterReviewsSort = req.queryParameters['sort'] as String?;
+        lastGetMasterReviewsSort = _scalarQueryParam(
+          req.queryParameters,
+          'sort',
+        );
         final List<Map<String, dynamic>> rows = _masterReviewsFor(
           lastGetMasterReviewsSort,
         );
@@ -2898,7 +2973,10 @@ final class FakeBackend {
       '/api/v1/masters/master-aaa/reviews',
       (server) => server.replyCallback(200, (req) {
         getPublicMasterReviewsCalls++;
-        lastGetPublicMasterReviewsSort = req.queryParameters['sort'] as String?;
+        lastGetPublicMasterReviewsSort = _scalarQueryParam(
+          req.queryParameters,
+          'sort',
+        );
         final List<Map<String, dynamic>> rows = _publicMasterReviewsFor(
           lastGetPublicMasterReviewsSort,
         );
@@ -2994,7 +3072,14 @@ final class FakeBackend {
         // Phase 14.20: the fixed booking calendar threads the chosen service's
         // id into this query (availability-aware mode). Record it, and answer
         // in the same mode the request asked for.
-        final String? serviceId = req.queryParameters['serviceId'] as String?;
+        final List<String>? serviceIds = _multiQueryParam(
+          req.queryParameters,
+          'serviceId',
+        );
+        final String? serviceId = (serviceIds == null || serviceIds.isEmpty)
+            ? null
+            : serviceIds.first;
+        lastMasterAaaWorkingDaysServiceIds = serviceIds;
         lastMasterAaaWorkingDaysServiceId = serviceId;
         return _workingDaysEnvelope(serviceId: serviceId);
       }),
@@ -3027,8 +3112,7 @@ final class FakeBackend {
       '/api/v1/masters/master-ccc/slots',
       (server) => server.replyCallback(200, (req) {
         getMasterSlotsCalls++;
-        lastMasterCccSlotsServiceId =
-            req.queryParameters['serviceId'] as String?;
+        lastMasterCccSlotsServiceId = _serviceIdFrom(req.queryParameters);
         return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
@@ -3045,8 +3129,7 @@ final class FakeBackend {
       '/api/v1/masters/master-ddd/slots',
       (server) => server.replyCallback(200, (req) {
         getMasterSlotsCalls++;
-        lastMasterDddSlotsServiceId =
-            req.queryParameters['serviceId'] as String?;
+        lastMasterDddSlotsServiceId = _serviceIdFrom(req.queryParameters);
         return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
@@ -3123,7 +3206,10 @@ final class FakeBackend {
       '/api/v1/salons/salon-xyz/reviews',
       (server) => server.replyCallback(200, (req) {
         getSalonReviewsCalls++;
-        lastGetSalonReviewsSort = req.queryParameters['sort'] as String?;
+        lastGetSalonReviewsSort = _scalarQueryParam(
+          req.queryParameters,
+          'sort',
+        );
         return _searchEnvelope(
           _salonReviews,
           page: 0,
@@ -3549,7 +3635,7 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         getServiceTypesCalls++;
         final String category =
-            (req.queryParameters['categoryName'] as String?) ?? '';
+            _scalarQueryParam(req.queryParameters, 'categoryName') ?? '';
         lastServiceTypesCategory = category;
         return _okList(_serviceTypesFor(category));
       }),

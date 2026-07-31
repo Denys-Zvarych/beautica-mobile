@@ -25,7 +25,9 @@
 // query keys, not one nested blob). [getMyBookings] therefore bypasses
 // `listMyBookings` and issues a raw GET through the shared authenticated
 // [Dio] with flat query params, deserializing the response with the SAME
-// [standardSerializers] the generated client uses.
+// [beauticaSerializers] the generated client is built on in
+// `booking_providers.dart` — the tolerant instance, so an unrecognised booking
+// status degrades identically on the list and the detail path.
 //
 // NAMING COLLISION: the domain `CreateBookingRequest`
 // (`features/booking/domain/create_booking_request.dart`) and the generated
@@ -43,6 +45,7 @@ import 'package:beautica_api/beautica_api.dart'
     as wire
     show CreateBookingRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/beautica_serializers.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:built_value/serializer.dart';
@@ -380,19 +383,7 @@ final class HttpBookingRepository implements BookingRepository {
         },
         cancelToken: cancelToken,
       );
-      final decoded =
-          _deserialize<ApiResponsePageResponseBookingDetailResponse>(
-            response.data,
-            const FullType(ApiResponsePageResponseBookingDetailResponse),
-          );
-      final pageDto = decoded?.data;
-      final content = pageDto?.data ?? const <BookingDetailResponse>[];
-      return PageResponse<Booking>(
-        items: BookingMapper.fromDtoList(content),
-        page: pageDto?.page ?? page,
-        totalPages: pageDto?.totalPages ?? 0,
-        totalElements: pageDto?.totalElements ?? 0,
-      );
+      return _decodeBookingsPage(response.data, requestedPage: page);
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {
@@ -704,9 +695,104 @@ final class HttpBookingRepository implements BookingRepository {
     );
   }
 
-  /// Deserializes a raw JSON [data] map via the SAME [standardSerializers]
-  /// the generated client uses. Returns `null` when [data] is null (an empty
-  /// body).
+  /// Decodes the `GET /bookings/me` envelope ROW BY ROW.
+  ///
+  /// This used to be one `_deserialize<ApiResponsePageResponseBookingDetail
+  /// Response>` call over the whole envelope, which made the page ATOMIC: any
+  /// single unparseable row threw, the throw propagated as a [Failure], and
+  /// «Мої записи» rendered EMPTY — the one outcome
+  /// [BookingMapper.fromDtoList]'s `on Failure { continue; }` loop exists to
+  /// prevent. That loop was unreachable, because the failure happened one
+  /// layer below it, during envelope deserialization.
+  ///
+  /// Deserializing each row on its own restores the intended contract: a
+  /// malformed row is skipped and logged, every sibling row still renders, and
+  /// the page counters still come off the envelope. Row COUNT is deliberately
+  /// NOT recomputed from the surviving rows — `totalElements`/`totalPages` are
+  /// the SERVER's pagination cursor state and must stay authoritative, or a
+  /// dropped row would shorten the list AND convince the pager it had reached
+  /// the end.
+  ///
+  /// ROW tolerance is NOT envelope tolerance. The row loop's leniency stops at
+  /// the row boundary: an absent or wrong-shaped `data` / `data.data` throws
+  /// [UnknownFailure], exactly as the old whole-envelope decode did. Degrading
+  /// a malformed envelope to `PageResponse(items: [], totalPages: 0,
+  /// totalElements: 0)` would render byte-identically to the legitimate "you
+  /// have no bookings yet" empty state — no error copy, no retry affordance,
+  /// no way for the user to tell a broken response from an empty account. That
+  /// is strictly worse than the atomic failure this method was written to
+  /// avoid, and it would also contradict the sibling [getBookingById], which
+  /// still throws on a null envelope.
+  ///
+  /// An envelope that is well-formed but carries ZERO rows (`data.data: []`)
+  /// is a legitimate empty page and returns normally.
+  PageResponse<Booking> _decodeBookingsPage(
+    Map<String, dynamic>? body, {
+    required int requestedPage,
+  }) {
+    final Object? pageJson = body?['data'];
+    if (pageJson is! Map<String, dynamic>) {
+      throw _malformedBookingsEnvelope('data', pageJson);
+    }
+    final Map<String, dynamic> pageMap = pageJson;
+    final Object? rowsJson = pageMap['data'];
+    if (rowsJson is! List) {
+      throw _malformedBookingsEnvelope('data.data', rowsJson);
+    }
+
+    final List<BookingDetailResponse> rows = <BookingDetailResponse>[];
+    for (final Object? rowJson in rowsJson) {
+      if (rowJson is! Map<String, dynamic>) continue;
+      try {
+        final BookingDetailResponse? dto = _deserialize<BookingDetailResponse>(
+          rowJson,
+          const FullType(BookingDetailResponse),
+        );
+        if (dto != null) rows.add(dto);
+      } on Failure {
+        // Already logged by [_deserialize]. One broken row must not blank
+        // the page — that is this method's entire reason to exist.
+        continue;
+      }
+    }
+
+    return PageResponse<Booking>(
+      items: BookingMapper.fromDtoList(rows),
+      page: _intOr(pageMap['page'], requestedPage),
+      totalPages: _intOr(pageMap['totalPages'], 0),
+      totalElements: _intOr(pageMap['totalElements'], 0),
+    );
+  }
+
+  /// Builds (and logs) the [UnknownFailure] for a `GET /bookings/me` envelope
+  /// whose [field] is absent or of the wrong JSON type.
+  ///
+  /// Only the RUNTIME TYPE of the offending value is logged, never its
+  /// contents — a bookings envelope carries client names and other PII, and
+  /// this log line survives into any attached crash reporter.
+  Failure _malformedBookingsEnvelope(String field, Object? value) {
+    if (kDebugMode) {
+      log(
+        'getMyBookings envelope malformed: "$field" is ${value.runtimeType}, '
+        'expected ${field == 'data' ? 'a JSON object' : 'a JSON array'}',
+        name: _tag,
+        level: 1000,
+      );
+    }
+    return const UnknownFailure();
+  }
+
+  /// Defensive int read off a raw JSON envelope — the transport hands back a
+  /// Dart `int` or a stringified number depending on the path.
+  static int _intOr(Object? raw, int fallback) => switch (raw) {
+    final int value => value,
+    final String value => int.tryParse(value) ?? fallback,
+    _ => fallback,
+  };
+
+  /// Deserializes a raw JSON [data] map via the SAME [beauticaSerializers]
+  /// `bookingApiProvider` builds the generated client on. Returns `null` when
+  /// [data] is null (an empty body).
   ///
   /// Unlike the generated API client's own methods (e.g. [BookingControllerApi
   /// .getBooking]), which wrap their internal `_serializers.deserialize` call
@@ -725,7 +811,7 @@ final class HttpBookingRepository implements BookingRepository {
   T? _deserialize<T>(Object? data, FullType type) {
     if (data == null) return null;
     try {
-      return standardSerializers.deserialize(data, specifiedType: type) as T?;
+      return beauticaSerializers.deserialize(data, specifiedType: type) as T?;
     } on Failure {
       rethrow;
     } catch (e, st) {

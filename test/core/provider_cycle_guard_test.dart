@@ -83,6 +83,7 @@ import 'package:beautica_mobile/features/services/presentation/services_list_not
 
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockAuthRepository extends Mock implements AuthRepository {}
 
@@ -115,6 +116,7 @@ ProviderContainer _buildRealGraph({
   required FakeSecureStorage storage,
 }) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       // Leaf data deps only — break NO intermediate watch edge.
       authRepositoryProvider.overrideWith((_) => authRepo),

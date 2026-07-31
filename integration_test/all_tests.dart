@@ -81,10 +81,13 @@ import 'client_search_query_shrink_flow_test.dart'
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
+import 'shell_nested_push_resolver_contract_test.dart'
+    as shell_nested_push_resolver;
 import 'client_shell_edge_swipe_back_flow_test.dart'
     as client_shell_edge_swipe_back;
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
+import 'harness_retry_policy_flow_test.dart' as harness_retry_policy;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
@@ -215,6 +218,11 @@ void main() {
     search_prefill_survives_name_edit.main,
   );
   group('client_shell_flow', client_shell.main);
+  // AppHarness location-resolver contract (2026-07-31 debug chain): a
+  // context.push onto a shell-nested leaf (/bookings/:bookingId) must leave
+  // location() on the stale branch root while nestedPushLocation() sees the
+  // leaf — pins the two resolvers apart so neither can be quietly conflated.
+  group('shell_nested_push_resolver_contract', shell_nested_push_resolver.main);
   // CLIENT left-edge swipe-back → Home tab (Step 2.7 Rule 3b) — the gesture
   // twin of the R1 system-back flow in client_shell_flow_test.dart Test 7.
   group('client_shell_edge_swipe_back_flow', client_shell_edge_swipe_back.main);
@@ -222,6 +230,10 @@ void main() {
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
+  // Harness ratchet — pins AppHarness.boot's DEFAULT retry predicate to the
+  // production one. Not a user journey: it guards the boot policy every other
+  // flow in this file inherits.
+  group('harness_retry_policy_flow', harness_retry_policy.main);
   group('logout_flow', logout.main);
   // Master-home zero-services «Додати послуги» CTA → /services/setup
   // (Step 2.7 Rule 3b — master home → service-setup journey).

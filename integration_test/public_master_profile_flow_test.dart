@@ -61,6 +61,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
@@ -73,6 +74,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -318,7 +320,10 @@ void main() {
         Key('booking-calendar-day-${today.day}'),
       );
       expect(todayCell, findsOneWidget);
-      await tester.tap(todayCell);
+      // `tapCalendarDay` scrolls the cell into view first — a blind tap on a
+      // below-the-fold row lands on the summary bar instead (see the
+      // extension's doc comment in test/helpers/pump_app.dart).
+      await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
 
       expect(
@@ -347,14 +352,27 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await tester.pumpAndSettle();
 
-      // ── Lands on the (Phase 14.2-stubbed) /booking/confirm placeholder ────
+      // ── Lands on the REAL /booking/confirm screen ─────────────────────────
+      //
+      // This used to assert `booking-confirm-placeholder`, the Phase 14.1 stub
+      // (`BookingConfirmPlaceholderScreen`). Phase 14.2 replaced that route's
+      // builder with the real [BookingConfirmScreen] — the placeholder widget
+      // still exists in `lib/features/shell/presentation/branch_placeholders
+      // .dart` but is no longer routed from anywhere, so the key can never
+      // mount. The stale assertion never surfaced because the blind calendar
+      // tap above (finding #2) killed this flow long before line 356.
       AppHarness.expectLocation(router, RouteNames.bookingConfirm);
       expect(
-        find.byKey(const Key('booking-confirm-placeholder')),
+        find.byType(BookingConfirmScreen),
         findsOneWidget,
         reason:
             'the time screen\'s «Підтвердити» CTA must hand off to '
             '/booking/confirm with a BookingConfirmArgs extra',
+      );
+      expect(
+        find.byKey(const Key('booking-confirm-visit-card')),
+        findsOneWidget,
+        reason: 'the confirm screen recaps the visit it was handed',
       );
     },
     timeout: const Timeout(Duration(seconds: 120)),

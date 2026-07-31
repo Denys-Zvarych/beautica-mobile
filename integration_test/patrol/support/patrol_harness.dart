@@ -57,6 +57,7 @@ import '../../support/e2e_boot_policy.dart';
 import '../../support/fake_backend.dart';
 
 export '../../support/fake_backend.dart' show FakeBackend, kFixedNow;
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// Shared boot path for patrol-bound flows that run against the fake backend.
 abstract final class PatrolHarness {
@@ -93,6 +94,7 @@ abstract final class PatrolHarness {
 
     await $.pumpWidgetAndSettle(
       ProviderScope(
+        retry: beauticaProviderRetry,
         // Cast a plain Object list so this file need not import Riverpod's
         // Override type — same shape as AppHarness.boot.
         // ignore: avoid_dynamic_calls

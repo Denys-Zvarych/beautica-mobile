@@ -368,26 +368,57 @@ class _WorkingDaysErrorBody extends StatelessWidget {
     final String message = failure is Failure
         ? (failure as Failure).userMessage(context)
         : l10n.errUnknown;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(VelvetSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              message,
-              style: VelvetText.body(),
-              textAlign: TextAlign.center,
+    // Scrollable so the retry state cannot RenderFlex-overflow at a short
+    // viewport. The slot this body renders into is only ~83px tall on an
+    // 800×600 surface while a two-line message + CTA needs ~86px; a portrait
+    // phone has room to spare, but a landscape phone, a split-screen window or
+    // a large text scale does not, and an overflowing error state hides the
+    // retry button that is the only way out of it.
+    //
+    // `LayoutBuilder` + `ConstrainedBox(minHeight: maxHeight)` is what keeps
+    // the content VERTICALLY CENTRED while it is also scrollable. A bare
+    // `SingleChildScrollView(child: Center(…))` does not: this body renders
+    // into an `Expanded` (see `_calendarBody`'s call site), so the scroll view
+    // hands its child UNBOUNDED height, `Center` collapses to its child's own
+    // size, and the message + retry silently pin to the TOP of the calendar
+    // area on every roomy viewport. Giving the child a minimum equal to the
+    // viewport restores "centre when there is room, scroll when there is not".
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // `.isFinite` guard: an infinite `minHeight` is an assertion crash, and
+        // this widget is one refactor away from a caller that does not bound
+        // it (today it is always inside an `Expanded`). Falling back to 0
+        // degrades to the old top-aligned layout instead of throwing.
+        final double minHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 0.0;
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(VelvetSpacing.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      message,
+                      style: VelvetText.body(),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: VelvetSpacing.md),
+                    NeumorphicButton(
+                      key: const Key('booking-calendar-retry'),
+                      label: l10n.retryLabel,
+                      onPressed: onRetry,
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: VelvetSpacing.md),
-            NeumorphicButton(
-              key: const Key('booking-calendar-retry'),
-              label: l10n.retryLabel,
-              onPressed: onRetry,
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

@@ -58,6 +58,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // Fixture identities injected BY these tests — NOT app copy, and
 // locale-invariant by construction (a person's name is not translated). This
@@ -152,9 +153,12 @@ Future<void> _pump(
   // (`bookings_discovery_view.dart`'s `initState`). `null` leaves the real
   // wall clock in place, which is what every pre-existing test here wants.
   DateTime Function()? clock,
-  // Pass `(_, _) => null` to DISABLE Riverpod's exponential-backoff retry, so
-  // an AsyncError settles and a fetch count stays exact.
-  Duration? Function(int retryCount, Object error)? retry,
+  // Defaults to the PRODUCTION predicate [beauticaProviderRetry] so error
+  // paths resolve as they do in the shipped app. Pass `(_, _) => null` to
+  // DISABLE retry entirely, so an AsyncError settles and a fetch count stays
+  // exact.
+  Duration? Function(int retryCount, Object error)? retry =
+      beauticaProviderRetry,
 }) async {
   await tester.pumpRoutedApp(
     GoRouter(

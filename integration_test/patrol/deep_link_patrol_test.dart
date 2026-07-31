@@ -41,6 +41,7 @@ import 'package:patrol/patrol.dart';
 
 import '../../test/helpers/pump_app.dart';
 import '../support/e2e_boot_policy.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // The App Link host is locked to the production Railway domain in
 // AndroidManifest.xml's autoVerify intent-filter (pathPrefix /invite/accept). A
@@ -77,7 +78,9 @@ void main() {
       // platform channels main() touches (FlutterNativeSplash, SystemChrome,
       // cert-pinning) ARE available, but we pump BeauticaApp directly to keep
       // the test focused on routing and skip main()'s one-shot startup work.
-      await $.pumpWidgetAndSettle(const ProviderScope(child: BeauticaApp()));
+      await $.pumpWidgetAndSettle(
+        const ProviderScope(retry: beauticaProviderRetry, child: BeauticaApp()),
+      );
 
       // Cold start with no stored token settles to /login (the unauthenticated
       // home). Sanity-check we are NOT already on accept-invite so the

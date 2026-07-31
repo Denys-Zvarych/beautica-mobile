@@ -21,6 +21,7 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
+import 'package:beautica_mobile/core/network/beautica_serializers.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 
 import 'appointment_repository.dart';
@@ -31,15 +32,29 @@ import 'slot_repository.dart';
 part 'booking_providers.g.dart';
 
 /// Provides the generated [BookingControllerApi] singleton.
+///
+/// Built on [beauticaSerializers], NOT the generated `standardSerializers`:
+/// this is the only generated api class that carries a
+/// `BookingDetailResponse`, so it is where an unrecognised backend booking
+/// status would otherwise throw out of the enum serializer before the domain
+/// mapper could degrade it to [BookingStatus.unknown]. See
+/// `core/network/unknown_enum_tolerance_plugin.dart`.
 @Riverpod(keepAlive: true)
 BookingControllerApi bookingApi(Ref ref) =>
-    BookingControllerApi(ref.watch(dioProvider), standardSerializers);
+    BookingControllerApi(ref.watch(dioProvider), beauticaSerializers);
 
 /// Provides the generated [AppointmentControllerApi] singleton for the
 /// multi-service single-visit write/read path (MO-1).
+///
+/// Built on [beauticaSerializers] for the same reason as [bookingApi] above:
+/// it is the only generated api class carrying an `AppointmentDetailResponse`
+/// (and, nested inside it, `AppointmentItemResponse`), both of which have the
+/// same throwing status `EnumClass` `BookingDetailResponse` did. Leaving it on
+/// `standardSerializers` would make their rows in `kBeauticaToleratedEnums`
+/// inert.
 @Riverpod(keepAlive: true)
 AppointmentControllerApi appointmentApi(Ref ref) =>
-    AppointmentControllerApi(ref.watch(dioProvider), standardSerializers);
+    AppointmentControllerApi(ref.watch(dioProvider), beauticaSerializers);
 
 /// Provides the generated [ReviewControllerApi] singleton for the CLIENT
 /// leave-review write path (`POST /reviews`, Phase 14.6).

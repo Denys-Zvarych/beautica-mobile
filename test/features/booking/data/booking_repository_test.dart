@@ -5,7 +5,9 @@
 //   [BookingControllerApi] with mocktail; verify domain mapping + error
 //   propagation.
 //   getMyBookings — mock [Dio] directly and feed the SERIALIZED envelope (via
-//   `standardSerializers`), exercising the real raw-GET parse path — mirrors
+//   `standardSerializers`), exercising the real raw-GET ROW-BY-ROW parse path
+//   (`_decodeBookingsPage`, which replaced a single atomic whole-envelope
+//   deserialize so one bad row can no longer blank the page) — mirrors
 //   `discovery/data/search_repository_test.dart` (see the WIRE-FORMAT NOTE in
 //   `booking_repository.dart` for why this bypasses the generated
 //   `listMyBookings`/`Pageable` path).
@@ -1356,15 +1358,22 @@ void main() {
       );
     });
 
-    test('malformed body (unrecognized enum wire value) → UnknownFailure, '
-        'not a raw exception', () async {
-      // Simulates a future/unrecognized `status` wire value reaching the
-      // client — e.g. a backend enum addition the mobile hasn't caught up
-      // to yet. `standardSerializers.deserialize` throws its own
-      // (non-DioException, non-Failure) error in this case
-      // (`BookingDetailResponseStatusEnum.valueOf` → `ArgumentError`), which
-      // must be caught by `_deserialize` and re-surfaced as [UnknownFailure]
-      // rather than escaping as a raw, unmapped exception.
+    test('an unrecognized `status` wire value decodes to BookingStatus.unknown '
+        'and the row is KEPT — it must not fail or blank the page', () async {
+      // This test used to assert `throwsA(isA<UnknownFailure>())`, pinning the
+      // DEFECT rather than the contract: `standardSerializers` threw
+      // `ArgumentError` out of `BookingDetailResponseStatusEnum.valueOf`, the
+      // whole-envelope deserialize propagated it, and «Мої записи» went EMPTY
+      // — for the entire page, over ONE row. Worse, on the detail screen the
+      // resulting `Failure` is neither an `Error` nor a `ProviderException`,
+      // so Riverpod's `defaultRetry` retried it ~10 times over ~38s behind an
+      // indefinite spinner.
+      //
+      // `UnknownEnumTolerancePlugin` (`core/network/`) now strips the value
+      // before it reaches the enum serializer, so the documented
+      // keep-and-deny contract in `booking_mapper.dart` finally applies on the
+      // wire: the row survives as [BookingStatus.unknown], which renders
+      // read-only and grants none of `confirmed`'s capabilities.
       final envelope = _serializeMyBookingsEnvelope([_buildDetailDto()]);
       final pageMap = envelope['data'] as Map<String, dynamic>;
       final items = pageMap['data'] as List<dynamic>;
@@ -1388,13 +1397,301 @@ void main() {
         ),
       );
 
-      await expectLater(
-        repository.getMyBookings(
-          statuses: const <BookingStatus>{},
-          sort: BookingSort.newest,
-          page: 0,
+      final page = await repository.getMyBookings(
+        statuses: const <BookingStatus>{},
+        sort: BookingSort.newest,
+        page: 0,
+      );
+
+      expect(page.items, hasLength(1));
+      expect(page.items.single.id, 'booking-1');
+      expect(page.items.single.status, BookingStatus.unknown);
+    });
+
+    test('ONE structurally broken row is skipped; its siblings still render '
+        'and the SERVER page counters are preserved', () async {
+      // The page is decoded ROW BY ROW, so a row that cannot be parsed at all
+      // (here: a non-date `startsAt`) is dropped on its own instead of taking
+      // the page down with it. `totalElements`/`totalPages` deliberately stay
+      // the SERVER's values — they are the pager's cursor state, and
+      // recomputing them from the surviving rows would convince the pager it
+      // had reached the end of the list.
+      final envelope = _serializeMyBookingsEnvelope(
+        [_buildDetailDto(id: 'booking-1'), _buildDetailDto(id: 'booking-2')],
+        totalPages: 3,
+        totalElements: 42,
+      );
+      final pageMap = envelope['data'] as Map<String, dynamic>;
+      final items = pageMap['data'] as List<dynamic>;
+      final broken = Map<String, dynamic>.from(
+        items.first as Map<String, dynamic>,
+      );
+      broken['startsAt'] = 'not-a-timestamp';
+      pageMap['data'] = <dynamic>[broken, items.last];
+
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          _myBookingsPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
         ),
-        throwsA(isA<UnknownFailure>()),
+      ).thenAnswer(
+        (_) async => Response<Map<String, dynamic>>(
+          data: envelope,
+          requestOptions: RequestOptions(path: _myBookingsPath),
+          statusCode: 200,
+        ),
+      );
+
+      final page = await repository.getMyBookings(
+        statuses: const <BookingStatus>{},
+        sort: BookingSort.newest,
+        page: 0,
+      );
+
+      expect(page.items, hasLength(1));
+      expect(page.items.single.id, 'booking-2');
+      expect(page.totalPages, 3);
+      expect(page.totalElements, 42);
+    });
+
+    // ------------------------------------------------------------------
+    // Envelope shape. ROW tolerance (the two tests above) must NOT have
+    // become ENVELOPE tolerance.
+    //
+    // The row-by-row rewrite briefly returned `PageResponse(items: [],
+    // totalPages: 0, totalElements: 0)` for a malformed envelope, which the
+    // «Мої записи» screen renders BYTE-IDENTICALLY to the legitimate "you
+    // have no bookings yet" empty state: no error copy, no retry button, no
+    // way for the user to tell a broken response from an empty account. A
+    // throw is what puts the screen into its `error:` branch. It also keeps
+    // this method consistent with its sibling `getBookingById`, which throws
+    // on a null envelope.
+    // ------------------------------------------------------------------
+
+    /// Every envelope shape that is NOT a decodable page, each of which must
+    /// throw rather than degrade to an empty page.
+    final Map<String, Map<String, dynamic>?>
+    malformedEnvelopes = <String, Map<String, dynamic>?>{
+      'a null body (empty 200 response)': null,
+      'an envelope with no data key at all': <String, dynamic>{'success': true},
+      'an envelope whose data is explicitly null (the error-envelope '
+          'shape)': <String, dynamic>{
+        'success': false,
+        'data': null,
+      },
+      'an envelope whose data is a scalar, not an object': <String, dynamic>{
+        'success': true,
+        'data': 'oops',
+      },
+      'an envelope whose data is a LIST (page object skipped)':
+          <String, dynamic>{'success': true, 'data': <dynamic>[]},
+      'a page object with no rows key': <String, dynamic>{
+        'success': true,
+        'data': <String, dynamic>{'page': 0, 'totalPages': 1},
+      },
+      'a page object whose rows are null': <String, dynamic>{
+        'success': true,
+        'data': <String, dynamic>{'data': null, 'totalElements': 7},
+      },
+      'a page object whose rows are an object, not an array': <String, dynamic>{
+        'success': true,
+        'data': <String, dynamic>{'data': <String, dynamic>{}},
+      },
+    };
+
+    for (final MapEntry<String, Map<String, dynamic>?> shape
+        in malformedEnvelopes.entries) {
+      test('${shape.key} throws instead of reading as an empty page', () async {
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: shape.value,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        await expectLater(
+          repository.getMyBookings(
+            statuses: const <BookingStatus>{},
+            sort: BookingSort.newest,
+            page: 0,
+          ),
+          throwsA(isA<UnknownFailure>()),
+        );
+      });
+    }
+
+    test('a WELL-FORMED envelope carrying zero rows is a legitimate empty '
+        'page and does NOT throw — the tolerance boundary is the envelope, '
+        'not "any response with no bookings"', () async {
+      final envelope = _serializeMyBookingsEnvelope(
+        const [],
+        page: 0,
+        totalPages: 0,
+        totalElements: 0,
+      );
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          _myBookingsPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<Map<String, dynamic>>(
+          data: envelope,
+          requestOptions: RequestOptions(path: _myBookingsPath),
+          statusCode: 200,
+        ),
+      );
+
+      final page = await repository.getMyBookings(
+        statuses: const <BookingStatus>{},
+        sort: BookingSort.newest,
+        page: 0,
+      );
+
+      expect(page.items, isEmpty);
+      expect(page.totalElements, 0);
+      expect(page.hasMore, isFalse);
+    });
+
+    test('every row being individually unparseable still returns a page, not '
+        'a throw — row tolerance is unchanged by the envelope guard', () async {
+      final envelope = _serializeMyBookingsEnvelope(
+        [_buildDetailDto(id: 'booking-1'), _buildDetailDto(id: 'booking-2')],
+        totalPages: 3,
+        totalElements: 42,
+      );
+      final pageMap = envelope['data'] as Map<String, dynamic>;
+      final items = pageMap['data'] as List<dynamic>;
+      pageMap['data'] = <dynamic>[
+        for (final Object? row in items)
+          Map<String, dynamic>.from(row as Map<String, dynamic>)
+            ..['startsAt'] = 'not-a-timestamp',
+      ];
+
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          _myBookingsPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<Map<String, dynamic>>(
+          data: envelope,
+          requestOptions: RequestOptions(path: _myBookingsPath),
+          statusCode: 200,
+        ),
+      );
+
+      final page = await repository.getMyBookings(
+        statuses: const <BookingStatus>{},
+        sort: BookingSort.newest,
+        page: 0,
+      );
+
+      expect(page.items, isEmpty);
+      // The SERVER's counters survive: the pager must not conclude it reached
+      // the end just because this page happened to decode to nothing.
+      expect(page.totalPages, 3);
+      expect(page.totalElements, 42);
+    });
+
+    // The test ABOVE breaks rows at the DESERIALIZATION boundary
+    // ('startsAt': 'not-a-timestamp'), so it exercises
+    // `_decodeBookingsPage`'s OWN `on Failure { continue; }` loop. A row can
+    // also deserialize perfectly and then throw one layer later, during
+    // MAPPING (`BookingMapper.fromDto` throws ServerFailure when id/startsAt/
+    // endsAt is absent) — a DIFFERENT skip loop, in BookingMapper.fromDtoList.
+    // Nothing covered that second loop end-to-end through the repository, so
+    // the documented promise "one broken row is dropped instead of blanking
+    // the whole page" was unproven for mapping failures specifically.
+    //
+    // The broken row is deliberately in the MIDDLE: a trailing broken row
+    // cannot tell `continue` apart from `break`.
+    //
+    // The counters are deliberately values that CANNOT be produced by
+    // recomputing from the 2 survivors (totalElements 57, totalPages 3). If a
+    // future refactor "helpfully" derives the counters from `items.length`,
+    // this fails — and it must, because shortening totalElements would also
+    // convince the pager it had reached the end and silently strand the rest
+    // of the user's history.
+    test('a row that DESERIALIZES but fails MAPPING is skipped mid-page — the '
+        'siblings survive and the SERVER page counters are preserved, not '
+        'recomputed from the survivors', () async {
+      final envelope = _serializeMyBookingsEnvelope(
+        [
+          _buildDetailDto(id: 'booking-1'),
+          _buildDetailDto(id: 'booking-2'),
+          _buildDetailDto(id: 'booking-3'),
+        ],
+        page: 1,
+        totalPages: 3,
+        totalElements: 57,
+      );
+      final pageMap = envelope['data'] as Map<String, dynamic>;
+      final items = pageMap['data'] as List<dynamic>;
+      pageMap['data'] = <dynamic>[
+        for (int i = 0; i < items.length; i++)
+          if (i == 1)
+            // Row 2: valid JSON, deserializes into a BookingDetailResponse
+            // with a null `id` — so it clears the deserialization loop and
+            // throws inside fromDtoList instead.
+            (Map<String, dynamic>.from(items[i] as Map<String, dynamic>)
+              ..remove('id'))
+          else
+            Map<String, dynamic>.from(items[i] as Map<String, dynamic>),
+      ];
+
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          _myBookingsPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<Map<String, dynamic>>(
+          data: envelope,
+          requestOptions: RequestOptions(path: _myBookingsPath),
+          statusCode: 200,
+        ),
+      );
+
+      final page = await repository.getMyBookings(
+        statuses: const <BookingStatus>{},
+        sort: BookingSort.newest,
+        page: 1,
+      );
+
+      expect(
+        page.items.map((b) => b.id).toList(),
+        <String>['booking-1', 'booking-3'],
+        reason:
+            'the unmappable middle row is dropped and BOTH siblings '
+            'survive in order. [booking-1] alone would mean fromDtoList '
+            'ABORTED rather than continued; an empty list would mean the '
+            'whole page was blanked.',
+      );
+      expect(
+        page.totalElements,
+        57,
+        reason:
+            'the SERVER cursor state is authoritative — never recomputed '
+            'from the 2 surviving rows',
+      );
+      expect(page.totalPages, 3);
+      expect(page.page, 1);
+      expect(
+        page.hasMore,
+        isTrue,
+        reason: 'dropping a row must not convince the pager it reached the end',
       );
     });
 

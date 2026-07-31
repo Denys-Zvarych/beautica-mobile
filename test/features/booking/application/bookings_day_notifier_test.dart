@@ -35,6 +35,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -94,6 +95,7 @@ Future<({ProviderContainer container, _MutableAuthNotifier auth})>
 _containerWithAuth(BookingRepository repo, AuthSession initialAuth) async {
   final auth = _MutableAuthNotifier(initialAuth);
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[
       bookingRepositoryProvider.overrideWithValue(repo),
       authProvider.overrideWith(() => auth),
@@ -138,6 +140,7 @@ PageResponse<Booking> _page(
 
 ProviderContainer _containerWith(BookingRepository repo) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [bookingRepositoryProvider.overrideWithValue(repo)],
   );
   addTearDown(container.dispose);

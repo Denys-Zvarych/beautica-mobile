@@ -5,16 +5,18 @@
 //
 // Mirrors `booking_mapper.dart`'s contract and error handling:
 //   - [AppointmentMapper.fromDto] requires [AppointmentDetailResponse.id],
-//     [.status], [.startsAt] and [.endsAt] — a null on any of these means a
-//     broken backend contract and surfaces as [ServerFailure] (statusCode
-//     null). All other nullable header fields fall back to a safe default
+//     [.startsAt] and [.endsAt] — a null on any of these means a broken
+//     backend contract and surfaces as [ServerFailure] (statusCode null). All
+//     other nullable header fields fall back to a safe default
 //     ('' / 0 / 0.0 / false), EXCEPT `totalPriceMax`, whose null is a real
 //     signal ("single total") carried through as `Appointment.totalPriceMax ==
 //     null` — see that field's doc.
 //   - An unrecognised [.status] wire value is NOT an error: [BookingStatus
 //     .fromWire] logs and decodes it to [BookingStatus.unknown] (keep-and-deny),
 //     so the visit stays visible while granting no capability — same rationale
-//     as the booking mapper.
+//     as the booking mapper. A NULL [.status] lands on the same
+//     [BookingStatus.unknown] rather than the [ServerFailure] above; see
+//     [AppointmentMapper.fromDto].
 //   - Each [AppointmentItemResponse] is mapped by [AppointmentItemMapper]. An
 //     item missing its `bookingId`/`masterServiceId`/`startsAt`/`endsAt` is a
 //     broken contract for the WHOLE visit (a visit's total is the sum of its
@@ -46,23 +48,19 @@ const String _tag = 'feature.booking.appointment_mapper';
 abstract final class AppointmentMapper {
   /// Maps an [AppointmentDetailResponse] DTO to the domain [Appointment].
   ///
-  /// Throws [ServerFailure] (statusCode `null`) when [dto.id], [dto.status],
-  /// [dto.startsAt] or [dto.endsAt] is absent, or when any item is malformed
-  /// (see the file header). An unrecognised [dto.status] wire value does NOT
-  /// throw — it decodes to [BookingStatus.unknown].
+  /// Throws [ServerFailure] (statusCode `null`) when [dto.id], [dto.startsAt]
+  /// or [dto.endsAt] is absent, or when any item is malformed (see the file
+  /// header). Neither an unrecognised NOR an absent [dto.status] throws — both
+  /// decode to [BookingStatus.unknown].
   static Appointment fromDto(AppointmentDetailResponse dto) {
     final id = dto.id;
     final statusDto = dto.status;
     final startsAt = dto.startsAt;
     final endsAt = dto.endsAt;
-    if (id == null ||
-        id.isEmpty ||
-        statusDto == null ||
-        startsAt == null ||
-        endsAt == null) {
+    if (id == null || id.isEmpty || startsAt == null || endsAt == null) {
       if (kDebugMode) {
         log(
-          'AppointmentDetailResponse missing id/status/startsAt/endsAt — '
+          'AppointmentDetailResponse missing id/startsAt/endsAt — '
           'broken backend contract',
           name: _tag,
           level: 1000,
@@ -74,7 +72,24 @@ abstract final class AppointmentMapper {
     // Keep-and-deny on an unrecognised status — same contract and rationale as
     // BookingMapper.fromDto (see BookingStatus.fromWire's doc). NOT decoded to
     // `confirmed`.
-    final BookingStatus status = BookingStatus.fromWire(statusDto.name);
+    //
+    // A NULL `statusDto` lands here too, and deliberately no longer joins the
+    // `ServerFailure` guard above. It is the shape
+    // `UnknownEnumTolerancePlugin` produces: the generated
+    // `AppointmentDetailResponseStatusEnum` is a built_value `EnumClass` with
+    // no unknown member, so its serializer THREW `ArgumentError` on any wire
+    // value this build predates — one layer BELOW this mapper, which made the
+    // `fromWire` fallback directly above unreachable dead code on the real
+    // network path (the identical defect fixed for `BookingDetailResponse`).
+    // The plugin now strips that value so the field arrives absent; treating
+    // absent as `unknown` is what turns a hard failure into the keep-and-deny
+    // degrade the paragraph above promises. Rejecting null here instead would
+    // convert a graceful degrade into a `ServerFailure` — strictly worse than
+    // the throw it replaced. It also covers the pre-existing "backend omitted
+    // status entirely" case, which used to fail the whole visit.
+    final BookingStatus status = statusDto == null
+        ? BookingStatus.unknown
+        : BookingStatus.fromWire(statusDto.name);
 
     final List<AppointmentItem> items = <AppointmentItem>[
       for (final AppointmentItemResponse itemDto
@@ -125,6 +140,18 @@ abstract final class AppointmentItemMapper {
   /// appointment rather than being silently dropped (see the file header).
   /// `priceMaxAtBooking` stays nullable — a null there means "single price",
   /// not a missing value.
+  ///
+  /// [dto.status] (the per-item status) is registered in
+  /// `kBeauticaToleratedEnums` alongside the two response-level statuses even
+  /// though this mapper does not read it and [AppointmentItem] has no `status`
+  /// field. That is not an oversight: tolerance is needed at the WIRE layer,
+  /// not the mapper layer. `AppointmentItemResponseStatusEnum` is its own
+  /// `EnumClass` with its own throwing serializer, and the items list is
+  /// deserialized as part of the parent `AppointmentDetailResponse` — so an
+  /// unrecognised status on ONE line item would abort the whole visit's
+  /// deserialization before this mapper (or the parent's) ever ran, no matter
+  /// that the value is subsequently discarded. Nothing to teach here; the
+  /// stripped field is simply never read.
   static AppointmentItem fromDto(AppointmentItemResponse dto) {
     final bookingId = dto.bookingId;
     final masterServiceId = dto.masterServiceId;

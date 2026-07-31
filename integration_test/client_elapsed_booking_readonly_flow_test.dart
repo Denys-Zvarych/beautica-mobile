@@ -82,7 +82,14 @@ void main() {
       // Open «Деталі запису».
       await tester.tap(find.byType(BookingCard));
       await AppHarness.settle(tester);
-      AppHarness.expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      // `/bookings/:bookingId` is a child GoRoute INSIDE the client shell's
+      // bookings branch, reached via `context.push` — so `matches.last` stays a
+      // ShellRouteMatch and plain `expectLocation` reads the stale branch root
+      // `/bookings`. Only the drill-down resolver sees the pushed leaf.
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.bookingDetail('booking-1'),
+      );
       expect(find.byType(BookingDetailScreen), findsOneWidget);
 
       // READ-ONLY: the three CONFIRMED affordances are all suppressed because

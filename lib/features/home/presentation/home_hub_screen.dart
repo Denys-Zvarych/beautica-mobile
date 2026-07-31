@@ -110,7 +110,15 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
     // The top bar (wordmark · bell · burger) is hosted by ClientShell — this
     // screen is just the branch body. The shell owns the single SafeArea(top)
     // too, so the body must NOT re-wrap one.
-    return _HomeHubBody(l10n: l10n);
+    //
+    // Stable branch key: the real HomeHubScreen replaced the placeholder for
+    // the index-0 client-shell branch (Phase 13.7). Carry the same
+    // `client-branch-home` key the placeholder exposed so the client-shell E2E
+    // flows' branch-0 assertions (and the edge-swipe-back flow) keep a stable,
+    // locale-independent target — mirrors `passport_screen.dart`'s
+    // `client-branch-passport`. Every branch screen that supersedes a
+    // placeholder MUST carry the placeholder's key forward.
+    return _HomeHubBody(key: const Key('client-branch-home'), l10n: l10n);
   }
 }
 
@@ -119,7 +127,7 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
 // ---------------------------------------------------------------------------
 
 class _HomeHubBody extends ConsumerWidget {
-  const _HomeHubBody({required this.l10n});
+  const _HomeHubBody({required this.l10n, super.key});
 
   final AppLocalizations l10n;
 

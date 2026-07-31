@@ -117,12 +117,26 @@ void main() {
   // to the PREVIOUS page, NOT jump to Home. Only from a bare tab ROOT does the
   // swipe fall back to Home.
   //
-  // Journey: CLIENT login → Пошук tab → push the REAL /search/results detail
-  // onto the search branch → edge swipe returns to the PREVIOUS page (the search
-  // root), STILL on the Пошук tab (NOT Home) → a second swipe from the tab root
-  // then hops to Home. Pushing the detail via `router.go` exercises the real
-  // results screen on the real branch navigator; the SWIPE (the thing under
-  // test) is the genuine pointer gesture.
+  // Journey: CLIENT login → Пошук tab → TAP «Показати майстрів» to push the REAL
+  // /search/results detail onto the search branch → edge swipe returns to the
+  // PREVIOUS page (the search root), STILL on the Пошук tab (NOT Home) → a
+  // second swipe from the tab root then hops to Home.
+  //
+  // The detail is reached by the genuine CTA tap, which routes through
+  // `SearchFiltersScreen._onShowMasters`'s `context.push`
+  // (`search_filters_screen.dart:257`) — NOT by `router.go`. That distinction
+  // is the whole point of this test: `go` REPLACES the branch location and
+  // updates `configuration.uri`, so `expectLocation` passes while the
+  // navigator stack it built is a DIFFERENT shape from production's. This test
+  // exists to guard swipe-back-to-previous-page, a behaviour that only exists
+  // BECAUSE production pushes, so a `go`-driven stack would make the guard
+  // blind to the very regression it names (the same class of false-pass that
+  // shipped `ab34c0a` broken). To be precise about this file's own history:
+  // it never false-passed on a `go` drive — it was RED on a missing
+  // `client-branch-home` key in `lib/`, which masked whether the `go` drive
+  // was adequate at all. The push drive below is the correct shape either way.
+  // A pushed leaf needs [AppHarness.expectNestedPushLocation]; plain
+  // `expectLocation` reads the stale branch root.
   testWidgets(
     'CLIENT swipe on a pushed detail page returns to the PREVIOUS page (not '
     'Home); a second swipe from the tab root then goes Home',
@@ -139,11 +153,21 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(activeIndex(tester), kClientSearchBranch);
 
-      // Push the REAL results detail onto the SEARCH branch navigator — the
-      // stack becomes [search root, results], so the branch canPop.
-      router.go(RouteNames.clientSearchResults);
-      await tester.pumpAndSettle();
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      // Push the REAL results detail onto the SEARCH branch navigator via the
+      // production CTA — the stack becomes [search root, results], so the
+      // branch canPop. `pumpUntilFound` rather than `pumpAndSettle`: the
+      // masters fixture always leaves a page pending on first load, so the
+      // trailing indeterminate spinner never lets `pumpAndSettle` observe
+      // quiescence (see client_search_flow_test.dart's identical drive).
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
       expect(
         find.byKey(const Key('client-search-results')),
         findsOneWidget,

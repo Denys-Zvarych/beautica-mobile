@@ -69,6 +69,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockScheduleRepository extends Mock implements ScheduleRepository {}
 
@@ -137,6 +138,7 @@ Future<void> _pumpSheet(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[
         scheduleRepositoryProvider.overrideWithValue(repo),
       ].cast(),
@@ -894,6 +896,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1161,6 +1164,7 @@ void main() {
         ).thenAnswer((_) async => _oneConflict());
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1215,6 +1219,7 @@ void main() {
         ).thenAnswer((_) async => _oneConflict());
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1315,6 +1320,7 @@ void main() {
       });
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: <Object>[
           scheduleRepositoryProvider.overrideWithValue(scheduleRepo),
           bookingRepositoryProvider.overrideWithValue(bookingRepo),
@@ -1442,6 +1448,7 @@ void main() {
         ).thenThrow(const ServerFailure(statusCode: 500));
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1500,6 +1507,7 @@ void main() {
         ).thenThrow(const ServerFailure(statusCode: 500));
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1574,6 +1582,7 @@ void main() {
         DateTime now = _date;
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: <Object>[
               scheduleRepositoryProvider.overrideWithValue(repo),
             ].cast(),
@@ -2165,6 +2174,7 @@ Future<void> _pumpSheetWithSink(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[
         scheduleRepositoryProvider.overrideWithValue(repo),
       ].cast(),

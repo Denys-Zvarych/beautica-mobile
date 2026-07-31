@@ -42,6 +42,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -66,7 +67,10 @@ void main() {
       Key('booking-calendar-day-${today.day}'),
     );
     expect(todayCell, findsOneWidget);
-    await tester.tap(todayCell);
+    // `tapCalendarDay` scrolls the cell into view first — a blind tap on a
+    // below-the-fold row lands on the summary bar instead (see the extension's
+    // doc comment in test/helpers/pump_app.dart).
+    await tester.tapCalendarDay(today.day);
     await AppHarness.settle(tester);
 
     // «Далі» → SlotTimeScreen.
@@ -110,7 +114,16 @@ void main() {
 
       await tester.tap(find.byType(BookingCard));
       await AppHarness.settle(tester);
-      AppHarness.expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      // `/bookings/:bookingId` is a child GoRoute INSIDE the client shell's
+      // bookings branch, reached via `context.push` — so `matches.last` stays a
+      // ShellRouteMatch and plain `expectLocation` reads the stale branch root
+      // `/bookings`. Only the drill-down resolver sees the pushed leaf. (The
+      // `bookingSlots`/`bookingConfirm`/`bookingSuccess` assertions below stay
+      // on plain `expectLocation` — those routes live OUTSIDE the shell.)
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.bookingDetail('booking-1'),
+      );
       expect(find.byType(BookingDetailScreen), findsOneWidget);
 
       // ── «Перенести» → the shared reschedule helper seeds + pushes the slot
@@ -145,10 +158,27 @@ void main() {
         findsNothing,
         reason: 'the comment field must be hidden when rescheduling',
       );
-      // The single appointment card is the booked service.
+      // The ONE visit recap card lists the booked service.
+      //
+      // This used to assert a per-service `booking-confirm-appt-<id>` card key.
+      // MO-3 (`442f5528`) replaced the per-service appointment cards with a
+      // SINGLE `BookingSummaryCards` visit recap, deleting that key from
+      // `lib/` entirely — so the assertion had become unfalsifiable-in-reverse
+      // (it could only ever fail). It never surfaced because the blind
+      // calendar tap above (finding #2) killed this flow before line 162 was
+      // reached. Re-pointed at what the screen actually renders today.
       expect(
-        find.byKey(const ValueKey<String>('booking-confirm-appt-pub-assign-1')),
+        find.byKey(const Key('booking-confirm-visit-card')),
         findsOneWidget,
+        reason: 'the reschedule confirm screen shows one visit recap card',
+      );
+      expect(
+        // FakeBackend fixture DATA (the seeded serviceName for pub-assign-1),
+        // not UI copy — echoed back from the wire verbatim, never translated.
+        // i18n-finder-ok: seeded serviceName, locale-invariant wire data
+        find.text('Манікюр з покриттям'),
+        findsWidgets,
+        reason: 'the recap must name the booked service (pub-assign-1)',
       );
 
       // ── Submit → PATCH /reschedule fires; NO POST /bookings. ──────────────
@@ -179,23 +209,59 @@ void main() {
       );
       expect(fb.lastRescheduleNewStartsAt, isNotNull);
 
-      // BOTH invalidations took effect: the detail (still mounted below in the
-      // nav stack) and the upcoming My-Bookings tab (still mounted in the
-      // client shell) each RE-FETCHED after the successful reschedule.
+      // ── BOTH invalidations took effect — asserted on the RETURN JOURNEY. ──
+      //
+      // Do NOT assert an IMMEDIATE re-fetch here. While the app is parked on
+      // `BookingSuccessScreen` (a top-level route that COVERS both consumers),
+      // `BookingDetailScreen` and `_BookingsTabView` are mounted but NOT
+      // subscribed: `Consumer` stops listening whenever its widget stops being
+      // visible — it reads `TickerMode.of` and calls `ProviderSubscription
+      // .pause` (flutter_riverpod-3.3.1 `src/core/consumer.dart:73-76`,
+      // `:405-417`), and Navigator disables `TickerMode` for covered routes.
+      // Both providers are `autoDispose` (`booking_detail_notifier.dart:22`,
+      // `my_bookings_notifier.dart:95`), so `ref.invalidate` with only PAUSED
+      // listeners DISPOSES them instead of re-fetching. The fetch lands on
+      // RESUME. "Mounted" is not "subscribed".
+      //
+      // So walk the user's actual return path and assert the fetch where it
+      // really happens. This is strictly STRONGER than an offstage-count
+      // check: it proves the client SEES the moved booking, which an offstage
+      // re-fetch alone would never establish. Counterfactual (confirmed):
+      // comment out `booking_confirm_screen.dart:199-200`'s invalidations and
+      // both counters stay at 1 through the whole return journey — i.e. the
+      // user is shown the STALE pre-reschedule time. Those two `ref.invalidate`
+      // calls are load-bearing.
+
+      // «На головну» → /home, then «МОЇ ЗАПИСИ» → the bookings branch, whose
+      // navigator still has the pushed detail on top. The detail RESUMES, its
+      // disposed provider rebuilds, and the moved booking is re-fetched.
+      await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.clientHome);
+
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
       expect(
         fb.getBookingDetailCalls,
         greaterThan(detailFetchesBefore),
         reason:
-            'bookingDetailProvider(id) invalidation must have re-fetched the '
-            'moved booking',
+            'bookingDetailProvider(id) was invalidated while paused, so the '
+            'detail must RE-FETCH the moved booking when it resumes',
       );
+
+      // Pop the detail → the upcoming My-Bookings list resumes and re-fetches.
+      await tester.tap(find.byKey(const Key('booking-detail-back')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MyBookingsScreen), findsOneWidget);
       expect(
         fb.getMyBookingsCalls,
         greaterThan(listFetchesBefore),
         reason:
-            'myBookingsProvider(upcoming) invalidation must have re-fetched '
-            'the upcoming list',
+            'myBookingsProvider(upcoming) was invalidated while paused, so the '
+            'upcoming list must RE-FETCH when it resumes',
       );
+      expect(tester.takeException(), isNull);
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );

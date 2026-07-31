@@ -37,12 +37,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fakes/fake_auth_repository.dart';
 import 'helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Shared setup helper
 // ---------------------------------------------------------------------------
 
 Widget _makeApp() => ProviderScope(
+  retry: beauticaProviderRetry,
   overrides: [
     secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
     authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),

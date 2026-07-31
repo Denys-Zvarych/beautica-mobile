@@ -82,6 +82,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Never-resolving fakes — the bar is static chrome rendered OUTSIDE every
@@ -153,6 +154,7 @@ Future<void> _pumpWithBottomInset(
   // `Key` per pump forces a full unmount/remount instead.
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       key: UniqueKey(),
       overrides: overrides.cast(),
       child: MaterialApp(

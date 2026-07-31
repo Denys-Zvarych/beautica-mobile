@@ -44,6 +44,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/fakes/fake_service_repository.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Seed data
@@ -93,6 +94,7 @@ Future<void> _pumpForm(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         serviceRepositoryProvider.overrideWithValue(FakeServiceRepository()),
         approvedCategoriesProvider.overrideWith((ref) async {

@@ -59,6 +59,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const Key _sortButton = Key('results_sort_button');
 const Key _resultsList = Key('results_list');
@@ -167,6 +168,7 @@ void main() {
     const SearchFilters seed = SearchFilters(query: 'манікюр');
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: <Object>[
           searchRepositoryProvider.overrideWithValue(repo),
           searchFiltersControllerProvider.overrideWith(
@@ -361,6 +363,7 @@ void main() {
       const SearchFilters seed = SearchFilters(query: 'манікюр');
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             searchRepositoryProvider.overrideWithValue(repo),
             searchFiltersControllerProvider.overrideWith(

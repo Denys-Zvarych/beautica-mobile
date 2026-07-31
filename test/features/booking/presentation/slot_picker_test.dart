@@ -731,6 +731,122 @@ void main() {
       },
     );
 
+    // The working-days retry state is SCROLLABLE (so it cannot
+    // RenderFlex-overflow and hide the retry button on a short viewport) AND
+    // vertically CENTRED (so it does not look broken on a roomy one). Those
+    // two requirements fight each other, and the naive way to satisfy the
+    // first silently breaks the second: this body renders into an `Expanded`,
+    // so a bare `SingleChildScrollView(child: Center(…))` hands its child
+    // UNBOUNDED height, `Center` collapses to the child's own size, and the
+    // content pins to the TOP. The fix is `LayoutBuilder` +
+    // `ConstrainedBox(minHeight: constraints.maxHeight)`.
+    //
+    // Both halves are asserted, because each is invisible to the other's test.
+    testWidgets(
+      'the working-days retry state is vertically CENTRED in the calendar '
+      'area when there is room — not pinned to the top',
+      (tester) async {
+        final fake = _FakeSlotRepository(
+          const <BookingSlot>[],
+          workingDaysErrorToThrow: const NetworkFailure(),
+        );
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+          retry: (int _, Object _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        final Finder retry = find.byKey(const Key('booking-calendar-retry'));
+        expect(retry, findsOneWidget);
+
+        // The scroll viewport IS the calendar area (`_calendarBody`'s
+        // `Expanded` slot), so its centre is what the content must line up on.
+        final Rect viewport = tester.getRect(
+          find
+              .ancestor(of: retry, matching: find.byType(SingleChildScrollView))
+              .first,
+        );
+        final Rect content = tester.getRect(
+          find.ancestor(of: retry, matching: find.byType(Column)).first,
+        );
+
+        expect(
+          viewport.height,
+          greaterThan(content.height + 40),
+          reason:
+              'this assertion is only meaningful with slack to centre INTO — '
+              'if the viewport ever shrinks to the content size, top-aligned '
+              'and centred become indistinguishable and this test goes '
+              'vacuously green',
+        );
+        expect(
+          content.center.dy,
+          closeTo(viewport.center.dy, 1.0),
+          reason:
+              'content top ${content.top} vs viewport top ${viewport.top}: a '
+              'top-pinned body (the unbounded-height Center collapse) puts '
+              'these two within a pixel of each other instead',
+        );
+      },
+    );
+
+    testWidgets(
+      'the working-days retry state still scrolls — and does not overflow — '
+      'when the calendar area is too short to fit it',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(400, 460));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = _FakeSlotRepository(
+          const <BookingSlot>[],
+          workingDaysErrorToThrow: const NetworkFailure(),
+        );
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+          retry: (int _, Object _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        // `pumpAndSettle` would already have thrown on a RenderFlex overflow
+        // (see `helpers/overflow_guard.dart`); reaching here is half the
+        // assertion. The other half is that the retry button — the only way
+        // out of this state — is actually reachable rather than clipped
+        // outside the viewport.
+        final Finder retry = find.byKey(const Key('booking-calendar-retry'));
+        expect(retry, findsOneWidget);
+
+        // Non-vacuity guard. At a surface where the content already fits, a
+        // top-pinned body and a scrolling one behave identically and this test
+        // would prove nothing — so assert the body genuinely has to scroll.
+        // (`minHeight: constraints.maxHeight` never CREATES scroll extent; it
+        // only stops the content collapsing above the fold.)
+        final ScrollPosition position = tester
+            .state<ScrollableState>(
+              find.ancestor(of: retry, matching: find.byType(Scrollable)).first,
+            )
+            .position;
+        expect(
+          position.maxScrollExtent,
+          greaterThan(0),
+          reason:
+              'the calendar slot must be SHORTER than the error body here, or '
+              'this test is not exercising the overflow path at all',
+        );
+
+        await tester.ensureVisible(retry);
+        await tester.tap(retry);
+        await tester.pumpAndSettle();
+
+        expect(fake.workingDaysCallCount, 2);
+      },
+    );
+
     // Phase 14.14 QA gap-fix — Decisions locked ("Loading/reload UX mirrors
     // MasterScheduleScreen's visual pattern: full-screen spinner on a
     // genuine first load ... cached-stale grid + thin top

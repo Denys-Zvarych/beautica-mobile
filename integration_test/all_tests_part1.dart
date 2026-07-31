@@ -58,6 +58,8 @@ import 'client_search_query_shrink_flow_test.dart'
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
+import 'shell_nested_push_resolver_contract_test.dart'
+    as shell_nested_push_resolver;
 import 'client_shell_edge_swipe_back_flow_test.dart'
     as client_shell_edge_swipe_back;
 import 'edit_profile_flow_test.dart' as edit_profile;
@@ -152,6 +154,11 @@ void main() {
   // CLIENT left-edge swipe-back → Home tab (Step 2.7 Rule 3b) — the gesture
   // twin of the R1 system-back flow in client_shell_flow_test.dart Test 7.
   group('client_shell_edge_swipe_back_flow', client_shell_edge_swipe_back.main);
+  // AppHarness location-resolver contract (2026-07-31 debug chain): a
+  // context.push onto a shell-nested leaf (/bookings/:bookingId) must leave
+  // location() on the stale branch root while nestedPushLocation() sees the
+  // leaf — pins the two resolvers apart so neither can be quietly conflated.
+  group('shell_nested_push_resolver_contract', shell_nested_push_resolver.main);
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.

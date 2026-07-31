@@ -24,6 +24,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
 
@@ -88,7 +89,12 @@ void main() {
     serviceRepo = _MockServiceRepository();
   });
 
-  ProviderContainer makeContainer({Duration? Function(int, Object)? retry}) {
+  // [retry] defaults to the PRODUCTION predicate [beauticaProviderRetry] so
+  // the container resolves error paths as the shipped app does; pass
+  // `(_, _) => null` to disable retry outright.
+  ProviderContainer makeContainer({
+    Duration? Function(int, Object)? retry = beauticaProviderRetry,
+  }) {
     final container = ProviderContainer(
       retry: retry,
       overrides: [

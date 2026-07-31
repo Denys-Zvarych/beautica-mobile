@@ -48,6 +48,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'widgets/select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // pump_app.dart intentionally not imported — this test pumps widgets directly.;
 
@@ -251,6 +252,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: _overrides(mockRepo).cast(),
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -281,6 +283,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: _overrides(mockRepo).cast(),
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -1125,6 +1128,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: [
           ..._overrides(mockRepo),
           masterProfileProvider.overrideWith(

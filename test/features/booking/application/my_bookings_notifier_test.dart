@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -85,6 +86,7 @@ PageResponse<Booking> _page(
 
 ProviderContainer _container(_MockBookingRepository repo) {
   final ProviderContainer c = ProviderContainer(
+    retry: beauticaProviderRetry,
     // ignore: avoid_dynamic_calls
     overrides: <Object>[
       bookingRepositoryProvider.overrideWithValue(repo),

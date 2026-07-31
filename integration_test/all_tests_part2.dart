@@ -37,6 +37,7 @@ import 'service_crud_flow_test.dart' as service_crud;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
+import 'harness_retry_policy_flow_test.dart' as harness_retry_policy;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
@@ -49,6 +50,10 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  // Harness ratchet — pins AppHarness.boot's DEFAULT retry predicate to the
+  // production one. Not a user journey: it guards the boot policy every other
+  // flow in this file inherits.
+  group('harness_retry_policy_flow', harness_retry_policy.main);
   // Track 27.x Wave A — the PROVIDER decline/complete round trip against a
   // real HTTP boundary (Step 2.7 Rule 3b).
   group(

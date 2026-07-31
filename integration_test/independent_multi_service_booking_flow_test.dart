@@ -62,6 +62,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 /// The `add_2_calendar` plugin's platform boundary — intercepted so the visit
@@ -441,6 +442,20 @@ void main() {
       AppHarness.expectShellLocation(router, RouteNames.bookingSlots);
       expect(find.byType(SlotDateScreen), findsOneWidget);
 
+      // The calendar's availability query must carry BOTH chosen services, in
+      // order — the generated client sends `serviceId` as a REPEATED param
+      // (Dio `ListParam`/`ListFormat.multi`), so a regression that collapses it
+      // to a single scalar would silently price the visit as one service. The
+      // scalar `lastMasterAaaWorkingDaysServiceId` telemetry cannot see this;
+      // it keeps only the first id.
+      expect(
+        fb.lastMasterAaaWorkingDaysServiceIds,
+        <String>[serviceA, serviceB],
+        reason:
+            'a two-service visit must thread both masterServiceIds into '
+            'GET /working-days, in the order the client picked them',
+      );
+
       final Finder shelfList = find.byKey(
         const Key('booking-summary-expanded-list'),
       );
@@ -472,7 +487,11 @@ void main() {
       // Pick today (a working day over the real working-days endpoint) → «Далі»
       // to reach the time step.
       final DateTime today = DateTime.now();
-      await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+      // Via `tapCalendarDay` (NOT a blind `tester.tap`): at the harness's
+      // 800×600 surface the last grid rows sit below the scroll fold, so a
+      // blind tap silently lands on the summary bar. See the extension's doc
+      // comment in test/helpers/pump_app.dart.
+      await tester.tapCalendarDay(today.day);
       await AppHarness.settle(tester);
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await AppHarness.settle(tester);

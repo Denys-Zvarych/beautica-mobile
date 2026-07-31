@@ -57,6 +57,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const _fakeClientUser = User(
   id: 'c1',
@@ -83,6 +84,7 @@ void main() {
 
     ProviderContainer makeAuthenticatedContainer() {
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedSession),
@@ -162,6 +164,7 @@ void main() {
 
     ProviderContainer makeAuthenticatedClientContainer() {
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedClientSession),

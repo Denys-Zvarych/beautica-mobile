@@ -39,6 +39,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -140,11 +141,15 @@ const List<LocalizationsDelegate<Object?>> _delegates =
 const List<Locale> _locales = <Locale>[Locale('uk'), Locale('en')];
 
 /// A plain `MaterialApp home:` host (no router) — for the interactions that
-/// fire NO navigation (error retry, infinite scroll). [retry] disables
-/// Riverpod's backoff so a build failure stays put and call counts are exact.
+/// fire NO navigation (error retry, infinite scroll).
+///
+/// [retry] defaults to the PRODUCTION predicate [beauticaProviderRetry], so
+/// this host resolves error paths the way the shipped app does. Pass
+/// `(_, _) => null` to disable retry outright when a build failure must stay
+/// put and call counts must be exact.
 Widget _host(
   _MockBookingRepository repo, {
-  Duration? Function(int, Object)? retry,
+  Duration? Function(int, Object)? retry = beauticaProviderRetry,
 }) {
   return ProviderScope(
     // ignore: avoid_dynamic_calls
@@ -195,6 +200,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           // ignore: avoid_dynamic_calls
           overrides: <Object>[
             bookingRepositoryProvider.overrideWithValue(repo),

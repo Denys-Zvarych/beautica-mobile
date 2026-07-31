@@ -43,6 +43,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Locality taxonomy fixtures (drive the prefill's oblast → city → district
@@ -264,7 +265,11 @@ void main() {
         _seededUser = _userWithLocation;
 
         await tester.pumpWidget(
-          ProviderScope(overrides: _overrides().cast(), child: _app()),
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: _overrides().cast(),
+            child: _app(),
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -299,7 +304,11 @@ void main() {
       _seededUser = _userNoLocation;
 
       await tester.pumpWidget(
-        ProviderScope(overrides: _overrides().cast(), child: _app()),
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: _overrides().cast(),
+          child: _app(),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -333,6 +342,7 @@ void main() {
       // controllers (and the one-shot guard) persist — exactly as a real
       // in-session navigation would.
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -408,6 +418,7 @@ void main() {
         // session flip live in it) — exactly as the real app's single root
         // ProviderScope does across a logout→login within one process.
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
         );
         addTearDown(container.dispose);
@@ -526,6 +537,7 @@ void main() {
         _mutableProfile = _userWithLocation; // profile starts at Київ
 
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides(
             profileFactory: _MutableStubClientEditProfile.new,
           ).cast(),
@@ -597,6 +609,7 @@ void main() {
         _mutableProfile = _userWithLocation; // Київ
 
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides(
             profileFactory: _MutableStubClientEditProfile.new,
           ).cast(),
@@ -679,6 +692,7 @@ void main() {
         // persist — exactly as the real root ProviderScope does across a
         // refreshUser() while the Пошук branch stays alive in the IndexedStack.
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
         );
         addTearDown(container.dispose);
@@ -770,6 +784,7 @@ void main() {
         _seededUser = _userWithLocation;
 
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
         );
         addTearDown(container.dispose);
@@ -816,6 +831,7 @@ void main() {
         'service selection, but a different user id still resets it', () {
       _seededUser = _userWithLocation;
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -860,6 +876,7 @@ void main() {
         'a later prefill still respects the manual choice', () async {
       _seededUser = _userWithLocation;
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -921,6 +938,7 @@ void main() {
       _seededUser = _userWithLocation;
 
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -959,6 +977,7 @@ void main() {
         're-emissions', () async {
       _seededUser = _userWithLocation;
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -1002,6 +1021,7 @@ void main() {
         _seededUser = _userWithLocation; // A signs in first (Київ)
 
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
         );
         addTearDown(container.dispose);

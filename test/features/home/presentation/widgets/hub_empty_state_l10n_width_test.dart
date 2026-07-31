@@ -45,6 +45,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void _noop() {}
 
@@ -125,6 +126,7 @@ Future<void> _pumpEmptyStates(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       child: MaterialApp(
         localizationsDelegates: <LocalizationsDelegate<dynamic>>[
           if (message != null) _StubMessagesDelegate(message),

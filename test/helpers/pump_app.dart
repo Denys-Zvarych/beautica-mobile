@@ -32,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// Extension on [WidgetTester] that wraps [widget] in a minimal
 /// [ProviderScope] + [MaterialApp] with l10n configured for tests.
@@ -44,11 +45,28 @@ extension PumpApp on WidgetTester {
     double? width,
     double? height,
     double? textScaleFactor,
-    // Optional Riverpod failed-build retry policy for the ProviderScope. Default
-    // null = Riverpod's default exponential-backoff retry (unchanged behaviour).
-    // Pass `(_, _) => null` to DISABLE retry so an AsyncError stays put through
-    // pumpAndSettle (and leaves no pending backoff Timer at test end).
-    Duration? Function(int retryCount, Object error)? retry,
+    // Riverpod failed-build retry policy for the ProviderScope.
+    //
+    // Defaults to [beauticaProviderRetry] — THE SAME predicate `main.dart`
+    // installs on the production root scope — so a test resolves error paths
+    // identically to the app. It used to default to `null`, which meant
+    // `ProviderContainer.defaultRetry`: Riverpod's blanket 10-attempt / ~38 s
+    // backoff, applied to every `Failure` because a `Failure` is neither an
+    // `Error` nor a `ProviderException`. That is PRECISELY the behaviour
+    // production removed, so the whole widget suite was validating a policy
+    // the app no longer has — a transient fake-backend error got retried away
+    // in test and surfaced to a real user in production. Same boot-order skew
+    // `core/network/beautica_serializers.dart` refuses to accept for
+    // serializers, same remedy: make the value explicit at construction rather
+    // than dependent on who booted.
+    //
+    // Pass `(_, _) => null` to disable retry ENTIRELY — stricter than
+    // production, and still legitimate for a test asserting an exact failed-
+    // fetch call count or a NetworkFailure/5xx error surface, where even the
+    // production policy's genuine retry would inflate the count or park the
+    // element in AsyncLoading through pumpAndSettle.
+    Duration? Function(int retryCount, Object error)? retry =
+        beauticaProviderRetry,
   }) async {
     installOverflowGuard();
     // Stress width: constrain the whole surface to [width] logical px (default
@@ -89,11 +107,14 @@ extension PumpApp on WidgetTester {
     GoRouter router, {
     List<Object> overrides = const [],
     Locale locale = const Locale('uk'),
-    // Same knob as [pumpApp]'s `retry` — default null keeps Riverpod's
-    // default exponential-backoff retry. Pass `(_, _) => null` when a test
-    // asserts an EXACT failed-fetch call count (a retry firing mid-`await
-    // pumpAndSettle` would otherwise inflate the count non-deterministically).
-    Duration? Function(int retryCount, Object error)? retry,
+    // Same knob as [pumpApp]'s `retry`, same default — [beauticaProviderRetry],
+    // the production predicate (see [pumpApp] for why the old `null` default
+    // was a false-green). Pass `(_, _) => null` when a test asserts an EXACT
+    // failed-fetch call count (even the production policy retries a
+    // NetworkFailure/5xx, which would inflate the count non-deterministically
+    // mid-`await pumpAndSettle`).
+    Duration? Function(int retryCount, Object error)? retry =
+        beauticaProviderRetry,
   }) async {
     installOverflowGuard();
     await pumpWidget(

@@ -679,5 +679,72 @@ void main() {
         expect(result.single.id, 'booking-1');
       },
     );
+
+    // The test ABOVE puts the throwing row LAST, which makes it blind to the
+    // difference between `continue` and `break`/`return`: with
+    // `[valid, broken]` a loop that ABORTS on the first Failure yields exactly
+    // the same one-element result as a loop that SKIPS. So the assertion
+    // "one broken row is dropped instead of blanking the page" — the whole
+    // documented reason `fromDtoList` has a try/catch — was never actually
+    // pinned down.
+    //
+    // Putting the throwing row in the MIDDLE is what makes it pinned: only a
+    // real `continue` can produce [booking-1, booking-3]. An abort yields
+    // [booking-1]; swallowing the loop yields [].
+    //
+    // Mutation-verified 2026-07-31: replacing `continue` with `break` turns
+    // this red and leaves the trailing-row test above green.
+    test(
+      'a row that throws in the MIDDLE of the list is SKIPPED, not aborted on '
+      '— rows AFTER the broken one still map, in order (this is the '
+      'continue-vs-break distinction the trailing-row test cannot make)',
+      () {
+        final dtos = <BookingDetailResponse>[
+          _validDto(id: 'booking-1'),
+          // Deserializes fine; `fromDto` throws ServerFailure on it because
+          // `id` is absent. The throw happens during MAPPING, inside the loop
+          // — not during deserialization, which is a different skip loop in
+          // HttpBookingRepository._decodeBookingsPage.
+          BookingDetailResponseBuilder().build(),
+          _validDto(
+            id: 'booking-3',
+            status: BookingDetailResponseStatusEnum.COMPLETED,
+          ),
+        ];
+
+        final result = BookingMapper.fromDtoList(dtos);
+
+        expect(
+          result.map((Booking b) => b.id).toList(),
+          <String>['booking-1', 'booking-3'],
+          reason:
+              'exactly the two mappable rows survive, in their original '
+              'order. [booking-1] alone would mean the loop ABORTED on the '
+              'first Failure (break/return, not continue); an empty list '
+              'would mean the whole page was blanked — the precise regression '
+              'this loop exists to prevent.',
+        );
+        expect(
+          result.last.status,
+          BookingStatus.completed,
+          reason:
+              'the row after the broken one is fully mapped, not a '
+              'degraded placeholder',
+        );
+      },
+    );
+
+    test(
+      'a list whose ONLY row throws yields an empty list rather than '
+      'propagating the Failure — the caller gets an empty page, never a crash',
+      () {
+        expect(
+          BookingMapper.fromDtoList(<BookingDetailResponse>[
+            BookingDetailResponseBuilder().build(),
+          ]),
+          isEmpty,
+        );
+      },
+    );
   });
 }

@@ -65,6 +65,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -181,6 +182,7 @@ ProviderContainer _container({
   LocationRepository? locationRepo,
 }) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authRepositoryProvider.overrideWith((_) => authRepo),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -1214,6 +1216,7 @@ void main() {
     (tester) async {
       final spy = _SpyLocationRepository();
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => _MockAuthRepository()),
           locationRepositoryProvider.overrideWith((_) => spy),

@@ -36,6 +36,7 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -97,6 +98,7 @@ ProviderContainer _makeContainer({
   required MasterRepository repo,
 }) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       // Override auth so it never touches the real SecureStorage or Dio.
       authProvider.overrideWith(authFactory),

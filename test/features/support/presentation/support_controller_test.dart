@@ -26,6 +26,7 @@ import 'package:beautica_mobile/features/support/presentation/support_controller
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockSupportRepository extends Mock implements SupportRepository {}
 
@@ -49,6 +50,7 @@ void main() {
 
   ProviderContainer makeContainer() {
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [supportRepositoryProvider.overrideWithValue(repo)],
     );
     addTearDown(container.dispose);

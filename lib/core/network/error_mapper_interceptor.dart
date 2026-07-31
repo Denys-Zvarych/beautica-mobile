@@ -150,8 +150,17 @@ final class ErrorMapperInterceptor extends Interceptor {
       // registration. Surface as the dedicated typed failure so the step-3
       // submit handler can render an inline error + Sign In CTA without
       // probing strings. Other 409 shapes (resource-conflict, future codes)
-      // still fall through to ServerFailure so callers continue to receive
-      // a generic retryable error.
+      // still fall through to a generic `ServerFailure(statusCode: 409)`.
+      //
+      // That fallthrough is NOT retryable, despite `ServerFailure` being the
+      // type 5xx also maps to. `beauticaProviderRetry`
+      // (`lib/core/errors/failure_retry_policy.dart`) classifies a
+      // `ServerFailure` by its `statusCode`, not by its type, and retries only
+      // 500–599 — so a 409 surfaces `AsyncError` on the first attempt. A
+      // conflict is a deterministic statement about current server state;
+      // re-issuing the identical request cannot resolve it. Keep the two files
+      // in step: widening what a bare 409 maps to here changes retry
+      // behaviour there.
       if (statusCode == 409) {
         if (_isEmailAlreadyRegistered(err)) {
           return EmailAlreadyRegisteredFailure(cause: err);

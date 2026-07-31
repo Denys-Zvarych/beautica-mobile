@@ -12,11 +12,12 @@
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
   group('clockProvider', () {
     test('default resolves to a real, advancing clock near DateTime.now', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       final before = DateTime.now();
@@ -35,6 +36,7 @@ void main() {
     test('overrideWithValue pins "now" to a fixed instant', () {
       final fixed = DateTime(2026, 6, 14, 12);
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [clockProvider.overrideWithValue(() => fixed)],
       );
       addTearDown(container.dispose);
@@ -47,6 +49,7 @@ void main() {
     test('overridden clock returns the same fixed instant on every read', () {
       final fixed = DateTime(2026, 1, 1, 0, 0, 0);
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [clockProvider.overrideWithValue(() => fixed)],
       );
       addTearDown(container.dispose);
@@ -72,6 +75,7 @@ void main() {
       // next read would re-run the body (buildCount == 2, new instance).
       var buildCount = 0;
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           clockProvider.overrideWith((ref) {
             buildCount++;

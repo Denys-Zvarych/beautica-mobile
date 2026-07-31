@@ -44,6 +44,7 @@ import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockSearchRepository extends Mock implements SearchRepository {}
 
@@ -118,6 +119,7 @@ void main() {
 
   ProviderContainer makeContainer() {
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [searchRepositoryProvider.overrideWithValue(repo)],
     );
     addTearDown(container.dispose);

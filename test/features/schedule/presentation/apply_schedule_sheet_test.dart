@@ -25,6 +25,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockScheduleRepository extends Mock implements ScheduleRepository {}
 
@@ -92,6 +93,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: <Object>[
           scheduleRepositoryProvider.overrideWithValue(repo),
           ...extraOverrides,
@@ -194,6 +196,7 @@ void main() {
     // through the widget tree's ProviderScope, so we assert the contract on the
     // notifier here (the notifier's own invalidation is also unit-pinned).
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: <Object>[
         scheduleRepositoryProvider.overrideWithValue(repo),
       ].cast(),
@@ -280,6 +283,7 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: <Object>[
           scheduleRepositoryProvider.overrideWithValue(repo),
         ].cast(),
@@ -373,6 +377,7 @@ void main() {
       );
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),

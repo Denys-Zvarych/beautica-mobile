@@ -36,6 +36,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 
 import 'widgets/select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const _baseUrl = 'http://localhost:8080';
 const _masterId = 'master-1';
@@ -103,6 +104,34 @@ const Map<String, dynamic> _okVoid = <String, dynamic>{
   'message': 'ok',
 };
 
+/// `GET /api/v1/independent-masters/me/services` — the LIST envelope, holding
+/// exactly the one assignment the edit tests target.
+///
+/// Needed because [serviceById] is only nominally "cache-first". Its cache read
+/// is `ref.read(servicesListProvider).value`, and on the edit screen's FIRST
+/// build that provider has not resolved yet (its `build()` is async, so it is
+/// still `AsyncLoading` and `.value` is null) — so the very first attempt is
+/// ALWAYS a cache MISS and always falls through to
+/// `ServiceRepository.getMyService(id)`, which issues this request. That is the
+/// real production path on a cold mount, so the fake socket has to answer it.
+///
+/// It went unnoticed until 2026-07-31 because Riverpod's blanket retry used to
+/// paper over it: attempt 1 hit the unstubbed route and threw, and by the time
+/// the automatic retry ran, `servicesListProvider` HAD resolved, so attempt 2
+/// took the cache path and the form appeared. Once the suite adopted the
+/// production retry predicate (`beauticaProviderRetry`, which correctly does
+/// not retry a deterministic failure) there was no second attempt, and all five
+/// edit tests failed at the first `enterText` with "Bad state: No element".
+/// Stubbing the route makes the test independent of the retry policy instead of
+/// silently dependent on it.
+Map<String, dynamic> _listOkEnvelope() => <String, dynamic>{
+  'success': true,
+  'message': 'ok',
+  'data': <Map<String, dynamic>>[
+    _createOkEnvelope()['data'] as Map<String, dynamic>,
+  ],
+};
+
 // ---------------------------------------------------------------------------
 // Stub master profile so serviceRepositoryProvider's masterId watch resolves
 // (the repository itself is overridden, but other watchers stay quiet).
@@ -125,6 +154,12 @@ class _StubMasterProfile extends MasterProfile {
   final dio = Dio(BaseOptions(baseUrl: _baseUrl));
   dio.interceptors.add(ErrorMapperInterceptor());
   final adapter = DioAdapter(dio: dio);
+  // Answer the cache-MISS fallback every edit-screen mount performs before
+  // `servicesListProvider` has resolved — see [_listOkEnvelope]. Registered for
+  // all tests in this file (not just the edit group): it is a GET, so it cannot
+  // collide with the POST/PATCH/DELETE routes each test registers, and the
+  // create group simply never issues it.
+  adapter.onGet(_createPath, (s) => s.reply(200, _listOkEnvelope()));
   final repo = HttpServiceRepository(
     serviceApi: ServiceControllerApi(dio, standardSerializers),
     categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
@@ -151,11 +186,15 @@ Future<void> _pump(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         serviceRepositoryProvider.overrideWithValue(repo),
         masterProfileProvider.overrideWith(_StubMasterProfile.new),
-        // Seed the list so serviceByIdProvider can resolve via the cache and
-        // the category picker has data without hitting the socket.
+        // Seed the list so the category picker has data without hitting the
+        // socket, and so serviceByIdProvider resolves from the cache on every
+        // build AFTER the first. The FIRST build still misses (the stub's
+        // `build()` is async, so `.value` is null at that instant) and goes to
+        // the network — which is why `_wireRepo` stubs the GET list route.
         servicesListProvider.overrideWith(() => _StubServicesList(cachedList)),
         approvedCategoriesProvider.overrideWith((ref) async => categories),
         // The second-level service-type picker (_ServiceTypeChips) mounts as

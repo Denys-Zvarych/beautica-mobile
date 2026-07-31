@@ -45,6 +45,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'widgets/select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -96,6 +97,7 @@ Future<void> _pumpForm(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
         approvedCategoriesProvider.overrideWith(
@@ -154,6 +156,7 @@ Future<void> _pumpFormWithInitial(
   }
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
         approvedCategoriesProvider.overrideWith((ref) async => categories),
@@ -553,6 +556,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: <Object>[
           serviceRepositoryProvider.overrideWithValue(repo),
           approvedCategoriesProvider.overrideWith((ref) => completer.future),

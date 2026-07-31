@@ -27,6 +27,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../helpers/fakes/fake_auth_repository.dart';
 import '../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Ref-capture provider (no codegen — hand-written keepAlive Provider).
@@ -115,6 +116,7 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// [AsyncValue<AuthSession>] stub notifier.
 ProviderContainer _makeContainer(AsyncValue<AuthSession> authState) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(() => _FixedAuthNotifier(authState)),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -142,6 +144,7 @@ _makeColdStartContainer() async {
     ..meResult = _fakeUser;
 
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authRepositoryProvider.overrideWith((_) => repo),
       secureStorageProvider.overrideWith((_) => storage),

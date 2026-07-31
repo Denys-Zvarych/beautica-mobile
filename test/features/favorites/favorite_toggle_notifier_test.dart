@@ -28,6 +28,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../helpers/fakes/fake_favorite_repository.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -76,6 +77,7 @@ class _MutableAuthNotifier extends AuthNotifier {
 /// here so every later `await` in a test sees a stable session.
 Future<ProviderContainer> _makeContainer(FakeFavoriteRepository repo) async {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     // List<Object> + .cast() mirrors test/helpers/golden_pump.dart — flutter_
     // riverpod 3.x does not re-export the sealed `Override` type.
     overrides: <Object>[

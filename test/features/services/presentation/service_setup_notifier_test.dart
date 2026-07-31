@@ -26,6 +26,7 @@ import 'package:beautica_mobile/features/services/presentation/service_setup_not
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,7 @@ const _created = <MasterService>[
 
 ProviderContainer _makeContainer(_MockServiceRepository repo) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     // cycle-stub-ok: the service-setup notifier under test watches serviceRepositoryProvider as its DIRECT leaf data dep — stubbing the repo overrides the leaf, not a cycle-closing edge. No auth/logout cascade is exercised here.
     overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
   );

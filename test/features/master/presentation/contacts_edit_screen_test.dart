@@ -33,6 +33,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
 
@@ -334,6 +335,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: _overrides(repo).cast(),
         child: _InvalidationWatcher(
           states: states,

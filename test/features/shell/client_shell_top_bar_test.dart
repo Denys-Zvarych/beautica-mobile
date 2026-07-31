@@ -38,6 +38,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../helpers/fakes/fake_auth_repository.dart';
 import '../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
   setUp(
@@ -154,6 +155,7 @@ class _ShellHarness {
 
   static Future<_ShellHarness> boot(WidgetTester tester) async {
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [
         authProvider.overrideWith(() => _FixedAuthNotifier(_clientSession())),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),

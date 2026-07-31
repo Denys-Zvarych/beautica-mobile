@@ -50,6 +50,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Date anchoring helpers — every fake is built relative to the device "today"
@@ -860,6 +861,7 @@ Future<void> _pump(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[...overrides, _fakeWorkingHours()].cast(),
       child: MaterialApp.router(
         routerConfig: _router(),
@@ -890,6 +892,7 @@ Future<ProviderContainer> _pumpGuarded(
   required List<Object> overrides,
 }) async {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[...overrides, _fakeWorkingHours()].cast(),
   );
   await tester.pumpWidget(
@@ -1493,6 +1496,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: <Object>[
               ..._editableData(days),
               _fakeWorkingHours(),
@@ -1590,6 +1594,7 @@ void main() {
         ];
         final repo = _MutableDiscreteRepository(_today, savedTimes);
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -2135,6 +2140,7 @@ void main() {
         final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: <Object>[
               authProvider.overrideWith(
                 () => _FixedAuth(UserRole.independentMaster),
@@ -2193,6 +2199,7 @@ void main() {
     testWidgets('loading shows a spinner', (tester) async {
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -2933,6 +2940,7 @@ void main() {
         );
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -3059,6 +3067,7 @@ void main() {
         );
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -3687,6 +3696,7 @@ void main() {
       (tester) async {
         final repo = _CountingRangeScheduleRepository();
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -3821,6 +3831,7 @@ void main() {
         );
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: <Object>[
               ..._editableData(days),
               _fakeWorkingHours(),
@@ -3903,6 +3914,7 @@ void main() {
         final repo = _StatefulFakeScheduleRepository(effective);
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -3964,6 +3976,7 @@ void main() {
         final repo = _StatefulFakeScheduleRepository(effective);
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -4048,6 +4061,7 @@ Future<ProviderContainer> _pumpOverrideFlow(
   final repo = _StatefulFakeScheduleRepository(effective);
 
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[
       authProvider.overrideWith(() => _FixedAuth(UserRole.independentMaster)),
       scheduleRepositoryProvider.overrideWithValue(repo),

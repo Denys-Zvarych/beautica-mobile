@@ -22,6 +22,7 @@ import 'package:beautica_mobile/features/services/presentation/service_types_pro
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ const _newlyApprovedType = ServiceTypeOption(
 
 ProviderContainer _container(ServiceRepository repo) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
   );
   addTearDown(container.dispose);

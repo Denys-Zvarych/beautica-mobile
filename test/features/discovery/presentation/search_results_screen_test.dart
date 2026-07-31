@@ -55,6 +55,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockSearchRepository extends Mock implements SearchRepository {}
 
@@ -141,6 +142,7 @@ Widget _host(
   List<Object> extraOverrides = const <Object>[],
 }) {
   return ProviderScope(
+    retry: beauticaProviderRetry,
     // ProviderScope.overrides expects List<Override>; the public name is not
     // exported by riverpod 2.x, so callers pass plain override expressions and
     // we cast (the same pattern as test/helpers/pump_app.dart).
@@ -1158,6 +1160,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           // ignore: avoid_dynamic_calls
           overrides: <Object>[
             searchRepositoryProvider.overrideWithValue(repo),
@@ -1549,6 +1552,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             // ignore: avoid_dynamic_calls
             overrides: <Object>[
               searchRepositoryProvider.overrideWithValue(repo),
@@ -1643,6 +1647,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             // ignore: avoid_dynamic_calls
             overrides: <Object>[
               searchRepositoryProvider.overrideWithValue(repo),

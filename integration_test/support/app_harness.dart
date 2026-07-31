@@ -108,6 +108,7 @@ import 'e2e_boot_policy.dart';
 import 'fake_backend.dart';
 
 export 'fake_backend.dart' show FakeBackend, kFixedNow;
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// Shared boot path and convenience helpers for Phase 17.3 E2E tests.
 abstract final class AppHarness {
@@ -266,12 +267,25 @@ abstract final class AppHarness {
   /// manual «retry» button deterministically and in milliseconds rather than
   /// after a 38-second real-time wait. It changes NOTHING about the app's own
   /// behaviour — only how long the harness waits before observing it.
+  ///
+  /// DEFAULT = THE PRODUCTION PREDICATE
+  /// ----------------------------------
+  /// [retry] defaults to [beauticaProviderRetry] — the very predicate
+  /// `main.dart` installs on the root scope — so an E2E boot resolves error
+  /// paths exactly as the shipped app does. The paragraphs above describe
+  /// `ProviderContainer.defaultRetry`, which this harness used to inherit by
+  /// defaulting to `null`; that made every flow validate a blanket-retry policy
+  /// production had already removed, so a deterministic failure the user would
+  /// see as an error screen was silently retried away in test. The E2E tier is
+  /// the LAST place that skew should exist — its whole claim is "this is the
+  /// real app".
   static Future<GoRouter> boot(
     WidgetTester tester,
     FakeBackend fakeBackend, {
     FakeSecureStorage? storage,
     List<Object> extraOverrides = const <Object>[],
-    Duration? Function(int retryCount, Object error)? retry,
+    Duration? Function(int retryCount, Object error)? retry =
+        beauticaProviderRetry,
   }) async {
     // ── SHARED BOOT POLICY — ONE definition, BOTH E2E tiers ─────────────────
     //

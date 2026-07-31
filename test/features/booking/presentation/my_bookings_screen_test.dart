@@ -55,6 +55,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -161,6 +162,7 @@ const List<Locale> _locales = <Locale>[Locale('uk'), Locale('en')];
 
 Widget _host(_MockBookingRepository repo) {
   return ProviderScope(
+    retry: beauticaProviderRetry,
     // ignore: avoid_dynamic_calls
     overrides: <Object>[
       bookingRepositoryProvider.overrideWithValue(repo),
@@ -465,6 +467,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           // ignore: avoid_dynamic_calls
           overrides: <Object>[
             bookingRepositoryProvider.overrideWithValue(repo),

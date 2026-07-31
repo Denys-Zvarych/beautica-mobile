@@ -40,6 +40,7 @@ import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart'
     show calendarDayCount;
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -88,6 +89,7 @@ Future<({ProviderContainer container, _MutableAuthNotifier auth})>
 _containerWithAuth(BookingRepository repo, AuthSession initialAuth) async {
   final auth = _MutableAuthNotifier(initialAuth);
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[
       bookingRepositoryProvider.overrideWithValue(repo),
       authProvider.overrideWith(() => auth),

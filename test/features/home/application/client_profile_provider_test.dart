@@ -41,6 +41,7 @@ import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // /users/me source stub
@@ -131,6 +132,7 @@ _Harness _harnessForUser(
 }) {
   final repo = _FakeLocationRepository(cities, districts: districts);
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       clientEditProfileProvider.overrideWith(
         () => _StubClientEditProfile(user),

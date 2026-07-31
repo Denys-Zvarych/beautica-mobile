@@ -38,6 +38,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockSalonRepository extends Mock implements SalonRepository {}
 
@@ -121,6 +122,7 @@ void main() {
   setUp(() {
     repo = _MockSalonRepository();
     container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [salonRepositoryProvider.overrideWithValue(repo)],
     );
   });

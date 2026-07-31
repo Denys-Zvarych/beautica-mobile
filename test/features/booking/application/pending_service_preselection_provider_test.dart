@@ -32,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Auth stub (mirrors search_filters_controller_test.dart)
@@ -73,6 +74,7 @@ class _MutableAuthNotifier extends AuthNotifier {
 }) {
   final notifier = _MutableAuthNotifier(auth);
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[
       authProvider.overrideWith(() => notifier),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),

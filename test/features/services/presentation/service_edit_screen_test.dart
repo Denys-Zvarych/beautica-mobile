@@ -38,6 +38,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'widgets/select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes + Mocks
@@ -212,6 +213,7 @@ Future<void> _pumpEdit(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: _overrides(
         repo,
         includeMasterProfile: masterProfileStates != null,
@@ -255,6 +257,7 @@ Future<void> _pumpEditLoading(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: _overrides(repo).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -291,6 +294,7 @@ Future<_PopObserver> _pumpEditInNavigator(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: _overrides(repo).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -493,6 +497,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: _overrides(repo).cast(),
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -940,6 +945,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             serviceRepositoryProvider.overrideWithValue(repo),
             // approvedCategoriesProvider fetches directly now — override it here
