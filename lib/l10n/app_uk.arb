@@ -4389,10 +4389,6 @@
   "@salonAboutEmpty": {
     "description": "Empty state on the \"Про салон\" tab when the salon has no description yet."
   },
-  "salonLocationNoteLabel": "Як дістатись",
-  "@salonLocationNoteLabel": {
-    "description": "Section heading on the \"Про салон\" tab above the salon's locationNote (entrance/floor instructions), rendered via ExpandableNote."
-  },
   "salonServicesEmpty": "У салоні поки немає послуг",
   "@salonServicesEmpty": {
     "description": "Empty state on the \"Послуги\" tab when the salon has no active services yet."

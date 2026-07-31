@@ -4389,10 +4389,6 @@
   "@salonAboutEmpty": {
     "description": "Empty state on the \"About\" tab when the salon has no description yet."
   },
-  "salonLocationNoteLabel": "How to get there",
-  "@salonLocationNoteLabel": {
-    "description": "Section heading on the \"About\" tab above the salon's locationNote (entrance/floor instructions), rendered via ExpandableNote."
-  },
   "salonServicesEmpty": "This salon has no services yet",
   "@salonServicesEmpty": {
     "description": "Empty state on the \"Services\" tab when the salon has no active services yet."

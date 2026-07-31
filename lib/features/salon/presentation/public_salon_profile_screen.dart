@@ -206,7 +206,6 @@ class _PublicSalonProfileScreenState
               serviceFilter: serviceFilter,
               topInset: topInset,
               coverHeight: _coverHeight,
-              heroProtrusion: _heroProtrusion,
               tab: _tab,
               onTabSelected: (int i) => setState(() => _tab = i),
               anim0: _anim0,
@@ -363,7 +362,6 @@ class _LoadedBody extends StatelessWidget {
     required this.serviceFilter,
     required this.topInset,
     required this.coverHeight,
-    required this.heroProtrusion,
     required this.tab,
     required this.onTabSelected,
     required this.anim0,
@@ -382,7 +380,6 @@ class _LoadedBody extends StatelessWidget {
   final SalonServiceSelection? serviceFilter;
   final double topInset;
   final double coverHeight;
-  final double heroProtrusion;
   final int tab;
   final ValueChanged<int> onTabSelected;
 
@@ -419,7 +416,6 @@ class _LoadedBody extends StatelessWidget {
       children: <Widget>[
         _CoverAndHero(
           coverHeight: coverHeight,
-          heroProtrusion: heroProtrusion,
           topInset: topInset,
           salon: salon,
           reveal: _reveal,
@@ -476,10 +472,70 @@ class _LoadedBody extends StatelessWidget {
 }
 
 /// The cover photo + overlapping hero card region.
+///
+/// Phase 224 — the hero card now embeds an [ExpandableNote] for
+/// `salon.locationNote` (moved back in from the About tab's «Як дістатись»
+/// section — see [_SalonHeroCard]). Expanded, that note can add several
+/// hundred px of height (the field is up to 1000 chars). Before this phase
+/// the hero card was `Positioned(bottom: 0)` inside a `Stack` sized to
+/// `coverHeight + heroProtrusion`, so its protrusion into the cover tracked
+/// its OWN content height (`cardHeight - heroProtrusion`) — fine while that
+/// height was bounded by maxLines caps on the name/address, but an expanded
+/// note has no such cap, and the old formula would push the card's top edge
+/// arbitrarily far up the cover, over the back/favourite buttons.
+///
+/// This is now a [Stack]: a fixed-height cover (with the back/favourite
+/// controls layered over it) [Positioned] to its own `coverHeight`
+/// regardless of anything else, plus the hero card as the Stack's ONE
+/// non-`Positioned` child, offset from the top by a small FIXED amount
+/// (`coverHeight - _cardCoverOverlap`) via an ordinary [Padding] rather than
+/// the cover's own height. Because the card is the only non-positioned
+/// child, it alone determines the Stack's total size — `coverHeight -
+/// _cardCoverOverlap` of top inset plus the card's own natural (content-
+/// driven) height — so any extra height the card needs (a note, an
+/// EXPANDED note, a long address) grows the STACK downward only, pushing
+/// the tab bar and the rest of the page down with it, while the
+/// `Positioned` cover (and therefore the back/favourite buttons) always
+/// renders at its own full `coverHeight`, never depending on the card's
+/// size.
+///
+/// An earlier version of this fix pinned the overlap with a hand-written
+/// [RenderShiftedBox] subclass that painted the card at a negative offset
+/// relative to a deliberately-shrunk reported `size`. That has two sharp
+/// edges standard widgets don't: `RenderBox.hitTest()` gates on
+/// `_size.contains(position)` *before* it ever calls `hitTestChildren()`,
+/// and a negative paint offset always lands the "overhang" portion at
+/// negative *local* coordinates — which `Size.contains()` can never
+/// consider inside the box, no matter how `size` itself is tuned. The top
+/// `_cardCoverOverlap` px of the card were therefore never hit-testable —
+/// taps there silently fell through to the cover underneath. The custom
+/// object also had no `computeDryLayout` override (none of
+/// `RenderShiftedBox`'s framework subclasses get one for free), tripping an
+/// assert under any future `IntrinsicHeight` ancestor or layout/golden test.
+///
+/// `Padding`'s reported `size` always includes its own inset, so it has no
+/// "painted-but-not-reported" region for `hitTest()` to gate out, and it
+/// inherits a correct `computeDryLayout` from the framework — neither
+/// problem can recur here. (A simpler-looking `Transform.translate` was
+/// tried and rejected: `RenderTransform.hitTest` *does* skip the usual
+/// `size` gate and apply the inverse transform to reach its child, but only
+/// when the `Transform` itself is the render object the parent's
+/// `hitTestChildren` calls directly. Any ordinary `RenderShiftedBox`
+/// ancestor between that call site and the `Transform` — even an
+/// unrelated horizontal-only `Padding` — re-applies the *default*,
+/// non-transform-aware `size.contains()` gate first and rejects the
+/// negative offset before the `Transform` is ever reached. `Transform`
+/// also never shrinks the reported layout size the way the old render
+/// object did, so the Stack/Column it sits in ends up `_cardCoverOverlap`
+/// px taller than the card's true visual bottom — dead space that would
+/// have to be clawed back from a trailing gap, and `VelvetSpacing.lg`
+/// (24px) is smaller than `_cardCoverOverlap` (25px), so that reduction
+/// goes negative. The [Positioned]-cover / [Padding]-inset-card split below
+/// has neither problem: it reproduces the exact old total height with a
+/// direct, non-derived sum, not a measure-then-subtract trick.)
 class _CoverAndHero extends StatelessWidget {
   const _CoverAndHero({
     required this.coverHeight,
-    required this.heroProtrusion,
     required this.topInset,
     required this.salon,
     required this.reveal,
@@ -488,39 +544,88 @@ class _CoverAndHero extends StatelessWidget {
   });
 
   final double coverHeight;
-  final double heroProtrusion;
   final double topInset;
   final Salon salon;
   final Widget Function(Animation<double>, Animation<Offset>, Widget) reveal;
   final Animation<double> anim0;
   final Animation<Offset> slide0;
 
+  /// Fixed pixel amount by which the hero card overlaps (protrudes into) the
+  /// bottom of the cover photo, independent of the card's own content
+  /// height — see the class doc for why this replaced the old
+  /// content-driven formula. Chosen to match what that formula produced for
+  /// a typical locality+street card with no note (measured 25px at the time
+  /// of writing), so the common no-note case looks the same as before.
+  ///
+  /// It is FIXED rather than derived from `cardHeight` on purpose: the hero
+  /// card can now carry an [ExpandableNote] up to 1000 chars long, and an
+  /// expanded note can grow the card by several hundred px — a
+  /// content-driven overlap would grow right along with it and push the
+  /// card up over the cover's back/favourite buttons (see the class doc's
+  /// note on the old `cardHeight - _heroProtrusion` formula). Pinning the
+  /// overlap independent of content height means extra content height only
+  /// ever grows the card downward, never upward into the cover.
+  ///
+  /// Deliberately NOT a `VelvetSpacing` token: it doesn't express a spacing
+  /// rhythm between two elements, it encodes a geometric relationship to
+  /// `coverHeight` (how far the card's top edge sits above the cover's
+  /// bottom edge) — a `VelvetSpacing` value would be a coincidence, not a
+  /// contract.
+  ///
+  /// The exact value of 25 is pinned by three geometry tests in the
+  /// `hero card overlap is a fixed constant, independent of content height`
+  /// group in `public_salon_profile_screen_test.dart` — minimal content,
+  /// worst-case collapsed content, and a 1000-char expanded note all assert
+  /// this overlap to within 0.5px. Do not change this value without
+  /// updating (and getting sign-off on) those tests.
+  static const double _cardCoverOverlap = 25;
+
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: <Widget>[
-        Padding(
-          padding: EdgeInsets.only(bottom: heroProtrusion),
-          child: SalonCover(
-            height: coverHeight,
-            topInset: topInset,
-            imageUrl: salon.coverImageUrl,
+        // Cover artwork + back/favourite controls — `Positioned` to its own
+        // full `coverHeight`, so it never contributes to (or shrinks with)
+        // this Stack's own sizing; that comes solely from the card below.
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: coverHeight,
+          child: Stack(
+            children: <Widget>[
+              SalonCover(
+                height: coverHeight,
+                topInset: topInset,
+                imageUrl: salon.coverImageUrl,
+              ),
+              Positioned(
+                top: topInset + VelvetSpacing.sm,
+                left: VelvetSpacing.lg,
+                child: const _BackButton(),
+              ),
+              Positioned(
+                top: topInset + VelvetSpacing.sm,
+                right: VelvetSpacing.lg,
+                child: _FavoriteToggleButton(salonId: salon.id),
+              ),
+            ],
           ),
         ),
-        Positioned(
-          top: topInset + VelvetSpacing.sm,
-          left: VelvetSpacing.lg,
-          child: const _BackButton(),
-        ),
-        Positioned(
-          top: topInset + VelvetSpacing.sm,
-          right: VelvetSpacing.lg,
-          child: _FavoriteToggleButton(salonId: salon.id),
-        ),
-        Positioned(
-          left: VelvetSpacing.lg,
-          right: VelvetSpacing.lg,
-          bottom: 0,
+        // Hero card — the Stack's only non-`Positioned` child, so it alone
+        // drives the Stack's total height (see class doc). Painted LAST so
+        // it layers on top of the cover in the overlap band, and — being a
+        // plain [Padding] rather than a custom RenderObject with a shrunk
+        // `size` — its reported box always spans its whole painted
+        // footprint, so the overlap band is hit-testable like any other
+        // part of the card.
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            VelvetSpacing.lg,
+            coverHeight - _cardCoverOverlap,
+            VelvetSpacing.lg,
+            0,
+          ),
           child: reveal(anim0, slide0, _SalonHeroCard(salon: salon)),
         ),
       ],
@@ -549,17 +654,24 @@ class _SalonHeroCard extends StatelessWidget {
         ? null
         : salon.name.trim()[0].toUpperCase();
     final String ratingLabel = salon.avgRating?.toStringAsFixed(1) ?? '—';
-    // Phase 223 (b) — locality + street/building, each its own line, NEVER
-    // `locationNote` (moved to the About tab's `ExpandableNote` — see
-    // `_AboutTab`). A `locationNote` up to 1000 chars long previously
-    // appended onto this SAME line was what pushed the street address out of
-    // the visible `maxLines: 2` budget below — losing the address itself,
-    // not just the note. Splitting into a FIXED two-line budget (one line
-    // per helper, both `maxLines: 1`) means this row can never grow past
-    // exactly the two lines it occupied before, protecting
-    // `_heroProtrusion`'s budget.
+    // Phase 223 (b) — locality + street/building, each its own line, one
+    // `Text` per helper, both `maxLines: 1`. `locationNote` is never
+    // concatenated onto either of these lines — it renders as its own
+    // [ExpandableNote] below (Phase 224) — so a note up to 1000 chars long
+    // can never push the address itself out of its budget the way a single
+    // combined line did pre-223.
     final String? localityLine = _localityLine(salon);
     final String? streetLine = _streetLine(salon);
+    // Phase 224 — `locationNote` moved back onto the hero card (it briefly
+    // lived on the About tab under Phase 223 (b) — see the `_AboutTab` and
+    // `_CoverAndHero` class docs for why/how). Sanitization happens INSIDE
+    // `ExpandableNote` (mirrors the public master profile's identical
+    // convention — see that widget's class doc); pre-sanitizing here would
+    // be a redundant no-op pass.
+    final String? noteText = (salon.locationNote?.isNotEmpty ?? false)
+        ? salon.locationNote
+        : null;
+    final bool hasAddress = localityLine != null || streetLine != null;
 
     return NeumorphicCard(
       key: const Key('salon-profile-hero-card'),
@@ -569,120 +681,184 @@ class _SalonHeroCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              SalonLogo(diameter: _logoDiameter, monogram: monogram),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+          // Static content — logo, name/rating row, address rows — isolated
+          // in its own RepaintBoundary, sibling to the [ExpandableNote]
+          // below.
+          //
+          // mobile-perf audit fix (Phase 224 follow-up): before this, the
+          // whole card shared ONE RepaintBoundary with the note — the one
+          // `reveal()` wraps around this whole widget in [_CoverAndHero].
+          // The note's 220ms expand/collapse `AnimatedSize` resizes
+          // `NeumorphicCard`'s Column, and that layout change bubbles up to
+          // the shared boundary, forcing it to repaint EVERYTHING inside —
+          // including this static content's `SalonLogo` gradient/border/
+          // shadow and `NeumorphicCard`'s own extruded shadow — on all ~13
+          // frames of the animation, even though only the note's text is
+          // changing size. This never happened while the note lived in the
+          // About tab's plain `Padding` (Phase 223). It is the exact class
+          // of bug `ExpandableNote`'s own class doc
+          // (`expandable_note.dart:47-57`) documents fixing for the master
+          // profile's `ProfileAvatar`/`MaskFilter.blur` case; that
+          // precedent wasn't reapplied here when the note moved onto this
+          // card (Phase 224). Isolating this subtree in its own layer
+          // confines an expand/collapse repaint to just the note (which
+          // already isolates its own `AnimatedSize` — see
+          // `expandable_note.dart`) and this card's outer shadow.
+          RepaintBoundary(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    Text(
-                      salon.name,
-                      key: const Key('salon-profile-name'),
-                      style: VelvetText.displayName20,
-                      maxLines: 2,
-                      softWrap: true,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 5),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        const Icon(
-                          Icons.star_rounded,
-                          size: 16,
-                          color: BrandColors.accentDeep,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          ratingLabel,
-                          key: const Key('salon-profile-rating'),
-                          style: _ratingInlineStyle,
-                        ),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
-                            style: VelvetText.feedbackMuted13,
+                    SalonLogo(diameter: _logoDiameter, monogram: monogram),
+                    const SizedBox(width: VelvetSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            salon.name,
+                            key: const Key('salon-profile-name'),
+                            style: VelvetText.displayName20,
+                            maxLines: 2,
+                            softWrap: true,
                             overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 5),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              const Icon(
+                                Icons.star_rounded,
+                                size: 16,
+                                color: BrandColors.accentDeep,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                ratingLabel,
+                                key: const Key('salon-profile-rating'),
+                                style: _ratingInlineStyle,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
+                                  style: VelvetText.feedbackMuted13,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          if (localityLine != null || streetLine != null) ...<Widget>[
-            // Tight gap (matches the name→rating spacing above) rather than
-            // the old VelvetSpacing.md (16px): the location line is a
-            // tightly-coupled continuation of the rating row, not a loosely
-            // separated address section (mobile-debugger fix — restores the
-            // hero card's natural height past `_heroProtrusion`'s 116px
-            // budget so it protrudes into the cover again).
-            const SizedBox(height: 5),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                // Indents the icon+text to align with the name/rating text
-                // column above (logo diameter + the gap after it), so the
-                // location line reads as "under the rating", not "under the
-                // logo image". Purely a horizontal offset — it does not
-                // change this row's height, so the hero card's total height
-                // (and its protrusion into the cover) is unaffected.
-                const SizedBox(width: _logoDiameter + VelvetSpacing.md),
-                const Padding(
-                  padding: EdgeInsets.only(top: 1),
-                  child: Icon(
-                    Icons.location_on_outlined,
-                    size: 15,
-                    color: BrandColors.accentDeep,
-                  ),
-                ),
-                const SizedBox(width: VelvetSpacing.xs + 1),
-                Expanded(
-                  child: Column(
+                if (hasAddress) ...<Widget>[
+                  // Tight gap (matches the name→rating spacing above) rather
+                  // than the old VelvetSpacing.md (16px): the location line
+                  // is a tightly-coupled continuation of the rating row,
+                  // not a loosely separated address section
+                  // (mobile-debugger fix — restores the hero card's natural
+                  // height so it protrudes into the cover again; see
+                  // [_CoverAndHero] for how the card's growth is now kept
+                  // from pushing that protrusion any further). Mirrored
+                  // below (outside this boundary) for the note-only,
+                  // no-address case.
+                  const SizedBox(height: 5),
+                  Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      // Line 1: locality, or the street line promoted here
-                      // when there is no locality (mirrors the master
-                      // identity card's promotion convention in
-                      // `shared/formatters/address_lines.dart`). `maxLines: 1`
-                      // (not 2, as the pre-223 combined line allowed) is what
-                      // makes the budget FIXED rather than variable — this
-                      // row can occupy at most 2 lines total, ever.
-                      Text(
-                        localityLine ?? streetLine!,
-                        key: localityLine != null
-                            ? const Key('salon-profile-locality-text')
-                            : const Key('salon-profile-address-text'),
-                        style: VelvetText.bookFeedbackSec13,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      // Line 2: street + building — only when a locality is
-                      // ALSO present (otherwise it was already promoted to
-                      // line 1 above).
-                      if (localityLine != null &&
-                          streetLine != null) ...<Widget>[
-                        const SizedBox(height: 2),
-                        Text(
-                          streetLine,
-                          key: const Key('salon-profile-address-text'),
-                          style: VelvetText.bookFeedbackSec13,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      // Indents the icon+text to align with the name/rating
+                      // text column above (logo diameter + the gap after
+                      // it), so the location line reads as "under the
+                      // rating", not "under the logo image". Purely a
+                      // horizontal offset — it does not change this row's
+                      // height.
+                      const SizedBox(width: _logoDiameter + VelvetSpacing.md),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 1),
+                        child: Icon(
+                          Icons.location_on_outlined,
+                          size: 15,
+                          color: BrandColors.accentDeep,
                         ),
-                      ],
+                      ),
+                      const SizedBox(width: VelvetSpacing.xs + 1),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            // Line 1: locality, or the street line promoted
+                            // here when there is no locality (mirrors the
+                            // master identity card's promotion convention
+                            // in `shared/formatters/address_lines.dart`).
+                            // `maxLines: 1` (not 2, as the pre-223 combined
+                            // line allowed) is what makes the budget FIXED
+                            // rather than variable — this row can occupy at
+                            // most 2 lines total, ever.
+                            Text(
+                              localityLine ?? streetLine!,
+                              key: localityLine != null
+                                  ? const Key('salon-profile-locality-text')
+                                  : const Key('salon-profile-address-text'),
+                              style: VelvetText.bookFeedbackSec13,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            // Line 2: street + building — only when a
+                            // locality is ALSO present (otherwise it was
+                            // already promoted to line 1 above).
+                            if (localityLine != null &&
+                                streetLine != null) ...<Widget>[
+                              const SizedBox(height: 2),
+                              Text(
+                                streetLine,
+                                key: const Key('salon-profile-address-text'),
+                                style: VelvetText.bookFeedbackSec13,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                ),
+                ],
               ],
+            ),
+          ),
+          // The note renders whenever present, even for a salon with
+          // NEITHER a locality NOR a street (a note-only location, e.g. a
+          // salon that only describes "яка вивіска шукати" without a
+          // formal address) — unlike the public master profile, where the
+          // equivalent note is nested INSIDE the address-only `if`, this
+          // one is gated on its own so it is never silently dropped for a
+          // salon with a note but no address on file. Deliberately OUTSIDE
+          // the static-content [RepaintBoundary] above — see that
+          // boundary's doc comment.
+          if (noteText != null) ...<Widget>[
+            // `hasAddress` ? the tight 2px gap after the address block :
+            // the same 5px gap the address block itself would have used
+            // (this is the note-only, no-address case — nothing else has
+            // consumed that leading gap yet).
+            if (hasAddress)
+              const SizedBox(height: 2)
+            else
+              const SizedBox(height: 5),
+            Padding(
+              padding: const EdgeInsets.only(
+                left: _logoDiameter + VelvetSpacing.md,
+              ),
+              child: ExpandableNote(
+                key: const Key('salon-profile-location-note'),
+                text: noteText,
+              ),
             ),
           ],
         ],
@@ -722,9 +898,11 @@ class _SalonHeroCard extends StatelessWidget {
   /// never been re-saved since (mobile-side fix for `PublicSalonResponse`
   /// commit `ef96845`).
   ///
-  /// Never includes `locationNote` — that field moved to the About tab's
-  /// [ExpandableNote] in Phase 223 (b) so it can no longer evict this line
-  /// from the hero card's fixed two-line budget.
+  /// Never includes `locationNote` — that field renders as its OWN
+  /// [ExpandableNote] below this line (see the Phase 224 note in
+  /// [_SalonHeroCard.build]), never concatenated onto it, so it can never
+  /// evict this line from its fixed one-line budget the way the pre-223
+  /// combined line allowed.
   static String? _streetLine(Salon salon) {
     if (salon.street?.isNotEmpty ?? false) {
       return buildStreetLine(salon.street, salon.buildingNo);
@@ -751,16 +929,11 @@ class _AboutTab extends StatelessWidget {
     final String? instagram = (salon.instagramUrl?.isNotEmpty ?? false)
         ? salon.instagramUrl
         : null;
-    // Phase 223 (b) — `locationNote` moved here from the hero card, which
-    // used to append it onto the SAME clamped line as the street address —
-    // a long note could push the address itself out of the hero's
-    // `maxLines: 2` budget, losing the address rather than just the note.
-    // `ExpandableNote` sanitizes internally (see that widget's class doc),
-    // so the raw field is passed through unsanitized here — sanitizing it
-    // again at this call site would be a redundant no-op pass.
-    final String? locationNote = (salon.locationNote?.isNotEmpty ?? false)
-        ? salon.locationNote
-        : null;
+    // Phase 224 — `locationNote` moved back onto the hero card (its
+    // «Як дістатись» heading + [ExpandableNote] briefly lived here under
+    // Phase 223 (b); see [_SalonHeroCard] for the current render site and
+    // [_CoverAndHero] for how the hero card now absorbs the note's height
+    // without pushing into the cover photo).
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
@@ -775,20 +948,6 @@ class _AboutTab extends StatelessWidget {
                 : VelvetText.bodyStrong(),
           ),
           _SalonPortfolioRail(salonId: salon.id),
-          if (locationNote != null) ...<Widget>[
-            const SizedBox(height: VelvetSpacing.xl),
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-              child: Text(
-                l10n.salonLocationNoteLabel,
-                style: VelvetText.sectionLabel(),
-              ),
-            ),
-            ExpandableNote(
-              key: const Key('salon-about-location-note'),
-              text: locationNote,
-            ),
-          ],
           if (instagram != null) ...<Widget>[
             const SizedBox(height: VelvetSpacing.xl),
             Padding(

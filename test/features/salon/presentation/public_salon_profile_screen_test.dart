@@ -46,6 +46,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -1043,21 +1044,161 @@ void main() {
     );
   });
 
+  // ── mobile-qa gap fill: the exact `_cardCoverOverlap` (25px) invariant ────
+  //
+  // The group above only asserts SOME overlap exists (`heroTopY <
+  // coverBottomY`) — it would pass even if the overlap magnitude drifted
+  // with content height, which is precisely the bug Phase 224 fixed (the
+  // OLD content-driven formula grew the overlap itself as the card grew,
+  // eventually pushing the card over the back/favourite buttons). This
+  // group pins the actual invariant described in `_CoverAndHero`'s class
+  // doc: the overlap is a FIXED constant, byte-for-byte identical
+  // regardless of how tall the card's content makes it — from a bare
+  // minimal card up through a 2-line name + full address + an EXPANDED
+  // 1000-char locationNote.
+  group('hero card overlap is a fixed constant, independent of content '
+      'height', () {
+    /// Cover bottom edge Y minus hero card top edge Y, in logical pixels —
+    /// the actual protrusion depth, not just "is there some overlap".
+    double overlapPx(WidgetTester tester) {
+      final double coverBottomY = tester
+          .getBottomLeft(find.byType(SalonCover))
+          .dy;
+      final double heroTopY = tester
+          .getTopLeft(find.byKey(const Key('salon-profile-hero-card')))
+          .dy;
+      return coverBottomY - heroTopY;
+    }
+
+    testWidgets(
+      'a minimal-content salon (no address, no note) overlaps by exactly '
+      '25px',
+      (tester) async {
+        await _pumpTall(tester);
+        const minimalSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => minimalSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          overlapPx(tester),
+          moreOrLessEquals(25, epsilon: 0.5),
+          reason:
+              'the hero card must protrude into the cover by exactly the '
+              '`_CoverAndHero._cardCoverOverlap` constant (25px), not some '
+              'content-derived amount',
+        );
+      },
+    );
+
+    testWidgets(
+      'worst-case collapsed content (2-line name + 2-line address + a '
+      'locationNote) overlaps by the SAME exact 25px as the minimal card',
+      (tester) async {
+        const String longName =
+            'Салон краси «Незабутня Досконалість Стилю та Гармонії»';
+        const worstCaseSalon = Salon(
+          id: _kSalonId,
+          name: longName,
+          description: 'Затишний салон краси в серці Печерська.',
+          cityId: 'city-uuid-1',
+          street: 'вул. Велика Васильківська',
+          buildingNo: '44/2',
+          locationNote: 'вхід з двору, 2 поверх, домофон 12',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => worstCaseSalon),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          overlapPx(tester),
+          moreOrLessEquals(25, epsilon: 0.5),
+          reason:
+              'the overlap must stay pinned at exactly 25px even though '
+              "this card's content is far taller than the minimal case — "
+              'if this drifts, the old content-driven overlap formula (or '
+              'something equivalent) has crept back in',
+        );
+      },
+    );
+
+    testWidgets(
+      'the overlap stays exactly 25px even with a 1000-char locationNote '
+      'EXPANDED — the tallest the card can ever get',
+      (tester) async {
+        await _pumpTall(tester);
+        final String longNote = ('Вхід у двір з боку вулиці Хрещатик. ' * 30)
+            .substring(0, 1000);
+        final Salon salon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Київ',
+          address: 'вул. Велика Васильківська, 44',
+          locationNote: longNote,
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => salon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(
+          overlapPx(tester),
+          moreOrLessEquals(25, epsilon: 0.5),
+          reason:
+              'expanding the note grows the card by several hundred px — '
+              'the overlap must remain exactly 25px regardless, because the '
+              'cover is `Positioned` to its own fixed `coverHeight` '
+              "independent of the card's size (see `_CoverAndHero`'s class "
+              'doc)',
+        );
+      },
+    );
+  });
+
   // Regression (mobile-debugger diagnosis): the "Обкладинка" cover-edit pill
   // used to be `Positioned(left, bottom: VelvetSpacing.md)` inside the
   // cover's OWN stack, on the assumption the bottom-left corner sits "clear
-  // of the hero". The hero card's height is variable — a 2-line name
-  // already pushes it past `_heroProtrusion`'s 116px budget, eating into the
-  // cover's bottom edge and overlapping the pill.
+  // of the hero". The hero card's height is variable — a 2-line name, a
+  // 2-line address, and (Phase 224) a `locationNote` can all add height —
+  // and it used to eat into the cover's bottom edge and overlap the pill.
   //
-  // Phase 223 (b) capped the address block to a FIXED 2-line budget
-  // (locality + street/building, each `maxLines: 1`) and moved
-  // `locationNote` to the About tab — so it can no longer grow the hero
-  // past that budget either. This fixture still sets `locationNote` (now
-  // rendered only on the About tab) precisely to prove that: even with a
-  // note present, the hero must not grow past the fixed address budget.
-  // This pumps the worst case (2-line name + the fixed 2-line address) and
-  // asserts the pill's rendered Rect never intersects the hero card's Rect.
+  // Phase 224 fixed the hero card's overlap into the cover at a constant
+  // (`_CoverAndHero._cardCoverOverlap`, 25px — see that class's doc) instead
+  // of deriving it from the card's own content height, so ANY extra height
+  // the card needs now grows it downward, never upward into the cover. This
+  // pumps the worst case (2-line name + the fixed 2-line locality/street
+  // address + a `locationNote`, which now renders on the hero card itself)
+  // and asserts the pill's rendered Rect never intersects the hero card's
+  // Rect — true by construction now, but pinned here in case a future
+  // change reintroduces content-driven overlap.
   group('cover edit pill layout', () {
     testWidgets(
       'cover edit pill never overlaps the hero card, even at worst-case '
@@ -1103,29 +1244,36 @@ void main() {
           isFalse,
           reason:
               'the "Обкладинка" edit pill must never overlap the hero '
-              'card, even when the hero grows past its 116px protrusion '
-              'budget (2-line name + the fixed 2-line locality/street '
-              'address, locationNote excluded)',
+              'card — the hero\'s overlap into the cover is now a FIXED '
+              '`_cardCoverOverlap` (25px) regardless of content height '
+              '(2-line name + the fixed 2-line locality/street address + '
+              'a locationNote), so any extra content height grows the '
+              'card downward, not further into the cover.',
         );
       },
     );
   });
 
-  // ── mobile-qa regression pin: the actual bug Phase 223 (b) fixed ──────────
+  // ── mobile-qa regression pin: the actual bug Phase 223 (b) fixed, still
+  // relevant now that Phase 224 moved `locationNote` back onto the hero
+  // card ────────────────────────────────────────────────────────────────
   //
   // Pre-223(b), `_buildLocationLine` joined street + buildingNo + locationNote
   // into ONE string clamped to `maxLines: 2`, so a long note could push the
   // street address itself out of the visible budget — losing the address, not
-  // just the note. This directly pins the fix at the widget tier (the
-  // integration tier's `public_salon_profile_flow_test.dart` pins the same
-  // regression through a REAL wire response): with a 1000-char locationNote
-  // set, the hero must still show BOTH the locality line and the street line,
-  // and the note text itself must never leak onto the hero card.
-  group('locationNote never evicts the hero address (Phase 223 (b) '
+  // just the note. Phase 224 re-introduces `locationNote` on the hero card,
+  // but as its OWN `ExpandableNote` below the address lines — never
+  // concatenated onto them (see `_SalonHeroCard._streetLine`'s doc) — so the
+  // same failure mode can no longer recur. This directly pins that at the
+  // widget tier (the integration tier's `public_salon_profile_flow_test.dart`
+  // pins the same regression through a REAL wire response): with a
+  // 1000-char locationNote set, the hero must still show BOTH the locality
+  // line and the street line, AND the (collapsed, clamped) note itself.
+  group('locationNote never evicts the hero address (Phase 223 (b) / 224 '
       'regression pin)', () {
     testWidgets(
       'a 1000-char locationNote still leaves BOTH the locality line and the '
-      'street/building line visible on the hero card',
+      'street/building line visible, alongside the (collapsed) note',
       (tester) async {
         await _pumpTall(tester);
         final String longNote = ('Вхід у двір з боку вулиці Хрещатик. ' * 30)
@@ -1168,130 +1316,204 @@ void main() {
         final Text addressWidget = tester.widget<Text>(addressFinder);
         expect(localityWidget.data, 'Київ');
         expect(addressWidget.data, contains('вул. Велика Васильківська, 44'));
-        // The note itself must never leak onto the HERO CARD specifically —
-        // it now lives exclusively on the About tab (see the group below),
-        // which the default-tab pump also renders further down the same
-        // scroll view, so the negative assertion must be scoped to the hero
-        // card's own subtree rather than the whole screen.
+        // Phase 224 — the note now DOES render on the hero card, as its own
+        // `ExpandableNote` (clamped to 3 lines when collapsed), never merged
+        // into the address lines above.
         final Finder heroCard = find.byKey(
           const Key('salon-profile-hero-card'),
         );
         expect(
           find.descendant(
             of: heroCard,
-            // i18n-finder-ok: negative assertion against the note fixture's
-            // own opening words, not localised UI copy.
-            matching: find.textContaining('Вхід у двір'),
+            matching: find.byKey(const Key('salon-profile-location-note')),
           ),
-          findsNothing,
+          findsOneWidget,
           reason:
-              'the locationNote text must never appear INSIDE the hero '
-              'card, even though it legitimately renders on the About tab',
+              'a locationNote must render on the hero card as its own '
+              'ExpandableNote, alongside (never instead of) the address '
+              'lines',
         );
       },
     );
   });
 
-  // ── mobile-security LOW fix: About tab — locationNote / ExpandableNote ────
+  // ── mobile-security LOW fix: hero card — locationNote / ExpandableNote ────
   //
-  // Phase 223 (b) moved `locationNote` off the hero card onto the About tab,
-  // rendered via the shared `ExpandableNote` under the `salonLocationNoteLabel`
-  // («Як дістатись») heading — but until this pass, NOTHING in this file
-  // exercised that render site directly. This group closes that gap:
-  // presence/absence of the heading + note by locationNote state, the
-  // expand/collapse interaction, and the bidi/RLO sanitize contract at this
-  // specific call site (a second, distinct consumer of
-  // `ExpandableNote`/`sanitizeDisplayText` from the master profile's — see
-  // `expandable_note_test.dart` / `sanitize_display_text_test.dart` for the
-  // widget/util-level exhaustive coverage this pins the WIRING of, on THIS
-  // screen's actual Row/Column tree).
-  group('About tab — location note', () {
-    testWidgets('a non-empty locationNote renders the «Як дістатись» heading + '
-        'ExpandableNote with the (sanitized) text', (tester) async {
+  // Phase 223 (b) moved `locationNote` off the hero card onto the About
+  // tab's «Як дістатись» section; Phase 224 moved it back onto the hero
+  // card (per user feedback — the About tab's separate section was
+  // confusing, and the note reads better as part of the salon's full
+  // location, right under the street line). This group covers that render
+  // site directly: presence/absence of the note by `locationNote` state
+  // (including a note with NO street/locality at all — the hero card must
+  // still show it), the expand/collapse interaction, and the bidi/RLO
+  // sanitize contract at this specific call site (a second, distinct
+  // consumer of `ExpandableNote`/`sanitizeDisplayText` from the master
+  // profile's — see `expandable_note_test.dart` /
+  // `sanitize_display_text_test.dart` for the widget/util-level exhaustive
+  // coverage this pins the WIRING of, on THIS screen's actual Row/Column
+  // tree).
+  group('hero card — location note', () {
+    testWidgets(
+      'a non-empty locationNote renders as an ExpandableNote on the hero '
+      'card (sanitized text), even with no street/locality on file',
+      (tester) async {
+        await _pumpTall(tester);
+        const noteSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          locationNote: 'кв. 3, 2 поверх',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => noteSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder heroCard = find.byKey(
+          const Key('salon-profile-hero-card'),
+        );
+        expect(
+          find.descendant(
+            of: heroCard,
+            matching: find.byKey(const Key('salon-profile-location-note')),
+          ),
+          findsOneWidget,
+          reason:
+              'a locationNote must render on the hero card even for a '
+              'salon with no street/locality at all — it must never be '
+              'silently dropped for lack of an address to sit under',
+        );
+        // i18n-finder-ok: locationNote fixture data, not UI copy.
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+      },
+    );
+
+    // ── mobile-qa gap fill: explicit relocation guard ──────────────────────
+    //
+    // Phase 224 DELETED the About tab's «Як дістатись» section rather than
+    // merely hiding it, so today this can't literally render in both
+    // places — but a naive future edit (e.g. a partial revert, or someone
+    // re-adding an About-tab summary of "salon info" that innocently
+    // includes the note again) would only be caught if some test actually
+    // asserts the ABSENCE, not just the presence, on the new site. The
+    // other tests in this group use unscoped `find.text(note)` /
+    // `find.byKey(locationNoteKey)` calls that would incidentally also
+    // catch a duplicate (Keys only need to be unique among siblings, not
+    // globally, so a stray second widget with the same key would not throw
+    // — it would just make `findsOneWidget` fail with 2 matches) — but that
+    // guard is accidental, not documented anywhere, and a future author
+    // scoping those finders down to `find.descendant(of: heroCard, ...)`
+    // (as several neighbouring tests already do) would silently lose it.
+    // This test makes the invariant explicit and permanent, and proves the
+    // About tab is genuinely on-screen (not skipped) while checking it.
+    testWidgets(
+      'a locationNote renders on the hero card and NOWHERE else on screen '
+      '— specifically not duplicated onto the About tab',
+      (tester) async {
+        await _pumpTall(tester);
+        const noteSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Київ',
+          address: 'вул. Велика Васильківська, 44',
+          locationNote: 'кв. 3, 2 поверх',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => noteSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The default tab is «Про салон» (About) — confirm it's genuinely
+        // rendered alongside the hero card, so the absence check below
+        // means something (it isn't vacuously true because the tab body
+        // never mounted).
+        expect(
+          find.byKey(const Key('salon-about-text')),
+          findsOneWidget,
+          reason:
+              'the About tab must be on-screen for the absence check below '
+              'to be meaningful',
+        );
+
+        // Exactly ONE widget anywhere in the tree carries the note's key —
+        // not one inside the hero card plus a second, differently-scoped
+        // one elsewhere.
+        expect(
+          find.byKey(const Key('salon-profile-location-note')),
+          findsOneWidget,
+          reason:
+              'the locationNote key must appear exactly once in the whole '
+              'tree, not once on the hero card and again on the About tab',
+        );
+        // Exactly ONE occurrence of the note's own text anywhere on screen
+        // — a duplicate render under a DIFFERENT key/widget (e.g. a plain
+        // Text instead of ExpandableNote) would slip past the key check
+        // above but not this one.
+        // i18n-finder-ok: locationNote fixture data, not UI copy.
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+      },
+    );
+
+    testWidgets('locationNote null → no note row renders', (tester) async {
       await _pumpTall(tester);
-      const noteSalon = Salon(
+      const noNoteSalon = Salon(
         id: _kSalonId,
         name: 'Салон «Вельвет»',
         description: 'Затишний салон краси в серці Печерська.',
-        locationNote: 'кв. 3, 2 поверх',
         avgRating: 4.9,
         reviewCount: 128,
       );
       await tester.pumpApp(
         const PublicSalonProfileScreen(salonId: _kSalonId),
         overrides: _overrides(
-          repo: _FakeSalonRepository(salon: () async => noteSalon),
+          repo: _FakeSalonRepository(salon: () async => noNoteSalon),
         ),
       );
       await tester.pumpAndSettle();
 
-      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-      expect(find.text(l10n.salonLocationNoteLabel), findsOneWidget);
       expect(
-        find.byKey(const Key('salon-about-location-note')),
-        findsOneWidget,
+        find.byKey(const Key('salon-profile-location-note')),
+        findsNothing,
       );
-      // i18n-finder-ok: locationNote fixture data, not UI copy.
-      expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
     });
 
-    testWidgets(
-      'locationNote null → neither the heading nor the note row renders',
-      (tester) async {
-        await _pumpTall(tester);
-        const noNoteSalon = Salon(
-          id: _kSalonId,
-          name: 'Салон «Вельвет»',
-          description: 'Затишний салон краси в серці Печерська.',
-          avgRating: 4.9,
-          reviewCount: 128,
-        );
-        await tester.pumpApp(
-          const PublicSalonProfileScreen(salonId: _kSalonId),
-          overrides: _overrides(
-            repo: _FakeSalonRepository(salon: () async => noNoteSalon),
-          ),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('locationNote blank ("") → no note row renders', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      const blankNoteSalon = Salon(
+        id: _kSalonId,
+        name: 'Салон «Вельвет»',
+        description: 'Затишний салон краси в серці Печерська.',
+        locationNote: '',
+        avgRating: 4.9,
+        reviewCount: 128,
+      );
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => blankNoteSalon),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-        expect(find.text(l10n.salonLocationNoteLabel), findsNothing);
-        expect(
-          find.byKey(const Key('salon-about-location-note')),
-          findsNothing,
-        );
-      },
-    );
-
-    testWidgets(
-      'locationNote blank ("") → neither the heading nor the note row '
-      'renders',
-      (tester) async {
-        await _pumpTall(tester);
-        const blankNoteSalon = Salon(
-          id: _kSalonId,
-          name: 'Салон «Вельвет»',
-          description: 'Затишний салон краси в серці Печерська.',
-          locationNote: '',
-          avgRating: 4.9,
-          reviewCount: 128,
-        );
-        await tester.pumpApp(
-          const PublicSalonProfileScreen(salonId: _kSalonId),
-          overrides: _overrides(
-            repo: _FakeSalonRepository(salon: () async => blankNoteSalon),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-        expect(find.text(l10n.salonLocationNoteLabel), findsNothing);
-        expect(
-          find.byKey(const Key('salon-about-location-note')),
-          findsNothing,
-        );
-      },
-    );
+      expect(
+        find.byKey(const Key('salon-profile-location-note')),
+        findsNothing,
+      );
+    });
 
     testWidgets(
       'a SHORT locationNote (fits within maxLines: 3) shows NO expand '
@@ -2836,4 +3058,122 @@ void main() {
       },
     );
   });
+
+  // ── mobile-build-verifier regression: hero card overlap-band hit test ────
+  //
+  // Phase 224's `_CoverAndHero` used to pin the hero card's overlap into the
+  // cover with a hand-written `RenderShiftedBox` subclass that reported a
+  // `size` SHORTER than the card's painted footprint (painting the card at
+  // a negative offset relative to that shrunk box). `RenderBox.hitTest()`
+  // gates on `_size.contains(position)` BEFORE it ever calls
+  // `hitTestChildren()`, and a negative paint offset always lands the
+  // "overhang" at negative *local* coordinates, which `Size.contains()` can
+  // never treat as inside the box — so the top `_cardCoverOverlap` (25px)
+  // of the card were never hit-testable; taps there silently fell through
+  // to the cover photo underneath. This group pins the fix: a tap in that
+  // exact band must resolve into the card itself.
+  group('hero card overlap band hit-testing', () {
+    testWidgets("a tap inside the hero card's top overlap band (the region "
+        'overlapping the cover) resolves into the hero card, not the cover '
+        'photo behind it', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder heroFinder = find.byKey(
+        const Key('salon-profile-hero-card'),
+      );
+      final Rect heroRect = tester.getRect(heroFinder);
+      // 2px below the card's own top edge — well within the fixed 25px
+      // band that protrudes into (overlaps) the cover photo above it, and
+      // still comfortably inside the card's own painted bounds.
+      final Offset probe = Offset(heroRect.center.dx, heroRect.top + 2);
+
+      final RenderObject heroRenderObject = tester.renderObject(heroFinder);
+      final HitTestResult result = tester.hitTestOnBinding(probe);
+
+      expect(
+        _hitPathReaches(result, heroRenderObject),
+        isTrue,
+        reason:
+            "a tap in the hero card's top overlap band must resolve "
+            'into the card itself. If the card is wrapped in anything '
+            'whose reported box does not cover its whole painted '
+            'footprint (a shrunk custom RenderObject, or an ordinary '
+            'shifted box sitting between a Transform and the parent '
+            'that positions it), RenderBox.hitTest() rejects the '
+            'position before it ever reaches the card, and the tap '
+            'silently falls through to the cover photo behind it.',
+      );
+    });
+
+    testWidgets(
+      'the back button stays tappable and unobscured even at worst-case '
+      'hero card height (a 1000-char locationNote, expanded)',
+      (tester) async {
+        await _pumpTall(tester);
+        final String longNote = ('Вхід у двір з боку вулиці Хрещатик. ' * 30)
+            .substring(0, 1000);
+        final Salon salon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Київ',
+          address: 'вул. Велика Васильківська, 44',
+          locationNote: longNote,
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => salon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        expect(toggle, findsOneWidget);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        final Finder backFinder = find.byKey(const Key('salon-profile-back'));
+        final RenderObject backRenderObject = tester.renderObject(backFinder);
+        final Offset backCenter = tester.getCenter(backFinder);
+        final HitTestResult result = tester.hitTestOnBinding(backCenter);
+
+        expect(
+          _hitPathReaches(result, backRenderObject),
+          isTrue,
+          reason:
+              "the back button must remain tappable regardless of the "
+              "hero card's content height — the cover (and everything "
+              'positioned on it) is now independent of the card, so an '
+              'expanded note growing the card downward must never affect '
+              'the back button.',
+        );
+      },
+    );
+  });
+}
+
+/// True when [result]'s hit-test path passes through [target] itself, or
+/// through any render object that is a descendant of [target] — i.e. the
+/// simulated tap actually reached into [target]'s own subtree, rather than
+/// merely landing on an unrelated render object that happens to share
+/// screen space with it.
+bool _hitPathReaches(HitTestResult result, RenderObject target) {
+  for (final HitTestEntry entry in result.path) {
+    RenderObject? node = entry.target is RenderObject
+        ? entry.target as RenderObject
+        : null;
+    while (node != null) {
+      if (identical(node, target)) return true;
+      node = node.parent;
+    }
+  }
+  return false;
 }
