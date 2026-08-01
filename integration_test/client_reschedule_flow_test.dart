@@ -269,8 +269,9 @@ void main() {
   // ==========================================================================
   // Test 2 — HOME-HUB entry: the «Найближчий запис» Reschedule button drives
   // the SAME helper from just `appt.id`. `nextAppointmentProvider` is overridden
-  // (the backend endpoint is not wired yet — it always returns null), seeded
-  // with the SAME `booking-1` the FakeBackend serves, so the helper's
+  // directly (this flow is about the reschedule affordance, not re-proving the
+  // provider's own live wiring — that's `next_appointment_provider_test.dart`),
+  // seeded with the SAME `booking-1` the FakeBackend serves, so the helper's
   // GET /bookings/booking-1 + GET /masters/master-aaa resolve and the picker is
   // seeded to reschedule THIS booking.
   // ==========================================================================
@@ -291,6 +292,7 @@ void main() {
       // pre-formatted display strings and are decorative here — nothing derives
       // or asserts them.
       final DateTime seededStart = DateTime.parse(fb.bookingStartsAt);
+      final DateTime seededEnd = DateTime.parse(fb.bookingEndsAt);
       final NextAppointment seededAppt = NextAppointment(
         id: 'booking-1',
         masterName: 'Софія Бондар',
@@ -299,6 +301,7 @@ void main() {
         timeLabel: '15:00',
         location: 'Київ',
         startsAt: seededStart,
+        endsAt: seededEnd,
         masterInitials: 'СБ',
       );
       final GoRouter router = await AppHarness.boot(

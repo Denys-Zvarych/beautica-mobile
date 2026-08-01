@@ -90,6 +90,7 @@ final _sampleAppointment = NextAppointment(
   timeLabel: '15:00',
   location: 'Центр, вул. Дорошенка 12, Львів',
   startsAt: DateTime.now().add(const Duration(days: 2)),
+  endsAt: DateTime.now().add(const Duration(days: 2, hours: 1)),
   masterInitials: 'МІ',
 );
 

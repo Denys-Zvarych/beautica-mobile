@@ -46,6 +46,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -143,10 +144,13 @@ class _VisitDetailScreenState extends ConsumerState<VisitDetailScreen> {
     if (!mounted) return;
 
     // Refetch this visit's fresh status and re-partition the two affected tabs
-    // (it just left Майбутні and entered Скасовані).
+    // (it just left Майбутні and entered Скасовані). Also refreshes the Home
+    // Hub's own «Найближчий запис» card — this visit's first service may have
+    // been the client's soonest upcoming appointment (Phase 225).
     ref.invalidate(appointmentDetailProvider(appointment.id));
     ref.invalidate(myBookingsProvider(BookingTab.upcoming));
     ref.invalidate(myBookingsProvider(BookingTab.cancelled));
+    ref.invalidate(nextAppointmentProvider);
   }
 
   void _onRebook(Appointment appointment) {

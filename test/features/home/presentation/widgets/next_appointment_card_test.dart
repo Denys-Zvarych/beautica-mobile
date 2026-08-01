@@ -35,6 +35,7 @@ final _appointment = NextAppointment(
   timeLabel: '14:00',
   location: 'Львів, вул. Грушевського 1',
   startsAt: DateTime.now().add(const Duration(days: 2)),
+  endsAt: DateTime.now().add(const Duration(days: 2, hours: 1)),
   masterInitials: 'ІМ',
 );
 

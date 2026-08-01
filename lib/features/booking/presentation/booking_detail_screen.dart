@@ -79,12 +79,10 @@ import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
 import '../application/booking_viewer_role.dart';
 import '../application/bookings_day_notifier.dart';
-import '../application/my_bookings_notifier.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
 import '../domain/booking_status.dart';
-import '../domain/booking_tab.dart';
 import 'widgets/booking_counterparty_header.dart';
 import 'widgets/booking_notes.dart';
 import 'widgets/booking_recap.dart';
@@ -95,6 +93,7 @@ import 'widgets/booking_success_scaffold.dart';
 import 'widgets/cancel_booking_dialog.dart';
 import 'widgets/complete_booking_dialog.dart';
 import 'widgets/master_strip.dart';
+import 'booking_cancel_navigation.dart';
 import 'reschedule_navigation.dart';
 
 /// «Деталі запису» for the booking identified by [bookingId].
@@ -126,46 +125,16 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   }
 
   /// «Скасувати запис» opens the confirmation — it never cancels anything
-  /// itself. The dialog resolves to the client's note (possibly empty) on
-  /// confirm, and to `null` on every way of backing out.
-  Future<void> _confirmCancel(BuildContext context, Booking booking) async {
-    final String? note = await showCancelBookingDialog(context, booking);
-    if (note == null || !mounted) return; // backed out — nothing happened.
-
-    try {
-      await ref
-          .read(bookingRepositoryProvider)
-          .cancelBooking(booking.id, reason: note.isEmpty ? null : note);
-    } on BookingAlreadyElapsedFailure catch (failure) {
-      // The slot elapsed against the SERVER clock between this (possibly stale)
-      // screen opening and the confirm tap — or the device clock was rolled
-      // back and the server refused to honour it. Surface the clean localized
-      // message AND refetch the booking so it re-renders read-only (Reschedule
-      // + Cancel drop away, «Записатись знову» takes their place) — never a
-      // raw 409.
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
-      ref.invalidate(bookingDetailProvider(booking.id));
-      return;
-    } catch (_) {
-      if (!context.mounted) return;
-      final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
-      return;
-    }
-    if (!mounted) return;
-
-    // Refetch this booking's fresh status and re-partition the two affected
-    // tabs (it just left Майбутні and entered Скасовані) — the merged
-    // per-status pagination in `MyBookingsNotifier` means a plain invalidate
-    // of each tab cleanly re-fetches page 0 for every status it covers.
-    ref.invalidate(bookingDetailProvider(booking.id));
-    ref.invalidate(myBookingsProvider(BookingTab.upcoming));
-    ref.invalidate(myBookingsProvider(BookingTab.cancelled));
+  /// itself. Delegates entirely to the shared [startBookingCancel] (Phase
+  /// 225), the SAME flow the Home Hub «Найближчий запис» card's «Скасувати»
+  /// now uses, so the dialog → repository call → 409-specific handling →
+  /// cache-refresh logic lives in exactly one place.
+  Future<void> _confirmCancel(BuildContext context, Booking booking) {
+    return startBookingCancel(
+      context: context,
+      ref: ref,
+      bookingId: booking.id,
+    );
   }
 
   /// Track 27.x Wave A — the PROVIDER's «Скасувати» opens the decline

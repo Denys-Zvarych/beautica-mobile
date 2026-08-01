@@ -5,12 +5,14 @@
 // blanks the whole screen.
 //
 // Data-wired cards (backend already exists):
-//   • profileAsync  → derived from clientEditProfileProvider (fresh GET
+//   • profileAsync         → derived from clientEditProfileProvider (fresh GET
 //     /users/me) — the same authoritative source the Settings edit screens read,
 //     so the home card and Settings refresh together.
+//   • nextAppointmentAsync → Phase 225 — derived from BookingRepository
+//     .getMyBookings (the same endpoint the «Мої записи» Майбутні tab reads),
+//     see [nextAppointment]'s doc.
 //
 // Empty-state-placeholder cards (backend 19.x not yet shipped):
-//   • nextAppointmentAsync  — TODO(19.3) wire GET /bookings/me?status=PENDING,CONFIRMED&sort=startAt&size=1
 //   • favoriteMastersAsync  — TODO(19.1) wire GET /favorites/masters
 //   • timelineAsync         — TODO(19.5) wire GET /clients/me/timeline
 //
@@ -23,8 +25,15 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+
 import '../../../features/auth/domain/user.dart';
 import '../../../features/location/state/location_providers.dart';
+import '../../booking/data/booking_providers.dart';
+import '../../booking/domain/booking.dart';
+import '../../booking/domain/booking_display_x.dart';
+import '../../booking/domain/booking_sort.dart';
+import '../../booking/domain/booking_tab.dart';
 import '../domain/home_hub_models.dart';
 import 'client_edit_profile_notifier.dart';
 
@@ -191,21 +200,65 @@ Future<String?> _resolveDistrictName(Ref ref, User user) async {
 }
 
 // ---------------------------------------------------------------------------
-// Next appointment — placeholder (backend 19.3 not ready)
+// Next appointment — data-wired (Phase 225)
 // ---------------------------------------------------------------------------
 
-/// Returns the soonest upcoming booking for the CLIENT, or null when none.
-/// Currently always returns null (empty state) until the endpoint ships.
-/// TODO(19.3): wire GET /bookings/me?status=PENDING,CONFIRMED&sort=startAt&size=1
+/// A small "peek" page — normally the very first (soonest) row already
+/// answers the question. The extra spares exist ONLY for the edge case
+/// [nextAppointment] guards against: one or more same-day CONFIRMED bookings
+/// whose window has already elapsed (server hasn't transitioned them to
+/// COMPLETED/NOT_COMPLETED yet). Scanning a handful of rows past the head is
+/// enough for that; it is not a general pagination concern.
+const int _kNextAppointmentPeekSize = 5;
+
+/// Returns the soonest upcoming booking for the CLIENT, or `null` when none
+/// qualifies.
+///
+/// Reuses the EXACT same request shape the «Мої записи» Майбутні tab issues
+/// ([MyBookingsNotifier]) — [BookingTabX.statuses] for [BookingTab.upcoming]
+/// (currently `{CONFIRMED}`; booking auto-confirm retired `PENDING`) sorted
+/// soonest-first ([BookingSort.oldest]) — so this card can never disagree with
+/// that tab about which bookings count as "upcoming".
+///
+/// [BookingRepository.getMyBookings] filters by STATUS only; it has no
+/// server-side "is this instant still in the future" predicate, so a
+/// CONFIRMED booking whose `endAt` has already passed (the server hasn't
+/// transitioned it to COMPLETED/NOT_COMPLETED yet) can still come back as the
+/// head row. [BookingDisplayX.isPast] is applied client-side to skip any such
+/// row and return the first one that is genuinely still upcoming — scanning
+/// [_kNextAppointmentPeekSize] rows deep, not just the head. Returns `null`
+/// when nothing in that page qualifies (never re-queries a further page —
+/// see the file header on when a placeholder is appropriate).
+///
+/// Errors (including an unauthenticated [UnauthorizedFailure] — the router
+/// guard should already have redirected, but this is defensive) are not
+/// caught: they propagate as this provider's `AsyncError`, exactly like
+/// [clientProfile] above.
 @riverpod
 Future<NextAppointment?> nextAppointment(Ref ref) async {
-  // TODO(19.3): call bookings repository when endpoint ships.
-  if (kDebugMode) {
-    log(
-      'nextAppointment: placeholder — backend 19.3 not ready',
-      name: 'feature.home',
-      level: 700,
-    );
+  final page = await ref
+      .watch(bookingRepositoryProvider)
+      .getMyBookings(
+        statuses: BookingTab.upcoming.statuses,
+        sort: BookingSort.oldest,
+        page: 0,
+        size: _kNextAppointmentPeekSize,
+      );
+
+  for (final Booking booking in page.items) {
+    if (!booking.isPast) {
+      return NextAppointment(
+        id: booking.id,
+        masterName: booking.masterName,
+        service: booking.serviceName,
+        dateLabel: formatFullDate(booking.startAt),
+        timeLabel: formatSlotTime(booking.startAt),
+        location: booking.addressLine ?? booking.salonName ?? '',
+        startsAt: booking.startAt,
+        endsAt: booking.endAt,
+        masterInitials: booking.masterInitials,
+      );
+    }
   }
   return null;
 }

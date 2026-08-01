@@ -53,6 +53,7 @@ import 'package:beautica_mobile/features/home/presentation/widgets/passport_prev
 import 'package:beautica_mobile/features/home/presentation/widgets/quick_links_card.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -191,6 +192,7 @@ final _sampleAppointment = NextAppointment(
   timeLabel: '15:00',
   location: 'Центр, Львів',
   startsAt: DateTime.now().add(const Duration(days: 2)),
+  endsAt: DateTime.now().add(const Duration(days: 2, hours: 1, minutes: 30)),
   masterInitials: 'МІ',
 );
 
@@ -523,6 +525,143 @@ void main() {
       await tester.pump();
       expect(find.byKey(const Key('next_appt_cancel_button')), findsOneWidget);
     });
+  });
+
+  // ── mobile-qa (Phase 225, Step 2.7 final gate) ───────────────────────────
+  //
+  // GAP FOUND: `_NextAppointmentSection` (home_hub_screen.dart) gained a real
+  // `.when(... error: (e, _) => _CardErrorState(...))` branch as part of the
+  // live-data wiring — the old hardcoded-`null` stub never called anything,
+  // so an error branch literally could not exist before this phase. Nothing
+  // exercised it: every existing override in this file maps
+  // `nextAppointmentProvider`'s error case to `null` (empty state) rather
+  // than letting it settle as AsyncError, and
+  // `home_hub_supplemental_test.dart`'s header claims "Integration test
+  // (client_home_hub_flow_test.dart) covers the full error → retry → reload
+  // flow end-to-end" — but that integration file has no error/retry test at
+  // all (verified: zero hits for retry/error/failure fixtures there). Per the
+  // absolute rule ("never accept a screen test that omits the error state
+  // with retry interaction"), this closes that gap directly, reusing the
+  // same `retry: (_, _) => null` + synchronous-throw technique
+  // `home_hub_rating_pill_dedup_test.dart` already established for a sibling
+  // card in this exact screen.
+  group('Next appointment section — error + retry (via HomeHubScreen)', () {
+    List<Object> errorOverrides(NextAppointment? Function() build) => <Object>[
+      screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+      myRatingProvider.overrideWith((ref) async => const ClientRating()),
+      clientProfileProvider.overrideWith((ref) async => _sampleProfile),
+      nextAppointmentProvider.overrideWith((ref) async => build()),
+      favoriteMastersProvider.overrideWith(
+        (ref) async => const <FavoriteMasterItem>[],
+      ),
+      beautyTimelineProvider.overrideWith(
+        (ref) async => const <TimelineEntry>[],
+      ),
+      unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
+    ];
+
+    testWidgets(
+      'a failing nextAppointmentProvider renders _CardErrorState with the '
+      'load-error message and a retry CTA — never a perpetual skeleton and '
+      'never an escaped exception',
+      (tester) async {
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          // Throw SYNCHRONOUSLY so the provider settles to AsyncError on its
+          // first build (no intervening AsyncLoading frame), and disable
+          // Riverpod 3.x auto-retry so the error stays put with no pending
+          // backoff Timer (which would hang pumpAndSettle).
+          retry: (_, _) => null,
+          overrides: errorOverrides(
+            () => throw Exception('bookings fetch boom'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        // fixed-wait-ok: running out the time-driven reveal CurvedAnimation.
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(HomeHubScreen)),
+        );
+        expect(
+          find.text(l10n.homeHubNextApptLoadError),
+          findsOneWidget,
+          reason:
+              'the section must render the next-appointment-specific load '
+              'error message, not a generic one',
+        );
+        expect(
+          find.byType(HubFilledButton),
+          findsWidgets,
+          reason: '_CardErrorState must render a retry CTA button',
+        );
+        // Neither the empty nor the populated card leaked through — the error
+        // branch, not a stale/other branch, is what actually rendered.
+        expect(find.byKey(const Key('next_appointment_empty')), findsNothing);
+        expect(
+          find.byKey(const Key('next_appointment_populated')),
+          findsNothing,
+        );
+        // A single failing card must not blank the whole screen.
+        expect(find.byType(HomeHubScreen), findsOneWidget);
+        expect(find.byKey(const Key('home_profile_name')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'tapping the retry CTA invalidates nextAppointmentProvider and the '
+      'section recovers to the populated data state on the next fetch',
+      (tester) async {
+        // First build throws (drives the error branch); every subsequent
+        // build (i.e. after the retry CTA invalidates the provider) returns
+        // real data — proving the CTA's `onRetry` really is
+        // `ref.invalidate(nextAppointmentProvider)`, not a no-op button.
+        var calls = 0;
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          retry: (_, _) => null,
+          overrides: errorOverrides(() {
+            calls++;
+            if (calls == 1) throw Exception('bookings fetch boom');
+            return _sampleAppointment;
+          }),
+        );
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(HomeHubScreen)),
+        );
+        expect(find.text(l10n.homeHubNextApptLoadError), findsOneWidget);
+        expect(
+          calls,
+          1,
+          reason: 'sanity: exactly one failed fetch before any retry tap',
+        );
+
+        await tester.ensureVisible(find.byType(HubFilledButton).first);
+        await tester.tap(find.byType(HubFilledButton).first);
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        expect(
+          calls,
+          greaterThanOrEqualTo(2),
+          reason:
+              'the retry CTA must invalidate nextAppointmentProvider — a '
+              'second build call is the only proof the tap actually fired '
+              'a refetch rather than merely dismissing the error UI',
+        );
+        expect(
+          find.byKey(const Key('next_appointment_populated')),
+          findsOneWidget,
+          reason:
+              'once the retried fetch succeeds the section must render the '
+              'populated card, not stay stuck on the error state',
+        );
+        expect(find.text(l10n.homeHubNextApptLoadError), findsNothing);
+      },
+    );
   });
 
   group('FavoriteMastersCard', () {

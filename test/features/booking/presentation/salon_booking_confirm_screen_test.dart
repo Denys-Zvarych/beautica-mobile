@@ -26,6 +26,8 @@ import 'package:beautica_mobile/features/booking/domain/create_booking_request.d
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -348,66 +350,95 @@ void main() {
   // `ref.invalidate(myBookingsProvider(BookingTab.upcoming))` in
   // SalonBookingConfirmScreen._submit, `getMyBookingsCalls` stays at 1 and this
   // fails.
-  testWidgets(
-    'a successful CREATE invalidates upcoming My Bookings from the widget layer '
-    '(it re-fetches) and navigates to success',
-    (tester) async {
-      final fake = _FakeAppointmentRepository(
-        appointmentToReturn: _appointmentFixture(),
-      );
-      final bookings = _RecordingBookingRepository();
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: <Object>[
-          ..._overrides(fake),
-          bookingRepositoryProvider.overrideWith((_) => bookings),
-        ],
-      );
-      await tester.pumpAndSettle();
+  testWidgets('a successful CREATE invalidates upcoming My Bookings + '
+      'nextAppointmentProvider from the widget layer (both re-fetch) and '
+      'navigates to success', (tester) async {
+    // mobile-qa (Phase 225 fix pass, mobile-perf MEDIUM #4) —
+    // nextAppointmentProvider gets its OWN fetch counter: the real provider
+    // shares `BookingRepository.getMyBookings` with `myBookingsProvider`, so
+    // `bookings.getMyBookingsCalls` alone cannot attribute a refetch to one
+    // family over the other. A newly created salon visit may now BE the
+    // client's soonest upcoming appointment — see
+    // `salon_booking_confirm_screen.dart:125`.
+    int nextApptFetches = 0;
+    final fake = _FakeAppointmentRepository(
+      appointmentToReturn: _appointmentFixture(),
+    );
+    final bookings = _RecordingBookingRepository();
+    await tester.pumpRoutedApp(
+      _router(),
+      overrides: <Object>[
+        ..._overrides(fake),
+        bookingRepositoryProvider.overrideWith((_) => bookings),
+        nextAppointmentProvider.overrideWith((ref) async {
+          nextApptFetches++;
+          return null;
+        }),
+      ],
+    );
+    await tester.pumpAndSettle();
 
-      // Mount + warm the upcoming tab BEFORE the create — this is the branch the
-      // shell keeps alive while the booking flow is pushed on top of it.
-      final ProviderContainer container = ProviderScope.containerOf(
-        tester.element(find.byType(SalonBookingConfirmScreen)),
-        listen: false,
-      );
-      final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
-          container.listen(
-            myBookingsProvider(BookingTab.upcoming),
-            (_, _) {},
-            fireImmediately: true,
-          );
-      addTearDown(subList.close);
-      await container.read(myBookingsProvider(BookingTab.upcoming).future);
-      expect(bookings.getMyBookingsCalls, 1);
-      // Precision: the create lands in the UPCOMING tab (auto-CONFIRMED), so it
-      // is the upcoming family key the screen must invalidate — assert the tab
-      // we warmed queried exactly the CONFIRMED status set.
-      expect(
-        bookings.statusesSeen.single,
-        BookingTab.upcoming.statuses,
-        reason: 'the warmed tab is the upcoming (CONFIRMED) family key',
-      );
+    // Mount + warm the upcoming tab BEFORE the create — this is the branch the
+    // shell keeps alive while the booking flow is pushed on top of it.
+    final ProviderContainer container = ProviderScope.containerOf(
+      tester.element(find.byType(SalonBookingConfirmScreen)),
+      listen: false,
+    );
+    final ProviderSubscription<AsyncValue<MyBookingsState>> subList = container
+        .listen(
+          myBookingsProvider(BookingTab.upcoming),
+          (_, _) {},
+          fireImmediately: true,
+        );
+    addTearDown(subList.close);
+    final ProviderSubscription<AsyncValue<NextAppointment?>> subNextAppt =
+        container.listen(
+          nextAppointmentProvider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+    addTearDown(subNextAppt.close);
+    await container.read(myBookingsProvider(BookingTab.upcoming).future);
+    await container.read(nextAppointmentProvider.future);
+    expect(bookings.getMyBookingsCalls, 1);
+    expect(nextApptFetches, 1);
+    // Precision: the create lands in the UPCOMING tab (auto-CONFIRMED), so it
+    // is the upcoming family key the screen must invalidate — assert the tab
+    // we warmed queried exactly the CONFIRMED status set.
+    expect(
+      bookings.statusesSeen.single,
+      BookingTab.upcoming.statuses,
+      reason: 'the warmed tab is the upcoming (CONFIRMED) family key',
+    );
 
-      await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+    await tester.pumpAndSettle();
 
-      expect(fake.requests, hasLength(1));
-      expect(find.text('salon-success-reached'), findsOneWidget);
+    expect(fake.requests, hasLength(1));
+    expect(find.text('salon-success-reached'), findsOneWidget);
 
-      // The widget-layer invalidate forced a background re-fetch of the still
-      // -listened (mounted) upcoming tab — its `getMyBookings` ran a 2nd time.
-      await container.read(myBookingsProvider(BookingTab.upcoming).future);
-      expect(
-        bookings.getMyBookingsCalls,
-        2,
-        reason:
-            'a successful salon CREATE must invalidate '
-            'myBookingsProvider(BookingTab.upcoming) so the mounted list '
-            're-fetches without a manual pull-to-refresh',
-      );
-    },
-  );
+    // The widget-layer invalidate forced a background re-fetch of the still
+    // -listened (mounted) upcoming tab (+ the next-appointment card) — its
+    // `getMyBookings` ran a 2nd time.
+    await container.read(myBookingsProvider(BookingTab.upcoming).future);
+    await container.read(nextAppointmentProvider.future);
+    expect(
+      bookings.getMyBookingsCalls,
+      2,
+      reason:
+          'a successful salon CREATE must invalidate '
+          'myBookingsProvider(BookingTab.upcoming) so the mounted list '
+          're-fetches without a manual pull-to-refresh',
+    );
+    expect(
+      nextApptFetches,
+      2,
+      reason:
+          'a successful salon CREATE must invalidate '
+          'nextAppointmentProvider — the Home Hub card must never show a '
+          'stale booking after this write',
+    );
+  });
 
   // MO-4 req 6 — the salon confirm reuses the independent flow's failure
   // mapping: the single inline banner (`salon-confirm-submit-error`) is

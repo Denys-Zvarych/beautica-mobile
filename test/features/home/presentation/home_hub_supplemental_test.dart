@@ -160,8 +160,15 @@ void main() {
   //      clientProfileProvider is a user-controlled dependency that the test
   //      can produce a settled AsyncError for.
   //
-  // Integration test (client_home_hub_flow_test.dart) covers the full error
-  // → retry → reload flow end-to-end against the fake backend.
+  // mobile-qa audit correction (was: "Integration test (client_home_hub_flow_
+  // test.dart) covers the full error → retry → reload flow end-to-end
+  // against the fake backend" — VERIFIED FALSE, that integration file carries
+  // zero error/retry/failure fixtures). The real coverage for the
+  // `_NextAppointmentSection` error → retry path lives in
+  // `home_hub_screen_test.dart`'s "Next appointment section — error + retry
+  // (via HomeHubScreen)" group (2 tests), pumping the real `HomeHubScreen`
+  // against a rejecting `nextAppointmentProvider` override and driving the
+  // retry CTA.
 
   group('HomeHubScreen — error state widgets', () {
     testWidgets(

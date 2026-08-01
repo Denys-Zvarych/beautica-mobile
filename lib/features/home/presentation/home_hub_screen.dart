@@ -1,7 +1,13 @@
 // Phase 13.7 — CLIENT Головна (Home Hub) screen.
 //
 // Post-login landing: bottom-nav tab index 0 for CLIENT role.
-// Acquires ScreenProtectionManager in initState (PII: name, phone, city).
+// Acquires ScreenProtectionManager in initState (PII: name, phone, city —
+// plus, since Phase 225's live «Найближчий запис» wiring, the next
+// appointment's master name, service, and street address; see
+// `docs/mobile-phases/phase-225-home-hub-next-appointment-wiring.md`).
+// Protection is screen-wide (FLAG_SECURE / app-switcher blur covers the
+// entire screen, not per-card), so this is a documentation-accuracy fix, not
+// a functional gap.
 //
 // Layout (scrollable ListView of cards, staggered reveal):
 //   1. Top bar: beautica wordmark | bell | burger
@@ -36,7 +42,10 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/calendar/add_to_calendar.dart';
+import '../../booking/application/booking_cancel_dialog_visible_notifier.dart';
+import '../../booking/application/booking_cancel_in_flight_notifier.dart';
 import '../../booking/application/booking_reschedule_in_flight_notifier.dart';
+import '../../booking/presentation/booking_cancel_navigation.dart';
 import '../../booking/presentation/reschedule_navigation.dart';
 import '../../rating/application/my_rating_notifier.dart';
 import '../../rating/domain/client_rating.dart';
@@ -71,9 +80,10 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
   @override
   void initState() {
     super.initState();
-    // CRITICAL-4: Home Hub shows name / phone / city — acquire screen
-    // protection so FLAG_SECURE / iOS app-switcher blur is active while
-    // this screen is mounted.
+    // CRITICAL-4: Home Hub shows name / phone / city, and (Phase 225) the
+    // next appointment's master name / service / street address — acquire
+    // screen protection so FLAG_SECURE / iOS app-switcher blur is active
+    // while this screen is mounted.
     //
     // Accessing _protection here (not ref.read directly) forces the lazy
     // initializer to run now, while ref is valid. dispose() then only
@@ -139,13 +149,17 @@ class _HomeHubBody extends ConsumerWidget {
     // (_ProfileSection / _StatPillsRow), so a profile edit rebuilds only those
     // leaves — not this whole body — and the rating pill uses a `.select` slice
     // so it only rebuilds when the rating itself changes.
-    final nextApptAsync = ref.watch(nextAppointmentProvider);
+    //
+    // nextAppointmentProvider (+ the reschedule/cancel in-flight flags) is
+    // likewise NOT watched here (Phase 225 fix pass, mobile-perf MEDIUM) — it
+    // is invalidated from 5 call sites (create/cancel/reschedule), and
+    // watching it at this level re-ran the WHOLE body — including the
+    // Favourites/Timeline `.when()` branches — on every one of those
+    // invalidations even though neither section changed. `_NextAppointmentSection`
+    // below watches it internally, exactly like `_ProfileSection` already does
+    // for `clientProfileProvider`.
     final favoritesAsync = ref.watch(favoriteMastersProvider);
     final timelineAsync = ref.watch(beautyTimelineProvider);
-    // Drives the «Перенести» spinner while the shared reschedule navigation
-    // loads its seeding GETs — `_HomeHubBody` is stateless, so a provider flag
-    // (not local State) is the right mechanism.
-    final bool rescheduleLoading = ref.watch(bookingRescheduleInFlightProvider);
 
     return RepaintBoundary(
       child: _StaggeredReveal(
@@ -195,59 +209,7 @@ class _HomeHubBody extends ConsumerWidget {
               reveal(
                 start: 0.23,
                 end: 0.64,
-                child: nextApptAsync.when(
-                  data: (NextAppointment? appt) => NextAppointmentCard(
-                    appointment: appt,
-                    rescheduleLoading: rescheduleLoading,
-                    onReschedule: () {
-                      // Route into the SAME reschedule flow the «Деталі запису»
-                      // screen uses — the card only has the booking id, so the
-                      // shared helper loads the rest (master + booked service)
-                      // before seeding the slot picker.
-                      if (appt != null) {
-                        unawaited(
-                          startBookingReschedule(
-                            context: context,
-                            ref: ref,
-                            bookingId: appt.id,
-                          ),
-                        );
-                      }
-                    },
-                    onCancel: () {
-                      // TODO(14.5): route to cancel screen
-                      if (kDebugMode) {
-                        log(
-                          'cancel tapped — placeholder',
-                          name: 'feature.home',
-                          level: 700,
-                        );
-                      }
-                    },
-                    // Both variants share ONE code path: add_2_calendar opens
-                    // the OS default-calendar sheet, so the OS — not the app —
-                    // picks Google vs Apple vs any other calendar app.
-                    onAddToGoogleCalendar: () {
-                      if (appt != null) {
-                        unawaited(
-                          _addNextAppointmentToCalendar(context, l10n, appt),
-                        );
-                      }
-                    },
-                    onAddToAppleCalendar: () {
-                      if (appt != null) {
-                        unawaited(
-                          _addNextAppointmentToCalendar(context, l10n, appt),
-                        );
-                      }
-                    },
-                  ),
-                  loading: () => const _SectionSkeleton(),
-                  error: (Object e, _) => _CardErrorState(
-                    message: l10n.homeHubNextApptLoadError,
-                    onRetry: () => ref.invalidate(nextAppointmentProvider),
-                  ),
-                ),
+                child: _NextAppointmentSection(l10n: l10n),
               ),
               const SizedBox(height: VelvetSpacing.lg),
 
@@ -307,9 +269,9 @@ class _HomeHubBody extends ConsumerWidget {
 /// Adds the home-hub next appointment to the OS calendar via the shared
 /// [addBookingToCalendar] path (opens the platform default-calendar sheet).
 ///
-/// NOTE: the `NextAppointment` payload (backend 19.3) exposes only `startsAt` —
-/// no duration/end — so the event is seeded with a 1-hour default block. When
-/// that DTO surfaces `durationMinutes`/`endAt`, pass the real end here.
+/// [NextAppointment.endsAt] (Phase 225 — sourced from the booking's real
+/// `endAt`) seeds the event's true end instant; there is no guessed block
+/// here any more.
 Future<void> _addNextAppointmentToCalendar(
   BuildContext context,
   AppLocalizations l10n,
@@ -317,10 +279,10 @@ Future<void> _addNextAppointmentToCalendar(
 ) {
   // Structured facts only — NO free-text notes reach the calendar (the
   // `NextAppointment` DTO carries none anyway). The limited DTO exposes just
-  // service, master, the pre-formatted date/time strings the card renders, and
-  // a location — no duration/end (hence the 1-hour default block above), no
-  // price, no definite status. Omit the fields it lacks rather than emit empty
-  // labels; the builder skips any null/blank value.
+  // service, master, the pre-formatted date/time strings the card renders, a
+  // location, and the real start/end instants — no price, no definite status.
+  // Omit the fields it lacks rather than emit empty labels; the builder skips
+  // any null/blank value.
   final String? location = appt.location.isEmpty ? null : appt.location;
   final String? description = buildCalendarDescription(
     l10n: l10n,
@@ -335,9 +297,109 @@ Future<void> _addNextAppointmentToCalendar(
     title: l10n.bookingCalendarEventTitle(appt.service, appt.masterName),
     location: location,
     start: appt.startsAt,
-    end: appt.startsAt.add(const Duration(hours: 1)),
+    end: appt.endsAt,
     description: description,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Next appointment block — leaf consumer so an invalidation of
+// nextAppointmentProvider (fired from 5 mutation call sites — create,
+// reschedule, and now cancel) rebuilds only this card, not the whole
+// _HomeHubBody (mirrors _ProfileSection below; Phase 225 fix pass,
+// mobile-perf MEDIUM). Also watches the reschedule/cancel in-flight flags
+// internally so those spinners rebuild only this leaf too.
+//
+// Riverpod offstage-pause note: this extraction moves WHERE the watch lives
+// (from _HomeHubBody down into this leaf) but not WHAT subtree it lives in —
+// both are still inside the same StatefulShellBranch offstage/onstage
+// boundary as before, so the existing "ref.invalidate on an autoDispose
+// provider with only paused listeners disposes it; the refetch lands on
+// resume" behaviour is unchanged.
+// ---------------------------------------------------------------------------
+
+class _NextAppointmentSection extends ConsumerWidget {
+  const _NextAppointmentSection({required this.l10n});
+
+  final AppLocalizations l10n;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AsyncValue<NextAppointment?> nextApptAsync = ref.watch(
+      nextAppointmentProvider,
+    );
+    // Drives the «Перенести» / «Скасувати» spinners while the shared
+    // reschedule/cancel navigations load their seeding GETs.
+    final bool rescheduleLoading = ref.watch(bookingRescheduleInFlightProvider);
+    final bool cancelLoading = ref.watch(bookingCancelInFlightProvider);
+    // Phase 225 audit-fix cycle 3 (mobile-perf LOW): separate, narrower
+    // signal so the cancel button's spinner stops TICKING (not just stops
+    // being tappable) while `CancelBookingDialog` is covering it — see
+    // `HubOutlineButton.spinnerPaused`'s doc.
+    final bool cancelDialogVisible = ref.watch(
+      bookingCancelDialogVisibleProvider,
+    );
+
+    return nextApptAsync.when(
+      data: (NextAppointment? appt) => NextAppointmentCard(
+        appointment: appt,
+        rescheduleLoading: rescheduleLoading,
+        cancelLoading: cancelLoading,
+        cancelDialogVisible: cancelDialogVisible,
+        onReschedule: () {
+          // Route into the SAME reschedule flow the «Деталі запису»
+          // screen uses — the card only has the booking id, so the
+          // shared helper loads the rest (master + booked service)
+          // before seeding the slot picker.
+          if (appt != null) {
+            unawaited(
+              startBookingReschedule(
+                context: context,
+                ref: ref,
+                bookingId: appt.id,
+              ),
+            );
+          }
+        },
+        onCancel: () {
+          // Route into the SAME cancel flow «Деталі запису» uses — the
+          // card only has the booking id, so the shared helper loads the
+          // rest (service/master recap) before showing the
+          // cancellation-note confirmation. `startBookingCancel` itself
+          // reads `bookingCancelInFlightProvider` FIRST and short-circuits
+          // a re-entrant call — the `cancelLoading` spinner above is a
+          // visual affordance, not the guard.
+          if (appt != null) {
+            unawaited(
+              startBookingCancel(
+                context: context,
+                ref: ref,
+                bookingId: appt.id,
+              ),
+            );
+          }
+        },
+        // Both variants share ONE code path: add_2_calendar opens the OS
+        // default-calendar sheet, so the OS — not the app — picks Google
+        // vs Apple vs any other calendar app.
+        onAddToGoogleCalendar: () {
+          if (appt != null) {
+            unawaited(_addNextAppointmentToCalendar(context, l10n, appt));
+          }
+        },
+        onAddToAppleCalendar: () {
+          if (appt != null) {
+            unawaited(_addNextAppointmentToCalendar(context, l10n, appt));
+          }
+        },
+      ),
+      loading: () => const _SectionSkeleton(),
+      error: (Object e, _) => _CardErrorState(
+        message: l10n.homeHubNextApptLoadError,
+        onRetry: () => ref.invalidate(nextAppointmentProvider),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,8 @@ class NextAppointmentCard extends StatelessWidget {
     required this.onAddToGoogleCalendar,
     required this.onAddToAppleCalendar,
     this.rescheduleLoading = false,
+    this.cancelLoading = false,
+    this.cancelDialogVisible = false,
   });
 
   final NextAppointment? appointment;
@@ -46,6 +48,20 @@ class NextAppointmentCard extends StatelessWidget {
   /// When true the «Перенести» button shows a spinner and ignores taps while
   /// the shared reschedule navigation loads its seeding GETs.
   final bool rescheduleLoading;
+
+  /// When true the «Скасувати» button shows a spinner and ignores taps while
+  /// the shared cancel navigation loads the booking detail it needs before
+  /// the confirmation dialog can show, plus for the confirm dialog and the
+  /// write that follow it (see `booking_cancel_navigation.dart`'s
+  /// RE-ENTRANCY note).
+  final bool cancelLoading;
+
+  /// When true, the «Скасувати» button's spinner (shown while [cancelLoading]
+  /// is true) stops ticking instead of animating — the shared cancel
+  /// confirmation dialog is currently covering it. See
+  /// `HubOutlineButton.spinnerPaused`'s doc (Phase 225 audit-fix cycle 3,
+  /// mobile-perf LOW) for why this is a separate flag from [cancelLoading].
+  final bool cancelDialogVisible;
 
   @override
   Widget build(BuildContext context) {
@@ -161,6 +177,8 @@ class NextAppointmentCard extends StatelessWidget {
                           label: l10n.homeHubCancelAppointment,
                           danger: true,
                           onTap: onCancel,
+                          loading: cancelLoading,
+                          spinnerPaused: cancelDialogVisible,
                         ),
                         const SizedBox(height: VelvetSpacing.sm),
                         // Overflow-hardening: the two fixed-size calendar

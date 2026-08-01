@@ -23,7 +23,10 @@ import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/visit_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -217,9 +220,16 @@ void main() {
     expect(find.byKey(const Key('visit-detail-error-retry')), findsNothing);
   });
 
-  testWidgets('visit cancel calls cancelAppointment, never cancelBooking', (
-    tester,
-  ) async {
+  testWidgets('visit cancel calls cancelAppointment, never cancelBooking, and '
+      'invalidates nextAppointmentProvider', (tester) async {
+    // mobile-qa (Phase 225 fix pass, mobile-perf MEDIUM #4) —
+    // nextAppointmentProvider is overridden with its OWN fetch counter (a
+    // FutureProvider override, independent of either repository) so the
+    // assertion is a direct proof the invalidation at
+    // `visit_detail_screen.dart:153` actually fires, not an inference from
+    // a repository call count. This visit's first service may have been
+    // the client's soonest upcoming appointment.
+    int nextApptFetches = 0;
     final apptRepo = _MockAppointmentRepository();
     final bookingRepo = _MockBookingRepository();
     when(
@@ -235,9 +245,30 @@ void main() {
         screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
         appointmentRepositoryProvider.overrideWithValue(apptRepo),
         bookingRepositoryProvider.overrideWithValue(bookingRepo),
+        nextAppointmentProvider.overrideWith((ref) async {
+          nextApptFetches++;
+          return null;
+        }),
       ],
     );
     await tester.pumpAndSettle();
+
+    // Hold a LIVE subscription so the invalidate below triggers a genuine
+    // refetch instead of Riverpod simply dropping an unwatched autoDispose
+    // member.
+    final ProviderContainer container = ProviderScope.containerOf(
+      tester.element(find.byType(VisitDetailScreen)),
+      listen: false,
+    );
+    final ProviderSubscription<AsyncValue<NextAppointment?>> subNextAppt =
+        container.listen(
+          nextAppointmentProvider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+    addTearDown(subNextAppt.close);
+    await container.read(nextAppointmentProvider.future);
+    expect(nextApptFetches, 1);
 
     // Open the destructive confirmation.
     await tester.tap(find.byKey(const Key('visit-detail-cancel')));
@@ -253,6 +284,16 @@ void main() {
     // NEVER the single-booking cancel on a child.
     verifyNever(
       () => bookingRepo.cancelBooking(any(), reason: any(named: 'reason')),
+    );
+
+    await container.read(nextAppointmentProvider.future);
+    expect(
+      nextApptFetches,
+      2,
+      reason:
+          'a successful visit cancel must invalidate nextAppointmentProvider '
+          '— the Home Hub card must never show a stale booking after this '
+          'write',
     );
   });
 

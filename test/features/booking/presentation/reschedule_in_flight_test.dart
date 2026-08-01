@@ -205,6 +205,7 @@ void main() {
       timeLabel: '15:00',
       location: 'Центр, Львів',
       startsAt: futureBookingStart(),
+      endsAt: futureBookingStart().add(const Duration(minutes: 90)),
       masterInitials: 'СБ',
     );
 

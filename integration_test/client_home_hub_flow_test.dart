@@ -17,8 +17,11 @@
 //   3. The BEAUTY PASSPORT brand literal is present in the stat-pills row.
 //   4. The BEAUTY TIMELINE brand literal is present in the timeline section.
 //   5. The 3 quick-links tiles are rendered (search / favorites / bookings).
-//   6. Next-appointment, favorites, and timeline show their empty states
-//      (backend 19.x not yet wired — they are placeholder providers).
+//   6. Favorites and timeline show their empty states (backend 19.x not yet
+//      wired — they are placeholder providers). The next-appointment card is
+//      data-wired (Phase 225, `GET /bookings/me`) — it shows its OWN empty
+//      state only when no CONFIRMED booking is seeded; see the dedicated
+//      "live data + cancel" test below for the populated path.
 //   7. Role gate (reuses client_shell_flow_test.dart contracts — the gate
 //      itself is already proven there; here we confirm /home landing only):
 //      an INDEPENDENT_MASTER who navigates to /home is bounced to
@@ -37,10 +40,17 @@
 //
 // FAKE-BACKEND GAPS
 // -----------------
-// GET /clients/me/passport, GET /bookings/me, GET /favorites/masters,
-// GET /clients/me/timeline, GET /clients/me/rating — not yet wired in FakeBackend
-// (backend 19.x). Their providers return empty/null placeholders so the Hub shows
-// empty states; the integration test asserts the empty-state keys to confirm this.
+// GET /clients/me/passport, GET /favorites/masters, GET /clients/me/timeline —
+// not yet wired in FakeBackend (backend 19.x). Their providers return
+// empty/null placeholders so the Hub shows empty states; the integration test
+// asserts the empty-state keys to confirm this.
+//
+// GET /bookings/me (Phase 225) and GET /users/me/rating ARE wired — the
+// next-appointment card and the «Мій рейтинг» stat pill both render real
+// FakeBackend data now. FakeBackend seeds ONE booking (`booking-1`, CONFIRMED,
+// 7 days out) by default, so a flow that wants the next-appointment EMPTY
+// state must explicitly flip `fb.bookingStatus` away from CONFIRMED first —
+// see the "no CONFIRMED booking seeded" test below.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
@@ -247,44 +257,207 @@ void main() {
   );
 
   // ── Test 4 — empty states for placeholder sections ────────────────────────
+  //
+  // QA (Phase 225 live-data wiring): FakeBackend seeds `booking-1` CONFIRMED
+  // by default, so the next-appointment card is NOT empty out of the box any
+  // more (see the FAKE-BACKEND GAPS note above) — this fixture explicitly
+  // flips it away from CONFIRMED so this test still proves the card's own
+  // empty state, isolated from favorites/timeline's still-genuinely-
+  // unwired empty states. The POPULATED path (default fixture) + the cancel
+  // interaction are covered by the dedicated test right after this one.
 
-  testWidgets('next-appointment, favorites, and timeline show empty states '
-      '(backend 19.x not yet wired)', (tester) async {
-    final fb = FakeBackend()..currentRole = UserRole.client;
-    await AppHarness.boot(tester, fb);
-    await AppHarness.loginAs(tester, fb, UserRole.client);
-    await tester.pumpAndSettle(const Duration(seconds: 2));
+  testWidgets(
+    'next-appointment (no CONFIRMED booking seeded), favorites, and timeline '
+    'show empty states',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // No upcoming booking: GET /bookings/me?status=CONFIRMED must come
+        // back empty so nextAppointmentProvider resolves null.
+        ..bookingStatus = 'COMPLETED';
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
 
-    // NextAppointmentCard empty state key.
-    expect(
-      find.byKey(const Key('next_appointment_empty')),
-      findsOneWidget,
-      reason:
-          'next-appointment section must show its empty state because the '
-          'bookings endpoint (backend 19.3) is not yet wired',
-    );
+      // NextAppointmentCard empty state key.
+      expect(
+        find.byKey(const Key('next_appointment_empty')),
+        findsOneWidget,
+        reason:
+            'next-appointment section must show its empty state when no '
+            'CONFIRMED booking is seeded (the endpoint itself is wired — '
+            'Phase 225)',
+      );
 
-    // FavoriteMastersCard empty state key. Below the fold on the test surface
-    // and lazily built, so it must be scrolled in first — see `_scrollHubTo`.
-    await _scrollHubTo(tester, find.byKey(const Key('favorite_masters_empty')));
-    expect(
-      find.byKey(const Key('favorite_masters_empty')),
-      findsOneWidget,
-      reason:
-          'favorites section must show its empty state because the '
-          'favorites endpoint (backend 19.1) is not yet wired',
-    );
+      // FavoriteMastersCard empty state key. Below the fold on the test surface
+      // and lazily built, so it must be scrolled in first — see `_scrollHubTo`.
+      await _scrollHubTo(
+        tester,
+        find.byKey(const Key('favorite_masters_empty')),
+      );
+      expect(
+        find.byKey(const Key('favorite_masters_empty')),
+        findsOneWidget,
+        reason:
+            'favorites section must show its empty state because the '
+            'favorites endpoint (backend 19.1) is not yet wired',
+      );
 
-    // BeautyTimelineSection empty state key — likewise below the fold.
-    await _scrollHubTo(tester, find.byKey(const Key('timeline_empty')));
-    expect(
-      find.byKey(const Key('timeline_empty')),
-      findsOneWidget,
-      reason:
-          'timeline section must show its empty state because the '
-          'timeline endpoint (backend 19.5) is not yet wired',
-    );
-  }, timeout: const Timeout(Duration(seconds: 45)));
+      // BeautyTimelineSection empty state key — likewise below the fold.
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_empty')));
+      expect(
+        find.byKey(const Key('timeline_empty')),
+        findsOneWidget,
+        reason:
+            'timeline section must show its empty state because the '
+            'timeline endpoint (backend 19.5) is not yet wired',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test 4b — QA (Phase 225, Step 2.7 Rule 3b): next-appointment card ─────
+  //              renders LIVE booking data and cancelling from the card ──────
+  //              updates it back to the empty state ──────────────────────────
+  //
+  // THE GAP THIS GUARDS
+  // --------------------
+  // The «Найближчий запис» card used to be a hardcoded `null` stub (permanent
+  // empty state). It is now wired to `BookingRepository.getMyBookings` and its
+  // «Скасувати» button now routes into the SAME shared `startBookingCancel`
+  // helper the «Деталі запису» screen uses. Neither fact was proven end to
+  // end anywhere: the widget tier stubs `onCancel` with a no-op, and the unit
+  // tier (`next_appointment_provider_test.dart`) fakes the repository
+  // directly rather than driving the real HTTP round trip a CLIENT actually
+  // exercises. This flow closes both gaps over the REAL app + FakeBackend:
+  //
+  //   1. CLIENT logs in with the DEFAULT fixture (booking-1, CONFIRMED, 7
+  //      days out) → the card renders POPULATED, not empty, with the real
+  //      master/service/location the fake backend served.
+  //   2. Tapping «Скасувати» on the CARD (not the detail screen) opens the
+  //      SAME cancellation-note dialog `booking_detail_screen.dart` uses.
+  //   3. Confirming calls `PATCH /bookings/booking-1/cancel` with the note.
+  //   4. The card re-renders EMPTY — proving `nextAppointmentProvider` was
+  //      genuinely invalidated and re-fetched from THIS call site (the newest
+  //      entry in the cancel helper's invalidation fan-out), not just that a
+  //      SnackBar or dialog closed.
+  //
+  // NOT A NATIVE INTERACTION → no patrol flow is needed (no OS dialog, deep
+  // link, notification, WebView, or biometric surface is touched — this is a
+  // plain in-app dialog + HTTP PATCH).
+  testWidgets(
+    'next-appointment card renders LIVE booking data and cancelling from the '
+    'card updates it back to the empty state',
+    (tester) async {
+      // Default fixture: booking-1 is CONFIRMED, 7 days out — genuinely
+      // upcoming, so this is the "no override needed" happy path.
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // ── 1. Populated, not empty — real data rendered. ─────────────────────
+      expect(
+        find.byKey(const Key('next_appointment_populated')),
+        findsOneWidget,
+        reason:
+            'the default FakeBackend fixture seeds an upcoming CONFIRMED '
+            'booking, so the card must render POPULATED on a fresh login, '
+            'never the permanent empty-state stub it used to be',
+      );
+      expect(find.byKey(const Key('next_appointment_empty')), findsNothing);
+
+      // i18n-finder-ok: fixture data from FakeBackend (master name / service /
+      // composed address), not translated UI copy.
+      expect(
+        find.text('Софія Бондар'),
+        findsOneWidget,
+        reason: 'the card must show the REAL booked master name',
+      );
+      expect(
+        find.text('Манікюр з покриттям'),
+        findsOneWidget,
+        reason: 'the card must show the REAL booked service name',
+      );
+      expect(
+        find.text('вул. Хрещатик, 12, Київ'),
+        findsOneWidget,
+        reason:
+            'the card must show the REAL composed address (street + '
+            'building + city — district drops per composeAddressLine rule 1)',
+      );
+
+      // ── 2/3. Cancel FROM THE CARD — same dialog, same PATCH. ──────────────
+      final Finder cancelButton = find.byKey(
+        const Key('next_appt_cancel_button'),
+      );
+      expect(cancelButton, findsOneWidget);
+      await tester.ensureVisible(cancelButton);
+      await tester.tap(cancelButton);
+      // NOT `AppHarness.settle` here: Phase 225 audit-fix cycle 2 (mobile-
+      // security LOW) widened `bookingCancelInFlightProvider`'s in-flight
+      // window to span load → dialog → write, so for as long as the confirm
+      // dialog is open the obscured card button behind it keeps an
+      // indeterminate `CircularProgressIndicator` ticking (see
+      // `booking_cancel_navigation.dart`'s RE-ENTRANCY note). A repeating
+      // spinner never yields a quiet frame, so `pumpAndSettle` (even
+      // `AppHarness`'s 20 s-bounded flavor) would burn its whole timeout and
+      // throw while the dialog is open — use the spinner-safe bounded-poll
+      // helper instead, exactly like the search-results loadMore spinner
+      // case `pumpUntilFound` documents.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('cancel-booking-dialog')),
+      );
+
+      expect(
+        find.byKey(const Key('cancel-booking-dialog')),
+        findsOneWidget,
+        reason:
+            'startBookingCancel must load the booking and show the SAME '
+            'cancellation-note dialog the detail screen uses',
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('cancel-booking-note-field')),
+        'Не встигаю.',
+      );
+      // Plain bounded pump, not `AppHarness.settle` — the dialog is still
+      // open, so the same perpetual-spinner-behind-the-barrier concern above
+      // applies; entering text only needs one frame to render.
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
+      // The dialog is now closed and the write is in flight — this is the
+      // spinner-safe wait for the eventual settled state (booking cancelled,
+      // card fallen back to empty), not a raw `settle()`.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('next_appointment_empty')),
+      );
+
+      expect(fb.cancelBookingCalls, 1);
+      expect(fb.lastCancelComment, 'Не встигаю.');
+      expect(fb.bookingStatus, 'CANCELLED');
+
+      // ── 4. The card updates itself back to empty — still on the Home Hub. ─
+      expect(
+        find.byType(HomeHubScreen),
+        findsOneWidget,
+        reason: 'cancelling from the card must not navigate away from /home',
+      );
+      expect(
+        find.byKey(const Key('next_appointment_empty')),
+        findsOneWidget,
+        reason:
+            'nextAppointmentProvider must have been invalidated and '
+            're-fetched FROM THE HOME HUB CALL SITE — the booking just left '
+            'CONFIRMED, so the card must fall back to its empty state '
+            'without any manual refresh',
+      );
+      expect(find.byKey(const Key('next_appointment_populated')), findsNothing);
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
 
   // ── Test 5 — "Мій рейтинг" stat pill is rendered in the hub ────────────
 

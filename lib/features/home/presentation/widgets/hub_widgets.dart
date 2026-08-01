@@ -428,11 +428,40 @@ class HubOutlineButton extends StatefulWidget {
     required this.label,
     required this.onTap,
     this.danger = false,
+    this.loading = false,
+    this.spinnerPaused = false,
   });
 
   final String label;
   final VoidCallback onTap;
   final bool danger;
+
+  /// When true the button swaps its label for a spinner and ignores taps —
+  /// mirrors [HubFilledButton.loading]. Used while an action seeded from this
+  /// button is loading (e.g. the shared cancel navigation's booking-detail
+  /// GET before the confirmation dialog can show).
+  final bool loading;
+
+  /// When true AND [loading] is true, the spinner stops TICKING (rendered as
+  /// a static frame) instead of animating.
+  ///
+  /// Phase 225 audit-fix cycle 3 (mobile-perf LOW): `loading` alone spans the
+  /// shared cancel navigation's ENTIRE flow — load, confirm dialog, and the
+  /// write — by design (see `booking_cancel_navigation.dart`'s RE-ENTRANCY
+  /// note), including the dialog-open window, which is a user-paced,
+  /// unbounded duration. `CancelBookingDialog` opens via `showDialog` with
+  /// `useRootNavigator: true`, mounting on the ROOT Navigator — a different
+  /// Navigator from the Home Hub branch this button lives in — so the
+  /// `StatefulShellRoute.indexedStack` offstage-pause that mutes a genuinely
+  /// INACTIVE branch's `TickerMode` never applies: the Home Hub branch stays
+  /// active, merely covered by a non-opaque `DialogRoute`. Callers pass
+  /// `spinnerPaused: true` for exactly that covered window (see
+  /// `bookingCancelDialogVisibleProvider` /
+  /// `booking_cancel_dialog_visible_notifier.dart`) so the ticker doesn't
+  /// keep calling `scheduleFrame()` at vsync while it is fully obscured.
+  /// The button stays disabled/non-tappable via [loading] regardless of this
+  /// flag — this only gates the animation, never the guard.
+  final bool spinnerPaused;
 
   @override
   State<HubOutlineButton> createState() => _HubOutlineButtonState();
@@ -451,18 +480,22 @@ class _HubOutlineButtonState extends State<HubOutlineButton> {
 
   @override
   Widget build(BuildContext context) {
+    final bool loading = widget.loading;
     final Color fg = widget.danger ? BrandColors.error : BrandColors.accentDeep;
     final TextStyle style = widget.danger ? _styleDanger : _styleSafe;
     return Semantics(
       button: true,
+      enabled: !loading,
       label: widget.label,
       child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onTap();
-        },
+        onTapDown: loading ? null : (_) => setState(() => _pressed = true),
+        onTapCancel: loading ? null : () => setState(() => _pressed = false),
+        onTapUp: loading
+            ? null
+            : (_) {
+                setState(() => _pressed = false);
+                widget.onTap();
+              },
         child: AnimatedScale(
           scale: _pressed ? 0.96 : 1,
           duration: const Duration(milliseconds: 110),
@@ -476,15 +509,33 @@ class _HubOutlineButtonState extends State<HubOutlineButton> {
             ),
             // Overflow-hardening: scale the label down instead of clipping when
             // the button is squeezed (narrow widths + large font scale).
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                widget.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: style,
-              ),
-            ),
+            child: loading
+                ? SizedBox(
+                    height: 16,
+                    width: 16,
+                    // TickerMode(enabled: false) freezes the indeterminate
+                    // animation without hiding it — a static ring, not a
+                    // blank box — while `widget.spinnerPaused` is true (the
+                    // confirm dialog is covering this button). See
+                    // `spinnerPaused`'s doc for why the offstage-pause
+                    // machinery doesn't already handle this.
+                    child: TickerMode(
+                      enabled: !widget.spinnerPaused,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: fg,
+                      ),
+                    ),
+                  )
+                : FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      widget.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: style,
+                    ),
+                  ),
           ),
         ),
       ),

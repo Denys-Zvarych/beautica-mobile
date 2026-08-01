@@ -61,6 +61,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -196,8 +197,12 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
         // outside a Notifier), mirroring the cancel flow's post-write
         // invalidation, so a cross-provider invalidate never runs from inside a
         // Notifier (the `forbid_provider_self_invalidation` cycle footgun).
+        // Also refreshes the Home Hub's own «Найближчий запис» card — a
+        // reschedule may move this booking to/from being the client's
+        // soonest upcoming appointment (Phase 225).
         ref.invalidate(bookingDetailProvider(rescheduleId));
         ref.invalidate(myBookingsProvider(BookingTab.upcoming));
+        ref.invalidate(nextAppointmentProvider);
       } else {
         final String? comment = _comment.text.trim().isEmpty
             ? null
@@ -223,8 +228,11 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
         // (mirroring the reschedule branch above) so the new booking shows
         // without a manual pull-to-refresh. A cross-provider invalidate from a
         // Notifier would trip `forbid_provider_self_invalidation`; this is a
-        // widget-layer `ref`, so it is compliant.
+        // widget-layer `ref`, so it is compliant. Also refreshes the Home
+        // Hub's own «Найближчий запис» card, which this new booking may now
+        // be (Phase 225).
         ref.invalidate(myBookingsProvider(BookingTab.upcoming));
+        ref.invalidate(nextAppointmentProvider);
       }
       context.pushReplacement(
         RouteNames.bookingSuccess,

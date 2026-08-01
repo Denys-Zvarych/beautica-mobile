@@ -6,12 +6,16 @@
 // through the real [HomeHubScreen]:
 //   • tapping either button fires the plugin's `add2Cal` platform method,
 //   • the payload maps the NextAppointment fields (title = service·master,
-//     location = the card's location line, start = startsAt),
-//   • and — since the NextAppointment DTO carries no duration (backend 19.3) —
-//     the event END is the documented 1-hour default block.
+//     location = the card's location line, start = startsAt, end = endsAt).
 //
 // The plugin is mocked at the channel boundary so no real OS sheet opens. Taps
 // are key-first; copy is asserted via l10n.
+//
+// Phase 225: `NextAppointment` now carries a real `endsAt` (sourced from the
+// booking's `endAt`), so the event END asserted below is that real instant —
+// NOT a guessed 1-hour block. `_apptEnd` is deliberately NOT exactly
+// `_apptStart + 1h` so a regression back to the old hardcoded default would
+// fail this assertion, not accidentally satisfy it.
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
@@ -47,8 +51,10 @@ const ClientProfileSummary _profile = ClientProfileSummary(
   memberSinceYear: 2026,
 );
 
-// A fixed UTC instant so the absolute-ms assertion is CI-timezone independent.
+// Fixed UTC instants so the absolute-ms assertion is CI-timezone independent.
 final DateTime _apptStart = DateTime.utc(2026, 7, 20, 12, 0);
+// Deliberately NOT `_apptStart + 1h` — see the file header.
+final DateTime _apptEnd = DateTime.utc(2026, 7, 20, 13, 30);
 
 final NextAppointment _appt = NextAppointment(
   id: 'appt-1',
@@ -58,6 +64,7 @@ final NextAppointment _appt = NextAppointment(
   timeLabel: '15:00',
   location: 'Центр, Львів',
   startsAt: _apptStart,
+  endsAt: _apptEnd,
   masterInitials: 'МІ',
 );
 
@@ -111,11 +118,9 @@ void main() {
     );
     expect(args['location'], _appt.location);
     expect(args['startDate'], _apptStart.millisecondsSinceEpoch);
-    // Backend 19.3 exposes no duration → documented 1-hour default end block.
-    expect(
-      args['endDate'],
-      _apptStart.add(const Duration(hours: 1)).millisecondsSinceEpoch,
-    );
+    // Phase 225 — the event END is the booking's real `endsAt`, not a
+    // guessed block.
+    expect(args['endDate'], _apptEnd.millisecondsSinceEpoch);
   }
 
   testWidgets(

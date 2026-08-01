@@ -56,6 +56,8 @@ import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -822,8 +824,17 @@ void main() {
     // Bookings from the widget layer (both re-fetch) and never POSTs a create.
     testWidgets(
       'a successful RESCHEDULE invalidates bookingDetail(id) + upcoming My '
-      'Bookings from the widget layer (both re-fetch) and navigates to success',
+      'Bookings + nextAppointmentProvider from the widget layer (all '
+      're-fetch) and navigates to success',
       (tester) async {
+        // mobile-qa (Phase 225 fix pass, mobile-perf MEDIUM #4) —
+        // nextAppointmentProvider is overridden with its OWN fetch counter
+        // (not read off `fake.getMyBookingsCalls`, which the real provider
+        // shares with `myBookingsProvider` via `BookingRepository.getMyBookings`
+        // and so cannot attribute a refetch to one family over the other).
+        // A reschedule may move this booking to/from being the client's
+        // soonest upcoming appointment — see `booking_confirm_screen.dart:205`.
+        int nextApptFetches = 0;
         final fake = _RecordingRescheduleRepository();
         final router = _router();
         await tester.pumpRoutedApp(
@@ -833,6 +844,10 @@ void main() {
             publicMasterProfileProvider(_kMaster.id).overrideWith(
               (ref) => (_kMaster, const <MasterService>[_kService]),
             ),
+            nextAppointmentProvider.overrideWith((ref) async {
+              nextApptFetches++;
+              return null;
+            }),
           ],
         );
         unawaited(
@@ -858,10 +873,19 @@ void main() {
               fireImmediately: true,
             );
         addTearDown(subList.close);
+        final ProviderSubscription<AsyncValue<NextAppointment?>> subNextAppt =
+            container.listen(
+              nextAppointmentProvider,
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subNextAppt.close);
         await container.read(bookingDetailProvider('booking-1').future);
         await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        await container.read(nextAppointmentProvider.future);
         expect(fake.getBookingByIdCalls, 1);
         expect(fake.getMyBookingsCalls, 1);
+        expect(nextApptFetches, 1);
 
         await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
         await tester.pumpAndSettle();
@@ -872,8 +896,17 @@ void main() {
 
         await container.read(bookingDetailProvider('booking-1').future);
         await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        await container.read(nextAppointmentProvider.future);
         expect(fake.getBookingByIdCalls, 2);
         expect(fake.getMyBookingsCalls, 2);
+        expect(
+          nextApptFetches,
+          2,
+          reason:
+              'a successful single-booking reschedule must invalidate '
+              'nextAppointmentProvider — the Home Hub card must never show a '
+              'stale booking after this write',
+        );
       },
     );
 
@@ -1001,56 +1034,82 @@ void main() {
     // the upcoming My Bookings list from the widget layer — the client shell
     // keeps that branch mounted, so its autoDispose notifier only re-fetches
     // when invalidated. Mirrors the reschedule assertion above.
-    testWidgets(
-      'a successful CREATE invalidates upcoming My Bookings from the widget '
-      'layer (it re-fetches) and navigates to success',
-      (tester) async {
-        final appointments = _FakeAppointmentRepository(
-          appointmentToReturn: _appointmentFixture(),
-        );
-        final bookings = _RecordingRescheduleRepository();
-        final router = _router();
-        await tester.pumpRoutedApp(
-          router,
-          overrides: <Object>[
-            appointmentRepositoryProvider.overrideWith((_) => appointments),
-            bookingRepositoryProvider.overrideWith((_) => bookings),
-            publicMasterProfileProvider(_kMaster.id).overrideWith(
-              (ref) => (_kMaster, const <MasterService>[_kService]),
-            ),
-          ],
-        );
-        unawaited(
-          router.push(RouteNames.bookingConfirm, extra: _confirmArgs()),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('a successful CREATE invalidates upcoming My Bookings + '
+        'nextAppointmentProvider from the widget layer (both re-fetch) and '
+        'navigates to success', (tester) async {
+      // mobile-qa (Phase 225 fix pass, mobile-perf MEDIUM #4) —
+      // nextAppointmentProvider gets its OWN counter, same rationale as the
+      // RESCHEDULE test above: it shares `BookingRepository.getMyBookings`
+      // with `myBookingsProvider`, so `bookings.getMyBookingsCalls` alone
+      // cannot attribute a refetch to one family over the other. A newly
+      // created booking may now BE the client's soonest upcoming
+      // appointment — see `booking_confirm_screen.dart:235`.
+      int nextApptFetches = 0;
+      final appointments = _FakeAppointmentRepository(
+        appointmentToReturn: _appointmentFixture(),
+      );
+      final bookings = _RecordingRescheduleRepository();
+      final router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          appointmentRepositoryProvider.overrideWith((_) => appointments),
+          bookingRepositoryProvider.overrideWith((_) => bookings),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
+          nextAppointmentProvider.overrideWith((ref) async {
+            nextApptFetches++;
+            return null;
+          }),
+        ],
+      );
+      unawaited(router.push(RouteNames.bookingConfirm, extra: _confirmArgs()));
+      await tester.pumpAndSettle();
 
-        final ProviderContainer container = ProviderScope.containerOf(
-          tester.element(find.byType(BookingConfirmScreen)),
-          listen: false,
-        );
-        final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
-            container.listen(
-              myBookingsProvider(BookingTab.upcoming),
-              (_, _) {},
-              fireImmediately: true,
-            );
-        addTearDown(subList.close);
-        await container.read(myBookingsProvider(BookingTab.upcoming).future);
-        expect(bookings.getMyBookingsCalls, 1);
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingConfirmScreen)),
+        listen: false,
+      );
+      final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
+          container.listen(
+            myBookingsProvider(BookingTab.upcoming),
+            (_, _) {},
+            fireImmediately: true,
+          );
+      addTearDown(subList.close);
+      final ProviderSubscription<AsyncValue<NextAppointment?>> subNextAppt =
+          container.listen(
+            nextAppointmentProvider,
+            (_, _) {},
+            fireImmediately: true,
+          );
+      addTearDown(subNextAppt.close);
+      await container.read(myBookingsProvider(BookingTab.upcoming).future);
+      await container.read(nextAppointmentProvider.future);
+      expect(bookings.getMyBookingsCalls, 1);
+      expect(nextApptFetches, 1);
 
-        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await tester.pumpAndSettle();
 
-        expect(appointments.requests, hasLength(1));
-        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      expect(appointments.requests, hasLength(1));
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
 
-        // The widget-layer invalidate forced a background re-fetch of the still
-        // -listened (mounted) upcoming tab.
-        await container.read(myBookingsProvider(BookingTab.upcoming).future);
-        expect(bookings.getMyBookingsCalls, 2);
-      },
-    );
+      // The widget-layer invalidate forced a background re-fetch of the still
+      // -listened (mounted) upcoming tab (+ the next-appointment card).
+      await container.read(myBookingsProvider(BookingTab.upcoming).future);
+      await container.read(nextAppointmentProvider.future);
+      expect(bookings.getMyBookingsCalls, 2);
+      expect(
+        nextApptFetches,
+        2,
+        reason:
+            'a successful CREATE must invalidate nextAppointmentProvider — '
+            'the Home Hub card must never show a stale booking after this '
+            'write',
+      );
+    });
   });
 
   group('BookingSuccessScreen', () {
