@@ -16,6 +16,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -1201,15 +1202,15 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Booking-shelf empty state — the pinned camel-wash shelf renders the
-  // «Послуги та ціни» section label above the «Записатись до майстра» CTA once
-  // the master resolves. The «Оберіть послугу» empty prompt was removed from
-  // THIS screen (it still renders on the service-selector sheet reached after
-  // tapping the CTA).
+  // Booking-shelf empty state — the pinned camel-wash shelf renders ONLY the
+  // «Записатись до майстра» CTA once the master resolves. Both the «Послуги та
+  // ціни» section label and the «Оберіть послугу» empty prompt were removed
+  // from THIS screen (the label still renders on the salon booking shelf; the
+  // prompt on the service-selector sheet reached after tapping the CTA).
   // ──────────────────────────────────────────────────────────────────────────
   group('booking shelf empty state', () {
-    testWidgets('renders the «Послуги та ціни» label and the CTA once data '
-        'resolves, without the empty prompt', (tester) async {
+    testWidgets('renders the CTA alone once data resolves, without the section '
+        'label or the empty prompt', (tester) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -1223,9 +1224,11 @@ void main() {
 
       final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
-      // Section label is a content assertion resolved via l10n (never raw
-      // literals — M2/M11), so an l10n rename moves it in lockstep.
-      expect(find.text(l10n.publicMasterBookingSectionLabel), findsOneWidget);
+      // The section label was removed from this shelf — the CTA stands alone.
+      // Resolved via l10n (never raw literals — M2/M11) so an l10n rename moves
+      // it in lockstep. The ARB key itself stays: the salon booking shelf
+      // (`selected_services_shelf.dart`) still renders it.
+      expect(find.text(l10n.publicMasterBookingSectionLabel), findsNothing);
 
       // The empty prompt no longer renders on THIS screen — it moved
       // exclusively to the service-selector sheet reached after tapping the
@@ -1236,6 +1239,49 @@ void main() {
       expect(find.byKey(const Key('public-master-book-cta')), findsOneWidget);
       expect(find.text(l10n.publicMasterBookingCta), findsOneWidget);
     });
+
+    // Structural pin for the label deletion. `findsNothing` on a localized
+    // string is a WEAK pin on its own: it also passes vacuously if the whole
+    // shelf stopped rendering, if the l10n lookup silently changed, or if the
+    // label came back as something other than a `Text` (an icon+label Row, a
+    // RichText). So assert the shelf's ACTUAL composition — the Column that
+    // survived the deletion must hold exactly one child, the CTA.
+    testWidgets(
+      'the shelf column holds the CTA as its only child, stretched to the '
+      'full shelf width',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => _stubData),
+        );
+        await tester.pumpAndSettle();
+
+        const Key ctaKey = Key('public-master-book-cta');
+        final Finder cta = find.byKey(ctaKey);
+
+        // Closest Column ancestor of the CTA == the shelf's own Column.
+        final Column shelfColumn = tester.widget<Column>(
+          find.ancestor(of: cta, matching: find.byType(Column)).first,
+        );
+
+        // Single-child: any accidental re-add of the section label — or of ANY
+        // sibling widget — fails here even if it is not a `Text`.
+        expect(shelfColumn.children, hasLength(1));
+        expect(shelfColumn.children.single.key, ctaKey);
+
+        // `crossAxisAlignment: stretch` is load-bearing now that the Column has
+        // one child: it is the only thing giving the CTA the full shelf width.
+        // Asserted on the RENDERED width (800 view − 2 × VelvetSpacing.lg of
+        // horizontal shelf padding) rather than on the enum, so a refactor that
+        // drops the Column for a narrower layout fails too.
+        expect(tester.getSize(cta).width, 800 - 2 * VelvetSpacing.lg);
+      },
+    );
   });
 
   // ──────────────────────────────────────────────────────────────────────────

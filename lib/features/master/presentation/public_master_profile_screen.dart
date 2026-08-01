@@ -13,9 +13,9 @@
 //     AUTHENTICATED master, not [widget.masterId], so it has no meaning for a
 //     client browsing someone else's profile and is stripped here;
 //   • contacts = Instagram only (no phone/dialer tile);
-//   • a pinned camel-wash booking shelf («Послуги та ціни») rendering the empty
-//     state — the «Записатись до майстра» CTA opens the Phase 14.1 booking
-//     flow (placeholder route until 14.1 ships).
+//   • a pinned camel-wash booking shelf holding a single «Записатись до
+//     майстра» CTA (no section label) — it opens the Phase 14.1 booking flow
+//     (placeholder route until 14.1 ships).
 //
 // Data comes from [publicMasterProfileProvider] (a family keyed on masterId)
 // which loads the master + active services in parallel. All three AsyncValue
@@ -788,11 +788,11 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
 }
 
 // ---------------------------------------------------------------------------
-// _BookingShelf — pinned camel-wash «Послуги та ціни» booking shelf (empty state)
+// _BookingShelf — pinned camel-wash booking shelf (CTA only)
 // ---------------------------------------------------------------------------
 
-/// The pinned bottom booking shelf. On the profile it renders the EMPTY state:
-/// a section label above a camel «Записатись до майстра» CTA. Tapping the CTA
+/// The pinned bottom booking shelf. On the profile it holds a single child: the
+/// camel «Записатись до майстра» CTA — no section label. Tapping the CTA
 /// opens the Phase 14.1 booking flow ([RouteNames.bookingNew]) carrying the
 /// target master id in `extra`. Actual service selection lives in 14.1.
 class _BookingShelf extends StatelessWidget {
@@ -840,14 +840,6 @@ class _BookingShelf extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
-                child: Text(
-                  l10n.publicMasterBookingSectionLabel,
-                  style: VelvetText.sectionLabel(),
-                ),
-              ),
-              const SizedBox(height: VelvetSpacing.md),
               NeumorphicButton(
                 key: const Key('public-master-book-cta'),
                 label: l10n.publicMasterBookingCta,
