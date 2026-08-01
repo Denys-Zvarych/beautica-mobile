@@ -259,34 +259,114 @@ void main() {
       type: MasterType.independentMaster,
     );
 
+    /// Phase 224 — a city + street + building whose COLLAPSED form is too wide
+    /// for the identity card's right-hand column at a narrow-phone width, so
+    /// the block must fall back to the Phase 220 two-row split. Keeps
+    /// split-path coverage alive on this screen now that the short fixture
+    /// above takes the collapsed path.
+    const Master masterWithLongAddress = Master(
+      id: _kMasterId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      city: "Кам'янець-Подільський",
+      street: 'вул. Академіка Володимира Філатова',
+      buildingNo: '145-Б',
+      avgRating: 4.8,
+      reviewCount: 47,
+      type: MasterType.independentMaster,
+    );
+
+    // WHY THIS CASE PASSES AN EXPLICIT `width`
+    // -----------------------------------------
+    // Surface width is THE INPUT the collapse decision consumes:
+    // `MasterAddressBlock` measures the combined string against the width its
+    // column actually gets. Relying on `pumpApp`'s implicit 800dp default meant
+    // a change to that default would flip this case onto the SPLIT path, where
+    // it would keep passing while asserting the opposite of what it asserts
+    // here. The split-path case below already states its width (320); this one
+    // now does too, on the other side of the same crossover.
+    //
+    // 400dp is measured, not guessed — the identity card's fixed chrome leaves
+    // the address column `surface - 200`, and "Київ, вул. Хрещатик, 22" needs
+    // ~148dp including the pin and its gap, so the crossover sits near a 348dp
+    // surface. 400dp clears it by ~35 % while staying a realistic modern-phone
+    // width, so the collapse is proven where it has to work.
+    const double collapsingWidth = 400;
+
     testWidgets(
-      'renders locality, street+building, and note on independent lines',
+      'collapses city + street + building onto ONE line when it fits, and '
+      'still renders the note beneath it (Phase 224)',
       (tester) async {
         await tester.pumpApp(
           const PublicMasterProfileScreen(masterId: _kMasterId),
           overrides: _overrides(
             (ref) => (masterWithFullAddress, _stubServices),
           ),
+          width: collapsingWidth,
         );
         await tester.pumpAndSettle();
 
+        expect(
+          find.byKey(const Key('public-master-profile-address-combined-text')),
+          findsOneWidget,
+        );
+        // i18n-finder-ok: master.city/street/buildingNo are fixture data, not
+        // localised UI copy
+        expect(find.text('Київ, вул. Хрещатик, 22'), findsOneWidget);
+        // The split rows must NOT also render — the two paths are exclusive.
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-address-text')),
+          findsNothing,
+        );
+        // The pre-220 street-first order must never come back.
+        // i18n-finder-ok: same fixture data as above, negated
+        expect(find.text('вул. Хрещатик, 22, Київ'), findsNothing);
+        // i18n-finder-ok: master.locationNote is fixture data, not UI copy
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'falls back to the Phase 220 two-row split when the collapsed address '
+      'cannot fit on one line at a narrow width',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides(
+            (ref) => (masterWithLongAddress, _stubServices),
+          ),
+          width: 320,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-address-combined-text')),
+          findsNothing,
+        );
         expect(
           find.byKey(const Key('public-master-profile-locality-text')),
           findsOneWidget,
         );
         // i18n-finder-ok: master.city is fixture data, not localised UI copy
-        expect(find.text('Київ'), findsOneWidget);
+        expect(find.text("Кам'янець-Подільський"), findsOneWidget);
+        final Finder streetLine = find.byKey(
+          const Key('public-master-profile-address-text'),
+        );
+        expect(streetLine, findsOneWidget);
+        // i18n-finder-ok: master.street/buildingNo are fixture data, not UI copy
         expect(
-          find.byKey(const Key('public-master-profile-address-text')),
+          find.text('вул. Академіка Володимира Філатова, 145-Б'),
           findsOneWidget,
         );
-        // i18n-finder-ok: master.street/buildingNo are fixture data, not UI copy
-        expect(find.text('вул. Хрещатик, 22'), findsOneWidget);
-        // The OLD combined "street, building, city" string must not appear.
-        // i18n-finder-ok: same fixture data as above, negated
-        expect(find.text('вул. Хрещатик, 22, Київ'), findsNothing);
-        // i18n-finder-ok: master.locationNote is fixture data, not UI copy
-        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+        // Phase 219 (A) regression guard — an explicit 2-line budget, not
+        // ellipsis-without-maxLines.
+        final Text street = tester.widget<Text>(streetLine);
+        expect(street.maxLines, 2);
+        expect(street.overflow, TextOverflow.ellipsis);
       },
     );
 

@@ -53,6 +53,7 @@ import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import 'widgets/master_address_block.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
@@ -298,6 +299,13 @@ class _PublicProfileBody extends StatelessWidget {
       master.street,
       master.buildingNo,
     );
+    // Phase 224 — the COLLAPSED one-line form of the same address. Which of
+    // the two renderings ships is `MasterAddressBlock`'s measured decision.
+    final String? combinedAddressLine = buildCombinedAddressLine(
+      master.city,
+      master.street,
+      master.buildingNo,
+    );
     // Phase 222 — sanitization now happens INSIDE `ExpandableNote` (it
     // must run on the exact same string the widget measures for overflow AND
     // renders — see that widget's class doc). Pre-sanitizing here too would
@@ -366,63 +374,29 @@ class _PublicProfileBody extends StatelessWidget {
                             : roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
-                      if (localityLine != null ||
-                          streetLine != null) ...<Widget>[
+                      // Equivalent to the old `localityLine != null ||
+                      // streetLine != null` gate (see the own-profile screen
+                      // for why), and it promotes the local to non-nullable.
+                      if (combinedAddressLine != null) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs),
-                        // Phase 220 (C) — same split as the own-profile
-                        // screen: locality (city) first, then street +
-                        // building, then the note — see
-                        // `shared/formatters/address_lines.dart`.
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const Icon(
-                              Icons.location_on_outlined,
-                              size: 13,
-                              color: BrandColors.muted,
-                            ),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                localityLine ?? streetLine!,
-                                key: localityLine != null
-                                    ? const Key(
-                                        'public-master-profile-locality-text',
-                                      )
-                                    : const Key(
-                                        'public-master-profile-address-text',
-                                      ),
-                                style: VelvetText.feedbackMutedXs,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (localityLine != null &&
-                            streetLine != null) ...<Widget>[
-                          const SizedBox(height: 2),
-                          Padding(
-                            padding: const EdgeInsets.only(left: 16),
-                            child: Text(
-                              streetLine,
-                              key: const Key(
-                                'public-master-profile-address-text',
-                              ),
-                              style: VelvetText.feedbackMutedXs,
-                              // Phase 219 (A) — this site already had
-                              // `overflow: ellipsis` with NO `maxLines`,
-                              // the exact combination that silently
-                              // collapses the whole paragraph to a single
-                              // line instead of wrapping (see the
-                              // reproduction test on the own-profile
-                              // screen). Aligned with the own-profile
-                              // version's maxLines: 2.
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                        // Phase 220 (C) + Phase 224 — same address block as
+                        // the own-profile screen: locality (city) first, then
+                        // street + building, collapsed onto ONE row when the
+                        // whole string fits, then the note. Composition lives
+                        // in `shared/formatters/address_lines.dart`, the
+                        // measure-and-choose in
+                        // `widgets/master_address_block.dart`.
+                        MasterAddressBlock(
+                          keyPrefix: 'public-master-profile',
+                          icon: const Icon(
+                            Icons.location_on_outlined,
+                            size: MasterAddressBlock.iconSize,
+                            color: BrandColors.muted,
                           ),
-                        ],
+                          localityLine: localityLine,
+                          streetLine: streetLine,
+                          combinedLine: combinedAddressLine,
+                        ),
                         if (noteText != null) ...<Widget>[
                           const SizedBox(height: 2),
                           Padding(

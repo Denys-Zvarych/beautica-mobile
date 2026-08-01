@@ -58,6 +58,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
 import 'master_profile_notifier.dart';
+import 'widgets/master_address_block.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
@@ -337,8 +338,18 @@ class _ProfileBody extends StatelessWidget {
     // the identity card's Text widgets never contain inline ternary chains.
     // Each line gets its own independent budget instead of one combined
     // string crammed into the ~150px right-hand column.
+    //
+    // Phase 224 — also pre-compose the COLLAPSED one-line form. Which of the
+    // two renderings actually ships is decided by `MasterAddressBlock`, which
+    // measures the collapsed string against the real available width; both
+    // forms are composed here so the widget stays a pure layout decision.
     final String? localityLine = buildLocalityLine(master.city);
     final String? streetLine = buildStreetLine(
+      master.street,
+      master.buildingNo,
+    );
+    final String? combinedAddressLine = buildCombinedAddressLine(
+      master.city,
       master.street,
       master.buildingNo,
     );
@@ -390,70 +401,32 @@ class _ProfileBody extends StatelessWidget {
                             : roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
-                      if (localityLine != null || streetLine != null) ...[
+                      // `combinedAddressLine != null` is EXACTLY equivalent to
+                      // the old `localityLine != null || streetLine != null`
+                      // gate — all three builders treat the same fields as
+                      // blank — and it promotes the local to non-nullable for
+                      // the widget below.
+                      if (combinedAddressLine != null) ...[
                         const SizedBox(height: VelvetSpacing.xs),
-                        // Phase 220 (C) — 3-line semantic hierarchy: locality
-                        // (city) first — matching the convention in
+                        // Phase 220 (C) + Phase 224 — semantic hierarchy:
+                        // locality (city) first — matching the convention in
                         // `result_address_block.dart` — then street +
-                        // building, then the note. Each gets an independent
-                        // line budget instead of being crammed into one
-                        // combined string.
-                        //
-                        // The pin icon rides beside whichever line renders
-                        // FIRST: locality when the master has a city, or the
-                        // street line promoted to primary when there is no
-                        // city at all (mirrors `result_address_block.dart`'s
-                        // primary/secondary promotion — never an orphan pin
-                        // beside a blank line).
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const AppIcon(
-                              BeauticaAssetIcons.locationMarker,
-                              size: 13,
-                              color: BrandColors.muted,
-                            ),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                localityLine ?? streetLine!,
-                                key: localityLine != null
-                                    ? const Key('master-profile-locality-text')
-                                    : const Key('master-profile-address-text'),
-                                style: VelvetText.feedbackMutedXs,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        // Street + building row — only when BOTH a locality
-                        // (already shown above) and a street are present; when
-                        // there is no locality the street line was already
-                        // promoted to the row above, so it must not repeat
-                        // here.
-                        if (localityLine != null && streetLine != null) ...[
-                          const SizedBox(height: 2),
-                          Padding(
-                            padding: const EdgeInsets.only(left: 16),
-                            child: Text(
-                              streetLine,
-                              key: const Key('master-profile-address-text'),
-                              // 11 sp variant allows wrapping so longer
-                              // street strings are never clipped.
-                              style: VelvetText.feedbackMutedXs,
-                              // Phase 219 (A): an explicit line budget is
-                              // REQUIRED alongside `overflow: ellipsis` —
-                              // Flutter's ellipsis-without-maxLines
-                              // combination silently collapses the whole
-                              // paragraph to a single line instead of
-                              // wrapping (see the reproduction test in
-                              // master_profile_screen_test.dart).
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                        // building, then the note. `MasterAddressBlock`
+                        // collapses the first two onto ONE row when the whole
+                        // string fits at the real available width, and keeps
+                        // the 220 split when it does not; the pin rides beside
+                        // whichever line renders first either way.
+                        MasterAddressBlock(
+                          keyPrefix: 'master-profile',
+                          icon: const AppIcon(
+                            BeauticaAssetIcons.locationMarker,
+                            size: MasterAddressBlock.iconSize,
+                            color: BrandColors.muted,
                           ),
-                        ],
+                          localityLine: localityLine,
+                          streetLine: streetLine,
+                          combinedLine: combinedAddressLine,
+                        ),
                         // Note row: shown only when locationNote is set.
                         // Phase 221 (B) — tap-to-expand: clamped at
                         // maxLines: 3 (Phase 219 A) with a «більше»/

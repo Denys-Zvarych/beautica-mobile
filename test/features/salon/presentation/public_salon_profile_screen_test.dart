@@ -901,6 +901,285 @@ void main() {
     );
   });
 
+  // ── Phase 224 (mobile-qa gap-fill) — INVISIBLE address fields ─────────────
+  //
+  // WHY THIS GROUP EXISTS
+  // ---------------------
+  // Phase 224 rewrote `buildLocalityLine` / `buildStreetLine` (shared/
+  // formatters/address_lines.dart) to sanitize-then-trim-then-test via a
+  // private `_visibleOrNull`, instead of testing emptiness on the RAW field.
+  // That is a behaviour change to two builders this salon screen consumes —
+  // but every salon fixture in the `location line` group above carries clean,
+  // fully-visible strings, so the whole group passes identically before and
+  // after the refactor. 98/98 green was therefore NOT evidence the salon path
+  // survived it; it was evidence the salon path never exercised it.
+  //
+  // These fields are provider-authored free text with `@Size`-only backend
+  // validation (no character-class constraint), so a whitespace-only or
+  // zero-width-only value is reachable, not hypothetical — the same premise
+  // the Phase 221 sanitization audit acted on for `locationNote`.
+  //
+  // The third case below is a REGRESSION test for a real defect this group
+  // found: `_localityLine`/`_streetLine` gated the taxonomy-vs-legacy choice
+  // on a raw `salon.street?.isNotEmpty`, a DIFFERENT notion of "present" from
+  // the formatters'. A whitespace-only `street` satisfied the raw gate
+  // (suppressing the city as "this salon uses taxonomy fields") while the
+  // formatter correctly reported the street absent — so BOTH lines came back
+  // null and the entire address row, pin included, vanished for a salon with
+  // a perfectly good city on file.
+  group('location line — fields with no VISIBLE content', () {
+    /// U+200B ZERO WIDTH SPACE, built via `String.fromCharCode` so this file
+    /// never embeds the raw character it exists to test.
+    final String zwsp = String.fromCharCode(0x200B);
+
+    testWidgets(
+      'a whitespace-only legacy city is treated as ABSENT: no locality row of '
+      'literal spaces, and the legacy address is promoted to the primary row',
+      (tester) async {
+        await _pumpTall(tester);
+        const whitespaceCitySalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: '   ',
+          address: 'вул. Велика Васильківська, 44',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => whitespaceCitySalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-profile-locality-text')),
+          findsNothing,
+          reason:
+              'a city of three spaces used to occupy a whole row and render '
+              'nothing — it must now be absent, not blank',
+        );
+
+        // The address is promoted to the primary (icon-bearing) row, exactly
+        // as it is for a null city.
+        final addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(addressFinder, findsOneWidget);
+        final Text addressWidget = tester.widget<Text>(addressFinder);
+        expect(addressWidget.data, 'вул. Велика Васильківська, 44');
+      },
+    );
+
+    testWidgets(
+      'a zero-width-only legacy address is treated as ABSENT: the city keeps '
+      'the primary row and no second, empty street row is emitted',
+      (tester) async {
+        await _pumpTall(tester);
+        final invisibleAddressSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Київ',
+          address: zwsp,
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              salon: () async => invisibleAddressSalon,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final localityFinder = find.byKey(
+          const Key('salon-profile-locality-text'),
+        );
+        expect(localityFinder, findsOneWidget);
+        // i18n-finder-ok: salon.city fixture value, not localised UI copy.
+        expect(tester.widget<Text>(localityFinder).data, 'Київ');
+        expect(
+          find.byKey(const Key('salon-profile-address-text')),
+          findsNothing,
+          reason:
+              'a zero-width-only address must not claim a second row that '
+              'renders as nothing',
+        );
+      },
+    );
+
+    testWidgets(
+      'REGRESSION — a whitespace-only TAXONOMY street must not suppress the '
+      'city: the address row (and its pin) still renders, falling back to the '
+      'legacy address rather than disappearing entirely',
+      (tester) async {
+        await _pumpTall(tester);
+        const blankStreetSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Київ',
+          address: 'вул. Велика Васильківська, 44',
+          cityId: 'city-uuid-1',
+          street: '   ',
+          buildingNo: '22',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => blankStreetSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byIcon(Icons.location_on_outlined),
+          findsOneWidget,
+          reason:
+              'the whole location row (pin included) was being dropped: the '
+              'raw isNotEmpty gate read the blank street as "taxonomy salon" '
+              'and suppressed the city, while the formatter read the same '
+              'street as absent and returned null for the street line too',
+        );
+
+        final localityFinder = find.byKey(
+          const Key('salon-profile-locality-text'),
+        );
+        expect(localityFinder, findsOneWidget);
+        // i18n-finder-ok: salon.city fixture value, not localised UI copy.
+        expect(tester.widget<Text>(localityFinder).data, 'Київ');
+
+        // With no visible taxonomy street, the legacy address is the salon's
+        // only street data and must be used rather than silently dropped.
+        final addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(addressFinder, findsOneWidget);
+        final Text addressWidget = tester.widget<Text>(addressFinder);
+        expect(addressWidget.data, 'вул. Велика Васильківська, 44');
+        // The orphaned building number must never appear on its own — it had
+        // no visible street to attach to.
+        expect(addressWidget.data, isNot(contains('22')));
+      },
+    );
+
+    testWidgets(
+      'every address field invisible → the whole location row is hidden, and '
+      'no rendered line is blank, untrimmed, or comma-orphaned',
+      (tester) async {
+        await _pumpTall(tester);
+        final allInvisibleSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: '  ',
+          address: zwsp,
+          cityId: 'city-uuid-1',
+          street: '\t\n ',
+          buildingNo: '  ',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => allInvisibleSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // POSITIVE ANCHOR — mobile-security INFO fix.
+        //
+        // Every other assertion in this test is a `findsNothing`, and three
+        // `findsNothing`s also pass on a screen that rendered NOTHING: a
+        // fixture that stopped deserializing, a repository fake that never
+        // completed, a route that silently landed on the error state. This
+        // test would then go quietly, permanently vacuous while staying green
+        // — which is exactly the failure mode this group's header calls out as
+        // how the taxonomy-street bug hid behind "98/98 green". Guarding
+        // against it inside a group written to catch it is the whole point.
+        //
+        // `salon-profile-name` is the anchor rather than the
+        // `salon-profile-hero-card` shell key because it is strictly stronger:
+        // the card mounts as a container, but the NAME only paints once the
+        // repository resolved, the notifier delivered data, and the hero card
+        // read fields off that salon. Asserting its rendered `data` (not just
+        // the key's presence) is what proves the PAYLOAD arrived — a hero card
+        // built from a different or empty salon would still satisfy the key
+        // alone. Same widget, same build path, same `salon` object the address
+        // lines below are derived from, so if the name is on screen the
+        // absence of the address rows is a real result and not an artefact.
+        final nameFinder = find.byKey(const Key('salon-profile-name'));
+        expect(
+          nameFinder,
+          findsOneWidget,
+          reason:
+              'the hero card never rendered — the three findsNothing '
+              'assertions below would pass vacuously',
+        );
+        // i18n-finder-ok: salon.name fixture value, not localised UI copy.
+        expect(tester.widget<Text>(nameFinder).data, 'Салон «Вельвет»');
+
+        expect(
+          find.byKey(const Key('salon-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-profile-address-text')),
+          findsNothing,
+        );
+        expect(
+          find.byIcon(Icons.location_on_outlined),
+          findsNothing,
+          reason:
+              'no visible address data anywhere — the pin must not render on '
+              'its own',
+        );
+      },
+    );
+
+    testWidgets(
+      'surrounding whitespace is trimmed off the rendered lines, so a '
+      'padded city never reads as «Київ » beside its street row',
+      (tester) async {
+        await _pumpTall(tester);
+        const paddedSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          cityId: 'city-uuid-1',
+          street: '  вул. Хрещатик ',
+          buildingNo: ' 22 ',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => paddedSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(addressFinder, findsOneWidget);
+        final String? rendered = tester.widget<Text>(addressFinder).data;
+        expect(rendered, 'вул. Хрещатик, 22');
+        expect(rendered, isNot(contains('  ')));
+        expect(rendered?.trim(), rendered);
+      },
+    );
+  });
+
   // Regression (user-reported): the location line used to start flush at
   // the hero card's left edge, directly under the [SalonLogo] avatar —
   // reading as "under the image" instead of a continuation of the identity

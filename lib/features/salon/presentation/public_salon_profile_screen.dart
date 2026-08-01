@@ -882,9 +882,33 @@ class _SalonHeroCard extends StatelessWidget {
   /// the pre-Phase-223 `_buildLocationLine`'s taxonomy branch, which never
   /// rendered `city` once `street` was present).
   static String? _localityLine(Salon salon) {
-    if (salon.street?.isNotEmpty ?? false) return null;
+    if (_hasTaxonomyStreet(salon)) return null;
     return buildLocalityLine(salon.city);
   }
+
+  /// Whether the salon has a taxonomy `street` with VISIBLE content.
+  ///
+  /// mobile-qa Phase 224 fix — this used to be a raw `salon.street?.isNotEmpty`
+  /// check in both [_localityLine] and [_streetLine], which is a DIFFERENT
+  /// notion of "present" from the one `shared/formatters/address_lines.dart`
+  /// uses since it started sanitizing-then-testing (`_visibleOrNull`). The two
+  /// disagreed for a street made only of characters that reduce to nothing —
+  /// whitespace, or a zero-width space (backend validation on these fields is
+  /// `@Size`-only, so provider-authored free text can be exactly that):
+  ///   - `_localityLine` saw `isNotEmpty == true`, concluded "this salon uses
+  ///     the taxonomy fields", and returned `null` — suppressing the city;
+  ///   - `_streetLine` took the taxonomy branch and got `null` back from
+  ///     `buildStreetLine`, which now correctly treats the field as absent.
+  /// Both lines null ⇒ `hasAddress == false` ⇒ the ENTIRE address row was
+  /// dropped, pin included, and a salon with a perfectly good «Київ» on file
+  /// rendered no location at all. (Before the `_visibleOrNull` refactor the
+  /// same salon rendered a junk `"   , 22"` line instead — different symptom,
+  /// same root cause: two definitions of "present".)
+  ///
+  /// Routing the gate through `buildStreetLine` makes it the SAME definition
+  /// the formatters use, by construction, so the two can no longer drift.
+  static bool _hasTaxonomyStreet(Salon salon) =>
+      buildStreetLine(salon.street) != null;
 
   /// The hero card's street/building (or legacy address) line, or `null`
   /// when unavailable.
@@ -904,7 +928,7 @@ class _SalonHeroCard extends StatelessWidget {
   /// evict this line from its fixed one-line budget the way the pre-223
   /// combined line allowed.
   static String? _streetLine(Salon salon) {
-    if (salon.street?.isNotEmpty ?? false) {
+    if (_hasTaxonomyStreet(salon)) {
       return buildStreetLine(salon.street, salon.buildingNo);
     }
     return buildStreetLine(salon.address);

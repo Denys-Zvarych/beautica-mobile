@@ -50,6 +50,7 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_address_block.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -78,6 +79,40 @@ import '../../../helpers/pump_app.dart';
 final Finder _locationIcon = find.byWidgetPredicate(
   (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
 );
+
+// ---------------------------------------------------------------------------
+// Style matchers
+// ---------------------------------------------------------------------------
+
+/// Asserts [text] carries the address style [MasterAddressBlock] actually
+/// renders: `VelvetText.feedbackMutedXs` MERGED over the ambient
+/// `DefaultTextStyle` (the `Material` above installs `theme.textTheme
+/// .bodyMedium`, which contributes `letterSpacing` among other things).
+///
+/// These assertions used to pin the RAW `VelvetText.feedbackMutedXs`. That was
+/// never what the pixels used — a `Text` with an `inherit: true` style always
+/// renders `DefaultTextStyle.of(context).style.merge(style)` — and pinning the
+/// raw static is precisely what let the block MEASURE one style while
+/// RENDERING another, collapsing addresses that then got ellipsized (Phase 224
+/// mobile-perf MEDIUM). The block now resolves the merge once and hands the
+/// same `TextStyle` to both the measurement and every `Text`, so the
+/// expectation here is the merged style — with the `VelvetText` identity
+/// (size / weight / colour) asserted explicitly so a regression that dropped
+/// the brand style entirely could not pass by merging into whatever ambient
+/// default happened to be installed.
+///
+/// The merge-agreement contract itself is covered at the widget tier in
+/// `widgets/master_address_block_test.dart`, against the real
+/// `RenderParagraph`.
+void _expectEffectiveAddressStyle(WidgetTester tester, Text text) {
+  final TextStyle ambient = DefaultTextStyle.of(
+    tester.element(find.byType(MasterAddressBlock)),
+  ).style;
+  expect(text.style, ambient.merge(VelvetText.feedbackMutedXs));
+  expect(text.style?.fontSize, VelvetText.feedbackMutedXs.fontSize);
+  expect(text.style?.fontWeight, VelvetText.feedbackMutedXs.fontWeight);
+  expect(text.style?.color, VelvetText.feedbackMutedXs.color);
+}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -146,7 +181,10 @@ const _stubMasterCityOnly = Master(
 );
 
 /// Street + city, no buildingNo, no locationNote.
-/// Expected locationLine: "вул. Хрещатик, Київ".
+///
+/// Phase 224: SHORT enough that "Київ, вул. Хрещатик" fits on one line at the
+/// default 800dp test surface — takes the COLLAPSED path
+/// (`master-profile-address-combined-text`).
 const _stubMasterStreetAndCity = Master(
   id: 'user-1',
   firstName: 'Тест',
@@ -159,7 +197,9 @@ const _stubMasterStreetAndCity = Master(
 );
 
 /// Street + buildingNo + city + locationNote — full address.
-/// Expected locationLine: "вул. Хрещатик, 22, Київ".
+///
+/// Phase 224: "Київ, вул. Хрещатик, 22" fits on one line at the default 800dp
+/// test surface — takes the COLLAPSED path.
 /// Expected note row: "кв. 3, 2 поверх".
 const _stubMasterFullAddress = Master(
   id: 'user-1',
@@ -169,6 +209,26 @@ const _stubMasterFullAddress = Master(
   street: 'вул. Хрещатик',
   buildingNo: '22',
   locationNote: 'кв. 3, 2 поверх',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// Phase 224 — a city + street + building combination whose COLLAPSED form
+/// («Кам'янець-Подільський, вул. Академіка Володимира Філатова, 145-Б») cannot
+/// fit on one line in the identity card's right-hand column at a narrow-phone
+/// width, so the block must fall back to the Phase 220 two-row split.
+///
+/// This fixture is the split path's only guard: without it every remaining
+/// two-field fixture takes the collapsed path and a regression that made the
+/// collapse unconditional would go unnoticed.
+const _stubMasterLongAddress = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: "Кам'янець-Подільський",
+  street: 'вул. Академіка Володимира Філатова',
+  buildingNo: '145-Б',
   avgRating: 4.5,
   reviewCount: 0,
   type: MasterType.independentMaster,
@@ -899,9 +959,8 @@ void main() {
       expect(find.text('кв. 3, 2 поверх'), findsNothing);
     });
 
-    testWidgets('locality text widget uses VelvetText.feedbackMutedXs style', (
-      tester,
-    ) async {
+    testWidgets('locality text widget renders VelvetText.feedbackMutedXs '
+        'merged over the ambient DefaultTextStyle', (tester) async {
       await tester.pumpApp(
         const MasterProfileScreen(),
         overrides: _buildOverrides(
@@ -917,40 +976,197 @@ void main() {
       final addressText = tester.widget<Text>(
         find.byKey(const Key('master-profile-locality-text')),
       );
-      expect(addressText.style, VelvetText.feedbackMutedXs);
+      _expectEffectiveAddressStyle(tester, addressText);
     });
   });
 
   // ── 10. Location line — street + city ─────────────────────────────────────
 
-  group('location line — street and city, no building', () {
-    testWidgets('renders locality (city) and street on independent lines when '
-        'buildingNo is absent', (tester) async {
-      await tester.pumpApp(
-        const MasterProfileScreen(),
-        overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(_stubMasterStreetAndCity),
-          repo: repo,
-          serviceRepo: mockServiceRepo,
-        ),
-      );
-      await tester.pumpAndSettle();
+  // WHY EVERY COLLAPSE-PATH TEST BELOW PASSES AN EXPLICIT `width`
+  // -------------------------------------------------------------
+  // Surface width is not incidental setup here — it is THE INPUT the decision
+  // under test consumes. `MasterAddressBlock` measures the combined string
+  // against the width its column actually receives and collapses only if it
+  // fits, so a test asserting "collapsed" is asserting something about a width.
+  // Leaving that width to `pumpApp`'s implicit 800dp default meant a change to
+  // the default surface would flip these cases onto the SPLIT path, where they
+  // would keep passing while asserting the opposite of what they were written
+  // to assert. The split-path cases already state their width (320); these now
+  // do too.
+  //
+  // WHY 400 — measured, not guessed. The identity card's chrome takes a fixed
+  // 200dp, so the address column gets `surface - 200`. The longest fixture on
+  // this path ("Київ, вул. Хрещатик, 22") needs ~148dp including the pin and
+  // its gap, putting the collapse/split crossover at a ~348dp surface. 400dp
+  // gives the column 200dp against that 148dp requirement — ~35 % headroom, far
+  // more than any plausible font-metric drift — while staying a realistic
+  // modern-phone logical width, so the collapse is proven where it has to work
+  // rather than only on a tablet-scale surface. 320dp (the split-path cases)
+  // sits on the other side of the same crossover, so the two groups now bracket
+  // the real boundary.
+  const double collapsingWidth = 400;
 
-      // Phase 220 (C): city and street each render as their own line — no
-      // longer joined into a single "street, city" string.
-      expect(
-        find.byKey(const Key('master-profile-locality-text')),
-        findsOneWidget,
-      );
-      expect(find.text('Київ'), findsOneWidget);
-      expect(
-        find.byKey(const Key('master-profile-address-text')),
-        findsOneWidget,
-      );
-      expect(find.text('вул. Хрещатик'), findsOneWidget);
-      // The OLD combined string must not appear anywhere.
-      expect(find.text('вул. Хрещатик, Київ'), findsNothing);
-    });
+  group('location line — street and city, no building', () {
+    testWidgets(
+      'collapses city + street onto ONE line when the combined string fits '
+      '(Phase 224)',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterStreetAndCity),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: collapsingWidth,
+        );
+        await tester.pumpAndSettle();
+
+        // Phase 224: "Київ, вул. Хрещатик" fits on one line at a 400dp
+        // surface, so the block collapses to the single combined row.
+        expect(
+          find.byKey(const Key('master-profile-address-combined-text')),
+          findsOneWidget,
+        );
+        expect(find.text('Київ, вул. Хрещатик'), findsOneWidget);
+        // The split rows must NOT also render — the two paths are exclusive.
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsNothing,
+        );
+        // The pre-220 street-first order must never come back.
+        expect(find.text('вул. Хрещатик, Київ'), findsNothing);
+        // One pin, on the one row.
+        expect(_locationIcon, findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the combined line renders VelvetText.feedbackMutedXs merged over the '
+      'ambient DefaultTextStyle and is clamped to a single line',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterStreetAndCity),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          // Explicit: this case only reaches the combined row on the collapse
+          // side of the crossover — see the note above group 10.
+          width: collapsingWidth,
+        );
+        await tester.pumpAndSettle();
+
+        final Text combined = tester.widget<Text>(
+          find.byKey(const Key('master-profile-address-combined-text')),
+        );
+        _expectEffectiveAddressStyle(tester, combined);
+        expect(combined.maxLines, 1);
+      },
+    );
+  });
+
+  // ── 10a. Location line — long address falls back to the 220 split ─────────
+
+  group('location line — combined string does NOT fit', () {
+    testWidgets(
+      'falls back to the Phase 220 two-row split when the collapsed address '
+      'cannot fit on one line at a narrow width',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 320,
+        );
+        await tester.pumpAndSettle();
+
+        // No collapsed row — the measurement rejected it.
+        expect(
+          find.byKey(const Key('master-profile-address-combined-text')),
+          findsNothing,
+        );
+        // Exactly today's split: locality beside the pin, street indented.
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsOneWidget,
+        );
+        expect(find.text("Кам'янець-Подільський"), findsOneWidget);
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsOneWidget,
+        );
+        expect(
+          find.text('вул. Академіка Володимира Філатова, 145-Б'),
+          findsOneWidget,
+        );
+        expect(_locationIcon, findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the split path keeps the street line on a 2-line budget (Phase 219 A '
+      'regression guard)',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 320,
+        );
+        await tester.pumpAndSettle();
+
+        final Text street = tester.widget<Text>(
+          find.byKey(const Key('master-profile-address-text')),
+        );
+        expect(street.maxLines, 2);
+        expect(street.overflow, TextOverflow.ellipsis);
+        _expectEffectiveAddressStyle(tester, street);
+      },
+    );
+
+    testWidgets(
+      'the SAME long address collapses onto one line once the column is wide '
+      'enough — the decision is width, not content',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 1200,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-profile-address-combined-text')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            "Кам'янець-Подільський, вул. Академіка Володимира Філатова, 145-Б",
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+      },
+    );
   });
 
   // ── 10b. Location line — street only, no city (promotion) ─────────────────
@@ -992,7 +1208,8 @@ void main() {
 
   group('location line — full address', () {
     testWidgets(
-      'renders locality, street+building, and note on independent lines',
+      'collapses city + street + building onto ONE line and still renders the '
+      'note beneath it (Phase 224)',
       (tester) async {
         await tester.pumpApp(
           const MasterProfileScreen(),
@@ -1001,16 +1218,30 @@ void main() {
             repo: repo,
             serviceRepo: mockServiceRepo,
           ),
+          // Explicit: this case only reaches the combined row on the collapse
+          // side of the crossover — see the note above group 10.
+          width: collapsingWidth,
         );
         await tester.pumpAndSettle();
 
-        // Phase 220 (C): locality (city) and street+building each render on
-        // their own line rather than one joined "street, building, city"
-        // string.
-        expect(find.text('Київ'), findsOneWidget);
-        expect(find.text('вул. Хрещатик, 22'), findsOneWidget);
+        // Phase 224: the whole address fits on one line at a 400dp surface, so
+        // it renders city-first on the single combined row.
+        expect(
+          find.byKey(const Key('master-profile-address-combined-text')),
+          findsOneWidget,
+        );
+        expect(find.text('Київ, вул. Хрещатик, 22'), findsOneWidget);
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsNothing,
+        );
+        // The pre-220 street-first order must never come back.
         expect(find.text('вул. Хрещатик, 22, Київ'), findsNothing);
-        // Note row must still render beneath the address lines.
+        // Note row must still render beneath the address, on either path.
         expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
       },
     );

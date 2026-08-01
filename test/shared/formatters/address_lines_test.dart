@@ -157,4 +157,287 @@ void main() {
       expect(buildStreetLine(null), isNull);
     });
   });
+
+  // ── Phase 224 — the COLLAPSED one-line form ───────────────────────────────
+  //
+  // `buildCombinedAddressLine` is what `MasterAddressBlock` renders when the
+  // whole address fits on a single line. It must agree with the two split
+  // builders about what the address IS — same blank handling, same
+  // building-number-needs-a-street rule — so the collapsed and split
+  // renderings can never disagree, only differ in how many rows they use.
+  group('buildCombinedAddressLine', () {
+    test('1. city + street + buildingNo — city-first, comma-joined', () {
+      final String? combined = buildCombinedAddressLine(
+        'Київ',
+        'вул. Хрещатик',
+        '22',
+      );
+      expect(combined, 'Київ, вул. Хрещатик, 22');
+      _expectNoDanglingComma(combined);
+    });
+
+    test('2. the pre-220 STREET-FIRST order must never come back', () {
+      expect(
+        buildCombinedAddressLine('Київ', 'вул. Хрещатик', '22'),
+        isNot('вул. Хрещатик, 22, Київ'),
+      );
+    });
+
+    test('3. city + street, no buildingNo — no trailing comma', () {
+      final String? combined = buildCombinedAddressLine(
+        'Київ',
+        'вул. Хрещатик',
+      );
+      expect(combined, 'Київ, вул. Хрещатик');
+      _expectNoDanglingComma(combined);
+    });
+
+    test('4. city only — renders alone, exactly buildLocalityLine', () {
+      final String? combined = buildCombinedAddressLine('Київ', null);
+      expect(combined, 'Київ');
+      expect(combined, buildLocalityLine('Київ'));
+      _expectNoDanglingComma(combined);
+    });
+
+    test('5. city + buildingNo, NO street — the building is DROPPED, never '
+        'left dangling beside the city', () {
+      final String? combined = buildCombinedAddressLine('Київ', null, '22');
+      expect(combined, 'Київ');
+      expect(combined, isNot(contains('22')));
+      _expectNoDanglingComma(combined);
+    });
+
+    test('6. street + buildingNo, NO city — no leading comma; identical to '
+        'the promoted street line', () {
+      final String? combined = buildCombinedAddressLine(
+        null,
+        'вул. Хрещатик',
+        '22',
+      );
+      expect(combined, 'вул. Хрещатик, 22');
+      expect(combined, buildStreetLine('вул. Хрещатик', '22'));
+      _expectNoDanglingComma(combined);
+    });
+
+    test('7. street only — bare street, no commas at all', () {
+      final String? combined = buildCombinedAddressLine(null, 'вул. Хрещатик');
+      expect(combined, 'вул. Хрещатик');
+      _expectNoDanglingComma(combined);
+    });
+
+    test('8. buildingNo ALONE — null, so the caller hides the whole row', () {
+      expect(buildCombinedAddressLine(null, null, '22'), isNull);
+    });
+
+    test('9. nothing set — null', () {
+      expect(buildCombinedAddressLine(null, null), isNull);
+    });
+
+    test('10. blank (empty-string) fields are treated exactly like null — no '
+        'empty segments, no doubled commas', () {
+      expect(buildCombinedAddressLine('', '', ''), isNull);
+      _expectNoDanglingComma(buildCombinedAddressLine('', 'вул. Хрещатик', ''));
+      expect(
+        buildCombinedAddressLine('', 'вул. Хрещатик', ''),
+        'вул. Хрещатик',
+      );
+      expect(buildCombinedAddressLine('Київ', '', '22'), 'Київ');
+    });
+
+    test('11. is null EXACTLY when both split builders are null — the call '
+        'sites gate the whole block on this equivalence', () {
+      for (final (String? city, String? street, String? building)
+          in <(String?, String?, String?)>[
+            ('Київ', 'вул. Хрещатик', '22'),
+            ('Київ', 'вул. Хрещатик', null),
+            ('Київ', null, '22'),
+            ('Київ', null, null),
+            (null, 'вул. Хрещатик', '22'),
+            (null, 'вул. Хрещатик', null),
+            (null, null, '22'),
+            (null, null, null),
+          ]) {
+        final bool splitHasContent =
+            buildLocalityLine(city) != null ||
+            buildStreetLine(street, building) != null;
+        expect(
+          buildCombinedAddressLine(city, street, building) != null,
+          splitHasContent,
+          reason: 'gate disagreement for ($city, $street, $building)',
+        );
+      }
+    });
+
+    test('12. is routed through sanitizeDisplayText like its siblings — a '
+        'bidi override in any field is stripped, not passed through', () {
+      // U+202E = Right-to-Left Override. Built via `String.fromCharCode` so
+      // this source file never embeds the raw control byte it exists to
+      // strip. Backend validation on these fields is `@Size`-only.
+      final String rlo = String.fromCharCode(0x202E);
+      final String? combined = buildCombinedAddressLine(
+        'Київ$rlo',
+        'вул. Хрещатик',
+        '22',
+      );
+      expect(combined, 'Київ, вул. Хрещатик, 22');
+      expect(combined, isNot(contains(rlo)));
+    });
+  });
+
+  // ── Phase 224 audit fix — SANITIZE-THEN-TEST ORDERING ─────────────────────
+  //
+  // Every builder used to test emptiness on the RAW field and sanitize only
+  // afterwards. A field made entirely of characters `sanitizeDisplayText`
+  // strips is `isNotEmpty` before sanitization and empty after it, so it
+  // passed the presence test, CLAIMED A SEPARATOR, and then rendered as
+  // nothing — leaving the separator orphaned. Whitespace-only fields had the
+  // same shape (`buildLocalityLine` named its local `trimmed` while never
+  // calling `trim()`).
+  //
+  // All three builders now sanitize FIRST, trim, and drop a segment that
+  // reduces to nothing — so the segment takes its separator with it. These
+  // cases are grouped together because the whole point is that the three
+  // builders agree: a field invisible to one must be invisible to all, or the
+  // collapsed and split renderings of the SAME address disagree inside the
+  // same widget.
+  group('invisible fields take their separator with them', () {
+    // U+200B ZERO WIDTH SPACE — built via `String.fromCharCode` so this file
+    // never embeds the raw character it exists to test.
+    final String zwsp = String.fromCharCode(0x200B);
+
+    test('buildCombinedAddressLine: a zero-width-only CITY produces no '
+        'leading comma (the split path never produced one)', () {
+      final String? combined = buildCombinedAddressLine(
+        zwsp,
+        'вул. Хрещатик',
+        '22',
+      );
+      expect(combined, 'вул. Хрещатик, 22');
+      _expectNoDanglingComma(combined);
+    });
+
+    test('buildCombinedAddressLine: a zero-width-only BUILDING produces no '
+        'trailing comma', () {
+      final String? combined = buildCombinedAddressLine(
+        'Київ',
+        'вул. Хрещатик',
+        zwsp,
+      );
+      expect(combined, 'Київ, вул. Хрещатик');
+      _expectNoDanglingComma(combined);
+    });
+
+    test('buildCombinedAddressLine: a zero-width-only STREET drops the '
+        'building with it, exactly like a null street', () {
+      final String? combined = buildCombinedAddressLine('Київ', zwsp, '22');
+      expect(combined, 'Київ');
+      expect(combined, isNot(contains('22')));
+      _expectNoDanglingComma(combined);
+    });
+
+    test('buildStreetLine: a zero-width-only BUILDING produces no trailing '
+        'comma', () {
+      final String? line = buildStreetLine('вул. Хрещатик', zwsp);
+      expect(line, 'вул. Хрещатик');
+      _expectNoDanglingComma(line);
+    });
+
+    test('buildStreetLine: a zero-width-only STREET is absent → null', () {
+      expect(buildStreetLine(zwsp, '22'), isNull);
+    });
+
+    test('buildLocalityLine: a zero-width-only city is absent → null, not an '
+        'empty string that still occupies a row', () {
+      expect(buildLocalityLine(zwsp), isNull);
+    });
+
+    test('buildLocalityLine: a WHITESPACE-only city is absent → null (it used '
+        'to render as literal spaces)', () {
+      expect(buildLocalityLine('   '), isNull);
+      expect(buildLocalityLine('\t\n '), isNull);
+    });
+
+    test('buildStreetLine / buildCombinedAddressLine: whitespace-only fields '
+        'are absent everywhere', () {
+      expect(buildStreetLine('  ', '22'), isNull);
+      expect(buildStreetLine('вул. Хрещатик', '  '), 'вул. Хрещатик');
+      expect(buildCombinedAddressLine('  ', '  ', '  '), isNull);
+      expect(
+        buildCombinedAddressLine('  ', 'вул. Хрещатик', '22'),
+        'вул. Хрещатик, 22',
+      );
+    });
+
+    test('surrounding whitespace is trimmed, so a comma-joined line never '
+        'shows "Київ , вул. X"', () {
+      expect(buildLocalityLine('  Київ  '), 'Київ');
+      expect(buildStreetLine('  вул. Хрещатик ', ' 22 '), 'вул. Хрещатик, 22');
+      expect(
+        buildCombinedAddressLine(' Київ ', ' вул. Хрещатик ', ' 22 '),
+        'Київ, вул. Хрещатик, 22',
+      );
+    });
+
+    test('the collapsed and split builders agree on EVERY invisible-field '
+        'combination — a field hidden by one must be hidden by all', () {
+      final List<String?> variants = <String?>[
+        null,
+        '',
+        '   ',
+        zwsp,
+        '$zwsp  ',
+        'Київ',
+      ];
+      for (final String? city in variants) {
+        for (final String? street in variants) {
+          for (final String? building in variants) {
+            final String? locality = buildLocalityLine(city);
+            final String? road = buildStreetLine(street, building);
+            final String? combined = buildCombinedAddressLine(
+              city,
+              street,
+              building,
+            );
+            final String label = '($city, $street, $building)';
+
+            // Gate equivalence — both master screens render the whole address
+            // block on `combined != null` and the split rows on the other two.
+            expect(
+              combined != null,
+              locality != null || road != null,
+              reason: 'gate disagreement for $label',
+            );
+            // Content equivalence — the collapsed line IS the split lines,
+            // joined. If these ever diverge the two paths show different
+            // addresses for the same master.
+            expect(
+              combined,
+              <String>[?locality, ?road].isEmpty
+                  ? isNull
+                  : <String>[?locality, ?road].join(', '),
+              reason: 'content disagreement for $label',
+            );
+            // No builder ever emits an orphaned separator or a blank line.
+            _expectNoDanglingComma(locality);
+            _expectNoDanglingComma(road);
+            _expectNoDanglingComma(combined);
+            for (final String? line in <String?>[locality, road, combined]) {
+              expect(
+                line,
+                anyOf(isNull, isNot(isEmpty)),
+                reason: 'empty (non-null) line for $label',
+              );
+              if (line != null) {
+                expect(
+                  line.trim(),
+                  line,
+                  reason: 'untrimmed line "$line" for $label',
+                );
+              }
+            }
+          }
+        }
+      }
+    });
+  });
 }

@@ -61,11 +61,31 @@ const _stubUser = User(
 );
 
 // Master with default workingHours (empty list via freezed @Default).
+//
+// Phase 224 (mobile-qa gap-fill) — `street` + `buildingNo` were ADDED here.
+// Before that this fixture carried `city` alone, so `MasterAddressBlock` took
+// its single-field branch at all six cells and the collapse-vs-split decision
+// Phase 224 introduced was never rendered into ANY baseline: the six goldens
+// passing on that change proved it was a no-op for this fixture, not that the
+// new layout was right. With a full address the matrix now actually renders
+// both branches (it splits at 320dp, collapses at the wider cells).
+//
+// THESE BASELINES ARE NOT THE ACCEPTANCE EVIDENCE FOR THAT LAYOUT.
+// A golden regenerated from the code under test is self-referential. The
+// correctness of what these PNGs now contain was established INDEPENDENTLY,
+// before they were regenerated, by
+// `test/features/master/presentation/master_profile_address_matrix_test.dart`
+// — which pumps this same screen at these same six cells and asserts, off the
+// laid-out `RenderParagraph`, which path rendered and that nothing on screen
+// is ellipsized. These baselines' job from here is unintended pixel DRIFT,
+// nothing more.
 const _seedMaster = Master(
   id: 'm1',
   firstName: 'Оксана',
   lastName: 'Коваль',
   city: 'Київ',
+  street: 'вул. Хрещатик',
+  buildingNo: '22',
   bio: 'Майстер манікюру та педикюру. Понад 7 років досвіду.',
   phoneNumber: '+380501111111',
   avgRating: 4.8,
