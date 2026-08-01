@@ -55,18 +55,22 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/rating/presentation/my_rating_screen.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/booking_fixture_dates.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
@@ -455,6 +459,151 @@ void main() {
             'without any manual refresh',
       );
       expect(find.byKey(const Key('next_appointment_populated')), findsNothing);
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test 4c — QA (Phase 225 regression, Step 2.7 Rule 3b): stale-elapsed ──
+  //              head rows spanning MULTIPLE pages must not blank the card ──
+  //
+  // THE PRODUCTION BUG THIS GUARDS
+  // -------------------------------
+  // The live defect: an account accumulated CONFIRMED bookings whose window
+  // had already elapsed (no backend cron auto-transitions them — see
+  // `home_hub_notifier.dart`'s [_kNextAppointmentMaxPages] doc), and the OLD
+  // provider peeked only ONE page of 5 — client-side `isPast` skipped every
+  // elapsed row on that page and returned null even though a genuinely
+  // upcoming booking existed further down the (unbounded) list. The unit
+  // suite (`next_appointment_provider_test.dart`, group "from-window +
+  // bounded page-forward") already proves the FIXED provider's logic
+  // against a hand-scripted fake repository; it does NOT prove the fix
+  // survives the real HTTP round trip against a backend-shaped dataset —
+  // `_bookingsPageEnvelope` (every OTHER flow in this file, including Test
+  // 4b's single seeded booking) hands back one hand-picked row per call and
+  // structurally cannot express "page 0 is all elapsed, totalElements
+  // exceeds the page size" at all.
+  //
+  // `FakeBackend.seedManyBookingsDataset` (mobile-qa, Step 2.7 Rule 3b —
+  // already used by `client_my_bookings_pagination_sort_flow_test.dart` for
+  // an unrelated pair of pagination/sort bugs) opts THIS flow into a REAL
+  // (status, sort, page) slice over a whole in-memory table, so the exact
+  // production shape — 6 elapsed CONFIRMED rows spanning two pages, then the
+  // real upcoming one — reaches the client over actual
+  // `GET /bookings/me?...&from=...` requests, sorted/paginated the same way
+  // a real backend does.
+  //
+  // NOTE ON `from` / TIMEZONE: FakeBackend's dataset slice does NOT itself
+  // filter by `from` — only the real backend's Phase 26.2 endpoint enforces
+  // the day bound (see `_slicedBookingsPageEnvelope`, which has no `from`
+  // handling at all). This flow therefore cannot prove the server-side
+  // filter is honoured end to end. `nextAppointmentProvider` now reads
+  // `clockProvider` (Finding 2 of the Phase 225 QA follow-up), so it honours
+  // this harness's fixed `kFixedNow` — the device-ahead-of-Kyiv boundary
+  // itself is exercised deterministically at the unit tier instead
+  // (`next_appointment_provider_test.dart`'s "Kyiv-day boundary" group,
+  // which pins `clockProvider` directly and needs no HTTP round trip). What
+  // THIS flow DOES prove, over the real stack,
+  // that no other layer does: (1) the client actually puts `from=<today>` on
+  // the wire on every page request — not just in the mapped repository
+  // argument the unit fake observes — and (2) the client-side page-forward +
+  // isPast skip (the SECOND, independent defence layer) genuinely recovers
+  // the real booking through a real multi-page HTTP round trip, which is the
+  // exact layer that was single-handedly relied on (and failed) in
+  // production before the `from` bound existed.
+  //
+  // NOT A NATIVE INTERACTION → no patrol flow needed (no OS dialog, deep
+  // link, notification, WebView, or biometric surface is touched).
+  testWidgets(
+    'REGRESSION (Phase 225): 6 stale-elapsed CONFIRMED rows spanning 2 pages '
+    'do not blank the next-appointment card — the real upcoming booking on '
+    'page 1 is surfaced instead',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+
+      // 6 elapsed CONFIRMED rows (6..1 days ago, ascending) + 1 genuinely
+      // upcoming CONFIRMED row. Page size is 5
+      // (nextAppointmentProvider's `_kNextAppointmentPeekSize`), so page 0 ==
+      // elapsed-6..elapsed-1 (all past, ascending sort), page 1 ==
+      // elapsed-most-recent + the real booking — the EXACT shape that
+      // shipped null in production (all-elapsed head page, more rows exist).
+      final DateTime upcomingStart = futureBookingStart(
+        aheadOfNow: const Duration(days: 3),
+      );
+      final List<Map<String, dynamic>> dataset = <Map<String, dynamic>>[
+        for (int daysAgo = 6; daysAgo >= 1; daysAgo--)
+          fb.datasetBookingRow(
+            id: 'elapsed-$daysAgo',
+            status: 'CONFIRMED',
+            startsAt: DateTime.now().toUtc().subtract(Duration(days: daysAgo)),
+            duration: const Duration(minutes: 30),
+          ),
+        fb.datasetBookingRow(
+          id: 'real-upcoming',
+          status: 'CONFIRMED',
+          startsAt: upcomingStart,
+        ),
+      ];
+      fb.seedManyBookingsDataset(dataset);
+
+      final int callsBeforeLogin = fb.getMyBookingsCalls;
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // Exactly 2 requests: page 0 (all elapsed, totalElements=7 > 5
+      // triggers page-forward) then page 1 (the 6th elapsed row +
+      // real-upcoming). A regression to the old unconditional single-page
+      // peek would issue exactly ONE call here and render the empty state.
+      expect(
+        fb.getMyBookingsCalls - callsBeforeLogin,
+        2,
+        reason:
+            'must page-forward exactly once to reach the real booking — a '
+            'single-page peek (the pre-fix behaviour) would stop at 1 call '
+            'and blank the card',
+      );
+
+      // The card is POPULATED — the literal user-facing symptom of the bug.
+      expect(
+        find.byKey(const Key('next_appointment_populated')),
+        findsOneWidget,
+        reason:
+            'the real upcoming booking must be surfaced, not the permanent '
+            'empty state the production bug rendered for this exact shape',
+      );
+      expect(find.byKey(const Key('next_appointment_empty')), findsNothing);
+
+      // It is the RIGHT booking — not an elapsed row that slipped through.
+      final NextAppointmentCard card = tester.widget<NextAppointmentCard>(
+        find.byType(NextAppointmentCard),
+      );
+      expect(
+        card.appointment?.id,
+        'real-upcoming',
+        reason:
+            'the card must resolve to the genuinely upcoming row on page 1, '
+            'never one of the 6 elapsed CONFIRMED rows on page 0',
+      );
+      expect(card.appointment?.startsAt, upcomingStart);
+
+      // `from` genuinely reached the wire (not just the mapped repository
+      // argument the unit suite observes) — the FIRST defence layer this fix
+      // adds, even though FakeBackend's dataset slice does not itself
+      // enforce it (see the file-level note above). `today` is derived from
+      // the HARNESS's injected `kFixedNow` via `clockProvider` — NOT the real
+      // device clock — since `nextAppointmentProvider` now reads that seam
+      // (see the file-level note above); `toBeauticaTime` mirrors exactly
+      // what the provider itself does to turn that instant into the
+      // Europe/Kyiv calendar day.
+      final DateTime today = dateOnly(toBeauticaTime(kFixedNow));
+      expect(
+        fb.lastMyBookingsQuery?['from'],
+        toApiDate(today),
+        reason:
+            'the most recent (page-1) request must carry from=<today>, '
+            'exactly like page 0 — the day bound must not be dropped when '
+            'paging forward',
+      );
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );

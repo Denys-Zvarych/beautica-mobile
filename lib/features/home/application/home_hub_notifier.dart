@@ -25,7 +25,10 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../../../features/auth/domain/user.dart';
 import '../../../features/location/state/location_providers.dart';
@@ -203,13 +206,28 @@ Future<String?> _resolveDistrictName(Ref ref, User user) async {
 // Next appointment — data-wired (Phase 225)
 // ---------------------------------------------------------------------------
 
-/// A small "peek" page — normally the very first (soonest) row already
-/// answers the question. The extra spares exist ONLY for the edge case
-/// [nextAppointment] guards against: one or more same-day CONFIRMED bookings
-/// whose window has already elapsed (server hasn't transitioned them to
-/// COMPLETED/NOT_COMPLETED yet). Scanning a handful of rows past the head is
-/// enough for that; it is not a general pagination concern.
+/// Page size for each `getMyBookings` fetch. With the [from] bound below in
+/// place, page 0 answers the question in the overwhelming majority of cases —
+/// this is no longer the whole defence against elapsed rows (see
+/// [_kNextAppointmentMaxPages] for that), just a reasonable page size.
 const int _kNextAppointmentPeekSize = 5;
+
+/// Hard cap on how many pages [nextAppointment] will page-forward through.
+///
+/// A CONFIRMED booking whose window has elapsed is NEVER auto-transitioned by
+/// the backend — there is no `@Scheduled` cron in
+/// `beautica-backend/.../booking/` that flips an elapsed CONFIRMED booking to
+/// COMPLETED/NOT_COMPLETED; that only happens via an explicit provider action
+/// (decline/complete, track 27.x). So on a sufficiently busy day, a client's
+/// `CONFIRMED` list can still contain more same-day elapsed rows than fit in
+/// one page even after the [from] bound below discards every PRIOR day. This
+/// cap bounds how far [nextAppointment] will page forward chasing a
+/// genuinely-upcoming row: bounded because one account with an unbounded pile
+/// of elapsed same-day bookings must never turn a home-screen load into an
+/// open-ended fan-out of requests. 3 pages × [_kNextAppointmentPeekSize] = 15
+/// same-day elapsed rows scanned before giving up — comfortably past any
+/// realistic single-day booking count for one client.
+const int _kNextAppointmentMaxPages = 3;
 
 /// Returns the soonest upcoming booking for the CLIENT, or `null` when none
 /// qualifies.
@@ -222,13 +240,44 @@ const int _kNextAppointmentPeekSize = 5;
 ///
 /// [BookingRepository.getMyBookings] filters by STATUS only; it has no
 /// server-side "is this instant still in the future" predicate, so a
-/// CONFIRMED booking whose `endAt` has already passed (the server hasn't
-/// transitioned it to COMPLETED/NOT_COMPLETED yet) can still come back as the
-/// head row. [BookingDisplayX.isPast] is applied client-side to skip any such
-/// row and return the first one that is genuinely still upcoming — scanning
-/// [_kNextAppointmentPeekSize] rows deep, not just the head. Returns `null`
-/// when nothing in that page qualifies (never re-queries a further page —
-/// see the file header on when a placeholder is appropriate).
+/// CONFIRMED booking whose `endAt` has already passed can still come back.
+/// Two defences combine here:
+///
+///   1. **`from: today`** — bounds the query to bookings starting today or
+///      later (backend Phase 26.2's inclusive local-day `from`, an
+///      open-ended future window when `to` is omitted). This discards every
+///      elapsed booking from a PRIOR day server-side before paging at all —
+///      the actual production bug: an account can accumulate an unbounded
+///      number of stale CONFIRMED rows from past days (see
+///      [_kNextAppointmentMaxPages]'s doc for why they exist at all), and
+///      without this bound they fill the whole peek window ahead of a
+///      genuinely upcoming booking. `from` is **day**-granular, so bookings
+///      earlier TODAY still come back and must still be filtered client-side
+///      — step 2 below.
+///   2. **[BookingDisplayX.isPast] + bounded page-forward** — applied
+///      client-side to skip any row whose `endAt` is already in the past and
+///      return the first one that is genuinely still upcoming. If every row
+///      on a page is elapsed AND the envelope's `totalElements` says more
+///      rows exist, the next page is fetched, up to
+///      [_kNextAppointmentMaxPages] total pages. Returns `null` once the cap
+///      is hit with everything still elapsed, or once the pages are
+///      exhausted — never an unbounded re-query.
+///
+/// `today` is derived as the **Europe/Kyiv** calendar day, not the device's
+/// local day: the injectable [clockProvider] seam supplies "now" (so tests can
+/// pin it), which is then converted to the Kyiv wall-clock via
+/// [toBeauticaTime] before [dateOnly] reads its `.year`/`.month`/`.day` — the
+/// same `dateOnly(toBeauticaTime(...))` composition `BookingsDiscoveryView`
+/// already uses for its own day anchor. The backend interprets `from` as a
+/// Europe/Kyiv local date, so this makes the two sides agree on "today"
+/// regardless of the device's own zone or clock, in EITHER direction: a device
+/// behind Kyiv no longer widens the window, and — the case that actually
+/// matters — a device AHEAD of Kyiv (Asia-Pacific, or simply a wrong clock)
+/// no longer NARROWS it and silently excludes a booking later that same Kyiv
+/// day. [bookedDaysProvider] still uses the OLDER device-local convention
+/// (`dateOnly(DateTime.now())`) for its own `from`/`to`; that is a pre-existing,
+/// separately-tracked limitation on that provider and out of scope here — this
+/// provider does not inherit it.
 ///
 /// Errors (including an unauthenticated [UnauthorizedFailure] — the router
 /// guard should already have redirected, but this is defensive) are not
@@ -236,28 +285,45 @@ const int _kNextAppointmentPeekSize = 5;
 /// [clientProfile] above.
 @riverpod
 Future<NextAppointment?> nextAppointment(Ref ref) async {
-  final page = await ref
-      .watch(bookingRepositoryProvider)
-      .getMyBookings(
-        statuses: BookingTab.upcoming.statuses,
-        sort: BookingSort.oldest,
-        page: 0,
-        size: _kNextAppointmentPeekSize,
-      );
+  final repository = ref.watch(bookingRepositoryProvider);
+  // Recomputed on every build — never hoisted — so a long-lived cached
+  // instance doesn't pin "today" to first-use for the process's lifetime.
+  // `clockProvider`, not a bare `DateTime.now()`, so tests can pin "now" to a
+  // fixed instant; converted to the Europe/Kyiv wall-clock via
+  // [toBeauticaTime] BEFORE [dateOnly] reads its calendar fields — see the
+  // doc comment above for why device-local would be wrong.
+  final DateTime today = dateOnly(toBeauticaTime(ref.watch(clockProvider)()));
 
-  for (final Booking booking in page.items) {
-    if (!booking.isPast) {
-      return NextAppointment(
-        id: booking.id,
-        masterName: booking.masterName,
-        service: booking.serviceName,
-        dateLabel: formatFullDate(booking.startAt),
-        timeLabel: formatSlotTime(booking.startAt),
-        location: booking.addressLine ?? booking.salonName ?? '',
-        startsAt: booking.startAt,
-        endsAt: booking.endAt,
-        masterInitials: booking.masterInitials,
-      );
+  int scanned = 0;
+  for (int pageIndex = 0; pageIndex < _kNextAppointmentMaxPages; pageIndex++) {
+    final page = await repository.getMyBookings(
+      statuses: BookingTab.upcoming.statuses,
+      sort: BookingSort.oldest,
+      from: today,
+      page: pageIndex,
+      size: _kNextAppointmentPeekSize,
+    );
+
+    for (final Booking booking in page.items) {
+      if (!booking.isPast) {
+        return NextAppointment(
+          id: booking.id,
+          masterName: booking.masterName,
+          service: booking.serviceName,
+          dateLabel: formatFullDate(booking.startAt),
+          timeLabel: formatSlotTime(booking.startAt),
+          location: booking.addressLine ?? booking.salonName ?? '',
+          startsAt: booking.startAt,
+          endsAt: booking.endAt,
+          masterInitials: booking.masterInitials,
+        );
+      }
+    }
+
+    scanned += page.items.length;
+    final bool morePagesRemain = scanned < page.totalElements;
+    if (!morePagesRemain) {
+      return null;
     }
   }
   return null;
