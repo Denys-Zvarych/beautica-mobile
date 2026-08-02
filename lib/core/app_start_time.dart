@@ -41,6 +41,9 @@ abstract final class AppStartTime {
   /// Idempotent — subsequent calls after the first are silently ignored so
   /// hot-restart cycles in debug mode do not reset the gate mid-session.
   static void record() {
+    // The splash gate measures a wall-clock elapsed DURATION, not a calendar
+    // day; there is no Kyiv day to derive here.
+    // instant-ok: absolute-instant capture
     _start ??= DateTime.now();
   }
 
@@ -51,6 +54,7 @@ abstract final class AppStartTime {
   static Duration elapsed() {
     final start = _start;
     if (start == null) return Duration.zero;
+    // instant-ok: absolute-instant comparison, start is a captured wall-clock instant
     return DateTime.now().difference(start);
   }
 

@@ -45,11 +45,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
+import '../../../helpers/clock_instant.dart';
+
 // ───────────────────────────────────────────────────────────────────────────
 // Fixtures.
 // ───────────────────────────────────────────────────────────────────────────
 
 /// A fixed clock so the saved active window is run-day independent (M6).
+///
+/// [_clock] is a DATE TOKEN (see `lib/shared/time/kyiv_day.dart`) — used
+/// throughout this file for `validFrom`/`ScheduleRange.month`/assertion
+/// comparisons. Never pass it directly to a `clock:` param; use
+/// [asClockInstant] (test/helpers/clock_instant.dart) for that instead.
 final DateTime _clock = DateTime(2026, 6, 9);
 
 WorkInterval _interval(int sh, int sm, int eh, int em) => WorkInterval(
@@ -271,7 +278,7 @@ Future<ProviderContainer> _pump(
       GoRoute(
         path: RouteNames.scheduleWeeklyEditor,
         builder: (BuildContext context, GoRouterState state) =>
-            WeeklyTemplateEditorScreen(clock: () => _clock),
+            WeeklyTemplateEditorScreen(clock: () => asClockInstant(_clock)),
       ),
       GoRoute(
         path: RouteNames.masterSchedule,
@@ -2116,8 +2123,12 @@ void main() {
       're-anchors the window to the NEW today, shows the reanchored snackbar, '
       'and persists NOTHING on that first Save',
       (tester) async {
-        // D = 2026-06-09; advance to D+1 = 2026-06-10 before Save.
-        DateTime now = DateTime(2026, 6, 9);
+        // D = 2026-06-09; advance to D+1 = 2026-06-10 before Save. Anchored as
+        // a genuine instant (noon UTC), not a bare local `DateTime(y, m, d)` —
+        // the editor runs the injected clock through `kyivDayOf`, so a
+        // host-local midnight literal drifts a Kyiv day under e.g.
+        // TZ=Asia/Tokyo.
+        DateTime now = DateTime.utc(2026, 6, 9, 12);
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
         );
@@ -2143,7 +2154,7 @@ void main() {
         );
 
         // ── Cross midnight: the live clock now reads D+1. ──
-        now = DateTime(2026, 6, 10);
+        now = DateTime.utc(2026, 6, 10, 12);
 
         // FIRST Save — the staged start (09.06) is now past → re-anchor + bail.
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
@@ -2185,7 +2196,9 @@ void main() {
       'the SECOND Save (after the re-anchor) persists validFrom == the NEW '
       'today (D+1), never the stale D',
       (tester) async {
-        DateTime now = DateTime(2026, 6, 9);
+        // Anchored as a genuine instant (noon UTC), not a bare local
+        // `DateTime(y, m, d)` — see the previous test's comment above.
+        DateTime now = DateTime.utc(2026, 6, 9, 12);
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
         );
@@ -2201,7 +2214,7 @@ void main() {
         await _pickThisMonthWindowViaCard(tester);
 
         // Roll past midnight; the first Save re-anchors (persists nothing).
-        now = DateTime(2026, 6, 10);
+        now = DateTime.utc(2026, 6, 10, 12);
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
         await tester.pumpAndSettle();
         expect(
@@ -2289,6 +2302,67 @@ void main() {
           reason:
               'a past validFrom on an UPDATE must clamp UP to today — the '
               '@FutureOrPresent guard rejects a past validFrom on PUT too',
+        );
+      },
+    );
+  });
+
+  // ── mobile-qa (2026-08-03, backlog :226) — Kyiv-anchored `_today` ──────────
+  //
+  // `_today` (`weekly_template_editor_screen.dart:225`) derives via
+  // `kyivDayOf(widget._clock?.call() ?? DateTime.now())`. Every OTHER clock
+  // fixture in this file — including the M6 group directly above — anchors on
+  // `_clock` (2026-06-09, noon UTC) or a same-day +1 rollover, both nowhere
+  // near a Kyiv day boundary, so none of them can disagree with a reverted
+  // `dateOnly(clock())` (a bare device/UTC-day read, skipping the
+  // `kyivDayOf`/`toBeauticaTime` conversion). This is the one fixture that
+  // pins the Kyiv-vs-UTC derivation itself, via the «Весь поточний місяць»
+  // preset's `_today`-anchored window — the same `showApplyScheduleSheet
+  // (today: _today)` seam `_pickThisMonthWindowViaCard` already drives.
+  //
+  // Anchored the day BEFORE the boundary `slot_picker_test.dart` /
+  // `master_schedule_screen_test.dart` use (2026-07-31T22:30Z, not
+  // 2026-08-01T22:30Z) so the Kyiv-correct vs UTC/device-day "today" land in
+  // DIFFERENT MONTHS — the strongest possible divergence for a month-window
+  // preset: UTC day = Jul 31 (the LAST day of July) vs Kyiv day = Aug 1 (the
+  // FIRST day of August), so «Весь поточний місяць» resolves to a single-day
+  // 31.07–31.07 window under the bug vs a full 01.08–31.08 window when
+  // correct — not merely a one-day slip.
+  group('WeeklyTemplateEditorScreen — Kyiv-anchored "today" (mobile-qa, '
+      '2026-08-03, backlog :226)', () {
+    testWidgets(
+      '«Весь поточний місяць» resolves to AUGUST (Kyiv today = Aug 1) even '
+      'though the clock instant is still calendar-day JULY 31 in UTC — a '
+      'UTC/device-day _today would wrongly stage a single-day 31.07 window',
+      (tester) async {
+        final DateTime clockInstant = DateTime.utc(2026, 7, 31, 22, 30);
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pumpWithClock(
+          tester,
+          overrides: _overridesFor(weekly),
+          clock: () => clockInstant,
+        );
+        addTearDown(c.dispose);
+        final AppLocalizations l10n = _l10n(tester);
+
+        await _pickThisMonthWindowViaCard(tester);
+
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('01.08', '31.08')),
+          findsOneWidget,
+          reason:
+              'the Kyiv-correct "today" (Aug 1) must anchor the «Весь '
+              'поточний місяць» preset to the FULL August window',
+        );
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('31.07', '31.07')),
+          findsNothing,
+          reason:
+              'a UTC/device-day _today would read the boundary instant as '
+              'Jul 31 (still July there) and stage a degenerate single-day '
+              'window at the end of the WRONG month',
         );
       },
     );

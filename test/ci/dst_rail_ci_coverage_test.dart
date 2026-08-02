@@ -147,5 +147,27 @@ void main() {
             '"Third-timezone sweep (host-clock leak detector)" step.',
       );
     });
+
+    test('the SAME Asia/Tokyo step also runs test/features/calendar/ — '
+        '`working_hours_repository.dart` became zone-critical alongside '
+        'scripts/forbid_raw_clock_read.sh (2026-08-02)', () {
+      final bool hasAdjacentStep = steps.any(
+        (step) =>
+            step.contains('TZ: Asia/Tokyo') &&
+            step.contains('test/features/calendar/'),
+      );
+      expect(
+        hasAdjacentStep,
+        isTrue,
+        reason:
+            'No SINGLE step sets TZ=Asia/Tokyo and runs '
+            'test/features/calendar/. `HttpWorkingHoursRepository._todayKyiv`'
+            ' now derives "today" through the Kyiv-anchored clock seam '
+            '(shared/time/kyiv_day.dart), so this directory needs the same '
+            'third-timezone host-clock-leak coverage as booking/home/'
+            'schedule. Add test/features/calendar/ back to the '
+            '"Third-timezone sweep (host-clock leak detector)" step.',
+      );
+    });
   });
 }

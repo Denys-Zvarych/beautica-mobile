@@ -44,11 +44,13 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../application/slot_picker_notifier.dart';
 import '../application/working_days_notifier.dart';
@@ -92,8 +94,12 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   @override
   void initState() {
     super.initState();
-    final DateTime now = DateTime.now();
-    _today = DateTime(now.year, now.month, now.day);
+    // Kyiv-anchored (backlog :226): slot availability is a Kyiv-day concept
+    // on the backend (`SlotCalculationService`'s `atStartOfDay(TimeZones
+    // .KYIV)`), so "today" — which gates the calendar's past-day cells and
+    // anchors the booking horizon below — must be the Kyiv day, not the
+    // device's own. See `shared/time/kyiv_day.dart`.
+    _today = kyivToday(ref.read(clockProvider));
     _firstMonth = DateTime(_today.year, _today.month, 1);
     _lastMonth = DateTime(_today.year, _today.month + _horizonMonths, 1);
     _visibleMonth = _firstMonth;

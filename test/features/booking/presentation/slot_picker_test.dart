@@ -17,6 +17,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
@@ -1018,15 +1019,86 @@ void main() {
     });
   });
 
+  // ── mobile-qa (2026-08-02, backlog :226) — Kyiv-anchored `_today` ──────────
+  //
+  // `SlotDateScreen.initState` derives `_today` via `kyivToday(ref.read
+  // (clockProvider))` (`slot_picker_screen.dart:102`), which gates both the
+  // "past day, untappable" rule (`day.isBefore(_today)`) and the calendar's
+  // "today" ring. Every OTHER test in this file reads the REAL device clock
+  // (`DateTime.now()`) with no `clockProvider` override, so none of them can
+  // disagree with a reverted `dateOnly(DateTime.now())` — this is the one
+  // fixture that pins the Kyiv-vs-UTC derivation itself, mirroring
+  // `booked_days_notifier_test.dart`'s identical pattern for the "reaches the
+  // wire" notifier.
+  group('SlotDateScreen — Kyiv-anchored "today" (mobile-qa, 2026-08-02, '
+      'backlog :226)', () {
+    testWidgets(
+      'the day before Kyiv "today" renders PAST (untappable, no fetch) even '
+      'though it is still the SAME calendar day in UTC — a UTC/device-day '
+      '_today would wrongly leave it selectable',
+      (tester) async {
+        // 2026-08-01T22:30Z: UTC calendar day = Aug 1; Kyiv calendar day
+        // (EEST, +3) = Aug 2 (01:30 local, already rolled over) — the same
+        // fixture `kyiv_day_test.dart` uses for `kyivDayOf` itself.
+        final DateTime clockInstant = DateTime.utc(2026, 8, 1, 22, 30);
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fake),
+            clockProvider.overrideWithValue(() => clockInstant),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Aug 1 is YESTERDAY once "today" correctly resolves to Aug 2 in
+        // Kyiv — no GestureDetector (the same "disabled cell" shape the
+        // working-days gate above uses), and tapping it triggers no fetch.
+        final Finder aug1Cell = find.byKey(const Key('booking-calendar-day-1'));
+        expect(aug1Cell, findsOneWidget);
+        expect(
+          find.descendant(of: aug1Cell, matching: find.byType(GestureDetector)),
+          findsNothing,
+          reason:
+              'Aug 1 is already YESTERDAY in Kyiv (today=Aug 2) even though '
+              'it is still the SAME calendar day in UTC — a device/UTC-day '
+              '_today would wrongly leave this cell tappable',
+        );
+        await tester.tap(aug1Cell, warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(fake.callCount, 0);
+
+        // Aug 2 — the correct Kyiv "today" — is tappable and loads slots.
+        final Finder aug2Cell = find.byKey(const Key('booking-calendar-day-2'));
+        expect(aug2Cell, findsOneWidget);
+        await tester.tap(aug2Cell);
+        await tester.pumpAndSettle();
+        expect(fake.callCount, 1);
+        expect(fake.lastDate, DateTime(2026, 8, 2));
+      },
+    );
+  });
+
   group('SlotTimeScreen', () {
+    // `.utc` (mobile-qa 2026-08-03): these are genuine instants — a slot's
+    // start/end — read only via `.hour` (bucketing) and `formatSlotTime`
+    // (display), never compared against a Kyiv-derived date token, so `.utc`
+    // is the correct anchor, not merely a gate-suppression. Previously bare
+    // `DateTime(...)` — harmless while this file had no `clockProvider`
+    // reference (Rule 1's zone-critical Stage-1 filter never looked at it),
+    // but the "SlotDateScreen — Kyiv-anchored ..." group above now imports
+    // `clockProvider`, so the WHOLE file is zone-critical and Rule 1 rightly
+    // flags any bare arity>=4 `DateTime(` in it, this pair included.
     final BookingSlot available = BookingSlot(
-      startAt: DateTime(2026, 7, 20, 10),
-      endAt: DateTime(2026, 7, 20, 11),
+      startAt: DateTime.utc(2026, 7, 20, 10),
+      endAt: DateTime.utc(2026, 7, 20, 11),
       available: true,
     );
     final BookingSlot unavailable = BookingSlot(
-      startAt: DateTime(2026, 7, 20, 12),
-      endAt: DateTime(2026, 7, 20, 13),
+      startAt: DateTime.utc(2026, 7, 20, 12),
+      endAt: DateTime.utc(2026, 7, 20, 13),
       available: false,
     );
 

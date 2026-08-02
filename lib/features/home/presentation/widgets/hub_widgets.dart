@@ -297,9 +297,13 @@ class _CountdownChipState extends State<CountdownChip> {
   @override
   void initState() {
     super.initState();
+    // widget.target is a canonical UTC appointment instant — a countdown
+    // measures elapsed time, not a calendar day.
+    // instant-ok: absolute-instant duration
     _remaining = widget.target.difference(DateTime.now());
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted) return;
+      // instant-ok: absolute-instant duration, same as above.
       setState(() => _remaining = widget.target.difference(DateTime.now()));
     });
   }

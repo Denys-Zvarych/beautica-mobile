@@ -247,6 +247,26 @@ jobs:
         shell: bash
         run: ./scripts/forbid_host_local_instant_anchor.sh
 
+      # 2026-08-02 — companion PRODUCTION-code gate to the test-only one
+      # above. The locked principle (ARCHITECTURE-mobile.md § 0.9): the
+      # device clock supplies the current INSTANT, Europe/Kyiv decides which
+      # calendar DAY it falls on. A classifying gate that only flags the
+      # BUGGY `DateTime.now()` reads is impossible by grep alone —
+      # `endAt.isBefore(DateTime.now())` (a correct absolute-instant
+      # comparison) and `dateOnly(DateTime.now())` (the bug) are
+      # syntactically identical at the call site; they differ only in what
+      # the RESULT flows into. So this is a DECLARATION gate instead: it
+      # flags every live-code `DateTime.now` reference under `lib/` — call
+      # form and bare tear-off alike — unless it is annotated
+      # `// instant-ok: <reason>` or is the ONE hard-coded exemption
+      # (`clock_provider.dart`'s own seam definition). See the script header
+      # for the full rationale and for why a `dateOnly(` gate was rejected
+      # (real false positives: `days.map(dateOnly)`,
+      # `bookings_day_query.dart`).
+      - name: Forbid un-annotated raw clock reads in production code
+        shell: bash
+        run: ./scripts/forbid_raw_clock_read.sh
+
       # 2026-07-22 — `tester.enterText` is a SILENT NO-OP in profile/release
       # unless the harness registers the test text-input mock: the editing
       # state is posted with client id -1 (both
@@ -384,6 +404,7 @@ jobs:
           ./scripts/forbid_cycle_stub_in_tests.sh --self-test
           ./scripts/forbid_provider_self_invalidation.sh --self-test
           ./scripts/forbid_host_local_instant_anchor.sh --self-test
+          ./scripts/forbid_raw_clock_read.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
@@ -530,6 +551,15 @@ jobs:
       # Step-level `env:` — see the DST rail guards step above for why this
       # must never become a job-level override; test/ci/dst_rail_ci_coverage_test.dart
       # asserts there is no job-level `env:` anywhere in this file.
+      # 2026-08-02 — test/features/calendar/ ADDED to the sweep. It was not
+      # previously in this list even though `working_hours_repository.dart`
+      # (`_todayKyiv()`) became genuinely zone-critical in the same change
+      # that added `scripts/forbid_raw_clock_read.sh` — the working-hours
+      # repository's window-selection logic now derives "today" through the
+      # Kyiv-anchored clock seam, exactly the class of code this sweep exists
+      # to catch a host-clock-leak regression in. See
+      # `test/features/calendar/data/working_hours_repository_test.dart`'s
+      # own "Kyiv-anchored" test group for the Tokyo-pinned regression case.
       - name: Third-timezone sweep (host-clock leak detector)
         env:
           TZ: Asia/Tokyo
@@ -538,6 +568,7 @@ jobs:
             test/features/booking/ \
             test/features/schedule/ \
             test/features/home/ \
+            test/features/calendar/ \
             test/shared/formatters/ \
             test/shared/time/ \
             test/shared/calendar/ \

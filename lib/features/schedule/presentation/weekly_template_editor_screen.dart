@@ -49,6 +49,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../domain/schedule_date_math.dart';
@@ -216,9 +217,15 @@ class _WeeklyTemplateEditorScreenState
     super.dispose();
   }
 
+  /// Kyiv-anchored (backlog :226): the backend's `@FutureOrPresent` validation
+  /// on `validFrom` is a Kyiv civil-day check
+  /// (`atStartOfDay(TimeZones.KYIV)`), so "today" here must be the Kyiv day
+  /// the injected clock's instant falls on — not the device's own calendar
+  /// day. See `shared/time/kyiv_day.dart`'s file header.
   DateTime get _today {
+    // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
     final DateTime c = widget._clock?.call() ?? DateTime.now();
-    return DateTime(c.year, c.month, c.day);
+    return kyivDayOf(c);
   }
 
   // ── Seeding (once, on first successful load) ────────────────────────────────

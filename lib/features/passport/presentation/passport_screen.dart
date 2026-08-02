@@ -288,8 +288,12 @@ class _PopulatedPassport extends StatelessWidget {
     final String budgetValue = budgetCeiling == null
         ? l10n.passportBudgetUnknown
         : l10n.passportBudgetCeiling(budgetCeiling);
+    // Placeholder fallback for an absent memberSinceYear, mirrors
+    // `home_hub_notifier.dart`'s identical fallback; a year-level display
+    // value, not a calendar-day derivation.
     final String memberSince =
-        passport.memberSinceYear?.toString() ?? DateTime.now().year.toString();
+        passport.memberSinceYear?.toString() ??
+        DateTime.now().year.toString(); // instant-ok: year-level value fallback
     return PassportCard(
       procedures: passport.favoriteProcedures,
       districts: passport.favoriteDistricts,

@@ -66,6 +66,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../domain/schedule_model.dart';
 import 'overrides_notifier.dart';
@@ -255,8 +256,19 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     // days, but a midnight rollover WHILE it is open can turn [date] past
     // between open and Save. Re-validate against a FRESH today and block the PUT
     // for a now-past date — a past `start` would otherwise 400 at the backend.
+    //
+    // Kyiv-anchored (backlog :226): the backend's past-date rejection is a
+    // Kyiv civil-day check, so "today" here must follow Kyiv's calendar, not
+    // the device's — see `shared/time/kyiv_day.dart`. `widget.date` is left
+    // alone: it is already a date token handed down by the caller (the day
+    // pencil in `master_schedule_screen.dart`), not a raw instant, so it only
+    // needs the local-midnight normalisation `DateTime(y, m, d)` already
+    // gives it — running it through [kyivDayOf] a second time would be the
+    // exact "date token treated as an instant" bug the helper's doc warns
+    // against.
+    // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
     final DateTime now = widget.clock?.call() ?? DateTime.now();
-    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime today = kyivDayOf(now);
     final DateTime targetDate = DateTime(
       widget.date.year,
       widget.date.month,

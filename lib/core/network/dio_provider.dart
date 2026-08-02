@@ -7,10 +7,13 @@
 // `ref.watch(dioProvider)` or `ref.read(dioProvider)`.
 //
 // Interceptor order (matters!):
-//   1. AuthInterceptor         — attaches Bearer token to outgoing requests.
-//   2. LoggingInterceptor      — logs traffic; debug builds only.
-//   3. ErrorMapperInterceptor  — converts DioException → typed Failure.
-//   4. RefreshInterceptor      — handles 401 retry with silent token refresh.
+//   1. AuthInterceptor           — attaches Bearer token to outgoing requests.
+//   2. LoggingInterceptor        — logs traffic; debug builds only.
+//   3. ClockSkewWarningInterceptor — debug-only device/server clock-skew log
+//      (2026-08-02) — diagnostics only, see that file's header; no code path
+//      trusts or applies the value.
+//   4. ErrorMapperInterceptor    — converts DioException → typed Failure.
+//   5. RefreshInterceptor        — handles 401 retry with silent token refresh.
 //
 // A separate [refreshDioProvider] with NO interceptors is used by
 // [RefreshInterceptor] for POST /auth/refresh to avoid circular requests.
@@ -109,6 +112,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../config/app_config.dart';
 import 'auth_interceptor.dart';
+import 'clock_skew_warning_interceptor.dart';
 import 'error_mapper_interceptor.dart';
 import 'logging_interceptor.dart';
 import 'refresh_interceptor.dart';
@@ -254,6 +258,7 @@ Dio dio(Ref ref) {
   d.interceptors.addAll([
     AuthInterceptor(ref),
     if (kDebugMode) LoggingInterceptor(),
+    if (kDebugMode) ClockSkewWarningInterceptor(),
     ErrorMapperInterceptor(),
     RefreshInterceptor(ref, d),
   ]);

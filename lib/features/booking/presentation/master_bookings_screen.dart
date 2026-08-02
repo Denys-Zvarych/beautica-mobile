@@ -95,8 +95,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
 import 'bookings_discovery_view.dart';
@@ -120,10 +122,14 @@ class MasterBookingsScreen extends ConsumerWidget {
         // A day is required by `BookingsDayQuery.of`, but `BookingsDiscoveryView`
         // deliberately does NOT use this field as its initial selection — it
         // derives Kyiv "today" itself (`dateOnly(toBeauticaTime(DateTime.now
-        // ()))`) rather than trusting a host-local `DateTime.now()` stamped
-        // here. See that file's header for why the day is owned there, not
-        // here.
-        query: BookingsDayQuery.of(day: DateTime.now()),
+        // ()))`) rather than trusting whatever is stamped here. So this value
+        // is a genuine no-op today (`BookingsDiscoveryView:210` overwrites
+        // it) — but it is still Kyiv-anchored via `kyivToday`, not a bare
+        // `DateTime.now()`, so a reader copying this call site as a template
+        // learns the right pattern rather than the bug this whole track
+        // exists to close (backlog :226). See that file's header for why the
+        // day is owned there, not here.
+        query: BookingsDayQuery.of(day: kyivToday(ref.read(clockProvider))),
         title: l10n.masterBookingsTitle,
         // Bottom-nav tab root — no back affordance.
         onBack: null,

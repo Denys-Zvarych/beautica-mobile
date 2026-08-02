@@ -286,6 +286,15 @@ abstract final class AppHarness {
     List<Object> extraOverrides = const <Object>[],
     Duration? Function(int retryCount, Object error)? retry =
         beauticaProviderRetry,
+    // mobile-qa (2026-08-02, backlog :226 audit) — optionally overrides the
+    // injected `clockProvider` instant away from [kFixedNow]. `null` (every
+    // existing call site) preserves the exact prior behaviour. Passed
+    // straight through to [e2eProviderOverrides] — NOT via [extraOverrides],
+    // which would double-override `clockProvider` and throw ("Tried to
+    // override a provider twice within the same container", see that
+    // function's own doc comment for the identical `secureStorageProvider`
+    // trap).
+    DateTime Function()? clock,
   }) async {
     // ── SHARED BOOT POLICY — ONE definition, BOTH E2E tiers ─────────────────
     //
@@ -313,6 +322,7 @@ abstract final class AppHarness {
           ...e2eProviderOverrides(
             fakeBackend: fakeBackend,
             storage: effectiveStorage,
+            clock: clock,
           ),
           ...extraOverrides,
         ].cast(),

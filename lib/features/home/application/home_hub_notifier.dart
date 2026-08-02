@@ -75,6 +75,12 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
     phone: user.phoneNumber ?? '',
     // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
     clientRating: null,
+    // Placeholder fallback until the backend exposes a real account-creation
+    // date (TODO above's sibling); a year-level display value, not a
+    // calendar-day derivation — Kyiv-anchoring would not change which year it
+    // reads. Deliberately left as-is rather than "fixed" (ARCHITECTURE-mobile
+    // .md § 0.9).
+    // instant-ok: year-level value fallback, not a calendar-day derivation
     memberSinceYear: DateTime.now().year,
   );
 }

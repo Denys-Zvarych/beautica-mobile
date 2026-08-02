@@ -52,6 +52,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
+import '../../../helpers/clock_instant.dart';
+
 // ───────────────────────────────────────────────────────────────────────────
 // Date anchoring helpers — every fake is built relative to the device "today"
 // so the screen's today-anchored month/week request resolves to known data.
@@ -65,6 +67,11 @@ DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 /// flip every calendar day (the highlighted day + the date label moved), so the
 /// suite passed its logic assertions but its goldens failed on any day other
 /// than the one they were captured on. All fakes anchor on this date.
+///
+/// [_today] itself is a DATE TOKEN (see `lib/shared/time/kyiv_day.dart`), used
+/// throughout this file for comparisons/labels/`validFrom` — never pass it
+/// directly to a `clock:` param; use [asClockInstant] (test/helpers/
+/// clock_instant.dart) for that instead.
 final DateTime _today = _dateOnly(DateTime(2026, 6, 13));
 DateTime _mondayOf(DateTime d) =>
     _dateOnly(d).subtract(Duration(days: d.weekday - 1));
@@ -795,7 +802,8 @@ class _ContainerListenable extends ChangeNotifier {
 List<RouteBase> _routes() => <RouteBase>[
   GoRoute(
     path: RouteNames.masterSchedule,
-    builder: (context, state) => MasterScheduleScreen(clock: () => _today),
+    builder: (context, state) =>
+        MasterScheduleScreen(clock: () => asClockInstant(_today)),
   ),
   // The REAL weekly-template editor the CTA now routes to (Phase 15.5).
   // It reads `weeklyScheduleProvider` (overridden per-test) and saves via
@@ -803,7 +811,7 @@ List<RouteBase> _routes() => <RouteBase>[
   GoRoute(
     path: RouteNames.scheduleWeeklyEditor,
     builder: (context, state) =>
-        WeeklyTemplateEditorScreen(clock: () => _today),
+        WeeklyTemplateEditorScreen(clock: () => asClockInstant(_today)),
   ),
   // Deprecated legacy editor — kept routable so the auth guard stays exercised,
   // but it is no longer a CTA destination.
@@ -821,7 +829,7 @@ List<RouteBase> _routes() => <RouteBase>[
   GoRoute(
     path: RouteNames.schedulePropagate,
     builder: (context, state) =>
-        WeeklyTemplateEditorScreen(clock: () => _today),
+        WeeklyTemplateEditorScreen(clock: () => asClockInstant(_today)),
   ),
   GoRoute(
     path: RouteNames.masterProfile,
@@ -3819,13 +3827,13 @@ void main() {
             GoRoute(
               path: RouteNames.masterSchedule,
               builder: (context, state) =>
-                  MasterScheduleScreen(clock: () => now),
+                  MasterScheduleScreen(clock: () => asClockInstant(now)),
             ),
             // Kept routable so the day pencil / CTA have a destination.
             GoRoute(
               path: RouteNames.scheduleWeeklyEditor,
               builder: (context, state) =>
-                  WeeklyTemplateEditorScreen(clock: () => now),
+                  WeeklyTemplateEditorScreen(clock: () => asClockInstant(now)),
             ),
           ],
         );
@@ -3877,6 +3885,118 @@ void main() {
           isTrue,
           reason:
               '_isPast(oldToday) must flip true once the clock crosses midnight',
+        );
+      },
+    );
+  });
+
+  // ── mobile-qa (2026-08-03, backlog :226) — Kyiv-anchored `_today` ──────────
+  //
+  // `_MasterScheduleScreenState._today` derives via `kyivDayOf(widget._clock
+  // ?.call() ?? DateTime.now())` (`master_schedule_screen.dart:104`). Every
+  // OTHER test in this file anchors its clock with [asClockInstant] on the
+  // module-level `_today` (2026-06-13, noon UTC — nowhere near a Kyiv day
+  // boundary), including the M6 rollover group directly above, whose two
+  // instants (`_today` then `_today + 1 day`, both fed through
+  // [asClockInstant]) are ALSO both noon-UTC-safe — so NONE of them can
+  // disagree with a reverted `dateOnly(clock())` (a bare device/UTC-day
+  // read, skipping the `kyivDayOf`/`toBeauticaTime` conversion): this is the
+  // one fixture that pins the Kyiv-vs-UTC derivation itself, at the identical
+  // boundary instant `slot_picker_test.dart`'s "Kyiv-anchored today" group
+  // and `master_schedule_page_test.dart` use.
+  //
+  // Deliberately does NOT reuse the module-level `_today`/`_weekStart`
+  // (2026-06-13, a non-boundary Saturday) — a boundary case needs its own
+  // week fixture, built directly against a LOCAL boundary date so it stays
+  // independent of every other test's fixture machinery.
+  group('MasterScheduleScreen — Kyiv-anchored "today" (mobile-qa, '
+      '2026-08-03, backlog :226)', () {
+    testWidgets(
+      'the day before Kyiv "today" renders as the PAST strip cell (and is '
+      'NOT the initially-selected cell) even though it is still the SAME '
+      'calendar day in UTC — a UTC/device-day _today would wrongly swap '
+      'which of the two is "today"',
+      (tester) async {
+        // 2026-08-01T22:30Z: UTC calendar day = Aug 1; Kyiv calendar day
+        // (EEST, +3) = Aug 2 (01:30 local, already rolled over) — the exact
+        // fixture `kyiv_day_test.dart`, `slot_picker_test.dart`, and
+        // `master_schedule_page_test.dart` all anchor on.
+        final DateTime clockInstant = DateTime.utc(2026, 8, 1, 22, 30);
+        // Monday of the week containing both Aug 1 (Sat) and Aug 2 (Sun) —
+        // the visible week is IDENTICAL under either derivation (both
+        // candidate "today"s fall in the same Mon-Sun week), so this fixture
+        // isolates the past/selected verdict from any week-navigation
+        // side effect.
+        final DateTime boundaryWeekStart = DateTime(2026, 7, 27);
+        final List<EffectiveDay> boundaryDays = <EffectiveDay>[
+          for (int i = 0; i < 7; i++)
+            _working(boundaryWeekStart.add(Duration(days: i))),
+        ];
+
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.masterSchedule,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterSchedule,
+              builder: (context, state) =>
+                  MasterScheduleScreen(clock: () => clockInstant),
+            ),
+            GoRoute(
+              path: RouteNames.scheduleWeeklyEditor,
+              builder: (context, state) =>
+                  WeeklyTemplateEditorScreen(clock: () => clockInstant),
+            ),
+          ],
+        );
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: <Object>[
+              ..._editableData(boundaryDays),
+              _fakeWorkingHours(),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Aug 1 is already YESTERDAY once "today" correctly resolves to
+        // Aug 2 in Kyiv — its strip cell reports past, and it is NOT the
+        // cell the screen selected on mount.
+        expect(
+          _stripCellForDay(tester, 1).past,
+          isTrue,
+          reason:
+              'Aug 1 is already YESTERDAY in Kyiv (today=Aug 2) even though '
+              'it is still the SAME calendar day in UTC — a device/UTC-day '
+              '_today would wrongly report this cell as not-past',
+        );
+        expect(
+          _stripCellForDay(tester, 1).selected,
+          isFalse,
+          reason:
+              'a device/UTC-day _today would wrongly select Aug 1 (its own '
+              'UTC-day reading of the boundary instant) as "today" on mount',
+        );
+
+        // Aug 2 — the correct Kyiv "today" — is NOT past and IS the
+        // initially-selected cell.
+        expect(
+          _stripCellForDay(tester, 2).past,
+          isFalse,
+          reason: 'the correct Kyiv "today" (Aug 2) must not report past',
+        );
+        expect(
+          _stripCellForDay(tester, 2).selected,
+          isTrue,
+          reason:
+              'the screen must select the Kyiv "today" (Aug 2) on mount, '
+              'not its UTC/device-day sibling (Aug 1)',
         );
       },
     );

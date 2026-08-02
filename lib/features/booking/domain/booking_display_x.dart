@@ -133,6 +133,7 @@ extension BookingDisplayX on Booking {
   /// regardless of each operand's zone. No Kyiv-pinned `toBeauticaTime`
   /// conversion is needed here: that pin governs wall-clock DISPLAY
   /// (`.hour`/`.minute`), not instant ORDERING, which is timezone-agnostic.
+  // instant-ok: absolute-instant comparison, endAt is canonical UTC.
   bool get isPast => endAt.isBefore(DateTime.now());
 
   /// Whether this booking's START instant is already at-or-past the device
@@ -161,6 +162,7 @@ extension BookingDisplayX on Booking {
   /// to a 409 (`ProviderDeclineWindowClosedFailure` /
   /// `ProviderCompleteNotStartedFailure`), which the screen catches and
   /// resolves by refetching so the footer re-renders correctly.
+  // instant-ok: absolute-instant comparison, startAt is canonical UTC.
   bool get hasStarted => !startAt.isAfter(DateTime.now());
 
   /// The four location fields composed into one line, or `null` when the

@@ -93,6 +93,7 @@ import 'harness_retry_policy_flow_test.dart' as harness_retry_policy;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
+import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
 import 'logout_flow_test.dart' as logout;
 import 'master_appointment_child_booking_actions_flow_test.dart'
     as master_appointment_child_booking_actions;
@@ -248,6 +249,12 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  // Kyiv-day-authority audit (backlog :226, mobile-qa 2026-08-02) — pins the
+  // «Мої записи» day-scoped landing fetch AND the booked-days rail window to
+  // the KYIV calendar day, never the UTC/device one, against a real
+  // fake-backed HTTP boundary (Step 2.7 Rule 3b). Registered here, beside
+  // `master_bookings_flow`, whose screen it drives.
+  group('kyiv_day_boundary_flow', kyiv_day_boundary.main);
   // Track 27.x Wave A — the PROVIDER decline/complete round trip against a
   // real HTTP boundary (Step 2.7 Rule 3b).
   group(

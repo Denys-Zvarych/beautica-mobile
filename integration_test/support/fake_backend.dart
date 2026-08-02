@@ -2115,6 +2115,17 @@ final class FakeBackend {
   /// `GET /bookings/me/booked-days` call count (Phase 7.6 day rail).
   int bookedDaysCalls = 0;
 
+  /// The raw `from`/`to` query params of the MOST RECENT
+  /// `GET /bookings/me/booked-days` call, as Dio actually sent them.
+  ///
+  /// mobile-qa (2026-08-02, backlog :226 audit) — the fixed reply below never
+  /// inspects the request window (it always echoes [bookingStartsAt]'s own
+  /// day), so without this capture nothing at the E2E tier could tell a
+  /// Kyiv-anchored `from`/`to` apart from a device/UTC-day one — the exact
+  /// gap `kyiv_day_boundary_flow_test.dart` closes for the ±180-day window
+  /// `bookedDaysProvider` (`booked_days_notifier.dart`) sends.
+  Map<String, dynamic>? lastBookedDaysQuery;
+
   /// The FULL raw query map (page/size/sort/status, as Dio actually sent it —
   /// ints stay ints, the repeated `status` stays a `List<String>`) of the
   /// MOST RECENT `GET /bookings/me` call. Mobile-qa pagination/sort flow
@@ -3880,8 +3891,9 @@ final class FakeBackend {
     // at the widget tier.
     _adapter.onRoute(
       '/api/v1/bookings/me/booked-days',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         bookedDaysCalls++;
+        lastBookedDaysQuery = Map<String, dynamic>.from(req.queryParameters);
         return <String, dynamic>{
           'success': true,
           'message': 'ok',

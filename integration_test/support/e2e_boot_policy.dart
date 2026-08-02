@@ -229,14 +229,23 @@ Future<void> resetE2eBootPolicy() async {
 /// "Tried to override a provider twice within the same container". Pass the
 /// instance in via [storage] instead; the caller already holds it, so it stays
 /// reachable for assertions without a separate accessor.
+///
+/// [clock] optionally overrides the injected `clockProvider` instant —
+/// defaults to [kFixedNow] (unchanged behaviour for every existing caller).
+/// mobile-qa (2026-08-02, backlog :226 audit): a Kyiv-day-boundary flow
+/// (`kyiv_day_boundary_flow_test.dart`) needs an instant where the Kyiv
+/// calendar day disagrees with the UTC one — [kFixedNow] (noon UTC) sits
+/// nowhere near that boundary by design (see its own doc comment), so it
+/// cannot serve that case.
 List<Object> e2eProviderOverrides({
   required FakeBackend fakeBackend,
   required FakeSecureStorage storage,
+  DateTime Function()? clock,
 }) {
   return <Object>[
     dioProvider.overrideWithValue(fakeBackend.dio),
     secureStorageProvider.overrideWithValue(storage),
-    clockProvider.overrideWithValue(() => kFixedNow),
+    clockProvider.overrideWithValue(clock ?? () => kFixedNow),
   ];
 }
 
