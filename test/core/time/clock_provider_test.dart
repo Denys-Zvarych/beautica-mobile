@@ -34,7 +34,7 @@ void main() {
     });
 
     test('overrideWithValue pins "now" to a fixed instant', () {
-      final fixed = DateTime(2026, 6, 14, 12);
+      final fixed = DateTime.utc(2026, 6, 14, 12);
       final container = ProviderContainer(
         retry: beauticaProviderRetry,
         overrides: [clockProvider.overrideWithValue(() => fixed)],
@@ -47,7 +47,7 @@ void main() {
     });
 
     test('overridden clock returns the same fixed instant on every read', () {
-      final fixed = DateTime(2026, 1, 1, 0, 0, 0);
+      final fixed = DateTime.utc(2026, 1, 1, 0, 0, 0);
       final container = ProviderContainer(
         retry: beauticaProviderRetry,
         overrides: [clockProvider.overrideWithValue(() => fixed)],
@@ -79,7 +79,7 @@ void main() {
         overrides: [
           clockProvider.overrideWith((ref) {
             buildCount++;
-            final fixed = DateTime(2026, 6, 14, 12);
+            final fixed = DateTime.utc(2026, 6, 14, 12);
             return () => fixed;
           }),
         ],

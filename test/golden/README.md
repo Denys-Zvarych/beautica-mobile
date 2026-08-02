@@ -67,7 +67,7 @@ Golden diffs from failed CI runs are downloadable from the workflow's artifact t
 Screens that render dates inject a **fixed clock** via `clockProvider.overrideWithValue(...)`.
 Currently, none of the goldened screens render date-dependent UI (working hours is a weekly
 template, not a specific date). If a date-rendering screen is added to this suite,
-override the clock to `DateTime(2026, 6, 13)` (Phase 17.4 anchor date) to prevent drift.
+override the clock to `DateTime.utc(2026, 6, 13)` (Phase 17.4 anchor date) to prevent drift.
 
 ## Existing schedule goldens
 

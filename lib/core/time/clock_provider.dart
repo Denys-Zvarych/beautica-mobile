@@ -11,8 +11,18 @@
 // fixed closure:
 //
 //   ProviderScope(overrides: [
-//     clockProvider.overrideWithValue(() => DateTime(2026, 6, 14, 12)),
+//     clockProvider.overrideWithValue(() => DateTime.utc(2026, 6, 14, 12)),
 //   ]);
+//
+// ALWAYS pin the injected instant with `DateTime.utc(...)` — or, when the test
+// needs a specific device zone, `tz.TZDateTime(tz.getLocation('Asia/Tokyo'), …)`.
+// A bare local `DateTime(2026, 6, 14, 12)` resolves its underlying instant
+// through the HOST PROCESS's own `TZ`, so what the test actually pins differs
+// between the dev VM (Europe/Kyiv), CI (UTC) and any other machine. Because the
+// dev VM's zone IS the market zone, such a fixture is indistinguishable from a
+// correct one locally and silently stops discriminating. This has shipped three
+// times (Phase 225 audit cycles 4 and 5; 2026-08-02).
+// Enforced by scripts/forbid_host_local_instant_anchor.sh.
 //
 // Consumers call it like `ref.watch(clockProvider)()` (widgets) or
 // `ref.read(clockProvider)()` (one-shot reads inside notifier actions).

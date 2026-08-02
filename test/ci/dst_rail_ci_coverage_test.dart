@@ -1,5 +1,14 @@
-// Pins the CI step that gives the day rail's DST guards somewhere to actually
-// run.
+// Pins the CI steps that give zone-sensitive tests somewhere to actually run
+// under a zone other than the main suite's UTC. TWO such steps are pinned
+// here:
+//   1. "DST rail guards (market zone)" — TZ=Europe/Kyiv, covering the day
+//      rail's DST guards (unchanged from the original single-step version of
+//      this file).
+//   2. "Third-timezone sweep (host-clock leak detector)" — TZ=Asia/Tokyo,
+//      added 2026-08-02 to catch host-local-clock leaks that happen to agree
+//      with the correct Kyiv-derived value on either UTC or Europe/Kyiv (see
+//      that step's own comment in pr-validate.yml, and
+//      scripts/forbid_host_local_instant_anchor.sh, for the full story).
 //
 // THE HOLE THIS CLOSES
 // --------------------
@@ -12,14 +21,26 @@
 // A skipped test is silent. If that step is renamed, reordered away, or
 // dropped while "cleaning up the workflow", the two guards would go on
 // reporting green-with-a-skip forever and the DST regression they exist to
-// catch would ship unnoticed. Nothing else in the suite would react.
+// catch would ship unnoticed. Nothing else in the suite would react. The same
+// is true of the Asia/Tokyo sweep: it exists purely as a CI step, invisible to
+// `dart analyze` and to any assertion inside the test files it runs — the
+// step itself IS the coverage, so if the step goes, the coverage goes with it,
+// silently.
 //
-// So the workflow is asserted as a structural fact, the same way the
+// So both workflow steps are asserted as structural facts, the same way the
 // `forbid_*` gates assert source-level ones.
 //
-// Deliberately asserts BEHAVIOUR (a Kyiv-zone invocation covering this file),
-// not an exact YAML string: the step may be renamed or reworded, but it must
-// keep running that file in that zone.
+// Deliberately asserts BEHAVIOUR (a zone-scoped step running specific test
+// paths), not an exact YAML string: a step may be renamed or reworded, but it
+// must keep running the right paths under the right zone. Step boundaries are
+// found via a `- name:` split at the workflow's own step indentation (6
+// spaces), so "one step contains both X and Y" genuinely means adjacency
+// within a single step block, not merely "both strings appear somewhere in
+// the file" — see backlog :369: an earlier version of this file asserted the
+// TZ and the rail path as two INDEPENDENT `contains` checks, which stayed
+// green even after the TZ override was moved onto an unrelated step, silently
+// letting the DST guards go back to skipping on CI while both assertions kept
+// passing.
 
 import 'dart:io';
 
@@ -31,9 +52,20 @@ final File _workflow = File('.github/workflows/pr-validate.yml');
 const String _kRailTestPath =
     'test/features/booking/presentation/bookings_day_rail_test.dart';
 
+/// Splits the raw workflow YAML into per-step chunks at each `- name:` line
+/// indented at the step level (6 spaces — a job's steps sit one level deeper
+/// than the job key itself). Step N's chunk runs from its own `- name:` up to
+/// (not including) the next step's `- name:`, so `env:`/`run:` lines that
+/// belong to a step always land in THAT step's chunk and never a
+/// neighbour's — which is exactly what "one step contains both X and Y" needs
+/// to mean adjacency rather than mere co-occurrence anywhere in the file.
+List<String> _steps(String yaml) =>
+    yaml.split(RegExp(r'^      - name:', multiLine: true));
+
 void main() {
-  group('CI runs the DST rail guards in a DST-observing zone', () {
+  group('CI runs zone-scoped tests in DST-observing / third-party zones', () {
     late final String yaml;
+    late final List<String> steps;
 
     setUpAll(() {
       expect(
@@ -42,32 +74,33 @@ void main() {
         reason: '${_workflow.path} not found — run from the package root.',
       );
       yaml = _workflow.readAsStringSync();
+      steps = _steps(yaml);
     });
 
-    test('a step sets TZ to the market zone', () {
+    test('ONE step sets TZ=Europe/Kyiv AND runs the day-rail file — not two '
+        'independent facts (backlog :369)', () {
+      final bool hasAdjacentStep = steps.any(
+        (step) =>
+            step.contains('TZ: Europe/Kyiv') && step.contains(_kRailTestPath),
+      );
       expect(
-        yaml,
-        contains('TZ: Europe/Kyiv'),
+        hasAdjacentStep,
+        isTrue,
         reason:
-            'No CI step sets TZ=Europe/Kyiv, so the two rendered DST guards in '
-            '$_kRailTestPath skip on every runner and cover nothing. Restore '
-            'the "DST rail guards (market zone)" step.',
+            'No SINGLE step sets TZ=Europe/Kyiv and runs $_kRailTestPath. '
+            'backlog :369: an earlier version of this test asserted these '
+            'as two INDEPENDENT `contains(yaml, ...)` checks, which stayed '
+            'green even when the TZ override was moved onto a different '
+            'step than the one running the rail file — the day rail\'s two '
+            'rendered DST guards went back to permanently skipping on CI '
+            'while both old assertions kept passing. Restore (or keep '
+            'adjacent) the "DST rail guards (market zone)" step, with its '
+            'TZ override and the rail-file invocation on the SAME step.',
       );
     });
 
-    test('that step runs the day-rail file', () {
-      expect(
-        yaml,
-        contains(_kRailTestPath),
-        reason:
-            'The DST-zone CI step no longer names $_kRailTestPath. Its guards '
-            'are skip-gated on the host zone, so if nothing runs this file '
-            'under a DST zone they are permanently inert.',
-      );
-    });
-
-    test('the TZ override is scoped to a step, never the whole job — the main '
-        'suite must stay UTC', () {
+    test('the Europe/Kyiv override is scoped to a step, never the whole job '
+        '— the main suite must stay UTC', () {
       // `slot_time_tz_regression_test.dart` proves the booking formatters are
       // Kyiv-pinned IN CODE by asserting Kyiv wall-clocks on a non-Kyiv
       // runner. Under a job-wide TZ=Europe/Kyiv a regression to `.toLocal()`
@@ -76,7 +109,10 @@ void main() {
       //
       // Step-level `env:` is indented deeper than the job-level `env:` that
       // would sit at the job's own key depth. A job-level env block appears
-      // at exactly 4 spaces (job key at 2, its children at 4).
+      // at exactly 4 spaces (job key at 2, its children at 4). This is
+      // deliberately "the sharp one" — a job-level env block anywhere in this
+      // file is disqualifying regardless of which zone it carries, unlike the
+      // adjacency checks above, which are step-scoped by construction.
       expect(
         yaml,
         isNot(contains(RegExp(r'^    env:', multiLine: true))),
@@ -85,6 +121,30 @@ void main() {
             'carries TZ, the whole suite leaves UTC and '
             'slot_time_tz_regression_test.dart stops being able to catch a '
             '.toLocal() regression — the exact bug it was written for.',
+      );
+    });
+
+    test('ONE step sets TZ=Asia/Tokyo AND runs the booking + home suites — the '
+        'third-timezone host-clock leak detector', () {
+      final bool hasAdjacentStep = steps.any(
+        (step) =>
+            step.contains('TZ: Asia/Tokyo') &&
+            step.contains('test/features/booking/') &&
+            step.contains('test/features/home/'),
+      );
+      expect(
+        hasAdjacentStep,
+        isTrue,
+        reason:
+            'No SINGLE step sets TZ=Asia/Tokyo and runs both '
+            'test/features/booking/ and test/features/home/. This step is '
+            'the only CI coverage that exercises those suites under a zone '
+            'with no relationship to Europe/Kyiv, which is what catches a '
+            'host-local-clock leak that happens to agree with the correct '
+            'Kyiv-derived value on both UTC (the main suite) and '
+            'Europe/Kyiv (the DST rail step) — see '
+            'scripts/forbid_host_local_instant_anchor.sh. Restore the '
+            '"Third-timezone sweep (host-clock leak detector)" step.',
       );
     });
   });
