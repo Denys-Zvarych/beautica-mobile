@@ -21,6 +21,20 @@
 // (`DateTime.now()`), not the harness `clockProvider`, so the seed window is a
 // fixed year-2020 instant — elapsed regardless of the runner's wall clock.
 //
+// PHASE 227 NOTE (mobile-qa): this file uses the FakeBackend's single-seed
+// route (`_seededBookingJson`, not `seedManyBookingsDataset`), which has
+// never read `partition` and still classifies purely on `status` — i.e. it
+// always models the Phase 227 rollout-safety-valve's OLD-BACKEND fallback,
+// regardless of what `MyBookingsNotifier` now sends. That is why the booking
+// is still reached via Майбутні below: it is exercising the "detail screen
+// is read-only for an elapsed CONFIRMED booking, independent of which tab
+// found it" invariant, NOT the Phase 227 partition-driven reclassification
+// (an elapsed CONFIRMED booking landing in Минулі against a
+// PARTITION-AWARE backend). That is proven separately, end-to-end, by
+// `client_my_bookings_partition_flow_test.dart`, which drives a
+// `seedManyBookingsDataset`-backed fake that DOES implement the backend
+// 28.1/28.2 partition predicate.
+//
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears in
 // CONTENT ASSERTIONS only, and status copy is asserted through l10n.
 

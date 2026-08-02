@@ -1883,8 +1883,7 @@ void main() {
     });
 
     test(
-      'getMyBookings forwards an explicit partition as its wireValue string '
-      '(wired ahead of Phase 227 — no production caller passes this yet)',
+      'getMyBookings forwards an explicit partition as its wireValue string',
       () async {
         final envelope = _serializeMyBookingsEnvelope(const []);
         when(
@@ -1923,6 +1922,66 @@ void main() {
         // this asserts the exact literal rather than
         // `BookingPartition.awaitingClosure.wireValue`).
         expect(captured['partition'], 'AWAITING_CLOSURE');
+      },
+    );
+
+    // Phase 227 — THE ROLLOUT SAFETY VALVE. `MyBookingsNotifier` is now a
+    // real caller of BOTH params together on every request: `partition` is
+    // what a Phase-28.2-capable backend actually filters on, but `status`
+    // must ALSO still be on the wire, because Spring silently DROPS an
+    // unrecognised `partition` query key rather than 400ing — a client that
+    // sent `partition` alone against a backend without 28.2 would therefore
+    // send, in effect, no filter at all, and `GET /bookings/me` would return
+    // the caller's entire unfiltered booking history. This is the test that
+    // proves the repository layer does not accidentally suppress `status`
+    // once `partition` is also supplied (e.g. an `if (partition != null)
+    // don't send status` shortcut would defeat the whole valve while every
+    // other test in this group — which each pass only ONE of the two — would
+    // stay green).
+    test(
+      'getMyBookings sends BOTH `status` and `partition` on the SAME request '
+      'when both are supplied — partition does not suppress status on the '
+      'wire (the backend, not this repository, decides precedence)',
+      () async {
+        final envelope = _serializeMyBookingsEnvelope(const []);
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        await repository.getMyBookings(
+          statuses: const <BookingStatus>{BookingStatus.confirmed},
+          sort: BookingSort.oldest,
+          page: 0,
+          partition: BookingPartition.upcoming,
+        );
+
+        final captured =
+            verify(
+                  () => dio.get<Map<String, dynamic>>(
+                    _myBookingsPath,
+                    queryParameters: captureAny(named: 'queryParameters'),
+                    cancelToken: any(named: 'cancelToken'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect(
+          captured['status'],
+          <String>['CONFIRMED'],
+          reason:
+              'status must still be present even though partition is '
+              'also supplied — this is the whole point of the safety valve',
+        );
+        expect(captured['partition'], 'UPCOMING');
       },
     );
 

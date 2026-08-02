@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
@@ -129,6 +130,11 @@ PageResponse<Booking> _page(List<Booking> items) => PageResponse<Booking>(
   totalElements: items.length,
 );
 
+/// Phase 227: the notifier now also sends `partition: tab.partition` on
+/// every request (the rollout safety valve — see `booking_tab.dart`'s file
+/// header). Pinned here too, otherwise the real call would never match and
+/// every `MyBookingsScreen` surface in this file would throw
+/// `MissingStubError`.
 void _stubAllTabs(
   _MockBookingRepository repo, {
   List<Booking> upcoming = const <Booking>[],
@@ -136,6 +142,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.upcoming.statuses,
+      partition: BookingPartition.upcoming,
       sort: BookingSort.oldest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -148,6 +155,7 @@ void _stubAllTabs(
     when(
       () => repo.getMyBookings(
         statuses: tab.statuses,
+        partition: tab.partition,
         sort: BookingSort.newest,
         page: any(named: 'page'),
         size: any(named: 'size'),

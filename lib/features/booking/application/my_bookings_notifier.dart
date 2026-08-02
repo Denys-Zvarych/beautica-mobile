@@ -100,6 +100,12 @@ class MyBookingsNotifier extends _$MyBookingsNotifier {
     final BookingRepository repo = ref.read(bookingRepositoryProvider);
     final PageResponse<Booking> page = await repo.getMyBookings(
       statuses: tab.statuses,
+      // Phase 227 — send BOTH the new server-side partition AND the legacy
+      // status set on every request (the rollout safety valve — see
+      // `booking_tab.dart`'s file header). `partition` wins on a
+      // Phase-28.2-capable backend; `status` alone still filters correctly
+      // on a stale one.
+      partition: tab.partition,
       sort: tab == BookingTab.upcoming
           ? BookingSort.oldest
           : BookingSort.newest,
@@ -150,6 +156,10 @@ class MyBookingsNotifier extends _$MyBookingsNotifier {
     try {
       final PageResponse<Booking> page = await repo.getMyBookings(
         statuses: tab.statuses,
+        // Phase 227 — SECOND copy of the partition+status pair (see
+        // `_fetchFirstPage` above). Missing it here would make page 0
+        // correct and every subsequent page wrong.
+        partition: tab.partition,
         sort: tab == BookingTab.upcoming
             ? BookingSort.oldest
             : BookingSort.newest,

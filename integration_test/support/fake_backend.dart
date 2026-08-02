@@ -2281,6 +2281,86 @@ final class FakeBackend {
   // NOT a per-call hand-picked response.
   List<Map<String, dynamic>>? _bookingsDataset;
 
+  /// Phase 227 (mobile-qa) rollout-safety-valve negative control. Whether
+  /// this fake backend understands the `partition` query param (backend
+  /// Phase 28.2). Defaults `true` — a modern, partition-aware backend.
+  ///
+  /// Setting this to `false` models an OLD backend that has not deployed
+  /// Phase 28.2 yet: mirroring Spring's REAL behaviour of silently DROPPING
+  /// an unrecognised query parameter (never a 400), [_slicedBookingsPageEnvelope]
+  /// then never reads `partition` at all and falls straight through to
+  /// `status`-only filtering — regardless of what the request actually
+  /// carries. Composed with what the CALLER sends, this reproduces both
+  /// halves of the Phase 227 rollout safety valve:
+  ///   - caller sends BOTH `partition`+`status` (the real
+  ///     `MyBookingsNotifier`) → degrades SAFELY to exactly the pre-227
+  ///     `status`-only filter (today's shipped behaviour, elapsed CONFIRMED
+  ///     rows still stuck in Майбутні — a known, harmless regression to the
+  ///     old bug, not new wrong data).
+  ///   - caller sends ONLY `partition`, no `status` → this fake (mirroring
+  ///     Spring) applies NO filter at all → the entire unfiltered dataset
+  ///     comes back. This is the negative control:
+  ///     `client_my_bookings_partition_flow_test.dart` drives this second
+  ///     case directly (bypassing the notifier, which never omits `status`)
+  ///     to make legible exactly what the valve protects against.
+  bool backendSupportsPartition = true;
+
+  /// The instant [_slicedBookingsPageEnvelope] treats as "now" when computing
+  /// [_partitionOf] — i.e. the fake's model of the BACKEND's own clock.
+  /// Defaults to [kFixedNow], the SAME instant the harness overrides
+  /// `clockProvider` to for the app under test (`e2e_boot_policy.dart`). In
+  /// production the backend's clock and the app's clock are the same clock;
+  /// in the harness the app believes "now" is `kFixedNow`, so the fake's
+  /// server-side partition classification must agree, or fixtures anchored
+  /// to `kFixedNow` (the documented [_bookingsDataset] seeding convention —
+  /// see `client_my_bookings_pagination_sort_flow_test.dart`) drift into the
+  /// wrong partition every day the real wall clock moves further past
+  /// `kFixedNow`. A bare `DateTime.now().toUtc()` here was exactly that bug:
+  /// harmless while filtering was status-only (pre-227), but Phase 227's
+  /// `partition`-wins-outright precedence rule newly exposes every
+  /// `kFixedNow`-anchored fixture to real-clock classification.
+  ///
+  /// This is DELIBERATELY a different clock than [_kFixtureDay] /
+  /// `BookingDisplayX.isPast` (both real-clock, by design — see the module
+  /// doc comment above [kFixedNow]): those model a presentation-only,
+  /// UI-side "has this slot passed" signal that reads the DEVICE clock on
+  /// purpose, never the injected one. The two clocks would only disagree on
+  /// a row whose `endsAt` falls between `kFixedNow` and the real wall clock,
+  /// and the two flows that combine partition classification with an
+  /// `isPast`-gated detail screen (`client_my_bookings_partition_flow_test`,
+  /// `client_elapsed_booking_readonly_flow_test`) deliberately anchor those
+  /// specific rows at 2020/2035 — far enough from both clocks that this
+  /// never arises. A test that genuinely needs a different "server now" may
+  /// override this field directly; nothing in the suite currently does.
+  DateTime serverNow = kFixedNow;
+
+  /// The backend Phase 28.1/28.2 time-based partition membership of one
+  /// [_bookingsDataset] row, mirroring `BookingSpecifications#partition`'s
+  /// predicate (see `docs/backend-phases/phase-217-28.2-...md`) exactly:
+  ///   - `CANCELLED`/`DECLINED` → `CANCELLED`.
+  ///   - `CONFIRMED` with `endsAt` ON OR AFTER [now] → `UPCOMING`.
+  ///   - `CONFIRMED` with `endsAt` BEFORE [now], or `COMPLETED`/
+  ///     `NOT_COMPLETED` (elapsed by definition) → `PAST`.
+  ///   - any other status (defensive — `UNKNOWN` has no real occurrence in
+  ///     this dataset) matches NO partition, mirroring the backend never
+  ///     classifying an unrecognised status into any of the three.
+  static String? _partitionOf(Map<String, dynamic> row, DateTime now) {
+    final String status = row['status'] as String;
+    switch (status) {
+      case 'CANCELLED':
+      case 'DECLINED':
+        return 'CANCELLED';
+      case 'COMPLETED':
+      case 'NOT_COMPLETED':
+        return 'PAST';
+      case 'CONFIRMED':
+        final DateTime endsAt = DateTime.parse(row['endsAt'] as String);
+        return endsAt.isBefore(now) ? 'PAST' : 'UPCOMING';
+      default:
+        return null;
+    }
+  }
+
   /// Builds one dataset row in the same wire shape [_seededBookingJson] uses,
   /// parameterized by [id]/[status]/[startsAt] so a test can seed a large,
   /// scrambled-insertion-order table. [duration] defaults to a realistic
@@ -2427,19 +2507,35 @@ final class FakeBackend {
   /// `[page*size, page*size+size)`. [lastMyBookingsQuery] is recorded by the
   /// caller (the shared `/bookings/me` route callback), not here — see that
   /// field's doc comment for why it must stay unconditional.
+  ///
+  /// Phase 227 (mobile-qa): also implements the backend 28.2 PRECEDENCE rule
+  /// — when a `partition` param is present AND [backendSupportsPartition],
+  /// it wins OUTRIGHT and `status` is not even consulted (mirrors
+  /// `BookingService#getMyBookings`'s `statuses = partition != null ? null :
+  /// …` — see phase-217's doc). When [backendSupportsPartition] is `false`,
+  /// `partition` is never read at all (the old-backend model), so filtering
+  /// falls through to `status` exactly as it did pre-227 — including the
+  /// degenerate case where `status` is ALSO absent, which yields NO filter
+  /// at all. That degenerate case is deliberate: it is the fake half of the
+  /// Phase 227 rollout-safety-valve negative control.
   Map<String, dynamic> _slicedBookingsPageEnvelope(Map<String, dynamic> query) {
     final List<Map<String, dynamic>> dataset = _bookingsDataset!;
+    final String? partition = backendSupportsPartition
+        ? _scalarQueryParam(query, 'partition')
+        : null;
     final List<String>? statuses = _bookingStatusesFrom(query);
     final String sort = _scalarQueryParam(query, 'sort') ?? 'startsAt,desc';
     final bool ascending = sort.endsWith(',asc');
     final int page = _intQueryParam(query, 'page', 0);
     final int size = _intQueryParam(query, 'size', 20);
+    final DateTime now = serverNow;
 
     final List<Map<String, dynamic>> filtered =
         dataset
             .where(
-              (Map<String, dynamic> b) =>
-                  statuses == null || statuses.contains(b['status']),
+              (Map<String, dynamic> b) => partition != null
+                  ? _partitionOf(b, now) == partition
+                  : (statuses == null || statuses.contains(b['status'])),
             )
             .toList(growable: false)
           ..sort((Map<String, dynamic> a, Map<String, dynamic> b) {

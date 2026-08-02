@@ -60,6 +60,7 @@ import 'package:beautica_mobile/features/booking/application/booking_detail_noti
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
@@ -198,6 +199,12 @@ PageResponse<Booking> _page(List<Booking> items) => PageResponse<Booking>(
 /// (backend Phase 26.1/26.3 — the tab's whole status set + a
 /// `sort=startsAt,<asc|desc>` param travel in a single call; see
 /// `booking_repository.dart` / `my_bookings_notifier.dart`).
+///
+/// Phase 227: the notifier now also sends `partition: tab.partition` on
+/// every request (the rollout safety valve — see `booking_tab.dart`'s file
+/// header). Pinned here too, otherwise the real call would never match and
+/// every `MyBookingsScreen` surface in this file would throw
+/// `MissingStubError`.
 void _stubAllTabs(
   _MockBookingRepository repo, {
   List<Booking> upcoming = const <Booking>[],
@@ -207,6 +214,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.upcoming.statuses,
+      partition: BookingPartition.upcoming,
       sort: BookingSort.oldest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -215,6 +223,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.past.statuses,
+      partition: BookingPartition.past,
       sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -223,6 +232,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.cancelled.statuses,
+      partition: BookingPartition.cancelled,
       sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),

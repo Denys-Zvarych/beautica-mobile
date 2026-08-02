@@ -397,15 +397,24 @@ final class HttpBookingRepository implements BookingRepository {
           // device east of UTC. See `shared/formatters/api_date.dart`.
           if (from != null) 'from': toApiDate(from),
           if (to != null) 'to': toApiDate(to),
-          // Phase 226: wired but unused — no caller passes [partition] yet
-          // (Phase 227 is the cutover). Serialised through [BookingPartition
-          // .wireValue] — the sole hand-written string this repository is
-          // allowed to emit for it — and omitted entirely when null, not
-          // sent as `partition=null`/`''`: `partition?.wireValue` evaluates
-          // to null right along with `partition` itself, so the null-aware
-          // map element below still drops the key entirely. See
-          // [getMyBookings]'s doc for the byte-identical back-compat
-          // contract this preserves.
+          // Phase 227: `MyBookingsNotifier` now passes [partition] from BOTH
+          // `_fetchFirstPage` and `loadMore`. Serialised through
+          // [BookingPartition.wireValue] — the sole hand-written string this
+          // repository is allowed to emit for it — and omitted entirely when
+          // null, not sent as `partition=null`/`''`: `partition?.wireValue`
+          // evaluates to null right along with `partition` itself, so the
+          // null-aware map element below still drops the key entirely.
+          //
+          // ⚠ `partition` and the legacy `status` above are sent TOGETHER on
+          // every request — this is deliberate, not leftover dead weight.
+          // Spring silently DROPS unknown query params instead of 400ing, so
+          // a client sending only `partition` against a backend that hasn't
+          // shipped Phase 28.2 would send effectively no filter and get back
+          // the caller's entire unfiltered booking history. Sending both
+          // degrades safely to status-only filtering on a stale backend.
+          // `status` is slated for removal once the backend floor is
+          // confirmed to have 28.2 — not yet. See [getMyBookings]'s doc for
+          // the byte-identical back-compat contract this preserves.
           'partition': ?partition?.wireValue,
         },
         cancelToken: cancelToken,

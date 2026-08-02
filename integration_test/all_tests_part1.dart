@@ -40,6 +40,8 @@ import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
 import 'client_my_bookings_pagination_sort_flow_test.dart'
     as client_my_bookings_pagination_sort;
+import 'client_my_bookings_partition_flow_test.dart'
+    as client_my_bookings_partition;
 import 'booking_price_band_flow_test.dart' as booking_price_band;
 import 'booking_unknown_status_readonly_flow_test.dart'
     as booking_unknown_status_readonly;
@@ -89,6 +91,12 @@ void main() {
     'client_my_bookings_pagination_sort_flow',
     client_my_bookings_pagination_sort.main,
   );
+  // Phase 227 — the headline «Мої записи» server-side `partition` cutover
+  // (Step 2.7 Rule 3b, mobile-qa) — an elapsed CONFIRMED booking reclassified
+  // into Минулі by a partition-AWARE fake backend (the mocked-repository
+  // unit/widget tiers cannot prove this), plus the rollout-safety-valve
+  // negative control.
+  group('client_my_bookings_partition_flow', client_my_bookings_partition.main);
   // Frozen RANGE price band end-to-end (Step 2.7 Rule 3b, mobile-qa) — a wire
   // `priceMaxAtBooking` surviving deserialization → BookingMapper →
   // Booking.priceMax → priceLabel onto the CLIENT list card, «Деталі запису»
