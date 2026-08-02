@@ -35,6 +35,7 @@ import '../../../features/location/state/location_providers.dart';
 import '../../booking/data/booking_providers.dart';
 import '../../booking/domain/booking.dart';
 import '../../booking/domain/booking_display_x.dart';
+import '../../booking/domain/booking_partition.dart';
 import '../../booking/domain/booking_sort.dart';
 import '../../booking/domain/booking_tab.dart';
 import '../domain/home_hub_models.dart';
@@ -206,66 +207,44 @@ Future<String?> _resolveDistrictName(Ref ref, User user) async {
 // Next appointment — data-wired (Phase 225)
 // ---------------------------------------------------------------------------
 
-/// Page size for each `getMyBookings` fetch. With the [from] bound below in
-/// place, page 0 answers the question in the overwhelming majority of cases —
-/// this is no longer the whole defence against elapsed rows (see
-/// [_kNextAppointmentMaxPages] for that), just a reasonable page size.
-const int _kNextAppointmentPeekSize = 5;
-
-/// Hard cap on how many pages [nextAppointment] will page-forward through.
-///
-/// A CONFIRMED booking whose window has elapsed is NEVER auto-transitioned by
-/// the backend — there is no `@Scheduled` cron in
-/// `beautica-backend/.../booking/` that flips an elapsed CONFIRMED booking to
-/// COMPLETED/NOT_COMPLETED; that only happens via an explicit provider action
-/// (decline/complete, track 27.x). So on a sufficiently busy day, a client's
-/// `CONFIRMED` list can still contain more same-day elapsed rows than fit in
-/// one page even after the [from] bound below discards every PRIOR day. This
-/// cap bounds how far [nextAppointment] will page forward chasing a
-/// genuinely-upcoming row: bounded because one account with an unbounded pile
-/// of elapsed same-day bookings must never turn a home-screen load into an
-/// open-ended fan-out of requests. 3 pages × [_kNextAppointmentPeekSize] = 15
-/// same-day elapsed rows scanned before giving up — comfortably past any
-/// realistic single-day booking count for one client.
-const int _kNextAppointmentMaxPages = 3;
-
 /// Returns the soonest upcoming booking for the CLIENT, or `null` when none
 /// qualifies.
 ///
-/// Reuses the EXACT same request shape the «Мої записи» Майбутні tab issues
-/// ([MyBookingsNotifier]) — [BookingTabX.statuses] for [BookingTab.upcoming]
-/// (currently `{CONFIRMED}`; booking auto-confirm retired `PENDING`) sorted
-/// soonest-first ([BookingSort.oldest]) — so this card can never disagree with
-/// that tab about which bookings count as "upcoming".
+/// Phase 228 — retires the Phase 225 bounded page-forward scan now that
+/// `GET /bookings/me` supports the backend Phase 28.1/28.2 `partition`
+/// filter: `partition: BookingPartition.upcoming` is `status = CONFIRMED AND
+/// endsAt >= now`, computed server-side, so an elapsed `CONFIRMED` booking
+/// (the actual Phase 225 production bug — the backend has no `@Scheduled`
+/// cron that auto-transitions one) never comes back at all. Page 0 row 0 of
+/// a `size: 1` request **is** the answer; there is nothing left to scan or
+/// skip client-side.
 ///
-/// [BookingRepository.getMyBookings] filters by STATUS only; it has no
-/// server-side "is this instant still in the future" predicate, so a
-/// CONFIRMED booking whose `endAt` has already passed can still come back.
-/// Two defences combine here:
+/// Reuses the EXACT same status/sort shape the «Мої записи» Майбутні tab
+/// issues ([MyBookingsNotifier]) — [BookingTabX.statuses] for
+/// [BookingTab.upcoming] (currently `{CONFIRMED}`; booking auto-confirm
+/// retired `PENDING`) sorted soonest-first ([BookingSort.oldest]) — so this
+/// card can never disagree with that tab about which bookings count as
+/// "upcoming". [BookingTabX.partition] supplies [BookingPartition.upcoming]
+/// alongside it.
 ///
-///   1. **`from: today`** — bounds the query to bookings starting today or
-///      later (backend Phase 26.2's inclusive local-day `from`, an
-///      open-ended future window when `to` is omitted). This discards every
-///      elapsed booking from a PRIOR day server-side before paging at all —
-///      the actual production bug: an account can accumulate an unbounded
-///      number of stale CONFIRMED rows from past days (see
-///      [_kNextAppointmentMaxPages]'s doc for why they exist at all), and
-///      without this bound they fill the whole peek window ahead of a
-///      genuinely upcoming booking. `from` is **day**-granular, so bookings
-///      earlier TODAY still come back and must still be filtered client-side
-///      — step 2 below.
-///   2. **[BookingDisplayX.isPast] + bounded page-forward** — applied
-///      client-side to skip any row whose `endAt` is already in the past and
-///      return the first one that is genuinely still upcoming. If every row
-///      on a page is elapsed AND the envelope's `totalElements` says more
-///      rows exist, the next page is fetched, up to
-///      [_kNextAppointmentMaxPages] total pages. Returns `null` once the cap
-///      is hit with everything still elapsed, or once the pages are
-///      exhausted — never an unbounded re-query.
+/// **Both `partition` and the legacy `statuses` are sent on every request** —
+/// the same Phase 227 rollout safety valve `MyBookingsNotifier` uses (see
+/// `BookingTab`'s file header and `BookingRepository.getMyBookings`'s doc).
+/// Spring silently DROPS an unrecognised query param instead of 400ing, so a
+/// request carrying only `partition` against a backend without Phase 28.2
+/// would return the caller's entire unfiltered booking history — including a
+/// year-old cancelled booking rendered as "your next appointment". Sending
+/// `statuses` too degrades safely to the pre-Phase-228 status-only filtering
+/// on a stale backend.
 ///
-/// `today` is derived as the **Europe/Kyiv** calendar day, not the device's
-/// local day: the injectable [clockProvider] seam supplies "now" (so tests can
-/// pin it), which is then converted to the Kyiv wall-clock via
+/// **The `from: today` bound stays even though `partition` already excludes
+/// elapsed rows.** `partition` is instant-granular; `from` is day-granular —
+/// they are not the same filter, and keeping `from` costs nothing while
+/// keeping the query cheap for an account with a long booking history (it
+/// discards every prior-day row server-side before the partition filter even
+/// runs). `today` is derived as the **Europe/Kyiv** calendar day, not the
+/// device's local day: the injectable [clockProvider] seam supplies "now" (so
+/// tests can pin it), which is then converted to the Kyiv wall-clock via
 /// [toBeauticaTime] before [dateOnly] reads its `.year`/`.month`/`.day` — the
 /// same `dateOnly(toBeauticaTime(...))` composition `BookingsDiscoveryView`
 /// already uses for its own day anchor. The backend interprets `from` as a
@@ -274,10 +253,19 @@ const int _kNextAppointmentMaxPages = 3;
 /// behind Kyiv no longer widens the window, and — the case that actually
 /// matters — a device AHEAD of Kyiv (Asia-Pacific, or simply a wrong clock)
 /// no longer NARROWS it and silently excludes a booking later that same Kyiv
-/// day. [bookedDaysProvider] still uses the OLDER device-local convention
+/// day. **Do not revert this to `dateOnly(DateTime.now())`** — Phase 225's
+/// audit cycles 4 and 5 fought hard to get this derivation right.
+/// [bookedDaysProvider] still uses the OLDER device-local convention
 /// (`dateOnly(DateTime.now())`) for its own `from`/`to`; that is a pre-existing,
 /// separately-tracked limitation on that provider and out of scope here — this
 /// provider does not inherit it.
+///
+/// The `BookingDisplayX` elapsed-slot presentation getter is NOT used here —
+/// that getter answers a different question ("what buttons does THIS
+/// booking show", gating «Деталі запису»'s reschedule/cancel vs. read-only
+/// rebook affordances, see `booking_detail_screen.dart`) than "which list
+/// does this booking belong in", which the server-side partition now answers
+/// on its own.
 ///
 /// Errors (including an unauthenticated [UnauthorizedFailure] — the router
 /// guard should already have redirected, but this is defensive) are not
@@ -294,39 +282,30 @@ Future<NextAppointment?> nextAppointment(Ref ref) async {
   // doc comment above for why device-local would be wrong.
   final DateTime today = dateOnly(toBeauticaTime(ref.watch(clockProvider)()));
 
-  int scanned = 0;
-  for (int pageIndex = 0; pageIndex < _kNextAppointmentMaxPages; pageIndex++) {
-    final page = await repository.getMyBookings(
-      statuses: BookingTab.upcoming.statuses,
-      sort: BookingSort.oldest,
-      from: today,
-      page: pageIndex,
-      size: _kNextAppointmentPeekSize,
-    );
+  final page = await repository.getMyBookings(
+    statuses: BookingTab.upcoming.statuses,
+    partition: BookingTab.upcoming.partition,
+    sort: BookingSort.oldest,
+    from: today,
+    page: 0,
+    size: 1,
+  );
 
-    for (final Booking booking in page.items) {
-      if (!booking.isPast) {
-        return NextAppointment(
-          id: booking.id,
-          masterName: booking.masterName,
-          service: booking.serviceName,
-          dateLabel: formatFullDate(booking.startAt),
-          timeLabel: formatSlotTime(booking.startAt),
-          location: booking.addressLine ?? booking.salonName ?? '',
-          startsAt: booking.startAt,
-          endsAt: booking.endAt,
-          masterInitials: booking.masterInitials,
-        );
-      }
-    }
-
-    scanned += page.items.length;
-    final bool morePagesRemain = scanned < page.totalElements;
-    if (!morePagesRemain) {
-      return null;
-    }
+  if (page.items.isEmpty) {
+    return null;
   }
-  return null;
+  final Booking booking = page.items.first;
+  return NextAppointment(
+    id: booking.id,
+    masterName: booking.masterName,
+    service: booking.serviceName,
+    dateLabel: formatFullDate(booking.startAt),
+    timeLabel: formatSlotTime(booking.startAt),
+    location: booking.addressLine ?? booking.salonName ?? '',
+    startsAt: booking.startAt,
+    endsAt: booking.endAt,
+    masterInitials: booking.masterInitials,
+  );
 }
 
 // ---------------------------------------------------------------------------

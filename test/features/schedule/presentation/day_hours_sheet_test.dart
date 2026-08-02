@@ -1289,7 +1289,17 @@ void main() {
       int dayFetches = 0;
       int upcomingFetches = 0;
       int cancelledFetches = 0;
-      when(
+      // Phase 227: `getMyBookings` now also carries `partition` on every
+      // call. This ONE stub deliberately serves THREE distinct call shapes —
+      // the day fetch (`bookingsDayProvider`, which never passes `partition`
+      // and so sends the default `null`) and BOTH `myBookingsProvider` tabs
+      // (`BookingPartition.upcoming` / `.cancelled`) — distinguished below via
+      // `inv.namedArguments`, not via the stub's argument matchers. Pinning
+      // `partition` to an exact per-tab value here would leave the day-fetch
+      // shape (`partition: null`) unmatched, so `any(named: 'partition')` is
+      // used intentionally — mirrors the same generic-stub pattern in
+      // `my_bookings_notifier_test.dart` (e.g. line 214).
+      final dynamicMyBookingsStub = when(
         () => bookingRepo.getMyBookings(
           statuses: any(named: 'statuses'),
           page: any(named: 'page'),
@@ -1298,9 +1308,11 @@ void main() {
           serviceIds: any(named: 'serviceIds'),
           from: any(named: 'from'),
           to: any(named: 'to'),
+          partition: any(named: 'partition'),
           cancelToken: any(named: 'cancelToken'),
         ),
-      ).thenAnswer((Invocation inv) async {
+      );
+      dynamicMyBookingsStub.thenAnswer((Invocation inv) async {
         final DateTime? from = inv.namedArguments[#from] as DateTime?;
         final Iterable<BookingStatus> statuses =
             inv.namedArguments[#statuses] as Iterable<BookingStatus>;

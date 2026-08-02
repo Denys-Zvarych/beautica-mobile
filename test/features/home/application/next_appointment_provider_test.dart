@@ -1,17 +1,22 @@
 // Phase 225 — nextAppointmentProvider unit tests.
+// Phase 228 — retired the bounded page-forward scan now that
+// `GET /bookings/me` supports server-side `partition=UPCOMING` filtering;
+// see the group doc comments below for what changed and why.
 //
 // The Home Hub's «Найближчий запис» card used to be a hardcoded stub
 // (always null). It now derives from `BookingRepository.getMyBookings` —
 // the SAME endpoint/request shape the «Мої записи» Майбутні tab issues
 // (`BookingTab.upcoming.statuses` + `BookingSort.oldest`, page 0). These
 // tests pin:
-//   • the exact request shape (statuses/sort/page) sent to the repository;
+//   • the exact request shape sent to the repository — statuses/partition/
+//     sort/page/size/from (Phase 228: `partition: BookingPartition.upcoming`
+//     and `size: 1` replace the old 5-row peek + bounded page-forward);
 //   • the domain → NextAppointment field mapping (date/time labels, location
 //     fallback, master initials, the real `endsAt`);
-//   • the elapsed-but-not-yet-transitioned edge case: a CONFIRMED booking
-//     whose `endAt` is already in the past (server hasn't flipped its status
-//     yet) must be skipped in favour of the next genuinely-upcoming row;
-//   • an empty page, or a page where EVERY row is elapsed, resolves to null;
+//   • the single-request resolution of a production-shaped account (many
+//     elapsed CONFIRMED rows the server excludes via `partition`, plus one
+//     genuinely upcoming row);
+//   • an empty page resolves to null;
 //   • a repository failure propagates as this provider's AsyncError, exactly
 //     like `clientProfile`'s unauthenticated-session contract.
 //
@@ -51,36 +56,20 @@ import '../../../helpers/booking_fixture_dates.dart';
 class _FakeBookingRepository implements BookingRepository {
   _FakeBookingRepository(this._page);
 
-  /// Swap mid-test via [respondWith] when a test needs a second scripted call
-  /// (not used currently, but keeps the fake reusable).
-  PageResponse<Booking> _page;
-  void respondWith(PageResponse<Booking> page) => _page = page;
-
-  /// When set, overrides [_page]: `getMyBookings` returns
-  /// `pagesByIndex[page]` instead, so a test can script a DIFFERENT response
-  /// per page — the page-forward regression tests need this (page 0
-  /// all-elapsed, page 1 carries the real upcoming row).
-  Map<int, PageResponse<Booking>>? pagesByIndex;
+  final PageResponse<Booking> _page;
 
   /// The Object? failure to throw instead of returning [_page], or null to
   /// return normally.
   Object? throwing;
 
-  // Captured call args — asserted by the "request shape" test. Reflect the
-  // MOST RECENT call; [capturedPages]/[capturedFroms] below hold the full
-  // history for the multi-call page-forward tests.
+  // Captured call args — asserted by the "request shape" test.
   Iterable<BookingStatus>? capturedStatuses;
+  BookingPartition? capturedPartition;
   BookingSort? capturedSort;
   int? capturedPage;
   int? capturedSize;
   DateTime? capturedFrom;
   int callCount = 0;
-
-  /// The `page` argument of every call, in order.
-  final List<int> capturedPages = <int>[];
-
-  /// The `from` argument of every call, in order.
-  final List<DateTime?> capturedFroms = <DateTime?>[];
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
@@ -96,26 +85,107 @@ class _FakeBookingRepository implements BookingRepository {
   }) async {
     callCount++;
     capturedStatuses = statuses;
+    capturedPartition = partition;
     capturedSort = sort;
     capturedPage = page;
     capturedSize = size;
     capturedFrom = from;
-    capturedPages.add(page);
-    capturedFroms.add(from);
     final Object? f = throwing;
     if (f != null) throw f;
-    final Map<int, PageResponse<Booking>>? byIndex = pagesByIndex;
-    if (byIndex != null) {
-      final PageResponse<Booking>? scripted = byIndex[page];
-      if (scripted == null) {
-        throw StateError(
-          '_FakeBookingRepository: no scripted response for page $page — '
-          'the provider paged further than this test scripted for.',
-        );
-      }
-      return scripted;
-    }
     return _page;
+  }
+
+  @override
+  Future<Booking> createBooking(CreateBookingRequest req) =>
+      throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
+  Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
+  Future<Booking> getBookingById(String id) =>
+      throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
+  Future<void> cancelBooking(String id, {String? reason}) =>
+      throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
+  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
+      throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
+  Future<void> declineBooking(String id, {String? comment}) =>
+      throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
+  Future<void> completeBooking(String id) =>
+      throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
+  Future<void> createReview({
+    required String bookingId,
+    required int rating,
+    String? comment,
+  }) => throw UnimplementedError('not used by nextAppointmentProvider');
+}
+
+/// mobile-qa Phase 228 audit finding: [_FakeBookingRepository] above returns
+/// whatever page it was constructed with regardless of what args the
+/// notifier actually sends — deliberately, per its own group-level doc
+/// comment, because the REAL server-side-filtering proof lives in
+/// `client_home_hub_flow_test.dart`'s Phase 228 flow (a genuine
+/// partition-filtering fake there, `FakeBackend._partitionOf` +
+/// `backendSupportsPartition`). That means the "production-shaped account"
+/// test below this class, taken alone, would keep passing even if a future
+/// regression silently stopped sending `partition` on the request — it was
+/// revert-proven to do exactly that during this audit.
+///
+/// This fake closes that unit-tier gap cheaply, without re-implementing a
+/// whole in-memory backend: its response DEPENDS on the captured `partition`
+/// value — [upcoming] only when the call actually carried
+/// `BookingPartition.upcoming`, [elapsed] otherwise (covers both "partition
+/// omitted" and "wrong partition value" regressions). A test built on this
+/// fake is the unit-tier half of the phase doc's "Sanity-check RED" —
+/// the cross-the-wire half is `client_home_hub_flow_test.dart`'s Test 4c.
+class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
+  _PartitionSensitiveFakeBookingRepository({
+    required this.upcoming,
+    required this.elapsed,
+  });
+
+  final Booking upcoming;
+  final Booking elapsed;
+  int callCount = 0;
+  BookingPartition? capturedPartition;
+
+  @override
+  Future<PageResponse<Booking>> getMyBookings({
+    required Iterable<BookingStatus> statuses,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+    BookingPartition? partition,
+    CancelToken? cancelToken,
+  }) async {
+    callCount++;
+    capturedPartition = partition;
+    final Booking chosen = partition == BookingPartition.upcoming
+        ? upcoming
+        : elapsed;
+    return PageResponse<Booking>(
+      items: <Booking>[chosen],
+      page: 0,
+      totalPages: 1,
+      totalElements: 1,
+    );
   }
 
   @override
@@ -195,35 +265,13 @@ Booking _booking({
   );
 }
 
-/// An ALREADY-ELAPSED CONFIRMED booking — `endAt` in the past even though the
-/// status is still CONFIRMED (the server hasn't transitioned it yet). Exists
-/// to drive the client-side [BookingDisplayX.isPast] skip.
-Booking _elapsedBooking(String id) {
-  final DateTime start = DateTime.utc(2000, 1, 1, 9);
-  return Booking(
-    id: id,
-    masterId: 'master-$id',
-    masterFirstName: 'Марія',
-    masterLastName: 'Іванюк',
-    masterType: 'INDEPENDENT_MASTER',
-    serviceId: 'svc-$id',
-    serviceName: 'Манікюр',
-    durationMinutes: 60,
-    price: 500,
-    startAt: start,
-    endAt: start.add(const Duration(minutes: 60)),
-    status: BookingStatus.confirmed,
-    canReview: false,
-  );
-}
-
 /// Builds a [ProviderContainer] wired to [repo]. When [now] is supplied it
 /// overrides [clockProvider] so the provider's "today" is pinned to a fixed
 /// instant instead of the real wall clock — required for every test in the
 /// 'Kyiv-day boundary' group, since [dateOnly]/[toBeauticaTime] are only
 /// interestingly exercised near a calendar-day boundary.
 ProviderContainer _container(
-  _FakeBookingRepository repo, {
+  BookingRepository repo, {
   DateTime Function()? now,
 }) {
   final container = ProviderContainer(
@@ -238,10 +286,83 @@ ProviderContainer _container(
 
 void main() {
   group('nextAppointment request shape', () {
-    test('issues ONE getMyBookings call with BookingTab.upcoming.statuses, '
-        'BookingSort.oldest, page 0, and `from` pinned to the Europe/Kyiv day '
-        '(the "Kyiv-day boundary" group below exercises the narrowing-bug '
-        'regression this pins the shape of)', () async {
+    test(
+      'issues ONE getMyBookings call with BookingTab.upcoming.statuses, '
+      'BookingPartition.upcoming, BookingSort.oldest, page 0, size 1, and '
+      '`from` pinned to the Europe/Kyiv day (the "Kyiv-day boundary" group '
+      'below exercises the narrowing-bug regression this pins the shape of)',
+      () async {
+        final repo = _FakeBookingRepository(
+          const PageResponse<Booking>(
+            items: <Booking>[],
+            page: 0,
+            totalPages: 1,
+            totalElements: 0,
+          ),
+        );
+        // A fixed instant (not the real wall clock) so `capturedFrom` can be
+        // asserted against an exact expected value rather than merely
+        // "non-null" — `from` IS part of this provider's pinned request
+        // shape, not an incidental extra.
+        final DateTime fixedNow = DateTime.utc(2026, 8, 1, 10, 0);
+        final container = _container(repo, now: () => fixedNow);
+
+        final result = await container.read(nextAppointmentProvider.future);
+
+        expect(result, isNull);
+        expect(
+          repo.callCount,
+          1,
+          reason:
+              'must issue exactly one request — Phase 228 retired the '
+              'bounded page-forward scan; page 0 row 0 is the whole answer '
+              'now that the server filters by partition',
+        );
+        expect(repo.capturedStatuses, BookingTab.upcoming.statuses);
+        expect(
+          repo.capturedPartition,
+          BookingPartition.upcoming,
+          reason:
+              'partition must be sent — the Phase 228 headline behaviour '
+              'change; omitting it would silently regress to the pre-228 '
+              'status-only scan this phase retired',
+        );
+        expect(
+          repo.capturedPartition?.wireValue,
+          'UPCOMING',
+          reason:
+              'asserts the WIRE STRING, not just the enum member — a '
+              'wireValue swap on BookingPartition would pass the enum '
+              'assertion above and still send the wrong filter',
+        );
+        expect(repo.capturedSort, BookingSort.oldest);
+        expect(repo.capturedPage, 0);
+        expect(
+          repo.capturedSize,
+          1,
+          reason:
+              'the server has already sorted and filtered by partition — '
+              'the first row of page 0 IS the answer, so there is nothing '
+              'left to peek a wider page for',
+        );
+        expect(
+          repo.capturedFrom,
+          dateOnly(toBeauticaTime(fixedNow)),
+          reason:
+              '`from` is the Europe/Kyiv calendar day derived from the '
+              'injected clock — never the device-local day. It stays even '
+              'though `partition` already excludes elapsed rows: `from` is '
+              'day-granular, `partition` is instant-granular, and keeping '
+              '`from` costs nothing while bounding the query for a '
+              'long-history account.',
+        );
+      },
+    );
+
+    test('sends `from` on every call, carrying the EUROPE/KYIV calendar day '
+        '(dateOnly(toBeauticaTime(now))) — never the device-local day nor the '
+        'raw wall-clock instant — against the real (unpinned) production '
+        'clock', () async {
       final repo = _FakeBookingRepository(
         const PageResponse<Booking>(
           items: <Booking>[],
@@ -250,31 +371,25 @@ void main() {
           totalElements: 0,
         ),
       );
-      // A fixed instant (not the real wall clock) so `capturedFrom` can be
-      // asserted against an exact expected value rather than merely
-      // "non-null" — `from` IS part of this provider's pinned request
-      // shape, not an incidental extra.
-      final DateTime fixedNow = DateTime.utc(2026, 8, 1, 10, 0);
-      final container = _container(repo, now: () => fixedNow);
+      final container = _container(repo);
 
-      final result = await container.read(nextAppointmentProvider.future);
+      final DateTime beforeCall = dateOnly(toBeauticaTime(DateTime.now()));
+      final NextAppointment? result = await container.read(
+        nextAppointmentProvider.future,
+      );
+      final DateTime afterCall = dateOnly(toBeauticaTime(DateTime.now()));
 
       expect(result, isNull);
-      expect(
-        repo.callCount,
-        1,
-        reason: 'must issue exactly one request, never per-status fan-out',
-      );
-      expect(repo.capturedStatuses, BookingTab.upcoming.statuses);
-      expect(repo.capturedSort, BookingSort.oldest);
-      expect(repo.capturedPage, 0);
-      expect(
-        repo.capturedFrom,
-        dateOnly(toBeauticaTime(fixedNow)),
-        reason:
-            '`from` is the Europe/Kyiv calendar day derived from the '
-            'injected clock — never the device-local day.',
-      );
+      expect(repo.callCount, 1);
+      final DateTime? sentFrom = repo.capturedFrom;
+      expect(sentFrom, isNotNull);
+      // Tolerant of the test happening to straddle Kyiv midnight: `from`
+      // must equal ONE of the two Kyiv calendar-day snapshots taken either
+      // side of the call, and it must already be date-only (no time-of-day
+      // component leaking onto the wire — `toApiDate` truncates, but the
+      // domain value handed to the repository should already be clean).
+      expect(sentFrom, anyOf(beforeCall, afterCall));
+      expect(sentFrom, dateOnly(sentFrom!));
     });
   });
 
@@ -356,17 +471,37 @@ void main() {
     });
   });
 
-  group('nextAppointment elapsed-row skip', () {
-    test('a head row whose endAt has already elapsed is skipped in favour of '
-        'the next genuinely-upcoming row in the same page', () async {
-      final Booking elapsed = _elapsedBooking('bk-elapsed');
-      final Booking upcoming = _booking(id: 'bk-upcoming');
+  // ---------------------------------------------------------------------------
+  // Phase 228: server-side `partition=UPCOMING` retires the Phase 225 bounded
+  // page-forward scan. [_FakeBookingRepository] — unlike a real HTTP fake —
+  // hands back whatever page a test scripts, so it stands in for the SERVER
+  // already having applied `partition=UPCOMING` before responding: an
+  // account can still hold a pile of elapsed CONFIRMED rows, but partition
+  // filtering means none of them are IN the response at all — only the
+  // genuinely upcoming row is, from ONE request.
+  // `client_home_hub_flow_test.dart`'s Phase 228 regression test proves this
+  // against a REAL partition-filtering fake backend over the actual HTTP
+  // round trip; this unit test only proves the provider's own request shape
+  // and single-call resolution.
+  // ---------------------------------------------------------------------------
+  group('nextAppointment single-request partition cutover (Phase 228)', () {
+    test('a production-shaped account — 6 elapsed CONFIRMED rows the server '
+        'excludes via partition=UPCOMING, plus 1 genuinely upcoming row — '
+        'resolves the upcoming row from ONE request (the pre-228 provider '
+        'needed 2 pages for this exact shape — the live production defect '
+        'Phase 225 fixed with a bounded page-forward scan; Phase 228 removes '
+        'the need for the scan entirely)', () async {
+      final Booking upcoming = _booking(id: 'bk-real-next');
+      // The 6 elapsed rows exist on the account but never reach the
+      // client: `partition=UPCOMING` excludes them server-side, so the
+      // fake — playing the role of an already-filtered server — hands
+      // back ONLY the genuinely upcoming row.
       final repo = _FakeBookingRepository(
         PageResponse<Booking>(
-          items: <Booking>[elapsed, upcoming],
+          items: <Booking>[upcoming],
           page: 0,
           totalPages: 1,
-          totalElements: 2,
+          totalElements: 1,
         ),
       );
       final container = _container(repo);
@@ -376,137 +511,70 @@ void main() {
       );
 
       expect(
-        result!.id,
-        'bk-upcoming',
+        result?.id,
+        'bk-real-next',
         reason:
-            'the elapsed row must be skipped client-side even though the '
-            'server still reports it CONFIRMED',
+            'this mirrors the live production defect Phase 225 fixed — 7 '
+            'total CONFIRMED rows, 6 elapsed, 1 genuinely upcoming — but '
+            'now resolved by server-side filtering rather than a '
+            'client-side scan',
       );
-    });
-
-    test('a page where every row has already elapsed resolves to null, not the '
-        'stale head row — and does NOT over-fetch when totalElements says '
-        'nothing more exists', () async {
-      final repo = _FakeBookingRepository(
-        PageResponse<Booking>(
-          items: <Booking>[
-            _elapsedBooking('bk-elapsed-1'),
-            _elapsedBooking('bk-elapsed-2'),
-          ],
-          page: 0,
-          totalPages: 1,
-          totalElements: 2,
-        ),
-      );
-      final container = _container(repo);
-
-      final NextAppointment? result = await container.read(
-        nextAppointmentProvider.future,
-      );
-
-      expect(result, isNull);
       expect(
         repo.callCount,
         1,
         reason:
-            'totalElements (2) == items scanned (2) — no further page '
-            'exists, so this is a genuine null and must not page-forward',
+            'exactly one request — the old code needed a 2nd page for '
+            'this exact fixture shape (5-row peek, 7 total elements); '
+            'partition filtering means there is nothing left to page '
+            'forward through',
       );
     });
 
-    test(
-      'an empty page resolves to null (no upcoming bookings at all)',
-      () async {
-        final repo = _FakeBookingRepository(
-          const PageResponse<Booking>(
-            items: <Booking>[],
-            page: 0,
-            totalPages: 1,
-            totalElements: 0,
-          ),
-        );
-        final container = _container(repo);
+    // mobile-qa Phase 228 audit finding: the "production-shaped account"
+    // test above passes purely on `_FakeBookingRepository` handing back a
+    // hand-picked page — it was revert-proven during this audit to keep
+    // passing even with `partition` entirely removed from the request (that
+    // fake ignores what it is asked, by design; see its group-level doc
+    // comment). This test closes that unit-tier gap with a fake whose
+    // response genuinely depends on the captured `partition` value, so it
+    // fails if a future change silently drops or corrupts the parameter —
+    // without re-implementing a whole in-memory backend (that full
+    // cross-the-wire proof stays in `client_home_hub_flow_test.dart`'s Test
+    // 4c, which this audit also revert-proved).
+    test('resolving the upcoming booking genuinely depends on `partition: '
+        'BookingPartition.upcoming` reaching the repository call — a fake '
+        'that answers differently depending on the captured partition value '
+        'would surface the stale elapsed row instead if partition were '
+        'dropped', () async {
+      final Booking upcoming = _booking(id: 'bk-real-next');
+      final Booking staleElapsed = _booking(
+        id: 'bk-stale-elapsed',
+        aheadOfNow: const Duration(days: -2),
+      );
+      final repo = _PartitionSensitiveFakeBookingRepository(
+        upcoming: upcoming,
+        elapsed: staleElapsed,
+      );
+      final container = _container(repo);
 
-        final NextAppointment? result = await container.read(
-          nextAppointmentProvider.future,
-        );
+      final NextAppointment? result = await container.read(
+        nextAppointmentProvider.future,
+      );
 
-        expect(result, isNull);
-      },
-    );
-  });
+      expect(
+        result?.id,
+        'bk-real-next',
+        reason:
+            'if `partition` were dropped or wrong, this fake would hand '
+            'back `bk-stale-elapsed` instead — this assertion is the '
+            'unit-tier tripwire for that regression',
+      );
+      expect(repo.callCount, 1);
+      expect(repo.capturedPartition, BookingPartition.upcoming);
+    });
 
-  // ---------------------------------------------------------------------------
-  // Phase 225 production-bug regression: the `from`-window bound and the
-  // bounded page-forward that replaced the old unconditional 5-row cap. This
-  // is the exact scenario 1080+164+11 GREEN tests missed — a page where
-  // EVERY row is elapsed but `totalElements` EXCEEDS the page size, with a
-  // genuinely upcoming row beyond the first page.
-  // ---------------------------------------------------------------------------
-  group('nextAppointment from-window + bounded page-forward (Phase 225)', () {
-    test(
-      'first page all-elapsed with totalElements exceeding the page size '
-      'pages forward and surfaces the real upcoming booking on page 1',
-      () async {
-        final Booking upcoming = _booking(id: 'bk-real-next');
-        final repo =
-            _FakeBookingRepository(
-                const PageResponse<Booking>(
-                  items: <Booking>[],
-                  page: 0,
-                  totalPages: 1,
-                  totalElements: 0,
-                ),
-              )
-              ..pagesByIndex = <int, PageResponse<Booking>>{
-                0: PageResponse<Booking>(
-                  items: <Booking>[
-                    _elapsedBooking('bk-elapsed-1'),
-                    _elapsedBooking('bk-elapsed-2'),
-                    _elapsedBooking('bk-elapsed-3'),
-                    _elapsedBooking('bk-elapsed-4'),
-                    _elapsedBooking('bk-elapsed-5'),
-                  ],
-                  page: 0,
-                  totalPages: 2,
-                  totalElements: 7,
-                ),
-                1: PageResponse<Booking>(
-                  items: <Booking>[_elapsedBooking('bk-elapsed-6'), upcoming],
-                  page: 1,
-                  totalPages: 2,
-                  totalElements: 7,
-                ),
-              };
-        final container = _container(repo);
-
-        final NextAppointment? result = await container.read(
-          nextAppointmentProvider.future,
-        );
-
-        expect(
-          result?.id,
-          'bk-real-next',
-          reason:
-              'this mirrors the live production defect: 7 total CONFIRMED '
-              'rows, the first 6 all elapsed, the 7th genuinely upcoming — '
-              'the old hard 5-row cap returned null here',
-        );
-        expect(repo.capturedPages, <int>[0, 1]);
-      },
-    );
-
-    test('sends `from` on every call, carrying the EUROPE/KYIV calendar day '
-        '(dateOnly(toBeauticaTime(now))) — never the device-local day nor the '
-        'raw wall-clock instant', () async {
-      // Superseded from its original (Phase 225) form: it used to assert
-      // `dateOnly(DateTime.now())` (the device-local day), which is exactly
-      // Finding 1's bug — this is the tautological test QA flagged as
-      // unable to pin a device-ahead-of-Kyiv scenario at all. The
-      // `clockProvider`-pinned tests in the "Kyiv-day boundary" group above
-      // now own that regression coverage; this test keeps only the
-      // production-default (no clock override, real wall clock) sanity
-      // check, corrected to the right contract.
+    test('an account with zero upcoming bookings resolves to null (empty '
+        'card), from one request', () async {
       final repo = _FakeBookingRepository(
         const PageResponse<Booking>(
           items: <Booking>[],
@@ -517,67 +585,12 @@ void main() {
       );
       final container = _container(repo);
 
-      final DateTime beforeCall = dateOnly(toBeauticaTime(DateTime.now()));
       final NextAppointment? result = await container.read(
         nextAppointmentProvider.future,
       );
-      final DateTime afterCall = dateOnly(toBeauticaTime(DateTime.now()));
 
       expect(result, isNull);
       expect(repo.callCount, 1);
-      final DateTime? sentFrom = repo.capturedFrom;
-      expect(sentFrom, isNotNull);
-      // Tolerant of the test happening to straddle Kyiv midnight: `from`
-      // must equal ONE of the two Kyiv calendar-day snapshots taken either
-      // side of the call, and it must already be date-only (no time-of-day
-      // component leaking onto the wire — `toApiDate` truncates, but the
-      // domain value handed to the repository should already be clean).
-      expect(sentFrom, anyOf(beforeCall, afterCall));
-      expect(sentFrom, dateOnly(sentFrom!));
-    });
-
-    test('page-forward is bounded — an account where every page is elapsed '
-        'never fetches beyond the hard cap', () async {
-      PageResponse<Booking> allElapsedPage(int pageIndex) =>
-          PageResponse<Booking>(
-            items: <Booking>[
-              _elapsedBooking('bk-elapsed-p$pageIndex-1'),
-              _elapsedBooking('bk-elapsed-p$pageIndex-2'),
-              _elapsedBooking('bk-elapsed-p$pageIndex-3'),
-              _elapsedBooking('bk-elapsed-p$pageIndex-4'),
-              _elapsedBooking('bk-elapsed-p$pageIndex-5'),
-            ],
-            page: pageIndex,
-            totalPages: 20,
-            // Deliberately far larger than any page budget could ever
-            // drain, so the loop can ONLY stop via the hard cap — if the
-            // cap were missing or wrong, this test would hang/over-fetch
-            // rather than false-pass.
-            totalElements: 1000,
-          );
-      final repo = _FakeBookingRepository(allElapsedPage(0))
-        ..pagesByIndex = <int, PageResponse<Booking>>{
-          0: allElapsedPage(0),
-          1: allElapsedPage(1),
-          2: allElapsedPage(2),
-        };
-      final container = _container(repo);
-
-      final NextAppointment? result = await container.read(
-        nextAppointmentProvider.future,
-      );
-
-      expect(result, isNull);
-      expect(
-        repo.capturedPages,
-        <int>[0, 1, 2],
-        reason:
-            'exactly 3 pages (the hard cap) — a 4th call would have hit '
-            'the fake\'s "no scripted response" StateError instead of '
-            'quietly returning null, so this also proves there is no '
-            'unbounded fan-out',
-      );
-      expect(repo.callCount, 3);
     });
   });
 
@@ -605,6 +618,11 @@ void main() {
   // unconditional and true under any host `TZ` — `TZ=UTC`, `TZ=Europe/Kyiv`,
   // `TZ=Asia/Tokyo` all assert identically, and each test genuinely proves
   // its direction of the fix on every one of them, not just one.
+  //
+  // Phase 228: this group stays UNEDITED — `partition` narrows WHICH rows
+  // come back, not the `from`/Kyiv-day derivation these tests pin, and the
+  // fake's loose (no-matcher) `getMyBookings` accepts the new `partition`
+  // argument transparently.
   group('nextAppointment Kyiv-day boundary (Finding 1 — HIGH)', () {
     test(
       'device clock AHEAD of Kyiv (device-local date > Kyiv date): `from` is '
