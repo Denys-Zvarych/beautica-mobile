@@ -20,11 +20,11 @@ import 'package:beautica_mobile/features/booking/data/appointment_repository.dar
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/visit_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
-import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -260,12 +260,8 @@ void main() {
       tester.element(find.byType(VisitDetailScreen)),
       listen: false,
     );
-    final ProviderSubscription<AsyncValue<NextAppointment?>> subNextAppt =
-        container.listen(
-          nextAppointmentProvider,
-          (_, _) {},
-          fireImmediately: true,
-        );
+    final ProviderSubscription<AsyncValue<Booking?>> subNextAppt = container
+        .listen(nextAppointmentProvider, (_, _) {}, fireImmediately: true);
     addTearDown(subNextAppt.close);
     await container.read(nextAppointmentProvider.future);
     expect(nextApptFetches, 1);

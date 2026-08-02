@@ -58,7 +58,6 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/booking_su
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
-import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -875,12 +874,8 @@ void main() {
               fireImmediately: true,
             );
         addTearDown(subList.close);
-        final ProviderSubscription<AsyncValue<NextAppointment?>> subNextAppt =
-            container.listen(
-              nextAppointmentProvider,
-              (_, _) {},
-              fireImmediately: true,
-            );
+        final ProviderSubscription<AsyncValue<Booking?>> subNextAppt = container
+            .listen(nextAppointmentProvider, (_, _) {}, fireImmediately: true);
         addTearDown(subNextAppt.close);
         await container.read(bookingDetailProvider('booking-1').future);
         await container.read(myBookingsProvider(BookingTab.upcoming).future);
@@ -1080,12 +1075,8 @@ void main() {
             fireImmediately: true,
           );
       addTearDown(subList.close);
-      final ProviderSubscription<AsyncValue<NextAppointment?>> subNextAppt =
-          container.listen(
-            nextAppointmentProvider,
-            (_, _) {},
-            fireImmediately: true,
-          );
+      final ProviderSubscription<AsyncValue<Booking?>> subNextAppt = container
+          .listen(nextAppointmentProvider, (_, _) {}, fireImmediately: true);
       addTearDown(subNextAppt.close);
       await container.read(myBookingsProvider(BookingTab.upcoming).future);
       await container.read(nextAppointmentProvider.future);

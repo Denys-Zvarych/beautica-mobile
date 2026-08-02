@@ -28,7 +28,6 @@ import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_ar
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
-import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -393,12 +392,8 @@ void main() {
           fireImmediately: true,
         );
     addTearDown(subList.close);
-    final ProviderSubscription<AsyncValue<NextAppointment?>> subNextAppt =
-        container.listen(
-          nextAppointmentProvider,
-          (_, _) {},
-          fireImmediately: true,
-        );
+    final ProviderSubscription<AsyncValue<Booking?>> subNextAppt = container
+        .listen(nextAppointmentProvider, (_, _) {}, fireImmediately: true);
     addTearDown(subNextAppt.close);
     await container.read(myBookingsProvider(BookingTab.upcoming).future);
     await container.read(nextAppointmentProvider.future);

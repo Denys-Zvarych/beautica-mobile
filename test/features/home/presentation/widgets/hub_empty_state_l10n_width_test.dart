@@ -36,7 +36,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
-import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_empty_state.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:flutter/foundation.dart';
@@ -145,13 +145,7 @@ Future<void> _pumpEmptyStates(
         home: ListView(
           padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
           children: const <Widget>[
-            NextAppointmentCard(
-              appointment: null,
-              onReschedule: _noop,
-              onCancel: _noop,
-              onAddToGoogleCalendar: _noop,
-              onAddToAppleCalendar: _noop,
-            ),
+            NextAppointmentEmptyState(),
             SizedBox(height: VelvetSpacing.lg),
             FavoriteMastersCard(masters: <FavoriteMasterItem>[], totalCount: 0),
             SizedBox(height: VelvetSpacing.lg),

@@ -2,17 +2,19 @@
 // coverage for the CLIENT reschedule "navigation in-flight" guard.
 //
 // The fix added `bookingRescheduleInFlightProvider` (an autoDispose bool
-// Notifier) plus a spinner/disabled state on BOTH reschedule triggers and an
+// Notifier) plus a spinner/disabled state on the reschedule trigger and an
 // early-return re-entrancy guard inside `startBookingReschedule`. It was
 // re-scored by mobile-perf only and shipped WITHOUT a dedicated test. This
 // suite pins the three behaviours the fix owns:
 //
 //   (a) BUTTON REFLECTS THE FLAG — while a reschedule navigation is in-flight,
-//       BOTH surfaces swap their label for a spinner and stop firing:
-//         • the «Деталі запису» «Перенести» `NeumorphicButton`
-//           (key `booking-detail-reschedule`, driven by a watched provider);
-//         • the Home-Hub «Найближчий запис» `HubFilledButton`
-//           (key `next_appt_reschedule_button`, driven by `rescheduleLoading`).
+//       the «Деталі запису» «Перенести» `NeumorphicButton`
+//       (key `booking-detail-reschedule`, driven by a watched provider) swaps
+//       its label for a spinner and stops firing. (The Home-Hub «Найближчий
+//       запис» card's own reschedule trigger was retired when the Home Hub
+//       switched to the shared read-only `BookingCard` — reschedule now lives
+//       ONLY on «Деталі запису», so this file no longer has a second surface
+//       to cover.)
 //   (b) RE-ENTRANCY — a second trigger fired while the first is still loading
 //       its seeding GETs early-returns: NO second slot-picker is pushed.
 //   (c) end() CLEARS THE FLAG — on a successful push AND on every early
@@ -36,8 +38,6 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/reschedule_navigation.dart';
-import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
-import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -189,64 +189,6 @@ void main() {
         expect(semantics.properties.enabled, isFalse);
       },
     );
-  });
-
-  // ═════════════════════════════════════════════════════════════════════════
-  // (a) The button reflects the in-flight flag — Home-Hub «Найближчий запис».
-  // ═════════════════════════════════════════════════════════════════════════
-  group('home-hub «Перенести» reflects rescheduleLoading', () {
-    const Key kReschedule = Key('next_appt_reschedule_button');
-
-    final NextAppointment appointment = NextAppointment(
-      id: _bookingId,
-      masterName: 'Софія Бондар',
-      service: 'Манікюр',
-      dateLabel: '20 липня',
-      timeLabel: '15:00',
-      location: 'Центр, Львів',
-      startsAt: futureBookingStart(),
-      endsAt: futureBookingStart().add(const Duration(minutes: 90)),
-      masterInitials: 'СБ',
-    );
-
-    Future<void> pumpCard(
-      WidgetTester tester, {
-      required bool loading,
-      required VoidCallback onReschedule,
-    }) => tester.pumpApp(
-      NextAppointmentCard(
-        appointment: appointment,
-        onReschedule: onReschedule,
-        onCancel: () {},
-        onAddToGoogleCalendar: () {},
-        onAddToAppleCalendar: () {},
-        rescheduleLoading: loading,
-      ),
-    );
-
-    testWidgets('loading == false → label shown and a tap fires onReschedule', (
-      tester,
-    ) async {
-      bool tapped = false;
-      await pumpCard(tester, loading: false, onReschedule: () => tapped = true);
-
-      expect(_isSpinning(kReschedule), isFalse);
-      await tester.tap(find.byKey(kReschedule));
-      expect(tapped, isTrue);
-    });
-
-    testWidgets('loading == true → spinner shown and a tap is ignored', (
-      tester,
-    ) async {
-      bool tapped = false;
-      await pumpCard(tester, loading: true, onReschedule: () => tapped = true);
-
-      // Spinner replaces the label…
-      expect(_isSpinning(kReschedule), isTrue);
-      // …and the button ignores taps while loading (no double navigation).
-      await tester.tap(find.byKey(kReschedule));
-      expect(tapped, isFalse);
-    });
   });
 
   // ═════════════════════════════════════════════════════════════════════════

@@ -7,9 +7,13 @@
 // [BookingSlotPickerArgs.rescheduleBookingId], which the confirm-step submit
 // reads to swap `POST /bookings` for `PATCH /bookings/{id}/reschedule` (see
 // `booking_notifier.dart`). This helper is the one place that seeds those args
-// from an existing booking, so both surfaces that offer reschedule — the
-// «Деталі запису» screen and the Home Hub «Найближчий запис» card — share
-// identical behavior.
+// from an existing booking. «Деталі запису» (`booking_detail_screen.dart`) is
+// its only caller today — the Home Hub's own «Перенести» trigger was retired
+// when the Home Hub's populated card switched over to the SAME read-only
+// `BookingCard` widget «Мої записи» uses (a USER-LOCKED decision; see
+// `booking_card.dart`'s library doc). This stays a standalone, `bookingId`-
+// keyed function (not inlined into the detail screen) so any future CLIENT
+// surface can reuse the identical seed-and-push behavior.
 //
 // SEEDING: the slot picker needs the target [Master] (for its identity strip +
 // address context) and the booked [MasterService] (its id + duration drive
@@ -18,8 +22,9 @@
 // loads them from `publicMasterProfileProvider(masterId)` (the SAME warmed
 // family the create flow already uses) and resolves the one service by id. The
 // booking itself is read from `bookingDetailProvider(id)` (already cached on
-// the detail screen; a fresh GET from the Home Hub) so a single `bookingId` is
-// the only input either caller needs.
+// the detail screen — its sole caller today, so this is instant there) so a
+// single `bookingId` is the only input this helper needs; a future bare-id
+// caller would pay a genuine fresh GET here instead.
 //
 // Reschedule is CONFIRMED-only on the backend, so a defensive status guard
 // short-circuits a non-confirmed booking with a calm message rather than

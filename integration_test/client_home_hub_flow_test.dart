@@ -53,10 +53,14 @@
 // see the "no CONFIRMED booking seeded" test below.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
-import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
+import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
+import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/features/rating/presentation/my_rating_screen.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
@@ -282,7 +286,7 @@ void main() {
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      // NextAppointmentCard empty state key.
+      // The Next-appointment section's empty-state key.
       expect(
         find.byKey(const Key('next_appointment_empty')),
         findsOneWidget,
@@ -348,119 +352,131 @@ void main() {
   // NOT A NATIVE INTERACTION → no patrol flow is needed (no OS dialog, deep
   // link, notification, WebView, or biometric surface is touched — this is a
   // plain in-app dialog + HTTP PATCH).
-  testWidgets(
-    'next-appointment card renders LIVE booking data and cancelling from the '
-    'card updates it back to the empty state',
-    (tester) async {
-      // Default fixture: booking-1 is CONFIRMED, 7 days out — genuinely
-      // upcoming, so this is the "no override needed" happy path.
-      final fb = FakeBackend()..currentRole = UserRole.client;
-      await AppHarness.boot(tester, fb);
-      await AppHarness.loginAs(tester, fb, UserRole.client);
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+  // USER-LOCKED DECISION — the populated Next-appointment card now renders
+  // the SAME read-only `BookingCard` widget «Мої записи» uses: "the card has
+  // ONE affordance: open me" (see `booking_card.dart`'s library doc). It no
+  // longer carries its own «Скасувати» trigger — that flow (dialog → PATCH →
+  // card falls back to empty) now lives ONLY on «Деталі запису» and is
+  // covered there by `booking_detail_screen.dart`'s own test suite (see the
+  // retired `home_hub_cancel_wiring_test.dart`'s file header for the mapping
+  // of which surface covers what). This test instead proves the two things
+  // that ARE still specific to the Home Hub: the card renders LIVE booking
+  // data through the shared widget, and tapping it opens «Деталі запису» —
+  // the HIGHEST-RISK part of the cutover: `RouteNames.bookingDetail` is
+  // nested under the CLIENT shell's Записи branch in production
+  // (app_router.dart), while the Home Hub sits on a DIFFERENT branch. Driven
+  // through the REAL `appRouter` (not a test-local stub), this proves a
+  // cross-branch push lands on the detail screen AND that popping back
+  // returns to the HOME HUB — the bottom nav stays on Головна, it never gets
+  // silently left on Записи.
+  testWidgets('next-appointment card renders LIVE booking data via the shared '
+      'BookingCard, and tapping it opens «Деталі запису» — popping back '
+      'returns to the Home Hub, not the Записи tab', (tester) async {
+    // Default fixture: booking-1 is CONFIRMED, 7 days out — genuinely
+    // upcoming, so this is the "no override needed" happy path.
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      // ── 1. Populated, not empty — real data rendered. ─────────────────────
-      expect(
-        find.byKey(const Key('next_appointment_populated')),
-        findsOneWidget,
-        reason:
-            'the default FakeBackend fixture seeds an upcoming CONFIRMED '
-            'booking, so the card must render POPULATED on a fresh login, '
-            'never the permanent empty-state stub it used to be',
-      );
-      expect(find.byKey(const Key('next_appointment_empty')), findsNothing);
+    // ── 1. Populated, not empty — real data rendered through the SAME ──
+    //      shared BookingCard widget «Мої записи» uses.
+    expect(
+      find.byKey(const Key('next_appointment_populated')),
+      findsOneWidget,
+      reason:
+          'the default FakeBackend fixture seeds an upcoming CONFIRMED '
+          'booking, so the card must render POPULATED on a fresh login, '
+          'never the permanent empty-state stub it used to be',
+    );
+    expect(find.byKey(const Key('next_appointment_empty')), findsNothing);
+    expect(
+      find.byType(BookingCard),
+      findsOneWidget,
+      reason:
+          'the populated state renders the SAME shared BookingCard widget '
+          '«Мої записи» uses — no Home-Hub-specific card class any more',
+    );
 
-      // i18n-finder-ok: fixture data from FakeBackend (master name / service /
-      // composed address), not translated UI copy.
-      expect(
-        find.text('Софія Бондар'),
-        findsOneWidget,
-        reason: 'the card must show the REAL booked master name',
-      );
-      expect(
-        find.text('Манікюр з покриттям'),
-        findsOneWidget,
-        reason: 'the card must show the REAL booked service name',
-      );
-      expect(
-        find.text('вул. Хрещатик, 12, Київ'),
-        findsOneWidget,
-        reason:
-            'the card must show the REAL composed address (street + '
-            'building + city — district drops per composeAddressLine rule 1)',
-      );
+    // i18n-finder-ok: fixture data from FakeBackend (master name / service),
+    // not translated UI copy.
+    expect(
+      find.text('Софія Бондар'),
+      findsOneWidget,
+      reason: 'the card must show the REAL booked master name',
+    );
+    expect(
+      find.text('Манікюр з покриттям'),
+      findsOneWidget,
+      reason: 'the card must show the REAL booked service name',
+    );
 
-      // ── 2/3. Cancel FROM THE CARD — same dialog, same PATCH. ──────────────
-      final Finder cancelButton = find.byKey(
-        const Key('next_appt_cancel_button'),
-      );
-      expect(cancelButton, findsOneWidget);
-      await tester.ensureVisible(cancelButton);
-      await tester.tap(cancelButton);
-      // NOT `AppHarness.settle` here: Phase 225 audit-fix cycle 2 (mobile-
-      // security LOW) widened `bookingCancelInFlightProvider`'s in-flight
-      // window to span load → dialog → write, so for as long as the confirm
-      // dialog is open the obscured card button behind it keeps an
-      // indeterminate `CircularProgressIndicator` ticking (see
-      // `booking_cancel_navigation.dart`'s RE-ENTRANCY note). A repeating
-      // spinner never yields a quiet frame, so `pumpAndSettle` (even
-      // `AppHarness`'s 20 s-bounded flavor) would burn its whole timeout and
-      // throw while the dialog is open — use the spinner-safe bounded-poll
-      // helper instead, exactly like the search-results loadMore spinner
-      // case `pumpUntilFound` documents.
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byKey(const Key('cancel-booking-dialog')),
-      );
+    // No in-card action buttons any more — BookingCard "has ONE
+    // affordance: open me".
+    expect(find.byKey(const Key('next_appt_cancel_button')), findsNothing);
+    expect(find.byKey(const Key('next_appt_reschedule_button')), findsNothing);
 
-      expect(
-        find.byKey(const Key('cancel-booking-dialog')),
-        findsOneWidget,
-        reason:
-            'startBookingCancel must load the booking and show the SAME '
-            'cancellation-note dialog the detail screen uses',
-      );
+    // ── 2. Tap the card → «Деталі запису» for THIS booking. ───────────────
+    await tester.tap(find.byType(BookingCard));
+    await AppHarness.settle(tester);
 
-      await tester.enterText(
-        find.byKey(const Key('cancel-booking-note-field')),
-        'Не встигаю.',
-      );
-      // Plain bounded pump, not `AppHarness.settle` — the dialog is still
-      // open, so the same perpetual-spinner-behind-the-barrier concern above
-      // applies; entering text only needs one frame to render.
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
-      // The dialog is now closed and the write is in flight — this is the
-      // spinner-safe wait for the eventual settled state (booking cancelled,
-      // card fallen back to empty), not a raw `settle()`.
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byKey(const Key('next_appointment_empty')),
-      );
+    expect(
+      find.byType(BookingDetailScreen),
+      findsOneWidget,
+      reason:
+          'tapping the card must push «Деталі запису» for booking-1 — the '
+          'card carries no buttons of its own any more',
+    );
+    // `nestedPushLocation` (not `expectShellLocation`) is the correct
+    // resolver here: empirically, go_router's `push` grafts this leaf onto
+    // the shell match of whichever branch is CURRENTLY ACTIVE (Home) rather
+    // than resolving a fresh branch from the URL, even though
+    // `bookingDetail` is statically declared under the Записи branch's own
+    // route tree in app_router.dart — see [AppHarness.nestedPushLocation]'s
+    // doc comment for exactly this shape.
+    AppHarness.expectNestedPushLocation(
+      router,
+      '${RouteNames.clientBookings}/booking-1',
+    );
+    // The bottom nav is suppressed on the detail page itself (matches every
+    // other pushed-detail route in the CLIENT shell).
+    expect(find.byType(ClientBottomNav), findsNothing);
 
-      expect(fb.cancelBookingCalls, 1);
-      expect(fb.lastCancelComment, 'Не встигаю.');
-      expect(fb.bookingStatus, 'CANCELLED');
+    // ── 3. Pop back → the HOME HUB, with Головна still the active tab. ────
+    // This is the load-bearing assertion for the cross-branch-push risk:
+    // `bookingDetail` is declared under the Записи branch in app_router.dart,
+    // so a naive implementation could silently switch the active branch
+    // when pushed from Home. It must not — popping must land back on
+    // HomeHubScreen with the bottom nav's Головна tile still selected.
+    router.pop();
+    await AppHarness.settle(tester);
 
-      // ── 4. The card updates itself back to empty — still on the Home Hub. ─
-      expect(
-        find.byType(HomeHubScreen),
-        findsOneWidget,
-        reason: 'cancelling from the card must not navigate away from /home',
-      );
-      expect(
-        find.byKey(const Key('next_appointment_empty')),
-        findsOneWidget,
-        reason:
-            'nextAppointmentProvider must have been invalidated and '
-            're-fetched FROM THE HOME HUB CALL SITE — the booking just left '
-            'CONFIRMED, so the card must fall back to its empty state '
-            'without any manual refresh',
-      );
-      expect(find.byKey(const Key('next_appointment_populated')), findsNothing);
-    },
-    timeout: const Timeout(Duration(seconds: 45)),
-  );
+    expect(
+      find.byType(HomeHubScreen),
+      findsOneWidget,
+      reason:
+          'popping the detail screen (reached from the Home Hub) must '
+          'return to the Home Hub, not the Записи list',
+    );
+    expect(
+      find.byType(MyBookingsScreen),
+      findsNothing,
+      reason:
+          'a cross-branch-push regression would leave the Записи branch '
+          'active underneath the popped detail screen instead',
+    );
+    final ClientBottomNav nav = tester.widget<ClientBottomNav>(
+      find.byType(ClientBottomNav),
+    );
+    expect(
+      nav.activeIndex,
+      kClientHomeBranch,
+      reason:
+          'the bottom nav must still show Головна selected — a '
+          'cross-branch-push regression would leave it on Записи '
+          '(kClientBookingsBranch) instead',
+    );
+  }, timeout: const Timeout(Duration(seconds: 45)));
 
   // ── Test 4c — Phase 228: server-side `partition=UPCOMING` resolves the ───
   //              production-shaped stale-elapsed scenario from ONE request ──
@@ -568,19 +584,22 @@ void main() {
       expect(find.byKey(const Key('next_appointment_empty')), findsNothing);
 
       // It is the RIGHT booking — the server excluded every elapsed row,
-      // never a client-side skip picking around a wrong head row.
-      final NextAppointmentCard card = tester.widget<NextAppointmentCard>(
-        find.byType(NextAppointmentCard),
+      // never a client-side skip picking around a wrong head row. The Home
+      // Hub renders the SAME shared `BookingCard` widget «Мої записи» uses
+      // (locked decision) — its `.booking` is the exact fetched [Booking],
+      // no lossy NextAppointment DTO projection any more.
+      final BookingCard card = tester.widget<BookingCard>(
+        find.byType(BookingCard),
       );
       expect(
-        card.appointment?.id,
+        card.booking.id,
         'real-upcoming',
         reason:
             'the card must resolve to the genuinely upcoming row — never '
             'one of the 6 elapsed CONFIRMED rows the server excludes via '
             'partition=UPCOMING',
       );
-      expect(card.appointment?.startsAt, upcomingStart);
+      expect(card.booking.startAt, upcomingStart);
 
       // `partition` genuinely reached the wire — dropping it would silently
       // regress to an unfiltered/status-only scan (Spring drops an

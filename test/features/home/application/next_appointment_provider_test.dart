@@ -11,8 +11,11 @@
 //   • the exact request shape sent to the repository — statuses/partition/
 //     sort/page/size/from (Phase 228: `partition: BookingPartition.upcoming`
 //     and `size: 1` replace the old 5-row peek + bounded page-forward);
-//   • the domain → NextAppointment field mapping (date/time labels, location
-//     fallback, master initials, the real `endsAt`);
+//   • the provider returns `page.items.first` UNCHANGED — the Home Hub now
+//     renders it through the SAME shared `BookingCard` widget «Мої записи»
+//     uses (a later, USER-LOCKED decision), so there is no lossy
+//     NextAppointment DTO projection here any more to unit-test a mapping
+//     for;
 //   • the single-request resolution of a production-shaped account (many
 //     elapsed CONFIRMED rows the server excludes via `partition`, plus one
 //     genuinely upcoming row);
@@ -38,7 +41,6 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
-import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:dio/dio.dart';
@@ -374,7 +376,7 @@ void main() {
       final container = _container(repo);
 
       final DateTime beforeCall = dateOnly(toBeauticaTime(DateTime.now()));
-      final NextAppointment? result = await container.read(
+      final Booking? result = await container.read(
         nextAppointmentProvider.future,
       );
       final DateTime afterCall = dateOnly(toBeauticaTime(DateTime.now()));
@@ -393,44 +395,25 @@ void main() {
     });
   });
 
-  group('nextAppointment mapping', () {
-    test('maps the soonest upcoming booking to a NextAppointment', () async {
-      final Booking booking = _booking(
-        id: 'bk-1',
-        street: 'вул. Хрещатик',
-        buildingNo: '22',
-        cityLabel: 'Київ',
-      );
-      final repo = _FakeBookingRepository(
-        PageResponse<Booking>(
-          items: <Booking>[booking],
-          page: 0,
-          totalPages: 1,
-          totalElements: 1,
-        ),
-      );
-      final container = _container(repo);
-
-      final NextAppointment? result = await container.read(
-        nextAppointmentProvider.future,
-      );
-
-      expect(result, isNotNull);
-      expect(result!.id, booking.id);
-      expect(result.masterName, 'Марія Іванюк');
-      expect(result.service, 'Манікюр');
-      expect(result.startsAt, booking.startAt);
-      expect(result.endsAt, booking.endAt);
-      expect(result.masterInitials, 'МІ');
-      expect(result.location, 'вул. Хрещатик, 22, Київ');
-    });
-
+  // Phase [BookingCard-cutover] — the provider used to map `page.items.first`
+  // onto a lean `NextAppointment` DTO (date/time labels, a composed
+  // `location` fallback, master initials, ...). It now returns the fetched
+  // [Booking] UNCHANGED (see `home_hub_notifier.dart`'s doc): the Home Hub
+  // renders it through the SAME shared `BookingCard` widget «Мої записи»
+  // uses (a USER-LOCKED decision), so any address-composition /
+  // initials-derivation behaviour lives on `Booking`'s own extension getters
+  // (`BookingDisplayX` — see `booking_display_x_test.dart`), not here. This
+  // group only pins the pass-through contract: whatever the repository hands
+  // back as `page.items.first` is exactly what this provider resolves to.
+  group('nextAppointment pass-through', () {
     test(
-      'falls back to salonName when the booking has no composed address',
+      'resolves to the exact Booking fetched as page.items.first, unchanged',
       () async {
         final Booking booking = _booking(
-          id: 'bk-2',
-          salonName: 'Lviv Nails Studio',
+          id: 'bk-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '22',
+          cityLabel: 'Київ',
         );
         final repo = _FakeBookingRepository(
           PageResponse<Booking>(
@@ -442,33 +425,20 @@ void main() {
         );
         final container = _container(repo);
 
-        final NextAppointment? result = await container.read(
+        final Booking? result = await container.read(
           nextAppointmentProvider.future,
         );
 
-        expect(result!.location, 'Lviv Nails Studio');
+        expect(
+          result,
+          booking,
+          reason:
+              '[Booking] is a freezed value type — this must be the SAME '
+              'booking, field for field, as what the repository returned; '
+              'no DTO mapping happens in between any more.',
+        );
       },
     );
-
-    test('location is the empty string when neither an address nor a salon '
-        'name is on file', () async {
-      final Booking booking = _booking(id: 'bk-3');
-      final repo = _FakeBookingRepository(
-        PageResponse<Booking>(
-          items: <Booking>[booking],
-          page: 0,
-          totalPages: 1,
-          totalElements: 1,
-        ),
-      );
-      final container = _container(repo);
-
-      final NextAppointment? result = await container.read(
-        nextAppointmentProvider.future,
-      );
-
-      expect(result!.location, '');
-    });
   });
 
   // ---------------------------------------------------------------------------
@@ -506,7 +476,7 @@ void main() {
       );
       final container = _container(repo);
 
-      final NextAppointment? result = await container.read(
+      final Booking? result = await container.read(
         nextAppointmentProvider.future,
       );
 
@@ -557,7 +527,7 @@ void main() {
       );
       final container = _container(repo);
 
-      final NextAppointment? result = await container.read(
+      final Booking? result = await container.read(
         nextAppointmentProvider.future,
       );
 
@@ -585,7 +555,7 @@ void main() {
       );
       final container = _container(repo);
 
-      final NextAppointment? result = await container.read(
+      final Booking? result = await container.read(
         nextAppointmentProvider.future,
       );
 
@@ -658,7 +628,7 @@ void main() {
         );
         final container = _container(repo, now: () => deviceNow);
 
-        final NextAppointment? result = await container.read(
+        final Booking? result = await container.read(
           nextAppointmentProvider.future,
         );
 
@@ -688,10 +658,23 @@ void main() {
     test('device clock BEHIND Kyiv (device-local date < Kyiv date): no '
         'regression — `from` is still the Kyiv day and the upcoming booking '
         'still surfaces', () async {
-      // Under `TZ=UTC` this instant is Kyiv (UTC+3 summer) 2026-08-02
-      // 02:30 — device-local day (Aug 1) sits BEHIND the Kyiv day (Aug 2).
-      final DateTime deviceNow = DateTime(2026, 8, 1, 23, 30);
+      // "Device" wall-clock reads 2026-08-01 23:30, anchored explicitly to
+      // UTC (`DateTime.utc`, not a bare local constructor) — so the instant
+      // this represents, and its divergence from Kyiv, is a property of the
+      // fixture, not of whichever machine (or CI runner) executes the suite.
+      // A bare local `DateTime(...)` here would resolve its underlying
+      // instant through the HOST PROCESS's own `TZ`: on the dev VM
+      // (`TZ=Europe/Kyiv`) the instant IS already Kyiv wall-clock, so
+      // `kyivToday` below trivially equals the device-local day and the
+      // divergence this test exists to guard never actually fires — vacuous
+      // on the dev VM, only accidentally discriminating under CI's
+      // `TZ=UTC` runner. The explicit `.utc()` anchor fixes the instant to
+      // 2026-08-01 23:30 UTC unconditionally, which is Kyiv (UTC+3 summer)
+      // 2026-08-02 02:30 — device-local day (Aug 1) sits BEHIND the Kyiv day
+      // (Aug 2) on every host `TZ` the suite runs under.
+      final DateTime deviceNow = DateTime.utc(2026, 8, 1, 23, 30);
       final DateTime kyivToday = dateOnly(toBeauticaTime(deviceNow));
+      final DateTime deviceLocalToday = dateOnly(deviceNow);
 
       final Booking booking = _booking(id: 'bk-kyiv-behind');
       final repo = _FakeBookingRepository(
@@ -704,12 +687,33 @@ void main() {
       );
       final container = _container(repo, now: () => deviceNow);
 
-      final NextAppointment? result = await container.read(
+      final Booking? result = await container.read(
         nextAppointmentProvider.future,
       );
 
       expect(result?.id, 'bk-kyiv-behind');
-      expect(repo.capturedFrom, kyivToday);
+      expect(
+        repo.capturedFrom,
+        kyivToday,
+        reason:
+            '`from` must be the Europe/Kyiv calendar day derived from the '
+            'injected clock, never the raw device-local day.',
+      );
+      // The UTC anchor makes this divergence a property of the fixture, not
+      // of the host TZ, so this is asserted unconditionally: the injected
+      // "device" sits behind Kyiv, so a regression reading the raw
+      // device-local day instead of the Kyiv derivation would send a `from`
+      // one day EARLY here — a no-op for this particular booking (it still
+      // surfaces), but the wrong value nonetheless, which is what
+      // `repo.capturedFrom` above actually pins.
+      expect(
+        deviceLocalToday.isBefore(kyivToday),
+        isTrue,
+        reason:
+            'the injected "device" sits behind Kyiv, so the pre-fix '
+            'device-local derivation would have sent a `from` one day '
+            'EARLY relative to the correct Kyiv day.',
+      );
     });
 
     test('midnight-crossing in Kyiv itself: instants either side of Kyiv local '

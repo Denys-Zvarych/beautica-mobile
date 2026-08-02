@@ -1,19 +1,23 @@
 // Phase 225 — shared entry point for the CLIENT single-booking cancel flow.
 //
-// Extracted from `BookingDetailScreen._confirmCancel` so the Home Hub's
-// «Найближчий запис» card can offer the exact same «Скасувати запис» flow
-// (dialog → `BookingRepository.cancelBooking` → 409-specific handling →
-// cache refresh) without duplicating it — mirrors how `onReschedule` on both
-// surfaces already delegates to the shared `startBookingReschedule`
-// (`reschedule_navigation.dart`).
+// Originally extracted from `BookingDetailScreen._confirmCancel` so the Home
+// Hub's «Найближчий запис» card could offer the exact same «Скасувати запис»
+// flow (dialog → `BookingRepository.cancelBooking` → 409-specific handling →
+// cache refresh) without duplicating it. A later, USER-LOCKED decision
+// switched the Home Hub's populated card over to the SAME read-only
+// `BookingCard` widget «Мої записи» uses — "the card has ONE affordance: open
+// me" (see `booking_card.dart`'s library doc) — so the Home Hub no longer has
+// its own «Скасувати» trigger; `booking_detail_screen.dart`'s `_confirmCancel`
+// is this helper's only caller today. It stays a standalone function (not
+// inlined back into the screen) so any future CLIENT surface with just a
+// `bookingId` can still reuse the dialog → write → cache-refresh flow.
 //
 // Takes a bare `bookingId` (not a `Booking`), exactly like
 // `startBookingReschedule`: it loads the enriched booking itself via
 // `bookingDetailProvider(bookingId).future` before showing the confirmation
-// dialog (`CancelBookingDialog` needs the service/master/when recap). On the
-// «Деталі запису» screen that provider is already watched and cached, so this
-// costs no extra round trip there; on the Home Hub the card only carries a
-// `NextAppointment.id`, so this is the ONE extra fetch that screen needs.
+// dialog (`CancelBookingDialog` needs the service/master/when recap) — on
+// «Деталі запису» that provider is already watched and cached, so this costs
+// no extra round trip there.
 //
 // RE-ENTRANCY (mobile-security LOW, Phase 225 audit-fix cycle 2 — supersedes
 // the mobile-perf MEDIUM fix pass note this replaces): the same shape as
@@ -36,20 +40,28 @@
 // did not. Widening the guard was the correct call and stays as-is.
 //
 // SPINNER ANIMATION (mobile-perf LOW, Phase 225 audit-fix cycle 3): widening
-// the GUARD to span the dialog-open window also widened the obscured card
-// button's indeterminate `CircularProgressIndicator` to animate for that
+// the GUARD to span the dialog-open window also widened a spinner-bearing
+// cancel CTA's indeterminate `CircularProgressIndicator` to animate for that
 // same, user-paced duration — fully hidden behind the dialog's modal barrier
 // the whole time. That is a distinct concern from the guard (tappability) and
 // is fixed separately, without narrowing the guard back: a second flag,
 // `bookingCancelDialogVisibleProvider`
 // (`booking_cancel_dialog_visible_notifier.dart`), brackets ONLY the
-// `showCancelBookingDialog` await below. `HubOutlineButton` mutes its
-// spinner's `TickerMode` for exactly that window and keeps animating for the
+// `showCancelBookingDialog` await below, so a spinner-bearing consumer can
+// mute its `TickerMode` for exactly that window and keep animating for the
 // pre-dialog load and the post-confirm write, where the spin is genuinely
-// informative. See `booking_cancel_dialog_visible_notifier.dart` and
-// `home_hub_cancel_wiring_test.dart` for the full reasoning, including why
-// this incidentally makes `tester.pumpAndSettle()` safe again while the
-// dialog is open (the ticker is muted, so no frame keeps rescheduling).
+// informative. The original consumer was the Home Hub's inline «Скасувати»
+// button (`HubOutlineButton`'s `spinnerPaused` param); the Home Hub now
+// renders the shared, cancel-button-less `BookingCard` instead, and
+// `booking_detail_screen.dart`'s cancel CTA (`_DestructiveSecondaryButton`,
+// the sole remaining `startBookingCancel` caller — see
+// `booking_detail_screen_test.dart`) renders no spinner of its own, so this
+// flag currently has no live UI reader — it stays wired for whichever caller
+// next needs the mute. See `booking_cancel_dialog_visible_notifier.dart` for
+// the full `TickerMode`/root-navigator reasoning, including why muting the
+// ticker incidentally makes `tester.pumpAndSettle()` safe again while the
+// dialog is open (no frame keeps rescheduling) — that mechanism is
+// unchanged, only its consumer moved (and is currently absent).
 //
 // NOT for a multi-service VISIT (`Booking.appointmentId != null`) — that flow
 // lives in `visit_detail_screen.dart`'s own `_confirmCancel`, which cancels
@@ -81,10 +93,12 @@ import 'widgets/cancel_booking_dialog.dart';
 /// calls [BookingRepository.cancelBooking], and on success invalidates every
 /// cache a cancel affects.
 ///
-/// Safe to call from any CLIENT surface that only has a booking id — the
-/// «Деталі запису» screen and the Home Hub «Найближчий запис» card both call
-/// this. Does nothing (no dialog, no write) when the load fails or the client
-/// backs out of the confirmation.
+/// Safe to call from any CLIENT surface that only has a booking id.
+/// `booking_detail_screen.dart`'s «Скасувати запис» CTA is the only caller
+/// today (see the file header) — kept a standalone, bookingId-keyed helper
+/// so a future surface with just an id can reuse it without duplicating the
+/// dialog → write → cache-refresh flow. Does nothing (no dialog, no write)
+/// when the load fails or the client backs out of the confirmation.
 Future<void> startBookingCancel({
   required BuildContext context,
   required WidgetRef ref,
@@ -93,9 +107,10 @@ Future<void> startBookingCancel({
   // Re-entrancy guard: mirrors `startBookingReschedule`'s guard — a cancel
   // flow (load → confirm dialog → write) is already in flight; ignore this
   // extra tap so a double-tap can't stack two confirmation dialogs or fire
-  // two `cancelBooking` writes for the same booking. Only one next-appointment
-  // cancel button is ever visible at a time, so a single shared flag (not
-  // keyed by bookingId) is sufficient — exactly like the reschedule flag.
+  // two `cancelBooking` writes for the same booking. Only one «Скасувати
+  // запис» CTA is ever visible at a time (`booking_detail_screen.dart` is
+  // the sole caller today), so a single shared flag (not keyed by
+  // bookingId) is sufficient — exactly like the reschedule flag.
   if (ref.read(bookingCancelInFlightProvider)) return;
   final BookingCancelInFlight inFlight = ref.read(
     bookingCancelInFlightProvider.notifier,
@@ -124,10 +139,13 @@ Future<void> startBookingCancel({
     }
     if (!context.mounted) return;
 
-    // Brackets ONLY the dialog-open window so `HubOutlineButton` can mute its
-    // spinner's ticker while it's obscured — see the file-header SPINNER
-    // ANIMATION note. `end()` in `finally` clears it whether the user
-    // confirms or backs out.
+    // Brackets ONLY the dialog-open window so a spinner-bearing cancel CTA
+    // can mute its ticker while it's obscured — see the file-header SPINNER
+    // ANIMATION note (the original consumer, the Home Hub's inline cancel
+    // button, is gone; `startBookingCancel`'s sole caller today is
+    // `booking_detail_screen.dart`, whose cancel CTA has no spinner of its
+    // own). `end()` in `finally` clears it whether the user confirms or
+    // backs out.
     final BookingCancelDialogVisible dialogVisible = ref.read(
       bookingCancelDialogVisibleProvider.notifier,
     );
@@ -167,8 +185,9 @@ Future<void> startBookingCancel({
     // tabs (it just left Майбутні and entered Скасовані) — the merged
     // per-status pagination in `MyBookingsNotifier` means a plain invalidate
     // of each tab cleanly re-fetches page 0 for every status it covers. Also
-    // refreshes the Home Hub's own «Найближчий запис» card, whichever
-    // surface triggered the cancel.
+    // refreshes the Home Hub's own «Найближчий запис» card — invalidated
+    // here (not left to the caller) so it stays correct regardless of which
+    // CLIENT surface this helper is called from, today or in the future.
     ref.invalidate(bookingDetailProvider(booking.id));
     ref.invalidate(myBookingsProvider(BookingTab.upcoming));
     ref.invalidate(myBookingsProvider(BookingTab.cancelled));

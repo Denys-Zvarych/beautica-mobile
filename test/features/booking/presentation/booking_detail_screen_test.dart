@@ -35,8 +35,10 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_medallion.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -107,6 +109,7 @@ Future<_MockBookingRepository> _pumpDetail(
   WidgetTester tester,
   Booking booking, {
   _MockBookingRepository? repo,
+  List<Object> extraOverrides = const <Object>[],
 }) async {
   final _MockBookingRepository r = repo ?? _MockBookingRepository();
   await tester.pumpApp(
@@ -115,6 +118,7 @@ Future<_MockBookingRepository> _pumpDetail(
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(r),
       bookingDetailProvider(booking.id).overrideWith((ref) async => booking),
+      ...extraOverrides,
     ],
   );
   await tester.pumpAndSettle();
@@ -616,5 +620,81 @@ void main() {
         () => repo.cancelBooking(any(), reason: any(named: 'reason')),
       );
     });
+
+    // mobile-qa (BookingCard cutover audit) — `startBookingCancel`
+    // (booking_cancel_navigation.dart:179) invalidates `nextAppointmentProvider`
+    // on a successful cancel so the Home Hub's «Найближчий запис» card
+    // refreshes when the user backs out to /home. That fan-out target used to
+    // be proven from a SECOND call site — the Home Hub card's own «Скасувати»
+    // button (`home_hub_cancel_wiring_test.dart`, retired when the Home Hub's
+    // populated card switched to the shared read-only `BookingCard`, which
+    // carries no cancel trigger of its own any more). `BookingDetailScreen` is
+    // now the ONLY surviving caller of `startBookingCancel`, and nothing here
+    // asserted the invalidation reached `nextAppointmentProvider` from THIS
+    // call site — this test closes that gap. Same seamless-invalidate trap
+    // `booking_calendar_invalidation_test.dart` documents: `ref.invalidate` on
+    // an already-loaded provider retains the previous `.value` while
+    // refetching, so a refetch COUNT (not a null-then-value comparison) is the
+    // only reliable signal.
+    testWidgets(
+      'a successful cancel invalidates nextAppointmentProvider — the Home '
+      'Hub «Найближчий запис» card must refresh after the user cancels here',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.cancelBooking(any(), reason: any(named: 'reason')),
+        ).thenAnswer((_) async {});
+
+        int nextApptFetches = 0;
+        await _pumpDetail(
+          tester,
+          _booking(status: BookingStatus.confirmed),
+          repo: repo,
+          extraOverrides: <Object>[
+            nextAppointmentProvider.overrideWith((ref) async {
+              nextApptFetches++;
+              return null;
+            }),
+          ],
+        );
+
+        // Hold a LIVE subscription so the invalidate triggers a genuine
+        // refetch instead of Riverpod dropping an unwatched autoDispose member.
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingDetailScreen)),
+          listen: false,
+        );
+        final ProviderSubscription<AsyncValue<Booking?>> sub = container.listen(
+          nextAppointmentProvider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+        addTearDown(sub.close);
+        await container.read(nextAppointmentProvider.future);
+        expect(
+          nextApptFetches,
+          1,
+          reason:
+              'sanity: the provider must have fetched once before any cancel',
+        );
+
+        await tester.tap(find.byKey(const Key('booking-detail-cancel')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
+        await tester.pumpAndSettle();
+
+        await container.read(nextAppointmentProvider.future);
+        expect(
+          nextApptFetches,
+          2,
+          reason:
+              'startBookingCancel must still invalidate nextAppointmentProvider '
+              'on success — this is the ONLY surviving cancel call site since '
+              'the Home Hub card lost its own «Скасувати» trigger in the '
+              'BookingCard cutover, so this is now the ONLY test proving that '
+              'invalidation line still fires',
+        );
+      },
+    );
   });
 }

@@ -32,8 +32,6 @@ import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
-import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
-import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -267,76 +265,14 @@ void main() {
   );
 
   // ==========================================================================
-  // Test 2 — HOME-HUB entry: the «Найближчий запис» Reschedule button drives
-  // the SAME helper from just `appt.id`. `nextAppointmentProvider` is overridden
-  // directly (this flow is about the reschedule affordance, not re-proving the
-  // provider's own live wiring — that's `next_appointment_provider_test.dart`),
-  // seeded with the SAME `booking-1` the FakeBackend serves, so the helper's
-  // GET /bookings/booking-1 + GET /masters/master-aaa resolve and the picker is
-  // seeded to reschedule THIS booking.
-  // ==========================================================================
-  testWidgets(
-    'CLIENT taps «Перенести» on the Home Hub next-appointment card → the shared '
-    'reschedule helper drives the slot picker from just the appointment id',
-    (tester) async {
-      final fb = FakeBackend()..currentRole = UserRole.client;
-      // `startsAt` is derived from the SAME booking the FakeBackend serves
-      // (`booking-1`) rather than hand-typed, so the Home Hub card and the
-      // booking behind it can never disagree. It used to read
-      // `DateTime.utc(2026, 7, 20, 15)` — a copy of what was then
-      // `bookingStartsAt`'s hardcoded value — and silently expired with it:
-      // `CountdownChip` (hub_widgets.dart) diffs the target against the REAL
-      // `DateTime.now()`, so the "next appointment" card was rendering «Зараз»
-      // instead of «Через N дн» while still passing, because this flow asserts
-      // only the reschedule affordance. `dateLabel`/`timeLabel` are the card's
-      // pre-formatted display strings and are decorative here — nothing derives
-      // or asserts them.
-      final DateTime seededStart = DateTime.parse(fb.bookingStartsAt);
-      final DateTime seededEnd = DateTime.parse(fb.bookingEndsAt);
-      final NextAppointment seededAppt = NextAppointment(
-        id: 'booking-1',
-        masterName: 'Софія Бондар',
-        service: 'Манікюр з покриттям',
-        dateLabel: '20 липня',
-        timeLabel: '15:00',
-        location: 'Київ',
-        startsAt: seededStart,
-        endsAt: seededEnd,
-        masterInitials: 'СБ',
-      );
-      final GoRouter router = await AppHarness.boot(
-        tester,
-        fb,
-        extraOverrides: <Object>[
-          nextAppointmentProvider.overrideWith((ref) async => seededAppt),
-        ],
-      );
-
-      await AppHarness.loginAs(tester, fb, UserRole.client);
-
-      // The Home Hub next-appointment card is populated (override).
-      final Finder rescheduleButton = find.byKey(
-        const Key('next_appt_reschedule_button'),
-      );
-      await tester.ensureVisible(rescheduleButton);
-      await AppHarness.settle(tester);
-      expect(rescheduleButton, findsOneWidget);
-
-      await tester.tap(rescheduleButton);
-      await AppHarness.settle(tester);
-
-      // The shared helper loaded the booking (GET /bookings/booking-1) + the
-      // master profile and pushed the slot picker — seeded to reschedule.
-      AppHarness.expectLocation(router, RouteNames.bookingSlots);
-      expect(find.byType(SlotDateScreen), findsOneWidget);
-      expect(
-        fb.getBookingDetailCalls,
-        greaterThanOrEqualTo(1),
-        reason:
-            'the Home Hub card carries only appt.id — the helper must fetch '
-            'the booking detail before seeding the picker',
-      );
-    },
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
+  // Test 2 — RETIRED. This used to cover a Home-Hub entry point: the
+  // «Найближчий запис» card's own «Перенести» button driving the SAME
+  // `startBookingReschedule` helper from just `appt.id`. A later,
+  // USER-LOCKED decision switched the Home Hub's populated card over to the
+  // SAME read-only `BookingCard` widget «Мої записи» uses — "the card has
+  // ONE affordance: open me" (see `booking_card.dart`'s library doc) — so the
+  // Home Hub no longer has its own «Перенести» trigger; reschedule now lives
+  // ONLY on «Деталі запису», which Test 1 above already exercises end-to-end
+  // through the SAME shared helper. No second call site remains to cover
+  // here.
 }

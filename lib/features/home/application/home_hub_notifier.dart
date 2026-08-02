@@ -10,7 +10,10 @@
 //     so the home card and Settings refresh together.
 //   • nextAppointmentAsync → Phase 225 — derived from BookingRepository
 //     .getMyBookings (the same endpoint the «Мої записи» Майбутні tab reads),
-//     see [nextAppointment]'s doc.
+//     see [nextAppointment]'s doc. Returns the raw [Booking] unchanged — the
+//     Home Hub renders it through the SAME `BookingCard` widget «Мої записи»
+//     uses (locked decision), so there is no lossy DTO projection in between
+//     any more.
 //
 // Empty-state-placeholder cards (backend 19.x not yet shipped):
 //   • favoriteMastersAsync  — TODO(19.1) wire GET /favorites/masters
@@ -27,14 +30,12 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
-import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../../../features/auth/domain/user.dart';
 import '../../../features/location/state/location_providers.dart';
 import '../../booking/data/booking_providers.dart';
 import '../../booking/domain/booking.dart';
-import '../../booking/domain/booking_display_x.dart';
 import '../../booking/domain/booking_partition.dart';
 import '../../booking/domain/booking_sort.dart';
 import '../../booking/domain/booking_tab.dart';
@@ -272,7 +273,7 @@ Future<String?> _resolveDistrictName(Ref ref, User user) async {
 /// caught: they propagate as this provider's `AsyncError`, exactly like
 /// [clientProfile] above.
 @riverpod
-Future<NextAppointment?> nextAppointment(Ref ref) async {
+Future<Booking?> nextAppointment(Ref ref) async {
   final repository = ref.watch(bookingRepositoryProvider);
   // Recomputed on every build — never hoisted — so a long-lived cached
   // instance doesn't pin "today" to first-use for the process's lifetime.
@@ -291,21 +292,11 @@ Future<NextAppointment?> nextAppointment(Ref ref) async {
     size: 1,
   );
 
-  if (page.items.isEmpty) {
-    return null;
-  }
-  final Booking booking = page.items.first;
-  return NextAppointment(
-    id: booking.id,
-    masterName: booking.masterName,
-    service: booking.serviceName,
-    dateLabel: formatFullDate(booking.startAt),
-    timeLabel: formatSlotTime(booking.startAt),
-    location: booking.addressLine ?? booking.salonName ?? '',
-    startsAt: booking.startAt,
-    endsAt: booking.endAt,
-    masterInitials: booking.masterInitials,
-  );
+  // Returned AS-IS — the Home Hub renders this through the SAME `BookingCard`
+  // widget «Мої записи» uses (locked decision), so there is no lossy
+  // NextAppointment DTO projection any more; the caller gets the full
+  // enriched Booking straight from `page.items.first`.
+  return page.items.isEmpty ? null : page.items.first;
 }
 
 // ---------------------------------------------------------------------------

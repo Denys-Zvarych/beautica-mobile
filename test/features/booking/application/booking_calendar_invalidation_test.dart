@@ -24,8 +24,8 @@
 // `day_hours_sheet_test.dart`'s own invalidation group already uses.
 
 import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
-import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -67,8 +67,11 @@ void main() {
       tester.element(find.byKey(const Key('invalidate'))),
       listen: false,
     );
-    final ProviderSubscription<AsyncValue<NextAppointment?>> sub = container
-        .listen(nextAppointmentProvider, (_, _) {}, fireImmediately: true);
+    final ProviderSubscription<AsyncValue<Booking?>> sub = container.listen(
+      nextAppointmentProvider,
+      (_, _) {},
+      fireImmediately: true,
+    );
     addTearDown(sub.close);
     await container.read(nextAppointmentProvider.future);
     expect(

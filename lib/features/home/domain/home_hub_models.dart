@@ -41,36 +41,6 @@ class ClientProfileSummary {
   }
 }
 
-/// The soonest upcoming (CONFIRMED) booking — drives the "Найближчий запис"
-/// card and its live countdown chip.
-class NextAppointment {
-  const NextAppointment({
-    required this.id,
-    required this.masterName,
-    required this.service,
-    required this.dateLabel,
-    required this.timeLabel,
-    required this.location,
-    required this.startsAt,
-    required this.endsAt,
-    required this.masterInitials,
-  });
-
-  final String id;
-  final String masterName;
-  final String service;
-  final String dateLabel;
-  final String timeLabel;
-  final String location;
-  final DateTime startsAt;
-
-  /// The booking's real `endAt` (backend 19.3 enrichment) — lets add-to-
-  /// calendar seed the event's true end instant instead of a guessed block.
-  /// See `home_hub_screen.dart`'s `_addNextAppointmentToCalendar`.
-  final DateTime endsAt;
-  final String masterInitials;
-}
-
 /// A master in the favorites horizontal rail.
 class FavoriteMasterItem {
   const FavoriteMasterItem({

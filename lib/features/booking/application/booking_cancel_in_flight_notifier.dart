@@ -5,11 +5,14 @@
 // .dart) exactly, for the same reason: `startBookingCancel`
 // (booking_cancel_navigation.dart) awaits `bookingDetailProvider(id).future`
 // before it can even show the confirmation dialog. On the «Деталі запису»
-// screen that provider is already watched/cached so the await is instant —
-// but the Home Hub «Найближчий запис» card only carries a bare booking id, so
-// there this is a genuine network round trip with no visible feedback. Without
-// a guard, a double-tap on «Скасувати» over a slow network fires two
-// concurrent `startBookingCancel` calls, stacking two confirmation dialogs and
+// screen — `booking_detail_screen.dart`'s cancel CTA is `startBookingCancel`'s
+// only caller today — that provider is already watched/cached, so the await
+// is instant; the guard exists for any future bare-`bookingId` caller (this
+// helper is `bookingId`-keyed precisely to stay reusable — see
+// `booking_cancel_navigation.dart`'s file header) where the same await would
+// be a genuine network round trip with no visible feedback. Without a guard,
+// a double-tap on «Скасувати» over a slow network fires two concurrent
+// `startBookingCancel` calls, stacking two confirmation dialogs and
 // potentially two `cancelBooking` writes for the same booking.
 //
 // This tiny autoDispose `bool` Notifier is the single source of truth for

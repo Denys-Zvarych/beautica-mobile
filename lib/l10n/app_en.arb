@@ -3005,6 +3005,10 @@
   "@homeHubFindMaster": {
     "description": "CTA button in the next appointment empty state."
   },
+  "homeHubNextAppointmentDetailsLink": "Booking details",
+  "@homeHubNextAppointmentDetailsLink": {
+    "description": "Link below the populated next-appointment card that opens the booking's details screen."
+  },
   "homeHubRescheduleAppointment": "Reschedule",
   "@homeHubRescheduleAppointment": {
     "description": "Button label to reschedule the next appointment."
