@@ -68,6 +68,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseSalonServiceCatalogResponse.serializer)
       ..add(ApiResponseScheduleOverrideResponse.serializer)
       ..add(ApiResponseServiceDefinitionResponse.serializer)
+      ..add(ApiResponseUnclosedCountResponse.serializer)
       ..add(ApiResponseUserProfileResponse.serializer)
       ..add(ApiResponseUserRatingResponse.serializer)
       ..add(ApiResponseVerifyPasswordResetOtpResponse.serializer)
@@ -225,6 +226,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(StatusUpdateRequestCancellationReasonEnum.serializer)
       ..add(SuggestServiceTypeRequest.serializer)
       ..add(TimelineItemResponse.serializer)
+      ..add(UnclosedCountResponse.serializer)
       ..add(UnregisterDeviceTokenRequest.serializer)
       ..add(UpdateProfileRequest.serializer)
       ..add(UpdateSalonRequest.serializer)
@@ -535,6 +537,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

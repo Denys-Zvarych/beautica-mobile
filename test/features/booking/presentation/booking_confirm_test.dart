@@ -39,6 +39,7 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
@@ -303,6 +304,7 @@ class _RecordingRescheduleRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    BookingPartition? partition,
     CancelToken? cancelToken,
   }) async {
     getMyBookingsCalls++;

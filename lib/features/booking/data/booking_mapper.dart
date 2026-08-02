@@ -162,6 +162,9 @@ abstract final class BookingMapper {
       // the expected shape there, not a missing-field defect. See
       // `Booking.providerCanReviewClient`'s doc.
       providerCanReviewClient: dto.providerCanReviewClient ?? false,
+      // Phase 29.2 field; defaulted so a pre-29.2 backend omitting it entirely
+      // cannot crash the mapper. See `Booking.awaitingClosure`'s doc.
+      awaitingClosure: dto.awaitingClosure ?? false,
       clientComment: dto.clientComment,
       providerComment: dto.providerComment,
       clientCancellationNote: dto.clientCancellationNote,

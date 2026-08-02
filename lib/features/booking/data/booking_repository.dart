@@ -53,6 +53,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/booking.dart';
+import '../domain/booking_partition.dart';
 import '../domain/booking_sort.dart';
 import '../domain/booking_status.dart';
 import '../domain/create_booking_request.dart';
@@ -132,6 +133,20 @@ abstract interface class BookingRepository {
   /// `SlotRepository.getMasterSlots`/`getWorkingDays`. Disposing a Riverpod
   /// element stops the RESULT from landing but does not, by itself, abort the
   /// underlying Dio request; this makes that possible.
+  ///
+  /// [partition] is the Phase 28.2/29.3 time-based partition — sent as its
+  /// [BookingPartition.wireValue] (`UPCOMING`/`PAST`/`CANCELLED`/
+  /// `AWAITING_CLOSURE`), omitted entirely when null (the backend then falls
+  /// back to the pre-Phase-28 `status`-only filtering, its own
+  /// additive-rollout safety valve; when [partition] IS sent, the backend
+  /// ignores [statuses] server-side, but this method still sends both — the
+  /// caller decides which filtering mode it wants by which param(s) it
+  /// populates). Typed as [BookingPartition] rather than a raw `String?`
+  /// (mobile-security LOW, audit-fix cycle 1) precisely because an unknown
+  /// wire value degrades silently server-side — see [BookingPartition]'s doc.
+  /// **No caller passes this in Phase 226** — added here so its wire wiring
+  /// and the behaviour change that consumes it (Phase 227) land as separate,
+  /// independently reviewable diffs.
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,
     required int page,
@@ -140,6 +155,7 @@ abstract interface class BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    BookingPartition? partition,
     CancelToken? cancelToken,
   });
 
@@ -307,6 +323,7 @@ final class HttpBookingRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    BookingPartition? partition,
     CancelToken? cancelToken,
   }) async {
     // Canonicalised ONCE, here at the serialisation boundary. See the comment
@@ -380,6 +397,16 @@ final class HttpBookingRepository implements BookingRepository {
           // device east of UTC. See `shared/formatters/api_date.dart`.
           if (from != null) 'from': toApiDate(from),
           if (to != null) 'to': toApiDate(to),
+          // Phase 226: wired but unused — no caller passes [partition] yet
+          // (Phase 227 is the cutover). Serialised through [BookingPartition
+          // .wireValue] — the sole hand-written string this repository is
+          // allowed to emit for it — and omitted entirely when null, not
+          // sent as `partition=null`/`''`: `partition?.wireValue` evaluates
+          // to null right along with `partition` itself, so the null-aware
+          // map element below still drops the key entirely. See
+          // [getMyBookings]'s doc for the byte-identical back-compat
+          // contract this preserves.
+          'partition': ?partition?.wireValue,
         },
         cancelToken: cancelToken,
       );

@@ -242,6 +242,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? appointmentId;
   @override
   final String? clientAvatarUrl;
+  @override
+  final bool? awaitingClosure;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -280,7 +282,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.canReview,
       this.providerCanReviewClient,
       this.appointmentId,
-      this.clientAvatarUrl})
+      this.clientAvatarUrl,
+      this.awaitingClosure})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -327,7 +330,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         canReview == other.canReview &&
         providerCanReviewClient == other.providerCanReviewClient &&
         appointmentId == other.appointmentId &&
-        clientAvatarUrl == other.clientAvatarUrl;
+        clientAvatarUrl == other.clientAvatarUrl &&
+        awaitingClosure == other.awaitingClosure;
   }
 
   @override
@@ -366,6 +370,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, providerCanReviewClient.hashCode);
     _$hash = $jc(_$hash, appointmentId.hashCode);
     _$hash = $jc(_$hash, clientAvatarUrl.hashCode);
+    _$hash = $jc(_$hash, awaitingClosure.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -405,7 +410,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('canReview', canReview)
           ..add('providerCanReviewClient', providerCanReviewClient)
           ..add('appointmentId', appointmentId)
-          ..add('clientAvatarUrl', clientAvatarUrl))
+          ..add('clientAvatarUrl', clientAvatarUrl)
+          ..add('awaitingClosure', awaitingClosure))
         .toString();
   }
 }
@@ -565,6 +571,11 @@ class BookingDetailResponseBuilder
   set clientAvatarUrl(String? clientAvatarUrl) =>
       _$this._clientAvatarUrl = clientAvatarUrl;
 
+  bool? _awaitingClosure;
+  bool? get awaitingClosure => _$this._awaitingClosure;
+  set awaitingClosure(bool? awaitingClosure) =>
+      _$this._awaitingClosure = awaitingClosure;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -605,6 +616,7 @@ class BookingDetailResponseBuilder
       _providerCanReviewClient = $v.providerCanReviewClient;
       _appointmentId = $v.appointmentId;
       _clientAvatarUrl = $v.clientAvatarUrl;
+      _awaitingClosure = $v.awaitingClosure;
       _$v = null;
     }
     return this;
@@ -659,6 +671,7 @@ class BookingDetailResponseBuilder
           providerCanReviewClient: providerCanReviewClient,
           appointmentId: appointmentId,
           clientAvatarUrl: clientAvatarUrl,
+          awaitingClosure: awaitingClosure,
         );
     replace(_$result);
     return _$result;

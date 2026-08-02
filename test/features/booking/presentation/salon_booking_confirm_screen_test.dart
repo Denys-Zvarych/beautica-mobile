@@ -18,6 +18,7 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
@@ -183,6 +184,7 @@ class _RecordingBookingRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    BookingPartition? partition,
     CancelToken? cancelToken,
   }) async {
     getMyBookingsCalls++;

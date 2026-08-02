@@ -191,5 +191,15 @@ abstract class Booking with _$Booking {
     /// regardless of this value, so a stale/duplicate submit still surfaces
     /// as a 409 rather than being trusted client-side.
     @Default(false) bool providerCanReviewClient,
+
+    /// `true` only when [status] is still [BookingStatus.confirmed] AND
+    /// [endAt] has already elapsed — server-derived, read-time-only (backend
+    /// Phase 29.1/29.2). Flags the bookings a provider still needs to close
+    /// via complete/not-complete/decline; no scheduled job ever transitions
+    /// these automatically. Defaulted to `false` at the mapping boundary
+    /// ([BookingMapper.fromDto]) so an older backend that omits this field
+    /// entirely (pre-29.2) cannot crash the mapper — nothing reads this field
+    /// yet (phases 227/229 do).
+    @Default(false) bool awaitingClosure,
   }) = _Booking;
 }

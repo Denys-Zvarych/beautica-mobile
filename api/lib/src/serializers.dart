@@ -74,6 +74,7 @@ import 'package:beautica_api/src/model/api_response_salon_review_summary_respons
 import 'package:beautica_api/src/model/api_response_salon_service_catalog_response.dart';
 import 'package:beautica_api/src/model/api_response_schedule_override_response.dart';
 import 'package:beautica_api/src/model/api_response_service_definition_response.dart';
+import 'package:beautica_api/src/model/api_response_unclosed_count_response.dart';
 import 'package:beautica_api/src/model/api_response_user_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_user_rating_response.dart';
 import 'package:beautica_api/src/model/api_response_verify_password_reset_otp_response.dart';
@@ -200,6 +201,7 @@ import 'package:beautica_api/src/model/sort_object.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
 import 'package:beautica_api/src/model/timeline_item_response.dart';
+import 'package:beautica_api/src/model/unclosed_count_response.dart';
 import 'package:beautica_api/src/model/unregister_device_token_request.dart';
 import 'package:beautica_api/src/model/update_profile_request.dart';
 import 'package:beautica_api/src/model/update_salon_request.dart';
@@ -282,6 +284,7 @@ part 'serializers.g.dart';
   ApiResponseSalonServiceCatalogResponse,
   ApiResponseScheduleOverrideResponse,
   ApiResponseServiceDefinitionResponse,
+  ApiResponseUnclosedCountResponse,
   ApiResponseUserProfileResponse,
   ApiResponseUserRatingResponse,
   ApiResponseVerifyPasswordResetOtpResponse,
@@ -408,6 +411,7 @@ part 'serializers.g.dart';
   StatusUpdateRequest,
   SuggestServiceTypeRequest,
   TimelineItemResponse,
+  UnclosedCountResponse,
   UnregisterDeviceTokenRequest,
   UpdateProfileRequest,
   UpdateSalonRequest,

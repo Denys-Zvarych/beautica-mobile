@@ -20,6 +20,7 @@ import 'package:beautica_api/beautica_api.dart'
     show CreateBookingRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
@@ -62,6 +63,13 @@ BookingDetailResponse _buildDetailDto({
   String? salonName,
   BookingDetailResponseMasterTypeEnum masterType =
       BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER,
+
+  /// Left `null` by default so the builder never emits the `awaitingClosure`
+  /// key on serialize (see `_$BookingDetailResponseSerializer.serialize`'s
+  /// `if (object.awaitingClosure != null)` guard) — this is what makes the
+  /// default fixture double as the Phase 226 stale-backend "key absent"
+  /// fixture without a second builder.
+  bool? awaitingClosure,
 }) =>
     (BookingDetailResponseBuilder()
           ..id = id
@@ -77,7 +85,8 @@ BookingDetailResponse _buildDetailDto({
           ..durationMinutesAtBooking = durationMinutesAtBooking
           ..canReview = canReview
           ..salonName = salonName
-          ..masterType = masterType)
+          ..masterType = masterType
+          ..awaitingClosure = awaitingClosure)
         .build();
 
 Response<ApiResponseBookingDetailResponse> _detailResponse(
@@ -564,6 +573,45 @@ void main() {
       expect(booking.price, 500.0);
       expect(booking.startAt, DateTime.utc(2026, 7, 10, 10));
       expect(booking.endAt, DateTime.utc(2026, 7, 10, 11));
+    });
+
+    // mobile-qa gap-fix (Phase 226 audit) — the two `awaitingClosure` tests
+    // added under `getMyBookings` only pin the LIST path
+    // (`_decodeBookingsPage` → raw-JSON `beauticaSerializers` round trip).
+    // `getBookingById` is a SEPARATE call site — it goes through the
+    // generated `BookingControllerApi.getBooking` / its own
+    // `_serializers.deserialize`, then the SAME `BookingMapper.fromDto` — and
+    // had no assertion on `awaitingClosure` in either direction. Both call
+    // sites share the mapper, but only testing one leaves the OTHER
+    // production entrypoint (the booking detail screen) unpinned: a future
+    // change that special-cased one call site over the other (e.g. an
+    // intermediate DTO transform before `fromDto`) would pass every existing
+    // test while breaking `awaitingClosure` on «Деталі запису» specifically.
+    test('maps awaitingClosure: true through the DETAIL endpoint onto '
+        'Booking.awaitingClosure', () async {
+      final dto = _buildDetailDto(awaitingClosure: true);
+      when(
+        () => bookingApi.getBooking(bookingId: 'booking-1'),
+      ).thenAnswer((_) async => _detailResponse(dto));
+
+      final booking = await repository.getBookingById('booking-1');
+
+      expect(booking.awaitingClosure, isTrue);
+    });
+
+    test('awaitingClosure absent on the DETAIL endpoint (stale/pre-29.2 '
+        'backend) decodes to false, without throwing', () async {
+      // [_buildDetailDto]'s default already leaves the builder field null,
+      // which is what makes the fixture double as the "key absent" case —
+      // see its doc comment.
+      final dto = _buildDetailDto();
+      when(
+        () => bookingApi.getBooking(bookingId: 'booking-1'),
+      ).thenAnswer((_) async => _detailResponse(dto));
+
+      final booking = await repository.getBookingById('booking-1');
+
+      expect(booking.awaitingClosure, isFalse);
     });
 
     test('404 → NotFoundFailure', () async {
@@ -1719,6 +1767,171 @@ void main() {
         ),
         throwsA(same(mapped)),
       );
+    });
+
+    // Phase 226 — OpenAPI regen: `awaitingClosure` (backend 29.2) and the
+    // wired-but-unused `partition` param (backend 28.2/29.3, cutover in
+    // Phase 227). No behaviour change: these three tests pin the mapping
+    // boundary and the byte-identical back-compat contract, they do not
+    // exercise any new filtering behaviour.
+    test(
+      'decodes awaitingClosure: true off the wire onto Booking.awaitingClosure',
+      () async {
+        final envelope = _serializeMyBookingsEnvelope([
+          _buildDetailDto(awaitingClosure: true),
+        ]);
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        final page = await repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          sort: BookingSort.newest,
+          page: 0,
+        );
+
+        expect(page.items.single.awaitingClosure, isTrue);
+      },
+    );
+
+    test(
+      'awaitingClosure absent from the wire (stale/pre-29.2 backend) decodes '
+      'to false, without throwing',
+      () async {
+        final envelope = _serializeMyBookingsEnvelope([_buildDetailDto()]);
+        // Belt-and-braces: [_buildDetailDto]'s default already omits the key
+        // on serialize (its builder field is left null), but the key is also
+        // stripped explicitly here so this test keeps pinning the "key
+        // absent" contract even if that default ever changes.
+        final pageMap = envelope['data'] as Map<String, dynamic>;
+        final items = pageMap['data'] as List<dynamic>;
+        final row = Map<String, dynamic>.from(
+          items.single as Map<String, dynamic>,
+        )..remove('awaitingClosure');
+        pageMap['data'] = <dynamic>[row];
+
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        final page = await repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          sort: BookingSort.newest,
+          page: 0,
+        );
+
+        expect(page.items, hasLength(1));
+        expect(page.items.single.awaitingClosure, isFalse);
+      },
+    );
+
+    test('getMyBookings called WITHOUT partition emits a query map with NO '
+        '`partition` key at all — not partition=null, not "" — the '
+        'byte-identical back-compat proof for Phase 226 (no caller passes it '
+        'yet; Phase 227 is the cutover)', () async {
+      final envelope = _serializeMyBookingsEnvelope(const []);
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          _myBookingsPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<Map<String, dynamic>>(
+          data: envelope,
+          requestOptions: RequestOptions(path: _myBookingsPath),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.getMyBookings(
+        statuses: const <BookingStatus>{BookingStatus.confirmed},
+        sort: BookingSort.newest,
+        page: 0,
+      );
+
+      final captured =
+          verify(
+                () => dio.get<Map<String, dynamic>>(
+                  _myBookingsPath,
+                  queryParameters: captureAny(named: 'queryParameters'),
+                  cancelToken: any(named: 'cancelToken'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured.containsKey('partition'), isFalse);
+    });
+
+    test(
+      'getMyBookings forwards an explicit partition as its wireValue string '
+      '(wired ahead of Phase 227 — no production caller passes this yet)',
+      () async {
+        final envelope = _serializeMyBookingsEnvelope(const []);
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            _myBookingsPath,
+            queryParameters: any(named: 'queryParameters'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<Map<String, dynamic>>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _myBookingsPath),
+            statusCode: 200,
+          ),
+        );
+
+        await repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          sort: BookingSort.newest,
+          page: 0,
+          partition: BookingPartition.awaitingClosure,
+        );
+
+        final captured =
+            verify(
+                  () => dio.get<Map<String, dynamic>>(
+                    _myBookingsPath,
+                    queryParameters: captureAny(named: 'queryParameters'),
+                    cancelToken: any(named: 'cancelToken'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        // Pins that the WIRE string reaches the query map — `.wireValue`,
+        // never `.name` or `.toString()` (both of which would happen to
+        // agree with `wireValue` for this particular member, which is why
+        // this asserts the exact literal rather than
+        // `BookingPartition.awaitingClosure.wireValue`).
+        expect(captured['partition'], 'AWAITING_CLOSURE');
+      },
+    );
+
+    test('BookingPartition.wireValue is pinned for every member — a renamed '
+        'member must not silently change the wire contract', () {
+      expect(BookingPartition.upcoming.wireValue, 'UPCOMING');
+      expect(BookingPartition.past.wireValue, 'PAST');
+      expect(BookingPartition.cancelled.wireValue, 'CANCELLED');
+      expect(BookingPartition.awaitingClosure.wireValue, 'AWAITING_CLOSURE');
     });
   });
 }
