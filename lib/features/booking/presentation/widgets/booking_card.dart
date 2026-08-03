@@ -551,7 +551,7 @@ class _DateStub extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(
-            start.day.toString(),
+            formatStubDayNumber(start),
             key: ValueKey<String>('stub-day-$bookingId'),
             textAlign: TextAlign.center,
             style: VelvetText.bookingDayNumber.copyWith(

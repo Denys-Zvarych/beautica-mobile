@@ -149,3 +149,13 @@ String formatStubDayLine(DateTime day) {
   final String wd = weekdayAbbrev(local.weekday);
   return '$mon, $wd';
 }
+
+/// The booking card's date-stub first line: the bare Kyiv-local day number,
+/// e.g. `18`. Paired with [formatStubDayLine] directly below it — together
+/// the two lines must describe the same calendar date, so this reads the day
+/// field the same way its sibling does: convert to the Europe/Kyiv wall-clock
+/// via [toBeauticaTime] BEFORE reading `.day`, never off the raw UTC instant.
+/// A late-evening Kyiv booking is already the next UTC day, so a bare
+/// `day.toString()` on the untouched instant can print a date one day behind
+/// the (correct) month/weekday line beside it.
+String formatStubDayNumber(DateTime day) => toBeauticaTime(day).day.toString();
