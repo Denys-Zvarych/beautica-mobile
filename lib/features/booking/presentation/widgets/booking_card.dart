@@ -10,11 +10,11 @@
 /// ```
 /// ┌──┬────────┬┄┬─────────────────────────────────────┐
 /// │▐ │        ┊ │                                     │
-/// │▐ │   18   ┊ │  ⟨photo⟩  Марія Іванюк              │
-/// │▐ │червня, ┊ │   52 dp   Майстриня манікюру        │
-/// │▐ │   ср   ┊ │           ▣ Lviv Nails Studio       │
-/// │▐ │ 15:00  ┊ │                                     │
-/// │▐ │        ┊ │  ✂ Манікюр з покриттям      650 ₴   │
+/// │▐ │        ┊ │  ⟨photo⟩  Марія Іванюк              │
+/// │▐ │   18   ┊ │   52 dp   Майстриня манікюру        │
+/// │▐ │червня, ┊ │           ▣ Lviv Nails Studio       │
+/// │▐ │   ср   ┊ │                                     │
+/// │▐ │ 15:00  ┊ │  ✂ Манікюр з покриттям      650 ₴   │
 /// │▐ │        ┊ │  ⦿ Підтверджено                  ›  │
 /// └──┴────────┴┄┴─────────────────────────────────────┘
 ///  rail  stub  perf              body
@@ -22,17 +22,28 @@
 ///
 /// **The date column is exclusive.** Nothing from the body sits inside it,
 /// and nothing from it leaks into the body — the stub is its own column,
-/// carrying the WHOLE "when" of the booking (day, weekday/month, and now the
+/// carrying the WHOLE "when" of the booking (day, weekday/month, and the
 /// slot time stacked directly under the date it belongs to), and every other
-/// element lives to its right. The stub is pinned to a FIXED
-/// [_stubTopOffset] — NOT `CrossAxisAlignment.center`d — so it lands on the
-/// same y on every card regardless of how tall the body below it grows. A
-/// centred child rides the body's height, and the body's height varies (a
-/// card whose note used to be 3 lines could grow another ~135 dp when
-/// expanded before notes moved to «Деталі запису»); pinning to the photo's
-/// optical centre — the card's dominant element, always in the same place —
-/// gives the centred LOOK with none of the drift. See [_stubTopOffset]'s own
-/// doc for the derivation.
+/// element lives to its right. The outer `Row` is
+/// `CrossAxisAlignment.center`d, so the stub centres against the card's full
+/// content height — the taller `Expanded` body defines that height, the
+/// shorter stub rides in the middle of it.
+///
+/// **This reverses an earlier decision.** An older revision of this file
+/// pinned the stub to a fixed offset derived from the photo's optical
+/// centre specifically so the date would land on the SAME y on every card,
+/// independent of body height — the trade-off being that a genuinely
+/// centred stub drifts, because the body's height is not constant: it grows
+/// or shrinks with whether the master filled in a professional title and/or
+/// salon name, whether their name wraps to a second line, and whether the
+/// service name wraps to a second line. That was a deliberate choice at the
+/// time. The user has since asked for TRUE vertical centring instead, and
+/// this revision honours that: the stub's y position now visibly varies
+/// row-to-row in the «Мої записи» list — a card with a one-line identity
+/// block sits the date noticeably higher than a card with a two-line master
+/// name and both title and salon filled in. That drift is the accepted
+/// cost of true centring; a future editor should not "fix" it back to a
+/// fixed pin without the user asking for that trade-off again.
 ///
 /// ## The card has ONE affordance: open me
 ///
@@ -114,39 +125,6 @@ const double _stubInset = VelvetSpacing.sm; // 8
 const double _gutter = VelvetSpacing.lg; // 24
 const double _tearLineX =
     _railWidth + _stubInset + _DateStub.width + VelvetSpacing.xs;
-
-/// How far down the body the stub is pinned. NOT `CrossAxisAlignment
-/// .center`d — see the library doc. Re-derived when the slot time moved OUT
-/// of the body and INTO the stub (see [_DateStub]) — the identity row (photo
-/// + name) is now the body's FIRST child, and the stub grew a third stacked
-/// line. Derivation, from the top of the body, using the rendered
-/// `TextPainter` heights of the actual tokens (not the font's nominal
-/// `fontSize × height`, which rounds differently per glyph):
-///
-/// ```
-///   photo               52   → its centre sits at 0 + 26 = 26 (no time
-///                              line precedes it in the body any more)
-///
-///   day number          18   (bookingDayNumber — Comfortaa 18, height 1.0)
-///   gap                   2  (_DateStub._lineGap)
-///   month/weekday line   14  (bookingCardCaption — Nunito 10, natural
-///                              leading — measured 14, not the ~15 the old
-///                              approximation assumed)
-///   gap                   2  (_DateStub._lineGap)
-///   time line            15  (bookingTime — Comfortaa 14, height 1.1 —
-///                              measured 15; the token itself was stepped
-///                              21→18 / 17→14 in the 2026-07-15 compact pass,
-///                              well before this move)
-///   stub total           51
-///
-///   → stub top = photo centre − stub half-height = 26 − 25.5 = 0.5,
-///     rounded to 0 — sub-pixel, and clean besides: the three-line stub
-///     now lands almost exactly as tall as the photo it is pinned against.
-/// ```
-///
-/// A constant on purpose — deriving it at layout time from real text metrics
-/// would reintroduce exactly the coupling it exists to remove.
-const double _stubTopOffset = 0;
 
 /// The widest the price anchor may grow before it scales its text down. A
 /// CAP, not a column width — the price sizes to its content and sits flush
@@ -275,17 +253,19 @@ class _BookingCardState extends State<BookingCard> {
                     VelvetSpacing.sm,
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    // Centres the stub against the card's FULL content
+                    // height (the taller Expanded body defines that height;
+                    // the shorter stub centres within it) — see the library
+                    // doc's "date column" section for why this replaced the
+                    // old fixed-offset pin.
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: <Widget>[
-                      Padding(
-                        padding: const EdgeInsets.only(top: _stubTopOffset),
-                        child: _DateStub(
-                          key: ValueKey<String>('stub-${_b.id}'),
-                          bookingId: _b.id,
-                          start: _b.startAt,
-                          dimmed: _isDead,
-                          struck: _isNoShow,
-                        ),
+                      _DateStub(
+                        key: ValueKey<String>('stub-${_b.id}'),
+                        bookingId: _b.id,
+                        start: _b.startAt,
+                        dimmed: _isDead,
+                        struck: _isNoShow,
                       ),
                       const SizedBox(width: _gutter),
                       Expanded(child: _body(l10n)),
@@ -493,8 +473,8 @@ class _CardChrome extends CustomPainter {
 ///
 /// Carries three stacked lines now: day number, weekday/month, and — moved
 /// down from the body's old top-right corner — the slot time, directly under
-/// the date it belongs to. See the library doc's ASCII grid and
-/// [_stubTopOffset]'s derivation.
+/// the date it belongs to. See the library doc's ASCII grid and its "date
+/// column" section for how the stub is now centred against the body.
 class _DateStub extends StatelessWidget {
   const _DateStub({
     super.key,
@@ -533,9 +513,12 @@ class _DateStub extends StatelessWidget {
 
   /// The tight leading between the stub's three stacked lines — one rhythm
   /// for the whole "when" cluster (day, weekday/month, time), not a
-  /// `VelvetSpacing` token: even `.xs` (4) would overshoot the 52 dp photo
-  /// the stub is pinned against (see [_stubTopOffset]'s derivation, which
-  /// bakes this exact value in).
+  /// `VelvetSpacing` token: even `.xs` (4) would loosen the cluster enough
+  /// to read as three separate labels instead of one "when" unit. Also
+  /// keeps the stub's total height close to the 52 dp photo's, so the two
+  /// columns read as roughly matched blocks even though the stub is now
+  /// centred against the whole body rather than pinned to the photo — see
+  /// the library doc's "date column" section.
   static const double _lineGap = 2;
 
   @override

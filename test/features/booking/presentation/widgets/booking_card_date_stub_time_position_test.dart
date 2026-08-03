@@ -37,8 +37,10 @@ final DateTime _start = DateTime.utc(2026, 11, 28, 15);
 
 /// A confirmed, non-dead, non-struck booking — the baseline card for the
 /// geometry assertions, carrying a salon + title so the identity block is at
-/// its tallest (worst case for the stub-pinning arithmetic `_stubTopOffset`
-/// documents).
+/// its tallest (worst case for the stub's internal line stacking — see
+/// `booking_card_date_stub_vertical_centering_test.dart` for the SEPARATE
+/// concern of the stub's position relative to the card, which the deleted
+/// `_stubTopOffset` constant used to control).
 Booking _booking({BookingStatus status = BookingStatus.confirmed}) {
   return Booking(
     id: _cardId,
