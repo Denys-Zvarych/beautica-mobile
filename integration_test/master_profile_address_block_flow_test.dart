@@ -141,9 +141,7 @@ void main() {
             'a short city+street+building must render as the single combined '
             'row at this width, not as the Phase 220 two-row split',
       );
-      // i18n-finder-ok: master city/street/buildingNo fixture values composed
-      // by buildCombinedAddressLine — backend data, not UI copy.
-      expect(find.text('Київ, вул. Хрещатик, 22'), findsOneWidget);
+      expect(tester.widget<Text>(combined).data, 'Київ, вул. Хрещатик, 22');
 
       // The two paths are mutually exclusive — no orphaned split row.
       expect(find.byKey(_kLocalityKey), findsNothing);
@@ -264,10 +262,9 @@ void main() {
 
       final Finder street = find.byKey(_kStreetKey);
       expect(street, findsOneWidget);
-      // i18n-finder-ok: master.street/buildingNo fixture values, not UI copy.
       expect(
-        find.text('вул. Академіка Володимира Філатова, 145-Б'),
-        findsOneWidget,
+        tester.widget<Text>(street).data,
+        'вул. Академіка Володимира Філатова, 145-Б',
       );
 
       // The pre-Phase-220 street-first combined string must never reappear.

@@ -1040,6 +1040,7 @@ void main() {
         // 2026-08-01T22:30Z: UTC calendar day = Aug 1; Kyiv calendar day
         // (EEST, +3) = Aug 2 (01:30 local, already rolled over) — the same
         // fixture `kyiv_day_test.dart` uses for `kyivDayOf` itself.
+        // future-date-ok: this IS the fake clockProvider "now" — a fixed instant straddling the Kyiv/UTC day boundary is the whole point; a now-relative offset cannot express "an instant that crosses the Kyiv day boundary".
         final DateTime clockInstant = DateTime.utc(2026, 8, 1, 22, 30);
         final fake = _FakeSlotRepository(const <BookingSlot>[]);
         final router = _router(dateScreen: SlotDateScreen(args: _args()));
@@ -1073,7 +1074,7 @@ void main() {
         // Aug 2 — the correct Kyiv "today" — is tappable and loads slots.
         final Finder aug2Cell = find.byKey(const Key('booking-calendar-day-2'));
         expect(aug2Cell, findsOneWidget);
-        await tester.tap(aug2Cell);
+        await tester.tapCalendarDay(2);
         await tester.pumpAndSettle();
         expect(fake.callCount, 1);
         expect(fake.lastDate, DateTime(2026, 8, 2));
@@ -1092,12 +1093,16 @@ void main() {
     // `clockProvider`, so the WHOLE file is zone-critical and Rule 1 rightly
     // flags any bare arity>=4 `DateTime(` in it, this pair included.
     final BookingSlot available = BookingSlot(
+      // future-date-ok: fixed instant read only via `.hour`/formatSlotTime (bucketing/display), never compared against isPast — see the group comment above.
       startAt: DateTime.utc(2026, 7, 20, 10),
+      // future-date-ok: same as startAt above — bucketing/display only.
       endAt: DateTime.utc(2026, 7, 20, 11),
       available: true,
     );
     final BookingSlot unavailable = BookingSlot(
+      // future-date-ok: fixed instant read only via `.hour`/formatSlotTime (bucketing/display), never compared against isPast — see the group comment above.
       startAt: DateTime.utc(2026, 7, 20, 12),
+      // future-date-ok: same as startAt above — bucketing/display only.
       endAt: DateTime.utc(2026, 7, 20, 13),
       available: false,
     );

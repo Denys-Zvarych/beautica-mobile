@@ -56,6 +56,7 @@ import 'support/app_harness.dart';
 /// +3) = Aug 2 (01:30 local, already rolled over). Mirrors the fixture
 /// `kyiv_day_test.dart`, `booked_days_notifier_test.dart` and
 /// `working_hours_repository_test.dart` all use for the identical case.
+// future-date-ok: this IS the injected AppHarness clock "now" — a fixed instant straddling the Kyiv/UTC day boundary is the whole point; a now-relative offset cannot express "an instant that crosses the Kyiv day boundary".
 final DateTime _kKyivBoundaryInstant = DateTime.utc(2026, 8, 1, 22, 30);
 
 /// The CORRECT Kyiv day for [_kKyivBoundaryInstant] — what every Kyiv-

@@ -96,6 +96,7 @@ void main() {
   // on either side is safe).
   const String elapsedStartsAt = '2020-01-01T10:00:00Z';
   const String elapsedEndsAt = '2020-01-01T11:30:00Z';
+  // future-date-ok: deliberately far-future twin of elapsedStartsAt above — the pair proves the partition boundary deterministically on BOTH sides regardless of runner wall clock/TZ, per the comment above; a now-relative offset would not be symmetric with the fixed 2020 past instant.
   final DateTime futureStartsAt = DateTime.utc(2035, 1, 1, 10);
 
   testWidgets(
@@ -261,6 +262,7 @@ void main() {
     'pre-227 status-only filter, never to "no filter at all"',
     (tester) async {
       final DateTime past = DateTime.utc(2000, 1, 1, 10);
+      // future-date-ok: deliberately far-future twin of `past` above — proves the partition boundary deterministically on both sides regardless of runner wall clock/TZ; a now-relative offset would not be symmetric with the fixed 2000 past instant.
       final DateTime future = DateTime.utc(2035, 1, 1, 10);
 
       final fb = FakeBackend()..currentRole = UserRole.client;

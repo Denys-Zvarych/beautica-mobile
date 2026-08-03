@@ -46,6 +46,7 @@ void main() {
             onPressed: () => invalidateBookingViewsAfterExternalDecline(
               ref,
               const <String>['booking-1'],
+              // future-date-ok: arbitrary bookingsDayProvider invalidation target, never read through BookingDisplayX.isPast — the test only counts nextAppointmentProvider refetches, so this date's value is inconsequential.
               affectedDates: <DateTime>[DateTime.utc(2026, 7, 20)],
             ),
             child: const Text('invalidate'),

@@ -104,6 +104,7 @@ void main() {
       'is still the SAME calendar day in UTC — a UTC/device-day _today would '
       'wrongly leave it selectable',
       (tester) async {
+        // future-date-ok: this IS the fake clockProvider "now" — a fixed instant straddling the Kyiv/UTC day boundary is the whole point; a now-relative offset cannot express "an instant that crosses the Kyiv day boundary".
         final clockInstant = DateTime.utc(2026, 8, 1, 22, 30);
         final fake = _AlwaysWorkingCountingSlotRepository();
 
@@ -150,7 +151,7 @@ void main() {
         // time phase, fetching slots for exactly that date.
         final Finder aug2Cell = find.byKey(const Key('booking-calendar-day-2'));
         expect(aug2Cell, findsOneWidget);
-        await tester.tap(aug2Cell);
+        await tester.tapCalendarDay(2);
         await tester.pumpAndSettle();
 
         expect(fake.getMasterSlotsCallCount, 1);

@@ -307,13 +307,14 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(
-          find.byKey(const Key('public-master-profile-address-combined-text')),
-          findsOneWidget,
+        final Finder combinedAddress = find.byKey(
+          const Key('public-master-profile-address-combined-text'),
         );
-        // i18n-finder-ok: master.city/street/buildingNo are fixture data, not
-        // localised UI copy
-        expect(find.text('Київ, вул. Хрещатик, 22'), findsOneWidget);
+        expect(combinedAddress, findsOneWidget);
+        expect(
+          tester.widget<Text>(combinedAddress).data,
+          'Київ, вул. Хрещатик, 22',
+        );
         // The split rows must NOT also render — the two paths are exclusive.
         expect(
           find.byKey(const Key('public-master-profile-locality-text')),
@@ -358,14 +359,10 @@ void main() {
           const Key('public-master-profile-address-text'),
         );
         expect(streetLine, findsOneWidget);
-        // i18n-finder-ok: master.street/buildingNo are fixture data, not UI copy
-        expect(
-          find.text('вул. Академіка Володимира Філатова, 145-Б'),
-          findsOneWidget,
-        );
         // Phase 219 (A) regression guard — an explicit 2-line budget, not
         // ellipsis-without-maxLines.
         final Text street = tester.widget<Text>(streetLine);
+        expect(street.data, 'вул. Академіка Володимира Філатова, 145-Б');
         expect(street.maxLines, 2);
         expect(street.overflow, TextOverflow.ellipsis);
       },
