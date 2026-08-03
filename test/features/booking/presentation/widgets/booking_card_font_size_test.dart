@@ -110,7 +110,7 @@ void main() {
         expect(
           _keyedFontSize(tester, 'time'),
           lessThanOrEqualTo(_timeCeiling),
-          reason: 'top-right time must stay compact (<= $_timeCeiling)',
+          reason: 'date-stub time must stay compact (<= $_timeCeiling)',
         );
         expect(
           _keyedFontSize(tester, 'master-name'),

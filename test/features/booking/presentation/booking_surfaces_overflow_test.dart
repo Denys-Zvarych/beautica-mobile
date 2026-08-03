@@ -272,6 +272,17 @@ const double _kClientPriceCapWidth = 96;
 double _rightEdge(WidgetTester tester, Key key) =>
     tester.getBottomRight(find.byKey(key)).dx;
 
+/// `booking_card.dart`'s body Padding right inset (`VelvetSpacing.sm`),
+/// restated independently — same technique as [_kClientPriceCapWidth]. The
+/// price anchors to this margin directly; before the slot time moved into
+/// the date stub (2026-08), the time happened to sit on the same edge and
+/// served as the comparison instead. Assumes exactly one [BookingCard] is
+/// on screen, true of every call site below.
+const double _kBodyRightInset = 8; // VelvetSpacing.sm
+
+double _bodyRightEdge(WidgetTester tester) =>
+    tester.getRect(find.byType(BookingCard)).right - _kBodyRightInset;
+
 void main() {
   // =========================================================================
   // SURFACE 1 — «МОЇ ЗАПИСИ» list: MyBookingsScreen + BookingCard.
@@ -366,7 +377,8 @@ void main() {
     }
 
     // ── 1c. DELIBERATE truncation — the service name ellipsises AND the price
-    //    stays fully visible, right-anchored to the same edge as the time,
+    //    stays fully visible, right-anchored to the body's own right margin
+    //    (the price is a non-flex anchor — see the library doc's ⚠ note),
     //    whatever the name does. Asserted at every cell.
     for (final double width in _widths) {
       for (final double scale in _scales) {
@@ -402,19 +414,20 @@ void main() {
                   'the deliberate truncation that anchors the price',
             );
 
-            // The price is fully visible AND its right edge lines up with the
-            // time above it — the numeric column stays a straight vertical edge.
+            // The price is fully visible AND its right edge sits flush against
+            // the body's own right margin — since the slot time moved into the
+            // date stub (2026-08), the body's right padding inset is the only
+            // stable reference edge left; it holds regardless of how the
+            // service name wraps/ellipsises.
             expect(
               find.byKey(const ValueKey<String>('price-anchor')),
               findsOneWidget,
             );
             expect(
               _rightEdge(tester, const ValueKey<String>('price-anchor')),
-              closeTo(
-                _rightEdge(tester, const ValueKey<String>('time-anchor')),
-                0.6,
-              ),
-              reason: 'price right edge must align with the time right edge',
+              closeTo(_bodyRightEdge(tester), 0.6),
+              reason:
+                  "price right edge must align with the body's right margin",
             );
           },
         );
@@ -468,11 +481,8 @@ void main() {
             // Whole and right-anchored, exactly as the single figure is.
             expect(
               _rightEdge(tester, const ValueKey<String>('price-band')),
-              closeTo(
-                _rightEdge(tester, const ValueKey<String>('time-band')),
-                0.6,
-              ),
-              reason: 'the band must anchor to the same right edge as the time',
+              closeTo(_bodyRightEdge(tester), 0.6),
+              reason: "the band must anchor to the body's right margin",
             );
           },
         );

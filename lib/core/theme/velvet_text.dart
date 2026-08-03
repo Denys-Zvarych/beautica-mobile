@@ -1032,10 +1032,12 @@ abstract final class VelvetText {
     height: 1.0,
   );
 
-  /// Booking-card top-right time — statValue 14 sp, `height: 1.1` (was 17 sp;
-  /// stepped down in the 2026-07-15 compact-card pass). Colour (mocha / muted,
-  /// plus an optional no-show strikethrough) applied at the call site via a
-  /// single `copyWith`.
+  /// Booking-card date-stub time — statValue 14 sp, `height: 1.1` (was 17 sp;
+  /// stepped down in the 2026-07-15 compact-card pass). Third stacked line
+  /// under the day number and month/weekday caption (2026-08 move out of the
+  /// body's top-right corner). Colour (mocha / muted, plus an optional
+  /// no-show strikethrough) applied at the call site via a single
+  /// `copyWith`.
   static final TextStyle bookingTime = _statValueStyle.copyWith(
     fontSize: 14,
     height: 1.1,
