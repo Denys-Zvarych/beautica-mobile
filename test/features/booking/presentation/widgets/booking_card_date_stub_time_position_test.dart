@@ -33,6 +33,13 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../../helpers/pump_app.dart';
 
 const String _cardId = 'stub-pos';
+// The stub's caption geometry is deliberately exercised at its worst case:
+// November renders the genitive «листопада», one of only three months (with
+// березня/вересня) whose caption wraps the stub to two lines (see
+// _DateStub.width in booking_card.dart) — pinning the month keeps that
+// two-line case deterministic across every run, rather than depending on
+// which month `DateTime.now()` happens to land in when the suite runs.
+// future-date-ok: pinned to a two-line-wrapping month so the stub's worst-case internal line-stacking geometry (asserted above) stays deterministic instead of depending on which month DateTime.now() lands in.
 final DateTime _start = DateTime.utc(2026, 11, 28, 15);
 
 /// A confirmed, non-dead, non-struck booking — the baseline card for the

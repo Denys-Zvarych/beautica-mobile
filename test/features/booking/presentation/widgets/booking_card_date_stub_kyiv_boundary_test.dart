@@ -82,6 +82,11 @@ void main() {
       'summer/EEST: 2026-06-18T22:30Z renders as Friday the 19th, not '
       'Thursday the 18th',
       (tester) async {
+        // Fixed EEST/UTC+3 instant on purpose (not futureBookingStart()):
+        // the asserted day "19" and caption "червня, пт" only hold at this
+        // exact +3 Kyiv offset, paired against the EET/UTC+2 instant in the
+        // winter case below to prove both DST sides stay deterministic.
+        // future-date-ok: fixed EEST/UTC+3 instant needed to pin day+caption
         final DateTime start = DateTime.utc(2026, 6, 18, 22, 30);
         await _pumpCard(tester, start);
 
@@ -108,6 +113,11 @@ void main() {
       'winter/EET: 2026-01-18T22:30Z renders as Monday the 19th, not Sunday '
       'the 18th — proves DST-awareness, not a hardcoded +3 offset',
       (tester) async {
+        // Fixed EET/UTC+2 instant on purpose (not futureBookingStart()): the
+        // asserted day "19" and caption "січня, пн" only hold at this exact
+        // +2 Kyiv offset, paired against the EEST/UTC+3 instant in the
+        // summer case above to prove DST-awareness, not a hardcoded +3.
+        // future-date-ok: fixed EET/UTC+2 instant needed to pin day+caption
         final DateTime start = DateTime.utc(2026, 1, 18, 22, 30);
         await _pumpCard(tester, start);
 
@@ -130,7 +140,10 @@ void main() {
         // Gregorian date from it (Dart core `DateTime(y, m, d).weekday` —
         // NOT `toBeauticaTime`, so this does not exercise the same
         // conversion the fix performs), and confirm that weekday is the one
-        // actually printed in the caption below it.
+        // actually printed in the caption below it. Fixed EEST/UTC+3
+        // instant, same as the summer case above — the day+weekday
+        // invariant only reproduces the bug at this exact Kyiv offset.
+        // future-date-ok: pinned EEST/UTC+3 instant, needed for the invariant
         final DateTime start = DateTime.utc(2026, 6, 18, 22, 30);
         await _pumpCard(tester, start);
 
