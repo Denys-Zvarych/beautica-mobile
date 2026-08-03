@@ -27,17 +27,22 @@
 // `AppointmentSubmit`). [idempotencyKey] / [clientComment] are create-only and
 // unused on that path.
 //
-// [rescheduleAppointmentId] is track 27.x/MO-6's whole-VISIT counterpart: when
-// non-null the submit instead swaps to `PATCH /appointments/{id}/reschedule`
-// (`AppointmentSubmit.rescheduleAppointment`), moving EVERY service in the
-// visit in lockstep — [services] then holds the visit's FULL ordered
-// selection, not one element. Checked FIRST in `BookingConfirmScreen._submit`
-// (before [rescheduleBookingId]) since both may be set together —
-// [rescheduleBookingId] still carries the ONE booking id to invalidate/refetch
-// on success, it just no longer decides which endpoint is called once this
-// field is set. The endpoint itself is dual-actor (the visit's own CLIENT or
-// an assigned PROVIDER); only the PROVIDER/master footer invokes it in-app
-// today (see `booking_detail_screen.dart`'s `_onReschedule`).
+// [rescheduleAppointmentId] is track 30.x's per-item VISIT counterpart: when
+// non-null the submit instead swaps to
+// `PATCH /appointments/{id}/services/{bookingId}/reschedule`
+// (`AppointmentSubmit.rescheduleAppointmentItem`), moving ONLY the ONE
+// service identified by [rescheduleBookingId] — siblings are untouched (no
+// re-layout, no cascade, no gap-closing). [services] STILL holds exactly one
+// element either way. Checked FIRST in `BookingConfirmScreen._submit`
+// (alongside [rescheduleBookingId], which is always set too on this path —
+// it identifies both the booking to move AND the one to
+// invalidate/refetch on success). The endpoint itself is dual-actor (the
+// visit's own CLIENT or an assigned PROVIDER); either footer of
+// `booking_detail_screen.dart`'s `_onReschedule` may set it. This supersedes
+// an earlier whole-VISIT reschedule flow (retired — the backend's own
+// whole-visit endpoint is untouched, only this mobile entry point to it was
+// removed) that used to populate [services] with the visit's FULL ordered
+// selection.
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 

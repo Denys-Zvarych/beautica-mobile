@@ -271,29 +271,24 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     ref.invalidate(bookingsDayProvider);
   }
 
-  /// Track 27.x/MO-6: when [Booking.appointmentId] is non-null this booking is
-  /// one service of a multi-service VISIT — the reschedule routes to
-  /// [startAppointmentReschedule] instead, moving every service in lockstep via
-  /// `PATCH /appointments/{id}/reschedule`. A plain single-service booking
-  /// (`appointmentId == null`) is UNCHANGED — same [startBookingReschedule]
-  /// call as before. Confirmed-only either way — the CTA below is gated to
-  /// match.
+  /// Track 30.x (superseding track 27.x/MO-6's whole-visit flow): when
+  /// [Booking.appointmentId] is non-null this booking is one service of a
+  /// multi-service VISIT — [startBookingReschedule] is still the ONE call
+  /// site; it re-fetches the booking itself and reads `appointmentId` off
+  /// that SAME fresh copy (mobile-security LOW fix — it no longer takes the
+  /// visit id as a separate parameter from this screen's own, possibly
+  /// stale, `booking`), so the confirm-step submit routes to the per-item
+  /// `PATCH /appointments/{id}/services/{bookingId}/reschedule` (moving ONLY
+  /// this service — siblings' windows stay byte-for-byte unchanged) instead
+  /// of the whole-visit endpoint the mobile app used to call here. A plain
+  /// single-service booking (`appointmentId == null`) resolves the same way
+  /// — UNCHANGED, still the per-booking `PATCH /bookings/{id}/reschedule`.
+  /// Confirmed-only either way — the CTA below is gated to match.
   void _onReschedule(BuildContext context, Booking booking) {
-    final String? appointmentId = booking.appointmentId;
-    if (appointmentId != null) {
-      unawaited(
-        startAppointmentReschedule(
-          context: context,
-          ref: ref,
-          appointmentId: appointmentId,
-          bookingId: booking.id,
-        ),
-      );
-      return;
-    }
     // Reuse the create-booking slot picker, seeded to reschedule THIS booking
     // (the confirm-step submit swaps POST → PATCH /reschedule on the non-null
-    // rescheduleBookingId).
+    // rescheduleBookingId, and further swaps to the per-item endpoint when
+    // the freshly-fetched booking's `appointmentId` is also non-null).
     unawaited(
       startBookingReschedule(context: context, ref: ref, bookingId: booking.id),
     );
@@ -692,13 +687,13 @@ class _DetailBody extends StatelessWidget {
   /// device clock can still hit a 409, handled by `onDecline`/`onComplete`'s
   /// callers (see `_confirmDecline`/`_confirmComplete` in the screen state).
   ///
-  ///   * CONFIRMED, not yet started — «Перенести» (a plain single-service
-  ///     booking reuses the SAME `startBookingReschedule` flow the client uses
-  ///     — Phase 27.2 widened `PATCH …/reschedule` to providers on the
-  ///     identical endpoint/shape; an appointment-child booking instead routes
-  ///     to `startAppointmentReschedule`, moving the whole visit via
-  ///     `PATCH /appointments/{id}/reschedule` — track 27.x/MO-6) + «Скасувати»
-  ///     (decline).
+  ///   * CONFIRMED, not yet started — «Перенести» (the SAME
+  ///     `startBookingReschedule` flow the client uses either way — Phase
+  ///     27.2 widened `PATCH …/reschedule` to providers on the identical
+  ///     endpoint/shape; an appointment-child booking passes its
+  ///     `appointmentId` through too, so the confirm-step submit swaps to the
+  ///     per-item `PATCH /appointments/{id}/services/{bookingId}/reschedule`
+  ///     — track 30.x, moving ONLY this service) + «Скасувати» (decline).
   ///   * CONFIRMED, [Booking.hasStarted] — «Завершити» AND «Скасувати»
   ///     (decline). Reschedule alone is hidden — it would 409 server-side
   ///     once the appointment has begun (see `hasStarted`'s doc for why this
@@ -716,12 +711,13 @@ class _DetailBody extends StatelessWidget {
   ///   * Every other terminal status (CANCELLED / DECLINED / NOT_COMPLETED /
   ///     unknown) — read-only, no actions.
   ///
-  /// Track 27.x/MO-6 — a booking that is part of a multi-service VISIT
+  /// Track 27.x/MO-6 (reschedule cut over to per-item by track 30.x) — a
+  /// booking that is part of a multi-service VISIT
   /// (`Booking.appointmentId != null`) now ALSO offers «Перенести»: the
-  /// backend exposes `PATCH /appointments/{id}/reschedule`, so `_onReschedule`
-  /// routes it to [startAppointmentReschedule] (whole-visit lockstep) instead
-  /// of the per-booking flow the visit-child 409 guard would otherwise block.
-  /// «Скасувати» (decline) routes to
+  /// backend exposes a per-item reschedule, so `_onReschedule` passes the
+  /// visit id through [startBookingReschedule], moving ONLY this service
+  /// (never the whole visit) instead of the per-booking flow the visit-child
+  /// 409 guard would otherwise block. «Скасувати» (decline) routes to
   /// `AppointmentRepository.declineAppointmentService` (the per-service visit
   /// endpoint), declining ONLY this tapped service and leaving the visit's
   /// siblings CONFIRMED — NOT the whole-visit `declineAppointment` (see

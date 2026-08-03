@@ -2103,6 +2103,41 @@ final class FakeBackend {
     }
   }
 
+  /// Track 30.x (PER-ITEM reschedule) — `booking-2`'s OWN start/end window,
+  /// INDEPENDENT of `booking-1`'s [bookingStartsAt]/[bookingEndsAt], mirroring
+  /// how [siblingBookingStatus] is independent of [bookingStatus]. Defaults to
+  /// the SAME instant as `booking-1` (both seeded as if the visit were still
+  /// contiguous) with the sibling's own 60-minute duration
+  /// (`durationMinutesAtBooking: 60` in [_seededSiblingBookingJson]) — until
+  /// [rescheduleChild] moves one of them, at which point the two diverge. This
+  /// is the "did the sibling's window survive untouched" surface the per-item
+  /// reschedule regression needs: moving `booking-1` must leave THIS pair
+  /// byte-for-byte unchanged (track 30.x's locked "no cascade, no
+  /// gap-closing" invariant) — the retired whole-visit reschedule would have
+  /// moved every child's window at once.
+  String siblingBookingStartsAt = _futureInstant(const Duration(days: 7));
+  String siblingBookingEndsAt = _futureInstant(
+    const Duration(days: 7, minutes: 60),
+  );
+
+  /// Moves ONLY the tapped child's own start/end window, keyed on [bookingId]
+  /// — mirrors [declineChild]'s per-child field routing. `booking-1` moves
+  /// [bookingStartsAt]/[bookingEndsAt], `booking-2` moves its OWN
+  /// [siblingBookingStartsAt]/[siblingBookingEndsAt]. Because the per-item
+  /// reschedule fix passes THIS child's own id (never the whole visit),
+  /// rescheduling `booking-1` here leaves `booking-2`'s window untouched — the
+  /// old whole-visit `rescheduleAppointment` would have moved every child's
+  /// window in lockstep.
+  void rescheduleChild(String bookingId, DateTime newStart, DateTime newEnd) {
+    if (bookingId == 'booking-2') {
+      siblingBookingStartsAt = newStart.toIso8601String();
+      siblingBookingEndsAt = newEnd.toIso8601String();
+    } else {
+      bookingStartsAt = newStart.toIso8601String();
+      bookingEndsAt = newEnd.toIso8601String();
+    }
+  }
+
   /// `GET /bookings/booking-1` (detail) + `GET /bookings/me` (list) call
   /// counts. A reschedule invalidates BOTH `bookingDetailProvider(id)` and
   /// `myBookingsProvider(upcoming)`, so a test asserts these counters climb
@@ -2220,8 +2255,8 @@ final class FakeBackend {
     'durationMinutesAtBooking': 60,
     'priceAtBooking': 400,
     'priceMaxAtBooking': null,
-    'startsAt': bookingStartsAt,
-    'endsAt': bookingEndsAt,
+    'startsAt': siblingBookingStartsAt,
+    'endsAt': siblingBookingEndsAt,
     'status': siblingBookingStatus,
     'canReview': false,
     'providerCanReviewClient': false,

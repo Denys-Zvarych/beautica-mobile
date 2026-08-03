@@ -39,7 +39,8 @@ class _MockReviewControllerApi extends Mock implements ReviewControllerApi {}
 
 const _createPath = '/api/v1/appointments';
 const _getPath = '/api/v1/appointments/appt-1';
-const _reschedulePath = '/api/v1/appointments/appt-1/reschedule';
+const _itemReschedulePath =
+    '/api/v1/appointments/appt-1/services/b-1/reschedule';
 const _cancelPath = '/api/v1/appointments/appt-1/cancel';
 const _reviewPath = '/api/v1/appointments/appt-1/review';
 
@@ -159,7 +160,7 @@ void main() {
     registerFallbackValue(AppointmentCancelRequest((b) => b));
     registerFallbackValue(CreateAppointmentReviewRequest((b) => b..rating = 5));
     registerFallbackValue(
-      AppointmentRescheduleRequest(
+      AppointmentItemRescheduleRequest(
         (b) => b..newStartsAt = DateTime.utc(2020, 1, 1),
       ),
     );
@@ -469,59 +470,67 @@ void main() {
     });
   });
 
-  group('rescheduleAppointment', () {
+  group('rescheduleAppointmentItem', () {
     final newStart = DateTime.utc(2020, 8, 1, 9);
 
     test(
       'success: forwards newStartsAt and maps the returned detail',
       () async {
         when(
-          () => appointmentApi.rescheduleAppointment(
+          () => appointmentApi.rescheduleAppointmentItem(
             appointmentId: 'appt-1',
-            appointmentRescheduleRequest: any(
-              named: 'appointmentRescheduleRequest',
+            bookingId: 'b-1',
+            appointmentItemRescheduleRequest: any(
+              named: 'appointmentItemRescheduleRequest',
             ),
           ),
         ).thenAnswer(
-          (_) async => _detailResponse(_buildDetail(), path: _reschedulePath),
+          (_) async =>
+              _detailResponse(_buildDetail(), path: _itemReschedulePath),
         );
 
-        final appt = await repository.rescheduleAppointment('appt-1', newStart);
+        final appt = await repository.rescheduleAppointmentItem(
+          'appt-1',
+          'b-1',
+          newStart,
+        );
 
         expect(appt.id, 'appt-1');
         expect(appt.status, BookingStatus.confirmed);
 
         final captured = verify(
-          () => appointmentApi.rescheduleAppointment(
+          () => appointmentApi.rescheduleAppointmentItem(
             appointmentId: 'appt-1',
-            appointmentRescheduleRequest: captureAny(
-              named: 'appointmentRescheduleRequest',
+            bookingId: 'b-1',
+            appointmentItemRescheduleRequest: captureAny(
+              named: 'appointmentItemRescheduleRequest',
             ),
           ),
         ).captured;
-        final body = captured.single as AppointmentRescheduleRequest;
+        final body = captured.single as AppointmentItemRescheduleRequest;
         expect(body.newStartsAt, newStart);
       },
     );
 
     test('null data on 200 → ServerFailure(null)', () async {
       when(
-        () => appointmentApi.rescheduleAppointment(
+        () => appointmentApi.rescheduleAppointmentItem(
           appointmentId: 'appt-1',
-          appointmentRescheduleRequest: any(
-            named: 'appointmentRescheduleRequest',
+          bookingId: 'b-1',
+          appointmentItemRescheduleRequest: any(
+            named: 'appointmentItemRescheduleRequest',
           ),
         ),
       ).thenAnswer(
         (_) async => Response<ApiResponseAppointmentDetailResponse>(
           data: ApiResponseAppointmentDetailResponse((b) => b..success = true),
-          requestOptions: RequestOptions(path: _reschedulePath),
+          requestOptions: RequestOptions(path: _itemReschedulePath),
           statusCode: 200,
         ),
       );
 
       await expectLater(
-        repository.rescheduleAppointment('appt-1', newStart),
+        repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
         throwsA(
           isA<ServerFailure>().having(
             (f) => f.statusCode,
@@ -536,44 +545,127 @@ void main() {
       '409 BOOKING_ALREADY_ELAPSED → BookingAlreadyElapsedFailure',
       () async {
         when(
-          () => appointmentApi.rescheduleAppointment(
+          () => appointmentApi.rescheduleAppointmentItem(
             appointmentId: 'appt-1',
-            appointmentRescheduleRequest: any(
-              named: 'appointmentRescheduleRequest',
+            bookingId: 'b-1',
+            appointmentItemRescheduleRequest: any(
+              named: 'appointmentItemRescheduleRequest',
             ),
           ),
         ).thenThrow(
           _dioBadResponseWithBody(
             409,
-            _reschedulePath,
+            _itemReschedulePath,
             _bookingAlreadyElapsedBody(),
           ),
         );
 
         await expectLater(
-          repository.rescheduleAppointment('appt-1', newStart),
+          repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
           throwsA(isA<BookingAlreadyElapsedFailure>()),
         );
       },
     );
 
-    // The visit's requested slot was taken (or it is no longer reschedulable)
-    // between fetching availability and submitting — surfaces the SAME
-    // "time is no longer available" ConflictFailure the single-booking
-    // reschedule endpoint uses, not a bespoke type.
+    // The backend cannot distinguish, on the wire, a sibling-overlap /
+    // "master busy" conflict from the "changed concurrently — please retry"
+    // guard — both are plain `BusinessException(CONFLICT, …)` and serialize
+    // to the SAME bare `data: null` 409 (see
+    // `AppointmentTransitionService.rescheduleAppointmentItem`'s Javadoc).
+    // Both therefore surface the SAME "time is no longer available"
+    // ConflictFailure the single-booking reschedule endpoint uses, never a
+    // bespoke type.
     test('plain 409 (empty body) → ConflictFailure', () async {
       when(
-        () => appointmentApi.rescheduleAppointment(
+        () => appointmentApi.rescheduleAppointmentItem(
           appointmentId: 'appt-1',
-          appointmentRescheduleRequest: any(
-            named: 'appointmentRescheduleRequest',
+          bookingId: 'b-1',
+          appointmentItemRescheduleRequest: any(
+            named: 'appointmentItemRescheduleRequest',
           ),
         ),
-      ).thenThrow(_dioBadResponse(409, _reschedulePath));
+      ).thenThrow(_dioBadResponse(409, _itemReschedulePath));
 
       await expectLater(
-        repository.rescheduleAppointment('appt-1', newStart),
+        repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
         throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    // 409 CLIENT_BOOKING_CONFLICT → ClientBookingConflictFailure — mirrors the
+    // `createAppointment` test above. The OpenAPI spec documents this
+    // endpoint's 409 explicitly as covering `CLIENT_BOOKING_CONFLICT`, and the
+    // backend's `AppointmentTransitionService.rescheduleAppointmentItem` calls
+    // `assertNoClientConflictExcludingBooking`, which throws the SAME coded
+    // `ClientBookingConflictException` the create path does whenever moving
+    // this item would overlap the owning client's own OTHER booking.
+    // (Previously this test pinned the OPPOSITE behaviour — plain
+    // ConflictFailure — on the false premise that this endpoint's 409 is
+    // always a bare `data: null` body; that premise did not survive contact
+    // with the OpenAPI spec or the backend source, so the mapping was
+    // reverted to extract the coded envelope, and this test now pins the
+    // correct, richer shape.)
+    test(
+      '409 CLIENT_BOOKING_CONFLICT → ClientBookingConflictFailure',
+      () async {
+        when(
+          () => appointmentApi.rescheduleAppointmentItem(
+            appointmentId: 'appt-1',
+            bookingId: 'b-1',
+            appointmentItemRescheduleRequest: any(
+              named: 'appointmentItemRescheduleRequest',
+            ),
+          ),
+        ).thenThrow(
+          _dioBadResponseWithBody(
+            409,
+            _itemReschedulePath,
+            _clientBookingConflictBody(),
+          ),
+        );
+
+        await expectLater(
+          repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
+          throwsA(
+            isA<ClientBookingConflictFailure>()
+                .having((f) => f.conflictingBookingId, 'id', 'conflict-1')
+                .having((f) => f.serviceName, 'service', 'Манікюр'),
+          ),
+        );
+      },
+    );
+
+    // mobile-qa fix (F6) — the 404 case (`bookingId` is not a child of
+    // `appointmentId`) was only exercised incidentally, sharing the 400
+    // test's `e.error is Failure` branch with no test of its own naming that
+    // status code. Named explicitly so a future change to this branch's
+    // status-code handling can't silently drop 404 coverage.
+    test('404 (bookingId not a child of appointmentId): pre-mapped '
+        'NotFoundFailure on e.error is re-thrown unchanged', () async {
+      const mapped = NotFoundFailure();
+      when(
+        () => appointmentApi.rescheduleAppointmentItem(
+          appointmentId: 'appt-1',
+          bookingId: 'b-1',
+          appointmentItemRescheduleRequest: any(
+            named: 'appointmentItemRescheduleRequest',
+          ),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _itemReschedulePath),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: _itemReschedulePath),
+            statusCode: 404,
+          ),
+          error: mapped,
+        ),
+      );
+
+      await expectLater(
+        repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
+        throwsA(same(mapped)),
       );
     });
 
@@ -588,18 +680,19 @@ void main() {
         serverMessage: 'window violation',
       );
       when(
-        () => appointmentApi.rescheduleAppointment(
+        () => appointmentApi.rescheduleAppointmentItem(
           appointmentId: 'appt-1',
-          appointmentRescheduleRequest: any(
-            named: 'appointmentRescheduleRequest',
+          bookingId: 'b-1',
+          appointmentItemRescheduleRequest: any(
+            named: 'appointmentItemRescheduleRequest',
           ),
         ),
       ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: _reschedulePath),
+          requestOptions: RequestOptions(path: _itemReschedulePath),
           type: DioExceptionType.badResponse,
           response: Response<dynamic>(
-            requestOptions: RequestOptions(path: _reschedulePath),
+            requestOptions: RequestOptions(path: _itemReschedulePath),
             statusCode: 400,
           ),
           error: mapped,
@@ -607,23 +700,24 @@ void main() {
       );
 
       await expectLater(
-        repository.rescheduleAppointment('appt-1', newStart),
+        repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
         throwsA(same(mapped)),
       );
     });
 
     test('connection error → NetworkFailure', () async {
       when(
-        () => appointmentApi.rescheduleAppointment(
+        () => appointmentApi.rescheduleAppointmentItem(
           appointmentId: 'appt-1',
-          appointmentRescheduleRequest: any(
-            named: 'appointmentRescheduleRequest',
+          bookingId: 'b-1',
+          appointmentItemRescheduleRequest: any(
+            named: 'appointmentItemRescheduleRequest',
           ),
         ),
-      ).thenThrow(_dioConnectionError(_reschedulePath));
+      ).thenThrow(_dioConnectionError(_itemReschedulePath));
 
       await expectLater(
-        repository.rescheduleAppointment('appt-1', newStart),
+        repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
         throwsA(isA<NetworkFailure>()),
       );
     });

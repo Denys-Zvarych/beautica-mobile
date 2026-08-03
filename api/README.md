@@ -66,6 +66,7 @@ All URIs are relative to *http://localhost:8080*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointment**](doc/AppointmentControllerApi.md#cancelappointment) | **PATCH** /api/v1/appointments/{appointmentId}/cancel | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointmentItem**](doc/AppointmentControllerApi.md#cancelappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/cancel | Cancel one service line of a visit
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**completeAppointment**](doc/AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**createAppointment**](doc/AppointmentControllerApi.md#createappointment) | **POST** /api/v1/appointments | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointment**](doc/AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
@@ -73,6 +74,7 @@ Class | Method | HTTP request | Description
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**getAppointment**](doc/AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**notCompleteAppointment**](doc/AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointment**](doc/AppointmentControllerApi.md#rescheduleappointment) | **PATCH** /api/v1/appointments/{appointmentId}/reschedule | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointmentItem**](doc/AppointmentControllerApi.md#rescheduleappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/reschedule | Reschedule one service line of a visit
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**acceptInvite**](doc/AuthControllerApi.md#acceptinvite) | **POST** /api/v1/auth/invite/accept | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**forgotPassword**](doc/AuthControllerApi.md#forgotpassword) | **POST** /api/v1/auth/forgot-password | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**login**](doc/AuthControllerApi.md#login) | **POST** /api/v1/auth/login | 
@@ -260,6 +262,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseWeeklyScheduleResponse](doc/ApiResponseWeeklyScheduleResponse.md)
  - [AppointmentCancelRequest](doc/AppointmentCancelRequest.md)
  - [AppointmentDetailResponse](doc/AppointmentDetailResponse.md)
+ - [AppointmentItemRescheduleRequest](doc/AppointmentItemRescheduleRequest.md)
  - [AppointmentItemResponse](doc/AppointmentItemResponse.md)
  - [AppointmentProviderNoteRequest](doc/AppointmentProviderNoteRequest.md)
  - [AppointmentRescheduleRequest](doc/AppointmentRescheduleRequest.md)

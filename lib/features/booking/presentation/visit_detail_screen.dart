@@ -14,9 +14,18 @@
 // The visit analogue of `booking_detail_screen.dart`: it is backed by
 // `GET /appointments/{appointmentId}` (the enriched [Appointment] — ordered
 // items, summed totals, mutually-visible notes, `canReview`, locality) instead
-// of `GET /bookings/{id}`, and its cancel/review act on the APPOINTMENT
-// endpoints (a single-booking cancel/review on an appointment child is 409'd by
-// the backend — the client MUST route a visit here).
+// of `GET /bookings/{id}`, and its cancel/review act on the WHOLE-VISIT
+// APPOINTMENT endpoints (`PATCH /appointments/{id}/cancel`,
+// `POST /appointments/{id}/review`) because THIS screen's own scope is the
+// whole visit, not because a per-booking route would be rejected — track
+// 30.x gave the backend first-class PER-ITEM cancel and reschedule
+// (`PATCH /appointments/{id}/services/{bookingId}/cancel` /
+// `.../reschedule`), which `booking_detail_screen.dart` now uses for a single
+// service of a visit. (STALE CLAIM REMOVED, 2026-08 — this comment used to
+// say a single-booking cancel/review on an appointment child was 409'd by the
+// backend, forcing the client to route here; that has not been true since
+// track 30.x shipped the per-item endpoints, and per-item reschedule was
+// never routed through this screen to begin with.)
 //
 // It reuses the SAME [BookingSuccessScaffold] + [BookingSummaryCards] machinery
 // the single-booking detail uses, so the visit reads as one venue, one window,

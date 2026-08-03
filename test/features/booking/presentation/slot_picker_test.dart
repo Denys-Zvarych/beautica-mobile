@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -239,7 +240,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final DateTime today = DateTime.now();
+      final DateTime today = kyivToday(DateTime.now);
       final Finder todayCell = find.byKey(
         Key('booking-calendar-day-${today.day}'),
       );
@@ -262,7 +263,7 @@ void main() {
       'a day the working-days fetch marks working:false cannot be selected '
       'and never loads slots',
       (tester) async {
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
@@ -325,7 +326,7 @@ void main() {
       'service is disabled once the calendar is service-scoped (Phase 14.20 '
       'availability-aware gate) — never tappable, never loads slots',
       (tester) async {
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
@@ -397,7 +398,7 @@ void main() {
       'a day the service-scoped working-days query marks working:true stays '
       'enabled and loads its slots on tap',
       (tester) async {
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final fake = _FakeSlotRepository(
           const <BookingSlot>[],
           // Availability-aware mode reports EVERY day working:true here.
@@ -655,7 +656,7 @@ void main() {
       'a day silently absent from the working-days response defaults to '
       'non-working (conservative fallback), never tappable',
       (tester) async {
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
@@ -1009,7 +1010,7 @@ void main() {
       expect(find.byType(SlotTimeScreen), findsNothing);
 
       // Select today, then advance.
-      final DateTime today = DateTime.now();
+      final DateTime today = kyivToday(DateTime.now);
       await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
       await tester.tap(cta);
@@ -1024,12 +1025,18 @@ void main() {
   // `SlotDateScreen.initState` derives `_today` via `kyivToday(ref.read
   // (clockProvider))` (`slot_picker_screen.dart:102`), which gates both the
   // "past day, untappable" rule (`day.isBefore(_today)`) and the calendar's
-  // "today" ring. Every OTHER test in this file reads the REAL device clock
-  // (`DateTime.now()`) with no `clockProvider` override, so none of them can
-  // disagree with a reverted `dateOnly(DateTime.now())` — this is the one
-  // fixture that pins the Kyiv-vs-UTC derivation itself, mirroring
-  // `booked_days_notifier_test.dart`'s identical pattern for the "reaches the
-  // wire" notifier.
+  // "today" ring. Every OTHER test in this file (no `clockProvider`
+  // override, so the widget reads the REAL device clock) computes its own
+  // "today" via `kyivToday(DateTime.now)` too — mobile-qa fix, 2026-08:
+  // these used to read a bare `DateTime.now()`, which disagrees with the
+  // widget's Kyiv-anchored `_today` for roughly a third of every 24h window
+  // (UTC ~21:00–24:00, when Kyiv has already rolled to the next calendar
+  // day) and deterministically taps an already-PAST, disabled "today" cell —
+  // `tapCalendarDay` then silently no-ops and every downstream assertion in
+  // the same test fails. This fixture (the dedicated Kyiv-vs-UTC group
+  // below) still pins the derivation itself with an explicit fixed
+  // `clockProvider` override, mirroring `booked_days_notifier_test.dart`'s
+  // identical pattern for the "reaches the wire" notifier.
   group('SlotDateScreen — Kyiv-anchored "today" (mobile-qa, 2026-08-02, '
       'backlog :226)', () {
     testWidgets(
@@ -1128,7 +1135,7 @@ void main() {
       // fixture list ([available], [unavailable]) no matter which date is
       // requested, so the exact tapped day-of-month is irrelevant to the
       // fixture that ends up in `slotPickerProvider.slots`.
-      final DateTime today = DateTime.now();
+      final DateTime today = kyivToday(DateTime.now);
       await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
@@ -1183,7 +1190,7 @@ void main() {
         // `_DayHeaderChip` is gone: its day-label text must be ABSENT, not
         // just unlocated. Using the real formatter (not a hardcoded string)
         // keeps this assertion locale-agnostic per mobile-qa M2.
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
@@ -1365,7 +1372,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         await tester.tapCalendarDay(today.day);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('booking-summary-cta')));
@@ -1405,7 +1412,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         await tester.tapCalendarDay(today.day);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('booking-summary-cta')));

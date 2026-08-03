@@ -4314,14 +4314,6 @@
   "@bookingRescheduleUnavailable": {
     "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
   },
-  "appointmentRescheduleUnavailable": "Цей візит не можна перенести.",
-  "@appointmentRescheduleUnavailable": {
-    "description": "Track 27.x/MO-6 — snackbar shown when startAppointmentReschedule short-circuits: the visit is no longer CONFIRMED, or one of its services is no longer in the master's catalogue."
-  },
-  "appointmentRescheduleWholeVisitNotice": "Увесь візит переноситься одразу — усі послуги залишаться в тому самому порядку й з тією самою тривалістю.",
-  "@appointmentRescheduleWholeVisitNotice": {
-    "description": "Track 27.x/MO-6 — info banner on the booking confirm screen when the flow is a whole-visit reschedule (PATCH /appointments/{id}/reschedule), making explicit that every service listed below moves together."
-  },
   "salonProfileBackLabel": "Назад",
   "@salonProfileBackLabel": {
     "description": "Accessibility label for the back control floating over the salon profile cover photo."

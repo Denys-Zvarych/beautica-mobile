@@ -103,6 +103,7 @@ export 'package:beautica_api/src/model/api_response_void.dart';
 export 'package:beautica_api/src/model/api_response_weekly_schedule_response.dart';
 export 'package:beautica_api/src/model/appointment_cancel_request.dart';
 export 'package:beautica_api/src/model/appointment_detail_response.dart';
+export 'package:beautica_api/src/model/appointment_item_reschedule_request.dart';
 export 'package:beautica_api/src/model/appointment_item_response.dart';
 export 'package:beautica_api/src/model/appointment_provider_note_request.dart';
 export 'package:beautica_api/src/model/appointment_reschedule_request.dart';

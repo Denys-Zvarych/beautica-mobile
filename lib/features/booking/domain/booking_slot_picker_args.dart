@@ -23,21 +23,22 @@
 // when non-null, `/booking/confirm`'s submit swaps the create POST for a
 // `PATCH /bookings/{id}/reschedule` call.
 //
-// [rescheduleAppointmentId] is track 27.x/MO-6's whole-VISIT counterpart
-// (`PATCH /appointments/{id}/reschedule`): non-null only when the
-// PROVIDER/master footer reschedules a multi-service visit
-// (`Booking.appointmentId != null`) from `booking_detail_screen.dart`'s
-// `_onReschedule` — the endpoint itself is dual-actor (the visit's own
-// CLIENT or an assigned PROVIDER); this in-app caller is simply
-// PROVIDER-only today. [services] then carries the
-// visit's FULL ordered selection (every item, not just one) — this screen pair
-// already fetches availability against the SUMMED duration of `services`
-// regardless of count (see `SlotDateScreen._workingDaysQuery`'s doc), so no
-// screen-level change was needed to support it. [rescheduleBookingId] is set
-// ALONGSIDE it to the one booking id whose detail screen is open (used only for
-// cache invalidation on submit, never for routing — see
-// `BookingConfirmScreen._submit`, which checks [rescheduleAppointmentId]
-// FIRST).
+// [rescheduleAppointmentId] is track 30.x's per-item VISIT counterpart
+// (`PATCH /appointments/{id}/services/{bookingId}/reschedule`): non-null only
+// when [rescheduleBookingId] identifies ONE service of a multi-service visit
+// (`Booking.appointmentId != null`) — either footer of
+// `booking_detail_screen.dart`'s `_onReschedule` may set it, the endpoint
+// being dual-actor (the visit's own CLIENT or an assigned PROVIDER).
+// [services] still carries exactly the ONE item being moved, mirroring the
+// plain single-booking reschedule shape above — this per-item endpoint moves
+// ONLY that service, never its siblings (no re-layout, no cascade, no
+// gap-closing; the visit may legally become non-contiguous afterwards). This
+// SUPERSEDES an earlier whole-VISIT reschedule flow that used to populate
+// [services] with the visit's FULL ordered selection and call
+// `PATCH /appointments/{id}/reschedule` — that mobile entry point was
+// retired (the backend endpoint itself is untouched) once the backend grew
+// the per-item route; see `BookingConfirmScreen._submit`, which checks
+// [rescheduleAppointmentId] FIRST alongside [rescheduleBookingId].
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 
