@@ -467,4 +467,137 @@ void main() {
       );
     },
   );
+
+  // ---------------------------------------------------------------------------
+  // Regression — the FIVE-TIMES-PATCHED bug: `_userTouchedLocality` is set by
+  // the user-driven mutators (selectOblast/selectCity/selectDistrict — what
+  // Пошук's OWN locality picker taps call) and is NEVER cleared for the rest
+  // of the session. `prefillFromProfileIfNeeded()` — the PASSIVE, anti-clobber
+  // prefill — returns early once that flag is set. `_save()` used to call
+  // THAT guarded method after a successful PATCH, so once a CLIENT had ever
+  // touched Пошук's own picker, every subsequent profile-location save
+  // silently no-op'd on Search.
+  //
+  // THE TRAP the test above ("saving a NEW locality re-seeds...") fell into:
+  // it arms its precondition via `prefillFromProfileIfNeeded()`, which NEVER
+  // sets `_userTouchedLocality` — so that test's precondition is `false`
+  // throughout and it would pass IDENTICALLY against the pre-fix code. It
+  // does not pin this regression at all (see mobile-qa mutation-test note).
+  //
+  // THIS test arms the guard the way a real user does: calling
+  // selectOblast/selectCity directly on SearchFiltersController — the exact
+  // mutators Пошук's own picker taps invoke — with a DIFFERENT locality (X)
+  // than the one saved on THIS screen (Y). Only the AUTHORITATIVE
+  // applyProfileLocationSave path (not prefillFromProfileIfNeeded) can land Y.
+  // ---------------------------------------------------------------------------
+
+  testWidgets('a locality armed via selectCity/selectOblast (the Пошук picker '
+      'mutators — NOT prefillFromProfileIfNeeded) does not block a later '
+      'profile-location save from reaching SearchFiltersController with the '
+      'NEW city', (tester) async {
+    _mutableProfileAfterPatch = _userAtStaleCity;
+
+    final searchRepo = _MockClientProfileRepository();
+    ClientProfileUpdate? captured;
+    when(() => searchRepo.updateMyProfile(any())).thenAnswer((
+      invocation,
+    ) async {
+      captured = invocation.positionalArguments.first as ClientProfileUpdate;
+      _mutableProfileAfterPatch = _userAtNewCity;
+    });
+
+    await tester.pumpRoutedApp(
+      _buildRouter(),
+      overrides: _overridesWithSearchSync(searchRepo),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byKey(const Key('location-cascade'))),
+    );
+
+    // This test's minimal `_buildRouter()` — unlike the real app router's
+    // redirect guard — never reads `authProvider` itself, and neither does
+    // `ClientLocationEditScreen` (only `clientEditProfileProvider`, a fully
+    // custom stub). So NOTHING touches `authProvider` until
+    // `SearchFiltersController.build()`'s own `ref.watch(authProvider
+    // .select(...))` lazily triggers it below — and since that build() is its
+    // FIRST read, it captures `authProvider` still mid-resolve (selectedId
+    // null), then legitimately RE-RUNS (wiping `_userTouchedLocality`) the
+    // instant the async auth settles a microtask later. Force + await
+    // `authProvider` to settle FIRST, so `SearchFiltersController`'s own first
+    // build() already sees the settled id and never re-runs out from under
+    // the guard we are about to arm.
+    await container.read(authProvider.future);
+    await tester.pump();
+
+    // ARRANGE: arm the guard the way a REAL user arms it — tapping Пошук's
+    // OWN locality picker, i.e. calling selectOblast/selectCity on the
+    // controller directly (these are exactly what
+    // search_filters_screen.dart's picker tap handlers invoke) — with a
+    // DIFFERENT locality (X = city-stale-kyiv) than what this screen saves
+    // below (Y = city-new-odesa).
+    container
+        .read(searchFiltersControllerProvider.notifier)
+        .selectOblast(oblastId: 'oblast-01');
+    container
+        .read(searchFiltersControllerProvider.notifier)
+        .selectCity(cityId: 'city-stale-kyiv');
+    expect(
+      container.read(searchFiltersControllerProvider).cityId,
+      'city-stale-kyiv',
+      reason:
+          'precondition: the guard is armed via the SAME mutator the real '
+          'Search picker uses (selectCity), not the passive prefill',
+    );
+
+    // ACT: pick the NEW city (Y) on the Location screen and save.
+    tester
+        .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
+        .onCity(_cityNew);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('btn-save-location')));
+    await tester.pumpAndSettle();
+
+    expect(captured, isNotNull);
+    expect(captured!.cityId, 'city-new-odesa');
+    expect(find.byKey(const Key('stub-home')), findsOneWidget);
+
+    // THE REGRESSION ASSERTION — pre-fix, `_save()` called the PASSIVE
+    // `prefillFromProfileIfNeeded()`. `_userTouchedLocality` is true from
+    // the ARRANGE step above, so that method returns immediately and this
+    // would stay at 'city-stale-kyiv' (X) — the STALE touched value, not
+    // even null. Only the AUTHORITATIVE `applyProfileLocationSave` path
+    // unconditionally lands on Y.
+    expect(
+      container.read(searchFiltersControllerProvider).cityId,
+      'city-new-odesa',
+      reason:
+          'an explicit profile-location save must ALWAYS win over an '
+          'earlier Search-picker touch — this is the five-times-patched bug',
+    );
+    expect(
+      container.read(searchFilterLabelsControllerProvider).cityName,
+      'Одеса',
+      reason: 'the sibling label controller must reflect the NEW city too',
+    );
+
+    // Self-consistency: applyProfileLocationSave must leave the
+    // `_lastSeeded*` bookkeeping matching what it just wrote, so a
+    // SUBSEQUENT prefillFromProfileIfNeeded() call is a genuine no-op that
+    // does NOT undo the save — it must not revert to X (city-stale-kyiv),
+    // nor to null.
+    await container
+        .read(searchFiltersControllerProvider.notifier)
+        .prefillFromProfileIfNeeded();
+    expect(
+      container.read(searchFiltersControllerProvider).cityId,
+      'city-new-odesa',
+      reason:
+          'a later passive prefill must be a no-op — applyProfileLocationSave '
+          'must leave _lastSeeded* self-consistent with what it just wrote',
+    );
+  });
 }

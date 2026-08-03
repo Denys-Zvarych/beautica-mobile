@@ -51,6 +51,8 @@ import 'client_leave_review_flow_test.dart' as client_leave_review;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_visit_render_flow_test.dart' as client_visit_render;
 import 'client_logout_flow_test.dart' as client_logout;
+import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
+    as client_profile_location_save_overrides_search_touch;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
 import 'client_search_query_with_filters_flow_test.dart'
@@ -157,6 +159,16 @@ void main() {
   group(
     'search_prefill_survives_name_edit_flow',
     search_prefill_survives_name_edit.main,
+  );
+  // Five-times-patched regression (Step 2.7 Rule 3b, mobile-qa) — a profile-
+  // location save must ALWAYS win over an earlier manual pick made through
+  // Пошук's OWN locality picker (`_userTouchedLocality`), composing all three
+  // legs (Search's real picker touch → real routing to Location edit → real
+  // save → real ClientShell tab switch back into Search) that no single
+  // existing flow covers together.
+  group(
+    'client_profile_location_save_overrides_search_touch_flow',
+    client_profile_location_save_overrides_search_touch.main,
   );
   group('client_shell_flow', client_shell.main);
   // CLIENT left-edge swipe-back → Home tab (Step 2.7 Rule 3b) — the gesture

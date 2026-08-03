@@ -168,6 +168,37 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
   void setCategoryName(String? name) =>
       state = state.copyWith(categoryName: () => name);
 
+  /// Sets the whole locality slice (oblast, city, `cityHasDistricts`, district)
+  /// in a SINGLE `copyWith` — one state emission instead of the up-to-four
+  /// separate emissions from calling [setOblastName]/[setCityName]/
+  /// [setCityHasDistricts]/[setDistrictName] back to back.
+  ///
+  /// For call sites that always replace the entire locality atomically —
+  /// [SearchFiltersController.prefillFromProfileIfNeeded]'s two branches and
+  /// [SearchFiltersController.applyProfileLocationSave] — this cuts a
+  /// 4-rebuild cascade on `_LocationSection` (`search_filters_screen.dart`,
+  /// which `ref.watch`es this controller unqualified, no `.select`) down to
+  /// one. `categoryName` is deliberately not a parameter here: none of the
+  /// three locality-writing call sites touch it, so it is left untouched.
+  ///
+  /// The individual setters remain for call sites that mutate a single field
+  /// in isolation — e.g. the cascade picker taps in `search_filters_screen
+  /// .dart`, which set one level of the locality at a time as the user
+  /// interacts with a single dropdown.
+  void setLocality({
+    String? oblastName,
+    String? cityName,
+    bool cityHasDistricts = false,
+    String? districtName,
+  }) {
+    state = state.copyWith(
+      oblastName: () => oblastName,
+      cityName: () => cityName,
+      cityHasDistricts: cityHasDistricts,
+      districtName: () => districtName,
+    );
+  }
+
   /// Clears all labels (paired with [SearchFiltersController.reset]).
   void reset() => state = const SearchFilterLabels();
 }
@@ -232,10 +263,19 @@ class SearchQueryDraftController extends _$SearchQueryDraftController {
 class SearchFiltersController extends _$SearchFiltersController {
   /// Set ONLY by the user-driven locality mutators ([selectOblast] /
   /// [selectCity] / [selectDistrict]) — never by [prefillFromProfileIfNeeded]
-  /// itself. Once true, the profile-derived seed is permanently abandoned for
-  /// the rest of the session: a genuine manual pick (including a manual
-  /// *clear*) must never be silently reverted by a later profile-derived
-  /// reseed.
+  /// itself. Once true, the PASSIVE profile-derived seed
+  /// ([prefillFromProfileIfNeeded]) is abandoned for the rest of the session:
+  /// a genuine manual pick (including a manual *clear*) made through Search's
+  /// own picker must never be silently reverted by a later passive reseed.
+  ///
+  /// This flag guards [prefillFromProfileIfNeeded] ONLY. It is deliberately
+  /// NOT consulted by [applyProfileLocationSave] — see that method's doc for
+  /// why an explicit profile-location save is a different, higher-priority
+  /// intent than idly browsing a different city in Search, and must never be
+  /// silently dropped because this flag happens to be set. (This conflation
+  /// — one flag guarding two semantically different callers — was the exact
+  /// root cause of a bug patched four times before the two methods were
+  /// split: see [applyProfileLocationSave]'s doc for the incident history.)
   ///
   /// Re-armed (cleared) in [build] on a session flip, same as every other
   /// per-session guard on this notifier.
@@ -289,15 +329,32 @@ class SearchFiltersController extends _$SearchFiltersController {
     return const SearchFilters();
   }
 
-  /// Pre-fills the locality filter (oblast → city → district) from the signed-in
-  /// CLIENT's saved profile location — kept in sync with the profile across the
-  /// WHOLE session, and NEVER over a manual change.
+  /// PASSIVE / TRANSIENT-scoped intent: "let me see the locality my profile
+  /// already has on file, unless I've already told Search something else this
+  /// session." Pre-fills the locality filter (oblast → city → district) from
+  /// the signed-in CLIENT's saved profile location — kept in sync with the
+  /// profile across the WHOLE session, and NEVER over a manual change.
   ///
-  /// Called when the Пошук screen opens (its `initState`). Designed around the
-  /// keepAlive seamless-reload footgun: this controller never `ref.watch`es
-  /// [clientEditProfileProvider] (a watch would re-run `build()` on every profile
-  /// emission and clobber the user's edits). Instead the profile is read
-  /// (off the widget lifecycle) on every call, behind two guards:
+  /// Called ONLY from `_ClientSearchScreenState.initState()` (the Search
+  /// screen's own one-shot re-entry path) — see
+  /// `lib/features/discovery/presentation/search_filters_screen.dart` (and its
+  /// picker taps/clears at lines 134, 167, 196, 206, 216, 226, which drive
+  /// [selectOblast]/[selectCity]/[selectDistrict] and therefore
+  /// [_userTouchedLocality]).
+  ///
+  /// This is the "let me browse a different city right now" half of the
+  /// locality-seeding story. For the DURABLE, profile-scoped "I am saving a
+  /// new home address" half — which must always win, even after a manual
+  /// Search pick — see [applyProfileLocationSave] instead. Do NOT relax the
+  /// [_userTouchedLocality] guard below to make this method double as the
+  /// authoritative path; that reuse (commit `5a0327a0`) is the documented root
+  /// cause this split exists to prevent from recurring.
+  ///
+  /// Designed around the keepAlive seamless-reload footgun: this controller
+  /// never `ref.watch`es [clientEditProfileProvider] (a watch would re-run
+  /// `build()` on every profile emission and clobber the user's edits).
+  /// Instead the profile is read (off the widget lifecycle) on every call,
+  /// behind two guards:
   ///   1. [_userTouchedLocality] — once the user has manually picked (or
   ///      cleared) a locality via [selectOblast]/[selectCity]/[selectDistrict],
   ///      the seed is abandoned for the rest of the session (re-checked again
@@ -345,10 +402,9 @@ class SearchFiltersController extends _$SearchFiltersController {
         _lastSeededCityId = null;
         _lastSeededDistrictId = null;
         state = state.copyWith(oblastId: null, cityId: null, districtId: null);
-        ref.read(searchFilterLabelsControllerProvider.notifier)
-          ..setOblastName(null)
-          ..setCityName(null)
-          ..setDistrictName(null);
+        ref
+            .read(searchFilterLabelsControllerProvider.notifier)
+            .setLocality(oblastName: null, cityName: null, districtName: null);
         return;
       }
 
@@ -412,11 +468,14 @@ class SearchFiltersController extends _$SearchFiltersController {
       // City, so the District row gates correctly).
       final City city = matchedCity;
       final CityDistrict? district = matchedDistrict;
-      ref.read(searchFilterLabelsControllerProvider.notifier)
-        ..setOblastName(matchedOblast.name)
-        ..setCityName(city.name)
-        ..setCityHasDistricts(city.hasDistricts)
-        ..setDistrictName(district?.name);
+      ref
+          .read(searchFilterLabelsControllerProvider.notifier)
+          .setLocality(
+            oblastName: matchedOblast.name,
+            cityName: city.name,
+            cityHasDistricts: city.hasDistricts,
+            districtName: district?.name,
+          );
     } catch (e, st) {
       // Graceful: a failed resolve leaves the locality filter as-is (nothing
       // was recorded as seeded), so the NEXT call — e.g. the next time the
@@ -433,6 +492,86 @@ class SearchFiltersController extends _$SearchFiltersController {
         );
       }
     }
+  }
+
+  /// AUTHORITATIVE / DURABLE-scoped intent: "I just saved a new home address —
+  /// make Search reflect it, full stop." Unconditionally commits a
+  /// just-saved profile locality onto the Search filter, clearing whatever
+  /// locality state (manual or seeded) was there before.
+  ///
+  /// Called ONLY from `ClientLocationEditScreen._save()` (see
+  /// `lib/features/home/presentation/client_location_edit_screen.dart`, right
+  /// after its `PATCH /users/me` at lines 285-293 succeeds and the call site
+  /// at lines 318-320). Do NOT call this from anywhere else, and do NOT
+  /// collapse it back into [prefillFromProfileIfNeeded] behind a boolean
+  /// parameter (e.g. `force`/`bypassUserTouched`) — that is precisely the
+  /// pattern that caused this bug:
+  ///
+  ///   - [_userTouchedLocality] originally conflated two different intents: a
+  ///     TRANSIENT "let me browse a different city right now" (set by
+  ///     [selectOblast]/[selectCity]/[selectDistrict], driven only from
+  ///     Search's own picker) and a DURABLE "I am saving a new home address"
+  ///     (an explicit profile edit).
+  ///   - Commit `5a0327a0` wired `ClientLocationEditScreen._save` to call
+  ///     [prefillFromProfileIfNeeded] — the guarded, passive method — with no
+  ///     bypass. Once a user had EVER tapped the Search locality picker in a
+  ///     session, [_userTouchedLocality] stayed permanently true, so every
+  ///     subsequent profile-location save silently no-op'd on Search:
+  ///     deterministic, but only under that precondition, which is why it
+  ///     read as an intermittent bug and was patched (incompletely) four
+  ///     times before this split.
+  ///
+  /// Two separately-named entry points — rather than one method plus a
+  /// boolean — make the wrong call impossible to write by accident: a future
+  /// caller has to explicitly reach for the "apply a profile save" method by
+  /// name, not flip a flag on the "passive prefill" one.
+  ///
+  /// No async taxonomy re-resolution is needed here (unlike
+  /// [prefillFromProfileIfNeeded]): the caller already holds the fully
+  /// resolved [Oblast]/[City]/[CityDistrict] objects the user just picked and
+  /// saved via [LocalityCascade], so this method just writes them straight
+  /// through — both to [state] and to the sibling
+  /// [searchFilterLabelsControllerProvider] display labels.
+  void applyProfileLocationSave({
+    required Oblast? oblast,
+    required City? city,
+    required CityDistrict? district,
+  }) {
+    // Guard reset ALWAYS runs first, unconditionally — even when the
+    // short-circuit below skips the state/label writes. This clear is the
+    // entire point of this method (see the incident history above); it must
+    // never be reachable-but-skipped by an early return.
+    _userTouchedLocality = false;
+    final bool unchanged =
+        state.oblastId == oblast?.id &&
+        state.cityId == city?.id &&
+        state.districtId == district?.id;
+    _lastSeededOblastId = oblast?.id;
+    _lastSeededCityId = city?.id;
+    _lastSeededDistrictId = district?.id;
+
+    // Short-circuit: the just-saved locality is identical to what's already
+    // applied (the user opened the location editor and saved without
+    // changing anything) — skip the redundant `state` write and label
+    // emissions. Safe because ids and labels are ALWAYS written together on
+    // every commit path through this notifier (this method and
+    // [prefillFromProfileIfNeeded]), so matching ids imply matching labels
+    // already on screen; nothing above this comment is skipped.
+    if (unchanged) return;
+
+    state = state.copyWith(
+      oblastId: oblast?.id,
+      cityId: city?.id,
+      districtId: district?.id,
+    );
+    ref
+        .read(searchFilterLabelsControllerProvider.notifier)
+        .setLocality(
+          oblastName: oblast?.name,
+          cityName: city?.name,
+          cityHasDistricts: city?.hasDistricts ?? false,
+          districtName: district?.name,
+        );
   }
 
   /// Every character the backend's `^[^\p{Cntrl}]*$` guard rejects — Java's

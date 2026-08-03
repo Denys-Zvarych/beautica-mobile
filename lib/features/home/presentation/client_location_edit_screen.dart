@@ -181,11 +181,15 @@ class _ClientLocationEditScreenState
       }
     } catch (e, st) {
       if (kDebugMode) {
+        // Log only the error's runtime type — never the raw error object,
+        // whose toString() can embed PII (e.g. a DioException carrying the
+        // /users/me request/response: email, phone, saved locality). MS5/MS14
+        // hygiene. Mirrors search_filters_controller.dart's
+        // prefillFromProfileIfNeeded catch block.
         log(
-          'Locality pre-population failed — cascade will be empty',
+          'Locality pre-population failed (${e.runtimeType}) — cascade will be empty',
           name: 'feature.client.edit.location',
           level: 800,
-          error: e,
           stackTrace: st,
         );
       }
@@ -300,24 +304,34 @@ class _ClientLocationEditScreenState
       if (!mounted) return;
       ref.invalidate(clientEditProfileProvider);
       ref.invalidate(clientProfileProvider);
-      // The Пошук (Search) screen's locality filter is auto-seeded from THIS
-      // profile ([SearchFiltersController.prefillFromProfileIfNeeded]) — but that
-      // method only runs from `_ClientSearchScreenState.initState()`, which fires
-      // AT MOST ONCE per app session: the Search tab lives inside `ClientShell`'s
+      // The Пошук (Search) screen's locality filter must reflect THIS just-saved
+      // address AUTHORITATIVELY — via
+      // [SearchFiltersController.applyProfileLocationSave], NOT the passive
+      // [SearchFiltersController.prefillFromProfileIfNeeded] (see that method's
+      // doc for why: an explicit "save my home address" here must always win,
+      // even if the user already manually picked/cleared a DIFFERENT locality
+      // inside Search's own picker earlier this session — those are different
+      // intents and the passive method's anti-clobber guard must not apply
+      // here). The passive method only runs from
+      // `_ClientSearchScreenState.initState()`, which fires AT MOST ONCE per
+      // app session: the Search tab lives inside `ClientShell`'s
       // `StatefulShellRoute.indexedStack`, so switching away from (and back to)
       // the Search branch never disposes/recreates its State. Invalidating the
       // two keepAlive controllers here would just reset them to blank defaults
-      // with nothing left to re-seed them — the Search tab would come back empty
-      // instead of showing the new locality. Calling the prefill directly closes
-      // that gap without depending on `initState` firing again. It also updates
-      // the sibling [SearchFilterLabelsController] labels inline (see
-      // `prefillFromProfileIfNeeded`'s doc comment), so no separate label refresh
-      // is needed. The anti-clobber guard (`_userTouchedLocality`) is preserved:
-      // if the user already manually picked/cleared a locality inside Search
-      // this session, this call is a no-op and their choice is left intact.
-      await ref
+      // with nothing left to re-seed them — the Search tab would come back
+      // empty instead of showing the new locality. Calling
+      // [applyProfileLocationSave] directly with the already-resolved
+      // [_selectedOblast]/[_selectedCity]/[_selectedDistrict] closes that gap
+      // without depending on `initState` firing again, needs no extra taxonomy
+      // fetch, and also updates the sibling [SearchFilterLabelsController]
+      // labels inline.
+      ref
           .read(searchFiltersControllerProvider.notifier)
-          .prefillFromProfileIfNeeded();
+          .applyProfileLocationSave(
+            oblast: _selectedOblast,
+            city: _selectedCity,
+            district: _selectedDistrict,
+          );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -353,11 +367,15 @@ class _ClientLocationEditScreenState
       setState(() => _saving = false);
     } catch (e, st) {
       if (kDebugMode) {
+        // Log only the error's runtime type — never the raw error object,
+        // whose toString() can embed PII (e.g. a DioException carrying the
+        // /users/me request/response: email, phone, saved locality). MS5/MS14
+        // hygiene. Mirrors search_filters_controller.dart's
+        // prefillFromProfileIfNeeded catch block.
         log(
-          'client location save unexpected error',
+          'client location save unexpected error (${e.runtimeType})',
           name: 'feature.client.edit.location',
           level: 1000,
-          error: e,
           stackTrace: st,
         );
       }
