@@ -266,9 +266,10 @@ Future<String?> _resolveDistrictName(Ref ref, User user) async {
 /// runs). `today` is derived as the **Europe/Kyiv** calendar day, not the
 /// device's local day: the injectable [clockProvider] seam supplies "now" (so
 /// tests can pin it), which is then converted to the Kyiv wall-clock via
-/// [toBeauticaTime] before [dateOnly] reads its `.year`/`.month`/`.day` — the
-/// same `dateOnly(toBeauticaTime(...))` composition `BookingsDiscoveryView`
-/// already uses for its own day anchor. The backend interprets `from` as a
+/// [kyivToday] — the single canonical spelling for "the Kyiv calendar day the
+/// injected clock's current instant falls on" (`shared/time/kyiv_day.dart`),
+/// the same one `BookingsDiscoveryView` and [bookedDaysProvider] use for their
+/// own day anchors. The backend interprets `from` as a
 /// Europe/Kyiv local date, so this makes the two sides agree on "today"
 /// regardless of the device's own zone or clock, in EITHER direction: a device
 /// behind Kyiv no longer widens the window, and — the case that actually
@@ -276,10 +277,15 @@ Future<String?> _resolveDistrictName(Ref ref, User user) async {
 /// no longer NARROWS it and silently excludes a booking later that same Kyiv
 /// day. **Do not revert this to `dateOnly(DateTime.now())`** — Phase 225's
 /// audit cycles 4 and 5 fought hard to get this derivation right.
-/// [bookedDaysProvider] still uses the OLDER device-local convention
-/// (`dateOnly(DateTime.now())`) for its own `from`/`to`; that is a pre-existing,
-/// separately-tracked limitation on that provider and out of scope here — this
-/// provider does not inherit it.
+///
+/// [bookedDaysProvider] was, when this doc was first written, still on the
+/// OLDER device-local convention (`dateOnly(DateTime.now())`) for its own
+/// `from`/`to`. It is NOT any more — commit `0434db4f` routed it through the
+/// same seam (`booked_days_notifier.dart:151`,
+/// `kyivToday(ref.read(clockProvider))`), pinned by that file's own
+/// Asia/Tokyo-anchored test. This paragraph is kept, corrected, rather than
+/// deleted because the stale version of it read as a live TODO for two
+/// separate audit passes.
 ///
 /// The `BookingDisplayX` elapsed-slot presentation getter is NOT used here —
 /// that getter answers a different question ("what buttons does THIS
@@ -298,10 +304,13 @@ Future<Booking?> nextAppointment(Ref ref) async {
   // Recomputed on every build — never hoisted — so a long-lived cached
   // instance doesn't pin "today" to first-use for the process's lifetime.
   // `clockProvider`, not a bare `DateTime.now()`, so tests can pin "now" to a
-  // fixed instant; converted to the Europe/Kyiv wall-clock via
-  // [toBeauticaTime] BEFORE [dateOnly] reads its calendar fields — see the
-  // doc comment above for why device-local would be wrong.
-  final DateTime today = dateOnly(toBeauticaTime(ref.watch(clockProvider)()));
+  // fixed instant; [kyivToday] then decides which Europe/Kyiv calendar day
+  // that instant falls on — see the doc comment above for why device-local
+  // would be wrong. `kyivToday(clock)` IS `dateOnly(toBeauticaTime(clock()))`
+  // (`shared/time/kyiv_day.dart:84,94`); the canonical spelling is used here
+  // so `lib/` has exactly one name for this derivation, the way `test/`
+  // already does.
+  final DateTime today = kyivToday(ref.watch(clockProvider));
 
   final page = await repository.getMyBookings(
     statuses: BookingTab.upcoming.statuses,

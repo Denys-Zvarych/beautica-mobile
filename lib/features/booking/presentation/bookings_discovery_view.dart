@@ -90,7 +90,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
-import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../application/booked_days_notifier.dart';
 import '../application/bookings_day_notifier.dart';
@@ -207,7 +207,11 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     // the landing query unconditionally. See `master_bookings_screen_test
     // .dart`'s "initial day" group. Behaviour in production is unchanged:
     // `clockProvider` resolves to `DateTime.now`.
-    _today = dateOnly(toBeauticaTime(ref.read(clockProvider)()));
+    //
+    // `kyivToday(clock)` IS `dateOnly(toBeauticaTime(clock()))`
+    // (`shared/time/kyiv_day.dart:84,94`) — the canonical spelling, so `lib/`
+    // has one name for this derivation rather than two.
+    _today = kyivToday(ref.read(clockProvider));
     // CALENDAR arithmetic — `subtract(Duration(days: n))` would land on 23:00
     // or 01:00 across a Europe/Kyiv DST transition and skew every rail date
     // derived from it. See `bookings_day_rail.dart`'s header.

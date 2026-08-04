@@ -115,6 +115,84 @@
 # explicit `Asia/Tokyo` TZDateTime, precisely so the divergence each test
 # exercises is a property of the FIXTURE, not of the host running it).
 #
+# RULE 1'S STAGE-1 CLASSIFIER IS A TEXT FILTER — MEASURED LIMIT, DELIBERATELY
+# NOT WIDENED (2026-08-04, third pass)
+# ---------------------------------------------------------------------------
+# Rule 1 narrows ~504 files to ~20 by grepping for `$zone_critical_pattern`
+# before parsing. A genuine offender therefore sits INVISIBLE in any file that
+# happens not to mention the seam by name — demonstrated, not theorised:
+# adding an unrelated comment naming `clockProvider` to
+# `booking_route_guard_test.dart` flipped it into the zone-critical class and
+# exposed two real pre-existing offenders. Rule 2 already bypasses this
+# classifier; Rule 1 does not.
+#
+# THE INVISIBLE SET WAS MEASURED BEFORE ANY DECISION WAS TAKEN. Rule 1's
+# arity>=4 matcher was re-run across ALL of `test/` + `integration_test/` with
+# Stage 1 disabled (`zone_critical_pattern='^'`):
+#     classifier ON  ->   0 hits   (the real gate's baseline, still empty)
+#     classifier OFF ->  74 hits across 14 files
+# So 74 sites are currently invisible to Rule 1. Those 14 files were then run
+# under `TZ=Europe/Kyiv`, `TZ=UTC` and `TZ=Pacific/Honolulu` — Honolulu
+# (UTC-10) being the zone that actually splits from Kyiv on the day boundary;
+# Kyiv/UTC/Tokyo all agree and prove nothing. Result:
+#     1 genuine defect  — `booking_confirm_test.dart`'s
+#       `_appointmentItemRescheduleArgs()` fed a host-local
+#       `DateTime(2026, 7, 20, 14)` as a booking `startAt`, which
+#       `booking_confirm_screen.dart:248` converts through
+#       `dateOnly(toBeauticaTime(...))` to key its `bookingsDayProvider`
+#       invalidation. Under Honolulu that instant is 03:00 July 21 in Kyiv, so
+#       the "REGRESSION GUARD — ... invalidates bookingsDayProvider" test went
+#       red. FIXED (re-anchored to `DateTime.utc(2026, 7, 20, 11)` == 14:00
+#       Kyiv), red-under-Honolulu-then-green proven.
+#     73 inert       — and a large fraction are inert *because* they are
+#       host-local. `test/shared/formatters/api_date_test.dart`'s 9 hits are
+#       the tests OF `dateOnly`/`toApiDate`, whose whole subject is that those
+#       functions read LOCAL calendar fields; `slot_repository_test.dart`'s
+#       carry the literal comment "time-of-day must be discarded". Re-anchoring
+#       any of them to `.utc` would BREAK them — it would change what is under
+#       test. The rest are opaque ordering keys and `startAt` fixtures that no
+#       assertion ever compares against a zone-derived day.
+#
+# DECISION: DO NOT WIDEN THE CLASSIFIER. 1 defect in 74 hits is a 1.4%-
+# precision gate. Its only realistic outcome is 73 rubber-stamped
+# `// host-tz-ok:` markers on correct code until the marker means nothing —
+# the exact failure mode Rule 4's own header already refused once (60 reads /
+# 0 bugs), and the mirror-image-bug hazard Rule 5's header names. A guard whose
+# baseline is not empty on the real tree without an allow-list is mis-scoped by
+# this script's own standard, and a widened Rule 1 could only reach an empty
+# baseline via 73 annotations.
+#
+# TWO NARROWER TEXT RULES WERE MEASURED AND ALSO REJECTED, not merely imagined:
+#   - KEY ON THE DESTINATION, the way Rule 2 keys on `clock:` — flag a
+#     host-local arity>=4 instant reaching `startAt:`/`endAt:`/`startsAt:`/
+#     `endsAt:`. Measured: ~35 of the 74. Still 1 defect in 35.
+#   - KEY ON COINCIDENCE — an instant `DateTime(y,m,d,H,...)` and a day token
+#     `DateTime(y,m,d)` naming the SAME date in one file, the "two spellings of
+#     one day mixed in one test" shape M15 describes. Measured: 10 of the 14
+#     files, including `api_date_test.dart` and `slot_repository_test.dart`
+#     where that coincidence IS the deliberate design of the test.
+#
+# WHAT A BETTER-TARGETED RULE WOULD ACTUALLY KEY ON — AND WHY IT IS NOT A GREP.
+# The one property that separated the real defect from all 73 inert siblings is
+# whether the fixture value reaches a `toBeauticaTime` / `kyivDayOf` in `lib/`.
+# That discriminator lives in PRODUCTION code, in a different file, reached
+# through a widget constructor and a provider — genuine cross-file dataflow,
+# which every rule in this script explicitly declares out of scope (see Rule
+# 2's "HONEST LIMITS OF IDENTIFIER RESOLUTION"). No text filter over the test
+# file can recover it, and each attempt above degrades into a rubber stamp.
+#
+# THE AVAILABLE HIGH-PRECISION SUBSTITUTE IS NOT A GUARD AT ALL — IT IS A CI
+# ZONE MATRIX. Running the existing suite a second time under
+# `TZ=Pacific/Honolulu` found the defect with precision 1/1 and zero
+# annotations, versus 1/74 for the widened classifier. It needs no marker
+# vocabulary, cannot be rubber-stamped, and covers every shape Rules 1-6 miss
+# (including the dataflow ones) because it EXECUTES the disagreement instead of
+# pattern-matching for it. RECOMMENDED, NOT WIRED HERE: adding a
+# `TZ=Pacific/Honolulu` job to `.github/workflows/pr-validate.yml` is a CI
+# change, outside this script. Note the honest cost — it doubles test wall time
+# — and the honest limit: it only catches fixtures whose assertions actually
+# discriminate, so it is complementary to Rules 1-6, not a replacement.
+#
 # RULE 2
 # ------
 # Under EITHER scan root — `test/` or `integration_test/` — in ANY `*.dart`

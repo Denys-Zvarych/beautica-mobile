@@ -114,13 +114,48 @@ const _kService2 = MasterService(
 // an ambiguously-failed visit create de-duplicates rather than duplicates.
 const String _kIdemKey = '11111111-1111-4111-8111-111111111111';
 
+// ---------------------------------------------------------------------------
+// Booking-fixture instants — UTC-anchored, shared, named ONCE
+// ---------------------------------------------------------------------------
+//
+// Every fixture below used to spell its own instant as a bare
+// `DateTime(2026, 7, 20, 14)`. That resolves its underlying instant through
+// the HOST process's own `TZ`, and this file's code under test converts that
+// instant through Europe/Kyiv: `booking_confirm_screen.dart:248` keys its
+// `bookingsDayProvider` invalidation off
+// `dateOnly(toBeauticaTime(widget.args.startAt))`. So the KYIV calendar day
+// those fixtures landed on differed per machine — and on 2026-08-04 one of
+// them was a live defect, not a hypothetical: under `TZ=Pacific/Honolulu`
+// (UTC-10) local 14:00 July 20 is 03:00 July 21 in Kyiv, the invalidation
+// targeted a day nobody subscribed to, and the "REGRESSION GUARD — ...
+// invalidates bookingsDayProvider" test went red while staying green on the
+// dev VM (`TZ=Europe/Kyiv`) and on CI (`TZ=UTC`). Measured across all three
+// zones before and after.
+//
+// `2026-07-20T11:00:00Z` == 14:00 Kyiv (UTC+3, summer DST) — the exact
+// wall-clock these fixtures always meant, now a property of the INSTANT
+// rather than of whichever zone the test process happens to run under.
+//
+// Declared as NAMED tokens reused everywhere rather than repeated inline: it
+// keeps the `// future-date-ok:` justification to one verified place instead
+// of a dozen copies, and it is the style
+// `scripts/forbid_host_local_instant_anchor.sh`'s Rule 2 header explicitly
+// recommends ("pass a date-token IDENTIFIER rather than an inline literal").
+// future-date-ok: fixed booking fixture; the instant it names IS the fixture's identity, never now-relative
+final DateTime _kStartAt = DateTime.utc(2026, 7, 20, 11);
+
+/// [_kStartAt] + 90 minutes — 15:30 Kyiv, matching every fixture's
+/// `totalDurationMinutes: 90`.
+// future-date-ok: fixed twin of _kStartAt, see above
+final DateTime _kEndAt = DateTime.utc(2026, 7, 20, 12, 30);
+
 BookingConfirmArgs _confirmArgs({
   List<MasterService> services = const <MasterService>[_kService],
 }) => BookingConfirmArgs(
   masterId: _kMaster.id,
   master: _kMaster,
   services: services,
-  startAt: DateTime(2026, 7, 20, 14),
+  startAt: _kStartAt,
   idempotencyKey: _kIdemKey,
 );
 
@@ -131,8 +166,8 @@ Appointment _appointmentFixture() => Appointment(
   masterFirstName: _kMaster.firstName,
   masterLastName: _kMaster.lastName,
   masterType: 'INDEPENDENT_MASTER',
-  startAt: DateTime(2026, 7, 20, 14),
-  endAt: DateTime(2026, 7, 20, 15, 30),
+  startAt: _kStartAt,
+  endAt: _kEndAt,
   totalDurationMinutes: 90,
   totalPrice: 500,
   items: <AppointmentItem>[
@@ -140,8 +175,8 @@ Appointment _appointmentFixture() => Appointment(
       bookingId: 'booking-1',
       masterServiceId: _kService.id,
       serviceName: _kService.name,
-      startAt: DateTime(2026, 7, 20, 14),
-      endAt: DateTime(2026, 7, 20, 15, 30),
+      startAt: _kStartAt,
+      endAt: _kEndAt,
       durationMinutes: 90,
       price: 500,
     ),
@@ -159,8 +194,8 @@ Booking _bookingFixture() => Booking(
   serviceName: _kService.name,
   durationMinutes: _kService.durationMinutes,
   price: _kService.priceMin,
-  startAt: DateTime(2026, 7, 20, 14),
-  endAt: DateTime(2026, 7, 20, 15, 30),
+  startAt: _kStartAt,
+  endAt: _kEndAt,
   status: BookingStatus.confirmed,
   canReview: false,
 );
@@ -172,7 +207,7 @@ BookingConfirmArgs _rescheduleArgs() => BookingConfirmArgs(
   masterId: _kMaster.id,
   master: _kMaster,
   services: const <MasterService>[_kService],
-  startAt: DateTime(2026, 7, 20, 14),
+  startAt: _kStartAt,
   idempotencyKey: _kIdemKey,
   rescheduleBookingId: 'booking-1',
 );
@@ -183,11 +218,18 @@ BookingConfirmArgs _rescheduleArgs() => BookingConfirmArgs(
 /// discriminator, checked FIRST in `_submit`) are set. [services] STILL
 /// carries exactly the one item being moved, mirroring [_rescheduleArgs]'s
 /// single-service shape — this endpoint never touches the visit's siblings.
+///
+/// [_kStartAt]'s UTC anchoring is load-bearing HERE in particular, not merely
+/// stylistic: `_submit`'s per-item branch scopes its `bookingsDayProvider`
+/// invalidation to the KYIV calendar day of this instant
+/// (`booking_confirm_screen.dart:248`), and the "REGRESSION GUARD — ...
+/// invalidates bookingsDayProvider" test below subscribes to July 20 by name.
+/// See [_kStartAt]'s own comment for the measured Honolulu failure this fixed.
 BookingConfirmArgs _appointmentItemRescheduleArgs() => BookingConfirmArgs(
   masterId: _kMaster.id,
   master: _kMaster,
   services: const <MasterService>[_kService],
-  startAt: DateTime(2026, 7, 20, 14),
+  startAt: _kStartAt,
   idempotencyKey: _kIdemKey,
   rescheduleBookingId: 'booking-1',
   rescheduleAppointmentId: 'appt-1',
@@ -586,7 +628,7 @@ void main() {
         expect(sent.masterId, _kMaster.id);
         // The WHOLE ordered selection is sent as ONE visit, order preserved.
         expect(sent.masterServiceIds, <String>[_kService.id, _kService2.id]);
-        expect(sent.startAt, DateTime(2026, 7, 20, 14));
+        expect(sent.startAt, _kStartAt);
         // The STABLE key carried on the args — never re-minted by this screen.
         expect(sent.idempotencyKey, _kIdemKey);
 
@@ -937,10 +979,9 @@ void main() {
       expect(appointments.rescheduleItemCalls, hasLength(1));
       expect(appointments.rescheduleItemCalls.single.$1, 'appt-1');
       expect(appointments.rescheduleItemCalls.single.$2, 'booking-1');
-      expect(
-        appointments.rescheduleItemCalls.single.$3,
-        DateTime(2026, 7, 20, 14),
-      );
+      // Mirrors `_appointmentItemRescheduleArgs()`'s own anchor — see its doc
+      // for why this is `DateTime.utc(...)` and not a bare local literal.
+      expect(appointments.rescheduleItemCalls.single.$3, _kStartAt);
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
 
       await container.read(bookingDetailProvider('booking-1').future);
@@ -1262,7 +1303,7 @@ void main() {
     BookingSuccessArgs successArgs() => BookingSuccessArgs(
       master: _kMaster,
       services: const <MasterService>[_kService],
-      startAt: DateTime(2026, 7, 20, 14),
+      startAt: _kStartAt,
     );
 
     Future<GoRouter> pump(WidgetTester tester) async {
@@ -1412,9 +1453,15 @@ void main() {
         'error, and MasterStrip stays at the same vertical offset', (
       tester,
     ) async {
+      // 07:00Z / 08:00Z == 10:00 / 11:00 Kyiv (UTC+3, summer DST). UTC-anchored
+      // for the same reason as `_kStartAt` above — `SlotTimeScreen` renders
+      // these through the Kyiv zone, so a bare local literal would render a
+      // different wall-clock on every host.
       final BookingSlot slot = BookingSlot(
-        startAt: DateTime(2026, 7, 20, 10),
-        endAt: DateTime(2026, 7, 20, 11),
+        // future-date-ok: fixed slot fixture; twin of _kStartAt's rationale
+        startAt: DateTime.utc(2026, 7, 20, 7),
+        // future-date-ok: fixed slot fixture; twin of _kStartAt's rationale
+        endAt: DateTime.utc(2026, 7, 20, 8),
         available: true,
       );
       final fakeSlots = _FakeChainSlotRepository(<BookingSlot>[slot]);
