@@ -72,9 +72,16 @@
 // mirroring `master_bookings_flow_test.dart`'s established `_kyivToday`
 // pattern (its own doc comment covers the identical reasoning in more
 // depth). `independent_multi_service_booking_flow_test.dart` and
-// `public_master_profile_flow_test.dart` share the SAME bare-`DateTime.now()`
-// pattern and are exposed to the same latent flake — out of scope to fix
-// here, flagged to mobile-qa's audit trail instead.
+// `public_master_profile_flow_test.dart` carried the SAME bare-
+// `DateTime.now()` pattern and were flagged here as a latent flake; both have
+// since been converted to `kyivToday(() => kFixedNow)` too, so no E2E flow
+// still picks a calendar cell off the host clock. In
+// `public_master_profile_flow_test.dart` two of those reads were worse than
+// flaky — they fed `forceNonWorkingDate` /
+// `forceNonWorkingDateWhenServiceScoped` a date the pinned June-2026 calendar
+// never renders, making those flows' negative-path assertions VACUOUS (the
+// probed cell was untappable because it was PAST, not because the working-days
+// endpoint disabled it).
 //
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears in
 // CONTENT ASSERTIONS only, and reschedule copy is asserted through l10n.

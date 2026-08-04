@@ -57,6 +57,7 @@ import 'widgets/master_address_block.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
+import 'widgets/services_stat_tile.dart';
 
 /// CLIENT-facing read-only profile of the master identified by [masterId].
 class PublicMasterProfileScreen extends ConsumerStatefulWidget {
@@ -464,10 +465,8 @@ class _PublicProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.design_services_outlined,
-                    value: services.length.toString(),
-                    caption: l10n.masterServicesLabel,
+                  child: ServicesStatTile(
+                    count: services.length,
                     valueKey: const Key('public-master-profile-services-value'),
                   ),
                 ),

@@ -68,6 +68,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -185,6 +186,20 @@ void main() {
       expect(find.text('Софія Бондар'), findsOneWidget);
       final Text servicesValue = tester.widget<Text>(
         find.byKey(const Key('public-master-profile-services-value')),
+      );
+      // PRECONDITION for the assertion below. The stat tile no longer prints
+      // the raw length unconditionally — a ZERO count renders the em-dash
+      // empty-state instead (ServicesStatTile). So `'$publicMasterServicesCount'`
+      // is only the right expectation while the fixture seeds a NON-EMPTY
+      // catalogue. If someone later empties `_publicMasterServices`, this line
+      // fails loudly here rather than letting the assertion below mis-report a
+      // correct '—' render as a broken '0'.
+      expect(
+        FakeBackend.publicMasterServicesCount,
+        greaterThan(0),
+        reason:
+            'this flow asserts the numeric count branch of the services stat '
+            'tile; a zero-service fixture would render "—" instead',
       );
       expect(
         servicesValue.data,
@@ -315,7 +330,23 @@ void main() {
       // ── Pick "today" — admissible per the real working-days response
       // fetched above. This fires the real GET /masters/master-aaa/slots
       // request against FakeBackend. ────────────────────────────────────────
-      final DateTime today = DateTime.now();
+      //
+      // Kyiv "today" AS THE APP UNDER TEST COMPUTES IT, derived from the
+      // harness's INJECTED clock (`kFixedNow`, 2026-06-14 12:00 UTC), never
+      // the host device clock. `SlotDateScreen._today` reads `clockProvider`,
+      // which `AppHarness.boot` overrides to `kFixedNow`, so the visible month
+      // + "today" cell are always June 2026 no matter what day the suite runs
+      // on. The bare `DateTime.now()` this used to read instead passed only by
+      // ACCIDENT, whenever the real run date's day-of-month happened to land
+      // on/after the 14th — any run on the 1st–13th tapped an ALREADY-PAST
+      // June cell, which `MonthCalendar` renders with `onTap: null` and no
+      // `GestureDetector` at all, so the tap is a silent no-op: no
+      // `GET /masters/{id}/slots` fires and «Далі» never navigates, killing
+      // the flow with "SlotTimeScreen: found 0 widgets". Mirrors
+      // `client_reschedule_flow_test.dart` and `master_bookings_flow_test
+      // .dart`'s `_kyivToday` (same fix, same reasoning). DO NOT regress this
+      // back to a host-clock read.
+      final DateTime today = kyivToday(() => kFixedNow);
       final Finder todayCell = find.byKey(
         Key('booking-calendar-day-${today.day}'),
       );
@@ -440,12 +471,19 @@ void main() {
     'marks working:false renders untappable and never fetches slots or '
     'advances the flow (E2E, not just fixture wiring)',
     (tester) async {
-      final DateTime today = DateTime.now();
-      final DateTime todayDateOnly = DateTime(
-        today.year,
-        today.month,
-        today.day,
-      );
+      // Kyiv "today" AS THE APP UNDER TEST COMPUTES IT — see the identical
+      // note in Flow A. Here it is NOT cosmetic: `forceNonWorkingDate` must
+      // name a date the calendar ACTUALLY RENDERS and that is NOT already
+      // past, or the "no GestureDetector" assertion below passes for the WRONG
+      // REASON. Under the old `DateTime.now()` read the forced date was the
+      // real-world today (e.g. 2026-08-04) — a date the visible month (June
+      // 2026, pinned by `kFixedNow`) never renders — while the cell actually
+      // probed was June-of-that-day-number, untappable merely because it was
+      // PAST. The assertion was therefore VACUOUS and proved nothing about the
+      // Phase 14.14 working-days gate. Reading the injected clock makes the
+      // forced date 2026-06-14 — rendered, not past, and the very cell the
+      // assertion probes — restoring the intended negative-path coverage.
+      final DateTime todayDateOnly = kyivToday(() => kFixedNow);
       final fb = FakeBackend()
         ..currentRole = UserRole.client
         ..forceNonWorkingDate = todayDateOnly;
@@ -518,12 +556,15 @@ void main() {
     'client can never tap through to the «Немає вільного часу» dead-end '
     '(Phase 14.20 regression, E2E)',
     (tester) async {
-      final DateTime today = DateTime.now();
-      final DateTime todayDateOnly = DateTime(
-        today.year,
-        today.month,
-        today.day,
-      );
+      // Kyiv "today" AS THE APP UNDER TEST COMPUTES IT — same reasoning as
+      // Flow C above, and vacuous for the same reason before this fix: the
+      // forced date has to be one the calendar RENDERS and that is NOT past,
+      // or the "no GestureDetector" / "no slots fetched" assertions below hold
+      // trivially (past cell) rather than because the service-scoped
+      // working-days answer disabled the day. Only the
+      // `lastMasterAaaWorkingDaysServiceId` assertion was ever load-bearing
+      // here; the rest of the flow now is too.
+      final DateTime todayDateOnly = kyivToday(() => kFixedNow);
       final fb = FakeBackend()
         ..currentRole = UserRole.client
         ..forceNonWorkingDateWhenServiceScoped = todayDateOnly;

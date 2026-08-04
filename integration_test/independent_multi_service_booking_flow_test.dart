@@ -55,6 +55,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -169,10 +170,31 @@ void main() {
   const String serviceA = 'pub-assign-1';
   const String serviceB = 'pub-assign-2';
 
-  // ONE start time for the whole visit.
-  final DateTime visitStart = DateTime.now().add(
-    const Duration(days: 1, hours: 10),
-  );
+  // ONE start time for the whole visit — anchored to the harness's INJECTED
+  // clock, not the host's.
+  //
+  // This is a DISPLAY fixture (it feeds `BookingConfirmArgs.startAt`, which
+  // the confirm screen renders and which the POST assertion at
+  // `expect(sent.startAt, visitStart)` round-trips) — it never selects a
+  // calendar cell, so it is not the shape that broke this file on 2026-08-04.
+  // It is still converted rather than annotated, for three reasons:
+  //   1. The `// instant-ok:` escape hatch asserts "this read is a genuine
+  //      absolute-instant use that clock injection would not change". That
+  //      would be FALSE here: the confirm screen formats this instant as a
+  //      calendar date through the app's own (injected) clock, so a
+  //      host-anchored "+1 day" renders as a date ~7 weeks out rather than
+  //      tomorrow. Writing a false reason into the source is precisely the
+  //      unverified-assertion failure mode `forbid_host_local_instant_anchor
+  //      .sh`'s own header post-mortem is about.
+  //   2. "Relative, therefore stable" is stability, not correctness — it
+  //      pins nothing, and the rendered date still differs on every run.
+  //   3. Leaving ONE host-clock read in the very file whose other host-clock
+  //      read was the bug is how this pattern propagates: the three prior
+  //      recurrences of this defect class all came from copying a nearby
+  //      example.
+  // `kFixedNow` is re-exported by `AppHarness`; `+1 day` keeps the original
+  // "tomorrow" intent, now relative to the clock the app is actually on.
+  final DateTime visitStart = kFixedNow.add(const Duration(days: 1, hours: 10));
 
   // Display fixtures — the confirm screen renders the visit from
   // `BookingConfirmArgs.services` directly (the ordered selection), so the
@@ -489,7 +511,21 @@ void main() {
 
       // Pick today (a working day over the real working-days endpoint) → «Далі»
       // to reach the time step.
-      final DateTime today = DateTime.now();
+      //
+      // Kyiv "today" AS THE APP UNDER TEST COMPUTES IT, derived from the
+      // harness's INJECTED clock (`kFixedNow`, 2026-06-14 12:00 UTC), never
+      // the host device clock. `SlotDateScreen._today` reads `clockProvider`,
+      // which `AppHarness.boot` overrides to `kFixedNow`, so the visible month
+      // + "today" cell are always June 2026 no matter what day the suite runs
+      // on. The bare `DateTime.now()` this used to read instead passed only by
+      // ACCIDENT, whenever the real run date's day-of-month happened to land
+      // on/after the 14th — any run on the 1st–13th tapped an ALREADY-PAST
+      // June cell, which `MonthCalendar` renders with `onTap: null` and no
+      // `GestureDetector` at all, so the tap is a silent no-op and the flow
+      // dies at the time step. Mirrors `client_reschedule_flow_test.dart` and
+      // `master_bookings_flow_test.dart`'s `_kyivToday`. DO NOT regress this
+      // back to a host-clock read.
+      final DateTime today = kyivToday(() => kFixedNow);
       // Via `tapCalendarDay` (NOT a blind `tester.tap`): at the harness's
       // 800×600 surface the last grid rows sit below the scroll fold, so a
       // blind tap silently lands on the summary bar. See the extension's doc

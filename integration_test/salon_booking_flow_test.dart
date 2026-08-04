@@ -127,7 +127,13 @@ SalonBookingConfirmArgs _visitArgs() => SalonBookingConfirmArgs(
     ],
     orderedMasterServiceIds: <String>['assign-m2-svc1', 'assign-m2-svc2'],
   ),
-  startAt: DateTime.now().add(const Duration(days: 1)),
+  // Anchored to the harness's INJECTED clock, not the host's — same fixture
+  // shape, and same reasoning, as `visitStart` in
+  // `independent_multi_service_booking_flow_test.dart` (see the block comment
+  // there): the confirm screen formats this instant as a calendar date
+  // through the app's own clock, so a host-anchored "+1 day" is not
+  // "tomorrow" to the app, and `// instant-ok:` would be a false claim.
+  startAt: kFixedNow.add(const Duration(days: 1)),
   idempotencyKey: 'idem-visit-1',
 );
 

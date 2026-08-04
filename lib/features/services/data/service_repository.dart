@@ -55,7 +55,10 @@ abstract interface class ServiceRepository {
   ///
   /// Wraps `GET /api/v1/independent-masters/me/services` — the authenticated
   /// owner endpoint, master derived from the JWT principal. Returns an empty
-  /// list when the master has no services configured.
+  /// list when the master has no services configured — but ONLY for a
+  /// well-formed empty array. A 200 whose envelope carries a null `data`
+  /// throws [ServerFailure]: a malformed success must never be presentable as
+  /// an empty catalogue.
   Future<List<MasterService>> listMyServices();
 
   /// Returns a single service by its assignment [id].
@@ -73,7 +76,9 @@ abstract interface class ServiceRepository {
   /// master, so it is safe to call from a CLIENT session — it drives the
   /// services stat tile and the read-only service-categories section on the
   /// client-facing public master profile (Phase 13.5).
-  /// Returns an empty list when the master has no active services.
+  /// Returns an empty list when the master has no active services — but ONLY
+  /// for a well-formed empty array; a 200 with a null `data` envelope throws
+  /// [ServerFailure], exactly as [listMyServices] does.
   Future<List<MasterService>> getMasterServices(String masterId);
 
   /// Creates a new service for the authenticated master.
@@ -265,6 +270,14 @@ final class HttpServiceRepository implements ServiceRepository {
       final res = await _serviceApi.getMyServices();
       final list = res.data?.data;
       if (list == null) {
+        // A 200 whose envelope carries no `data` array is a MALFORMED success,
+        // not an empty catalogue. Collapsing it onto `const []` (as this used
+        // to) rendered the "no services" em-dash for a response that in fact
+        // failed to deliver anything — a stripped/garbled body was
+        // indistinguishable from a master who genuinely has zero services.
+        // Throwing routes it to the error path instead (`ServicesStatTile`
+        // then shows its distinct '?' glyph rather than '—'). Matches the
+        // same-shape guard the write endpoints in this file already apply.
         if (kDebugMode) {
           log(
             'listMyServices: ApiResponseListMasterServiceResponse.data is null',
@@ -272,7 +285,7 @@ final class HttpServiceRepository implements ServiceRepository {
             level: 1000,
           );
         }
-        return const [];
+        throw const ServerFailure(statusCode: null);
       }
       return list.map(MasterServiceMapper.fromDto).toList(growable: false);
     } on Failure {
@@ -310,6 +323,12 @@ final class HttpServiceRepository implements ServiceRepository {
       final res = await _serviceApi.getMasterServices(masterId: masterId);
       final list = res.data?.data;
       if (list == null) {
+        // See [listMyServices] — a 200 with a null `data` envelope is a
+        // malformed success, never an empty catalogue, so it must reach the
+        // caller's error branch rather than render as "this master offers no
+        // services". For the public profile this matters more, not less: the
+        // silent-empty version showed a CLIENT a services-less master page
+        // built from a response that never arrived.
         if (kDebugMode) {
           log(
             'getMasterServices($masterId): '
@@ -318,7 +337,7 @@ final class HttpServiceRepository implements ServiceRepository {
             level: 1000,
           );
         }
-        return const [];
+        throw const ServerFailure(statusCode: null);
       }
       return list.map(MasterServiceMapper.fromDto).toList(growable: false);
     } on Failure {

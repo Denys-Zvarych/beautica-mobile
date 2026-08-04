@@ -209,11 +209,59 @@ extension PumpUntil on WidgetTester {
 /// `expect(callCount, 0)` whether the cell correctly has no handler or the
 /// tap was silently swallowed by scroll clipping, which is exactly the
 /// false-pass this helper exists to prevent for the enabled-cell case.
+/// Since 2026-08-04 that separation is ENFORCED, not merely documented: this
+/// helper `fail()`s outright when the resolved cell has no `GestureDetector`
+/// descendant (see the inline comment on the check for the defect it caught).
 extension TapCalendarDay on WidgetTester {
   Future<void> tapCalendarDay(int day) async {
     final Finder finder = find.byKey(Key('booking-calendar-day-$day'));
     await ensureVisible(finder);
     await pumpAndSettle();
+
+    // HANDLER PRESENCE CHECK — the blind spot `warnIfMissed` cannot cover.
+    //
+    // `MonthCalendar._DayCell` renders an UNAVAILABLE day (past, outside the
+    // range, or reported non-working) as a bare `Semantics` with NO
+    // `GestureDetector` child at all — `_classify` sets `onTap: null` and the
+    // `info.onTap == null` branch returns the label-only subtree
+    // (`month_calendar.dart`). Tapping it is not a miss: the hit test lands
+    // cleanly on the `SingleChildScrollView` behind the cell, so
+    // `WidgetController.hitTestWarningShouldBeFatal` — which
+    // `integration_test/support/e2e_boot_policy.dart` DOES arm for the E2E
+    // tier — stays silent. The tap simply does nothing.
+    //
+    // That is exactly how the 2026-08-04 defect stayed green: an E2E read the
+    // HOST clock (`DateTime.now()`) to choose the day while the app ran on the
+    // injected clock pinned to `kFixedNow` (2026-06-14), so on any real-world
+    // day-of-month below 14 it tapped a PAST cell. No slots fetch fired and
+    // the only symptom was a downstream `expect(fake.getMasterSlotsCalls, …)`
+    // reading 0 — a failure that names the fetch, not the cause, and that is
+    // invisible for the other ~13 days of the month.
+    //
+    // Asserting the handler is present BEFORE tapping converts that into an
+    // immediate, self-explaining failure at the point of breakage. It is one
+    // extra descendant lookup on an already-resolved finder, so it stays
+    // always-on rather than being gated behind a debug flag.
+    if (find
+        .descendant(of: finder, matching: find.byType(GestureDetector))
+        .evaluate()
+        .isEmpty) {
+      fail(
+        'calendar cell $day is not tappable — check the app\'s injected '
+        'clock, not DateTime.now(). MonthCalendar renders an unavailable day '
+        '(past / out of range / non-working) with NO GestureDetector, so this '
+        'tap would land on the scroll view behind the cell and silently '
+        'no-op. The usual cause is a test that picked the day from the HOST '
+        'clock while the app under test runs on the injected clock '
+        '(kFixedNow); derive the day with kyivToday(() => kFixedNow) instead. '
+        'The other causes are a working-days fixture that does not cover the '
+        'app\'s current month, and a genuinely disabled day. If you MEANT to '
+        'prove the cell is inert, do not use this helper — call '
+        'tester.tap(finder, warnIfMissed: false) directly, as this helper\'s '
+        'own doc comment requires.',
+      );
+    }
+
     await tap(finder);
   }
 }

@@ -180,8 +180,14 @@ abstract final class AppHarness {
     Duration timeout = const Duration(seconds: 10),
     Duration step = const Duration(milliseconds: 100),
   }) async {
+    // This deadline measures how long the RUNNER has been pumping — real
+    // elapsed wall time. The app's injected clock (kFixedNow) has no bearing
+    // on it, and anchoring the poll to a FROZEN instant would make the
+    // timeout never fire at all.
+    // instant-ok: elapsed-wall-time poll deadline
     final DateTime deadline = DateTime.now().add(timeout);
     while (finder.evaluate().isEmpty) {
+      // instant-ok: elapsed-wall-time poll deadline, paired with the read above
       if (DateTime.now().isAfter(deadline)) {
         throw TestFailure(
           'AppHarness.pumpUntilFound timed out after $timeout waiting for '
@@ -209,8 +215,10 @@ abstract final class AppHarness {
     Duration timeout = const Duration(seconds: 10),
     Duration step = const Duration(milliseconds: 100),
   }) async {
+    // instant-ok: elapsed-wall-time poll deadline — see pumpUntilFound above
     final DateTime deadline = DateTime.now().add(timeout);
     while (!condition()) {
+      // instant-ok: elapsed-wall-time poll deadline, paired with the read above
       if (DateTime.now().isAfter(deadline)) {
         throw TestFailure(
           'AppHarness.pumpUntilCondition timed out after $timeout waiting for '
@@ -669,8 +677,10 @@ abstract final class AppHarness {
     Duration timeout = const Duration(seconds: 5),
     Duration step = const Duration(milliseconds: 50),
   }) async {
+    // instant-ok: elapsed-wall-time poll deadline — see pumpUntilFound above
     final DateTime deadline = DateTime.now().add(timeout);
     while (fakeBackend.loginCalls == callsBefore) {
+      // instant-ok: elapsed-wall-time poll deadline, paired with the read above
       if (DateTime.now().isAfter(deadline)) return false;
       await tester.pump(step);
     }

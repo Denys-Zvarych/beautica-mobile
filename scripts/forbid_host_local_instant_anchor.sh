@@ -23,8 +23,8 @@
 # `lib/core/time/clock_provider.dart`'s own doc comment taught the bad pattern
 # as the canonical override example — fixed alongside this gate.
 #
-# THIS SCRIPT NOW ENFORCES TWO RULES
-# -----------------------------------
+# THIS SCRIPT NOW ENFORCES THREE RULES
+# -------------------------------------
 # RULE 1 (original, below) is scoped to "zone-critical" files — ones whose
 # raw text already touches the Kyiv-anchored clock seam by name. RULE 2 (added
 # 2026-08-02, see "RULE 2" section further down) is scoped to EVERY file under
@@ -264,6 +264,99 @@
 # mobile-qa's fix was committed) — Rule 2's identifier resolution flags all
 # three.
 #
+# RULE 3 (added 2026-08-04 — the `DateTime.now()` hole Rules 1 and 2 could
+# not reach)
+# ------------------------------------------------------------------------
+# WHY NEITHER EXISTING RULE CAUGHT THIS. On 2026-08-04 an E2E test read the
+# HOST clock (`DateTime.now()`) to decide which calendar cell to tap, while
+# the app under test ran on the INJECTED clock pinned to
+# `integration_test/support/fake_backend.dart`'s
+# `kFixedNow = DateTime.utc(2026, 6, 14, 12, 0, 0)`. It therefore tapped a
+# cell for a date the app considers PAST. A past cell gets `onTap: null`
+# (`lib/features/booking/presentation/widgets/month_calendar.dart`) and
+# renders with NO `GestureDetector` at all, so the tap landed on the
+# `SingleChildScrollView` behind it, silently no-opped, and no slots fetch
+# fired. The test was green only when the real-world day-of-month happened to
+# be >= 14 — invisible roughly 17 days out of every 30, which is the same
+# "passes by accident on this machine, on this date" failure mode Rules 1 and
+# 2 exist for. Neither reached it:
+#   - RULE 1 requires a `DateTime(` with a LITERAL DIGIT first argument and
+#     arity >= 4. `DateTime.now()` has no arguments at all, and does not even
+#     produce the substring `DateTime(`.
+#   - RULE 2 only inspects values that reach a `clock:` NAMED PARAMETER. The
+#     failing read was assigned to a plain local that was used to build a
+#     widget `Key` — it never went near a `clock:` argument.
+#   - `scripts/forbid_raw_clock_read.sh` DOES flag every `DateTime.now`, but
+#     its scan root is `lib/` ONLY (that split is documented in its own
+#     header: "that one polices TEST anchors, this one polices PRODUCTION
+#     reads"). The E2E tier was therefore covered by neither.
+#
+# THE RULE — A DECLARATION GATE, DELIBERATELY NOT A CLASSIFYING ONE. Under
+# the `integration_test/` scan root ONLY, in ANY `*.dart` file (no Stage-1
+# zone-critical filter, same as Rule 2), flag EVERY live-code reference to
+# `DateTime.now` — both the call form (`DateTime.now()`) and the bare tear-off
+# (`DateTime Function() clock = DateTime.now;`, which never calls it and which
+# every ad-hoc `DateTime\.now\(\)` grep therefore misses). No attempt is made
+# to tell a "good" read from a "bad" one, for exactly the reason
+# `forbid_raw_clock_read.sh`'s header already states and which this incident
+# proves out: `DateTime.now().isAfter(deadline)` (a genuine elapsed-wall-time
+# measurement) and `DateTime.now().day` (the bug) are syntactically
+# indistinguishable at the point of the read — they differ only in what the
+# result flows into, which is dataflow analysis, not something a grep-shaped
+# gate can decide. The 2026-08-04 read in particular had NO distinguishing
+# syntax whatsoever: it was a bare `DateTime.now()` assigned to a local. Any
+# rule narrow enough to spare the harness's polling deadlines would have
+# spared the bug too.
+#
+# Detection, precisely (mirrors `forbid_raw_clock_read.sh` row for row so the
+# two gates stay behaviourally identical where they overlap conceptually):
+#   1. The literal substring `DateTime.now`, found in the string-stripped
+#      buffer (`strip_strings`) — never inside a string literal.
+#   2. NOT A LONGER IDENTIFIER. The character immediately before the match is
+#      not a word character (`[A-Za-z0-9_]`) — this is what excludes
+#      `tz.TZDateTime.now(loc)` / `TZDateTime.now(...)`, which contain
+#      `DateTime.now` as a substring.
+#   3. LIVE CODE. Line's first non-space token is not `//`; the match sits
+#      before any real trailing `//` comment (`comment_start` over the
+#      already string-stripped buffer).
+#   4. NOT ANNOTATED. Neither the matching line nor the line directly above
+#      carries `// instant-ok: <reason>`.
+#
+# WHY `instant-ok:` AND NOT `host-tz-ok:`. Rules 1 and 2 ask "why is this
+# HOST-LOCAL literal's zone resolution correct here" — that is the
+# `host-tz-ok:` question. Rule 3 asks a different one: "why is reading the
+# DEVICE clock at all correct in a tier whose app under test runs on an
+# INJECTED clock" — which is exactly the question
+# `scripts/forbid_raw_clock_read.sh` already poses in `lib/`, under
+# `// instant-ok: <reason>`. Reusing that marker keeps ONE vocabulary for
+# "this raw clock read is genuinely an absolute-instant use" across both
+# gates and both scan roots. A `host-tz-ok:` marker therefore does NOT
+# suppress a Rule 3 hit (pinned by a self-test probe row) — the two markers
+# answer different questions and are not interchangeable.
+#
+# SCAN ROOT — `integration_test/` ONLY, AND WHY. The E2E tier boots the REAL
+# app with `clockProvider` overridden to a SINGLE pinned instant
+# (`e2e_boot_policy.dart`'s `clockProvider.overrideWithValue(clock ?? () =>
+# kFixedNow)`), so in that tier every host-clock read is, by construction,
+# reading a clock the app under test does not share. `test/` has no such
+# tier-wide pinned clock — each widget test decides its own override or none
+# at all — so a blanket declaration gate there would be noise rather than
+# signal. STATED PLAINLY AS A LIMIT, NOT SOLD AS COMPLETE: a `test/` widget
+# test that overrides `clockProvider` and then reads `DateTime.now()` to
+# build a fixture has the same defect and is NOT caught by any gate today.
+# Rules 1 and 2 already scan `test/` for the literal-anchor shapes; this is
+# the residue.
+#
+# ACCEPTED FIXES (RULE 3)
+# ------------------------
+#     final DateTime today = kyivToday(() => kFixedNow);  // the app's own injected clock
+#     final DateTime start = fb.serverNow.add(...);       // FakeBackend's server clock (defaults to kFixedNow)
+#     if (DateTime.now().isAfter(deadline)) { … }         // instant-ok: elapsed-wall-time poll, not a calendar-day derivation
+# Incident: 2026-08-04 — `integration_test/public_master_profile_flow_test.dart`
+# (Flows A, C, D) and `integration_test/independent_multi_service_booking_flow_test.dart`
+# both picked a calendar day from `DateTime.now()` while the app ran on
+# `kFixedNow`; fixed by routing both through `kyivToday(() => kFixedNow)`.
+#
 # NO LEGACY BASELINE — AND NONE SHOULD EVER BE ADDED
 # ---------------------------------------------------
 # Unlike `forbid_stale_future_date_fixture.sh`'s `.stale_future_date_allow`
@@ -310,11 +403,20 @@ scan_dirs=(
 zone_critical_pattern='toBeauticaTime|clockProvider|TZDateTime|beauticaZone|kBeauticaTimeZoneName'
 
 # `// host-tz-ok:` (any leading whitespace before the `//`) — same convention
-# as `future-date-ok` / `fixed-wait-ok`. Shared by both rules.
+# as `future-date-ok` / `fixed-wait-ok`. Shared by RULES 1 and 2.
 annotation='[/][/][[:space:]]*host-tz-ok:'
 
+# RULE 3's marker — `// instant-ok:`, the SAME vocabulary
+# `scripts/forbid_raw_clock_read.sh` uses in `lib/`, deliberately NOT
+# `host-tz-ok:` (see header "WHY `instant-ok:` AND NOT `host-tz-ok:`").
+now_annotation='[/][/][[:space:]]*instant-ok:'
+
+# RULE 3's scan root — a single entry of ${scan_dirs[@]}, not all of them.
+# See header "SCAN ROOT — `integration_test/` ONLY, AND WHY".
+now_scan_dir='integration_test'
+
 # ---------------------------------------------------------------------------
-# scan_file <path> <do_rule1: 0|1>
+# scan_file <path> <do_rule1: 0|1> <do_rule3: 0|1>
 #   Emits "R1:<path>:<line>:<text>" for each un-annotated, live-code, bare
 #   `DateTime(<digit>, ...)` call of arity >= 4 in <path> — ONLY when
 #   <do_rule1> is "1" (run_scan's job: <path> already passed Stage 1
@@ -328,10 +430,17 @@ annotation='[/][/][[:space:]]*host-tz-ok:'
 #   "RULE 2 IDENTIFIER RESOLUTION" in the header) — in which case a second
 #   "R2:" line for the resolved declaration is also emitted. See header
 #   "RULE 2" for the full spec.
+#   Emits "R3:<path>:<line>:<text>" for each un-annotated, live-code
+#   `DateTime.now` reference (call form OR bare tear-off) — ONLY when
+#   <do_rule3> is "1" (run_scan sets it for the `integration_test` scan dir
+#   and nothing else; this function does not re-derive it from <path>). See
+#   header "RULE 3".
 # ---------------------------------------------------------------------------
 scan_file() {
   local do_rule1="${2:-0}"
-  awk -v file="$1" -v ann="$annotation" -v do_rule1="$do_rule1" '
+  local do_rule3="${3:-0}"
+  awk -v file="$1" -v ann="$annotation" -v do_rule1="$do_rule1" \
+      -v now_ann="$now_annotation" -v do_rule3="$do_rule3" '
     # Reused verbatim from scripts/forbid_stale_future_date_fixture.sh.
     # Erases quoted content entirely (does not preserve length/position) —
     # every match this script makes is found and positioned INSIDE this
@@ -646,11 +755,51 @@ scan_file() {
         pos = abs + 1
       }
 
+      # ============ RULE 3 (integration_test/ only, raw device-clock read) ==========
+      # A DECLARATION gate: every live-code `DateTime.now` reference, call
+      # form or bare tear-off, with no attempt to classify good from bad (see
+      # header "RULE 3" for why classifying is not possible here). Mirrors
+      # scripts/forbid_raw_clock_read.sh row for row.
+      is_offender3 = 0
+      if (do_rule3 == "1") {
+        pos = 1
+        while (1) {
+          idx = index(substr(codeonly, pos), "DateTime.now")
+          if (idx == 0) { break }
+          abs = pos + idx - 1
+
+          # Match sits at/after a trailing comment in the stripped buffer.
+          if (cs > 0 && abs >= cs) { pos = abs + 1; continue }
+
+          # Exclude a longer identifier merely ENDING in "DateTime.now"
+          # (tz.TZDateTime.now(loc) / TZDateTime.now(...)): the character
+          # immediately before the match must not be a word character.
+          if (abs > 1) {
+            prevc = substr(codeonly, abs - 1, 1)
+            if (prevc ~ /[A-Za-z0-9_]/) { pos = abs + 1; continue }
+          }
+
+          is_offender3 = 1
+          pos = abs + 12   # length("DateTime.now")
+        }
+      }
+
+      # Annotation suppression. RULES 1 and 2 share `host-tz-ok:`; RULE 3
+      # uses `instant-ok:` and is NOT suppressed by `host-tz-ok:` — the two
+      # markers answer different questions (see header). Both honour the same
+      # same-line-or-directly-above placement rule, with the same documented
+      # gotcha: on a multi-line rationale block the marker must be the LAST
+      # comment line before the code.
       if (is_offender1 || is_offender2) {
-        # (5) Annotated on this line or the line directly above — shared.
-        if ($0 ~ ann)   { prev = $0; next }
-        if (prev ~ ann) { prev = $0; next }
+        if ($0 ~ ann || prev ~ ann) { is_offender1 = 0; is_offender2 = 0 }
+      }
+      if (is_offender3) {
+        if ($0 ~ now_ann || prev ~ now_ann) { is_offender3 = 0 }
+      }
+
+      if (is_offender1 || is_offender2 || is_offender3) {
         if (is_offender1) { printf "R1:%s:%d:%s\n", file, NR, $0 }
+        if (is_offender3) { printf "R3:%s:%d:%s\n", file, NR, $0 }
         if (is_offender2) {
           printf "R2:%s:%d:%s\n", file, NR, $0
           # Also report the RESOLVED declaration once per unique target per
@@ -681,18 +830,27 @@ scan_file() {
 #   `scan_file` is called for every file found, and only the do_rule1 flag
 #   varies. A scan dir that does not exist under <tree_root> contributes
 #   nothing (lets the self-test synthesize one root at a time).
+#
+#   RULE 3 runs against every file under `$now_scan_dir` (`integration_test`)
+#   and no other scan dir — the flag is derived from the DIRECTORY being
+#   walked, never from the file's own text, so there is no per-file filter to
+#   regress (see header "SCAN ROOT — `integration_test/` ONLY, AND WHY").
 # ---------------------------------------------------------------------------
 run_scan() {
   local tree_root="$1"
-  local d f do_rule1
+  local d f do_rule1 do_rule3
   for d in "${scan_dirs[@]}"; do
+    do_rule3=0
+    if [ "$d" = "$now_scan_dir" ]; then
+      do_rule3=1
+    fi
     while IFS= read -r -d '' f; do
       [ -z "$f" ] && continue
       do_rule1=0
       if grep -qE "$zone_critical_pattern" "$f" 2>/dev/null; then
         do_rule1=1
       fi
-      scan_file "$f" "$do_rule1"
+      scan_file "$f" "$do_rule1" "$do_rule3"
     done < <(find "$tree_root/$d" -type f -name '*.dart' -print0 2>/dev/null | sort -z)
   done
 }
@@ -960,17 +1118,88 @@ EOF
   # host-tz-ok annotated).
   identifier_clean_lines=(41 52 56 61 65)
 
+  # RULE 3 probe — raw device-clock reads in the E2E tier. Lives under
+  # `integration_test/` because that is RULE 3's ONLY scan root; the
+  # `test/`-side control below carries the identical shape and must stay
+  # clean, which is what pins the root restriction independently of the
+  # matching logic.
+  now_probe="integration_test/support/host_now_probe.dart"
+  mkdir -p "$tmp/$(dirname "$now_probe")"
+  cat > "$tmp/$now_probe" <<'EOF'
+// Probe for RULE 3 (raw device-clock read in the E2E tier) — exercises the
+// rule row by row. Carries no `clock:` named argument, so RULE 2 must
+// contribute nothing here; row (r3-8) does mention the device-zone
+// constructor by name (which makes Stage 1 classify this file as
+// zone-critical and therefore ENABLES Rule 1 on it), but the file contains
+// no bare DateTime(<digit>, …) call at all, so Rule 1 must still find
+// nothing.
+
+// (r3-1) call form, live code — MUST be flagged.
+final DateTime a = DateTime.now();
+
+// (r3-2) bare tear-off — never calls now(), only tears it off, which is
+// exactly what a `DateTime\.now\(\)` grep misses — MUST be flagged.
+final DateTime Function() b = DateTime.now;
+
+// (r3-3) same-line instant-ok marker — not flagged.
+final DateTime c = DateTime.now(); // instant-ok: elapsed-wall-time poll
+
+// (r3-4) marker on the line directly above — not flagged.
+// instant-ok: elapsed-wall-time poll
+final DateTime d = DateTime.now();
+
+// (r3-5) whole-line comment — not flagged.
+// final DateTime e = DateTime.now();
+
+// (r3-6) inside a string literal — not flagged (strip_strings).
+const String s = "DateTime.now()";
+
+// (r3-7) trailing comment hides the call — not flagged.
+final DateTime f = g; // DateTime.now()
+
+// (r3-8) a longer identifier merely ENDING in DateTime.now — not flagged.
+final DateTime h = tz.TZDateTime.now(loc);
+
+// (r3-9) host-tz-ok is RULE 1/2's marker, NOT RULE 3's — MUST still be
+// flagged. The question RULE 3 asks ("why is reading the DEVICE clock
+// correct in a tier whose app runs on an injected one") is the instant-ok
+// question, not the host-tz-ok one, and the two are not interchangeable.
+// host-tz-ok: wrong marker for a raw device-clock read
+final DateTime i = DateTime.now();
+EOF
+  now_offender_lines=(10 14 40)
+  now_clean_lines=(17 21 24 27 30 33)
+
+  # RULE 3 scan-root control — the SAME flagged shape, under `test/` instead
+  # of `integration_test/`. Must contribute ZERO offenders: RULE 3's root
+  # restriction is derived from the directory being walked, and this is what
+  # proves that derivation is real rather than incidental.
+  now_control_path="test/core/time/host_now_scope_control_test.dart"
+  mkdir -p "$tmp/$(dirname "$now_control_path")"
+  cat > "$tmp/$now_control_path" <<'EOF'
+// Control for RULE 3's scan-root restriction: this file sits under test/,
+// NOT integration_test/, and carries the exact flagged shape below. RULE 3
+// must contribute ZERO offenders from it — the widget/unit tier has no
+// single app-wide injected clock the way the E2E tier does (see the
+// script header's "SCAN ROOT" section, which states that residual gap
+// plainly rather than pretending it is covered).
+final DateTime a = DateTime.now();
+DateTime Function() b = DateTime.now;
+EOF
+
   out="$(run_scan "$tmp")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
-  expected=$(( ${#probe_paths[@]} * offenders_per_probe + ${#clock_probe_paths[@]} * clock_offenders_per_probe + identifier_offenders_total ))
+  expected=$(( ${#probe_paths[@]} * offenders_per_probe + ${#clock_probe_paths[@]} * clock_offenders_per_probe + identifier_offenders_total + ${#now_offender_lines[@]} ))
   if [ "$flagged" -ne "$expected" ]; then
     echo "SELF-TEST FAIL: expected exactly $expected offenders"
     echo "                ($offenders_per_probe Rule-1 hits × ${#probe_paths[@]}"
     echo "                zone-critical probes, plus $clock_offenders_per_probe"
     echo "                Rule-2 hits × ${#clock_probe_paths[@]} clock probes,"
     echo "                plus $identifier_offenders_total Rule-2 identifier-"
-    echo "                resolution hits; the non-zone-critical Rule-1"
-    echo "                control must contribute zero), got $flagged:"
+    echo "                resolution hits, plus ${#now_offender_lines[@]} Rule-3"
+    echo "                raw-device-clock-read hits; the non-zone-critical"
+    echo "                Rule-1 control and the test/-side Rule-3 scan-root"
+    echo "                control must each contribute zero), got $flagged:"
     printf '%s\n' "$out"
     exit 1
   fi
@@ -1065,6 +1294,41 @@ EOF
     exit 1
   fi
 
+  # ---- RULE 3 assertions -----------------------------------------------
+  for ln in "${now_offender_lines[@]}"; do
+    if ! printf '%s\n' "$out" | grep -q "^R3:$tmp/$now_probe:$ln:"; then
+      echo "SELF-TEST FAIL: expected a Rule-3 offender at $now_probe:$ln,"
+      echo "                none found. Is '$now_scan_dir' still walked with"
+      echo "                do_rule3=1 by run_scan? (line 40 in particular"
+      echo "                pins that // host-tz-ok: does NOT suppress Rule 3.)"
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  for ln in "${now_clean_lines[@]}"; do
+    if printf '%s\n' "$out" | grep -q "^R3:$tmp/$now_probe:$ln:"; then
+      echo "SELF-TEST FAIL: line $ln of $now_probe should NOT be flagged by"
+      echo "                Rule 3 (instant-ok annotated same-line or above /"
+      echo "                whole-line comment / string literal / trailing"
+      echo "                comment / longer identifier ending in"
+      echo "                DateTime.now), but was:"
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  if printf '%s\n' "$out" | grep -q "^R1:$tmp/$now_probe:"; then
+    echo "SELF-TEST FAIL: $now_probe was flagged by Rule 1 — it contains no"
+    echo "                bare DateTime(<digit>, ...) call at all:"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  if printf '%s\n' "$out" | grep -q "$now_control_path"; then
+    echo "SELF-TEST FAIL: the test/-side Rule-3 scan-root control was flagged"
+    echo "                — Rule 3 is not restricted to $now_scan_dir/ at all:"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+
   echo "SELF-TEST PASS: RULE 1 — qualified constructors (DateTime.utc,"
   echo "                TZDateTime), derived first args, comments (whole-line"
   echo "                and trailing), string-literal contents, and both"
@@ -1102,6 +1366,17 @@ EOF
   echo "                DECLARATION is resolved), an identifier with no local"
   echo "                declaration (cross-file — nothing to chase), and a"
   echo "                host-tz-ok annotation all stay clean."
+  echo "                RULE 3 — every live-code DateTime.now reference under"
+  echo "                $now_scan_dir/ is flagged, in BOTH the call form and"
+  echo "                the bare tear-off (which no DateTime\\.now\\(\\) grep"
+  echo "                ever caught); an instant-ok annotation (same-line or"
+  echo "                directly above), a whole-line comment, a string"
+  echo "                literal, a trailing comment, and a longer identifier"
+  echo "                merely ENDING in DateTime.now (tz.TZDateTime.now) all"
+  echo "                stay clean; a host-tz-ok marker does NOT suppress it"
+  echo "                (different question, different marker); and the same"
+  echo "                shape under test/ contributes nothing, pinning that"
+  echo "                Rule 3's scan root really is $now_scan_dir/ only."
   exit 0
 fi
 
@@ -1111,6 +1386,7 @@ fi
 offenders="$(run_scan "$root")"
 rule1_offenders="$(printf '%s\n' "$offenders" | grep '^R1:' | sed 's/^R1://' || true)"
 rule2_offenders="$(printf '%s\n' "$offenders" | grep '^R2:' | sed 's/^R2://' || true)"
+rule3_offenders="$(printf '%s\n' "$offenders" | grep '^R3:' | sed 's/^R3://' || true)"
 
 failed=0
 
@@ -1182,6 +1458,39 @@ if [ -n "$rule2_offenders" ]; then
   echo "If a bare local instant is genuinely correct here, annotate the"
   echo "clock: site itself:"
   echo "    // host-tz-ok: <why the host's own local clock is correct here>"
+  echo
+  echo "There is no allow-list for this gate and none should be added."
+  echo
+fi
+
+if [ -n "$rule3_offenders" ]; then
+  failed=1
+  echo "Raw device-clock read (DateTime.now) found under $now_scan_dir/"
+  echo "(RULE 3 — no zone-critical filter; call form AND bare tear-off):"
+  echo "$rule3_offenders"
+  echo
+  echo "The E2E tier boots the REAL app with clockProvider overridden to a"
+  echo "SINGLE pinned instant (integration_test/support/e2e_boot_policy.dart"
+  echo "→ kFixedNow = 2026-06-14T12:00:00Z). A test that reads DateTime.now()"
+  echo "is therefore reading a clock the app under test does not share. On"
+  echo "2026-08-04 that shipped as a silent false PASS: an E2E picked a"
+  echo "calendar cell from the HOST day-of-month while the app believed it was"
+  echo "2026-06-14, so on any real-world day before the 14th it tapped a PAST"
+  echo "cell. Past cells get onTap: null and render with NO GestureDetector,"
+  echo "so the tap landed on the scroll view behind them, no slots fetch"
+  echo "fired, and the test still went green — roughly 17 days out of 30."
+  echo
+  echo "Read the clock the APP is on, not the one the runner is on:"
+  echo "    final DateTime today = kyivToday(() => kFixedNow);   // the injected clock"
+  echo "    final DateTime start = fb.serverNow.add(...);        // FakeBackend's own server clock"
+  echo
+  echo "If this read is a genuine absolute-instant use — an elapsed-wall-time"
+  echo "poll, a duration measurement, an instant ordering comparison — that"
+  echo "Kyiv-anchoring or clock injection would not change, annotate it with"
+  echo "the SAME marker scripts/forbid_raw_clock_read.sh uses in lib/:"
+  echo "    // instant-ok: <why reading the DEVICE clock is correct here>"
+  echo "Note that // host-tz-ok: does NOT suppress this rule — that marker"
+  echo "answers a different question (see this script's header)."
   echo
   echo "There is no allow-list for this gate and none should be added."
   echo

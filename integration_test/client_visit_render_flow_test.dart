@@ -168,9 +168,17 @@ void main() {
     final fb = FakeBackend()..currentRole = UserRole.client;
     final spyAppt = _SpyAppointmentRepository();
 
+    // These rows must read as UPCOMING, and `BookingDisplayX.isPast`
+    // compares `endAt` against the DEVICE clock on purpose (`instant-ok`
+    // annotated in `lib/features/booking/domain/booking_display_x.dart`),
+    // never the injected one — the same rationale documented on
+    // `FakeBackend._kFixtureDay`. Anchoring these to `kFixedNow` would make
+    // them render as PAST once the real wall clock passes 2026-06-14.
+    // instant-ok: fixture must track the same DEVICE clock BookingDisplayX reads
     final DateTime visitStart = DateTime.now().add(
       const Duration(days: 1, hours: 10),
     );
+    // instant-ok: same DEVICE-clock rationale as `visitStart` directly above
     final DateTime legacyStart = DateTime.now().add(
       const Duration(days: 2, hours: 10),
     );

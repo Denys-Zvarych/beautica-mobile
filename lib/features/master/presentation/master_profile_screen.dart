@@ -62,6 +62,7 @@ import 'widgets/master_address_block.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
+import 'widgets/services_stat_tile.dart';
 
 export 'master_profile_notifier.dart' show masterProfileProvider;
 
@@ -501,15 +502,20 @@ class _ProfileBody extends StatelessWidget {
                   child: Consumer(
                     builder: (context, ref, _) {
                       final servicesAsync = ref.watch(servicesListProvider);
-                      final String countValue = servicesAsync.when(
-                        data: (list) => list.length.toString(),
-                        loading: () => '—',
-                        error: (_, _) => '—',
+                      // null = unresolved; ServicesStatTile collapses that AND
+                      // an empty catalogue onto '—', mirroring the
+                      // rating/reviews tiles' zero-state on this row. A FAILED
+                      // load is kept distinguishable (hasError → '?') so a
+                      // suppressed /services response never reads as "this
+                      // master has no services".
+                      final (int? count, bool hasError) = servicesAsync.when(
+                        data: (list) => (list.length, false),
+                        loading: () => (null, false),
+                        error: (_, _) => (null, true),
                       );
-                      return StatTile(
-                        icon: Icons.design_services_outlined,
-                        value: countValue,
-                        caption: l10n.masterServicesLabel,
+                      return ServicesStatTile(
+                        count: count,
+                        hasError: hasError,
                         valueKey: const Key('master-profile-services-value'),
                       );
                     },

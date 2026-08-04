@@ -5027,5 +5027,25 @@
   "masterBookingsAddComingSoon": "Створення запису вручну з'явиться найближчим часом",
   "@masterBookingsAddComingSoon": {
     "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
+  },
+  "statTileNoDataSemantics": "{caption}: немає даних",
+  "@statTileNoDataSemantics": {
+    "description": "Accessibility label for a profile StatTile whose value is the em-dash zero/unresolved placeholder. The dash is meaningless read aloud ('— Послуги'), so screen readers get this spoken form instead. VISUAL output is unaffected — the tile still renders the em-dash.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "example": "Послуги"
+      }
+    }
+  },
+  "statTileLoadFailedSemantics": "{caption}: не вдалося завантажити",
+  "@statTileLoadFailedSemantics": {
+    "description": "Accessibility label for a profile StatTile whose value is the '?' failed-load glyph (ServicesStatTile.hasError). Kept distinct from statTileNoDataSemantics so a suppressed response is never announced as an empty catalogue. VISUAL output is unaffected — the tile still renders '?'.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "example": "Послуги"
+      }
+    }
   }
 }

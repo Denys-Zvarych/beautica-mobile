@@ -280,6 +280,14 @@ void main() {
       // `master_booking_provider_actions_flow_test.dart`) — started well in
       // the past, ends well in the future, so `hasStarted` is
       // deterministically true regardless of how long this test takes.
+      // `BookingDisplayX.hasStarted`/`.isPast` compare against the DEVICE
+      // clock on purpose (both `instant-ok` annotated in
+      // `lib/features/booking/domain/booking_display_x.dart`) — a
+      // presentation-only "has this slot passed" signal, deliberately NOT
+      // the injected `clockProvider` instant. A `kFixedNow`-anchored window
+      // would classify as long-elapsed, not underway. See the two-clock
+      // model documented on `FakeBackend.serverNow`.
+      // instant-ok: fixture tracks the DEVICE clock BookingDisplayX reads
       final DateTime start = DateTime.now().toUtc().subtract(
         const Duration(hours: 1),
       );
@@ -347,6 +355,14 @@ void main() {
 
       // Same wide, wall-clock-safe "underway/elapsed" window as the complete
       // test above.
+      // `BookingDisplayX.hasStarted`/`.isPast` compare against the DEVICE
+      // clock on purpose (both `instant-ok` annotated in
+      // `lib/features/booking/domain/booking_display_x.dart`) — a
+      // presentation-only "has this slot passed" signal, deliberately NOT
+      // the injected `clockProvider` instant. A `kFixedNow`-anchored window
+      // would classify as long-elapsed, not underway. See the two-clock
+      // model documented on `FakeBackend.serverNow`.
+      // instant-ok: fixture tracks the DEVICE clock BookingDisplayX reads
       final DateTime start = DateTime.now().toUtc().subtract(
         const Duration(hours: 1),
       );

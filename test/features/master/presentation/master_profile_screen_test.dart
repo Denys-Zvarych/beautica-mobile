@@ -52,6 +52,7 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/master_address_block.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/services_stat_tile.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -1703,9 +1704,23 @@ void main() {
     testWidgets('B. services error state shows errUnknown text', (
       tester,
     ) async {
+      // ASYNCHRONOUS throw — the only shape a Dio-backed repository can
+      // produce. `thenThrow` fails synchronously out of the provider build,
+      // which bypasses Riverpod's retry machinery entirely: the element goes
+      // straight to a terminal AsyncError after ONE attempt. That is a path
+      // production cannot take, so the old stub reached this assertion through
+      // a mechanism that does not exist.
+      //
+      // The retry predicate is deliberately left at `pumpApp`'s default (the
+      // production `beauticaProviderRetry`), so this now asserts the terminal
+      // error surface the user actually lands on — AFTER the full 10-attempt /
+      // ~38 s transient-failure curve, which `pumpAndSettle` burns on the fake
+      // clock. Measured: no wall-clock difference against disabling retry
+      // (9.77 s vs 9.85 s for this file), so there is no reason to trade the
+      // fidelity away. B4 below pins the window BEFORE this state.
       when(
         () => mockServiceRepo.listMyServices(),
-      ).thenThrow(const NetworkFailure());
+      ).thenAnswer((_) async => throw const NetworkFailure());
 
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -1723,6 +1738,192 @@ void main() {
       );
       expect(find.text(l10n.errUnknown), findsOneWidget);
     });
+
+    // ── B2. Error state — stat tile shows '?', never the empty-state dash ────
+    //
+    // SECURITY REGRESSION GUARD (mobile-security LOW, closed). The services
+    // stat tile collapses BOTH an unresolved (loading) catalogue and a
+    // genuinely empty one onto '—'. A failed /services load must NOT join
+    // them: an attacker who can suppress that call would otherwise make a
+    // master with a populated catalogue render as "0 services" with no UI
+    // signal. The failed branch renders '?' instead. Goes RED if the error
+    // branch is ever folded back onto the dash.
+    testWidgets('B2. services error state shows "?" in the stat tile', (
+      tester,
+    ) async {
+      // Async throw, production retry predicate — same reasoning as case B
+      // above. The security contract under test is the POST-EXHAUSTION failed
+      // state; B4 below pins the mid-retry window on the same stub shape, so
+      // the pair spans the whole curve between them.
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Text servicesValue = tester.widget<Text>(
+        find.byKey(const Key('master-profile-services-value')),
+      );
+      expect(
+        servicesValue.data,
+        '?',
+        reason:
+            'a failed catalogue load must stay distinguishable from an empty '
+            'catalogue, which renders the em-dash',
+      );
+    });
+
+    // ── B3. Loading state — stat tile keeps the em-dash placeholder ──────────
+    //
+    // Pins the other half of the B2 contract: '?' is reserved for FAILURE.
+    // An in-flight load still renders '—', identical to an empty catalogue.
+    testWidgets('B3. services loading state shows the dash in the stat tile', (
+      tester,
+    ) async {
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenAnswer((_) => Completer<List<MasterService>>().future);
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      // pumpAndSettle would hang — listMyServices() never completes.
+      await tester.pump(const Duration(milliseconds: 1200));
+
+      final Text servicesValue = tester.widget<Text>(
+        find.byKey(const Key('master-profile-services-value')),
+      );
+      expect(
+        servicesValue.data,
+        '—',
+        reason: 'an in-flight catalogue load must render the dash, not "?"',
+      );
+    });
+
+    // ── B4. MID-RETRY window — tile and section must agree ──────────────────
+    //
+    // B2 above pins only the POST-EXHAUSTION state: `pumpAndSettle` runs the
+    // fake clock through all 10 retries (SkeletonShimmerScope's
+    // `..repeat(reverse: true)` keeps frames scheduled, so settle never
+    // returns early) and lands on the terminal AsyncError. The ~38 s window
+    // BEFORE that was pinned by nothing — and it is the entire reason the
+    // screen derives `hasError` from the `when` arms rather than from
+    // `servicesAsync.hasError`.
+    //
+    // The mechanism: `NetworkFailure` is transient (failure_retry_policy.dart)
+    // so `beauticaProviderRetry` — which `pumpApp` installs by default, the
+    // same predicate main.dart installs in production — delegates to
+    // Riverpod's 10-attempt, 200 ms→6400 ms backoff. While a retry is pending
+    // Riverpod emits `AsyncLoading(error: …, retrying: true)`: runtime type
+    // AsyncLoading, but `hasError == true`. `AsyncValue.when` routes that to
+    // its `loading()` arm; `.hasError` would report `true`.
+    //
+    // So reading `.hasError` (or passing `skipLoadingOnReload: true`) would
+    // flip THIS tile to '?' while `_ProfileCategoriesSection` — deriving from
+    // the SAME AsyncValue via its own `when` — still rendered shimmer
+    // skeletons. A screen contradicting itself: "failed" in the stat row,
+    // "loading" 400 px below. This test asserts the two agree, not merely that
+    // the glyph is a dash, so the contradiction is what fails it.
+    testWidgets(
+      'B4. while transient-failure retries are still in flight the stat tile '
+      'keeps the dash AND the categories section keeps its skeletons',
+      (tester) async {
+        // NOTE — the failure must be ASYNCHRONOUS. A `thenThrow` stub throws
+        // SYNCHRONOUSLY, and a synchronous build throw bypasses Riverpod's
+        // retry machinery entirely: the element goes straight to a terminal
+        // AsyncError after ONE call, so no retrying state ever exists to
+        // observe. A Dio-backed repository never fails that way — it returns a
+        // Future that completes with an error, which is what this stub models
+        // and what makes the retry curve engage.
+        // (Measured: sync throw = 1 call; async throw = 6 calls by t≈8.4 s.)
+        //
+        // B and B2 now use this same async shape under the same production
+        // predicate. What separates this case from those is only how far the
+        // curve is pumped: they settle to exhaustion, this one stops inside the
+        // window on a bounded frame count.
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => throw const NetworkFailure());
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        // Deliberately NOT pumpAndSettle: settling would burn the whole
+        // 10-attempt backoff and land on the terminal AsyncError — i.e.
+        // re-test B2. Pump a BOUNDED number of frames instead.
+        //
+        // Why a loop and not one long pump: a retry needs a FRAME to land, not
+        // just elapsed time. A single `pump(Duration(milliseconds: 1200))` is
+        // one frame, so exactly one further attempt lands however long the
+        // duration is (measured: 1 call). Four 400 ms frames clear the 1100 ms
+        // entrance animation AND leave several attempts behind us — still far
+        // short of the 10 that would exhaust the curve and flip the element to
+        // a terminal AsyncError.
+        for (int frame = 0; frame < 4; frame++) {
+          await tester.pump(const Duration(milliseconds: 400));
+        }
+
+        // Precondition: retries genuinely fired. Without this the test would
+        // still pass while parked in the FIRST attempt — a plain loading state
+        // that B3 already covers — and would prove nothing about the retrying
+        // state this case exists for.
+        verify(() => mockServiceRepo.listMyServices()).called(greaterThan(1));
+
+        // (a) The stat tile shows the unresolved placeholder, NOT the failure
+        // glyph — the load has not failed yet, it is still being attempted.
+        final Text servicesValue = tester.widget<Text>(
+          find.byKey(const Key('master-profile-services-value')),
+        );
+        expect(
+          servicesValue.data,
+          '—',
+          reason:
+              'mid-retry is an UNRESOLVED state, not a failed one — "?" here '
+              'would declare defeat while the fetch is still being retried',
+        );
+
+        // (b) …and the categories section, reading the same AsyncValue, is in
+        // its loading branch. This is the half that makes the test about
+        // AGREEMENT rather than about one glyph.
+        expect(
+          find.byType(SkeletonBlock),
+          findsNWidgets(2),
+          reason:
+              'the categories section must still show its two skeleton rows — '
+              'if the tile says "?" while this shows shimmer, the screen is '
+              'contradicting itself',
+        );
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(
+          find.text(l10n.errUnknown),
+          findsNothing,
+          reason:
+              'the section must NOT have entered its error branch while '
+              'retries are still pending',
+        );
+      },
+    );
 
     // ── C. Empty state — "Додати послуги" CTA replaces the old empty text ────
     //
@@ -1849,6 +2050,101 @@ void main() {
         reason: 'Services stat tile must show the live service count',
       );
     });
+
+    // ── E. Empty catalogue — stat tile shows '—', NOT a bare '0' ────────────
+    //
+    // THE requested behaviour, on THE screen it was requested for: "if an
+    // independent master or salon master doesn't have services, in profile
+    // services card show '-' instead of '0'".
+    //
+    // Test C above already pumps the same zero-services state, but asserts
+    // only the categories section's CTA — the stat tile's value was never
+    // read on the OWN profile, so the entire user-visible point of the change
+    // was unpinned here (the public profile got the assertion; this side did
+    // not). Distinct from B3: B3 covers UNRESOLVED (null count), this covers
+    // RESOLVED-AND-EMPTY (data: []), which reaches the '0' arm of the switch.
+    // Goes RED the moment the empty branch reverts to `list.length.toString()`.
+    testWidgets(
+      'E. services empty state shows the em-dash in the stat tile, not "0"',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => const <MasterService>[]);
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Text servicesValue = tester.widget<Text>(
+          find.byKey(const Key('master-profile-services-value')),
+        );
+        expect(
+          servicesValue.data,
+          '—',
+          reason:
+              'a master with no services must see the em-dash on their OWN '
+              'profile — a bare "0" is the regression this change removed',
+        );
+        expect(
+          find.descendant(
+            of: find.byType(ServicesStatTile),
+            matching: find.text('0'),
+          ),
+          findsNothing,
+          reason: 'no "0" may survive inside the tile for an empty catalogue',
+        );
+      },
+    );
+
+    // ── F. Consolidation guard — the OWN profile builds the SHARED tile ──────
+    //
+    // The two profiles previously hand-rolled this tile independently, which
+    // is precisely how they drifted ('0' here vs '0' there, then a fix landing
+    // on one side only). Pinning the shared widget TYPE at both call sites
+    // (the public side asserts the same in
+    // public_master_profile_screen_test.dart) makes a re-divergence — someone
+    // inlining a bare StatTile again to tweak one screen — fail the build
+    // instead of silently shipping two different empty states. Without this,
+    // every value assertion above could keep passing against a re-forked copy.
+    testWidgets(
+      'F. the own profile renders the shared ServicesStatTile, not an inline '
+      'StatTile copy',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder tile = find.byType(ServicesStatTile);
+        expect(
+          tile,
+          findsOneWidget,
+          reason:
+              'the services stat must come from the shared widget so a change '
+              'to the empty/error rule reaches BOTH profiles at once',
+        );
+        // …and it is the widget carrying THIS screen's value key, not some
+        // unrelated instance elsewhere in the tree.
+        expect(
+          find.descendant(
+            of: tile,
+            matching: find.byKey(const Key('master-profile-services-value')),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   // ── 13a. Empty-state CTA navigation — pushes serviceSetup ─────────────────

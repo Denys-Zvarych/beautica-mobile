@@ -5027,5 +5027,25 @@
   "masterBookingsAddComingSoon": "Manually creating a booking is coming soon",
   "@masterBookingsAddComingSoon": {
     "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
+  },
+  "statTileNoDataSemantics": "{caption}: no data",
+  "@statTileNoDataSemantics": {
+    "description": "Accessibility label for a profile StatTile whose value is the em-dash zero/unresolved placeholder. The dash is meaningless read aloud ('— Services'), so screen readers get this spoken form instead. VISUAL output is unaffected — the tile still renders the em-dash.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "example": "Services"
+      }
+    }
+  },
+  "statTileLoadFailedSemantics": "{caption}: failed to load",
+  "@statTileLoadFailedSemantics": {
+    "description": "Accessibility label for a profile StatTile whose value is the '?' failed-load glyph (ServicesStatTile.hasError). Kept distinct from statTileNoDataSemantics so a suppressed response is never announced as an empty catalogue. VISUAL output is unaffected — the tile still renders '?'.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "example": "Services"
+      }
+    }
   }
 }

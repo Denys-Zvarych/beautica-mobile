@@ -186,6 +186,12 @@ void applyE2eBootPolicy(WidgetTester tester) {
   // Backdating the recorded start by [kE2eSplashPrimeOffset] makes `elapsed()`
   // ≈ 5 s > 3 s, unblocking the auth redirect on the very first settle.
   // [resetE2eBootPolicy] undoes it so the state cannot bleed between tests.
+  // `AppStartTime.elapsed()` compares the recorded start against the DEVICE
+  // clock (`lib/core/app_start_time.dart`, itself `instant-ok` annotated), so
+  // the backdated start MUST be on that same clock. Anchoring it to
+  // `kFixedNow` would make `elapsed()` report the distance between two
+  // unrelated clocks, not a duration.
+  // instant-ok: absolute-instant backdating, paired with AppStartTime.elapsed()
   AppStartTime.setStartForTest(DateTime.now().subtract(kE2eSplashPrimeOffset));
 }
 

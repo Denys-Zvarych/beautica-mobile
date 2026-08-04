@@ -625,7 +625,17 @@ void main() {
   testWidgets('network failure shows an error SnackBar and re-enables Save', (
     tester,
   ) async {
-    when(() => repo.updateMyProfile(any())).thenThrow(const NetworkFailure());
+    // ASYNCHRONOUS throw — how a Dio-backed repository actually fails. No retry
+    // curve is reachable here (this is an imperative save handler, and
+    // Riverpod's retry predicate governs failed provider *builds* only), so the
+    // conversion costs nothing in run time. It buys fidelity: a synchronous
+    // throw would still be caught by the handler's `try`/`await`, so the old
+    // stub would have kept passing if the save were ever refactored onto a
+    // non-awaited future chain — the exact shape that drops the error on the
+    // floor and leaves Save stuck disabled.
+    when(
+      () => repo.updateMyProfile(any()),
+    ).thenAnswer((_) async => throw const NetworkFailure());
 
     await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
     await tester.pump();

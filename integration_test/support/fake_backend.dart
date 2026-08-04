@@ -112,6 +112,7 @@ final DateTime kFixedNow = DateTime.utc(2026, 6, 14, 12, 0, 0);
 /// day-scoped `from == to` assertions in `master_bookings_flow_test.dart`,
 /// which is a worse failure mode than the bomb it replaces.
 final DateTime _kFixtureDay = () {
+  // instant-ok: deliberately the DEVICE clock — see the doc comment above
   final DateTime now = DateTime.now().toUtc();
   return DateTime.utc(now.year, now.month, now.day, 15);
 }();
@@ -1326,8 +1327,17 @@ final class FakeBackend {
   /// true` (the wire contract carries no availability flag — see
   /// `BookingSlotMapper`), which is exactly what the flow needs: at least one
   /// tappable chip on the time screen.
-  static Map<String, dynamic> _availableSlotsEnvelope() {
-    final DateTime day = DateTime.now();
+  ///
+  /// The day these slots are dated on is [serverNow] (default [kFixedNow]) —
+  /// the clock the app under test is on — not the device clock. The route
+  /// match ignores query params, so the DATE never affected which request
+  /// this answered; what it did affect is what the confirm screen then
+  /// renders, which was the HOST's calendar day while the calendar the user
+  /// just tapped was drawn from the injected one. Same two-clock rule as
+  /// [_workingDaysEnvelope]; no longer `static` because it now reads
+  /// instance state.
+  Map<String, dynamic> _availableSlotsEnvelope() {
+    final DateTime day = serverNow;
     DateTime at(int hour, int minute) =>
         DateTime(day.year, day.month, day.day, hour, minute);
     Map<String, dynamic> slot(DateTime start, DateTime end) =>
@@ -1364,7 +1374,19 @@ final class FakeBackend {
   /// the request carried a [serviceId] (the availability-aware mode the Phase
   /// 14.20 fix depends on).
   Map<String, dynamic> _workingDaysEnvelope({String? serviceId}) {
-    final DateTime now = DateTime.now();
+    // ANCHORED TO [serverNow] (which defaults to [kFixedNow]), NOT the device
+    // clock. The window this builds decides which calendar cells the app
+    // renders as TAPPABLE, and the app's calendar is drawn from the INJECTED
+    // clock — so a host-anchored window is only correct while the two clocks
+    // happen to sit within five months of each other. That was a live time
+    // bomb: with `kFixedNow` at 2026-06-14, a suite run any time after
+    // ~2026-11-30 would have produced a window that no longer covers the
+    // month the calendar is showing, marking EVERY visible day non-working,
+    // stripping every cell's `GestureDetector`, and silently re-creating the
+    // exact no-op-tap failure the 2026-08-04 fix removed — with no code
+    // change to blame it on. Anchoring to the same clock the app is on makes
+    // the coverage a property of the fixture rather than of the run date.
+    final DateTime now = serverNow;
     final DateTime from = DateTime(now.year, now.month - 5, 1);
     final DateTime to = DateTime(now.year, now.month + 6, 0);
     final DateTime? nonWorking = forceNonWorkingDate;

@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/master/presentation/public_master_profi
 import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/service_category_cards.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/services_stat_tile.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -1750,11 +1751,39 @@ void main() {
         );
         expect(find.byType(ServiceCategoryCard), findsNothing);
 
-        // The services stat tile still shows 0, not a hidden/blank value.
+        // The services stat tile still renders, showing the em-dash empty
+        // state (not a bare '0', not a hidden/blank value) — matching the
+        // sibling rating/reviews tiles on the same row.
         final Text servicesValue = tester.widget<Text>(
           find.byKey(const Key('public-master-profile-services-value')),
         );
-        expect(servicesValue.data, '0');
+        expect(servicesValue.data, '—');
+
+        // CONSOLIDATION GUARD — this value must come from the SHARED
+        // [ServicesStatTile], the twin of the assertion in
+        // master_profile_screen_test.dart ('F.'). The two profiles used to
+        // hand-roll this tile independently; that is exactly how their empty
+        // states drifted apart in the first place. Pinning the widget TYPE at
+        // both call sites turns a re-divergence — someone inlining a bare
+        // StatTile again to tweak one screen — into a failing test rather
+        // than two silently different empty states.
+        final Finder tile = find.byType(ServicesStatTile);
+        expect(
+          tile,
+          findsOneWidget,
+          reason:
+              'the public profile must build the shared tile so the empty/'
+              'error rule stays single-sourced with the own profile',
+        );
+        expect(
+          find.descendant(
+            of: tile,
+            matching: find.byKey(
+              const Key('public-master-profile-services-value'),
+            ),
+          ),
+          findsOneWidget,
+        );
       },
     );
 
