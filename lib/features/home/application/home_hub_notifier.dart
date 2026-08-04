@@ -30,6 +30,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../../../features/auth/domain/user.dart';
@@ -64,6 +65,13 @@ part 'home_hub_notifier.g.dart';
 /// AsyncError.
 @riverpod
 Future<ClientProfileSummary> clientProfile(Ref ref) async {
+  // Read the injected clock seam BEFORE the first `await`: `ref.watch` after a
+  // suspension point is not safe in an async provider body (the provider may
+  // have been rebuilt or disposed in the meantime). The value captured here is
+  // the `DateTime Function()` ITSELF, not an instant — it is invoked below, so
+  // "now" is still read at use time rather than frozen at build entry.
+  final DateTime Function() clock = ref.watch(clockProvider);
+
   final user = await ref.watch(clientEditProfileProvider.future);
   return ClientProfileSummary(
     firstName: user.firstName ?? '',
@@ -76,12 +84,18 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
     // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
     clientRating: null,
     // Placeholder fallback until the backend exposes a real account-creation
-    // date (TODO above's sibling); a year-level display value, not a
-    // calendar-day derivation — Kyiv-anchoring would not change which year it
-    // reads. Deliberately left as-is rather than "fixed" (ARCHITECTURE-mobile
-    // .md § 0.9).
-    // instant-ok: year-level value fallback, not a calendar-day derivation
-    memberSinceYear: DateTime.now().year,
+    // date (TODO above's sibling).
+    //
+    // This is a CALENDAR-FIELD read, so it goes through the Kyiv seam like
+    // every other one (ARCHITECTURE-mobile.md § 0.9): the device supplies the
+    // INSTANT, Europe/Kyiv decides which DAY — and therefore which YEAR — that
+    // instant falls in. The divergence window is only year-granular (roughly
+    // the last two-to-three Kyiv hours of 31 December, when a device behind
+    // Kyiv is still in the previous year), but it is a real instance of the
+    // class, and `DateTime.now().year` here was the exact shape the guards ban
+    // elsewhere. `kyivToday` returns a DATE TOKEN — reading `.year` off it is
+    // legal; treating it as an instant is not (see `shared/time/kyiv_day.dart`).
+    memberSinceYear: kyivToday(clock).year,
   );
 }
 
