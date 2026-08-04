@@ -23,7 +23,7 @@
 # `lib/core/time/clock_provider.dart`'s own doc comment taught the bad pattern
 # as the canonical override example — fixed alongside this gate.
 #
-# THIS SCRIPT NOW ENFORCES THREE RULES
+# THIS SCRIPT NOW ENFORCES FOUR RULES
 # -------------------------------------
 # RULE 1 (original, below) is scoped to "zone-critical" files — ones whose
 # raw text already touches the Kyiv-anchored clock seam by name. RULE 2 (added
@@ -357,6 +357,87 @@
 # both picked a calendar day from `DateTime.now()` while the app ran on
 # `kFixedNow`; fixed by routing both through `kyivToday(() => kFixedNow)`.
 #
+# RULE 4 (added 2026-08-04 — the `test/` residue Rule 3 deliberately left,
+# closed as a COHERENCE gate rather than a declaration one)
+# ------------------------------------------------------------------------
+# WHAT WAS MEASURED FIRST. Rule 3's own header (see "SCAN ROOT" above) named
+# the gap plainly: "a `test/` widget test that overrides `clockProvider` and
+# then reads `DateTime.now()` to build a fixture has the same defect and is
+# NOT caught by any gate today". Before writing this rule, that residue was
+# measured rather than assumed: 60 live `DateTime.now` references across 31
+# files under `test/`, of which the number matching the actual bug shape —
+# a host-clock fixture read inside a test that ALSO pins `clockProvider` —
+# was ZERO. Only 5 files under `test/` reference `clockProvider` at all, and
+# every one already keeps the two sides consistent.
+#
+# WHY THIS IS **NOT** A COPY OF RULE 3. Rule 3 can be a blanket declaration
+# gate because the E2E tier pins ONE clock tier-wide (`e2e_boot_policy.dart`),
+# so every host read there is wrong by construction. `test/` has no tier-wide
+# policy: each test chooses. There are TWO internally-consistent choices, and
+# the overwhelming majority of this tier uses the second:
+#   (1) BOTH PINNED — override `clockProvider` and derive the fixture from
+#       the same instant.
+#   (2) BOTH LIVE — override nothing, and derive the fixture with
+#       `kyivToday(DateTime.now)` so it lands on the same Kyiv day the widget
+#       derives from the same real clock.
+# 53 of the 60 reads are choice (2) and are CORRECT PRECISELY BECAUSE they
+# read the host clock; the remaining 7 are genuine elapsed-time or epoch
+# uses (bracketing a call, JWT `exp` arithmetic, the clock provider's own
+# "the default really does advance" test). A Rule-3-style blanket gate here
+# would therefore have fired on 60 sites of which 0 were bugs — a 100%
+# false-positive rate, whose only realistic outcome is authors rubber-
+# stamping `// instant-ok:` onto correct code until the marker means nothing.
+# That is worse than no gate. Equally, mechanically re-anchoring those 53
+# reads onto a single fixed test-tier constant (the `test/` analogue of
+# `kFixedNow`) would BREAK them: a fixture pinned to a constant while the
+# widget under test still reads the real clock reintroduces exactly the same
+# disagreement, in mirror image.
+#
+# THE RULE. Under the `test/` scan root ONLY (`$mix_scan_dir`), flag a live
+# `DateTime.now` reference that sits inside a SINGLE `test(` / `testWidgets(`
+# body which ALSO pins the clock. The invariant being enforced is coherence,
+# not abstinence: a test's fixture clock and the app-under-test's clock must
+# be the SAME clock. Mixing the two choices above is the bug, and is all this
+# rule fires on.
+#
+# Detection, precisely:
+#   1. SCOPE. Bracket depth is tracked across the whole file; a `test(` or
+#      `testWidgets(` token (word-bounded, and not preceded by `.` — so
+#      `foo.test(` never opens a scope) pushes a scope that closes when depth
+#      returns to where it started. Scoping to the individual test body is
+#      load-bearing, NOT incidental: `slot_picker_test.dart` pins the clock in
+#      one group and reads the host clock in twelve tests outside it, so a
+#      file-scoped version of this rule would produce 12 false positives in
+#      that one file alone.
+#   2. PIN, shape (a) — `clockProvider.override` (any variant) inside the body.
+#   3. PIN, shape (b) — a `clock:` or `now:` named argument whose value is not
+#      `null`. This is the shape EVERY real pin in this tree uses: the
+#      override lives inside a pump helper taking `{DateTime? clock}`, so the
+#      only evidence at the test body is the argument passed in. `null` is
+#      excluded because passing null is precisely how those helpers say
+#      "leave the real clock alone".
+#   4. READ — the literal `DateTime.now`, word-bounded (excludes
+#      `tz.TZDateTime.now`), live code only (string-stripped, comment-aware).
+#   5. NOT ANNOTATED — `// instant-ok: <reason>`, same marker and same
+#      same-line-or-directly-above placement as Rule 3. Reused deliberately:
+#      the question is the same one ("why is reading the DEVICE clock correct
+#      here"), and a genuine elapsed-time measurement inside a pinned test is
+#      a real, if rare, answer.
+# When flagged, the PIN SITE is printed alongside the read — the fix needs
+# both halves in view, and which one is wrong is the author's call.
+#
+# HONEST LIMITS — STATED, NOT PAPERED OVER
+#   - A pin installed in a `setUp` / `group` body rather than in the test body
+#     is not seen (scopes are per-test). No file under `test/` does this
+#     today — that was checked, not assumed — but it is a real blind spot if
+#     the convention changes.
+#   - A pin reached through a helper that takes the instant under some OTHER
+#     parameter name than `clock:` / `now:` is not recognised.
+#   - Bucket (2) above — the un-pinned majority — is deliberately NOT policed.
+#     Those tests still depend on the host clock, and `kyivToday(DateTime.now)`
+#     rather than a bare `DateTime.now()` is what keeps them honest across
+#     zones; that convention is not machine-enforced by this rule.
+#
 # NO LEGACY BASELINE — AND NONE SHOULD EVER BE ADDED
 # ---------------------------------------------------
 # Unlike `forbid_stale_future_date_fixture.sh`'s `.stale_future_date_allow`
@@ -414,6 +495,12 @@ now_annotation='[/][/][[:space:]]*instant-ok:'
 # RULE 3's scan root — a single entry of ${scan_dirs[@]}, not all of them.
 # See header "SCAN ROOT — `integration_test/` ONLY, AND WHY".
 now_scan_dir='integration_test'
+
+# RULE 4's scan root — `test/`, the tier Rule 3 deliberately does NOT cover.
+# Rule 4 reuses Rule 3's `instant-ok:` marker (`$now_annotation`): it asks the
+# same question ("why is reading the DEVICE clock correct here"), just in a
+# tier where the answer is only wrong when the test ALSO pinned the clock.
+mix_scan_dir='test'
 
 # ---------------------------------------------------------------------------
 # scan_file <path> <do_rule1: 0|1> <do_rule3: 0|1>
@@ -822,6 +909,132 @@ scan_file() {
 }
 
 # ---------------------------------------------------------------------------
+# scan_file_rule4 <path>
+#   Emits "R4:<path>:<line>:<text>" for each un-annotated, live-code
+#   `DateTime.now` reference that sits INSIDE a single `test(` / `testWidgets(`
+#   body which ALSO pins the clock. See header "RULE 4" for the full spec.
+#   A separate awk program from scan_file on purpose: Rule 4 is the only rule
+#   here that needs whole-file BRACKET-DEPTH state (to know where one test
+#   body ends and the next begins), and threading that through scan_file's
+#   per-line matching would destabilise three rules that currently work.
+# ---------------------------------------------------------------------------
+scan_file_rule4() {
+  awk -v file="$1" -v now_ann="$now_annotation" '
+    function strip_strings(s,   out, c, i, q, esc) {
+      out = ""; q = ""; esc = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") {
+          if (esc) { esc = 0; continue }
+          if (c == "\\") { esc = 1; continue }
+          if (c == q) { q = "" }
+          continue
+        }
+        if (c == "\"" || c == "'"'"'") { q = c; continue }
+        out = out c
+      }
+      return out
+    }
+    function comment_start(s,   i, c, q, esc) {
+      q = ""; esc = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") {
+          if (esc) { esc = 0; continue }
+          if (c == "\\") { esc = 1; continue }
+          if (c == q) { q = "" }
+          continue
+        }
+        if (c == "\"" || c == "'"'"'") { q = c; continue }
+        if (c == "/" && substr(s, i + 1, 1) == "/") { return i }
+      }
+      return 0
+    }
+    # A token boundary before position i: not a word character and not "."
+    # (so `foo.test(` / `_test(` never open a scope, and
+    # `tz.TZDateTime.now` never counts as a host-clock read).
+    function boundary(s, i,   p) {
+      if (i <= 1) { return 1 }
+      p = substr(s, i - 1, 1)
+      if (p ~ /[A-Za-z0-9_.]/) { return 0 }
+      return 1
+    }
+    {
+      raw = $0
+      firsttok = raw
+      sub(/^[[:space:]]+/, "", firsttok)
+      code = strip_strings(raw)
+      cs = comment_start(code)
+      if (cs > 0) { code = substr(code, 1, cs - 1) }
+      if (firsttok ~ /^[/][/]/) { code = "" }
+
+      # instant-ok on this line or the line directly above suppresses a read
+      # found on THIS line (same placement rule as Rules 1-3).
+      annotated = (raw ~ now_ann || prev ~ now_ann)
+
+      n = length(code)
+      for (i = 1; i <= n; i++) {
+        c = substr(code, i, 1)
+
+        # ---- scope openers: test( / testWidgets( ----
+        if ((substr(code, i, 12) == "testWidgets(" || substr(code, i, 5) == "test(") && boundary(code, i)) {
+          sp++
+          st_depth[sp] = depth; st_pin[sp] = 0; st_nown[sp] = 0
+        }
+
+        # ---- pin (a): an explicit clockProvider override ----
+        if (substr(code, i, 22) == "clockProvider.override" && boundary(code, i)) {
+          if (sp > 0 && st_pin[sp] == 0) {
+            st_pin[sp] = 1; st_pinline[sp] = NR; st_pintext[sp] = raw
+          }
+        }
+
+        # ---- pin (b): a clock:/now: named argument with a NON-null value ----
+        # This is the shape every real pin in this tree actually uses: a pump
+        # helper takes `{DateTime? clock}` / `{DateTime Function()? now}` and
+        # installs the override itself, so the only evidence at the TEST body
+        # is the argument passed in. `null` is excluded — passing null is
+        # exactly how these helpers say "leave the real clock alone".
+        if ((substr(code, i, 6) == "clock:" || substr(code, i, 4) == "now:") && boundary(code, i)) {
+          rest = (substr(code, i, 6) == "clock:") ? substr(code, i + 6) : substr(code, i + 4)
+          sub(/^[[:space:]]*/, "", rest)
+          if (rest !~ /^null([^A-Za-z0-9_]|$)/) {
+            if (sp > 0 && st_pin[sp] == 0) {
+              st_pin[sp] = 1; st_pinline[sp] = NR; st_pintext[sp] = raw
+            }
+          }
+        }
+
+        # ---- the host-clock read ----
+        if (substr(code, i, 12) == "DateTime.now" && boundary(code, i)) {
+          if (sp > 0 && !annotated) {
+            k = ++st_nown[sp]
+            st_nowline[sp, k] = NR; st_nowtext[sp, k] = raw
+          }
+        }
+
+        # ---- depth tracking / scope close ----
+        if (c == "(" || c == "[" || c == "{") {
+          depth++
+        } else if (c == ")" || c == "]" || c == "}") {
+          depth--
+          while (sp > 0 && depth <= st_depth[sp]) {
+            if (st_pin[sp] && st_nown[sp] > 0) {
+              for (k = 1; k <= st_nown[sp]; k++) {
+                printf "R4:%s:%d:%s\n", file, st_nowline[sp, k], st_nowtext[sp, k]
+              }
+              printf "R4:%s:%d:%s    [this test PINS the clock here — the read(s) above disagree with it]\n", file, st_pinline[sp], st_pintext[sp]
+            }
+            sp--
+          }
+        }
+      }
+      prev = raw
+    }
+  ' "$1"
+}
+
+# ---------------------------------------------------------------------------
 # run_scan <tree_root>
 #   Emits "R1:..." / "R2:..." offenders across every *.dart file under each
 #   of ${scan_dirs[@]}, resolved relative to <tree_root>. RULE 1 is restricted
@@ -851,6 +1064,9 @@ run_scan() {
         do_rule1=1
       fi
       scan_file "$f" "$do_rule1" "$do_rule3"
+      if [ "$d" = "$mix_scan_dir" ]; then
+        scan_file_rule4 "$f"
+      fi
     done < <(find "$tree_root/$d" -type f -name '*.dart' -print0 2>/dev/null | sort -z)
   done
 }
@@ -1187,9 +1403,89 @@ final DateTime a = DateTime.now();
 DateTime Function() b = DateTime.now;
 EOF
 
+  # RULE 4 probe — clock-coherence in the widget/unit tier. Lives under
+  # `test/` because that is RULE 4's ONLY scan root. Unlike Rule 3, this is
+  # NOT a blanket declaration gate: the negative rows below (especially
+  # r4-3) are the whole point, because an un-pinned host read is the
+  # DOMINANT and CORRECT pattern in this tier and flagging it would make the
+  # gate pure noise.
+  mix_probe="test/features/booking/presentation/clock_mix_probe_test.dart"
+  mkdir -p "$tmp/$(dirname "$mix_probe")"
+  cat > "$tmp/$mix_probe" <<'EOF'
+// Probe for RULE 4 (clock-coherence, widget/unit tier) — exercised row by
+// row. This file deliberately names clockProvider, which makes Stage 1
+// classify it zone-critical and therefore ENABLES Rule 1 here; every
+// instant below is written .utc so Rule 1 stays silent, and every clock:
+// site resolves to a .utc declaration so Rule 2 does too. Rule 3 does not
+// scan test/ at all.
+
+final DateTime pinned = DateTime.utc(2026, 6, 14, 12);
+
+// (r4-1) override pin + host read in the SAME test — read and pin MUST both
+// be flagged.
+testWidgets('override pin, host read', (tester) async {
+  final DateTime today = kyivToday(DateTime.now);
+  await pumpIt(overrides: [clockProvider.overrideWithValue(() => pinned)]);
+});
+
+// (r4-2) helper-argument pin + host read — both MUST be flagged. This is the
+// shape every real pin in this tree actually uses.
+testWidgets('helper-arg pin, host read', (tester) async {
+  await pumpIt(tester, clock: () => pinned);
+  final DateTime day = DateTime.now();
+});
+
+// (r4-3) NO pin + host read — MUST stay clean. This is the dominant and
+// CORRECT pattern in this tier: the widget reads the real clock too, so the
+// fixture and the app agree. Flagging this would make Rule 4 a gate whose
+// every hit on the real tree is a false positive.
+testWidgets('no pin, host read', (tester) async {
+  final DateTime today = kyivToday(DateTime.now);
+  await pumpIt(tester);
+});
+
+// (r4-4) pin + an ANNOTATED host read — MUST stay clean.
+testWidgets('pinned, annotated elapsed-time read', (tester) async {
+  await pumpIt(tester, clock: () => pinned);
+  // instant-ok: elapsed-wall-time measurement, unaffected by the pin
+  final DateTime t0 = DateTime.now();
+});
+
+// (r4-5) clock: null is NOT a pin (it is how these helpers say "leave the
+// real clock alone") — MUST stay clean.
+testWidgets('explicit null clock, host read', (tester) async {
+  await pumpIt(tester, clock: null);
+  final DateTime today = kyivToday(DateTime.now);
+});
+
+// (r4-6) pin with no host read at all — MUST stay clean.
+testWidgets('pinned, no host read', (tester) async {
+  await pumpIt(tester, clock: () => pinned);
+  expect(find.byType(Widget), findsOneWidget);
+});
+
+// (r4-7) a longer identifier merely ENDING in DateTime.now, inside a PINNED
+// test — MUST stay clean (boundary check).
+testWidgets('pinned, TZDateTime.now', (tester) async {
+  await pumpIt(tester, clock: () => pinned);
+  final DateTime z = tz.TZDateTime.now(loc);
+});
+
+// (r4-8) a host read at FILE scope, outside any test body — MUST stay clean.
+// Rule 4 is scoped to a single test body; a file-scope read cannot be
+// correlated with any one test's pin.
+final DateTime fileScope = DateTime.now();
+EOF
+  # r4-1's read (13) and pin (14); r4-2's pin (20) and read (21).
+  mix_offender_lines=(13 14 20 21)
+  # Reads that must NOT be flagged: unpinned (28), annotated under a pin (36),
+  # under an explicit clock: null (42), a longer identifier (55), file scope
+  # (60).
+  mix_clean_lines=(28 36 42 55 60)
+
   out="$(run_scan "$tmp")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
-  expected=$(( ${#probe_paths[@]} * offenders_per_probe + ${#clock_probe_paths[@]} * clock_offenders_per_probe + identifier_offenders_total + ${#now_offender_lines[@]} ))
+  expected=$(( ${#probe_paths[@]} * offenders_per_probe + ${#clock_probe_paths[@]} * clock_offenders_per_probe + identifier_offenders_total + ${#now_offender_lines[@]} + ${#mix_offender_lines[@]} ))
   if [ "$flagged" -ne "$expected" ]; then
     echo "SELF-TEST FAIL: expected exactly $expected offenders"
     echo "                ($offenders_per_probe Rule-1 hits × ${#probe_paths[@]}"
@@ -1329,6 +1625,40 @@ EOF
     exit 1
   fi
 
+  # ---- RULE 4 assertions -----------------------------------------------
+  for ln in "${mix_offender_lines[@]}"; do
+    if ! printf '%s\n' "$out" | grep -q "^R4:$tmp/$mix_probe:$ln:"; then
+      echo "SELF-TEST FAIL: expected a Rule-4 offender at $mix_probe:$ln,"
+      echo "                none found. Is '$mix_scan_dir' still walked with"
+      echo "                scan_file_rule4 by run_scan? Lines 13/14 pin the"
+      echo "                clockProvider-override shape, 20/21 the"
+      echo "                helper-argument shape (which is the one every"
+      echo "                real pin in this tree actually uses)."
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  for ln in "${mix_clean_lines[@]}"; do
+    if printf '%s\n' "$out" | grep -q "^R4:$tmp/$mix_probe:$ln:"; then
+      echo "SELF-TEST FAIL: line $ln of $mix_probe should NOT be flagged by"
+      echo "                Rule 4 (unpinned host read / instant-ok annotated /"
+      echo "                clock: null is not a pin / longer identifier /"
+      echo "                file-scope read), but was. Line 28 in particular is"
+      echo "                the DOMINANT correct pattern in this tier — a Rule 4"
+      echo "                that flags it is pure noise, not a gate:"
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  if printf '%s\n' "$out" | grep -qE "^R[123]:$tmp/$mix_probe:"; then
+    echo "SELF-TEST FAIL: $mix_probe was flagged by Rule 1, 2 or 3 — it"
+    echo "                contains only .utc instants, clock: sites resolving"
+    echo "                to a .utc declaration, and sits under test/ (which"
+    echo "                Rule 3 does not scan):"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+
   echo "SELF-TEST PASS: RULE 1 — qualified constructors (DateTime.utc,"
   echo "                TZDateTime), derived first args, comments (whole-line"
   echo "                and trailing), string-literal contents, and both"
@@ -1377,6 +1707,17 @@ EOF
   echo "                (different question, different marker); and the same"
   echo "                shape under test/ contributes nothing, pinning that"
   echo "                Rule 3's scan root really is $now_scan_dir/ only."
+  echo "                RULE 4 — a host-clock read inside a SINGLE test body"
+  echo "                that also pins the clock is flagged together with the"
+  echo "                pin site, for BOTH pin shapes (a clockProvider"
+  echo "                override, and a non-null clock:/now: argument to a"
+  echo "                pump helper — the shape every real pin in this tree"
+  echo "                uses); while an UNPINNED host read (the dominant and"
+  echo "                correct pattern in this tier, and the row that keeps"
+  echo "                this gate from being pure noise), an instant-ok"
+  echo "                annotated read under a pin, an explicit clock: null,"
+  echo "                a longer identifier ending in DateTime.now, and a"
+  echo "                file-scope read outside any test body all stay clean."
   exit 0
 fi
 
@@ -1387,6 +1728,7 @@ offenders="$(run_scan "$root")"
 rule1_offenders="$(printf '%s\n' "$offenders" | grep '^R1:' | sed 's/^R1://' || true)"
 rule2_offenders="$(printf '%s\n' "$offenders" | grep '^R2:' | sed 's/^R2://' || true)"
 rule3_offenders="$(printf '%s\n' "$offenders" | grep '^R3:' | sed 's/^R3://' || true)"
+rule4_offenders="$(printf '%s\n' "$offenders" | grep '^R4:' | sed 's/^R4://' || true)"
 
 failed=0
 
@@ -1491,6 +1833,39 @@ if [ -n "$rule3_offenders" ]; then
   echo "    // instant-ok: <why reading the DEVICE clock is correct here>"
   echo "Note that // host-tz-ok: does NOT suppress this rule — that marker"
   echo "answers a different question (see this script's header)."
+  echo
+  echo "There is no allow-list for this gate and none should be added."
+  echo
+fi
+
+if [ -n "$rule4_offenders" ]; then
+  failed=1
+  echo "Host-clock read inside a test that PINS the clock, under $mix_scan_dir/"
+  echo "(RULE 4 — clock-coherence; an entry tagged \"[this test PINS ...]\" is"
+  echo "the override site, not a second independent read):"
+  echo "$rule4_offenders"
+  echo
+  echo "This single test body both pins the app's clock (clockProvider override,"
+  echo "or a non-null clock:/now: argument to a pump helper that installs one)"
+  echo "AND reads the HOST clock to build a fixture. Those are two DIFFERENT"
+  echo "clocks: the widget derives 'today' from the pinned instant while the"
+  echo "fixture describes whatever day the machine running the suite is on, so"
+  echo "the test asserts against a day the app never renders. On the dev VM"
+  echo "(TZ=Europe/Kyiv, the business zone) this is invisible whenever the two"
+  echo "happen to coincide, which is exactly why it has recurred four times."
+  echo
+  echo "Derive the fixture from the SAME instant the test pins:"
+  echo "    final DateTime pinned = DateTime.utc(2026, 6, 14, 12);"
+  echo "    ... clockProvider.overrideWithValue(() => pinned) ..."
+  echo "    final DateTime today = kyivToday(() => pinned);   // fixture agrees"
+  echo
+  echo "The other consistent option is to pin NOTHING and let both sides read"
+  echo "the real clock — which is what most of this tier already does, via"
+  echo "kyivToday(DateTime.now). Either is fine; MIXING them is the bug."
+  echo
+  echo "If this read is a genuine elapsed-wall-time use (a timeout, a duration"
+  echo "measurement) that the pinned clock is irrelevant to, annotate it:"
+  echo "    // instant-ok: <why the DEVICE clock is correct despite the pin>"
   echo
   echo "There is no allow-list for this gate and none should be added."
   echo
