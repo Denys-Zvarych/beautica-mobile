@@ -522,10 +522,15 @@ void main() {
       'a FUTURE day (not today) the service-scoped query marks working:false is '
       'disabled and untappable, while a sibling working:true future day is not',
       (tester) async {
-        final DateTime now = DateTime.now();
+        // Kyiv "today", not the DEVICE's today: `SlotDateScreen` derives its
+        // own `_today` via `kyivToday(ref.read(clockProvider))`, so a month
+        // computed off a bare `DateTime.now().month` would be the HOST's
+        // month and can disagree with the screen's near a month boundary in
+        // any non-Kyiv zone.
+        final DateTime today = kyivToday(DateTime.now);
         // The 15th of NEXT month is unconditionally in the future regardless
         // of when this test runs; the 16th is its always-working sibling.
-        final DateTime nextMonth = DateTime(now.year, now.month + 1, 1);
+        final DateTime nextMonth = DateTime(today.year, today.month + 1, 1);
         final DateTime disabledDay = DateTime(
           nextMonth.year,
           nextMonth.month,
@@ -610,8 +615,11 @@ void main() {
       // >=29-day month, guaranteeing both a real day-29 cell AND that
       // it's strictly in the future (so the default "not in the past"
       // availability check never disqualifies it).
-      final DateTime now = DateTime.now();
-      DateTime target = DateTime(now.year, now.month + 1, 1);
+      // Kyiv "today", not the DEVICE's today — see the note on the
+      // working:false future-day case above; the screen's own `_today` is
+      // Kyiv-anchored, so this walk must start from the same calendar.
+      final DateTime today = kyivToday(DateTime.now);
+      DateTime target = DateTime(today.year, today.month + 1, 1);
       int monthsAhead = 1;
       while (DateTime(target.year, target.month + 1, 0).day < 29) {
         target = DateTime(target.year, target.month + 1, 1);

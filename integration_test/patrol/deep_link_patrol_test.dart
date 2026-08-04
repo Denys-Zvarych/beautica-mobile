@@ -53,93 +53,110 @@ const String _kInviteAcceptDeepLink =
     '/invite/accept?token=patrol-e2e-smoke-token';
 
 void main() {
-  patrolTest(
-    'deep link to invite-accept route opens the accept-invite screen',
-    ($) async {
-      // ── SHARED BOOT POLICY ────────────────────────────────────────────────
-      //
-      // This flow does NOT use PatrolHarness (it drives the real app, not the
-      // fake-backend tree), so before 2026-07-31 it was the one patrol entry
-      // point that bypassed even the patrol harness's own mirrored setup —
-      // booting with the overflow guard off, the off-screen-tap guard off, the
-      // text-input mock unregistered, no timezone database, and an unprimed
-      // splash gate.
-      //
-      // "Uses a different tree" is not a reason to boot under different rules.
-      // Applying the shared policy here costs nothing this flow needs (it types
-      // no text, so the mock is inert; it asserts a screen-container key, which
-      // the splash priming only reaches sooner) and closes the last unguarded
-      // boot path. `addTearDown` undoes the splash-gate priming — this file has
-      // no PatrolHarness.tearDownHarness to do it.
-      applyE2eBootPolicy($.tester);
-      addTearDown(resetE2eBootPolicy);
+  patrolTest('deep link to invite-accept route opens the accept-invite screen', (
+    $,
+  ) async {
+    // ── SHARED BOOT POLICY ────────────────────────────────────────────────
+    //
+    // This flow does NOT use PatrolHarness (it drives the real app, not the
+    // fake-backend tree), so before 2026-07-31 it was the one patrol entry
+    // point that bypassed even the patrol harness's own mirrored setup —
+    // booting with the overflow guard off, the off-screen-tap guard off, the
+    // text-input mock unregistered, no timezone database, and an unprimed
+    // splash gate.
+    //
+    // "Uses a different tree" is not a reason to boot under different rules.
+    // Applying the shared policy here costs nothing this flow needs (it types
+    // no text, so the mock is inert; it asserts a screen-container key, which
+    // the splash priming only reaches sooner) and closes the last unguarded
+    // boot path. `addTearDown` undoes the splash-gate priming — this file has
+    // no PatrolHarness.tearDownHarness to do it.
+    applyE2eBootPolicy($.tester);
+    addTearDown(resetE2eBootPolicy);
 
-      // Launch the REAL app tree. Under patrol native instrumentation the
-      // platform channels main() touches (FlutterNativeSplash, SystemChrome,
-      // cert-pinning) ARE available, but we pump BeauticaApp directly to keep
-      // the test focused on routing and skip main()'s one-shot startup work.
-      await $.pumpWidgetAndSettle(
-        const ProviderScope(retry: beauticaProviderRetry, child: BeauticaApp()),
-      );
+    // Launch the REAL app tree. Under patrol native instrumentation the
+    // platform channels main() touches (FlutterNativeSplash, SystemChrome,
+    // cert-pinning) ARE available, but we pump BeauticaApp directly to keep
+    // the test focused on routing and skip main()'s one-shot startup work.
+    //
+    // NO PROVIDER OVERRIDES — AND THAT INCLUDES THE CLOCK (mobile-qa audit,
+    // 2026-08-04). `applyE2eBootPolicy` above installs the shared GUARDS; it
+    // installs no overrides. Passing none here is deliberate — this flow
+    // exists to prove an OS-level App Link reaches the REAL app — but it
+    // makes this the ONE E2E entry point, in either tier, whose
+    // `clockProvider` is the live device clock rather than
+    // `fake_backend.dart`'s `kFixedNow`.
+    //
+    // Nothing catches that automatically: `forbid_host_local_instant_anchor.sh`
+    // RULE 3 flags a `DateTime.now` read in the test SOURCE, and RULE 4 a
+    // pin/fixture mismatch inside a single test body — neither can see an app
+    // running live while the tier's shared fixtures are pinned. There is no
+    // defect today (this file has zero `DateTime` references and asserts only
+    // on route/screen keys), but if a date-shaped assertion is ever added
+    // here it must be derived from the REAL clock, or this flow must start
+    // passing `e2eProviderOverrides(...)` like every other entry point. Do
+    // not copy a `kFixedNow`-anchored fixture in from a sibling E2E file.
+    await $.pumpWidgetAndSettle(
+      const ProviderScope(retry: beauticaProviderRetry, child: BeauticaApp()),
+    );
 
-      // Cold start with no stored token settles to /login (the unauthenticated
-      // home). Sanity-check we are NOT already on accept-invite so the
-      // assertion after openUrl proves the deep link did the navigation.
-      expect(
-        find.byKey(const ValueKey<String>('accept_invite_screen')),
-        findsNothing,
-        reason: 'Precondition: accept-invite screen must not be shown yet',
-      );
+    // Cold start with no stored token settles to /login (the unauthenticated
+    // home). Sanity-check we are NOT already on accept-invite so the
+    // assertion after openUrl proves the deep link did the navigation.
+    expect(
+      find.byKey(const ValueKey<String>('accept_invite_screen')),
+      findsNothing,
+      reason: 'Precondition: accept-invite screen must not be shown yet',
+    );
 
-      // Fire the OS-level App Link intent. Android routes it to MainActivity
-      // (singleTop) → Flutter deep-link handler → go_router /invite/accept.
-      // `$.platform.mobile.openUrl` is the non-deprecated successor to the old
-      // `$.native.openUrl` (NativeAutomator is being phased out in patrol 4.x).
-      await $.platform.mobile.openUrl(_kInviteAcceptDeepLink);
+    // Fire the OS-level App Link intent. Android routes it to MainActivity
+    // (singleTop) → Flutter deep-link handler → go_router /invite/accept.
+    // `$.platform.mobile.openUrl` is the non-deprecated successor to the old
+    // `$.native.openUrl` (NativeAutomator is being phased out in patrol 4.x).
+    await $.platform.mobile.openUrl(_kInviteAcceptDeepLink);
 
-      // POLL — do NOT use pumpAndSettle here. `openUrl` returns as soon as the
-      // intent is FIRED; Android then has to deliver it to MainActivity, hand
-      // it to the Flutter engine, and let go_router rebuild. pumpAndSettle
-      // settles the CURRENT tree, which is already idle, so it returns almost
-      // immediately and the assertion runs before the link has landed. That is
-      // exactly how this test failed on 2026-07-22: `openUrl` reported ✅ and
-      // the whole test was over in 2s with the screen key not found.
-      //
-      // pumpUntilFound polls in 100ms steps and returns the instant the widget
-      // appears, so a healthy run costs only the real round-trip.
-      //
-      // KNOW THIS FAILURE MODE: if App Link approval is lost, the URL opens in
-      // a BROWSER instead of the app. The app is then backgrounded, the Flutter
-      // engine stops producing frames, and `pump()` BLOCKS FOREVER waiting for
-      // one — so this does not fail after the timeout below, it HANGS. The
-      // timeout is only checked between pumps, and control never returns from
-      // the pump. Observed 2026-07-22 when the workflow's re-approval loop had
-      // been slowed from 1s to 5s: the loop lost the race against patrol's
-      // reinstall, and the job sat until the 900s `timeout` in pr-validate.yml
-      // killed it. If this test ever hangs again, check that loop's cadence
-      // FIRST — it is load-bearing for this test specifically.
-      //
-      // We poll the SCREEN-CONTAINER key ('accept_invite_screen'), which the
-      // KeyedSubtree in AcceptInviteScreen.build() renders on the loading frame
-      // — NOT the 'invite_accept' form key, which only appears in the `data`
-      // state a fake token never reaches. The mount-key IS the whole gate; no
-      // secondary wait on the invalid-invite banner (that would reintroduce a
-      // network-completion dependency).
-      await $.tester.pumpUntilFound(
-        find.byKey(const ValueKey<String>('accept_invite_screen')),
-        timeout: const Duration(seconds: 30),
-      );
+    // POLL — do NOT use pumpAndSettle here. `openUrl` returns as soon as the
+    // intent is FIRED; Android then has to deliver it to MainActivity, hand
+    // it to the Flutter engine, and let go_router rebuild. pumpAndSettle
+    // settles the CURRENT tree, which is already idle, so it returns almost
+    // immediately and the assertion runs before the link has landed. That is
+    // exactly how this test failed on 2026-07-22: `openUrl` reported ✅ and
+    // the whole test was over in 2s with the screen key not found.
+    //
+    // pumpUntilFound polls in 100ms steps and returns the instant the widget
+    // appears, so a healthy run costs only the real round-trip.
+    //
+    // KNOW THIS FAILURE MODE: if App Link approval is lost, the URL opens in
+    // a BROWSER instead of the app. The app is then backgrounded, the Flutter
+    // engine stops producing frames, and `pump()` BLOCKS FOREVER waiting for
+    // one — so this does not fail after the timeout below, it HANGS. The
+    // timeout is only checked between pumps, and control never returns from
+    // the pump. Observed 2026-07-22 when the workflow's re-approval loop had
+    // been slowed from 1s to 5s: the loop lost the race against patrol's
+    // reinstall, and the job sat until the 900s `timeout` in pr-validate.yml
+    // killed it. If this test ever hangs again, check that loop's cadence
+    // FIRST — it is load-bearing for this test specifically.
+    //
+    // We poll the SCREEN-CONTAINER key ('accept_invite_screen'), which the
+    // KeyedSubtree in AcceptInviteScreen.build() renders on the loading frame
+    // — NOT the 'invite_accept' form key, which only appears in the `data`
+    // state a fake token never reaches. The mount-key IS the whole gate; no
+    // secondary wait on the invalid-invite banner (that would reintroduce a
+    // network-completion dependency).
+    await $.tester.pumpUntilFound(
+      find.byKey(const ValueKey<String>('accept_invite_screen')),
+      timeout: const Duration(seconds: 30),
+    );
 
-      // Destination assertion: the accept-invite screen container is now
-      // mounted. Keys are locale-invariant (no Ukrainian find.text), per the
-      // integration-test navigation policy.
-      expect(
-        find.byKey(const ValueKey<String>('accept_invite_screen')),
-        findsOneWidget,
-        reason: 'Deep link must land on the accept-invite screen',
-      );
-    },
-  );
+    // Destination assertion: the accept-invite screen container is now
+    // mounted. Keys are locale-invariant (no Ukrainian find.text), per the
+    // integration-test navigation policy.
+    expect(
+      find.byKey(const ValueKey<String>('accept_invite_screen')),
+      findsOneWidget,
+      reason: 'Deep link must land on the accept-invite screen',
+    );
+  });
 
   // ── FCM tap-through + notification-permission prompt (DEFERRED) ────────────
   //

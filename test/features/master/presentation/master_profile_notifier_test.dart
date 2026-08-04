@@ -307,6 +307,15 @@ void main() {
       await container.read(masterProfileProvider.notifier).refresh();
 
       final state = container.read(masterProfileProvider);
+      // Pin the RUNTIME TYPE, not just `hasError` — symmetric with the build()
+      // failure test above. `AsyncLoading(error: …, retrying: true)` also
+      // satisfies `hasError`/`error`, so those two assertions alone cannot
+      // distinguish the terminal error this test is named for from a state
+      // still parked in loading. No retry curve is reachable on the refresh()
+      // path today (`AsyncValue.guard` assigns `state` imperatively; Riverpod's
+      // retry governs failed *builds* only) — this assertion exists so that
+      // stays a fact the test enforces rather than one it assumes.
+      expect(state, isA<AsyncError<Master>>());
       expect(state.hasError, isTrue);
       expect(
         state.error,

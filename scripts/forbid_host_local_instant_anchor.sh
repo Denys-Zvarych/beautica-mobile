@@ -23,7 +23,7 @@
 # `lib/core/time/clock_provider.dart`'s own doc comment taught the bad pattern
 # as the canonical override example — fixed alongside this gate.
 #
-# THIS SCRIPT NOW ENFORCES FOUR RULES
+# THIS SCRIPT NOW ENFORCES SIX RULES
 # -------------------------------------
 # RULE 1 (original, below) is scoped to "zone-critical" files — ones whose
 # raw text already touches the Kyiv-anchored clock seam by name. RULE 2 (added
@@ -426,17 +426,222 @@
 # When flagged, the PIN SITE is printed alongside the read — the fix needs
 # both halves in view, and which one is wrong is the author's call.
 #
-# HONEST LIMITS — STATED, NOT PAPERED OVER
-#   - A pin installed in a `setUp` / `group` body rather than in the test body
-#     is not seen (scopes are per-test). No file under `test/` does this
-#     today — that was checked, not assumed — but it is a real blind spot if
-#     the convention changes.
-#   - A pin reached through a helper that takes the instant under some OTHER
-#     parameter name than `clock:` / `now:` is not recognised.
-#   - Bucket (2) above — the un-pinned majority — is deliberately NOT policed.
+# BOTH ORIGINAL BLIND SPOTS ARE NOW CLOSED (2026-08-04, second pass)
+#   - (a) A PIN AT `setUp` / `setUpAll` / `group` SCOPE, rather than inside the
+#     test body, is now seen. The scope stack pushes for `group(`, `setUp(` and
+#     `setUpAll(` as well as `test(` / `testWidgets(`; a pin found directly in a
+#     `group` body marks that group, a pin found in a `setUp` / `setUpAll` body
+#     marks the nearest ENCLOSING group (or, with no enclosing group, the whole
+#     file from that point on), and a test is treated as pinned when it or ANY
+#     scope enclosing it is. Adding this contributed ZERO new hits on the real
+#     tree — measured, not assumed: no file pins at that scope today, which is
+#     exactly why closing the hole is safe to do pre-emptively rather than after
+#     the next incident.
+#   - (b) A PIN REACHED THROUGH A HELPER PARAMETER NAMED SOMETHING OTHER THAN
+#     `clock:` / `now:` is now recognised, WITHOUT hardcoding a guessed list of
+#     names. A BEGIN pre-pass reads the file for
+#     `clockProvider.overrideWithValue(<x>)` (optionally through a `() =>`
+#     closure) and adds `<x>` to THIS FILE's set of pin-argument names, on top
+#     of the seeded `clock` / `now`. So a helper declared
+#     `_pump(..., {DateTime? fixedNow})` whose body does
+#     `if (fixedNow != null) clockProvider.overrideWithValue(fixedNow)` makes
+#     `fixedNow:` a recognised pin argument in that file automatically — the
+#     name is DERIVED from what the file actually overrides the provider with,
+#     not from a convention this gate hopes authors follow.
+#     `clockProvider.overrideWith((ref) { ... })` is deliberately NOT harvested:
+#     its argument is a closure PARAMETER (`ref`, `_`), and adding `ref` to the
+#     pin-name set would make any `ref:` named argument read as a clock pin.
+#
+# REMAINING HONEST LIMIT — STATED, NOT PAPERED OVER
+#   - Bucket (2) above — the un-pinned majority — is not policed BY THIS RULE.
 #     Those tests still depend on the host clock, and `kyivToday(DateTime.now)`
 #     rather than a bare `DateTime.now()` is what keeps them honest across
-#     zones; that convention is not machine-enforced by this rule.
+#     zones. That convention was un-enforced when Rule 4 shipped; RULE 5 (below)
+#     now holds it.
+#
+# RULE 5 (added 2026-08-04, second pass — the un-pinned MAJORITY, which
+# Rule 4 explicitly left un-gated)
+# ------------------------------------------------------------------------
+# WHAT RULE 4 LEFT OPEN, IN ITS OWN WORDS. Rule 4 fires only when a test PINS
+# the clock. The other 53 of the 60 `test/` host-clock reads pin nothing: they
+# are correct BECAUSE they read the host clock, since the widget under test
+# reads the same real clock. But "correct" there depends entirely on a
+# CONVENTION — wrapping the read in `kyivToday(...)` so the fixture lands on
+# the KYIV calendar day the widget derives, not the DEVICE's. Rule 4's own
+# limits section conceded that convention "is not machine-enforced". A test
+# writing a bare `DateTime.now().day`, `.month`, or assigning `DateTime.now()`
+# to a local and reading `.month` off it sits in exactly the trap Rules 1-4
+# exist for, and nothing caught it.
+#
+# WHY THIS IS EXPRESSIBLE NOW AND WAS NOT BEFORE. A prior pass normalised the
+# spellings: `kyivToday(DateTime.now)` is the ONLY form for "Kyiv today from
+# the host clock" under `test/` — `dateOnly(toBeauticaTime(DateTime.now()))`
+# and `kyivDayOf(DateTime.now())` have zero residual. With ONE canonical
+# spelling, "is this read going through the seam" becomes a text question
+# rather than a dataflow one.
+#
+# WHY THIS IS **NOT** RULE 3 UNDER A DIFFERENT ROOT. Rule 3 is a blanket
+# DECLARATION gate: under `integration_test/` every host read is wrong by
+# construction. Applying that to `test/` was measured and rejected — it would
+# have fired on 60 sites of which 0 were bugs, and the only realistic outcome
+# of a 100%-false-positive gate is `// instant-ok:` rubber-stamped onto
+# correct code until the marker means nothing. Rule 5 instead asks what the
+# read is FOR, which the read site itself already says:
+#   - It is the clock argument to the canonical seam — `kyivToday(DateTime.now)`
+#     — i.e. the author is deriving a KYIV CALENDAR DAY, correctly. CLEAN.
+#   - Its result is immediately consumed by an INSTANT-ONLY operation
+#     (`.add`, `.subtract`, `.toUtc`, `.difference`, `.isBefore`, `.isAfter`,
+#     `.isAtSameMomentAs`, `.compareTo`, `.millisecondsSinceEpoch`,
+#     `.microsecondsSinceEpoch`) — i.e. the author is using an INSTANT, which
+#     no zone conversion would change. CLEAN.
+#   - Anything else — a bare `DateTime.now()` handed to a variable, an
+#     argument, or a calendar-field read — has not said which it is, and is
+#     exactly the shape that turned out to be wrong at all four sites this
+#     rule was written against. FLAGGED.
+#
+# Detection, precisely:
+#   1. SCAN ROOT — `test/` ONLY (`$mix_scan_dir`). `integration_test/` is
+#      already covered, more strictly, by Rule 3; running both there would
+#      double-report every hit.
+#   2. READ — the literal `DateTime.now`, in the string-stripped buffer, not on
+#      a whole-comment line, before any real trailing `//`, and not preceded by
+#      a word character (excludes `tz.TZDateTime.now`). Identical to Rule 3's
+#      row 1-3.
+#   3. SEAM FORM (clean) — the 10 characters immediately before the match are
+#      literally `kyivToday(` AND the character immediately after `DateTime.now`
+#      is `)`. This is a TEAR-OFF being handed to the seam; note it deliberately
+#      does NOT accept `kyivToday(DateTime.now())` (a call, not a tear-off) or
+#      `kyivDayOf(DateTime.now())`, because the normalisation pass made
+#      `kyivToday(DateTime.now)` the single spelling and this rule is what keeps
+#      it single. A hit on either of those spellings is not a false positive:
+#      the fix is to write the canonical form.
+#   4. INSTANT FORM (clean) — the match is followed by exactly `().`, then an
+#      identifier drawn from the instant-only member list in row 3 above.
+#      Chained forms are covered by their FIRST member, which is what decides
+#      whether a zone ever entered the picture: `DateTime.now().toUtc().subtract(...)`
+#      is clean via `toUtc`. `.toIso8601String()` is deliberately NOT on the
+#      list — on a local `DateTime` it renders HOST wall-clock time with no
+#      offset, which is zone-dependent output, not an instant operation.
+#   5. NOT ANNOTATED — `// instant-ok: <reason>`, same marker, same
+#      same-line-or-directly-above placement, as Rules 3 and 4. Same vocabulary
+#      because it is the same question.
+#
+# BASELINE: EMPTY ON THE REAL TREE, WITH NO ALLOW-LIST AND NO PATH EXEMPTION.
+# Reaching that took FOUR genuine fixes and TWO annotations, not sixty:
+#   - `slot_picker_test.dart` (2 sites) and
+#     `period_range_picker_initial_scroll_test.dart` (1 site) each read
+#     `DateTime.now().year`/`.month` off a local to compute a target month,
+#     while the widget under test derives its own `_today` through
+#     `kyivToday`/`kyivDayOf`. Re-anchored to `kyivToday(DateTime.now)`.
+#   - `booking_route_guard_test.dart` seeded `SlotPickerState.selectedDate` — a
+#     DATE TOKEN — with a raw host instant. Re-anchored likewise.
+#   - `clock_provider_test.dart`'s `before`/`after` bracket genuinely ARE
+#     absolute instants: that test's SUBJECT is that the un-overridden
+#     `clockProvider` returns the real device clock, and both values are
+#     consumed only by `.isBefore`/`.isAfter`. Annotated, with that reason.
+# Two annotations out of sixty reads is a marker that still carries
+# information. Sixty out of sixty would not have been, which is why Rule 4
+# stopped where it did and why this rule classifies instead of declaring.
+#
+# HONEST LIMIT — Rule 5 gates the READ SHAPE, not the downstream use. A value
+# built as `DateTime.now().add(const Duration(days: 2))` is waved through as an
+# instant, and if a later line reads `.day` off it to build an expectation, that
+# is the same defect and this rule does not see it. Chasing that is genuine
+# dataflow analysis, out of scope here exactly as it is for Rule 2's identifier
+# resolution. What Rule 5 does guarantee is that every host-clock read in this
+# tier has DECLARED, at the read site, whether it is a calendar-day derivation
+# (must go through the seam) or an instant (must be consumed as one).
+#
+# RULE 6 (added 2026-08-04, second pass — DATE TOKEN treated as an INSTANT)
+# ------------------------------------------------------------------------
+# `lib/shared/time/kyiv_day.dart`'s header defines a **date token**: a
+# host-local `DateTime` at host-local midnight whose `.year`/`.month`/`.day`
+# carry the KYIV calendar day. It is not an instant, though Dart gives it the
+# identical runtime type — and that type-level indistinguishability is named
+# there as "the real root cause of this whole bug class". That header lists
+# `.toUtc()` on a token as explicitly ILLEGAL ("there is no meaningful UTC form
+# of a value that was never really an instant; the call compiles, runs, and
+# returns garbage") and then concedes: "Nothing statically catches misusing an
+# already-derived date token — that stays a review responsibility."
+#
+# Review did not catch it. A sweep on 2026-08-04 found THREE live instances,
+# only one of which had ever been reported:
+#   - `bookings_day_rebuild_isolation_test.dart` — `today.toUtc().add(12h)`
+#   - `master_bookings_screen_test.dart` (2 sites) — `_kyivToday.toUtc().add(...)`
+# All three read "an instant at midday on Kyiv today" and all three got it by
+# reinterpreting host-local midnight as an instant. MEASURED, not reasoned
+# about — `kyivDayOf(token.toUtc().add(12h))` against the token it came from,
+# on five host zones:
+#     Europe/Kyiv (+3)      Aug 4 -> Aug 4   agrees
+#     UTC (+0)              Aug 4 -> Aug 4   agrees
+#     Asia/Tokyo (+9)       Aug 4 -> Aug 4   agrees
+#     America/Anchorage (-8) Aug 4 -> Aug 4  agrees
+#     Pacific/Honolulu (-10) Aug 4 -> Aug 5  DISAGREES
+# The `DateTime.utc(token.year, token.month, token.day, 12)` form agrees on all
+# five. So the old derivation genuinely produces the wrong Kyiv day past about
+# UTC-9.
+#
+# BE PRECISE ABOUT WHAT WENT WRONG: those test files did NOT fail under
+# `TZ=Pacific/Honolulu` — that was checked, before and after the fix, and both
+# were green. They did not fail because the repository is mocked with
+# `any(named: 'from')`, so the day the fixture names and the day the screen
+# queries were never compared to begin with. That is the WORSE outcome, and the
+# one this whole script's header opens by naming: the fixture had silently
+# stopped discriminating the thing it was written to pin, and would have gone
+# on doing so until an assertion tightened. It is the same class as the
+# 2026-08-02 incident reached from the other direction — not an instant
+# mis-typed as a day, but a day mis-typed as an instant.
+#
+# THE RULE. Flag `.toUtc(` or `.toLocal(` applied to a value that is a date
+# token, in two forms:
+#   (a) DIRECT — the seam call itself: `kyivToday(...).toUtc()`,
+#       `kyivDayOf(...).toUtc()`, `dateOnly(...).toLocal()`. The matching `)`
+#       is found by forward depth-tracking (same technique as
+#       `count_top_commas`), never by a `[^)]*` regex, so a nested call inside
+#       the seam's own argument list does not truncate the match.
+#   (b) INDIRECT — an identifier whose SAME-FILE declaration's initializer
+#       STARTS with one of those seam calls. A BEGIN pre-pass collects
+#       `final DateTime x = kyivToday(...)`, `DateTime x = ...`,
+#       `DateTime x() => ...`, `DateTime get x => ...`, and the untyped
+#       `final x = ...` / `var x = ...` forms. The initializer only has to
+#       START on the declaration line, so a seam call whose ARGUMENTS wrap onto
+#       following lines is still recognised.
+#   `_dateOnly` (the private re-implementations in
+#   `master_schedule_screen.dart`, `period_range_picker.dart`,
+#   `schedule_date_math.dart`, `apply_schedule_sheet.dart`) is matched too — a
+#   single leading `_` is allowed on the seam name.
+#
+# ONLY `.toUtc()` / `.toLocal()`, AND WHY NOT THE REST OF THE ILLEGAL LIST. The
+# header also bans `.difference(...)` and `.isBefore`/`.isAfter` — but ONLY
+# against an INSTANT; against another date token all three are explicitly
+# LEGAL. Deciding which side you have is dataflow, so those stay a review
+# responsibility and this rule does not pretend otherwise. `.toUtc()` and
+# `.toLocal()` are unconditional: there is no operand that makes them
+# meaningful on a token, which is precisely what makes them gateable.
+#
+# SCAN ROOT — `lib/`, `test/` AND `integration_test/` (`${token_scan_dirs[@]}`),
+# a DIFFERENT and WIDER set than every other rule here. Rules 1-5 police test
+# ANCHORS, which is why they stop at the test tiers. Rule 6 polices a type
+# confusion that production code is at least as exposed to: `lib/` declares
+# four date tokens today (`day_hours_sheet.dart`, `master_schedule_screen.dart`,
+# `booked_days_notifier.dart`, `working_hours_repository.dart`) and any of them
+# is one `.toUtc()` away from the same silent garbage. `lib/` was swept by hand
+# at the time this rule was added and was clean — every `.toUtc()` there is on
+# a `DateTime.parse(...)` or a `DateTime.now()`, both genuine instants.
+#
+# MARKER — `// date-token-ok: <reason>`, a THIRD marker, deliberately distinct
+# from `host-tz-ok:` ("why is this host-local literal's zone resolution
+# correct") and `instant-ok:` ("why is reading the DEVICE clock correct"). This
+# one asks a third question: "why is treating a KYIV DAY TOKEN as an instant
+# correct here". Reusing either of the others would have merged two unrelated
+# review questions under one word.
+#
+# BASELINE: EMPTY, after the three fixes above plus exactly ONE annotation —
+# `test/shared/time/kyiv_day_test.dart`, whose `expect(instant,
+# isNot(token.toUtc()))` IS the runnable demonstration that the operation
+# returns garbage. That is the one place in the tree where performing the
+# banned operation is the point, and it is annotated rather than left to pass
+# by accident of the declaration happening to span lines.
 #
 # NO LEGACY BASELINE — AND NONE SHOULD EVER BE ADDED
 # ---------------------------------------------------
@@ -496,11 +701,26 @@ now_annotation='[/][/][[:space:]]*instant-ok:'
 # See header "SCAN ROOT — `integration_test/` ONLY, AND WHY".
 now_scan_dir='integration_test'
 
-# RULE 4's scan root — `test/`, the tier Rule 3 deliberately does NOT cover.
-# Rule 4 reuses Rule 3's `instant-ok:` marker (`$now_annotation`): it asks the
-# same question ("why is reading the DEVICE clock correct here"), just in a
-# tier where the answer is only wrong when the test ALSO pinned the clock.
+# RULE 4's AND RULE 5's scan root — `test/`, the tier Rule 3 deliberately does
+# NOT cover. Both reuse Rule 3's `instant-ok:` marker (`$now_annotation`): they
+# ask the same question ("why is reading the DEVICE clock correct here"), just
+# in a tier where the answer is wrong for different reasons — Rule 4 when the
+# test ALSO pinned the clock, Rule 5 when the read neither goes through the
+# Kyiv-day seam nor is consumed as an instant.
 mix_scan_dir='test'
+
+# RULE 6's marker — `// date-token-ok:`, a THIRD vocabulary, deliberately not
+# `host-tz-ok:` or `instant-ok:`. See header "RULE 6".
+token_annotation='[/][/][[:space:]]*date-token-ok:'
+
+# RULE 6's scan roots — WIDER than every other rule here, `lib/` included. A
+# date token mis-typed as an instant is a production hazard, not only a fixture
+# one; see header "RULE 6 — SCAN ROOT".
+token_scan_dirs=(
+  "lib"
+  "test"
+  "integration_test"
+)
 
 # ---------------------------------------------------------------------------
 # scan_file <path> <do_rule1: 0|1> <do_rule3: 0|1>
@@ -526,8 +746,10 @@ mix_scan_dir='test'
 scan_file() {
   local do_rule1="${2:-0}"
   local do_rule3="${3:-0}"
+  local do_rule5="${4:-0}"
   awk -v file="$1" -v ann="$annotation" -v do_rule1="$do_rule1" \
-      -v now_ann="$now_annotation" -v do_rule3="$do_rule3" '
+      -v now_ann="$now_annotation" -v do_rule3="$do_rule3" \
+      -v do_rule5="$do_rule5" '
     # Reused verbatim from scripts/forbid_stale_future_date_fixture.sh.
     # Erases quoted content entirely (does not preserve length/position) —
     # every match this script makes is found and positioned INSIDE this
@@ -640,6 +862,19 @@ scan_file() {
     # chase, so silently not flagged — see header). MAX_CHASE_HOPS bounds a
     # pathological/self-referential chain; no real fixture in this codebase
     # needs anywhere near this many hops.
+    # RULE 5 — the instant-only member allow-list. A `DateTime.now()` whose
+    # result is IMMEDIATELY consumed by one of these is using an INSTANT, which
+    # no zone conversion would change; anything else has not said what it is.
+    # `toIso8601String` is deliberately absent: on a LOCAL DateTime it renders
+    # host wall-clock time with no offset — zone-dependent output, not an
+    # instant operation.
+    function instant_member(m) {
+      return (m == "add" || m == "subtract" || m == "toUtc" ||
+              m == "difference" || m == "isBefore" || m == "isAfter" ||
+              m == "isAtSameMomentAs" || m == "compareTo" ||
+              m == "millisecondsSinceEpoch" || m == "microsecondsSinceEpoch")
+    }
+
     function resolve_decl(nm,   cur, hops, val, MAX_CHASE_HOPS) {
       MAX_CHASE_HOPS = 8
       if (!(nm in decl_init)) { return "" }
@@ -871,6 +1106,50 @@ scan_file() {
         }
       }
 
+      # ============ RULE 5 (test/ only, host-clock read discipline) =================
+      # A CLASSIFYING gate, unlike Rule 3: a raw `DateTime.now` is clean only
+      # when the read site itself says what it is for — either the canonical
+      # Kyiv-day seam (`kyivToday(DateTime.now)`, tear-off form) or an
+      # immediately instant-only consumption. See header "RULE 5".
+      is_offender5 = 0
+      if (do_rule5 == "1") {
+        pos = 1
+        while (1) {
+          idx = index(substr(codeonly, pos), "DateTime.now")
+          if (idx == 0) { break }
+          abs = pos + idx - 1
+          pos = abs + 12   # length("DateTime.now")
+
+          # Match sits at/after a trailing comment in the stripped buffer.
+          if (cs > 0 && abs >= cs) { continue }
+
+          # Exclude a longer identifier merely ENDING in "DateTime.now"
+          # (tz.TZDateTime.now(loc) / TZDateTime.now(...)).
+          if (abs > 1) {
+            prevc = substr(codeonly, abs - 1, 1)
+            if (prevc ~ /[A-Za-z0-9_]/) { continue }
+          }
+
+          # (3) SEAM FORM — exactly `kyivToday(DateTime.now)`, a TEAR-OFF fed
+          # to the canonical seam. `kyivToday(DateTime.now())` (a call) and
+          # `kyivDayOf(DateTime.now())` do NOT match, on purpose: the
+          # normalisation pass made one spelling canonical and this is what
+          # keeps it that way (see header).
+          if (abs > 10 && substr(codeonly, abs - 10, 10) == "kyivToday(" &&
+              substr(codeonly, abs + 12, 1) == ")") { continue }
+
+          # (4) INSTANT FORM — `DateTime.now().<instant-only member>`.
+          if (substr(codeonly, abs + 12, 3) == "().") {
+            rest = substr(codeonly, abs + 15)
+            if (match(rest, /^[A-Za-z_][A-Za-z0-9_]*/) && RSTART == 1) {
+              if (instant_member(substr(rest, 1, RLENGTH))) { continue }
+            }
+          }
+
+          is_offender5 = 1
+        }
+      }
+
       # Annotation suppression. RULES 1 and 2 share `host-tz-ok:`; RULE 3
       # uses `instant-ok:` and is NOT suppressed by `host-tz-ok:` — the two
       # markers answer different questions (see header). Both honour the same
@@ -883,10 +1162,16 @@ scan_file() {
       if (is_offender3) {
         if ($0 ~ now_ann || prev ~ now_ann) { is_offender3 = 0 }
       }
+      # RULE 5 shares the `instant-ok:` marker RULE 3 uses — same question,
+      # different tier (see header).
+      if (is_offender5) {
+        if ($0 ~ now_ann || prev ~ now_ann) { is_offender5 = 0 }
+      }
 
-      if (is_offender1 || is_offender2 || is_offender3) {
+      if (is_offender1 || is_offender2 || is_offender3 || is_offender5) {
         if (is_offender1) { printf "R1:%s:%d:%s\n", file, NR, $0 }
         if (is_offender3) { printf "R3:%s:%d:%s\n", file, NR, $0 }
+        if (is_offender5) { printf "R5:%s:%d:%s\n", file, NR, $0 }
         if (is_offender2) {
           printf "R2:%s:%d:%s\n", file, NR, $0
           # Also report the RESOLVED declaration once per unique target per
@@ -959,6 +1244,78 @@ scan_file_rule4() {
       if (p ~ /[A-Za-z0-9_.]/) { return 0 }
       return 1
     }
+    # BLIND SPOT (a), CLOSED — WHERE A PIN LANDS ON THE SCOPE STACK.
+    # A pin inside a TEST or GROUP body marks that scope. A pin inside a
+    # `setUp` / `setUpAll` body marks BOTH that scope (so reads in the same
+    # setUp are caught) AND the nearest ENCLOSING GROUP — or, with no enclosing
+    # group, the whole file from this point on, since a top-level `setUp`
+    # applies to every test in the file. A pin at FILE scope (`sp == 0`, e.g.
+    # inside a pump helper declared outside `main()`) is NOT attributed to
+    # anything: that helper only pins when a caller passes a non-null argument,
+    # which is what the pin-ARGUMENT detection below is for.
+    function record_pin(ln, txt,   j) {
+      if (sp == 0) { return }
+      if (st_pin[sp] == 0) { st_pin[sp] = 1; st_pinline[sp] = ln; st_pintext[sp] = txt }
+      if (st_kind[sp] != 3) { return }
+      for (j = sp - 1; j >= 1; j--) {
+        if (st_kind[j] == 2) {
+          if (st_pin[j] == 0) { st_pin[j] = 1; st_pinline[j] = ln; st_pintext[j] = txt }
+          return
+        }
+      }
+      if (file_pin == 0) { file_pin = 1; file_pinline = ln; file_pintext = txt }
+    }
+    # The innermost pin in force for the scope at `sp` — its own, one on any
+    # enclosing scope, or a file-wide one from a top-level setUp. Writes
+    # ep_line/ep_text (awk has no out-params); returns 1 when a pin is in force.
+    function effective_pin(   j) {
+      for (j = sp; j >= 1; j--) {
+        if (st_pin[j]) { ep_line = st_pinline[j]; ep_text = st_pintext[j]; return 1 }
+      }
+      if (file_pin) { ep_line = file_pinline; ep_text = file_pintext; return 1 }
+      return 0
+    }
+    # BLIND SPOT (b), CLOSED — DERIVED PIN-ARGUMENT NAMES.
+    # Seeds `clock` / `now`, then reads the file once for
+    # `clockProvider.overrideWithValue(<x>)` (optionally through a `() =>`
+    # closure) and adds each bare `<x>` to the pin-argument name set of THIS
+    # FILE.
+    # A helper declared `{DateTime? fixedNow}` whose body overrides the provider
+    # with `fixedNow` therefore makes `fixedNow:` a recognised pin argument
+    # automatically — the name comes from what the file actually overrides the
+    # provider with, not from a convention this gate hopes for.
+    # `clockProvider.overrideWith((ref) {...})` is NOT harvested: its argument
+    # is a closure PARAMETER, and adding `ref` would make any `ref:` named
+    # argument read as a clock pin.
+    BEGIN {
+      pinarg["clock"] = 1
+      pinarg["now"] = 1
+      while ((getline praw < file) > 0) {
+        pcode = strip_strings(praw)
+        pcs = comment_start(pcode)
+        if (pcs > 0) { pcode = substr(pcode, 1, pcs - 1) }
+        ppos = 1
+        while (1) {
+          pidx = index(substr(pcode, ppos), "clockProvider.overrideWithValue(")
+          if (pidx == 0) { break }
+          pabs = ppos + pidx - 1
+          ppos = pabs + 32   # length("clockProvider.overrideWithValue(")
+          prest = substr(pcode, ppos)
+          sub(/^[[:space:]]*/, "", prest)
+          sub(/^\(\)[[:space:]]*=>[[:space:]]*/, "", prest)
+          if (match(prest, /^[A-Za-z_][A-Za-z0-9_]*/) && RSTART == 1) {
+            pname = substr(prest, 1, RLENGTH)
+            ptail = substr(prest, RLENGTH + 1)
+            sub(/^[[:space:]]*/, "", ptail)
+            ptailc = substr(ptail, 1, 1)
+            if (ptailc == ")" || ptailc == "," || ptailc == "") {
+              pinarg[pname] = 1
+            }
+          }
+        }
+      }
+      close(file)
+    }
     {
       raw = $0
       firsttok = raw
@@ -976,17 +1333,27 @@ scan_file_rule4() {
       for (i = 1; i <= n; i++) {
         c = substr(code, i, 1)
 
-        # ---- scope openers: test( / testWidgets( ----
+        # ---- scope openers ----
+        # KIND 1 = test body, KIND 2 = group, KIND 3 = setUp/setUpAll. Groups
+        # and setUps are tracked so a pin installed at THOSE scopes is seen —
+        # blind spot (a), closed (see header).
+        newkind = 0
         if ((substr(code, i, 12) == "testWidgets(" || substr(code, i, 5) == "test(") && boundary(code, i)) {
+          newkind = 1
+        } else if (substr(code, i, 6) == "group(" && boundary(code, i)) {
+          newkind = 2
+        } else if ((substr(code, i, 9) == "setUpAll(" || substr(code, i, 6) == "setUp(") && boundary(code, i)) {
+          newkind = 3
+        }
+        if (newkind > 0) {
           sp++
           st_depth[sp] = depth; st_pin[sp] = 0; st_nown[sp] = 0
+          st_kind[sp] = newkind
         }
 
         # ---- pin (a): an explicit clockProvider override ----
         if (substr(code, i, 22) == "clockProvider.override" && boundary(code, i)) {
-          if (sp > 0 && st_pin[sp] == 0) {
-            st_pin[sp] = 1; st_pinline[sp] = NR; st_pintext[sp] = raw
-          }
+          record_pin(NR, raw)
         }
 
         # ---- pin (b): a clock:/now: named argument with a NON-null value ----
@@ -995,12 +1362,16 @@ scan_file_rule4() {
         # installs the override itself, so the only evidence at the TEST body
         # is the argument passed in. `null` is excluded — passing null is
         # exactly how these helpers say "leave the real clock alone".
-        if ((substr(code, i, 6) == "clock:" || substr(code, i, 4) == "now:") && boundary(code, i)) {
-          rest = (substr(code, i, 6) == "clock:") ? substr(code, i + 6) : substr(code, i + 4)
-          sub(/^[[:space:]]*/, "", rest)
-          if (rest !~ /^null([^A-Za-z0-9_]|$)/) {
-            if (sp > 0 && st_pin[sp] == 0) {
-              st_pin[sp] = 1; st_pinline[sp] = NR; st_pintext[sp] = raw
+        # The NAME SET is per-file and derived (see the BEGIN pre-pass above),
+        # seeded with `clock` / `now` — blind spot (b), closed.
+        if (substr(code, i, 1) ~ /[A-Za-z_]/ && boundary(code, i)) {
+          argrest = substr(code, i)
+          if (match(argrest, /^[A-Za-z_][A-Za-z0-9_]*:/)) {
+            argname = substr(argrest, 1, RLENGTH - 1)
+            if (argname in pinarg) {
+              rest = substr(argrest, RLENGTH + 1)
+              sub(/^[[:space:]]*/, "", rest)
+              if (rest !~ /^null([^A-Za-z0-9_]|$)/) { record_pin(NR, raw) }
             }
           }
         }
@@ -1019,16 +1390,162 @@ scan_file_rule4() {
         } else if (c == ")" || c == "]" || c == "}") {
           depth--
           while (sp > 0 && depth <= st_depth[sp]) {
-            if (st_pin[sp] && st_nown[sp] > 0) {
+            if (st_nown[sp] > 0 && effective_pin()) {
               for (k = 1; k <= st_nown[sp]; k++) {
                 printf "R4:%s:%d:%s\n", file, st_nowline[sp, k], st_nowtext[sp, k]
               }
-              printf "R4:%s:%d:%s    [this test PINS the clock here — the read(s) above disagree with it]\n", file, st_pinline[sp], st_pintext[sp]
+              printf "R4:%s:%d:%s    [this test PINS the clock here — the read(s) above disagree with it]\n", file, ep_line, ep_text
             }
             sp--
           }
         }
       }
+      prev = raw
+    }
+  ' "$1"
+}
+
+# ---------------------------------------------------------------------------
+# scan_file_rule6 <path>
+#   Emits "R6:<path>:<line>:<text>" for each un-annotated, live-code
+#   `.toUtc(` / `.toLocal(` applied to a DATE TOKEN — either the seam call
+#   itself (`kyivToday(...).toUtc()`) or an identifier whose same-file
+#   declaration's initializer starts with one. See header "RULE 6".
+#   A separate awk program because its BEGIN pre-pass builds a DIFFERENT table
+#   (date-token names) from scan_file's (DateTime-typed declarations for Rule
+#   2's identifier resolution), and because it runs over a WIDER root set
+#   (`lib/` included).
+# ---------------------------------------------------------------------------
+scan_file_rule6() {
+  awk -v file="$1" -v tok_ann="$token_annotation" '
+    function strip_strings(s,   out, c, i, q, esc) {
+      out = ""; q = ""; esc = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") {
+          if (esc) { esc = 0; continue }
+          if (c == "\\") { esc = 1; continue }
+          if (c == q) { q = "" }
+          continue
+        }
+        if (c == "\"" || c == "'"'"'") { q = c; continue }
+        out = out c
+      }
+      return out
+    }
+    function comment_start(s,   i, c) {
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c == "/" && substr(s, i + 1, 1) == "/") { return i }
+      }
+      return 0
+    }
+    # 1 iff the bracketed expression opening at s[start] (the "(" of a seam
+    # call) is immediately followed, after its MATCHING ")", by `.toUtc(` or
+    # `.toLocal(`. Depth-tracked forward — never a `[^)]*` regex, which would
+    # truncate at the first `)` of a nested call inside the seam argument.
+    function closes_into_instant_call(s, start,   i, c, depth, n, tail) {
+      n = length(s); depth = 0
+      for (i = start; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "(" || c == "[" || c == "{") { depth++ }
+        else if (c == ")" || c == "]" || c == "}") {
+          depth--
+          if (depth == 0) {
+            tail = substr(s, i + 1)
+            return (tail ~ /^\.toUtc\(/ || tail ~ /^\.toLocal\(/)
+          }
+        }
+      }
+      return 0
+    }
+    # Seam-name boundary. A single leading "_" is allowed so the private
+    # `_dateOnly` re-implementations (master_schedule_screen.dart,
+    # period_range_picker.dart, schedule_date_math.dart,
+    # apply_schedule_sheet.dart) are matched too.
+    function seam_boundary(s, abs,   p, p2) {
+      if (abs <= 1) { return 1 }
+      p = substr(s, abs - 1, 1)
+      if (p == "_") {
+        if (abs <= 2) { return 1 }
+        p2 = substr(s, abs - 2, 1)
+        return (p2 !~ /[A-Za-z0-9_.]/)
+      }
+      return (p !~ /[A-Za-z0-9_.]/)
+    }
+    function is_token_init(v) {
+      return (v ~ /^kyivToday\(/ || v ~ /^kyivDayOf\(/ || v ~ /^_?dateOnly\(/)
+    }
+    # Pre-pass: same-file declarations whose initializer STARTS with a seam
+    # call. Only the START has to be on the declaration line, so a seam call
+    # whose arguments wrap onto following lines is still recognised.
+    BEGIN {
+      while ((getline draw < file) > 0) {
+        dcode = strip_strings(draw)
+        dcs = comment_start(dcode); if (dcs > 0) { dcode = substr(dcode, 1, dcs - 1) }
+        dtrim = dcode; sub(/^[[:space:]]+/, "", dtrim)
+        sub(/^(final|const|var)[[:space:]]+/, "", dtrim)
+        sub(/^DateTime\??[[:space:]]+/, "", dtrim)
+        sub(/^get[[:space:]]+/, "", dtrim)
+        if (!match(dtrim, /^[A-Za-z_][A-Za-z0-9_]*/) || RSTART != 1) { continue }
+        dname = substr(dtrim, 1, RLENGTH)
+        dafter = substr(dtrim, RLENGTH + 1)
+        sub(/^[[:space:]]*/, "", dafter)
+        if (substr(dafter, 1, 2) == "()") {
+          dafter = substr(dafter, 3); sub(/^[[:space:]]*/, "", dafter)
+        }
+        dinit = ""
+        if (substr(dafter, 1, 2) == "=>") { dinit = substr(dafter, 3) }
+        else if (substr(dafter, 1, 1) == "=" && substr(dafter, 2, 1) != "=") {
+          dinit = substr(dafter, 2)
+        }
+        if (dinit == "") { continue }
+        sub(/^[[:space:]]*/, "", dinit)
+        if (is_token_init(dinit) && !(dname in tok)) { tok[dname] = 1 }
+      }
+      close(file)
+    }
+    {
+      raw = $0
+      firsttok = raw; sub(/^[[:space:]]+/, "", firsttok)
+      code = strip_strings(raw)
+      cs = comment_start(code); if (cs > 0) { code = substr(code, 1, cs - 1) }
+      if (firsttok ~ /^[/][/]/) { code = "" }
+      annotated = (raw ~ tok_ann || prev ~ tok_ann)
+      hit = 0
+
+      # (b) INDIRECT — <declared-token-name>.toUtc( / .toLocal(
+      n = length(code)
+      for (i = 1; i <= n; i++) {
+        if (substr(code, i, 1) !~ /[A-Za-z_]/) { continue }
+        if (i > 1 && substr(code, i - 1, 1) ~ /[A-Za-z0-9_.]/) { continue }
+        rest = substr(code, i)
+        if (!match(rest, /^[A-Za-z_][A-Za-z0-9_]*/)) { continue }
+        nm = substr(rest, 1, RLENGTH)
+        if (!(nm in tok)) { continue }
+        tail = substr(rest, RLENGTH + 1)
+        # A function-form token declaration (`DateTime tokC() => dateOnly(x);`)
+        # is referenced as `tokC()`, so skip a zero-argument call before looking
+        # for the instant member.
+        if (substr(tail, 1, 2) == "()") { tail = substr(tail, 3) }
+        if (tail ~ /^\.toUtc\(/ || tail ~ /^\.toLocal\(/) { hit = 1 }
+      }
+
+      # (a) DIRECT — kyivToday(...) / kyivDayOf(...) / dateOnly(...).toUtc(
+      split("kyivToday( kyivDayOf( dateOnly(", seams, " ")
+      for (k = 1; k <= 3; k++) {
+        pos = 1
+        while (1) {
+          idx = index(substr(code, pos), seams[k])
+          if (idx == 0) { break }
+          abs = pos + idx - 1
+          pos = abs + 1
+          if (!seam_boundary(code, abs)) { continue }
+          if (closes_into_instant_call(code, abs + length(seams[k]) - 1)) { hit = 1 }
+        }
+      }
+
+      if (hit && !annotated) { printf "R6:%s:%d:%s\n", file, NR, raw }
       prev = raw
     }
   ' "$1"
@@ -1051,11 +1568,15 @@ scan_file_rule4() {
 # ---------------------------------------------------------------------------
 run_scan() {
   local tree_root="$1"
-  local d f do_rule1 do_rule3
+  local d f do_rule1 do_rule3 do_rule5
   for d in "${scan_dirs[@]}"; do
     do_rule3=0
     if [ "$d" = "$now_scan_dir" ]; then
       do_rule3=1
+    fi
+    do_rule5=0
+    if [ "$d" = "$mix_scan_dir" ]; then
+      do_rule5=1
     fi
     while IFS= read -r -d '' f; do
       [ -z "$f" ] && continue
@@ -1063,10 +1584,31 @@ run_scan() {
       if grep -qE "$zone_critical_pattern" "$f" 2>/dev/null; then
         do_rule1=1
       fi
-      scan_file "$f" "$do_rule1" "$do_rule3"
+      scan_file "$f" "$do_rule1" "$do_rule3" "$do_rule5"
       if [ "$d" = "$mix_scan_dir" ]; then
         scan_file_rule4 "$f"
       fi
+    done < <(find "$tree_root/$d" -type f -name '*.dart' -print0 2>/dev/null | sort -z)
+  done
+
+  # RULE 6 walks its OWN, WIDER root set (`lib/` included) — see header
+  # "RULE 6 — SCAN ROOT". Kept as a separate loop rather than folded into the
+  # one above precisely so the wider root cannot silently leak into Rules 1-5,
+  # whose scope is deliberately the test tiers only.
+  for d in "${token_scan_dirs[@]}"; do
+    while IFS= read -r -d '' f; do
+      [ -z "$f" ] && continue
+      # PURE PERFORMANCE PREFILTER — not a classifier, and it must never become
+      # one. A file containing neither `.toUtc(` nor `.toLocal(` anywhere in its
+      # RAW text cannot possibly produce a Rule 6 hit, since BOTH detection
+      # forms end in matching one of those two literals. Skipping it is
+      # therefore observationally identical to scanning it, and only exists
+      # because this root set is ~1000 files (lib/ included) and the awk
+      # program reads each one twice. Do NOT extend this grep with anything
+      # semantic — that is how Rule 1's Stage 1 filter came to hide the whole
+      # 2026-08-02 incident class from Rule 2.
+      grep -qF -e '.toUtc(' -e '.toLocal(' "$f" 2>/dev/null || continue
+      scan_file_rule6 "$f"
     done < <(find "$tree_root/$d" -type f -name '*.dart' -print0 2>/dev/null | sort -z)
   done
 }
@@ -1394,13 +1936,19 @@ EOF
   mkdir -p "$tmp/$(dirname "$now_control_path")"
   cat > "$tmp/$now_control_path" <<'EOF'
 // Control for RULE 3's scan-root restriction: this file sits under test/,
-// NOT integration_test/, and carries the exact flagged shape below. RULE 3
-// must contribute ZERO offenders from it — the widget/unit tier has no
-// single app-wide injected clock the way the E2E tier does (see the
-// script header's "SCAN ROOT" section, which states that residual gap
-// plainly rather than pretending it is covered).
-final DateTime a = DateTime.now();
-DateTime Function() b = DateTime.now;
+// NOT integration_test/, and carries a `DateTime.now` read of exactly the kind
+// RULE 3 flags on sight in its own tier — call form AND bare tear-off. RULE 3
+// must contribute ZERO offenders from it, because the widget/unit tier has no
+// single app-wide injected clock the way the E2E tier does.
+//
+// Both rows are deliberately written in RULE 5-CLEAN form (the canonical seam
+// tear-off, and an instant-only consumption). If they were bare reads they
+// would legitimately trip Rule 5, and this control could no longer assert
+// "zero offenders from this file" — it would be asserting that Rule 5 is
+// broken instead. The Rule-3 property under test is unaffected: both lines
+// still contain a live `DateTime.now`, which is all Rule 3 looks at.
+final DateTime a = kyivToday(DateTime.now);
+final DateTime b = DateTime.now().add(const Duration(days: 1));
 EOF
 
   # RULE 4 probe — clock-coherence in the widget/unit tier. Lives under
@@ -1432,7 +1980,7 @@ testWidgets('override pin, host read', (tester) async {
 // shape every real pin in this tree actually uses.
 testWidgets('helper-arg pin, host read', (tester) async {
   await pumpIt(tester, clock: () => pinned);
-  final DateTime day = DateTime.now();
+  final DateTime day = kyivToday(DateTime.now);
 });
 
 // (r4-3) NO pin + host read — MUST stay clean. This is the dominant and
@@ -1472,20 +2020,260 @@ testWidgets('pinned, TZDateTime.now', (tester) async {
 });
 
 // (r4-8) a host read at FILE scope, outside any test body — MUST stay clean.
-// Rule 4 is scoped to a single test body; a file-scope read cannot be
-// correlated with any one test's pin.
-final DateTime fileScope = DateTime.now();
+// Rule 4 is scoped to a test/group/setUp body; a file-scope read cannot be
+// correlated with any one pin.
+final DateTime fileScope = kyivToday(DateTime.now);
+
+// (r4-9) BLIND SPOT (a), CLOSED — a pin installed in a group-level setUp, with
+// the host read in a SIBLING test body. Before this was closed, scopes were
+// per-test and this pin was invisible. BOTH the read and the setUp pin MUST be
+// flagged.
+group('pinned via setUp', () {
+  setUp(() {
+    installOverrides([clockProvider.overrideWithValue(() => pinned)]);
+  });
+
+  testWidgets('host read under a setUp pin', (tester) async {
+    final DateTime today = kyivToday(DateTime.now);
+    await pumpIt(tester);
+  });
+});
+
+// (r4-10) an UNPINNED group containing a host read, both in a test body and
+// directly in the group body — MUST stay clean. This is the row that keeps
+// group-scope tracking from turning Rule 4 into the noise gate Rule 3 would
+// have been in this tier.
+group('unpinned group', () {
+  final DateTime groupScope = kyivToday(DateTime.now);
+
+  testWidgets('host read, no pin anywhere', (tester) async {
+    final DateTime today = kyivToday(DateTime.now);
+    await pumpIt(tester);
+  });
+});
+
+// (r4-11) BLIND SPOT (b), CLOSED — the pin arrives through a helper parameter
+// named neither `clock:` nor `now:`. The name is DERIVED from the
+// clockProvider.overrideWithValue(fixedNow) below, not hardcoded. Read and pin
+// MUST both be flagged.
+Future<void> pumpFixed(WidgetTester tester, {DateTime Function()? fixedNow}) =>
+    pumpIt(tester, overrides: [
+      if (fixedNow != null) clockProvider.overrideWithValue(fixedNow),
+    ]);
+
+testWidgets('helper-arg pin under a derived name', (tester) async {
+  await pumpFixed(tester, fixedNow: () => pinned);
+  final DateTime today = kyivToday(DateTime.now);
+});
+
+// (r4-12) the SAME derived name passed as null — not a pin, MUST stay clean.
+testWidgets('derived-name arg explicitly null', (tester) async {
+  await pumpFixed(tester, fixedNow: null);
+  final DateTime today = kyivToday(DateTime.now);
+});
 EOF
-  # r4-1's read (13) and pin (14); r4-2's pin (20) and read (21).
-  mix_offender_lines=(13 14 20 21)
-  # Reads that must NOT be flagged: unpinned (28), annotated under a pin (36),
-  # under an explicit clock: null (42), a longer identifier (55), file scope
-  # (60).
-  mix_clean_lines=(28 36 42 55 60)
+  # r4-1's read (13) and pin (14); r4-2's pin (20) and read (21); r4-9's setUp
+  # pin (71) and the SIBLING test's read (75); r4-11's derived-name pin (103)
+  # and read (104).
+  mix_offender_lines=(13 14 20 21 71 75 103 104)
+  # Reads that must NOT be flagged: unpinned (29), annotated under a pin (37),
+  # under an explicit clock: null (44), a longer identifier (57), file scope
+  # (63), directly inside an UNPINNED group body (85), inside an unpinned
+  # group's test (88), and under a derived-name argument explicitly null (110).
+  mix_clean_lines=(29 37 44 57 63 85 88 110)
+
+  # RULE 5 probe — host-clock read discipline in the widget/unit tier. Lives
+  # under `test/` because that is RULE 5's ONLY scan root; the
+  # `integration_test/`-side control below carries the same shapes and must
+  # contribute no R5 at all (Rule 3 covers that tier, more strictly).
+  read_probe="test/features/booking/presentation/host_read_probe_test.dart"
+  mkdir -p "$tmp/$(dirname "$read_probe")"
+  cat > "$tmp/$read_probe" <<'EOF'
+// Probe for RULE 5 (host-clock read discipline, widget/unit tier), row by row.
+// Carries no clockProvider/clock: pin anywhere, so RULE 4 must find nothing;
+// no bare DateTime(<digit>, ...) call, so RULE 1 must find nothing either.
+
+// (r5-1) the canonical seam, TEAR-OFF form — MUST stay clean.
+final DateTime a = kyivToday(DateTime.now);
+
+// (r5-2) instant form, .add — MUST stay clean.
+final DateTime b = DateTime.now().add(const Duration(days: 2));
+
+// (r5-3) instant form, .subtract — MUST stay clean.
+final DateTime c = DateTime.now().subtract(const Duration(seconds: 5));
+
+// (r5-4) instant form, chained through .toUtc — clean via the FIRST member.
+final DateTime d = DateTime.now().toUtc().subtract(const Duration(hours: 1));
+
+// (r5-5) instant form, a non-call member — MUST stay clean.
+final int e = DateTime.now().millisecondsSinceEpoch;
+
+// (r5-6) BARE read assigned to a local — MUST be flagged. This is the shape
+// all four real defects had; whether it becomes a calendar day or an instant
+// is not stated at the read site.
+final DateTime f = DateTime.now();
+
+// (r5-7) a calendar field read straight off the device clock — MUST be
+// flagged. The literal shape this rule was written to name.
+final int g = DateTime.now().month;
+
+// (r5-8) passed as an argument, bare — MUST be flagged.
+final h = State(selectedDate: DateTime.now());
+
+// (r5-9) kyivDayOf(DateTime.now()) — MUST be flagged. Semantically identical
+// to (r5-1) but NOT the canonical spelling; the fix is to rewrite it, which is
+// what keeps one spelling in this tier.
+final DateTime i = kyivDayOf(DateTime.now());
+
+// (r5-10) kyivToday(DateTime.now()) — a CALL, not the tear-off — MUST be
+// flagged, same reason as (r5-9).
+final DateTime j = kyivToday(DateTime.now());
+
+// (r5-11) .toIso8601String() is NOT an instant operation on a local DateTime
+// (it renders HOST wall-clock time with no offset) — MUST be flagged.
+final String k = DateTime.now().toIso8601String();
+
+// (r5-12) same-line instant-ok marker — MUST stay clean.
+final DateTime l = DateTime.now(); // instant-ok: elapsed-wall-time bracket
+
+// (r5-13) marker on the line directly above — MUST stay clean.
+// instant-ok: elapsed-wall-time bracket
+final DateTime m = DateTime.now();
+
+// (r5-14) whole-line comment — MUST stay clean.
+// final DateTime n = DateTime.now();
+
+// (r5-15) inside a string literal — MUST stay clean (strip_strings).
+const String s = "DateTime.now()";
+
+// (r5-16) trailing comment hides the read — MUST stay clean.
+final DateTime o = p; // DateTime.now()
+
+// (r5-17) a longer identifier merely ENDING in DateTime.now — MUST stay clean.
+final DateTime q = tz.TZDateTime.now(loc);
+
+// (r5-18) host-tz-ok is RULES 1/2's marker, not RULE 5's — MUST still be
+// flagged (same non-interchangeability Rule 3 pins).
+// host-tz-ok: wrong marker for a raw device-clock read
+final DateTime r = DateTime.now();
+EOF
+  read_offender_lines=(23 27 30 35 39 43 67)
+  read_clean_lines=(6 9 12 15 18 46 50 53 56 59 62)
+
+  # RULE 5 scan-root control — the same flagged shapes under
+  # `integration_test/`. Must contribute ZERO **R5** offenders (Rule 3 flags
+  # them there instead, which is exactly the point: one report per hit).
+  read_control_path="integration_test/support/host_read_scope_control.dart"
+  mkdir -p "$tmp/$(dirname "$read_control_path")"
+  cat > "$tmp/$read_control_path" <<'EOF'
+// Control for RULE 5's scan-root restriction: this file sits under
+// integration_test/, NOT test/, and carries RULE 5's flagged shape. RULE 5
+// must contribute ZERO offenders from it — RULE 3 already covers this tier as
+// a blanket declaration gate, and double-reporting one hit under two rule
+// names would make both harder to act on.
+final DateTime a = DateTime.now();
+final int b = DateTime.now().month;
+EOF
+  # These two lines DO trip RULE 3 — that is the point of the pair. Rule 5's
+  # root restriction is only worth having if the hit is still reported, once,
+  # by the rule that owns that tier. Asserted explicitly below rather than left
+  # to the total.
+  read_control_r3_lines=(6 7)
+
+  # RULE 6 probe — a date token treated as an instant. Lives under `lib/`
+  # specifically: RULE 6 is the ONLY rule here whose scan root includes lib/,
+  # and putting the positive probe there is what pins that root independently
+  # of the matching logic.
+  token_probe="lib/features/booking/presentation/date_token_probe.dart"
+  mkdir -p "$tmp/$(dirname "$token_probe")"
+  cat > "$tmp/$token_probe" <<'EOF'
+// Probe for RULE 6 (date token treated as an instant), row by row. Sits under
+// lib/, which ONLY Rule 6 scans.
+
+// ---- date-token declarations the indirect form resolves against ----
+final DateTime tokA = kyivToday(clock);
+DateTime get tokB => kyivDayOf(instant);
+DateTime tokC() => dateOnly(other);
+final tokD = kyivToday(clock);
+// A declaration whose seam call WRAPS onto the following lines — the
+// initializer only has to START here.
+final DateTime tokE = kyivDayOf(
+  someInstant,
+);
+// NOT a date token — a genuine instant.
+final DateTime notTok = DateTime.utc(2026, 8, 2, 12);
+
+// ---- flagged rows ----
+
+// (r6-1) indirect, .toUtc() on a token — MUST be flagged.
+final DateTime x1 = tokA.toUtc().add(const Duration(hours: 12));
+
+// (r6-2) indirect, .toLocal() on a getter-declared token — MUST be flagged.
+final DateTime x2 = tokB.toLocal();
+
+// (r6-3) indirect through a function-form declaration — MUST be flagged.
+final DateTime x3 = tokC().toUtc();
+
+// (r6-4) indirect through an untyped `final` declaration — MUST be flagged.
+final DateTime x4 = tokD.toUtc();
+
+// (r6-5) indirect through a declaration whose seam call wrapped lines — MUST
+// be flagged.
+final DateTime x5 = tokE.toUtc();
+
+// (r6-6) DIRECT — the seam call itself — MUST be flagged.
+final DateTime x6 = kyivToday(clock).toUtc();
+
+// (r6-7) DIRECT with a NESTED call inside the seam's own argument list — MUST
+// be flagged; pins that the matching ")" is found by depth tracking, not by a
+// [^)]* regex that would truncate at the inner call's ")".
+final DateTime x7 = kyivDayOf(pick(a, b)).toUtc();
+
+// (r6-8) DIRECT on the private _dateOnly re-implementation — MUST be flagged.
+final DateTime x8 = _dateOnly(day).toUtc();
+
+// ---- clean rows ----
+
+// (r6-9) .toUtc() on a genuine instant — MUST stay clean.
+final DateTime y1 = notTok.toUtc();
+
+// (r6-10) a LEGAL operation on a token — MUST stay clean. .isBefore against
+// another token is explicitly legal; deciding whether the other side is an
+// instant is dataflow and deliberately out of scope.
+final bool y2 = tokA.isBefore(tokB);
+
+// (r6-11) reading calendar fields off a token — the documented LEGAL use.
+final int y3 = tokA.day;
+
+// (r6-12) an identifier not declared as a token in this file — MUST stay
+// clean (the same-file/undeclared honest limit).
+final DateTime y4 = someOtherThing.toUtc();
+
+// (r6-13) same-line date-token-ok marker — MUST stay clean.
+final DateTime y5 = tokA.toUtc(); // date-token-ok: demonstrating the failure
+
+// (r6-14) marker on the line directly above — MUST stay clean.
+// date-token-ok: demonstrating the failure
+final DateTime y6 = tokA.toUtc();
+
+// (r6-15) whole-line comment — MUST stay clean.
+// final DateTime y7 = tokA.toUtc();
+
+// (r6-16) inside a string literal — MUST stay clean.
+const String y8 = "tokA.toUtc()";
+
+// (r6-17) trailing comment hides it — MUST stay clean.
+final DateTime y9 = z; // tokA.toUtc()
+
+// (r6-18) a LONGER identifier merely ENDING in a token name — MUST stay clean.
+final DateTime y10 = myTokA.toUtc();
+EOF
+  token_offender_lines=(20 23 26 29 33 36 41 44)
+  token_clean_lines=(49 54 57 61 64 68 71 74 77 80)
 
   out="$(run_scan "$tmp")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
-  expected=$(( ${#probe_paths[@]} * offenders_per_probe + ${#clock_probe_paths[@]} * clock_offenders_per_probe + identifier_offenders_total + ${#now_offender_lines[@]} + ${#mix_offender_lines[@]} ))
+  expected=$(( ${#probe_paths[@]} * offenders_per_probe + ${#clock_probe_paths[@]} * clock_offenders_per_probe + identifier_offenders_total + ${#now_offender_lines[@]} + ${#mix_offender_lines[@]} + ${#read_offender_lines[@]} + ${#token_offender_lines[@]} + ${#read_control_r3_lines[@]} ))
   if [ "$flagged" -ne "$expected" ]; then
     echo "SELF-TEST FAIL: expected exactly $expected offenders"
     echo "                ($offenders_per_probe Rule-1 hits × ${#probe_paths[@]}"
@@ -1650,14 +2438,86 @@ EOF
       exit 1
     fi
   done
-  if printf '%s\n' "$out" | grep -qE "^R[123]:$tmp/$mix_probe:"; then
-    echo "SELF-TEST FAIL: $mix_probe was flagged by Rule 1, 2 or 3 — it"
+  if printf '%s\n' "$out" | grep -qE "^R[1235]:$tmp/$mix_probe:"; then
+    echo "SELF-TEST FAIL: $mix_probe was flagged by Rule 1, 2, 3 or 5 — it"
     echo "                contains only .utc instants, clock: sites resolving"
-    echo "                to a .utc declaration, and sits under test/ (which"
-    echo "                Rule 3 does not scan):"
+    echo "                to a .utc declaration, host reads written in RULE"
+    echo "                5-clean form, and sits under test/ (which Rule 3"
+    echo "                does not scan):"
     printf '%s\n' "$out"
     exit 1
   fi
+
+  # ---- RULE 5 assertions -----------------------------------------------
+  for ln in "${read_offender_lines[@]}"; do
+    if ! printf '%s\n' "$out" | grep -q "^R5:$tmp/$read_probe:$ln:"; then
+      echo "SELF-TEST FAIL: expected a Rule-5 offender at $read_probe:$ln,"
+      echo "                none found. Is '$mix_scan_dir' still walked with"
+      echo "                do_rule5=1 by run_scan? Lines 39/43 in particular"
+      echo "                pin that kyivDayOf(DateTime.now()) and"
+      echo "                kyivToday(DateTime.now()) are NOT accepted"
+      echo "                spellings — only the kyivToday(DateTime.now)"
+      echo "                tear-off is."
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  for ln in "${read_clean_lines[@]}"; do
+    if printf '%s\n' "$out" | grep -q "^R5:$tmp/$read_probe:$ln:"; then
+      echo "SELF-TEST FAIL: line $ln of $read_probe should NOT be flagged by"
+      echo "                Rule 5 (canonical seam tear-off / instant-only"
+      echo "                consumption / instant-ok annotated / whole-line"
+      echo "                comment / string literal / trailing comment /"
+      echo "                longer identifier), but was. Line 6 in particular"
+      echo "                is the DOMINANT correct pattern in this tier:"
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  for ln in "${read_control_r3_lines[@]}"; do
+    if ! printf '%s\n' "$out" | grep -q "^R3:$tmp/$read_control_path:$ln:"; then
+      echo "SELF-TEST FAIL: $read_control_path:$ln should still be reported by"
+      echo "                RULE 3 — restricting Rule 5 to $mix_scan_dir/ is"
+      echo "                only sound because the E2E tier is covered by a"
+      echo "                stricter rule, and this is what proves the hit is"
+      echo "                not simply lost:"
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  if printf '%s\n' "$out" | grep -q "^R5:$tmp/$read_control_path:"; then
+    echo "SELF-TEST FAIL: the integration_test/-side Rule-5 scan-root control"
+    echo "                was flagged by Rule 5 — Rule 5 is not restricted to"
+    echo "                $mix_scan_dir/ at all, and every hit there is now"
+    echo "                double-reported under both R3 and R5:"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+
+  # ---- RULE 6 assertions -----------------------------------------------
+  for ln in "${token_offender_lines[@]}"; do
+    if ! printf '%s\n' "$out" | grep -q "^R6:$tmp/$token_probe:$ln:"; then
+      echo "SELF-TEST FAIL: expected a Rule-6 offender at $token_probe:$ln,"
+      echo "                none found. This probe lives under lib/ — is"
+      echo "                'lib' still in token_scan_dirs AND actually walked"
+      echo "                by run_scan's second loop? (Line 40 pins that the"
+      echo "                seam's matching ')' is found by depth tracking, not"
+      echo "                by a regex that truncates at a nested call.)"
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  for ln in "${token_clean_lines[@]}"; do
+    if printf '%s\n' "$out" | grep -q "^R6:$tmp/$token_probe:$ln:"; then
+      echo "SELF-TEST FAIL: line $ln of $token_probe should NOT be flagged by"
+      echo "                Rule 6 (.toUtc on a genuine instant / a LEGAL token"
+      echo "                operation / calendar-field read / undeclared name /"
+      echo "                date-token-ok annotated / comment / string literal /"
+      echo "                longer identifier), but was:"
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
 
   echo "SELF-TEST PASS: RULE 1 — qualified constructors (DateTime.utc,"
   echo "                TZDateTime), derived first args, comments (whole-line"
@@ -1718,6 +2578,42 @@ EOF
   echo "                annotated read under a pin, an explicit clock: null,"
   echo "                a longer identifier ending in DateTime.now, and a"
   echo "                file-scope read outside any test body all stay clean."
+  echo "                Both of Rule 4's originally-documented blind spots are"
+  echo "                pinned closed: a pin installed in a group-level setUp"
+  echo "                is now seen by a SIBLING test in that group, and a pin"
+  echo "                arriving under a helper parameter named neither clock:"
+  echo "                nor now: is recognised via a name DERIVED from the"
+  echo "                file's own clockProvider.overrideWithValue(...) call —"
+  echo "                while an UNPINNED group and the same derived name"
+  echo "                passed explicitly null both stay clean."
+  echo "                RULE 5 — a raw DateTime.now under $mix_scan_dir/ that"
+  echo "                neither reaches the canonical seam nor is consumed as"
+  echo "                an instant is flagged: a bare read into a local, into"
+  echo "                an argument, a direct calendar-field read, the"
+  echo "                non-canonical kyivDayOf(DateTime.now()) and"
+  echo "                kyivToday(DateTime.now()) spellings, and"
+  echo "                .toIso8601String() (host wall-clock output, not an"
+  echo "                instant op); while kyivToday(DateTime.now), .add /"
+  echo "                .subtract / .toUtc / .millisecondsSinceEpoch, an"
+  echo "                instant-ok annotation, comments, string literals and a"
+  echo "                longer identifier all stay clean — and the SAME shapes"
+  echo "                under $now_scan_dir/ contribute no R5 while still being"
+  echo "                reported by Rule 3, so no hit is lost and none is"
+  echo "                double-reported."
+  echo "                RULE 6 — .toUtc()/.toLocal() on a DATE TOKEN is flagged"
+  echo "                both DIRECTLY on the seam call (including with a nested"
+  echo "                call inside its own argument list, pinning depth-tracked"
+  echo "                paren matching) and INDIRECTLY through a same-file"
+  echo "                declaration in every form (typed, getter, zero-arg"
+  echo "                function, untyped final, and one whose seam call wraps"
+  echo "                onto following lines), including the private _dateOnly"
+  echo "                re-implementations; while .toUtc() on a genuine instant,"
+  echo "                a LEGAL token operation (.isBefore, calendar fields), an"
+  echo "                undeclared name, a date-token-ok annotation, comments,"
+  echo "                string literals and a longer identifier all stay clean."
+  echo "                Its probe lives under lib/ — the one root only Rule 6"
+  echo "                walks — which pins that wider scan root independently"
+  echo "                of the matching logic."
   exit 0
 fi
 
@@ -1729,6 +2625,8 @@ rule1_offenders="$(printf '%s\n' "$offenders" | grep '^R1:' | sed 's/^R1://' || 
 rule2_offenders="$(printf '%s\n' "$offenders" | grep '^R2:' | sed 's/^R2://' || true)"
 rule3_offenders="$(printf '%s\n' "$offenders" | grep '^R3:' | sed 's/^R3://' || true)"
 rule4_offenders="$(printf '%s\n' "$offenders" | grep '^R4:' | sed 's/^R4://' || true)"
+rule5_offenders="$(printf '%s\n' "$offenders" | grep '^R5:' | sed 's/^R5://' || true)"
+rule6_offenders="$(printf '%s\n' "$offenders" | grep '^R6:' | sed 's/^R6://' || true)"
 
 failed=0
 
@@ -1866,6 +2764,71 @@ if [ -n "$rule4_offenders" ]; then
   echo "If this read is a genuine elapsed-wall-time use (a timeout, a duration"
   echo "measurement) that the pinned clock is irrelevant to, annotate it:"
   echo "    // instant-ok: <why the DEVICE clock is correct despite the pin>"
+  echo
+  echo "There is no allow-list for this gate and none should be added."
+  echo
+fi
+
+if [ -n "$rule5_offenders" ]; then
+  failed=1
+  echo "Raw device-clock read that neither goes through the Kyiv-day seam nor"
+  echo "is consumed as an instant, under $mix_scan_dir/ (RULE 5):"
+  echo "$rule5_offenders"
+  echo
+  echo "This tier has no single injected clock, so reading the DEVICE clock is"
+  echo "often exactly right — but only when the fixture lands on the same KYIV"
+  echo "calendar day the widget derives from that same clock. A bare"
+  echo "DateTime.now().month / .day / .year is the DEVICE's calendar, which"
+  echo "differs from Kyiv's for part of every 24h window on any non-Kyiv host."
+  echo
+  echo "Say which one this read is, at the read site:"
+  echo "    final DateTime today = kyivToday(DateTime.now);   // a KYIV calendar day"
+  echo "    DateTime.now().add(const Duration(days: 2))       // an INSTANT"
+  echo "    DateTime.now().toUtc().subtract(...)              // an INSTANT"
+  echo
+  echo "kyivToday(DateTime.now) — the TEAR-OFF form — is the single canonical"
+  echo "spelling under $mix_scan_dir/. kyivToday(DateTime.now()) and"
+  echo "kyivDayOf(DateTime.now()) are deliberately NOT accepted: they mean the"
+  echo "same thing and the normalisation pass removed them, so a hit on either"
+  echo "is a spelling to fix, not a false positive."
+  echo
+  echo "If this read is a genuine absolute-instant use that no zone conversion"
+  echo "would change — a duration measurement, an elapsed-wall-time bracket —"
+  echo "annotate it with the same marker Rules 3 and 4 use:"
+  echo "    // instant-ok: <why the DEVICE clock is correct here>"
+  echo
+  echo "There is no allow-list for this gate and none should be added."
+  echo
+fi
+
+if [ -n "$rule6_offenders" ]; then
+  failed=1
+  echo ".toUtc()/.toLocal() applied to a DATE TOKEN, under ${token_scan_dirs[*]}"
+  echo "(RULE 6 — the only rule here that also scans lib/):"
+  echo "$rule6_offenders"
+  echo
+  echo "kyivToday(...) / kyivDayOf(...) / dateOnly(...) return a DATE TOKEN, not"
+  echo "an instant: a host-local DateTime sitting at host-local MIDNIGHT whose"
+  echo ".year/.month/.day carry the KYIV calendar day. lib/shared/time/"
+  echo "kyiv_day.dart's header lists .toUtc() on such a value as explicitly"
+  echo "ILLEGAL — 'there is no meaningful UTC form of a value that was never"
+  echo "really an instant; the call compiles, runs, and returns garbage.'"
+  echo
+  echo "What it actually computes is 'host-local midnight on that day, expressed"
+  echo "as UTC', which shifts with the HOST's zone. token.toUtc().add(12h) lands"
+  echo "inside the intended Kyiv day from Kyiv/UTC/Tokyo but rolls a day FORWARD"
+  echo "from any western host (UTC-10: midnight local is 10:00Z, +12h = 22:00Z,"
+  echo "already the next Kyiv day)."
+  echo
+  echo "Rebuild the instant from the token's calendar fields instead:"
+  echo "    asClockInstant(dayToken)                       // test/helpers/clock_instant.dart — noon UTC on that day"
+  echo "    DateTime.utc(d.year, d.month, d.day, hourUtc)  // when a specific hour is needed"
+  echo "    tz.TZDateTime(beauticaZone, d.year, d.month, d.day, h).toUtc()  // a specific KYIV wall time"
+  echo
+  echo "If performing the banned operation is genuinely the subject here (there"
+  echo "is exactly ONE such place in this tree — kyiv_day_test.dart's runnable"
+  echo "demonstration that it returns garbage), annotate it:"
+  echo "    // date-token-ok: <why treating a Kyiv day token as an instant is correct here>"
   echo
   echo "There is no allow-list for this gate and none should be added."
   echo

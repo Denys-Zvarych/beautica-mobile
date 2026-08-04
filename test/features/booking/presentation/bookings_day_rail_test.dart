@@ -6,7 +6,7 @@
 // with no bookings on it. `_rail()` below defaults `selectedDay` to [today]
 // so every pre-existing call site keeps expressing "some day is selected"
 // without having to say which. The Kyiv-vs-host "today" DERIVATION itself
-// (`dateOnly(toBeauticaTime(DateTime.now()))`) is NOT this widget's
+// (`kyivToday(DateTime.now)`) is NOT this widget's
 // responsibility — it lives in `BookingsDiscoveryView`, which is why that
 // assertion lives in `master_bookings_screen_test.dart` instead of here; this
 // file only pins that the RAIL renders whatever day it is handed as selected,

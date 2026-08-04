@@ -98,9 +98,14 @@ part 'master_service_catalog_provider.g.dart';
 
 /// The authenticated master's full service catalogue.
 ///
-/// Resolves to an empty list (never throws) when no services are configured —
-/// [ServiceRepository.listMyServices]'s contract. Consumers should treat an
-/// empty catalogue as "no service filter is offerable", not as an error.
+/// Resolves to an empty list when the master has no services configured — but
+/// ONLY for a well-formed empty response. This provider is NOT error-free:
+/// [ServiceRepository.listMyServices] throws a `Failure` on any transport or
+/// HTTP error, and (since the null-envelope fix) also on a 200 whose envelope
+/// carries a null `data`, because a malformed success must never be
+/// presentable as an empty catalogue. Consumers must therefore handle the
+/// [AsyncError] state, and treat an EMPTY catalogue — not a failed one — as
+/// "no service filter is offerable".
 ///
 /// `keepAlive` so repeated filter-sheet opens cost zero requests; see the file
 /// header for why this does not reuse `servicesListProvider`.

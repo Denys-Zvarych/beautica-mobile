@@ -132,6 +132,11 @@ void main() {
       ); // date token: Aug 2, host-local midnight.
 
       // The ORIGINAL instant is nowhere near host-local midnight on Aug 2.
+      // This assertion IS the demonstration that `.toUtc()` on a date token is
+      // garbage — `isNot(...)` asserts the round-trip FAILS. It is the one
+      // place in the tree where performing the banned operation is the point,
+      // and the only reason RULE 6 exists to flag it everywhere else.
+      // date-token-ok: performing the banned operation IS this test's subject
       expect(instant, isNot(token.toUtc()));
       // `.toUtc()` on the token instead reports "midnight Aug 2 in the HOST's
       // own zone, expressed as UTC" — a value with no relationship to

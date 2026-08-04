@@ -53,7 +53,7 @@ const _basePath = '/api/v1/masters/$_masterId/weekly-schedules';
 /// TZ, not just the dev VM's Europe/Kyiv. Was a bare `DateTime(now.year,
 /// now.month, now.day)` (the device's own day) until the TZ=Asia/Tokyo sweep
 /// caught the divergence (2026-08-02).
-DateTime _today() => kyivDayOf(DateTime.now());
+DateTime _today() => kyivToday(DateTime.now);
 
 Date _date(DateTime d) => Date(d.year, d.month, d.day);
 

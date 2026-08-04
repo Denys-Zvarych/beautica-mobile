@@ -315,11 +315,11 @@ void main() {
 
       // Kyiv-anchored (backlog :226): production now derives "today" via
       // kyivToday(ref.read(clockProvider)), which — since clockProvider is
-      // NOT overridden in this test — resolves to kyivDayOf(DateTime.now()).
+      // NOT overridden in this test — resolves to kyivToday(DateTime.now).
       // The oracle here must match that exactly, not the device's raw day,
       // or this assertion is host-TZ-dependent instead of a real pin (caught
       // by the TZ=Asia/Tokyo sweep, 2026-08-02).
-      final DateTime today = kyivDayOf(DateTime.now());
+      final DateTime today = kyivToday(DateTime.now);
       final DateTime expectedFrom = DateTime(
         today.year,
         today.month,

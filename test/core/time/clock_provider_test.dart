@@ -20,8 +20,15 @@ void main() {
       final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
+      // This test's SUBJECT is that the UN-overridden clockProvider returns the
+      // real device instant. `before`/`after` bracket the read as absolute
+      // instants and are consumed only by `.isBefore`/`.isAfter` against it —
+      // no calendar day is ever derived from either, so Kyiv-anchoring them via
+      // kyivToday would destroy the very property under test.
+      // instant-ok: opening half of an absolute-instant bracket; see above
       final before = DateTime.now();
       final now = container.read(clockProvider)();
+      // instant-ok: closing half of the bracket above — same rationale.
       final after = DateTime.now();
 
       // The default clock returns the real instant — within the wall-clock

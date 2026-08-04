@@ -62,9 +62,9 @@ import 'package:beautica_mobile/features/booking/presentation/master_bookings_sc
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
-import 'package:beautica_mobile/shared/formatters/api_date.dart';
-import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
+import '../../../helpers/clock_instant.dart';
 import '../../../helpers/pump_app.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
@@ -315,10 +315,8 @@ void main() {
       tester.element(find.byType(BookingsDayRail)),
       listen: false,
     );
-    final DateTime kyivToday = dateOnly(toBeauticaTime(DateTime.now()));
-    container.invalidate(
-      bookingsDayProvider(BookingsDayQuery.of(day: kyivToday)),
-    );
+    final DateTime today = kyivToday(DateTime.now);
+    container.invalidate(bookingsDayProvider(BookingsDayQuery.of(day: today)));
     await tester.pump();
     await tester.pumpAndSettle();
 
@@ -410,8 +408,18 @@ void main() {
 
     Future<_MockBookingRepository> pumpScreen(WidgetTester tester) async {
       final _MockBookingRepository repo = _MockBookingRepository();
-      final DateTime kyivToday = dateOnly(toBeauticaTime(DateTime.now()));
-      final DateTime start = kyivToday.toUtc().add(const Duration(hours: 12));
+      final DateTime today = kyivToday(DateTime.now);
+      // `today` is a DATE TOKEN, not an instant (see
+      // `lib/shared/time/kyiv_day.dart`'s header): `.toUtc()` on it is on the
+      // ILLEGAL list precisely because it reinterprets host-local midnight as
+      // though it were already an instant. The old
+      // `today.toUtc().add(12h)` happened to land inside the right Kyiv day
+      // from Kyiv/UTC/Tokyo, but under a WESTERN host zone (e.g. UTC-10) it
+      // rolls a day forward — midnight local is 10:00Z, +12h = 22:00Z, which
+      // is already the NEXT Kyiv day. `asClockInstant` reads only the token's
+      // calendar fields and returns noon UTC on that day, which is 14:00-15:00
+      // Kyiv from any host.
+      final DateTime start = asClockInstant(today);
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
@@ -528,9 +536,9 @@ void main() {
         await pumpScreen(tester);
 
         final BookingsTimelineGrid before = grid(tester);
-        final DateTime kyivToday = dateOnly(toBeauticaTime(DateTime.now()));
+        final DateTime today = kyivToday(DateTime.now);
 
-        await tester.tap(find.byKey(dayChipKey(railDayAt(kyivToday, 1))));
+        await tester.tap(find.byKey(dayChipKey(railDayAt(today, 1))));
         // fixed-wait-ok: advancing past the 220 ms day-select debounce.
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();
@@ -551,11 +559,11 @@ void main() {
       'prev/next',
       (tester) async {
         await pumpScreen(tester);
-        final DateTime kyivToday = dateOnly(toBeauticaTime(DateTime.now()));
+        final DateTime today = kyivToday(DateTime.now);
 
         // Move off today first, so «Сьогодні» has a real selection change to
         // make rather than resolving to the day already shown.
-        await tester.tap(find.byKey(dayChipKey(railDayAt(kyivToday, 2))));
+        await tester.tap(find.byKey(dayChipKey(railDayAt(today, 2))));
         // fixed-wait-ok: advancing past the 220 ms day-select debounce.
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();

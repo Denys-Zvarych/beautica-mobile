@@ -42,7 +42,35 @@
 // (deep_link_patrol_test.dart) does NOT use this harness — it drives the REAL
 // launched app via `$.platform.mobile.openUrl(...)` and a deep-link intent — but
 // it DOES apply the same [applyE2eBootPolicy], so no patrol entry point boots
-// unguarded.
+// without the shared GUARDS.
+//
+// THAT SENTENCE COVERS GUARDS, NOT PROVIDERS — READ IT NARROWLY (2026-08-04)
+// -------------------------------------------------------------------------
+// [applyE2eBootPolicy] installs the overflow guard, the off-screen-tap guard,
+// the text-input mock, the timezone database and the splash-gate priming. It
+// does NOT install any provider override. Those come from
+// `e2eProviderOverrides(...)`, which [boot] below passes and which
+// `deep_link_patrol_test.dart` deliberately does not — it pumps
+// `ProviderScope(child: BeauticaApp())` bare, so that ONE flow runs on the REAL
+// device clock, the REAL Dio and the REAL SecureStorage, while every other E2E
+// entry point (both tiers) runs on `kFixedNow`.
+//
+// That is correct for what it tests (an OS-level App Link intent reaching the
+// real app) and there is no defect there today: a mobile-qa audit on
+// 2026-08-04 found the whole patrol tier contains ZERO `DateTime` references of
+// any kind, and neither live flow asserts on a date, a slot, a calendar cell or
+// any other clock-derived value. But the asymmetry is REAL and it is invisible
+// to every gate: `scripts/forbid_host_local_instant_anchor.sh` RULE 3 flags a
+// `DateTime.now` READ in an integration test, and RULE 4 flags a fixture/pin
+// mismatch inside one test body — neither can see "this flow's APP is on the
+// live clock while the tier's shared fixtures are pinned to kFixedNow".
+//
+// SO: anything added to `deep_link_patrol_test.dart` that touches a date must
+// either derive it from the REAL clock (`kyivToday(DateTime.now)` — correct
+// there, wrong everywhere else in this tier) or that flow must start passing
+// `e2eProviderOverrides(...)` like every other entry point. Do not copy a
+// `kFixedNow`-anchored fixture into it from a sibling E2E file; it will be
+// comparing against a clock that flow does not share.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/routing/app_router.dart';

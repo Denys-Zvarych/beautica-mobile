@@ -93,6 +93,7 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -144,7 +145,7 @@ BookingConfirmArgs _validConfirmArgs() => BookingConfirmArgs(
   masterId: _kMasterId,
   master: _kMaster,
   services: <MasterService>[_kService],
-  startAt: DateTime(2026, 7, 20, 10),
+  startAt: DateTime.utc(2026, 7, 20, 10),
   idempotencyKey: 'guard-key-1',
 );
 
@@ -152,7 +153,7 @@ BookingConfirmArgs _validConfirmArgs() => BookingConfirmArgs(
 BookingSuccessArgs _validSuccessArgs() => BookingSuccessArgs(
   master: _kMaster,
   services: <MasterService>[_kService],
-  startAt: DateTime(2026, 7, 20, 10),
+  startAt: DateTime.utc(2026, 7, 20, 10),
 );
 
 // Phase 14.12/14.13 — salon booking flow fixtures.
@@ -283,7 +284,14 @@ class _SettledMasterProfileNotifier extends MasterProfile {
 /// precondition.
 class _SettledSlotPickerNotifier extends SlotPicker {
   @override
-  SlotPickerState build() => SlotPickerState(selectedDate: DateTime.now());
+  // `selectedDate` is a DATE TOKEN (a Kyiv calendar day), not an instant — the
+  // real screen seeds it from `kyivToday(ref.read(clockProvider))`. Seeding it
+  // with a bare `DateTime.now()` handed the guard a host-local INSTANT whose
+  // `.year`/`.month`/`.day` are the DEVICE's calendar day, which is a
+  // different day from Kyiv's for part of every 24h window on any non-Kyiv
+  // host.
+  SlotPickerState build() =>
+      SlotPickerState(selectedDate: kyivToday(DateTime.now));
 }
 
 /// [MaterialApp.router] wrapper for the real [appRouter] with l10n delegates.

@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -375,11 +376,11 @@ void main() {
       );
       final container = _container(repo);
 
-      final DateTime beforeCall = dateOnly(toBeauticaTime(DateTime.now()));
+      final DateTime beforeCall = kyivToday(DateTime.now);
       final Booking? result = await container.read(
         nextAppointmentProvider.future,
       );
-      final DateTime afterCall = dateOnly(toBeauticaTime(DateTime.now()));
+      final DateTime afterCall = kyivToday(DateTime.now);
 
       expect(result, isNull);
       expect(repo.callCount, 1);
