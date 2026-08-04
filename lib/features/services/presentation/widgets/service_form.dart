@@ -5,7 +5,14 @@
 //   - Exposes a "Незбережені зміни" badge via [_DirtyMarker] (fades in whenever
 //     any field diverges from the loaded values).
 //   - [ServiceEditScreen] passes [initial] and a [MasterServiceUpdate]-producing
-//     [onSubmit] callback; [ServiceCreateScreen] passes nothing (blank form).
+//     [onSubmit] callback.
+//   - The blank-form (create) mode is currently UNUSED: `ServiceCreateScreen`
+//     was deleted on 2026-08-04 when both "add service" entry points collapsed
+//     onto the multi-select `ServiceSetupScreen`. [ServiceEditScreen] is now the
+//     only caller, so `initial` is always non-null in practice. The blank path
+//     is kept rather than ripped out because the dirty-tracking + validation it
+//     shares with the edit path is the same code; deleting it would mean
+//     rewriting the edit path around a narrower contract for no gain.
 // Phase 5.x — Category chip selector added between the name field and the
 //   duration+pricing row. Supports both create (blank) and edit (pre-populated)
 //   modes. Dirty-state tracking includes the selected category.

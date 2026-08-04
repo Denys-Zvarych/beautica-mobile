@@ -31,6 +31,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/server_field_message.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -167,7 +168,17 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
           if (fieldMsg != null) {
             setState(() {
               _submitting = false;
-              _serverNameError = fieldMsg;
+              // The server string is untrusted input rendered straight into a
+              // field label. Keep it only while it is short enough to BE a
+              // field hint — this dialog is capped at 420 dp and a long message
+              // pushes the submit button off-screen — otherwise fall back to
+              // the localized copy. (This entry point moved from buried in the
+              // service-form picker to one tap off the main services screen,
+              // so it is now genuinely reachable.)
+              _serverNameError = serverFieldMessageOr(
+                fieldMsg,
+                l10n.categoryRequestNameInvalid,
+              );
             });
             return;
           }

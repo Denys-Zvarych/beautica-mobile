@@ -120,6 +120,7 @@ import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'schedule_override_conflict_flow_test.dart'
     as schedule_override_conflict;
+import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
@@ -309,6 +310,10 @@ void main() {
   // DayOffConflictDialog, confirming declines the conflicting booking,
   // backing out persists nothing at all.
   group('schedule_override_conflict_flow', schedule_override_conflict.main);
+  // APPEND: a master WITH a catalogue opens /services/setup from the list FAB,
+  // the type they already offer renders inert, and the bulk POST carries only
+  // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
+  group('service_append_flow', service_append.main);
   group('service_crud_flow', service_crud.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays
   // open, never errServer (Step 2.7 Rule 3b — the catalogue duplicate fix E2E).

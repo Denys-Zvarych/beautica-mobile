@@ -1705,6 +1705,14 @@
   "@categoryRequestCodeHelper": {
     "description": "Helper caption under the code/slug field explaining it is auto-generated from the name and editable."
   },
+  "categoryRequestNameInvalid": "Перевірте назву категорії",
+  "@categoryRequestNameInvalid": {
+    "description": "Fallback inline error on the category-name field when the backend rejected it but its own message is absent, blank, or too long to render as a field hint. Distinct from categoryRequestNameError, which is the client-side 'you left it empty' case."
+  },
+  "serviceTypeSuggestNameInvalid": "Перевірте назву послуги",
+  "@serviceTypeSuggestNameInvalid": {
+    "description": "Fallback inline error on the service-type name field when the backend rejected it but its own message is absent, blank, or too long to render as a field hint. Distinct from serviceTypeSuggestNameError, which is the client-side 'you left it empty' case."
+  },
   "categoryRequestNameError": "Введіть назву категорії",
   "@categoryRequestNameError": {
     "description": "Validation error shown when the display-name field is empty in the suggest-a-category dialog."
@@ -2545,17 +2553,32 @@
   "@serviceSetupClose": {
     "description": "Semantic label for the close button on the service-setup screen."
   },
-  "serviceSetupMissingNoteLead": "Не знайшли потрібну послугу? ",
-  "@serviceSetupMissingNoteLead": {
-    "description": "Bold lead-in of the helper note at the top of the service-setup screen."
+  "serviceSetupTitleAppend": "Додати послуги",
+  "@serviceSetupTitleAppend": {
+    "description": "App-bar title of the service-setup screen when the master already has services (APPEND mode)."
   },
-  "serviceSetupMissingNoteBody": "Нічого страшного — додайте те, що пропонуєте зараз, а решту зможете запросити пізніше на сторінці ",
-  "@serviceSetupMissingNoteBody": {
-    "description": "Body of the helper note explaining missing service-types can be requested later."
+  "serviceSetupMissingCategoryLead": "Немає потрібної категорії?",
+  "@serviceSetupMissingCategoryLead": {
+    "description": "Lead-in of the tappable request-a-category strip above the category chips."
   },
-  "serviceSetupMissingNoteServicesWord": "«Послуги»",
-  "@serviceSetupMissingNoteServicesWord": {
-    "description": "The emphasised «Послуги» (Services) page name inside the helper note."
+  "serviceSetupRequestCategoryAction": "Запропонувати категорію",
+  "@serviceSetupRequestCategoryAction": {
+    "description": "Action phrase of the request-a-category strip; also its semantic label. Opens the category-request dialog."
+  },
+  "serviceSetupMissingTypePrompt": "Немає потрібної послуги в «{category}»? Запропонувати",
+  "@serviceSetupMissingTypePrompt": {
+    "description": "Tappable prompt closing an expanded category's service-type rows. Opens the service-type suggestion dialog for that category.",
+    "placeholders": {
+      "category": { "type": "String" }
+    }
+  },
+  "serviceSetupAllAlreadyAdded": "Ви вже пропонуєте всі послуги цієї категорії.",
+  "@serviceSetupAllAlreadyAdded": {
+    "description": "Shown under an expanded category when every service type in it is already in the master's menu."
+  },
+  "serviceSetupRetry": "Повторити",
+  "@serviceSetupRetry": {
+    "description": "Retry action on the snackbar shown when a bulk save fails transiently (HTTP 503)."
   },
   "serviceSetupSectionCategories": "ОБЕРІТЬ КАТЕГОРІЇ",
   "@serviceSetupSectionCategories": {
@@ -2576,6 +2599,10 @@
   "serviceSetupRowExcluded": "Не пропонується",
   "@serviceSetupRowExcluded": {
     "description": "Sub-label shown on a service-type row card when its include toggle is OFF."
+  },
+  "serviceSetupRowAlreadyAdded": "Вже додано",
+  "@serviceSetupRowAlreadyAdded": {
+    "description": "Sub-label and semantic label on a service-type row the master already offers. The row is inert: it cannot be selected and is never submitted."
   },
   "serviceSetupRowMissingPrice": "Вкажіть тривалість і ціну",
   "@serviceSetupRowMissingPrice": {
@@ -2628,17 +2655,47 @@
       "count": { "type": "int" }
     }
   },
+  "serviceSetupCtaAdd": "{count, plural, =0{Оберіть послуги} one{Додати {count} послугу} few{Додати {count} послуги} many{Додати {count} послуг} other{Додати {count} послуг}}",
+  "@serviceSetupCtaAdd": {
+    "description": "Footer CTA label in APPEND mode (the master already has services), counting the services the save would add.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "serviceSetupSuccess": "Послуги створено",
   "@serviceSetupSuccess": {
-    "description": "Snackbar shown after the first-time bulk service setup succeeds."
+    "description": "Snackbar shown after a bulk service save succeeds."
   },
   "serviceErrDuplicate": "Ця послуга вже є у вашому переліку.",
   "@serviceErrDuplicate": {
     "description": "Error shown when a service-catalog create/update/bulk write returns 409 DUPLICATE_SERVICE because the service is already in the master's menu."
   },
-  "serviceSetupErrAlreadyHasServices": "У вас вже є послуги",
-  "@serviceSetupErrAlreadyHasServices": {
-    "description": "Error shown when the bulk-setup endpoint returns 409 because the master already has services."
+  "serviceSetupErrBusy": "Не вдалося зберегти — спробуйте ще раз. Послуги не збережено.",
+  "@serviceSetupErrBusy": {
+    "description": "Error shown when the bulk-setup endpoint returns 503 (per-master lock held past the backend's 3s ceiling). Transient and safe to retry; the batch is all-or-nothing so the copy states explicitly that nothing was saved."
+  },
+  "serviceErrRateLimited": "Забагато спроб збереження. Зачекайте {seconds} с і спробуйте ще раз.",
+  "@serviceErrRateLimited": {
+    "description": "Error shown when a service-catalogue write returns 429 and the server sent a usable Retry-After header. Names the wait so the master knows the limit clears on its own; the snackbar deliberately carries NO retry action, because an action here would promise an immediate success the limiter cannot give.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "serviceErrRateLimitedNoWait": "Забагато спроб збереження. Зачекайте трохи й спробуйте ще раз.",
+  "@serviceErrRateLimitedNoWait": {
+    "description": "Error shown when a service-catalogue write returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as serviceErrRateLimited minus the countdown."
+  },
+  "serviceSetupErrDuplicateAfterRetry": "Ці послуги вже є у вашому переліку. Попередня спроба могла зберегтися — перевірте список послуг.",
+  "@serviceSetupErrDuplicateAfterRetry": {
+    "description": "Shown when a 409 DUPLICATE_SERVICE arrives on a save that was itself a retry after a 503. The earlier attempt's outcome is genuinely unknown client-side (an edge-proxy 503 can follow a committed write), so the copy asserts neither 'saved' nor 'not saved' and points the master at their services list to check."
+  },
+  "serviceSetupRowAlreadyInMenu": "Уже у вашому переліку",
+  "@serviceSetupRowAlreadyInMenu": {
+    "description": "Row-level flag on a service-type card after a 409 duplicate: the refreshed catalogue shows the master already offers this type, so it was turned off. Distinct from serviceSetupRowAlreadyAdded, which is the calm at-load state rather than a just-changed one."
+  },
+  "serviceSetupPriceInvalid": "Перевірте ціну",
+  "@serviceSetupPriceInvalid": {
+    "description": "Fallback inline price-field error used when the backend's own message is absent, blank, or unreasonably long. Untrusted server strings never reach a UI label unbounded."
   },
   "settingsHubMenuButton": "Налаштування",
   "@settingsHubMenuButton": {

@@ -12,8 +12,8 @@ Method | HTTP request | Description
 [**addIndependentMasterService**](ServiceControllerApi.md#addindependentmasterservice) | **POST** /api/v1/independent-masters/me/services | 
 [**addServiceToSalon**](ServiceControllerApi.md#addservicetosalon) | **POST** /api/v1/salons/{salonId}/services | 
 [**assignServiceToMaster**](ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
-[**bulkCreateMasterServices**](ServiceControllerApi.md#bulkcreatemasterservices) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services/bulk | Bulk-create a salon master&#39;s services (first-time setup)
-[**bulkCreateMyServices**](ServiceControllerApi.md#bulkcreatemyservices) | **POST** /api/v1/independent-masters/me/services/bulk | Bulk-create my services (first-time setup)
+[**bulkCreateMasterServices**](ServiceControllerApi.md#bulkcreatemasterservices) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services/bulk | Bulk-create a salon master&#39;s services
+[**bulkCreateMyServices**](ServiceControllerApi.md#bulkcreatemyservices) | **POST** /api/v1/independent-masters/me/services/bulk | Bulk-create my services
 [**deactivateServiceDefinition**](ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [**getMasterServices**](ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 [**getMyServices**](ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
@@ -154,9 +154,9 @@ No authorization required
 # **bulkCreateMasterServices**
 > ApiResponseListMasterServiceResponse bulkCreateMasterServices(salonId, masterId, bulkCreateServicesRequest)
 
-Bulk-create a salon master's services (first-time setup)
+Bulk-create a salon master's services
 
-Creates every selected service for the given master in one transaction. Only valid when the master has no active services yet (409 otherwise).
+Creates every selected service for the given master in one transaction (all-or-nothing). Additive — callable whether or not the master already has services.
 
 ### Example
 ```dart
@@ -201,9 +201,9 @@ No authorization required
 # **bulkCreateMyServices**
 > ApiResponseListMasterServiceResponse bulkCreateMyServices(bulkCreateServicesRequest)
 
-Bulk-create my services (first-time setup)
+Bulk-create my services
 
-Creates every selected service in one transaction. Only valid when the master has no active services yet (409 otherwise).
+Creates every selected service in one transaction (all-or-nothing). Additive — callable whether or not the master already has services.
 
 ### Example
 ```dart

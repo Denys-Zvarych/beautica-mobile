@@ -115,7 +115,14 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   /// [initState] fires only on first entry and will NOT re-run on pop-back —
   /// awaiting the [GoRouter.push] Future (which completes when the destination
   /// pops) is the simplest mechanism that reliably re-fires on every return
-  /// from the create / edit / request-category flows.
+  /// from the setup / edit / request-category flows.
+  ///
+  /// CONTRACT: every destination opened through here MUST exit by POPPING.
+  /// A `context.go(...)` exit replaces the stack instead of popping, so this
+  /// Future never completes, the invalidation never fires, and the awaited call
+  /// leaks — the exact bug that shipped when [ServiceSetupScreen] exited with
+  /// `go`. That screen now pops (see its `_leave`), which is why this hook is
+  /// sound for both the FAB and the empty-state CTA.
   Future<void> _openAndRefresh(String location) async {
     await context.push<void>(location);
     if (mounted) {
@@ -143,7 +150,11 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
             : _NeumorphicExtendedFab(
                 key: const Key('btn-create-service'),
                 label: l10n.servicesAdd,
-                onTap: () => _openAndRefresh(RouteNames.serviceCreate),
+                // ONE "add services" surface for both cases: the FAB (master
+                // already has services) and the empty-state CTA below both open
+                // the multi-select setup screen. The backend bulk endpoint is
+                // additive, so the same screen appends to an existing catalogue.
+                onTap: () => _openAndRefresh(RouteNames.serviceSetup),
               ),
         orElse: () => null,
       ),
@@ -185,10 +196,10 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
           },
           data: (list) {
             if (list.isEmpty) {
-              // First-time path: a master with zero services lands on the
-              // one-pass setup screen (bulk menu builder), NOT the single-create
-              // form. The setup screen invalidates this list and routes back
-              // here (now populated) on a successful bulk save.
+              // Same destination as the FAB — the multi-select setup screen is
+              // the only "add services" surface. It POPs back here on save /
+              // close, which is what lets [_openAndRefresh]'s awaited push
+              // resolve and re-fire the category invalidation.
               return _EmptyState(
                 onCreate: () => _openAndRefresh(RouteNames.serviceSetup),
               );

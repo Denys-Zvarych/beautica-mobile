@@ -71,7 +71,6 @@ import '../features/master/presentation/personal_info_edit_screen.dart';
 import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/public_master_reviews_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
-import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
@@ -964,14 +963,10 @@ GoRouter appRouter(Ref ref) {
           return ServicesListScreen(initialExpandCategory: expandCategory);
         },
       ),
-      // Phase 5.3 — Service create form (INDEPENDENT_MASTER).
-      // Uses MaterialPage so swipe-back works on the push stack.
-      GoRoute(
-        path: RouteNames.serviceCreate,
-        builder: (context, state) => const ServiceCreateScreen(),
-      ),
-      // First-time service setup (INDEPENDENT_MASTER) — the one-pass empty-state
-      // menu builder reached from the services-list empty state.
+      // Service setup (INDEPENDENT_MASTER) — the ONE "add services" surface,
+      // reached from both the services-list empty state and the «Додати
+      // послугу» FAB. (The Phase 5.3 single-create form at /services/create was
+      // removed when the two flows collapsed onto this screen.)
       // Uses MaterialPage so swipe-back works on the push stack.
       GoRoute(
         path: RouteNames.serviceSetup,

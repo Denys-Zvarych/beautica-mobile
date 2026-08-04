@@ -89,12 +89,17 @@ abstract interface class ServiceRepository {
 
   /// Creates ALL of [items] in one request for the authenticated master.
   ///
-  /// Wraps `POST /api/v1/independent-masters/me/services/bulk` — the first-time
-  /// (empty-catalogue) one-pass setup endpoint. The backend derives each
+  /// Wraps `POST /api/v1/independent-masters/me/services/bulk` — the one-pass
+  /// multi-select setup endpoint. **Additive** since `beautica-backend` c5e420f:
+  /// callable whether or not the master already has a catalogue, so it backs
+  /// both first-time setup and "add more services". The backend derives each
   /// service's name + category from its `serviceTypeId`, then persists the
   /// per-item duration + pricing block. Returns the list of newly-created
   /// [MasterService] records as mapped from the response (same envelope shape
   /// `listMyServices()` parses).
+  ///
+  /// All-or-nothing: if any item collides, the whole batch is rolled back and
+  /// nothing is written.
   ///
   /// The generated [ServiceControllerApi] does NOT yet expose this operation
   /// (the backend endpoint is on an unpushed branch; the mobile OpenAPI spec is
@@ -103,9 +108,13 @@ abstract interface class ServiceRepository {
   /// [standardSerializers] used by the generated client.
   ///
   /// Throws:
-  ///   - [MasterAlreadyHasServicesFailure] on **409** (the master already has
-  ///     at least one active service — the first-time guard tripped).
-  ///   - [ValidationFailure] on **400/422** (malformed items).
+  ///   - [ServiceDuplicateFailure] on **409** (`data.code ==
+  ///     "DUPLICATE_SERVICE"` — one item names a service the master already
+  ///     offers; the batch was rolled back).
+  ///   - [BulkSetupBusyFailure] on **503** (per-master lock held past the
+  ///     backend's 3 s ceiling). Transient; safe to retry, nothing was written.
+  ///   - [ValidationFailure] on **400/422** (malformed items, or a service-type
+  ///     id repeated within the batch).
   ///   - [NetworkFailure] / [ServerFailure] on other transport errors.
   Future<List<MasterService>> bulkCreate(List<MasterServiceBulkItem> items);
 
@@ -488,31 +497,86 @@ final class HttpServiceRepository implements ServiceRepository {
 
   /// Maps a [DioException] from the bulk-setup POST to a typed [Failure].
   ///
-  ///   - **409** → [MasterAlreadyHasServicesFailure] (the first-time guard
-  ///     tripped — the master already has an active service).
-  ///   - **400/422** → [ValidationFailure].
+  ///   - **409** → [ServiceDuplicateFailure]. Since `beautica-backend` c5e420f
+  ///     made bulk create ADDITIVE, 409 on this endpoint means exactly ONE
+  ///     thing: `data.code == DUPLICATE_SERVICE` — one item names a service the
+  ///     master already offers. The whole batch is rolled back, so nothing was
+  ///     written.
+  ///   - **503** → [BulkSetupBusyFailure] (the per-master advisory lock was held
+  ///     past the backend's 3 s ceiling). Transient and safe to retry.
+  ///   - **429** → [ServiceRateLimitedFailure] (the per-master bulk bucket,
+  ///     10/min, is exhausted). Reachable in ordinary use because the 503 branch
+  ///     hands the master an explicit retry action.
+  ///   - **400/422** → [ValidationFailure] (includes the in-batch duplicate
+  ///     service-type-id case and the per-item `items[i].field` errors).
   /// All other statuses defer to the shared [_mapDioException].
   ///
-  /// The 409 status check runs BEFORE deferring to any [Failure] the
+  /// Both status checks run BEFORE deferring to any [Failure] the
   /// [ErrorMapperInterceptor] may have attached (it maps a non-auth 409 to a
-  /// generic [ServerFailure], which lacks the first-time-guard copy), so we
-  /// re-map by status code here to surface the friendly message + routing.
+  /// generic [ServerFailure] and a 503 to a generic 5xx [ServerFailure], neither
+  /// of which carries the specific copy or the retry semantics), so we re-map by
+  /// status code here.
+  ///
+  /// REMOVED (2026-08-04): the former `MasterAlreadyHasServicesFailure` branch
+  /// for a non-`DUPLICATE_SERVICE` 409. That server condition — "bulk setup is
+  /// only available for a master with no active services" — was DELETED
+  /// backend-side when bulk create became additive. Keeping it as a defensive
+  /// branch would have been actively harmful, not merely dead: it renders
+  /// "you already have services" copy and routes the master AWAY from the screen
+  /// without saving, so any future unrelated 409 would be mistranslated into a
+  /// confident, wrong explanation plus a forced navigation. An unmodelled 409
+  /// now falls through to the honest generic server error instead.
   Failure _mapBulkCreateException(DioException e) {
     final statusCode = e.response?.statusCode;
-    if (statusCode == 409) {
-      // A 409 on the bulk path is ambiguous: it can be the typed
-      // `DUPLICATE_SERVICE` envelope (an individual item duplicates an existing
-      // service) OR the plain first-time-guard trip (the master already has
-      // services). Decode `data.code` first so the duplicate case surfaces the
-      // catalogue-specific copy; everything else keeps the existing
-      // "already has services" behaviour. `serviceName` is null on the bulk
-      // envelope, so [ServiceDuplicateFailure] renders its plain message.
-      if (_isDuplicateService(e)) return _extractDuplicateService(e);
-      return MasterAlreadyHasServicesFailure(cause: e);
+    if (statusCode == 409 && _isDuplicateService(e)) {
+      // `serviceName` is null on the bulk envelope, so [ServiceDuplicateFailure]
+      // renders its plain "already in your menu" message.
+      return _extractDuplicateService(e);
     }
+    // Decoded by STATUS CODE alone — the 503 body is deliberately generic
+    // (`data: null`, non-machine-readable `message`), and there is no
+    // `Retry-After` header to honour.
+    if (statusCode == 503) return BulkSetupBusyFailure(cause: e);
+    // 429 must be re-mapped by STATUS CODE here for the same reason 409 and 503
+    // are: the interceptor has no generic-429 branch, so an unmapped throttle
+    // reaches `_mapDioException`'s `badResponse` default and becomes
+    // `ServerFailure(statusCode: 429)` — the generic "server error, try again"
+    // copy, which is the one instruction guaranteed to fail while the bucket is
+    // closed.
+    if (statusCode == 429) return _rateLimited(e);
     if (e.error is Failure) return e.error as Failure;
     return _mapDioException(e);
   }
+
+  /// Builds a [ServiceRateLimitedFailure] from a 429, threading the server's
+  /// `Retry-After` through so the copy can name the wait.
+  ServiceRateLimitedFailure _rateLimited(DioException e) =>
+      ServiceRateLimitedFailure(
+        retryAfterSeconds: _extractRetryAfterSeconds(e),
+        cause: e,
+      );
+
+  /// Parses the `Retry-After` response header (RFC 7231 §7.1.3, integer-seconds
+  /// form only — the backend always emits an integer, never an HTTP-date).
+  ///
+  /// Returns `null` when the header is absent, unparsable, negative, or beyond
+  /// [_maxUxCooldownSeconds]; the copy then drops the countdown and says "wait a
+  /// moment" instead. The ceiling is a UX guard AND an overflow guard: a rogue
+  /// or misconfigured backend sending `Retry-After: 999999999` must never render
+  /// a multi-year wait. Mirrors `HttpScheduleRepository._extractRetryAfterSeconds`
+  /// and `ErrorMapperInterceptor._extractRetryAfterSecondsNullable`.
+  int? _extractRetryAfterSeconds(DioException e) {
+    final raw = e.response?.headers.value('retry-after');
+    if (raw == null) return null;
+    final parsed = int.tryParse(raw.trim());
+    if (parsed == null || parsed < 0 || parsed > _maxUxCooldownSeconds) {
+      return null;
+    }
+    return parsed;
+  }
+
+  /// 10 min — above this a countdown stops being useful information.
+  static const int _maxUxCooldownSeconds = 600;
 
   /// `true` when [e] is a 409 whose body is the
   /// `{ "data": { "code": "DUPLICATE_SERVICE" } }` envelope — the service is
@@ -548,21 +612,26 @@ final class HttpServiceRepository implements ServiceRepository {
     );
   }
 
-  /// Maps a [DioException] from a service-catalog WRITE (`create` / `update`) to
-  /// a typed [Failure], distinguishing the typed duplicate conflict:
+  /// Maps a [DioException] from a service-catalog WRITE (`create` / `update` /
+  /// `deactivate`) to a typed [Failure], distinguishing the two statuses the
+  /// generic mapping mistranslates:
   ///   - **409** with `data.code == "DUPLICATE_SERVICE"` →
   ///     [ServiceDuplicateFailure] (the service is already in the master's menu).
+  ///   - **429** → [ServiceRateLimitedFailure] (the per-master single-write
+  ///     bucket, 60/min, is exhausted).
   /// All other statuses defer to the shared [_mapDioException].
   ///
-  /// The 409 decode runs BEFORE deferring to any [Failure] the
+  /// Both decodes run BEFORE deferring to any [Failure] the
   /// [ErrorMapperInterceptor] may have attached (it maps a non-auth 409 to a
-  /// generic [ServerFailure], which lacks the duplicate copy), so we hand-decode
+  /// generic [ServerFailure] and has no 429 branch at all), so we hand-decode
   /// here to surface the friendly message — mirroring
   /// [_mapCategoryRequestException].
   Failure _mapServiceWriteException(DioException e) {
-    if (e.response?.statusCode == 409 && _isDuplicateService(e)) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 409 && _isDuplicateService(e)) {
       return _extractDuplicateService(e);
     }
+    if (statusCode == 429) return _rateLimited(e);
     if (e.error is Failure) return e.error as Failure;
     return _mapDioException(e);
   }
@@ -637,7 +706,12 @@ final class HttpServiceRepository implements ServiceRepository {
           stackTrace: st,
         );
       }
-      throw _mapDioException(e);
+      // Shares the write mapper with create/update: DELETE sits in the same
+      // per-master 60/min write bucket, so an unmapped 429 here would render
+      // the same wrong "server error" copy. The mapper's DUPLICATE_SERVICE
+      // branch cannot fire on this endpoint (no such body), so routing through
+      // it changes nothing else.
+      throw _mapServiceWriteException(e);
     }
   }
 

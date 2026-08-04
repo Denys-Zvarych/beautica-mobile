@@ -334,8 +334,8 @@ class ServiceControllerApi {
     );
   }
 
-  /// Bulk-create a salon master&#39;s services (first-time setup)
-  /// Creates every selected service for the given master in one transaction. Only valid when the master has no active services yet (409 otherwise).
+  /// Bulk-create a salon master&#39;s services
+  /// Creates every selected service for the given master in one transaction (all-or-nothing). Additive — callable whether or not the master already has services.
   ///
   /// Parameters:
   /// * [salonId]
@@ -444,8 +444,8 @@ class ServiceControllerApi {
     );
   }
 
-  /// Bulk-create my services (first-time setup)
-  /// Creates every selected service in one transaction. Only valid when the master has no active services yet (409 otherwise).
+  /// Bulk-create my services
+  /// Creates every selected service in one transaction (all-or-nothing). Additive — callable whether or not the master already has services.
   ///
   /// Parameters:
   /// * [bulkCreateServicesRequest]

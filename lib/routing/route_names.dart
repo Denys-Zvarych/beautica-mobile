@@ -318,12 +318,18 @@ abstract final class RouteNames {
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';
-  static const String serviceCreate = '/services/create';
   static String serviceEdit(String id) => '/services/$id/edit';
 
-  /// First-time service setup (INDEPENDENT_MASTER). The empty-state, one-pass
-  /// menu builder reached from the services-list empty state when the master
-  /// has zero services. Saves via `POST /independent-masters/me/services/bulk`.
+  /// Service setup (INDEPENDENT_MASTER) — the ONE "add services" surface.
+  ///
+  /// The multi-select menu builder, reached from BOTH the services-list empty
+  /// state and the «Додати послугу» FAB on a populated list. Saves via
+  /// `POST /independent-masters/me/services/bulk`, which the backend made
+  /// additive (`beautica-backend` c5e420f) — so it appends to an existing
+  /// catalogue just as well as it seeds an empty one.
+  ///
+  /// The former single-create form (`/services/create`) was removed when the
+  /// two flows were collapsed onto this screen; do not reintroduce it.
   static const String serviceSetup = '/services/setup';
 
   // Phase 6.2 — legacy working-hours editor path. The route is NO LONGER

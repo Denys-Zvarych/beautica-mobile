@@ -29,6 +29,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/server_field_message.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -163,7 +164,13 @@ class _ServiceTypeSuggestionDialogState
           if (fieldMsg != null) {
             setState(() {
               _submitting = false;
-              _serverNameError = fieldMsg;
+              // Same rule as the category dialog: an untrusted server string is
+              // rendered as a field label only while it is short enough to be
+              // one; anything blank or oversized falls back to localized copy.
+              _serverNameError = serverFieldMessageOr(
+                fieldMsg,
+                l10n.serviceTypeSuggestNameInvalid,
+              );
             });
             return;
           }

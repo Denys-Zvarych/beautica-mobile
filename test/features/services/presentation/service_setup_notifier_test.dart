@@ -14,8 +14,13 @@
 //   1. success — returns created list, state ends AsyncData, no throw.
 //   2. failure — typed Failure surfaces in AsyncError; submit returns null;
 //      the raw Failure never escapes as a thrown exception.
-//   3. 409     — MasterAlreadyHasServicesFailure lands in state.error (the
-//      branch the screen keys on to route to the list instead of retrying).
+//   3. 409     — ServiceDuplicateFailure lands in state.error (the branch the
+//      screen keys on when one submitted row names a service the master already
+//      offers). Since beautica-backend c5e420f made bulk create ADDITIVE, this
+//      is the ONLY modelled 409 on the endpoint — the former
+//      MasterAlreadyHasServicesFailure was deleted with the server condition.
+//   3b. 503    — BulkSetupBusyFailure lands in state.error the same way (the
+//      per-master advisory lock was still held; transient, safe to resubmit).
 //   4. empty   — empty items short-circuits to AsyncData([]) without a repo call.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -107,25 +112,39 @@ void main() {
     expect(state.error, same(failure));
   });
 
-  test(
-    'submit 409 — MasterAlreadyHasServicesFailure lands in state.error',
-    () async {
-      const failure = MasterAlreadyHasServicesFailure();
-      when(() => repo.bulkCreate(any())).thenThrow(failure);
-      final container = _makeContainer(repo);
-      await container.read(serviceSetupProvider.future);
+  test('submit 409 — ServiceDuplicateFailure lands in state.error', () async {
+    const failure = ServiceDuplicateFailure();
+    when(() => repo.bulkCreate(any())).thenThrow(failure);
+    final container = _makeContainer(repo);
+    await container.read(serviceSetupProvider.future);
 
-      final result = await container.read(serviceSetupProvider.notifier).submit(
-        <MasterServiceBulkItem>[_item],
-      );
+    final result = await container.read(serviceSetupProvider.notifier).submit(
+      <MasterServiceBulkItem>[_item],
+    );
 
-      expect(result, isNull);
-      expect(
-        container.read(serviceSetupProvider).error,
-        isA<MasterAlreadyHasServicesFailure>(),
-      );
-    },
-  );
+    expect(result, isNull);
+    expect(
+      container.read(serviceSetupProvider).error,
+      isA<ServiceDuplicateFailure>(),
+    );
+  });
+
+  test('submit 503 — BulkSetupBusyFailure lands in state.error', () async {
+    const failure = BulkSetupBusyFailure();
+    when(() => repo.bulkCreate(any())).thenThrow(failure);
+    final container = _makeContainer(repo);
+    await container.read(serviceSetupProvider.future);
+
+    final result = await container.read(serviceSetupProvider.notifier).submit(
+      <MasterServiceBulkItem>[_item],
+    );
+
+    expect(result, isNull);
+    expect(
+      container.read(serviceSetupProvider).error,
+      isA<BulkSetupBusyFailure>(),
+    );
+  });
 
   test(
     'submit with empty items short-circuits to AsyncData([]) — no repo call',

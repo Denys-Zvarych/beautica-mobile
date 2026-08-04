@@ -309,21 +309,32 @@ void main() {
   });
 
   // =========================================================================
-  // Domain remaps that must still WIN over the interceptor's generic mapping.
-  // Only provable through the real interceptor: it maps a non-auth 409 to
-  // ServerFailure, and `_mapBulkCreateException` must override that.
+  // Domain remaps that must still WIN over the interceptor's generic mapping —
+  // and, just as importantly, the ONE case where the interceptor's mapping is
+  // now allowed to stand. Only provable through the real interceptor: it maps
+  // a non-auth 409 to ServerFailure(409) and a 503 to a generic 5xx
+  // ServerFailure, and `_mapBulkCreateException` decides which survives.
   // =========================================================================
-  group('bulkCreate 409 — repository remap beats the interceptor', () {
+  group('bulkCreate 409/503 — which mapping wins over the interceptor', () {
     test(
-      'plain 409 → MasterAlreadyHasServicesFailure, NOT the ServerFailure(409) '
-      'the interceptor attached',
+      'plain 409 FALLS THROUGH to the ServerFailure(409) the interceptor '
+      'attached — the bulk-setup remap no longer claims untyped conflicts',
       () async {
+        // Inverted 2026-08-04. This case used to assert the OPPOSITE: that the
+        // repository overrode the interceptor and produced
+        // MasterAlreadyHasServicesFailure for ANY 409. beautica-backend
+        // c5e420f made bulk create ADDITIVE and deleted the "master already
+        // has services" server condition, so an untyped 409 is now an
+        // UNMODELLED conflict. Letting the old remap stand would have been
+        // worse than dead code — it renders "you already have services" and
+        // routes the master off the screen without saving. The interceptor's
+        // honest generic mapping must reach the caller intact.
         final h = _wire();
         h.adapter.onPost(
           _bulkPath,
           (s) => s.reply(409, <String, Object?>{
             'success': false,
-            'message': 'Master already has services',
+            'message': 'Some unmodelled conflict',
           }),
           data: Matchers.any,
         );
@@ -332,9 +343,58 @@ void main() {
           _fixedItem,
         ]);
 
-        expect(failure, isA<MasterAlreadyHasServicesFailure>());
+        expect(
+          failure,
+          isNot(isA<ServiceDuplicateFailure>()),
+          reason:
+              'the duplicate remap is gated on data.code == DUPLICATE_SERVICE '
+              '— an untyped 409 must not be mistranslated into it',
+        );
+        expect(failure, isA<ServerFailure>());
+        expect(
+          (failure! as ServerFailure).statusCode,
+          409,
+          reason:
+              'the interceptor attached ServerFailure(statusCode: 409); the '
+              'repository must pass it through with the status intact, since '
+              'failure_retry_policy classifies ServerFailure BY STATUS CODE '
+              'and 409 has to stay out of the retryable 5xx band',
+        );
       },
     );
+
+    test('503 → BulkSetupBusyFailure, BEATING the generic 5xx ServerFailure '
+        'the interceptor attached', () async {
+      // Mirror image of the 409 case: here the repository's status-code remap
+      // MUST win. The interceptor maps every 500–599 to
+      // ServerFailure(statusCode: ...), which carries neither the
+      // "setup is busy, try again in a moment" copy nor — as a 503 — anything
+      // to distinguish a held advisory lock from a genuine backend fault.
+      final h = _wire();
+      h.adapter.onPost(
+        _bulkPath,
+        (s) => s.reply(503, <String, Object?>{
+          'success': false,
+          'data': null,
+          'message': 'Service temporarily unavailable',
+        }),
+        data: Matchers.any,
+      );
+
+      final failure = await _captureFailure(h.repo, <MasterServiceBulkItem>[
+        _fixedItem,
+      ]);
+
+      expect(failure, isA<BulkSetupBusyFailure>());
+      expect(
+        failure,
+        isNot(isA<ServerFailure>()),
+        reason:
+            'if the interceptor\'s ServerFailure(503) survives, the master '
+            'sees the generic server-error copy for a transient lock '
+            'contention that a plain resubmit clears',
+      );
+    });
 
     test('409 DUPLICATE_SERVICE → ServiceDuplicateFailure with the '
         'existingServiceDefId decoded from the body', () async {

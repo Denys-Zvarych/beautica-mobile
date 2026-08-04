@@ -49,6 +49,22 @@ enum RowFlagReason {
   /// Caught client-side before the network round-trip; the inline duration
   /// message mirrors the backend's own `items[i].durationMinutes` max error.
   durationTooLong,
+
+  /// The refreshed catalogue (re-read after a 409 `DUPLICATE_SERVICE`) shows the
+  /// master ALREADY offers this service type, so the row was switched off to
+  /// unblock the next save.
+  ///
+  /// Unlike every other reason here this is not a validation fault and the row
+  /// is EXCLUDED while it holds — so it renders in the off-state sub-label slot
+  /// with the calm camel treatment, never the red error rim. It exists so the
+  /// change is stated rather than silent: a row that simply went quiet under the
+  /// master's hands reads as a bug, and a row left selectable would 409 again on
+  /// the very next tap.
+  ///
+  /// Distinct from [ServiceRowState.alreadyAdded], which is the immutable
+  /// at-load exclusion; this one is a mid-session transition and clears on the
+  /// next save or toggle.
+  alreadyInMenu,
 }
 
 /// Returns the uniform category glyph used for every chip / group-header icon
@@ -249,13 +265,32 @@ class CategoryGroupHeader extends StatelessWidget {
 /// It also owns the four field controllers so the card is the single source of
 /// truth for its own rebuild (range-error recomputation included).
 class ServiceRowState extends ChangeNotifier {
-  ServiceRowState({required this.serviceTypeId, required this.nameUk});
+  ServiceRowState({
+    required this.serviceTypeId,
+    required this.nameUk,
+    this.alreadyAdded = false,
+  });
 
   /// The platform service-type id submitted in the bulk payload.
   final String serviceTypeId;
 
   /// Ukrainian display name shown on the row card.
   final String nameUk;
+
+  /// True when the master ALREADY offers this service type, so it must never be
+  /// submitted: the bulk endpoint is all-or-nothing and would reject the whole
+  /// batch with 409 `DUPLICATE_SERVICE` over this one item.
+  ///
+  /// Immutable for the row's lifetime — it is seeded from the master's existing
+  /// catalogue when the category's types load. The row still RENDERS (visibly
+  /// disabled + "вже додано"), because a master hunting for a service they
+  /// already have must see why it is unselectable rather than conclude the
+  /// catalogue is broken.
+  ///
+  /// [included] is hard-gated on this: the setter refuses to turn a
+  /// already-added row on, so no code path — not a stray toggle, not a future
+  /// "select all" — can smuggle one into the payload.
+  final bool alreadyAdded;
 
   /// Field controllers, owned by the row so its card can recompute the
   /// cross-field range error from the min/max text without a screen rebuild.
@@ -273,6 +308,10 @@ class ServiceRowState extends ChangeNotifier {
   /// makes its rows required.
   bool get included => _included;
   set included(bool value) {
+    // Hard gate: an already-owned service type can never be included, so it can
+    // never reach the payload. Enforced here rather than at the call sites so a
+    // single missed guard cannot resurrect the guaranteed-409 bug.
+    if (alreadyAdded && value) return;
     if (_included == value) return;
     _included = value;
     notifyListeners();
@@ -414,7 +453,20 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     super.dispose();
   }
 
+  /// Last-seen duration text, and the last-seen fixed/min/max price triple.
+  ///
+  /// A [TextEditingController] is a [ValueNotifier<TextEditingValue>],
+  /// so it notifies on SELECTION and COMPOSING changes too — every caret move,
+  /// every focus gain, every `selectAll`. Without these the listeners below ran
+  /// `clearServer*Error()` + `setState` on cursor traffic alone, rebuilding the
+  /// card for a value that never changed. Comparing the TEXT (the only thing
+  /// either listener acts on) collapses that back to real edits.
+  String _lastDurationText = '';
+  String _lastPriceSignature = '';
+
   void _attach(ServiceRowState row) {
+    _lastDurationText = row.duration.text;
+    _lastPriceSignature = _priceSignatureOf(row);
     row.addListener(_onRowChanged);
     // Editing the duration clears any mapped-back server duration error so the
     // red state disappears as the master fixes the value.
@@ -438,12 +490,25 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     if (mounted) setState(() {});
   }
 
+  /// The three price controllers share one listener, so their combined text is
+  /// compared as one signature. NUL is the separator because no keyboard or
+  /// paste can produce it — a plain concatenation would let "1"+"23" and
+  /// "12"+"3" collide and swallow a real edit.
+  static String _priceSignatureOf(ServiceRowState row) =>
+      '${row.fixed.text}\u0000${row.min.text}\u0000${row.max.text}';
+
   void _onDurationChanged() {
+    final String text = widget.row.duration.text;
+    if (text == _lastDurationText) return; // caret / selection only
+    _lastDurationText = text;
     widget.row.clearServerDurationError();
     if (mounted) setState(() {});
   }
 
   void _onPriceChanged() {
+    final String signature = _priceSignatureOf(widget.row);
+    if (signature == _lastPriceSignature) return; // caret / selection only
+    _lastPriceSignature = signature;
     widget.row.clearServerPriceError();
     if (mounted) setState(() {});
   }
@@ -481,6 +546,14 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         return l10n.serviceSetupRowMissingPriceOnly;
       case RowFlagReason.invalidRange:
         return l10n.serviceSetupRowFixRange;
+      case RowFlagReason.alreadyInMenu:
+        // Never reached through the header slot — an alreadyInMenu row is
+        // always EXCLUDED, and the header flag is gated on inclusion. Its copy
+        // renders in the off-state sub-label instead. Kept as its own arm so
+        // the exhaustive switch states the message rather than letting it fall
+        // into the "missing price" default, which would be actively wrong if a
+        // future change ever surfaced it here.
+        return l10n.serviceSetupRowAlreadyInMenu;
       case RowFlagReason.durationTooLong:
       case RowFlagReason.missingBoth:
       case RowFlagReason.none:
@@ -492,6 +565,11 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final ServiceRowState row = widget.row;
+    // A service the master already offers: rendered in place but inert. It can
+    // never be `included` (the setter refuses), so every downstream
+    // include-derived branch below already resolves to the "off" path — `locked`
+    // only changes the PRESENTATION.
+    final bool locked = row.alreadyAdded;
     final bool on = row.included;
     final RowFlagReason reason = row.flagReason;
     // Backend per-field validation mapped back onto this row (null when none).
@@ -507,6 +585,12 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     // error also tints the rim (its message rides the inline field slot).
     final bool clientFlagged = on && row.flagged;
     final bool flagged = clientFlagged || hasServerError;
+    // "The refreshed catalogue says you already offer this, so it was switched
+    // off." Not a validation fault and not the master's mistake, so it borrows
+    // the already-added row's calm camel hairline rather than the red error rim
+    // — but it DOES claim the off-state sub-label, because the alternative is a
+    // row that silently went quiet under someone's hands.
+    final bool ownedNow = !on && reason == RowFlagReason.alreadyInMenu;
     // The "too long" duration reason is field-only: its header copy would be an
     // exact duplicate of the inline duration-field error (both are
     // `serviceSetupDurationMax`), so it is excluded from the header flag line.
@@ -554,13 +638,22 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
       decoration: BoxDecoration(
         color: BrandColors.base,
         borderRadius: BorderRadius.circular(VelvetRadii.card),
+        // Visual weight encodes availability, heaviest to lightest:
+        //   included (extrudedCard) > selectable-but-off (extrudedSmall) >
+        //   already-added (no shadow, hairline camel rule).
+        // The already-added row sits FLAT on the surface so it reads as part of
+        // the page rather than as an object you could pick up.
         border: Border.all(
-          color: flagged ? BrandColors.error : Colors.transparent,
-          width: flagged ? 1.4 : 0,
+          color: flagged
+              ? BrandColors.error
+              : (locked || ownedNow
+                    ? BrandColors.accent.withValues(alpha: 0.35)
+                    : Colors.transparent),
+          width: flagged ? 1.4 : (locked || ownedNow ? 1 : 0),
         ),
-        boxShadow: on
-            ? VelvetShadows.extrudedCard
-            : VelvetShadows.extrudedSmall,
+        boxShadow: locked
+            ? null
+            : (on ? VelvetShadows.extrudedCard : VelvetShadows.extrudedSmall),
       ),
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.md + 2,
@@ -611,19 +704,41 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                     ] else if (!on) ...<Widget>[
                       const SizedBox(height: 2),
                       Text(
-                        l10n.serviceSetupRowExcluded,
-                        style: VelvetText.svcCaptionNote,
+                        // One slot, three mutually exclusive facts, most
+                        // specific first: an already-added row says "you
+                        // already offer this"; a row the catalogue refresh just
+                        // claimed says "уже у вашому переліку" and is emphasised
+                        // because it CHANGED under the master; a merely-off row
+                        // says "not offered". They never compete for the line.
+                        locked
+                            ? l10n.serviceSetupRowAlreadyAdded
+                            : (ownedNow
+                                  ? l10n.serviceSetupRowAlreadyInMenu
+                                  : l10n.serviceSetupRowExcluded),
+                        style: ownedNow
+                            ? VelvetText.svcCaptionNote.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: BrandColors.accentDeep,
+                              )
+                            : VelvetText.svcCaptionNote,
                       ),
                     ],
                   ],
                 ),
               ),
               const SizedBox(width: VelvetSpacing.sm),
-              _IncludeSwitch(
-                value: on,
-                onChanged: _setIncluded,
-                semanticLabel: row.nameUk,
-              ),
+              // A disabled switch still invites tapping, so an already-added row
+              // does not render one at all — it gets a static check glyph, which
+              // is a STATUS and cannot be mistaken for a control.
+              if (locked)
+                const _AlreadyAddedMark()
+              else
+                _IncludeSwitch(
+                  key: Key('setup_row_toggle_${row.serviceTypeId}'),
+                  value: on,
+                  onChanged: _setIncluded,
+                  semanticLabel: row.nameUk,
+                ),
             ],
           ),
 
@@ -684,12 +799,48 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   }
 }
 
+/// The already-added marker that REPLACES the include switch on a service type
+/// the master already offers.
+///
+/// A recessed circular well with a camel check — the same carved-in language as
+/// every other inset on the page, at the size the switch vacated so the row's
+/// trailing edge stays aligned with its selectable neighbours. Deliberately
+/// inert: no [GestureDetector], no `Semantics(button:)`, no toggled state.
+class _AlreadyAddedMark extends StatelessWidget {
+  const _AlreadyAddedMark();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Semantics(
+      // Announced as a plain label: screen-reader users must hear a fact, not
+      // an actionable control they cannot actuate.
+      label: l10n.serviceSetupRowAlreadyAdded,
+      child: SizedBox(
+        height: 30,
+        width: 30,
+        child: NeumorphicInset(
+          radius: VelvetRadii.pill,
+          child: Center(
+            child: Icon(
+              Icons.check_rounded,
+              size: 16,
+              color: BrandColors.accent.withValues(alpha: 0.9),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The per-row include toggle — a soft-UI switch. A recessed inset track holds a
 /// raised pebble that slides on toggle; ON fills the track with the camel
 /// gradient + a cream check, OFF is a plain inset well. Mirrors the tactile
 /// language of the pricing-mode toggle so the two read as one family.
 class _IncludeSwitch extends StatelessWidget {
   const _IncludeSwitch({
+    super.key,
     required this.value,
     required this.onChanged,
     required this.semanticLabel,

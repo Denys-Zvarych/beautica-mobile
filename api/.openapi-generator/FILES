@@ -475,4 +475,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/appointment_item_reschedule_request_test.dart

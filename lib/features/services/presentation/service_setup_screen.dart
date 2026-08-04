@@ -1,20 +1,44 @@
-// First-Time Service Setup screen (INDEPENDENT_MASTER).
+// Service Setup screen (INDEPENDENT_MASTER) — the ONE "add services" surface.
 //
-// The empty-state path: a master with ZERO services stands up their whole menu
-// in one pass. Reached from the services-list empty state (replacing the
-// single-create CTA when the catalogue is empty).
+// Serves BOTH cases, reached from the services list either way:
+//   • SETUP   — the master has zero services and stands up their whole menu.
+//   • APPEND  — the master already has a catalogue and is adding more (the
+//               «Додати послугу» FAB). Unlocked by `beautica-backend` c5e420f,
+//               which made the bulk endpoint additive; before that it 409'd
+//               whenever the catalogue was non-empty, which is why a separate
+//               single-create form used to exist. That form is deleted.
+//
+// The two differ only in framing + the already-owned exclusion; the mechanics
+// are identical. [_ServiceSetupScreenState._appending] is the one switch.
 //
 // The flow lives on one scrollable screen:
-//   1. a helper note explaining a missing service-type can be requested later;
+//   1. a tappable helper strip — the entry point for requesting a missing
+//      CATEGORY (see [_MissingCategoryPrompt]);
 //   2. a Wrap of multi-selectable platform-category chips — selecting one
 //      loads + expands it inline to reveal every service-type beneath it;
 //   3. under each expanded category, a configurable row per service-type
-//      (include toggle defaulting ON, duration, and a fixed/range price);
+//      (include toggle defaulting OFF, duration, and a fixed/range price),
+//      closed by a per-category prompt for suggesting a missing SERVICE TYPE
+//      (see [_MissingServiceTypePrompt] — it supplies the `categoryName` the
+//      suggestion dialog requires, which is why it lives per-category rather
+//      than alongside the category prompt at the top);
 //   4. a pinned CTA that counts the services the save would create.
 //
-// On a successful bulk save the services list is invalidated and the screen
-// navigates to it (now populated). A 409 (the master already has services)
-// surfaces a message and routes to the list instead of allowing a retry.
+// APPEND-MODE EXCLUSION (the guaranteed-409 trap)
+// -----------------------------------------------
+// The bulk endpoint is all-or-nothing: ONE item naming a service the master
+// already offers rolls back the WHOLE batch with 409 DUPLICATE_SERVICE. A
+// screen written for an empty catalogue happily lists those types, so reusing
+// it for APPEND without filtering would make some saves impossible. Rows for
+// already-owned types are therefore seeded `alreadyAdded` (see
+// [ServiceRowState.alreadyAdded]) — rendered in place, visibly inert, and
+// structurally un-includable.
+//
+// On a successful bulk save the catalogue providers are invalidated and the
+// screen POPS back to the list. Popping (not `go`) is load-bearing: the list's
+// `_openAndRefresh` awaits the push Future to re-fire its category invalidation
+// on return, and a `go` would replace the stack so that Future never completes.
+// `go` survives only as the no-stack fallback (deep link / cold start).
 //
 // Ported 1:1 from the approved preview
 // `docs/signup-designs/ServiceSetup/lib/screens/service_setup_screen.dart`;
@@ -42,15 +66,18 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_setup_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
-import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/category_request_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_setup_widgets.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/server_field_message.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
-/// First-time service setup — the single empty-state screen for a master with
-/// zero services.
+/// Service setup — the single "add services" screen, for a master with zero
+/// services (SETUP) and for one adding to an existing catalogue (APPEND).
 class ServiceSetupScreen extends ConsumerStatefulWidget {
   const ServiceSetupScreen({super.key});
 
@@ -90,6 +117,33 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   GlobalKey _rowWrapperKey(String id) =>
       _rowWrapperKeys.putIfAbsent(id, GlobalKey.new);
 
+  /// Service-type ids the master ALREADY offers, captured ONCE in [initState].
+  ///
+  /// Source: [servicesListProvider] — the master's own «Мої послуги» catalogue.
+  /// Chosen over [masterServiceCatalogProvider] deliberately: the latter is the
+  /// «Мої записи» booking-filter universe, kept alive for a different screen and
+  /// not guaranteed warm here, whereas the list provider is the one the entry
+  /// point (services list) has already resolved — so in practice this read is a
+  /// cache hit and the exclusion is correct on the very first frame.
+  ///
+  /// Read with `ref.read` in [initState], NOT watched, and deliberately so: it
+  /// is a SNAPSHOT of what to exclude. Watching it would let a mid-flight
+  /// invalidation (this screen's own successful save re-enters the list
+  /// provider) re-seed rows underneath the master while they are typing.
+  ///
+  /// `MasterService.serviceTypeId` is nullable — a pre-Phase-16.3 row carries no
+  /// type id and simply cannot be matched, so it contributes nothing here. That
+  /// degrades to the old behaviour (the type stays selectable and the save may
+  /// 409) rather than to over-blocking, which is the safer failure direction:
+  /// the 409 is recoverable and explained, an over-eager exclusion would hide a
+  /// service the master genuinely cannot add any other way.
+  late final Set<String> _ownedServiceTypeIds;
+
+  /// True when the master already had services on entry — the APPEND case.
+  /// Drives the copy variants only; the exclusion itself keys off
+  /// [_ownedServiceTypeIds].
+  late final bool _appending;
+
   /// The [ServiceRowState]s backing the LAST assembled payload, in submitted
   /// order — so a 400's `items[<index>].<field>` path resolves back to its
   /// originating row. Only INCLUDED rows are submitted, so this list index is
@@ -107,17 +161,68 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
   late final ScreenProtectionManager _screenProtection;
 
+  /// The live handle on the 503 RETRY snackbar, when one is up.
+  ///
+  /// `_showSnack` posts through `ScaffoldMessenger.of(context)`, which resolves
+  /// to the ROOT messenger `MaterialApp` installs ABOVE the Router — so a bar
+  /// posted here outlives this route. That is harmless for the 4 s
+  /// informational bars, and NOT harmless for the retry bar: it carries an
+  /// action bound to `_save` on a State that a `pop` has since disposed — and
+  /// because `SnackBar` defaults `persist` to `action != null`, that bar does
+  /// not time out at all. Its 8 s `duration` is inert; only a swipe, a
+  /// replacement, or [dispose] takes it down. So the handle is mandatory: it is
+  /// the only way the route can reclaim a bar that would otherwise sit there
+  /// indefinitely.
+  /// [dispose] closes this one bar (never the whole queue — the success path
+  /// posts its confirmation and THEN leaves, and that bar must survive).
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _retrySnack;
+
+  /// True while the NEXT [_save] is a retry issued from the 503 bar's action.
+  ///
+  /// A 503 from the backend's own advisory-lock ceiling rolled the batch back,
+  /// so a retry is clean. A 503 synthesised by an EDGE PROXY after the backend
+  /// already committed is byte-identical from here, and the retry then re-POSTs
+  /// an accepted batch. Real idempotency needs a server-honoured request key
+  /// that does not exist yet, and inventing a header the backend ignores would
+  /// only look like protection — so the interim mitigation is to stop
+  /// MISREPORTING the outcome: a 409 arriving on a retried save is reported as
+  /// "this may already have saved, go check", never as a plain duplicate.
+  bool _retryingAfterBusy = false;
+
   @override
   void initState() {
     super.initState();
     // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
     // the manager is internally !kDebugMode-guarded).
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+
+    // Snapshot the existing catalogue once. `.value` is null while the provider
+    // is loading/errored; an empty set then means "exclude nothing", which is
+    // exactly the SETUP behaviour and is the correct degradation — see
+    // [_ownedServiceTypeIds] on why over-blocking would be the worse failure.
+    final List<MasterService> existing =
+        ref.read(servicesListProvider).value ?? const <MasterService>[];
+    _appending = existing.isNotEmpty;
+    _ownedServiceTypeIds = <String>{
+      for (final MasterService s in existing)
+        if (s.serviceTypeId case final String id when id.isNotEmpty) id,
+    };
   }
 
   @override
   void dispose() {
     _screenProtection.release();
+    // Kill the retry bar with the route. `_save` also refuses to run unmounted.
+    //
+    // What the tests actually pin: this `close()` ALONE satisfies the
+    // disposed-retry test and its control (QA mutation-probed the `mounted`
+    // guard out and both stayed green — closing the bar removes the button, so
+    // nothing is left to tap). The guard is therefore DEFENSIVE, not covered:
+    // it catches a tap already dispatched when the pop lands, a race a widget
+    // test cannot schedule deterministically. Keep it — "untested" here means
+    // "untestable at this tier", not "redundant".
+    _retrySnack?.close();
+    _retrySnack = null;
     // Final wholesale cleanup — every row (across every loaded category, even
     // collapsed ones whose controllers we deliberately retained) is disposed
     // here.
@@ -185,14 +290,35 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
         serviceTypesProvider(slug).future,
       );
       if (!mounted) return;
+      // A REFETCH (see [_suggestServiceType]) must not wipe what the master has
+      // already typed, so surviving service-types keep their EXISTING
+      // [ServiceRowState] — same object, so its controllers, include flag and
+      // pricing mode all carry over, and the mounted card's `identical(row)`
+      // check means it does not even re-attach its listeners. Only types that
+      // vanished from the catalogue are dropped, and their controllers are
+      // disposed AFTER the frame that unmounts their card, never during it.
+      final Map<String, ServiceRowState> carried = <String, ServiceRowState>{
+        for (final row in _rowsByCategory[slug] ?? const <ServiceRowState>[])
+          row.serviceTypeId: row,
+      };
       setState(() {
         final rows = <ServiceRowState>[
           for (final t in types)
-            ServiceRowState(serviceTypeId: t.id, nameUk: t.nameUk),
+            carried.remove(t.id) ??
+                ServiceRowState(
+                  serviceTypeId: t.id,
+                  nameUk: t.nameUk,
+                  // Seeded at row-construction time so the flag is immutable for
+                  // the row's whole life — an already-owned type can never be
+                  // toggled on, so it can never reach the all-or-nothing payload
+                  // and trip a whole-batch 409.
+                  alreadyAdded: _ownedServiceTypeIds.contains(t.id),
+                ),
         ];
         _rowsByCategory[slug] = rows;
         _loadingCategories.remove(slug);
       });
+      _disposeAfterFrame(carried.values.toList(growable: false));
     } on Object catch (e, st) {
       if (kDebugMode) {
         log(
@@ -208,6 +334,26 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
         _erroredCategories.add(slug);
       });
     }
+  }
+
+  /// Disposes [orphans] once the frame that removed their cards from the tree
+  /// has been laid out.
+  ///
+  /// Ordering is the whole point. Each [ServiceRowState] owns four
+  /// [TextEditingController]s that its mounted [ServiceTypeRowCard] both reads
+  /// and listens to; disposing while the card is still up trades a stale-list
+  /// bug for a use-after-dispose. A post-frame callback is not tied to this
+  /// element's lifetime, so the disposal still happens even if the screen itself
+  /// is popped in the same frame — which matters, because these rows have
+  /// already been removed from `_rowsByCategory` and so are no longer reachable
+  /// by [dispose]'s wholesale sweep. Exactly one owner, either way.
+  void _disposeAfterFrame(List<ServiceRowState> orphans) {
+    if (orphans.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final row in orphans) {
+        row.dispose();
+      }
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -341,18 +487,24 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// laid-out rows — collapsed categories build no rows, so their flagged rows
   /// (if any) are simply skipped here; an included flagged row only exists under
   /// an expanded category, so the visible set always contains the candidates.
-  void _scrollToFirstFlagged() {
+  ///
+  /// [ids] overrides the collector for callers whose rows are deliberately NOT
+  /// included — [_flagRowsNowOwned] switches its rows off as part of the fix, so
+  /// the include-gated default would find nothing to scroll to.
+  void _scrollToFirstFlagged({Set<String>? ids}) {
     // Collect the flagged-row ids (client flag OR mapped-back server error);
     // bail early when nothing is flagged.
-    final flaggedIds = <String>{
-      for (final rows in _rowsByCategory.values)
-        for (final row in rows)
-          if (row.included &&
-              (row.flagReason != RowFlagReason.none ||
-                  row.serverDurationError != null ||
-                  row.serverPriceError != null))
-            row.serviceTypeId,
-    };
+    final flaggedIds =
+        ids ??
+        <String>{
+          for (final rows in _rowsByCategory.values)
+            for (final row in rows)
+              if (row.included &&
+                  (row.flagReason != RowFlagReason.none ||
+                      row.serverDurationError != null ||
+                      row.serverPriceError != null))
+                row.serviceTypeId,
+        };
     if (flaggedIds.isEmpty) return;
 
     // Resolve after the current frame so freshly-flagged cards (which expand to
@@ -387,6 +539,19 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   }
 
   Future<void> _save() async {
+    // The 503 retry bar posts on the ROOT messenger and therefore survives a
+    // pop, action and all. Without this guard a tap after leaving runs the whole
+    // method against a defunct element — `AppLocalizations.of(context)` on the
+    // very next line throws on a deactivated element, and `ref.read` would
+    // re-POST an abandoned selection even if it did not. [dispose] also closes
+    // that bar; this guard covers the tap already in flight.
+    if (!mounted) return;
+    // Consume the retry marker for THIS attempt: it changes only how a 409 is
+    // reported (see [_retryingAfterBusy]), and must not leak into the next,
+    // freshly-initiated save.
+    final bool afterBusyRetry = _retryingAfterBusy;
+    _retryingAfterBusy = false;
+
     final l10n = AppLocalizations.of(context);
     final items = _assemble();
     if (items == null || items.isEmpty) {
@@ -405,29 +570,74 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     if (!mounted) return;
 
     if (created != null) {
-      // Success — refresh the list and land on it (now populated).
+      // Success — refresh the catalogue views and pop back to the list.
       invalidateMasterServiceCatalogues(ref);
       _showSnack(l10n.serviceSetupSuccess);
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.services);
-      }
+      _leave();
       return;
     }
 
     // Failure — read the typed error from the notifier state.
     final error = ref.read(serviceSetupProvider).error;
-    if (error is MasterAlreadyHasServicesFailure) {
-      // The first-time guard tripped: the catalogue is no longer empty, so
-      // refresh + route to the (now-populated) list rather than retry.
-      invalidateMasterServiceCatalogues(ref);
+
+    // 503: the per-master bulk lock was held past the backend's 3 s ceiling.
+    // The batch is all-or-nothing, so NOTHING was written — the selection is
+    // still valid and a retry is the correct next action. Keep the master on
+    // the screen with their whole configuration intact and hand them an
+    // explicit RETRY, rather than a dead-end error they can only dismiss.
+    // The copy must never imply the services were saved (they were not).
+    if (error is BulkSetupBusyFailure) {
+      _showSnack(
+        error.userMessage(context),
+        onRetry: () {
+          // Mark the NEXT save as a retry so a 409 landing on it is reported as
+          // "this may already have saved" rather than as a plain duplicate —
+          // see [_retryingAfterBusy].
+          _retryingAfterBusy = true;
+          _save();
+        },
+      );
+      return;
+    }
+
+    // 429: a per-master write bucket is exhausted (bulk 10/min, single writes
+    // 60/min). Deliberately NO retry action — see [_showSnack]. The selection
+    // stays untouched and the CTA stays live, so the master re-fires it when
+    // they choose to.
+    if (error is ServiceRateLimitedFailure) {
       _showSnack(error.userMessage(context));
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.services);
-      }
+      return;
+    }
+
+    // 409 DUPLICATE_SERVICE: one selected type is already in the master's menu,
+    // and the whole batch was rolled back. In APPEND mode the owned types are
+    // already un-includable, so reaching here means the catalogue changed under
+    // us (another device, or a type added since this screen mounted).
+    //
+    // Keep the master here with their selection rather than forcing a
+    // navigation away — their unsaved configuration would be lost.
+    //
+    // The invalidation refreshes the LIST screen behind us so it is correct on
+    // return. It still does NOT re-seed `_ownedServiceTypeIds` / `alreadyAdded`:
+    // those are an initState snapshot precisely so rows cannot mutate under a
+    // master mid-edit. What DOES happen now is narrower and stated out loud —
+    // [_flagRowsNowOwned] re-reads the catalogue and switches off only the rows
+    // the refreshed list actually claims, marking each `alreadyInMenu`. Leaving
+    // them selectable made a blind re-save 409 again with no explanation; making
+    // them inert silently was the other bad option. Every other selection, and
+    // every typed value, is untouched.
+    //
+    // On a save that was itself a 503 retry the batch's fate is genuinely
+    // unknown (an edge-proxy 503 can follow a committed write), so the copy
+    // switches to the one that claims neither outcome — see [_retryingAfterBusy].
+    if (error is ServiceDuplicateFailure) {
+      invalidateMasterServiceCatalogues(ref);
+      _showSnack(
+        afterBusyRetry
+            ? l10n.serviceSetupErrDuplicateAfterRetry
+            : error.userMessage(context),
+      );
+      await _flagRowsNowOwned();
       return;
     }
 
@@ -444,6 +654,124 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
         ? error.userMessage(context)
         : l10n.errUnknown;
     _showSnack(message);
+  }
+
+  /// Re-reads the master's catalogue after a 409 and switches OFF every
+  /// currently-included row the refreshed list now claims, flagging each
+  /// [RowFlagReason.alreadyInMenu] so the change is stated rather than silent.
+  ///
+  /// Best-effort by design: the snackbar has already reported the clash, so a
+  /// failed re-read costs a sharper follow-up message, never correctness. The
+  /// row's immutable `alreadyAdded` seed is deliberately NOT touched — that
+  /// would re-render the row inert mid-edit, which is exactly the mutation the
+  /// initState snapshot exists to prevent.
+  Future<void> _flagRowsNowOwned() async {
+    final List<MasterService> refreshed;
+    try {
+      refreshed = await ref.read(servicesListProvider.future);
+    } on Object catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '_flagRowsNowOwned: catalogue re-read failed: $e',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    final owned = <String>{
+      for (final MasterService s in refreshed)
+        if (s.serviceTypeId case final String id when id.isNotEmpty) id,
+    };
+    if (owned.isEmpty) return;
+
+    final flagged = <String>{};
+    for (final rows in _rowsByCategory.values) {
+      for (final row in rows) {
+        if (!row.included || !owned.contains(row.serviceTypeId)) continue;
+        // Off FIRST: `included` is what makes a row submittable, so clearing it
+        // is what actually unblocks the next save. The flag is the explanation
+        // that keeps the change from reading as the app losing the selection.
+        row.included = false;
+        row.flagReason = RowFlagReason.alreadyInMenu;
+        flagged.add(row.serviceTypeId);
+      }
+    }
+    if (flagged.isEmpty) return;
+    _notifyAggregate();
+    // Pass the ids explicitly: the default collector only considers INCLUDED
+    // rows, and these were just excluded.
+    _scrollToFirstFlagged(ids: flagged);
+  }
+
+  // -------------------------------------------------------------------------
+  // Missing category / service type — request affordances
+  // -------------------------------------------------------------------------
+  //
+  // Two requests with DIFFERENT scopes, so each lives inside the scope it acts
+  // on rather than behind one shared control with a fork:
+  //   • a missing CATEGORY takes no argument → the strip above the chip Wrap;
+  //   • a missing SERVICE TYPE needs a `categoryName` → the tail of each
+  //     expanded category's row list, which supplies it unambiguously.
+  // Both dialogs already exist and own their own submit/validation/error paths;
+  // the screen only opens them and reports the outcome.
+
+  /// Opens the suggest-a-category dialog. On success the approved-category list
+  /// is invalidated so a category approved out-of-band shows up without a
+  /// restart. (The request itself needs moderation, so the new category will not
+  /// normally appear immediately — the refresh is for the already-approved case
+  /// and costs nothing otherwise.)
+  Future<void> _requestCategory() async {
+    final l10n = AppLocalizations.of(context);
+    final bool? sent = await showCategoryRequestDialog(context);
+    if (!mounted || sent != true) return;
+    ref.invalidate(approvedCategoriesProvider);
+    _showSnack(l10n.categoryRequestSuccess);
+  }
+
+  /// Opens the suggest-a-service-type dialog for [categorySlug].
+  ///
+  /// [categorySlug] is the System-B wire name the dialog forwards to the
+  /// backend; [categoryLabel] is the Ukrainian display name shown in the
+  /// prompt's own copy. They are distinct values — do not pass the label.
+  Future<void> _suggestServiceType(String categorySlug) async {
+    final l10n = AppLocalizations.of(context);
+    final bool? sent = await showServiceTypeSuggestionDialog(
+      context,
+      categoryName: categorySlug,
+    );
+    if (!mounted || sent != true) return;
+    _showSnack(l10n.serviceTypeSuggestSuccess);
+    // Drop this category's cached type list so an auto-approved suggestion can
+    // appear immediately.
+    ref.invalidate(serviceTypesProvider(categorySlug));
+    // The invalidate ALONE is dead: `_toggleCategory` returns early on
+    // `_rowsByCategory.containsKey(slug)`, so nothing in this session would ever
+    // re-read the provider — not a collapse, not a re-expand — and a master who
+    // was just told their suggestion was submitted could not see it without a
+    // cold restart. Refetch here, where the promise was made. `_loadCategory`
+    // carries surviving rows over by identity, so no typed duration or price is
+    // lost to the refresh.
+    await _loadCategory(categorySlug);
+  }
+
+  /// Leaves the screen, POPPING whenever there is a stack to pop.
+  ///
+  /// Popping is the contract the services list depends on: its `_openAndRefresh`
+  /// awaits the `context.push` Future and re-invalidates the category /
+  /// service-type caches when it completes. `context.go` would REPLACE the stack,
+  /// so that Future would never complete, the invalidation would never fire, and
+  /// the await would leak. `go` therefore survives only as the fallback for the
+  /// no-stack entries (deep link, cold start on this route).
+  void _leave() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(RouteNames.services);
+    }
   }
 
   /// Parses a 400's `fieldErrors` map, attributing each `items[<index>].<field>`
@@ -475,24 +803,94 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
           field == 'priceMin' ||
           field == 'priceMax') {
         // No localized copy for the price constraints (rare — the client
-        // validates price shape). Fall back to the raw server message.
-        row.serverPriceError = entry.value;
+        // validates price shape), so the server's own message is shown — but
+        // only when it is short enough to BE a field hint. Anything blank or
+        // oversized falls back to localized copy: a server string is untrusted
+        // input, and one rendered verbatim into a row label can push the card
+        // apart or spill internal detail. The interceptor's own 200-char cap is
+        // a transport guard, not a layout one.
+        row.serverPriceError = serverFieldMessageOr(
+          entry.value,
+          l10n.serviceSetupPriceInvalid,
+        );
         mappedAny = true;
       }
     }
     return mappedAny;
   }
 
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: BrandColors.accentDeep,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+  /// Shows a floating snackbar. When [onRetry] is supplied the bar also carries
+  /// a retry action and stays up longer — used for the transient 503, where the
+  /// only useful next step is "try that again".
+  ///
+  /// A retry action is offered for the 503 ONLY. Notably not for the 429: the
+  /// implicit promise of a «Повторити» button is "this will work now", and while
+  /// the rate-limit bucket is closed that is false by construction — the tap
+  /// spends the master's next allowance on a request that cannot succeed. That
+  /// bar states the wait and lets the CTA (still enabled) carry the retry on the
+  /// master's own schedule.
+  void _showSnack(String message, {VoidCallback? onRetry}) {
+    final l10n = AppLocalizations.of(context);
+    final messenger = ScaffoldMessenger.of(context)..clearSnackBars();
+    // Any previous retry bar was just cleared, so the stale handle must go too.
+    _retrySnack = null;
+    final controller = messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: BrandColors.accentDeep,
+        behavior: SnackBarBehavior.floating,
+        // A retryable failure gets a longer dwell — the default 4 s is not
+        // enough to read the message AND decide to act on it.
+        //
+        // The 8 s is documentation of intent, not a mechanism: `SnackBar`
+        // defaults `persist` to `action != null`, so the retry bar ignores its
+        // duration entirely and stays until swiped, replaced, or closed by
+        // [dispose]. Only the 4 s branch actually elapses.
+        duration: onRetry == null
+            ? const Duration(seconds: 4)
+            : const Duration(seconds: 8),
+        action: onRetry == null
+            ? null
+            : SnackBarAction(
+                label: l10n.serviceSetupRetry,
+                // `white` IS the cream token (#F5EDE0) — the on-accent
+                // foreground, correct against the accentDeep snackbar fill.
+                textColor: BrandColors.white,
+                onPressed: onRetry,
+              ),
+      ),
+    );
+    // Only the retry bar is tracked: it is the only one whose action outlives
+    // the route (see [_retrySnack]).
+    if (onRetry != null) {
+      _retrySnack = controller;
+      // Drop the handle the moment the bar leaves the queue. Nothing else
+      // does: `_showSnack` only clears it when a NEW bar is posted, and
+      // `dispose` only when the route dies.
+      //
+      // The gap between those two is the master SWIPING the bar away —
+      // `SnackBar`'s `Dismissible` calls `removeCurrentSnackBar(reason: swipe)`
+      // and tells us nothing — or any other holder of the ROOT messenger
+      // clearing it. Note the timeout is NOT in that set: `SnackBar` ends its
+      // constructor with `persist = persist ?? action != null`, so THIS bar,
+      // the only one carrying an action, never auto-dismisses and its 8 s
+      // `duration` is inert. (A test pins that framework default, because if it
+      // flips, expiry becomes a second path into the same bug.)
+      //
+      // A handle outliving its bar makes `close()` operate on an empty queue:
+      // `assert(_snackBars.first == controller)` throws `StateError: No
+      // element` in debug, and in release (assert stripped)
+      // `hideCurrentSnackBar` silently kills whatever unrelated bar is front on
+      // the ROOT messenger — the quieter and harder-to-trace symptom.
+      //
+      // `identical` is load-bearing: `closed` resolves a frame or two AFTER the
+      // bar is torn down, so a rapid second 503 has already parked ITS
+      // controller here by the time the first one completes. Without the check
+      // the older completion nulls the newer, live handle.
+      controller.closed.whenComplete(() {
+        if (identical(_retrySnack, controller)) _retrySnack = null;
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -511,15 +909,13 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
         child: Column(
           children: <Widget>[
             _TopBar(
-              title: l10n.serviceSetupTitle,
+              // APPEND reframes the screen from "set up your menu" to "add
+              // services"; the SETUP copy is untouched for the empty case.
+              title: _appending
+                  ? l10n.serviceSetupTitleAppend
+                  : l10n.serviceSetupTitle,
               closeLabel: l10n.serviceSetupClose,
-              onClose: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go(RouteNames.services);
-                }
-              },
+              onClose: _leave,
             ),
             Expanded(
               child: categoriesAsync.when(
@@ -548,6 +944,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
                 return _Footer(
                   total: total,
                   saving: saving,
+                  appending: _appending,
                   onSave: total == 0 ? null : _save,
                 );
               },
@@ -566,7 +963,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     AppLocalizations l10n,
     List<ServiceCategoryOption> categories,
   ) {
-    final List<Widget> rowItems = _expandedItems(l10n, categories);
+    final List<_SetupSlot> slots = _expandedSlots(l10n, categories);
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
       slivers: <Widget>[
@@ -581,7 +978,9 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const _MissingServiceNote(),
+                // Sits directly above the chip Wrap — the CATEGORY-selection
+                // surface — because that is the scope it acts on.
+                _MissingCategoryPrompt(onTap: _requestCategory),
                 const SizedBox(height: VelvetSpacing.lg),
                 _categorySection(l10n, categories),
                 const SizedBox(height: VelvetSpacing.lg),
@@ -598,8 +997,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
           ),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate(
-              (context, index) => rowItems[index],
-              childCount: rowItems.length,
+              (context, index) => switch (slots[index]) {
+                _FixedSlot(:final Widget child) => child,
+                _RowSlot(:final ServiceRowState row) => _rowCard(row, l10n),
+              },
+              childCount: slots.length,
             ),
           ),
         ),
@@ -648,10 +1050,22 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     );
   }
 
-  /// Flattens the expanded categories into a single list of items fed to the
-  /// [SliverList] builder (headers, hints, and one [RepaintBoundary]-wrapped
-  /// [ServiceTypeRowCard] per service-type).
-  List<Widget> _expandedItems(
+  /// Flattens the expanded categories into the flat slot list fed to the
+  /// [SliverList] builder — headers, hints, and one [_RowSlot] per service-type.
+  ///
+  /// Returns SLOTS, not widgets, and that distinction is the point. The
+  /// [SliverList] only ever *indexes* whatever this returns, so an eager
+  /// `List<Widget>` made element creation lazy while leaving widget ALLOCATION
+  /// eager: every one of up to ~140 rows (21 categories × ≤12 types) built its
+  /// `KeyedSubtree` → `RepaintBoundary` → `Padding` → `ServiceTypeRowCard`
+  /// wrapper on every screen build, including the ~139 nobody can see. A
+  /// [_RowSlot] is one small object holding a reference the screen already
+  /// owns; the wrapper is built in the delegate, on demand. The few fixed items
+  /// per expanded category (header, empty/all-added hint, suggest prompt,
+  /// spacers) stay eager as [_FixedSlot]s — they are bounded by the category
+  /// count, not the type count, and keeping them as widgets keeps their keys and
+  /// ordering exactly where they were.
+  List<_SetupSlot> _expandedSlots(
     AppLocalizations l10n,
     List<ServiceCategoryOption> categories,
   ) {
@@ -659,85 +1073,160 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
         .where((c) => _expanded.contains(c.name))
         .toList(growable: false);
     if (active.isEmpty) {
-      return <Widget>[_EmptyHint(text: l10n.serviceSetupEmptyHint)];
+      return <_SetupSlot>[
+        _FixedSlot(_EmptyHint(text: l10n.serviceSetupEmptyHint)),
+      ];
     }
 
-    final out = <Widget>[];
+    final out = <_SetupSlot>[];
     for (final c in active) {
       final slug = c.name;
       final icon = serviceCategoryIcon(slug);
 
       if (_loadingCategories.contains(slug)) {
-        out.add(_CategoryLoading(key: ValueKey<String>('loading_$slug')));
+        out.add(
+          _FixedSlot(_CategoryLoading(key: ValueKey<String>('loading_$slug'))),
+        );
         continue;
       }
       if (_erroredCategories.contains(slug)) {
         out.add(
-          _CategoryRetry(
-            key: ValueKey<String>('retry_$slug'),
-            onRetry: () => _loadCategory(slug),
-            label: l10n.serviceTypeLoadError,
-            retryLabel: l10n.serviceCategoryRetry,
+          _FixedSlot(
+            _CategoryRetry(
+              key: ValueKey<String>('retry_$slug'),
+              onRetry: () => _loadCategory(slug),
+              label: l10n.serviceTypeLoadError,
+              retryLabel: l10n.serviceCategoryRetry,
+            ),
           ),
         );
         continue;
       }
 
       final rows = _rowsByCategory[slug] ?? const <ServiceRowState>[];
+      // "n з m" counts only the SELECTABLE types. Counting already-owned ones in
+      // `m` would render "0 з 8" for a master who already offers 8 of 8 — which
+      // reads as a broken screen rather than as "you have them all".
+      final int selectable = rows.where((r) => !r.alreadyAdded).length;
       // The header's live "n з m" count derives from the aggregate so it tracks
       // include toggles without forcing a full-tree rebuild.
       out.add(
-        ListenableBuilder(
-          key: ValueKey<String>('group_$slug'),
-          listenable: _aggregate,
-          builder: (context, _) => CategoryGroupHeader(
-            icon: icon,
-            label: c.displayName,
-            includedCount: _includedCount(slug),
-            total: rows.length,
+        _FixedSlot(
+          ListenableBuilder(
+            key: ValueKey<String>('group_$slug'),
+            listenable: _aggregate,
+            builder: (context, _) => CategoryGroupHeader(
+              icon: icon,
+              label: c.displayName,
+              includedCount: _includedCount(slug),
+              total: selectable,
+            ),
           ),
         ),
       );
-      out.add(const SizedBox(height: VelvetSpacing.md));
+      out.add(const _FixedSlot(SizedBox(height: VelvetSpacing.md)));
 
       if (rows.isEmpty) {
         out.add(
-          Padding(
-            padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-            child: Text(l10n.serviceTypeEmpty, style: VelvetText.body()),
+          _FixedSlot(
+            Padding(
+              padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
+              child: Text(l10n.serviceTypeEmpty, style: VelvetText.body()),
+            ),
           ),
         );
-      }
-
-      for (final row in rows) {
-        final id = row.serviceTypeId;
+      } else if (selectable == 0) {
+        // Every type here is already in the master's menu. Say so explicitly —
+        // the rows below are all inert, and without this line the category
+        // looks broken rather than complete.
         out.add(
-          // Outer KeyedSubtree carries the per-row GlobalKey so a blocked save
-          // can `Scrollable.ensureVisible` this flagged row; the inner
-          // RepaintBoundary keeps its `rowwrap_$id` ValueKey for test finders
-          // and caps the per-row expand/collapse animation's repaint blast
-          // radius to this one card.
-          KeyedSubtree(
-            key: _rowWrapperKey(id),
-            child: RepaintBoundary(
-              key: ValueKey<String>('rowwrap_$id'),
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-                child: ServiceTypeRowCard(
-                  key: Key('setup_row_$id'),
-                  row: row,
-                  resolveRangeError: (r) => _rangeErrorFor(r, l10n),
-                  onChanged: _notifyAggregate,
-                ),
+          _FixedSlot(
+            Padding(
+              padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
+              child: Text(
+                l10n.serviceSetupAllAlreadyAdded,
+                style: VelvetText.body(),
               ),
             ),
           ),
         );
       }
-      out.add(const SizedBox(height: VelvetSpacing.sm));
+
+      for (final row in rows) {
+        out.add(_RowSlot(row));
+      }
+      // Closes the category: every type it DOES offer has now been listed, so
+      // this is the moment "the one I want isn't here" is actionable. It also
+      // supplies the category context the suggestion dialog needs.
+      out.add(
+        _FixedSlot(
+          Padding(
+            padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
+            child: _MissingServiceTypePrompt(
+              key: ValueKey<String>('suggest_type_$slug'),
+              categoryLabel: c.displayName,
+              onTap: () => _suggestServiceType(slug),
+            ),
+          ),
+        ),
+      );
+      out.add(const _FixedSlot(SizedBox(height: VelvetSpacing.sm)));
     }
     return out;
   }
+
+  /// Builds one service-type row's wrapper, on demand from the [SliverList]
+  /// delegate rather than eagerly in [_expandedSlots].
+  ///
+  /// Byte-for-byte the tree that used to be built up-front — outer
+  /// [KeyedSubtree] carrying the per-row [GlobalKey] so a blocked save can
+  /// `Scrollable.ensureVisible` this flagged row, inner [RepaintBoundary]
+  /// keeping its `rowwrap_$id` [ValueKey] for test finders and capping the
+  /// per-row expand/collapse animation's repaint blast radius to this one card.
+  Widget _rowCard(ServiceRowState row, AppLocalizations l10n) {
+    final id = row.serviceTypeId;
+    return KeyedSubtree(
+      key: _rowWrapperKey(id),
+      child: RepaintBoundary(
+        key: ValueKey<String>('rowwrap_$id'),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
+          child: ServiceTypeRowCard(
+            key: Key('setup_row_$id'),
+            row: row,
+            resolveRangeError: (r) => _rangeErrorFor(r, l10n),
+            onChanged: _notifyAggregate,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One entry in the [SliverList]'s flat item list.
+///
+/// Exists so the list can be indexed WITHOUT every row's widget wrapper having
+/// been allocated first — see [_ServiceSetupScreenState._expandedSlots].
+sealed class _SetupSlot {
+  const _SetupSlot();
+}
+
+/// A slot whose widget is cheap and bounded by the CATEGORY count (header,
+/// spacer, hint, suggest prompt), so it is built eagerly and simply carried.
+final class _FixedSlot extends _SetupSlot {
+  const _FixedSlot(this.child);
+
+  final Widget child;
+}
+
+/// A slot for one service-type row: holds only the [ServiceRowState] the screen
+/// already owns, and defers the card wrapper to
+/// [_ServiceSetupScreenState._rowCard]. This is the one that repeats up to ~140
+/// times, and the only reason this type exists.
+final class _RowSlot extends _SetupSlot {
+  const _RowSlot(this.row);
+
+  final ServiceRowState row;
 }
 
 /// Lightweight bump-notifier driving the footer count + chip badges. Exposing a
@@ -803,58 +1292,191 @@ class _TopBar extends StatelessWidget {
 // Helper note
 // ---------------------------------------------------------------------------
 
-/// A calm helper note pinned to the top — reassures the master that a service
-/// missing from the catalogue isn't a dead end: it can be requested later from
-/// the Services page. Soft recessed inset so it reads as guidance, not a CTA.
-class _MissingServiceNote extends StatelessWidget {
-  const _MissingServiceNote();
+/// The missing-CATEGORY affordance, pinned above the category chips.
+///
+/// Was a static note whose prose merely PROMISED that a missing entry could be
+/// requested "later, from the Services page" — a dead end that pointed at
+/// another screen. It is now the request itself.
+///
+/// Stays a recessed [NeumorphicInset] rather than becoming a raised button:
+/// this is the quiet channel, subordinate to the CTA at the foot of the screen,
+/// and a second extruded pillow up here would compete with the chips. The
+/// trailing chevron plus the press-scale are what promote it from "note" to
+/// "control" without raising its visual weight.
+class _MissingCategoryPrompt extends StatefulWidget {
+  const _MissingCategoryPrompt({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_MissingCategoryPrompt> createState() => _MissingCategoryPromptState();
+}
+
+class _MissingCategoryPromptState extends State<_MissingCategoryPrompt> {
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final TextStyle caption = VelvetText.svcCaptionNote;
-    return NeumorphicInset(
-      radius: VelvetRadii.field,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.md,
-          vertical: VelvetSpacing.md - 2,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Padding(
-              padding: EdgeInsets.only(top: 1),
-              child: Icon(
-                Icons.lightbulb_outline_rounded,
-                size: 18,
-                color: BrandColors.accentDeep,
+    return Semantics(
+      button: true,
+      label: l10n.serviceSetupRequestCategoryAction,
+      child: GestureDetector(
+        key: const Key('btn-setup-request-category'),
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) {
+          setState(() => _pressed = false);
+          widget.onTap();
+        },
+        child: AnimatedScale(
+          scale: _pressed ? 0.99 : 1.0,
+          duration: const Duration(milliseconds: 110),
+          child: NeumorphicInset(
+            radius: VelvetRadii.field,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: VelvetSpacing.md,
+                vertical: VelvetSpacing.md - 2,
               ),
-            ),
-            const SizedBox(width: VelvetSpacing.sm + 2),
-            Expanded(
-              child: Text.rich(
-                TextSpan(
-                  style: caption,
-                  children: <InlineSpan>[
-                    TextSpan(
-                      text: l10n.serviceSetupMissingNoteLead,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(
+                      Icons.lightbulb_outline_rounded,
+                      size: 18,
+                      color: BrandColors.accentDeep,
                     ),
-                    TextSpan(text: l10n.serviceSetupMissingNoteBody),
-                    TextSpan(
-                      text: l10n.serviceSetupMissingNoteServicesWord,
-                      style: caption.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: BrandColors.accentDeep,
+                  ),
+                  const SizedBox(width: VelvetSpacing.sm + 2),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        style: caption,
+                        children: <InlineSpan>[
+                          TextSpan(
+                            text: l10n.serviceSetupMissingCategoryLead,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const TextSpan(text: ' '),
+                          // The action phrase is the accent-coloured part, so
+                          // the tappable promise is legible at a glance.
+                          TextSpan(
+                            text: l10n.serviceSetupRequestCategoryAction,
+                            style: caption.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: BrandColors.accentDeep,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const TextSpan(text: '.'),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: VelvetSpacing.sm),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: BrandColors.accent,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The missing-SERVICE-TYPE affordance, closing each expanded category's rows.
+///
+/// Placement is the whole design: it appears only under an expanded category,
+/// AFTER every type that category does offer. That position both states the
+/// case ("you have now seen all of them — not the one you wanted?") and supplies
+/// the `categoryName` the suggestion dialog requires, with no picker and no
+/// ambiguity about which category the suggestion attaches to.
+///
+/// Treatment is deliberately the third surface in the system: flat, hairline-
+/// outlined, no shadow at all. A raised card would claim it is a service; a
+/// recessed well would claim it is an input. An outline reads as a slot waiting
+/// to be filled, which is exactly what a suggestion is.
+class _MissingServiceTypePrompt extends StatefulWidget {
+  const _MissingServiceTypePrompt({
+    super.key,
+    required this.categoryLabel,
+    required this.onTap,
+  });
+
+  /// Ukrainian display name, shown in the copy. NOT the wire slug.
+  final String categoryLabel;
+  final VoidCallback onTap;
+
+  @override
+  State<_MissingServiceTypePrompt> createState() =>
+      _MissingServiceTypePromptState();
+}
+
+class _MissingServiceTypePromptState extends State<_MissingServiceTypePrompt> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final String label = l10n.serviceSetupMissingTypePrompt(
+      widget.categoryLabel,
+    );
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) {
+          setState(() => _pressed = false);
+          widget.onTap();
+        },
+        child: AnimatedScale(
+          scale: _pressed ? 0.99 : 1.0,
+          duration: const Duration(milliseconds: 110),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: VelvetSpacing.md,
+              vertical: VelvetSpacing.sm + 2,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(VelvetRadii.card),
+              border: Border.all(
+                color: BrandColors.accent.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.add_circle_outline_rounded,
+                  size: 18,
+                  color: BrandColors.accent,
+                ),
+                const SizedBox(width: VelvetSpacing.sm + 2),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: VelvetText.svcCaptionNote.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: BrandColors.accentDeep,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -965,11 +1587,15 @@ class _Footer extends StatelessWidget {
   const _Footer({
     required this.total,
     required this.saving,
+    required this.appending,
     required this.onSave,
   });
 
   final int total;
   final bool saving;
+
+  /// APPEND mode — the CTA says "add N" rather than "create my menu of N".
+  final bool appending;
   final VoidCallback? onSave;
 
   @override
@@ -977,7 +1603,9 @@ class _Footer extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final String label = total == 0
         ? l10n.serviceSetupCtaEmpty
-        : l10n.serviceSetupCtaCreate(total);
+        : (appending
+              ? l10n.serviceSetupCtaAdd(total)
+              : l10n.serviceSetupCtaCreate(total));
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: BrandColors.base,

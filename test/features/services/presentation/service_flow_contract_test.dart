@@ -10,10 +10,13 @@
 // 4xx/5xx/network failure — and NEVER a silent dead state (the class of bug that
 // shipped: a Save that does nothing visible).
 //
-// Unlike service_create_screen_test.dart (which mocks the repository), here the
-// production HttpServiceRepository + generated ServiceControllerApi + real
-// interceptor all run; only the HTTP socket is faked. So a backend response the
-// app mishandles surfaces as a wrong/absent SnackBar and fails the test.
+// Here the production HttpServiceRepository + generated ServiceControllerApi +
+// real interceptor all run; only the HTTP socket is faked. So a backend response
+// the app mishandles surfaces as a wrong/absent SnackBar and fails the test.
+//
+// Scope note (2026-08-04): the CREATE half of this file was removed with
+// `ServiceCreateScreen` — see the comment in `main()` for where that coverage
+// moved. What remains is the EDIT + DELETE surface.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
@@ -23,11 +26,9 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
-import 'package:beautica_mobile/features/services/presentation/service_create_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
-import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -35,7 +36,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 
-import 'widgets/select_dropdown_test_helpers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const _baseUrl = 'http://localhost:8080';
@@ -227,45 +227,6 @@ class _StubServicesList extends ServicesList {
 AppLocalizations _l10n(WidgetTester tester, Type screenType) =>
     AppLocalizations.of(tester.element(find.byType(screenType)));
 
-// Fill the create form with a valid FIXED service and select the category chip.
-Future<void> _fillValidCreateForm(WidgetTester tester) async {
-  await tester.enterText(
-    find.descendant(
-      of: find.byKey(const Key('field-service-name')),
-      matching: find.byType(TextField),
-    ),
-    'Манікюр',
-  );
-  await tester.enterText(
-    find.descendant(
-      of: find.byKey(const Key('field-service-duration')),
-      matching: find.byType(TextField),
-    ),
-    '60',
-  );
-  await tester.enterText(
-    find.descendant(
-      of: find.byKey(const Key('pricing-fixed-amount')),
-      matching: find.byType(TextField),
-    ),
-    '500',
-  );
-  // Select the category via the dropdown (open menu → tap option → settle).
-  await selectCategoryOption(tester, 'MANICURE');
-  // Service type is MANDATORY on create — select one (for the chosen category)
-  // via the form State so the submit is not blocked by the required-type check.
-  final dynamic formState = tester.state(find.byType(ServiceForm));
-  formState.onServiceTypeSelected(
-    const ServiceTypeOption(
-      id: 'stype-manicure',
-      slug: 'MANICURE_A',
-      nameUk: 'Класичний манікюр',
-      categoryName: 'MANICURE',
-    ),
-  );
-  await tester.pump();
-}
-
 Future<void> _tapSubmit(WidgetTester tester) async {
   await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
   await tester.pump();
@@ -288,139 +249,26 @@ Future<void> _editName(WidgetTester tester, String value) async {
 
 void main() {
   // =========================================================================
-  // CREATE — success + each failure surfaces the right SnackBar
+  // CREATE group REMOVED (2026-08-04)
+  // -------------------------------------------------------------------------
+  // It drove `ServiceCreateScreen`, the single-create form, which was deleted
+  // when both "add service" entry points collapsed onto the multi-select
+  // `ServiceSetupScreen` (the backend made the bulk endpoint additive in
+  // c5e420f). The screen no longer exists, so the group had nothing to drive.
+  //
+  // The transport-seam coverage it provided is NOT lost — it moved rather than
+  // vanished:
+  //   • the bulk write's per-status Failure mapping (409 DUPLICATE_SERVICE,
+  //     the new 503, plain-409 fallthrough, 400 field errors) is pinned by
+  //     `service_repository_bulk_create_test.dart` +
+  //     `service_repository_bulk_create_contract_test.dart`;
+  //   • the end-to-end "a duplicate never dies silently" journey is pinned by
+  //     `integration_test/service_duplicate_flow_test.dart`, retargeted to the
+  //     setup screen in the same change.
+  // The EDIT group below is untouched: it exercises the create screen's
+  // sibling (`ServiceEditScreen`) over the same real repository + real
+  // interceptor + faked socket, and never referenced the deleted screen.
   // =========================================================================
-  group('ServiceCreateScreen — real-transport feedback contract', () {
-    testWidgets('POSITIVE: 200 → success SnackBar shown, screen reacts', (
-      tester,
-    ) async {
-      final h = _wireRepo();
-      h.adapter.onPost(
-        _createPath,
-        (s) => s.reply(200, _createOkEnvelope()),
-        data: Matchers.any,
-      );
-
-      await _pump(tester, const ServiceCreateScreen(), h.repo);
-      await _fillValidCreateForm(tester);
-      await _tapSubmit(tester);
-      await tester.pumpAndSettle();
-
-      final l10n = _l10n(tester, ServiceCreateScreen);
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.serviceCreatedSuccess), findsOneWidget);
-    });
-
-    testWidgets(
-      'NEGATIVE: 400 with a recognised field error → INLINE on the field, no '
-      'generic SnackBar (hardened 2026-06-03)',
-      (tester) async {
-        final h = _wireRepo();
-        h.adapter.onPost(
-          _createPath,
-          (s) => s.reply(400, {
-            'success': false,
-            'errors': {'name': 'already exists'},
-          }),
-          data: Matchers.any,
-        );
-
-        await _pump(tester, const ServiceCreateScreen(), h.repo);
-        await _fillValidCreateForm(tester);
-        await _tapSubmit(tester);
-        await tester.pumpAndSettle();
-
-        final l10n = _l10n(tester, ServiceCreateScreen);
-        // The backend field error is now surfaced inline on the name input
-        // instead of being collapsed into the generic errValidation SnackBar.
-        expect(find.text('already exists'), findsOneWidget);
-        expect(find.text(l10n.errValidation), findsNothing);
-        expect(find.byType(SnackBar), findsNothing);
-        expect(find.byType(ServiceCreateScreen), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'NEGATIVE: 400 with EMPTY errors map on CREATE → inline type-mismatch '
-      'feedback (mandatory type + dirty category trips the 16.5 safety net; '
-      'still non-silent, screen not popped)',
-      (tester) async {
-        final h = _wireRepo();
-        h.adapter.onPost(
-          _createPath,
-          (s) => s.reply(400, {'success': false, 'message': 'Bad request'}),
-          data: Matchers.any,
-        );
-
-        await _pump(tester, const ServiceCreateScreen(), h.repo);
-        await _fillValidCreateForm(tester);
-        await _tapSubmit(tester);
-        await tester.pumpAndSettle();
-
-        // CONTRACT CHANGE: service type is now MANDATORY on create, so the form
-        // ALWAYS carries a selected type and a dirty category (null → MANICURE).
-        // An empty-errors 400 (no `errors` map) is therefore attributed by the
-        // Phase-16.5 category-mismatch safety net and surfaced INLINE on the
-        // service-type field rather than via the generic SnackBar. The Save
-        // still never dies silently and the screen is not popped.
-        // (Backlog note: an unrelated business 400 is mislabeled as a type
-        // mismatch on create — flagged to mobile-backlog as a product-behavior
-        // question.)
-        final l10n = _l10n(tester, ServiceCreateScreen);
-        expect(find.byKey(const Key('error-service-type')), findsOneWidget);
-        expect(find.text(l10n.serviceTypeCategoryMismatch), findsOneWidget);
-        expect(find.byType(SnackBar), findsNothing);
-        expect(find.byType(ServiceCreateScreen), findsOneWidget);
-      },
-    );
-
-    testWidgets('NEGATIVE: 500 → server-error SnackBar, screen not popped', (
-      tester,
-    ) async {
-      final h = _wireRepo();
-      h.adapter.onPost(
-        _createPath,
-        (s) => s.reply(500, {'message': 'boom'}),
-        data: Matchers.any,
-      );
-
-      await _pump(tester, const ServiceCreateScreen(), h.repo);
-      await _fillValidCreateForm(tester);
-      await _tapSubmit(tester);
-      await tester.pumpAndSettle();
-
-      final l10n = _l10n(tester, ServiceCreateScreen);
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.errServer), findsOneWidget);
-      expect(find.byType(ServiceCreateScreen), findsOneWidget);
-    });
-
-    testWidgets('NEGATIVE: network timeout → network-error SnackBar', (
-      tester,
-    ) async {
-      final h = _wireRepo();
-      h.adapter.onPost(
-        _createPath,
-        (s) => s.throws(
-          408,
-          DioException.connectionTimeout(
-            timeout: const Duration(seconds: 1),
-            requestOptions: RequestOptions(path: _createPath),
-          ),
-        ),
-        data: Matchers.any,
-      );
-
-      await _pump(tester, const ServiceCreateScreen(), h.repo);
-      await _fillValidCreateForm(tester);
-      await _tapSubmit(tester);
-      await tester.pumpAndSettle();
-
-      final l10n = _l10n(tester, ServiceCreateScreen);
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.errNetwork), findsOneWidget);
-    });
-  });
 
   // =========================================================================
   // EDIT — success + failure feedback (cache-hit seeds the form)

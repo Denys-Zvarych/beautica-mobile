@@ -320,7 +320,6 @@ void main() {
       'masterEditLocation': RouteNames.masterEditLocation,
       'masterReceivedReviews': RouteNames.masterReceivedReviews,
       'services': RouteNames.services,
-      'serviceCreate': RouteNames.serviceCreate,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,
       'masterSchedule': RouteNames.masterSchedule,
@@ -350,6 +349,14 @@ void main() {
     // self-contained test routers. NL-R01d below asserts both stay
     // unregistered in the PRODUCTION router, mirroring NL-R01b for
     // `workingHours`.
+    //
+    // NOT an exclusion — `/services/create` (2026-08-04): the single-create
+    // form (`ServiceCreateScreen`) was deleted and the two "add services"
+    // flows collapsed onto the one surface `/services/setup`. Unlike the
+    // entries below, the `RouteNames.serviceCreate` CONSTANT was deleted too,
+    // so it belongs in neither `allRoutes` nor `deliberatelyUnregistered` —
+    // NL-R01c's `covered.difference(declared)` assertion is what forced the
+    // `allRoutes` row out. `/services/setup` is still covered above.
     const Set<String> deliberatelyUnregistered = <String>{
       'workingHours',
       'appointmentDetail',

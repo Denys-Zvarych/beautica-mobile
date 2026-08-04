@@ -29,9 +29,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/time/clock_provider.dart';
-import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
-import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../../../features/auth/domain/user.dart';
 import '../../../features/location/state/location_providers.dart';

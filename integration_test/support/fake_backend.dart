@@ -872,6 +872,40 @@ final class FakeBackend {
   bool _bulkRejectDurationField = false;
   int bulkRejectItemIndex = 0;
 
+  /// When true, the bulk-setup route replies HTTP **409** with the typed
+  /// `{ data: { code: "DUPLICATE_SERVICE", serviceName: null,
+  /// existingServiceDefId } }` envelope instead of the default 200 — one item in
+  /// the batch names a service the master already offers, so the backend rolled
+  /// the WHOLE batch back (the endpoint is all-or-nothing; nothing was written).
+  ///
+  /// Since `beautica-backend` c5e420f made bulk create ADDITIVE, a 409 on this
+  /// route means exactly this one thing, which is why the repository's
+  /// `_mapBulkCreateException` decodes it straight to [ServiceDuplicateFailure]
+  /// and `ServiceSetupScreen._save` surfaces it as a SNACKBAR while KEEPING the
+  /// master on the screen with their selection intact. `serviceName` is null on
+  /// the bulk envelope (the backend does not name the offender there), so the
+  /// failure renders its plain `serviceErrDuplicate` copy.
+  ///
+  /// RE-WIRES ON WRITE — DO NOT COLLAPSE BACK INTO A PLAIN FIELD. See
+  /// [createRejectDuplicate] for the full explanation: `replyCallback` captures
+  /// its status code at REGISTRATION time, so a plain `bool` read inside [_wire]
+  /// is always still `false` and flipping it later changes only the BODY —
+  /// leaving the status at 200, which the repository reads as a SUCCESS. The
+  /// flow then fails on the missing error copy, pointing at the screen instead
+  /// of at this fake.
+  bool get bulkRejectDuplicate => _bulkRejectDuplicate;
+  set bulkRejectDuplicate(bool value) {
+    _bulkRejectDuplicate = value;
+    _wireBulkCreateServices();
+  }
+
+  bool _bulkRejectDuplicate = false;
+
+  /// The `existingServiceDefId` the bulk duplicate-409 envelope reports. Threaded
+  /// through so a flow can assert the typed field survives the decode; the screen
+  /// renders the localized copy regardless of its value.
+  String bulkDuplicateExistingServiceDefId = 'def-existing-bulk';
+
   /// When true, the single-create route
   /// (`POST /independent-masters/me/services`) replies HTTP 409 with the typed
   /// `{ data: { code: "DUPLICATE_SERVICE", serviceName, existingServiceDefId } }`
@@ -2721,68 +2755,100 @@ final class FakeBackend {
   }
 
   /// (Re-)registers `POST /api/v1/independent-masters/me/services/bulk`.
-  /// See [bulkRejectDurationField].
+  /// See [bulkRejectDurationField] and [bulkRejectDuplicate].
   void _wireBulkCreateServices() {
-    // POST /api/v1/independent-masters/me/services/bulk — first-time bulk setup.
+    // POST /api/v1/independent-masters/me/services/bulk — the ONE "add services"
+    // write (setup AND append, since beautica-backend c5e420f made it additive).
     // A DISTINCT path from the single-create route above (exact-string match, so
-    // no collision). Default: 201 echoing one created service per submitted item.
-    // When [bulkRejectDurationField] is set, replies 400 with the backend's
-    // per-field envelope keyed on `items[<bulkRejectItemIndex>].durationMinutes`
-    // — the shape ErrorMapperInterceptor maps to ValidationFailure.fieldErrors,
-    // driving the screen's inline per-row error (NOT the generic snackbar).
+    // no collision).
+    //
+    // Three mutually exclusive outcomes, in the order the status ternary below
+    // resolves them:
+    //   • [bulkRejectDuplicate]     → 409 typed DUPLICATE_SERVICE envelope
+    //                                 (whole batch rolled back; nothing written).
+    //   • [bulkRejectDurationField] → 400 per-field envelope keyed on
+    //                                 `items[<bulkRejectItemIndex>].durationMinutes`
+    //                                 — the shape ErrorMapperInterceptor maps to
+    //                                 ValidationFailure.fieldErrors, driving the
+    //                                 screen's inline per-row error.
+    //   • neither (default)         → 200 echoing one created service per item.
+    // The duplicate wins when both are armed, matching the backend: the
+    // uniqueness conflict aborts the transaction before per-field validation
+    // feedback would matter. Arming both is a test-authoring mistake either way.
+    //
+    // The call counter + `lastBulkItems` capture run BEFORE the branch on every
+    // outcome, so a flow can always prove the POST genuinely reached the network
+    // (vs. being blocked client-side) even on the rejection paths.
     _adapter.onRoute(
       '/api/v1/independent-masters/me/services/bulk',
-      (server) => server.replyCallback(_bulkRejectDurationField ? 400 : 200, (
-        req,
-      ) {
-        bulkCreateCalls++;
-        final body = _decodeBody(req.data);
-        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
-        lastBulkItems = items;
-        if (_bulkRejectDurationField) {
-          return <String, dynamic>{
-            'success': false,
-            'message': 'Validation failed',
-            'errors': <String, dynamic>{
-              'items[$bulkRejectItemIndex].durationMinutes':
-                  'Duration must be at most 480 minutes (8 hours)',
-            },
-          };
-        }
-        // Success: echo a created service per submitted item so the envelope
-        // shape matches ApiResponse<List<MasterServiceResponse>>.
-        final created = <Map<String, dynamic>>[];
-        for (final item in items) {
-          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
-          final defId = 'svc-bulk-$_nextServiceSeq';
-          created.add(<String, dynamic>{
-            'id': 'assign-bulk-$_nextServiceSeq',
-            'masterId': 'user-master-1',
-            'isActive': true,
-            'priceType': map['priceType'] ?? 'FIXED',
-            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
-            'priceMax': map['priceMax'],
-            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
-            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
-            'serviceDefinition': <String, dynamic>{
-              'id': defId,
-              'name': 'Bulk service $_nextServiceSeq',
-              'description': null,
-              'category': 'NAILS',
-              'baseDurationMinutes': map['durationMinutes'] ?? 60,
-              'bufferMinutesAfter': 0,
+      (server) => server.replyCallback(
+        _bulkRejectDuplicate ? 409 : (_bulkRejectDurationField ? 400 : 200),
+        (req) {
+          bulkCreateCalls++;
+          final body = _decodeBody(req.data);
+          final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+          lastBulkItems = items;
+          if (_bulkRejectDuplicate) {
+            // Shape decoded by `HttpServiceRepository._isDuplicateService` /
+            // `._extractDuplicateService`: the code lives at `data.code`, and
+            // `serviceName` is explicitly null on the bulk envelope.
+            return <String, dynamic>{
+              'success': false,
+              'data': <String, dynamic>{
+                'code': 'DUPLICATE_SERVICE',
+                'serviceName': null,
+                'existingServiceDefId': bulkDuplicateExistingServiceDefId,
+              },
+              'message': 'One of these services is already in your menu',
+            };
+          }
+          if (_bulkRejectDurationField) {
+            return <String, dynamic>{
+              'success': false,
+              'message': 'Validation failed',
+              'errors': <String, dynamic>{
+                'items[$bulkRejectItemIndex].durationMinutes':
+                    'Duration must be at most 480 minutes (8 hours)',
+              },
+            };
+          }
+          // Success: echo a created service per submitted item so the envelope
+          // shape matches ApiResponse<List<MasterServiceResponse>>.
+          final created = <Map<String, dynamic>>[];
+          for (final item in items) {
+            final map = item is Map<String, dynamic>
+                ? item
+                : <String, dynamic>{};
+            final defId = 'svc-bulk-$_nextServiceSeq';
+            created.add(<String, dynamic>{
+              'id': 'assign-bulk-$_nextServiceSeq',
+              'masterId': 'user-master-1',
               'isActive': true,
               'priceType': map['priceType'] ?? 'FIXED',
               'priceMin': map['price'] ?? map['priceMin'] ?? 0,
               'priceMax': map['priceMax'],
               'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
-              'photoUrl': null,
-            },
-          });
-          _nextServiceSeq++;
-        }
-        return _okList(created);
-      }),
+              'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+              'serviceDefinition': <String, dynamic>{
+                'id': defId,
+                'name': 'Bulk service $_nextServiceSeq',
+                'description': null,
+                'category': 'NAILS',
+                'baseDurationMinutes': map['durationMinutes'] ?? 60,
+                'bufferMinutesAfter': 0,
+                'isActive': true,
+                'priceType': map['priceType'] ?? 'FIXED',
+                'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+                'priceMax': map['priceMax'],
+                'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+                'photoUrl': null,
+              },
+            });
+            _nextServiceSeq++;
+          }
+          return _okList(created);
+        },
+      ),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }

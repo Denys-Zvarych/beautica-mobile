@@ -49,6 +49,18 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'ServerFailure(500)': true,
   'ServerFailure(503)': true,
   'ServerFailure(599)': true,
+  // The bulk-setup advisory lock was still held when the backend's 3 s ceiling
+  // expired. The batch is all-or-nothing, so NOTHING was written — an identical
+  // resubmit once the lock frees is both safe and the expected outcome.
+  'BulkSetupBusyFailure': true,
+  // A rate limit clears on its own, so an identical later attempt genuinely can
+  // succeed — the same answer the 5xx and 503 rows give, and the honest one for
+  // the question this table asks. It is NOT the question "may the container
+  // re-issue this behind the user's back?"; `isThrottleFailure` answers that one
+  // with a flat no for the whole 429 family, and `beauticaProviderRetry` checks
+  // it FIRST. The two are asserted separately below — a `true` here does not
+  // mean an automatic retry, and the throttle test is what proves it.
+  'ServiceRateLimitedFailure': true,
   // Deterministic.
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
@@ -64,7 +76,6 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'CategoryAlreadyExistsFailure': false,
   'SupportAttachmentTooLargeFailure': false,
   'SupportChannelUnavailableFailure': false,
-  'MasterAlreadyHasServicesFailure': false,
   'ConflictFailure': false,
   'DuplicateServiceFailure': false,
   'ServiceDuplicateFailure': false,
@@ -113,7 +124,10 @@ Map<String, Failure> _instances() {
         const SupportAttachmentTooLargeFailure(),
     'SupportChannelUnavailableFailure':
         const SupportChannelUnavailableFailure(),
-    'MasterAlreadyHasServicesFailure': const MasterAlreadyHasServicesFailure(),
+    'BulkSetupBusyFailure': const BulkSetupBusyFailure(),
+    'ServiceRateLimitedFailure': const ServiceRateLimitedFailure(
+      retryAfterSeconds: 20,
+    ),
     'ConflictFailure': const ConflictFailure(),
     'DuplicateServiceFailure': const DuplicateServiceFailure(),
     'ServiceDuplicateFailure': const ServiceDuplicateFailure(),
@@ -275,6 +289,68 @@ void main() {
           reason: '${e.key} must not be retried at all',
         );
       }
+    });
+
+    // ── A 429 is transient AND must never auto-retry ─────────────────────────
+    //
+    // These two statements are not in tension, they are different questions,
+    // and conflating them is what this pair of tests exists to prevent.
+    // `ServiceRateLimitedFailure` is classified TRANSIENT (the limiter really
+    // does clear on its own), so the test above — which only walks the
+    // DETERMINISTIC rows — skips it entirely. Without the assertion below,
+    // flipping that classification to `true` would have silently handed the
+    // whole 429 family to `defaultRetry`'s 10-attempt backoff: an automatic
+    // answer of "send more" to a server that just said "you are sending too
+    // much", spending the exact budget the master's next deliberate attempt
+    // needs.
+    test('every 429 is refused by the container even when classified '
+        'transient — isThrottleFailure is checked BEFORE transience', () {
+      const Map<String, Failure> throttles = <String, Failure>{
+        'ResendThrottledFailure': ResendThrottledFailure(retryAfterSeconds: 30),
+        'CategoryRequestThrottledFailure': CategoryRequestThrottledFailure(),
+        'BookingRateLimitedFailure': BookingRateLimitedFailure(),
+        'ScheduleOverrideRateLimitedFailure':
+            ScheduleOverrideRateLimitedFailure(retryAfterSeconds: 30),
+        'ServiceRateLimitedFailure': ServiceRateLimitedFailure(
+          retryAfterSeconds: 20,
+        ),
+      };
+      for (final MapEntry<String, Failure> e in throttles.entries) {
+        expect(
+          isThrottleFailure(e.value),
+          isTrue,
+          reason: '${e.key} is an HTTP 429 and belongs to the throttle family',
+        );
+        expect(
+          beauticaProviderRetry(0, e.value),
+          isNull,
+          reason:
+              '${e.key} must never be re-issued automatically, whatever '
+              'isTransientFailure says about it',
+        );
+      }
+    });
+
+    test('the throttle guard is doing real work — the one transient 429 would '
+        'otherwise be handed to the default backoff', () {
+      const Failure throttled = ServiceRateLimitedFailure(
+        retryAfterSeconds: 20,
+      );
+      // Non-vacuity: this failure IS on the transient side, so the ONLY thing
+      // stopping `beauticaProviderRetry` from delegating to
+      // `ProviderContainer.defaultRetry` is `isThrottleFailure`. Delete that
+      // clause and the assertion above goes red rather than staying green for
+      // an unrelated reason.
+      expect(isTransientFailure(throttled), isTrue);
+      expect(
+        ProviderContainer.defaultRetry(0, throttled),
+        isNotNull,
+        reason:
+            'non-vacuity: the default policy WOULD retry this, so the null '
+            'above is the guard talking and not defaultRetry declining on its '
+            'own',
+      );
+      expect(beauticaProviderRetry(0, throttled), isNull);
     });
 
     test('an UnknownFailure wrapping a deserialization breakdown is not '

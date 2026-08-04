@@ -58,6 +58,19 @@
 //     [ScheduleOverrideRateLimitedFailure], …) carry a `retryAfterSeconds` the
 //     UI shows as a countdown — retrying behind the user's back would race it.
 //
+//     That "never auto-retry a 429" rule now lives in its OWN predicate,
+//     [isThrottleFailure], consulted by [beauticaProviderRetry] BEFORE
+//     transience. It used to be expressed only by returning `false` from
+//     [isTransientFailure], which conflated two different questions: "can a
+//     later identical attempt succeed?" (a limiter: yes, once it clears) and
+//     "may the container re-issue this behind the user's back?" (a limiter:
+//     never). [ServiceRateLimitedFailure] answers them differently — `true` and
+//     `false` respectively — so the two are now separate. The four older
+//     throttles keep answering `false` to BOTH: nothing observable turns on
+//     their transience, their UIs render an explicit countdown, and flipping
+//     them is a behaviour change with its own pinned tests. Belt and braces
+//     either way; neither predicate alone can let a limiter loop.
+//
 // EXHAUSTIVENESS IS THE POINT
 // ---------------------------
 // [isTransientFailure] switches over the SEALED [Failure] hierarchy with no
@@ -83,9 +96,30 @@ import 'failures.dart';
 /// [ProviderContainer.defaultRetry] so Riverpod's own `Error` /
 /// `ProviderException` handling and its backoff curve stay untouched.
 Duration? beauticaProviderRetry(int retryCount, Object error) {
-  if (error is Failure && !isTransientFailure(error)) return null;
+  if (error is Failure &&
+      (isThrottleFailure(error) || !isTransientFailure(error))) {
+    return null;
+  }
   return ProviderContainer.defaultRetry(retryCount, error);
 }
+
+/// Whether [failure] is an HTTP **429** — a server-side rate limit.
+///
+/// Checked by [beauticaProviderRetry] ahead of [isTransientFailure], so a
+/// limiter is never re-issued automatically no matter how it is classified
+/// there. See trap 2 in this file's header for why the two questions are
+/// separate: a 429 CAN succeed later (transient) and must STILL never be
+/// retried behind the user's back (throttled).
+///
+/// Deliberately a plain `is`-chain rather than another exhaustive switch: this
+/// list is a small, explicitly-enumerated family, and an exhaustive switch here
+/// would force every unrelated new `Failure` to declare "I am not a 429".
+bool isThrottleFailure(Failure failure) =>
+    failure is ResendThrottledFailure ||
+    failure is CategoryRequestThrottledFailure ||
+    failure is BookingRateLimitedFailure ||
+    failure is ScheduleOverrideRateLimitedFailure ||
+    failure is ServiceRateLimitedFailure;
 
 /// Whether [failure] can plausibly succeed on a later identical attempt.
 ///
@@ -98,6 +132,23 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // deterministic — see trap 1 in the file header.
   ServerFailure(:final int? statusCode) =>
     statusCode != null && statusCode >= 500 && statusCode <= 599,
+  // 503 from the bulk service-setup lock ceiling. Genuinely transient (another
+  // bulk save for the same master was mid-flight) and safe: the batch is
+  // all-or-nothing, so the timed-out attempt wrote nothing and a retry cannot
+  // duplicate. Note this classification is advisory here — the bulk save runs
+  // through a notifier mutation, not a provider build, so the screen's manual
+  // retry affordance is what actually re-issues it.
+  BulkSetupBusyFailure() => true,
+  // 429 from a service-catalogue write. A rate limit clears on its own, so the
+  // honest answer to "could an identical later attempt succeed?" is yes — the
+  // same answer the 5xx and 503 arms give. What must NOT happen is the
+  // CONTAINER deciding when that later attempt is; [isThrottleFailure] stops
+  // that above, and the setup screen withholds its manual retry action for this
+  // failure, so the only re-issue is a deliberate one by the master. (Like
+  // [BulkSetupBusyFailure], the classification is advisory in practice: every
+  // service-catalogue write runs through a notifier mutation, never a provider
+  // build, so `beauticaProviderRetry` is not on this failure's path at all.)
+  ServiceRateLimitedFailure() => true,
 
   // ---- deterministic: HTTP 4xx and typed 4xx envelopes -------------------
   NotFoundFailure() => false,
@@ -111,7 +162,6 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   ProviderMissingCityFailure() => false,
   CategoryAlreadyExistsFailure() => false,
   SupportAttachmentTooLargeFailure() => false,
-  MasterAlreadyHasServicesFailure() => false,
   ConflictFailure() => false,
   DuplicateServiceFailure() => false,
   ServiceDuplicateFailure() => false,

@@ -700,9 +700,9 @@ final class HttpBookingRepository implements BookingRepository {
   /// The status-code checks run BEFORE deferring to any [Failure] the
   /// [ErrorMapperInterceptor] may have attached (it maps a generic 409/403 to
   /// [ServerFailure] with no review-specific copy), mirroring the
-  /// `MasterAlreadyHasServicesFailure` precedent. All other statuses defer to
-  /// the shared [_mapDioException] (which honours any attached [Failure] and
-  /// otherwise maps by transport type).
+  /// re-map-by-status-code precedent in `services/data/service_repository.dart`.
+  /// All other statuses defer to the shared [_mapDioException] (which honours
+  /// any attached [Failure] and otherwise maps by transport type).
   Failure _mapReviewException(DioException e) {
     final int? statusCode = e.response?.statusCode;
     if (statusCode == 409) return ReviewAlreadyExistsFailure(cause: e);
@@ -882,7 +882,7 @@ final class HttpBookingRepository implements BookingRepository {
   /// [ErrorMapperInterceptor] may have attached — it maps a generic 409 to
   /// [ServerFailure] (no slot-conflict copy) and has no booking-specific 429
   /// case at all (an unmatched 429 would otherwise surface as [UnknownFailure])
-  /// — mirroring the `MasterAlreadyHasServicesFailure` /
+  /// — mirroring the `ServiceDuplicateFailure` /
   /// `CategoryRequestThrottledFailure` precedents in
   /// `services/data/service_repository.dart`.
   ///
