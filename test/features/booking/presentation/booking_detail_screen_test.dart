@@ -69,6 +69,7 @@ Booking _booking({
   String? providerComment,
   String? clientCancellationNote,
   DateTime? start,
+  bool canReview = false,
 }) {
   final DateTime startInstant = start ?? futureBookingStart();
   return Booking(
@@ -91,7 +92,7 @@ Booking _booking({
     startAt: startInstant,
     endAt: startInstant.add(const Duration(minutes: 90)),
     status: status,
-    canReview: false,
+    canReview: canReview,
     clientComment: clientComment,
     providerComment: providerComment,
     clientCancellationNote: clientCancellationNote,
@@ -297,6 +298,82 @@ void main() {
         expect(find.text(l10n.bookingDetailRebookCta), findsNothing);
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // canReview gates the review CTA — hoisted ABOVE the status switch.
+  //
+  // Regression guard for the fix: a CONFIRMED booking that aged into
+  // «Минулі» purely by elapsed time (never marked COMPLETED by the provider —
+  // there is no auto-complete job) must still offer «Залишити відгук» the
+  // moment the server says `canReview: true`. Before the fix, the review CTA
+  // was reachable only from inside `case BookingStatus.completed`, so this
+  // exact scenario silently dropped the button. `canReview` alone decides —
+  // never `status` — per `Booking.canReview`'s doc.
+  // -------------------------------------------------------------------------
+
+  group('canReview gates the review CTA independently of status', () {
+    testWidgets(
+      'an ELAPSED CONFIRMED booking with canReview:true shows review + rebook '
+      '(the bug this fix closes — an unclosed provider-side booking must '
+      'still be reviewable)',
+      (tester) async {
+        await _pumpDetail(
+          tester,
+          _booking(
+            status: BookingStatus.confirmed,
+            start: DateTime.utc(2000, 1, 1),
+            canReview: true,
+          ),
+        );
+        final l10n = _l10n(tester);
+
+        expect(
+          find.byKey(const Key('booking-detail-leave-review')),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.bookingDetailReviewCta), findsOneWidget);
+        expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'an ELAPSED CONFIRMED booking with canReview:false shows rebook ONLY '
+      '(unchanged behaviour — e.g. already reviewed)',
+      (tester) async {
+        await _pumpDetail(
+          tester,
+          _booking(
+            status: BookingStatus.confirmed,
+            start: DateTime.utc(2000, 1, 1),
+            canReview: false,
+          ),
+        );
+        final l10n = _l10n(tester);
+
+        expect(
+          find.byKey(const Key('booking-detail-leave-review')),
+          findsNothing,
+        );
+        expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
+      },
+    );
+
+    testWidgets('COMPLETED with canReview:true shows review + rebook '
+        '(unchanged behaviour)', (tester) async {
+      await _pumpDetail(
+        tester,
+        _booking(status: BookingStatus.completed, canReview: true),
+      );
+      final l10n = _l10n(tester);
+
+      expect(
+        find.byKey(const Key('booking-detail-leave-review')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.bookingDetailReviewCta), findsOneWidget);
+      expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
+    });
   });
 
   // -------------------------------------------------------------------------

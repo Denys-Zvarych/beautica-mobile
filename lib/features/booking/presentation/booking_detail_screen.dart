@@ -24,9 +24,16 @@
 //
 // | status | `headerTrailing` | pinned `actions` |
 // |---|---|---|
-// | CONFIRMED | 📅 icon | «Перенести» + «Скасувати запис» |
-// | COMPLETED / CANCELLED / DECLINED | — | «Записатись знову» |
+// | CONFIRMED, not yet elapsed | 📅 icon | «Перенести» + «Скасувати запис» |
+// | CONFIRMED, elapsed (never closed) | 📅 icon | «Залишити відгук» (if `canReview`) + «Записатись знову» |
+// | COMPLETED | — | «Залишити відгук» (if `canReview`) + «Записатись знову» |
+// | CANCELLED / DECLINED | — | «Записатись знову» |
 // | NOT_COMPLETED | — | (none) |
+//
+// The review CTA is gated on `Booking.canReview` alone (server-computed —
+// see its doc), not on `status`: an elapsed CONFIRMED booking the provider
+// never closed is exactly as reviewable as a COMPLETED one once the backend
+// says so. See `_DetailBody._actions`.
 //
 // The table above is the CLIENT footer. A PROVIDER viewer (track 27.x Wave
 // A) gets an entirely different set — «Перенести» + «Скасувати»
@@ -604,13 +611,46 @@ class _DetailBody extends StatelessWidget {
     if (viewer.isProvider) {
       return _providerActions(l10n);
     }
+    // The review CTA is gated on `booking.canReview` ALONE — hoisted above
+    // the status switch below, never folded into a `case` branch. Per
+    // `Booking.canReview`'s doc, this flag is server-computed and already
+    // covers every precondition (owner, not already reviewed, COMPLETED OR
+    // an elapsed-but-never-closed CONFIRMED booking); re-deriving any part of
+    // that from `status` here would drift the moment the server's rule
+    // changes again. This is what makes an elapsed CONFIRMED booking (aged
+    // into Минулі by time, never marked COMPLETED by the provider) reviewable
+    // without a dedicated status branch.
+    final List<Widget> statusActions = _statusActions(l10n);
+    if (!booking.canReview) {
+      return statusActions;
+    }
+    return <Widget>[
+      NeumorphicButton(
+        key: const Key('booking-detail-leave-review'),
+        label: l10n.bookingDetailReviewCta,
+        icon: Icons.rate_review_rounded,
+        onPressed: onLeaveReview,
+      ),
+      const SizedBox(height: VelvetSpacing.xs),
+      ...statusActions,
+    ];
+  }
+
+  /// Every action EXCEPT the review CTA — that one is hoisted out to
+  /// [_actions] (see its doc) so it can render regardless of [booking.status].
+  /// This table is unchanged from before that hoist: reschedule/cancel for an
+  /// unstarted CONFIRMED booking, «Записатись знову» for every other status
+  /// that offers anything, nothing for NOT_COMPLETED.
+  List<Widget> _statusActions(AppLocalizations l10n) {
     switch (booking.status) {
       case BookingStatus.confirmed:
         // An ELAPSED CONFIRMED booking is READ-ONLY: its slot is already in the
         // past, so Reschedule + Cancel no longer apply (the backend 409s both
         // with BOOKING_ALREADY_ELAPSED — the server clock is authoritative).
         // Route it into the SAME «Записатись знову» affordance the terminal
-        // states use, rather than showing actions that can only fail.
+        // states use, rather than showing actions that can only fail. (If
+        // `booking.canReview` is also true here, [_actions] prepends the
+        // review CTA in front of whatever this branch returns.)
         if (booking.isPast) {
           return _rebookActions(l10n);
         }
@@ -636,28 +676,9 @@ class _DetailBody extends StatelessWidget {
           ),
         ];
 
-      // A just-completed booking's most relevant next action is leaving a
-      // review — the primary CTA while the server still says it's reviewable
-      // (COMPLETED + owner + not already reviewed, via `canReview`). Rebooking
-      // stays available below it. Once reviewed (`canReview` false) only the
-      // rebook CTA remains — matching the CANCELLED / DECLINED states.
+      // Rebooking is always offered here; when `booking.canReview` is also
+      // true, [_actions] prepends «Залишити відгук» in front of this.
       case BookingStatus.completed:
-        if (booking.canReview) {
-          return <Widget>[
-            NeumorphicButton(
-              key: const Key('booking-detail-leave-review'),
-              label: l10n.bookingDetailReviewCta,
-              icon: Icons.rate_review_rounded,
-              onPressed: onLeaveReview,
-            ),
-            const SizedBox(height: VelvetSpacing.xs),
-            NeumorphicButton(
-              label: l10n.bookingDetailRebookCta,
-              icon: Icons.refresh_rounded,
-              onPressed: onRebook,
-            ),
-          ];
-        }
         return _rebookActions(l10n);
 
       // A kept appointment is the strongest rebook signal there is; a

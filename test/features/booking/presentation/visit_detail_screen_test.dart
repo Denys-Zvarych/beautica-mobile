@@ -72,8 +72,9 @@ Appointment _appointment({
   BookingStatus status = BookingStatus.confirmed,
   bool canReview = false,
   List<AppointmentItem>? items,
+  DateTime? start,
 }) {
-  final DateTime start = futureBookingStart();
+  final DateTime visitStart = start ?? futureBookingStart();
   final List<AppointmentItem> visitItems =
       items ??
       <AppointmentItem>[
@@ -82,14 +83,14 @@ Appointment _appointment({
           serviceName: 'Манікюр',
           durationMinutes: 60,
           price: 300,
-          startAt: start,
+          startAt: visitStart,
         ),
         _item(
           bookingId: 'b2',
           serviceName: 'Педикюр',
           durationMinutes: 90,
           price: 350,
-          startAt: start.add(const Duration(minutes: 60)),
+          startAt: visitStart.add(const Duration(minutes: 60)),
         ),
       ];
   return Appointment(
@@ -290,6 +291,119 @@ void main() {
           'a successful visit cancel must invalidate nextAppointmentProvider '
           '— the Home Hub card must never show a stale booking after this '
           'write',
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // canReview gates the review CTA independently of status — mirrors
+  // `booking_detail_screen_test.dart`'s identical group.
+  //
+  // Regression guard for the fix: a CONFIRMED visit that aged into «Минулі»
+  // purely by elapsed time (never marked COMPLETED by the provider — there
+  // is no auto-complete job) must still offer «Залишити відгук» the moment
+  // the server says `canReview: true`. Before the fix, the review CTA lived
+  // only inside `case BookingStatus.completed`, so this exact scenario
+  // silently dropped the button. `canReview` alone decides — never `status`
+  // — per `Appointment.canReview`'s doc.
+  // ---------------------------------------------------------------------
+
+  group('canReview gates the review CTA independently of status', () {
+    testWidgets(
+      'an ELAPSED CONFIRMED visit with canReview:true shows review + rebook '
+      '(the bug this fix closes — an unclosed provider-side visit must '
+      'still be reviewable)',
+      (tester) async {
+        final repo = _MockAppointmentRepository();
+        when(() => repo.getAppointment('appt-1')).thenAnswer(
+          (_) async => _appointment(
+            status: BookingStatus.confirmed,
+            canReview: true,
+            // A fixed firmly-past instant — deterministic, never becomes
+            // "upcoming" again. Mirrors the booking-side elapsed fixture.
+            start: DateTime.utc(2000, 1, 1),
+          ),
+        );
+
+        await tester.pumpApp(
+          const VisitDetailScreen(appointmentId: 'appt-1'),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            appointmentRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('visit-detail-leave-review')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('visit-detail-rebook')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'an ELAPSED CONFIRMED visit with canReview:false shows rebook ONLY '
+      '(unchanged behaviour — e.g. already reviewed)',
+      (tester) async {
+        final repo = _MockAppointmentRepository();
+        when(() => repo.getAppointment('appt-1')).thenAnswer(
+          (_) async => _appointment(
+            status: BookingStatus.confirmed,
+            canReview: false,
+            start: DateTime.utc(2000, 1, 1),
+          ),
+        );
+
+        await tester.pumpApp(
+          const VisitDetailScreen(appointmentId: 'appt-1'),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            appointmentRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('visit-detail-leave-review')),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('visit-detail-rebook')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a FUTURE CONFIRMED visit shows cancel and NO review CTA — guards '
+      'against the hoist leaking a CTA into the upcoming state',
+      (tester) async {
+        final repo = _MockAppointmentRepository();
+        when(() => repo.getAppointment('appt-1')).thenAnswer(
+          (_) async => _appointment(
+            status: BookingStatus.confirmed,
+            // canReview is deliberately NOT set true here — the server never
+            // sends it true for an upcoming visit — but this test must still
+            // hold even if that contract were violated, since the hoist must
+            // not be the thing enforcing it.
+            // future-date-ok: fixed far-future instant, deliberate — the
+            // "not elapsed" twin of the fixed firmly-past instant above.
+            start: DateTime.utc(2999, 1, 1),
+          ),
+        );
+
+        await tester.pumpApp(
+          const VisitDetailScreen(appointmentId: 'appt-1'),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            appointmentRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('visit-detail-cancel')), findsOneWidget);
+        expect(
+          find.byKey(const Key('visit-detail-leave-review')),
+          findsNothing,
+        );
+      },
     );
   });
 

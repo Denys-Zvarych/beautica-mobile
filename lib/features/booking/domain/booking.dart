@@ -126,9 +126,13 @@ abstract class Booking with _$Booking {
     required DateTime endAt,
     required BookingStatus status,
 
-    /// `true` only when [status] is [BookingStatus.completed] AND the client
-    /// has not already left a review for this booking. Server-computed —
-    /// the client must not re-derive this from [status] alone.
+    /// `true` when the client has not already left a review for this
+    /// booking AND either [status] is [BookingStatus.completed], OR
+    /// [status] is [BookingStatus.confirmed] with [endAt] already elapsed
+    /// (an appointment the provider never marked COMPLETED — there is no
+    /// auto-complete job, so it stays CONFIRMED forever otherwise).
+    /// Server-computed — the client must not re-derive this from [status]
+    /// alone.
     required bool canReview,
 
     /// The client's free-text note written at booking time

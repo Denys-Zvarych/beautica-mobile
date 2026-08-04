@@ -314,11 +314,36 @@ class _DetailBody extends StatelessWidget {
 
   /// The pinned footer, by status. No reschedule / add-to-calendar for a visit
   /// (MO-5 scope). An empty list renders no footer.
+  ///
+  /// The review CTA is gated on `appointment.canReview` ALONE, hoisted above
+  /// the status switch — mirrors `BookingDetailScreen._DetailBody._actions`.
+  /// Server-computed (COMPLETED, or an elapsed-but-never-closed CONFIRMED
+  /// visit); never re-derived from `status` here. See [_statusActions].
   List<Widget> _actions(AppLocalizations l10n) {
+    final List<Widget> statusActions = _statusActions(l10n);
+    if (!appointment.canReview) {
+      return statusActions;
+    }
+    return <Widget>[
+      NeumorphicButton(
+        key: const Key('visit-detail-leave-review'),
+        label: l10n.bookingDetailReviewCta,
+        icon: Icons.rate_review_rounded,
+        onPressed: onLeaveReview,
+      ),
+      const SizedBox(height: VelvetSpacing.xs),
+      ...statusActions,
+    ];
+  }
+
+  /// Every action EXCEPT the review CTA — see [_actions]. Unchanged from
+  /// before that hoist.
+  List<Widget> _statusActions(AppLocalizations l10n) {
     switch (appointment.status) {
       case BookingStatus.confirmed:
         // An elapsed CONFIRMED visit is read-only — offer rebooking, not a
-        // cancel the server would 409.
+        // cancel the server would 409. (If `appointment.canReview` is also
+        // true here, [_actions] prepends the review CTA in front of this.)
         if (appointment.isPast) return _rebookActions(l10n);
         return <Widget>[
           _DestructiveSecondaryButton(
@@ -328,23 +353,9 @@ class _DetailBody extends StatelessWidget {
           ),
         ];
 
+      // Rebooking is always offered here; when `appointment.canReview` is
+      // also true, [_actions] prepends «Залишити відгук» in front of this.
       case BookingStatus.completed:
-        if (appointment.canReview) {
-          return <Widget>[
-            NeumorphicButton(
-              key: const Key('visit-detail-leave-review'),
-              label: l10n.bookingDetailReviewCta,
-              icon: Icons.rate_review_rounded,
-              onPressed: onLeaveReview,
-            ),
-            const SizedBox(height: VelvetSpacing.xs),
-            NeumorphicButton(
-              label: l10n.bookingDetailRebookCta,
-              icon: Icons.refresh_rounded,
-              onPressed: onRebook,
-            ),
-          ];
-        }
         return _rebookActions(l10n);
 
       case BookingStatus.cancelled:
