@@ -1,5 +1,5 @@
 // Pins the CI steps that give zone-sensitive tests somewhere to actually run
-// under a zone other than the main suite's UTC. TWO such steps are pinned
+// under a zone other than the main suite's UTC. THREE such steps are pinned
 // here:
 //   1. "DST rail guards (market zone)" — TZ=Europe/Kyiv, covering the day
 //      rail's DST guards (unchanged from the original single-step version of
@@ -9,6 +9,18 @@
 //      with the correct Kyiv-derived value on either UTC or Europe/Kyiv (see
 //      that step's own comment in pr-validate.yml, and
 //      scripts/forbid_host_local_instant_anchor.sh, for the full story).
+//   3. "Fourth-timezone sweep (west-of-Kyiv day-boundary detector)" —
+//      TZ=Pacific/Honolulu, added 2026-08-04. Asia/Tokyo is EAST of Kyiv and
+//      can therefore only push a host-local fixture BACKWARD over the Kyiv day
+//      boundary — measured, it only fires for fixture hours 00:00-05:59.
+//      Pacific/Honolulu covers the mirror band, 11:00-23:59. The two bands are
+//      DISJOINT: neither step subsumes the other, and both directions were
+//      proven by executed mutation on booking_confirm_test.dart rather than
+//      derived (probes A and B, recorded on the Honolulu step in
+//      pr-validate.yml). That is why the tests below pin BOTH zones on
+//      SEPARATE steps and additionally assert their scopes are identical —
+//      "consolidating the two sweeps into one" silently halves the covered
+//      hour band while leaving a plausible-looking single zone step behind.
 //
 // THE HOLE THIS CLOSES
 // --------------------
@@ -167,6 +179,87 @@ void main() {
             'third-timezone host-clock-leak coverage as booking/home/'
             'schedule. Add test/features/calendar/ back to the '
             '"Third-timezone sweep (host-clock leak detector)" step.',
+      );
+    });
+
+    test('ONE step sets TZ=Pacific/Honolulu AND runs the booking + home + '
+        'calendar suites — the WEST-of-Kyiv mirror of the Tokyo sweep', () {
+      final bool hasAdjacentStep = steps.any(
+        (step) =>
+            step.contains('TZ: Pacific/Honolulu') &&
+            step.contains('test/features/booking/') &&
+            step.contains('test/features/home/') &&
+            step.contains('test/features/calendar/'),
+      );
+      expect(
+        hasAdjacentStep,
+        isTrue,
+        reason:
+            'No SINGLE step sets TZ=Pacific/Honolulu and runs '
+            'test/features/booking/, test/features/home/ and '
+            'test/features/calendar/. Asia/Tokyo (UTC+9) is EAST of Kyiv, so '
+            'it can only push a host-local `DateTime(Y,M,D,H)` fixture '
+            'BACKWARD across the Kyiv day boundary — measured, only for '
+            'H < 6. Pacific/Honolulu (UTC-10) is the only step covering the '
+            'mirror band, H >= 11, which is where most booking fixtures '
+            'actually sit. Reintroducing the pre-030ddb18 host-local '
+            '`_kStartAt` in booking_confirm_test.dart turns THIS step red '
+            'and the Tokyo step green (probe A); the early-morning variant '
+            'does the opposite (probe B). Restore the "Fourth-timezone sweep '
+            '(west-of-Kyiv day-boundary detector)" step.',
+      );
+    });
+
+    test('the Tokyo and Honolulu sweeps are SEPARATE steps covering the SAME '
+        'directory list — a directory added to one is never silently '
+        'uncovered in the other direction', () {
+      // Only the `run:` block's continuation lines look like
+      // `<indent>test/some/dir/ \` — a comment line always starts with `#`
+      // after its indent, so this can never pick a path out of prose.
+      final RegExp pathLine = RegExp(
+        r'^ +(test/[A-Za-z0-9_/]+/) \\$',
+        multiLine: true,
+      );
+      Set<String> scopeOf(String zone) {
+        final Iterable<String> matching = steps.where(
+          (String step) => step.contains('TZ: $zone'),
+        );
+        expect(
+          matching,
+          hasLength(1),
+          reason:
+              'Expected exactly ONE step carrying `TZ: $zone`; found '
+              '${matching.length}. Two steps in the same zone means one of '
+              'the two sweep directions was duplicated instead of mirrored.',
+        );
+        return pathLine
+            .allMatches(matching.single)
+            .map((m) => m.group(1)!)
+            .toSet();
+      }
+
+      final Set<String> tokyo = scopeOf('Asia/Tokyo');
+      final Set<String> honolulu = scopeOf('Pacific/Honolulu');
+
+      expect(
+        tokyo,
+        isNotEmpty,
+        reason:
+            'Parsed an EMPTY scope for the Asia/Tokyo sweep. If that step '
+            'stopped using a `run: |` block with one `test/dir/ \\` per '
+            'line, this parity check silently compares two empty sets and '
+            'proves nothing — fix the parser, do not delete the test.',
+      );
+      expect(
+        honolulu,
+        equals(tokyo),
+        reason:
+            'The Asia/Tokyo and Pacific/Honolulu sweeps cover DIFFERENT '
+            'directories. They are mirror halves of one gate: Tokyo catches '
+            'host-local fixture hours < 06:00, Honolulu catches >= 11:00. A '
+            'directory present in only one of them is covered in only one '
+            'day-boundary direction, which is exactly the half-coverage the '
+            'Honolulu step was added to end. Keep the two lists identical.',
       );
     });
   });

@@ -473,6 +473,20 @@ jobs:
       # run — flaky-by-clock, exactly the failure mode this whole track exists
       # to eliminate.
       #
+      # DIRECTION (2026-08-04, measured — see the Pacific/Honolulu step that
+      # follows this one). Asia/Tokyo is EAST of Kyiv, so it only ever pushes a
+      # host-local fixture BACKWARD across the Kyiv day boundary, and only for
+      # a bounded band of fixture hours. For a bare `DateTime(Y,M,D,H)` on a
+      # host at UTC+O, the Kyiv hour is `H - O + 3`; the Kyiv calendar day
+      # differs from D only when that falls outside [0,24). At O=+9 that means
+      # H < 6 — Tokyo can ONLY catch a host-local anchor whose named hour is
+      # 00:00-05:59. It is structurally blind to every afternoon/evening
+      # fixture, which is most of them in a booking app. That blindness is why
+      # the Honolulu step below was ADDED rather than swapped in: the two zones
+      # catch DISJOINT hour bands and neither subsumes the other. Both
+      # directions were proven by executed mutation, not derived — see the
+      # Honolulu step's own comment for the two probes and their verdicts.
+      #
       # Scoped to the same date/time-sensitive directories as the rest of this
       # workflow's zone-specific coverage, not the whole suite — running
       # obviously zone-independent tests (widget layout, form validation, …)
@@ -563,6 +577,117 @@ jobs:
       - name: Third-timezone sweep (host-clock leak detector)
         env:
           TZ: Asia/Tokyo
+        run: |
+          flutter test \
+            test/features/booking/ \
+            test/features/schedule/ \
+            test/features/home/ \
+            test/features/calendar/ \
+            test/shared/formatters/ \
+            test/shared/time/ \
+            test/shared/calendar/ \
+            test/core/time/ \
+            test/routing/ \
+            --reporter=expanded
+
+      # 2026-08-04 — a FOURTH CI zone, WEST of Kyiv. Added, not swapped in for
+      # Asia/Tokyo, because measurement showed the two are complementary rather
+      # than redundant.
+      #
+      # WHAT THIS CATCHES THAT NO GREP CAN
+      # ----------------------------------
+      # scripts/forbid_host_local_instant_anchor.sh's six rules are all
+      # single-file text rules. The bug class they structurally cannot see is
+      # CROSS-FILE DATAFLOW: a test file names a host-local instant, hands it to
+      # a widget, and the widget converts it through Europe/Kyiv somewhere the
+      # test file never references. On 2026-08-04 an attempt to widen that
+      # script's Rule 1 to reach this class was MEASURED AND REFUSED — with its
+      # stage-1 classifier disabled the matcher returned 74 hits / 1 genuine
+      # defect / 73 inert, 1.4% precision, i.e. 73 rubber-stamped annotations
+      # (commit 030ddb18, and the refusal is recorded in that script's header).
+      # The single defect was found instead by EXECUTING the suite under
+      # TZ=Pacific/Honolulu, at precision 1/1 with zero annotations. This step
+      # is that execution, wired. It cannot be rubber-stamped: there is no
+      # marker to add, only a passing or failing test.
+      #
+      # WHY HONOLULU IN ADDITION TO TOKYO — MEASURED IN BOTH DIRECTIONS
+      # --------------------------------------------------------------
+      # For a bare `DateTime(Y,M,D,H)` on a host at UTC+O, the Kyiv wall-clock
+      # hour is `H - O + 3`, so the Kyiv calendar day differs from D only when
+      # that leaves [0,24). Per zone that is a band of FIXTURE HOURS:
+      #   Europe/Kyiv (+3)      none      — the dev VM; blind by construction
+      #   UTC          (0)      H >= 21   — the main suite
+      #   Asia/Tokyo   (+9)     H <  6    — the step above
+      #   Pacific/Honolulu (-10) H >= 11  — this step
+      # Tokyo's band and Honolulu's band are DISJOINT, so neither subsumes the
+      # other and a swap would lose real coverage. Honolulu's band strictly
+      # contains the main UTC suite's.
+      #
+      # Proven by executed mutation on booking_confirm_test.dart, not derived
+      # (2026-08-04). Its `_kStartAt`/`_kEndAt` were reverted to the pre-
+      # 030ddb18 host-local spelling and the file run under all four zones:
+      #   PROBE A  DateTime(2026,7,20,14)  Kyiv PASS  UTC PASS  Tokyo PASS
+      #                                    Honolulu FAIL
+      #     — the real defect 030ddb18 fixed. booking_confirm_screen.dart:248
+      #       keys its bookingsDayProvider invalidation off
+      #       `dateOnly(toBeauticaTime(startAt))`; under Honolulu that instant
+      #       is 03:00 the NEXT Kyiv day, so the invalidation targeted a family
+      #       member the test never subscribed to. Failure was
+      #       `Expected: <2> Actual: <1>` on the "REGRESSION GUARD — ...
+      #       invalidates bookingsDayProvider" test. Tokyo does NOT see it.
+      #   PROBE B  DateTime(2026,7,20,2)   Kyiv PASS  UTC PASS  Honolulu PASS
+      #                                    Tokyo FAIL
+      #     — the mirror direction, same defect shape at an early-morning
+      #       fixture hour. This is what earns Asia/Tokyo its slot: Honolulu
+      #       does NOT see it. Do not "consolidate" the two sweeps into one.
+      # A THIRD probe records the residual gap honestly rather than claiming
+      # full coverage:
+      #   PROBE C  DateTime(2026,7,20,8)   Tokyo PASS  Honolulu PASS
+      # Fixture hours 06:00-10:59 are caught by NO zone in this workflow. Only
+      # a maximal pair (Pacific/Kiritimati UTC+14 with Pacific/Niue UTC-11)
+      # would close it — verified: probe C is RED under Pacific/Kiritimati.
+      # Deliberately NOT adopted: it would mean retiring Asia/Tokyo as the CI
+      # host zone while a dozen test files still use `tz.getLocation('Asia/
+      # Tokyo')` as this codebase's canonical "other zone" idiom, for five
+      # fixture hours. Revisit only WITH a fresh full-sweep measurement under
+      # both replacement zones — neither has ever been run at this scope.
+      #
+      # Pacific/Honolulu specifically: UTC-10 and — like Asia/Tokyo, unlike
+      # Europe/Kyiv — it observes NO DST, so its offset is constant year-round
+      # and the verdict stays a property of the CODE, never of the calendar
+      # date the runner happens to execute on.
+      #
+      # COST, MEASURED (2026-08-04, dev VM, this exact scope, current tree):
+      #   TZ=Asia/Tokyo        2413 passed, 5 skipped, 0 failed, real 6m01.457s
+      #   TZ=Pacific/Honolulu  2413 passed, 5 skipped, 0 failed, real 5m56.630s
+      # The two zones cost the same, so this step adds ~1x the Tokyo step.
+      #
+      # It does NOT "double test wall time" — a claim made when this step was
+      # first proposed, and measured to be wrong. The denominator was measured
+      # too, same machine, same tree: the main `Test` step above
+      # (`flutter test --coverage --exclude-tags golden`, the whole suite) is
+      # 5493 passed, 3 skipped, real 22m47.850s. So the zone-sensitive part of
+      # this job goes from ~29m (main + Kyiv rail file + Tokyo) to ~35m — about
+      # +20%, not +100%. Re-measure both numbers before re-litigating the cost;
+      # the earlier 3m44s Tokyo figure in the step above is from the 2026-08-02
+      # tree and no longer comparable (2311 tests then, 2413 now).
+      #
+      # The 5 skips are bookings_day_rail_test.dart's DST-transition guards, which
+      # need a host whose offset changes — same reason they skip under Tokyo
+      # and under the main UTC suite. It is GREEN on the current tree: the
+      # defect it originally found is already fixed in 030ddb18, so this is a
+      # gate against regression, not a live bug hunt. Scope is deliberately the
+      # SAME directory list as the Tokyo step — see that step's SCOPE DECISION
+      # and REJECTED ALTERNATIVE notes; both apply verbatim here, and the two
+      # lists must be kept identical so a directory added to one is not
+      # silently uncovered in the other direction.
+      #
+      # Step-level `env:` — never job-level, for the reason spelled out on the
+      # DST rail guards step. Pinned by test/ci/dst_rail_ci_coverage_test.dart;
+      # deleting this step fails that test.
+      - name: Fourth-timezone sweep (west-of-Kyiv day-boundary detector)
+        env:
+          TZ: Pacific/Honolulu
         run: |
           flutter test \
             test/features/booking/ \
