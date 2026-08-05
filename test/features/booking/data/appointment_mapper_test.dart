@@ -56,7 +56,6 @@ AppointmentDetailResponse _buildDetail({
   int totalDurationMinutes = 90,
   num totalPrice = 800,
   num? totalPriceMax,
-  bool canReview = false,
   String? salonName,
   AppointmentDetailResponseMasterTypeEnum masterType =
       AppointmentDetailResponseMasterTypeEnum.INDEPENDENT_MASTER,
@@ -69,7 +68,6 @@ AppointmentDetailResponse _buildDetail({
     ..totalDurationMinutes = totalDurationMinutes
     ..totalPrice = totalPrice
     ..totalPriceMax = totalPriceMax
-    ..canReview = canReview
     ..salonName = salonName
     ..masterType = masterType
     ..startsAt = startsAt ?? DateTime.utc(2020, 7, 10, 10)
@@ -98,7 +96,6 @@ AppointmentDetailResponse _detailMissingWindow({required bool omitStart}) {
     ..masterType = AppointmentDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
     ..totalDurationMinutes = 90
     ..totalPrice = 800
-    ..canReview = false
     ..items = ListBuilder<AppointmentItemResponse>(<AppointmentItemResponse>[
       _buildItem(),
     ]);
@@ -233,7 +230,6 @@ void main() {
                 ..endsAt = DateTime.utc(2020, 7, 10, 11, 30)
                 ..totalDurationMinutes = 90
                 ..totalPrice = 800
-                ..canReview = false
                 ..clientComment = 'Прошу подзвонити'
                 ..providerComment = 'Клієнт не прийшов'
                 ..clientCancellationNote = 'Захворіла'

@@ -456,21 +456,19 @@ GoRouter appRouter(Ref ref) {
                 pageBuilder: (context, state) =>
                     _instantPage(state, const MyBookingsScreen()),
                 routes: [
-                  // MO-8 [mobile-security MEDIUM] — the `visit/:appointmentId`
-                  // GoRoute (and its nested `review` child) was REMOVED here.
-                  // It backed `VisitDetailScreen`'s whole-visit cancel
-                  // (`AppointmentRepository.cancelAppointment`, cascading every
-                  // leg) via a path with no UI entry point since MO-7 deleted
-                  // `VisitCard` — but `MainActivity` is `exported="true"` with
-                  // `flutter_deeplinking_enabled="true"`, so a co-installed app
-                  // could still reach it with an explicit, component-targeted
-                  // intent (bypassing `intent-filter` data matching) and
-                  // force-navigate an authenticated session to the whole-visit
-                  // cancel the locked product decision ("cancel just that one
-                  // service") removed. `VisitDetailScreen` / the nested
-                  // `AppointmentReviewScreen` are NOT deleted — see their file
-                  // headers — only unregistered. Re-adding a UI entry point
-                  // requires re-registering a route here.
+                  // MO-8 [mobile-security MEDIUM, fixed] — the
+                  // `visit/:appointmentId` GoRoute (and its nested `review`
+                  // child) was REMOVED here; it backed the whole-visit detail
+                  // screen's cancel, which had no UI entry point since MO-7
+                  // deleted `VisitCard` but stayed reachable via an explicit
+                  // component-targeted intent. Its backing screens
+                  // (`VisitDetailScreen`/`AppointmentReviewScreen`) were
+                  // themselves deleted once the "1 booking = 1 feedback"
+                  // product decision closed off any whole-visit review
+                  // journey — see the mobile-dev deletion-sweep commit that
+                  // removed `visit_detail_screen.dart` /
+                  // `appointment_review_screen.dart`. Re-adding a whole-visit
+                  // entry point starts from scratch, not from those files.
                   // /bookings/:bookingId — «Деталі запису» (14.3/14.4),
                   // pushed onto this branch's own navigator (swipe-back
                   // returns to the still-scrolled list) from a BookingCard

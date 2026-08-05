@@ -64,7 +64,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
       totalDurationMinutes: 210,
       totalPrice: 1300,
       items: const <AppointmentItem>[],
-      canReview: false,
     );
   }
 
@@ -88,12 +87,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<void> declineAppointmentService(
     String appointmentId,
     String bookingId, {
-    String? comment,
-  }) => throw UnimplementedError();
-  @override
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
     String? comment,
   }) => throw UnimplementedError();
 }

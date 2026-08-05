@@ -105,14 +105,6 @@ abstract class Appointment with _$Appointment {
     /// The ordered services in this visit (`items` — server-ordered by start).
     required List<AppointmentItem> items,
 
-    /// `true` when the client has not already reviewed this visit AND
-    /// either [status] is [BookingStatus.completed], OR [status] is
-    /// [BookingStatus.confirmed] with [endAt] already elapsed (a visit the
-    /// provider never marked COMPLETED — there is no auto-complete job, so
-    /// it stays CONFIRMED forever otherwise). Server-computed — never
-    /// re-derived from [status] alone.
-    required bool canReview,
-
     /// The client's free-text note written at booking time (`clientComment`).
     /// Visible to the provider; echoed back to the client. Distinct from
     /// [clientCancellationNote].

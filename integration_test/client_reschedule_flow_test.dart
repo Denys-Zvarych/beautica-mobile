@@ -169,7 +169,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
           price: 650,
         ),
       ],
-      canReview: false,
     );
   }
 
@@ -197,13 +196,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) =>
       throw UnimplementedError();
-
-  @override
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
-    String? comment,
-  }) => throw UnimplementedError();
 }
 
 void main() {

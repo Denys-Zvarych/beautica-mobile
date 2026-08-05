@@ -297,7 +297,6 @@ void main() {
     //   POST  /api/v1/appointments                 (create — clientComment)
     //   GET   /api/v1/appointments/{id}            (detail — full enrichment)
     //   PATCH /api/v1/appointments/{id}/cancel     (clientCancellationNote)
-    //   POST  /api/v1/appointments/{id}/review     (free-text comment)
     // They MUST be classified PII so LoggingInterceptor redacts request AND
     // response bodies (the error-path logger logs response bodies otherwise).
     // Mirrors the `/api/v1/bookings` (exact) + `/api/v1/bookings/` (prefix)
@@ -314,7 +313,7 @@ void main() {
       );
     });
 
-    test('appointment sub-routes ({id}/cancel/review) are PII routes', () {
+    test('appointment sub-routes ({id}/cancel) are PII routes', () {
       expect(
         isPiiPath('/api/v1/appointments/appt-123'),
         isTrue,
@@ -327,11 +326,6 @@ void main() {
         isTrue,
         reason:
             'PATCH .../cancel carries the free-text clientCancellationNote.',
-      );
-      expect(
-        isPiiPath('/api/v1/appointments/appt-123/review'),
-        isTrue,
-        reason: 'POST .../review carries the free-text review comment.',
       );
     });
 

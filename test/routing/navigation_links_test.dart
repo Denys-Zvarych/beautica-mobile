@@ -337,19 +337,6 @@ void main() {
     // that it stays UNregistered — so this exclusion is itself covered by a
     // test, not merely asserted here.
     //
-    // MO-8 [mobile-security MEDIUM, fixed] — `appointmentDetail`/
-    // `appointmentReview` (`/bookings/visit/:appointmentId[/review]`) backed
-    // `VisitDetailScreen`'s whole-visit cancel, still `GoRoute`-registered
-    // after MO-7 deleted its only UI entry point (`VisitCard`) — reachable via
-    // an explicit component-targeted intent despite no `intent-filter` data
-    // match. The `GoRoute`s were removed from `app_router.dart`; the
-    // `RouteNames` constants are kept ONLY so `VisitDetailScreen`/
-    // `AppointmentReviewScreen` (retained, not deleted — see their file
-    // headers) and their widget tests can still build the path for their own
-    // self-contained test routers. NL-R01d below asserts both stay
-    // unregistered in the PRODUCTION router, mirroring NL-R01b for
-    // `workingHours`.
-    //
     // NOT an exclusion — `/services/create` (2026-08-04): the single-create
     // form (`ServiceCreateScreen`) was deleted and the two "add services"
     // flows collapsed onto the one surface `/services/setup`. Unlike the
@@ -357,11 +344,7 @@ void main() {
     // so it belongs in neither `allRoutes` nor `deliberatelyUnregistered` —
     // NL-R01c's `covered.difference(declared)` assertion is what forced the
     // `allRoutes` row out. `/services/setup` is still covered above.
-    const Set<String> deliberatelyUnregistered = <String>{
-      'workingHours',
-      'appointmentDetail',
-      'appointmentReview',
-    };
+    const Set<String> deliberatelyUnregistered = <String>{'workingHours'};
 
     test('NL-R01: every RouteNames constant resolves to a registered GoRoute '
         'in the PRODUCTION app_router', () {
@@ -399,35 +382,6 @@ void main() {
             'RouteNames.workingHours is the ONE constant NL-R01 excludes. If it '
             'is ever re-registered, remove it from `deliberatelyUnregistered` '
             'and delete this test — do not leave the exclusion silently stale.',
-      );
-    });
-
-    test('NL-R01d [mobile-security MEDIUM, fixed] — appointmentDetail/'
-        'appointmentReview stay unregistered in the PRODUCTION router', () {
-      final GoRouter router = _productionRouter();
-
-      expect(
-        router.configuration
-            .findMatch(Uri.parse(RouteNames.appointmentDetail(kSampleId)))
-            .isError,
-        isTrue,
-        reason:
-            'The visit/:appointmentId GoRoute was deliberately removed — it '
-            'had no UI entry point since MO-7 deleted VisitCard, but stayed '
-            'reachable via an explicit component-targeted intent straight to '
-            "VisitDetailScreen's whole-visit cancel. If this ever fails, a "
-            'GoRoute was re-registered without resolving the open product '
-            "question in VisitDetailScreen's file header — see route_names."
-            "dart's appointmentDetail doc.",
-      );
-      expect(
-        router.configuration
-            .findMatch(Uri.parse(RouteNames.appointmentReview(kSampleId)))
-            .isError,
-        isTrue,
-        reason:
-            'The nested review GoRoute was removed alongside its parent — '
-            'see the appointmentDetail case above.',
       );
     });
 

@@ -8,7 +8,6 @@
 //   PATCH  /api/v1/appointments/{appointmentId}/cancel                    → CLIENT cancel
 //   PATCH  /api/v1/appointments/{appointmentId}/complete                  → PROVIDER complete
 //   PATCH  /api/v1/appointments/{appointmentId}/decline                   → PROVIDER decline
-//   POST   /api/v1/appointments/{appointmentId}/review                    → leave review
 //
 // SCOPE (MO-1, extended track 27.x/MO-6, cut over to per-item track 30.x):
 // the CLIENT surface plus [completeAppointment]/[declineAppointment]
@@ -35,7 +34,7 @@
 // shape apart from its own track-27.x provider additions) — see
 // `booking_providers.dart` for the Riverpod wiring. Tests construct
 // [HttpAppointmentRepository] directly with a mocktail
-// [AppointmentControllerApi] + [ReviewControllerApi].
+// [AppointmentControllerApi].
 //
 // Error / idempotency contract is transcribed 1:1 from
 // `HttpBookingRepository`:
@@ -214,21 +213,6 @@ abstract interface class AppointmentRepository {
     String bookingId, {
     String? comment,
   });
-
-  /// Leaves a review for a COMPLETED visit on behalf of the authenticated
-  /// client.
-  ///
-  /// Wraps `POST /appointments/{appointmentId}/review`. [rating] is 1–5;
-  /// [comment] is optional free text (an empty/blank string is sent as null).
-  /// The backend enforces COMPLETED + ownership + not-already-reviewed — the
-  /// client must not re-derive those beyond the `Appointment.canReview` gate.
-  /// Throws [ReviewAlreadyExistsFailure] on HTTP 409 and [ReviewNotAllowedFailure]
-  /// on 403 / other 4xx.
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
-    String? comment,
-  });
 }
 
 /// HTTP implementation of [AppointmentRepository].
@@ -236,10 +220,9 @@ abstract interface class AppointmentRepository {
 /// Inject via [appointmentRepositoryProvider] — never construct directly
 /// outside tests.
 final class HttpAppointmentRepository implements AppointmentRepository {
-  HttpAppointmentRepository(this._appointmentApi, this._reviewApi);
+  HttpAppointmentRepository(this._appointmentApi);
 
   final AppointmentControllerApi _appointmentApi;
-  final ReviewControllerApi _reviewApi;
 
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) async {
@@ -481,40 +464,6 @@ final class HttpAppointmentRepository implements AppointmentRepository {
     }
   }
 
-  @override
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
-    String? comment,
-  }) async {
-    final String? trimmed = comment?.trim();
-    final String? effectiveComment = (trimmed == null || trimmed.isEmpty)
-        ? null
-        : trimmed;
-    try {
-      await _reviewApi.createAppointmentReview(
-        appointmentId: id,
-        createAppointmentReviewRequest: CreateAppointmentReviewRequest(
-          (b) => b
-            ..rating = rating
-            ..comment = effectiveComment,
-        ),
-      );
-    } on Failure {
-      rethrow;
-    } on DioException catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'createAppointmentReview failed: ${e.type} ${e.response?.statusCode}',
-          name: _tag,
-          level: 900,
-          stackTrace: st,
-        );
-      }
-      throw _mapReviewException(e);
-    }
-  }
-
   /// Builds the generated wire `CreateAppointmentRequest` DTO from the domain
   /// [CreateAppointmentRequest]. The `idempotencyKey` is sent BOTH as the
   /// `Idempotency-Key` request header AND on the body — same rationale as
@@ -627,20 +576,6 @@ final class HttpAppointmentRepository implements AppointmentRepository {
     required Failure Function(DioException e) onConflict,
   }) {
     if (e.response?.statusCode == 409) return onConflict(e);
-    return _mapDioException(e);
-  }
-
-  /// Maps a [DioException] from `POST /appointments/{id}/review` — transcribed
-  /// from `HttpBookingRepository._mapReviewException`:
-  ///   - 409 → [ReviewAlreadyExistsFailure]
-  ///   - 403 / 400 / 422 → [ReviewNotAllowedFailure]
-  ///   - otherwise → [_mapDioException]
-  Failure _mapReviewException(DioException e) {
-    final int? statusCode = e.response?.statusCode;
-    if (statusCode == 409) return ReviewAlreadyExistsFailure(cause: e);
-    if (statusCode == 403 || statusCode == 400 || statusCode == 422) {
-      return ReviewNotAllowedFailure(cause: e);
-    }
     return _mapDioException(e);
   }
 

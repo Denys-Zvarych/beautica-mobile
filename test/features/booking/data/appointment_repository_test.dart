@@ -1,10 +1,10 @@
 // MO-1 — Unit tests for [HttpAppointmentRepository].
 //
-// Strategy: mock [AppointmentControllerApi] + [ReviewControllerApi] with
-// mocktail; verify domain mapping, the idempotency-key channel (header + body),
-// the cancel-note trimming, and the error mapping transcribed from
-// `HttpBookingRepository` (409 CLIENT_BOOKING_CONFLICT / BOOKING_ALREADY_ELAPSED
-// / plain 409, 429, review 409/403). Mirrors `booking_repository_test.dart`.
+// Strategy: mock [AppointmentControllerApi] with mocktail; verify domain
+// mapping, the idempotency-key channel (header + body), the cancel-note
+// trimming, and the error mapping transcribed from `HttpBookingRepository`
+// (409 CLIENT_BOOKING_CONFLICT / BOOKING_ALREADY_ELAPSED / plain 409, 429).
+// Mirrors `booking_repository_test.dart`.
 //
 // Pure Dart: no ProviderScope, no widget tree.
 //
@@ -35,14 +35,11 @@ import 'package:mocktail/mocktail.dart';
 class _MockAppointmentControllerApi extends Mock
     implements AppointmentControllerApi {}
 
-class _MockReviewControllerApi extends Mock implements ReviewControllerApi {}
-
 const _createPath = '/api/v1/appointments';
 const _getPath = '/api/v1/appointments/appt-1';
 const _itemReschedulePath =
     '/api/v1/appointments/appt-1/services/b-1/reschedule';
 const _cancelPath = '/api/v1/appointments/appt-1/cancel';
-const _reviewPath = '/api/v1/appointments/appt-1/review';
 
 AppointmentItemResponse _buildItem({
   String bookingId = 'b-1',
@@ -72,7 +69,6 @@ AppointmentDetailResponse _buildDetail({String id = 'appt-1'}) =>
           ..endsAt = DateTime.utc(2020, 7, 10, 11)
           ..totalDurationMinutes = 60
           ..totalPrice = 500
-          ..canReview = false
           ..items = ListBuilder<AppointmentItemResponse>(
             <AppointmentItemResponse>[_buildItem()],
           ))
@@ -145,7 +141,6 @@ Map<String, dynamic> _bookingAlreadyElapsedBody() => <String, dynamic>{
 
 void main() {
   late _MockAppointmentControllerApi appointmentApi;
-  late _MockReviewControllerApi reviewApi;
   late HttpAppointmentRepository repository;
 
   setUpAll(() {
@@ -158,7 +153,6 @@ void main() {
       ),
     );
     registerFallbackValue(AppointmentCancelRequest((b) => b));
-    registerFallbackValue(CreateAppointmentReviewRequest((b) => b..rating = 5));
     registerFallbackValue(
       AppointmentItemRescheduleRequest(
         (b) => b..newStartsAt = DateTime.utc(2020, 1, 1),
@@ -168,8 +162,7 @@ void main() {
 
   setUp(() {
     appointmentApi = _MockAppointmentControllerApi();
-    reviewApi = _MockReviewControllerApi();
-    repository = HttpAppointmentRepository(appointmentApi, reviewApi);
+    repository = HttpAppointmentRepository(appointmentApi);
   });
 
   group('createAppointment', () {
@@ -854,144 +847,5 @@ void main() {
         );
       },
     );
-  });
-
-  group('createAppointmentReview', () {
-    test('forwards rating + trimmed comment', () async {
-      when(
-        () => reviewApi.createAppointmentReview(
-          appointmentId: any(named: 'appointmentId'),
-          createAppointmentReviewRequest: any(
-            named: 'createAppointmentReviewRequest',
-          ),
-        ),
-      ).thenAnswer(
-        (_) async => Response<ApiResponseReviewResponse>(
-          requestOptions: RequestOptions(path: _reviewPath),
-          statusCode: 200,
-        ),
-      );
-
-      await repository.createAppointmentReview(
-        'appt-1',
-        rating: 5,
-        comment: '  great  ',
-      );
-
-      final captured = verify(
-        () => reviewApi.createAppointmentReview(
-          appointmentId: 'appt-1',
-          createAppointmentReviewRequest: captureAny(
-            named: 'createAppointmentReviewRequest',
-          ),
-        ),
-      ).captured;
-      final body = captured.single as CreateAppointmentReviewRequest;
-      expect(body.rating, 5);
-      expect(body.comment, 'great');
-    });
-
-    test('blank comment sent as null', () async {
-      when(
-        () => reviewApi.createAppointmentReview(
-          appointmentId: any(named: 'appointmentId'),
-          createAppointmentReviewRequest: any(
-            named: 'createAppointmentReviewRequest',
-          ),
-        ),
-      ).thenAnswer(
-        (_) async => Response<ApiResponseReviewResponse>(
-          requestOptions: RequestOptions(path: _reviewPath),
-          statusCode: 200,
-        ),
-      );
-
-      await repository.createAppointmentReview(
-        'appt-1',
-        rating: 4,
-        comment: '',
-      );
-
-      final captured = verify(
-        () => reviewApi.createAppointmentReview(
-          appointmentId: 'appt-1',
-          createAppointmentReviewRequest: captureAny(
-            named: 'createAppointmentReviewRequest',
-          ),
-        ),
-      ).captured;
-      expect(
-        (captured.single as CreateAppointmentReviewRequest).comment,
-        isNull,
-      );
-    });
-
-    test('409 → ReviewAlreadyExistsFailure', () async {
-      when(
-        () => reviewApi.createAppointmentReview(
-          appointmentId: any(named: 'appointmentId'),
-          createAppointmentReviewRequest: any(
-            named: 'createAppointmentReviewRequest',
-          ),
-        ),
-      ).thenThrow(_dioBadResponse(409, _reviewPath));
-
-      await expectLater(
-        repository.createAppointmentReview('appt-1', rating: 5),
-        throwsA(isA<ReviewAlreadyExistsFailure>()),
-      );
-    });
-
-    test('403 → ReviewNotAllowedFailure', () async {
-      when(
-        () => reviewApi.createAppointmentReview(
-          appointmentId: any(named: 'appointmentId'),
-          createAppointmentReviewRequest: any(
-            named: 'createAppointmentReviewRequest',
-          ),
-        ),
-      ).thenThrow(_dioBadResponse(403, _reviewPath));
-
-      await expectLater(
-        repository.createAppointmentReview('appt-1', rating: 5),
-        throwsA(isA<ReviewNotAllowedFailure>()),
-      );
-    });
-
-    // The review mapper folds 400 and 422 into ReviewNotAllowedFailure exactly
-    // as 403 (anti-oracle: the client must not learn WHY the review was
-    // rejected — not-completed vs not-owner vs already-reviewed all read the
-    // same to the UI). Mirrors HttpBookingRepository._mapReviewException.
-    test('400 → ReviewNotAllowedFailure', () async {
-      when(
-        () => reviewApi.createAppointmentReview(
-          appointmentId: any(named: 'appointmentId'),
-          createAppointmentReviewRequest: any(
-            named: 'createAppointmentReviewRequest',
-          ),
-        ),
-      ).thenThrow(_dioBadResponse(400, _reviewPath));
-
-      await expectLater(
-        repository.createAppointmentReview('appt-1', rating: 5),
-        throwsA(isA<ReviewNotAllowedFailure>()),
-      );
-    });
-
-    test('422 → ReviewNotAllowedFailure', () async {
-      when(
-        () => reviewApi.createAppointmentReview(
-          appointmentId: any(named: 'appointmentId'),
-          createAppointmentReviewRequest: any(
-            named: 'createAppointmentReviewRequest',
-          ),
-        ),
-      ).thenThrow(_dioBadResponse(422, _reviewPath));
-
-      await expectLater(
-        repository.createAppointmentReview('appt-1', rating: 5),
-        throwsA(isA<ReviewNotAllowedFailure>()),
-      );
-    });
   });
 }

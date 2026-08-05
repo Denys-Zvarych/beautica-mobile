@@ -103,7 +103,7 @@ const Set<String> kPiiPaths = {
   // MO-1 — CLIENT appointment (multi-service visit) create endpoint. Exact
   // match: the bare `/api/v1/appointments` path (no dynamic segment) carries
   // the free-text `clientComment` field on POST. The `{id}` sub-routes
-  // (detail/cancel/decline/not-complete/review) are covered by the prefix in
+  // (detail/cancel/decline/not-complete) are covered by the prefix in
   // [kPiiPathPrefixes] below.
   '/api/v1/appointments',
   // Track 7.x Wave B — PROVIDER→CLIENT leave-feedback create endpoint. Exact
@@ -150,9 +150,8 @@ const List<String> kPiiPathPrefixes = <String>[
   // MO-1 — CLIENT appointment (multi-service visit) read/write endpoints.
   // Covers `GET /appointments/{id}` (enriched master name/address/price +
   // notes), `PATCH /appointments/{id}/cancel` (free-text clientCancellationNote),
-  // `PATCH /appointments/{id}/reschedule` (dual-actor, no note payload),
-  // `PATCH /appointments/{id}/decline` (providerComment) and
-  // `POST /appointments/{id}/review` (free-text review comment). The bare
+  // `PATCH /appointments/{id}/reschedule` (dual-actor, no note payload) and
+  // `PATCH /appointments/{id}/decline` (providerComment). The bare
   // `POST /appointments` create endpoint is covered separately by the
   // exact-match entry in [kPiiPaths] (no trailing dynamic segment to match a
   // prefix).

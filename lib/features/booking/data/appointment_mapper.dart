@@ -115,7 +115,6 @@ abstract final class AppointmentMapper {
       // would erase that. Carried nullable all the way to the price formatter.
       totalPriceMax: dto.totalPriceMax?.toDouble(),
       items: items,
-      canReview: dto.canReview ?? false,
       clientComment: dto.clientComment,
       providerComment: dto.providerComment,
       clientCancellationNote: dto.clientCancellationNote,

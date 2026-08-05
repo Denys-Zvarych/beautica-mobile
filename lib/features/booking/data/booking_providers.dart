@@ -79,16 +79,10 @@ BookingRepository bookingRepository(Ref ref) => HttpBookingRepository(
 );
 
 /// Provides the [AppointmentRepository] singleton backed by
-/// [appointmentApiProvider] (the visit write/read endpoints) and
-/// [bookingReviewApiProvider] (the shared `ReviewControllerApi`, reused for the
-/// `POST /appointments/{id}/review` write path). MO-1 — not yet consumed by any
-/// UI; wired for MO-2…MO-5.
+/// [appointmentApiProvider] (the visit write/read endpoints).
 @Riverpod(keepAlive: true)
 AppointmentRepository appointmentRepository(Ref ref) =>
-    HttpAppointmentRepository(
-      ref.watch(appointmentApiProvider),
-      ref.watch(bookingReviewApiProvider),
-    );
+    HttpAppointmentRepository(ref.watch(appointmentApiProvider));
 
 /// Provides the [SlotRepository] singleton backed by the CORE
 /// [masterApiProvider] (`core/network/api_client_provider.dart`) — reused

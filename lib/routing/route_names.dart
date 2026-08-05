@@ -93,36 +93,6 @@ abstract final class RouteNames {
   static String bookingReview(String bookingId) =>
       '$clientBookings/${Uri.encodeComponent(bookingId)}/review';
 
-  /// MO-5 — «Деталі запису» for a multi-service VISIT, formerly nested under
-  /// [clientBookings]. Distinct `visit/` segment so it never collides with the
-  /// single-booking [bookingDetail]'s `:bookingId` param.
-  ///
-  /// MO-8 [mobile-security MEDIUM, fixed] — the `GoRoute` this path used to
-  /// resolve to is NO LONGER REGISTERED in [app_router] (see
-  /// `app_router.dart`'s MO-8 comment in the `/bookings` branch). MO-7 already
-  /// removed `VisitCard`, `VisitDetailScreen`'s only UI entry point, but the
-  /// route stayed live and — because `MainActivity` is `exported="true"` with
-  /// `flutter_deeplinking_enabled="true"` — remained reachable from a
-  /// co-installed app via an explicit, component-targeted intent, straight to
-  /// `VisitDetailScreen`'s whole-visit cancel. The constant is retained ONLY
-  /// because `VisitDetailScreen`/`AppointmentReviewScreen` (kept, not deleted —
-  /// see their file headers) and their widget tests still build this path for
-  /// their own self-contained test routers; `test/routing/
-  /// navigation_links_test.dart`'s NL-R01 asserts it stays unregistered in the
-  /// PRODUCTION router (`deliberatelyUnregistered`). Do not wire a GoRoute back
-  /// onto it without also resolving the open product question these files'
-  /// headers describe.
-  static String appointmentDetail(String appointmentId) =>
-      '$clientBookings/visit/${Uri.encodeComponent(appointmentId)}';
-
-  /// MO-5 — the VISIT review path, nested under [appointmentDetail]. The visit
-  /// detail's «Залишити відгук» CTA still builds this path (never routed
-  /// anywhere in production — see [appointmentDetail]'s MO-8 doc); a visit is
-  /// reviewed once as a whole (`POST /appointments/{id}/review`), never the
-  /// per-booking review of a child.
-  static String appointmentReview(String appointmentId) =>
-      '$clientBookings/visit/${Uri.encodeComponent(appointmentId)}/review';
-
   /// Phase 13.3 — discovery results. Reached from the Пошук filters screen's
   /// «Показати майстрів» CTA via `context.push(..., extra: SearchFilters)`. A
   /// `push` (not a branch hop) so the swipe-back gesture returns to the filters

@@ -129,10 +129,12 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
-  // CLIENT multi-service VISIT journey (Step 2.7 Rule 3b, MO-5/MO-6) — a grouped
-  // visit card → visit detail → cancel via cancelAppointment (never
-  // cancelBooking), plus the MO-6 review leg: a COMPLETED visit → «Залишити
-  // відгук» → rate + comment → createAppointmentReview once → popped, CTA gone.
+  // CLIENT multi-service VISIT journey (Step 2.7 Rule 3b) — a multi-service
+  // visit renders as separate per-booking cards (no grouping), and cancelling
+  // one leg routes through the per-booking `cancelBooking`, never any
+  // appointment-level endpoint. The whole-visit review leg this used to also
+  // cover was removed with `VisitDetailScreen`/`AppointmentReviewScreen` — see
+  // `client_visit_render_flow_test.dart`'s header.
   group('client_visit_render_flow', client_visit_render.main);
   group('client_home_hub_flow', client_home_hub.main);
   group('client_logout_flow', client_logout.main);

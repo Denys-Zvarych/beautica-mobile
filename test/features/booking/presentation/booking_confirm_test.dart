@@ -181,7 +181,6 @@ Appointment _appointmentFixture() => Appointment(
       price: 500,
     ),
   ],
-  canReview: false,
 );
 
 Booking _bookingFixture() => Booking(
@@ -298,13 +297,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<void> declineAppointmentService(
     String appointmentId,
     String bookingId, {
-    String? comment,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
     String? comment,
   }) => throw UnimplementedError();
 }
