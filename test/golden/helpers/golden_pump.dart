@@ -53,7 +53,15 @@ export 'package:alchemist/alchemist.dart'
         GoldenTestGroup,
         GoldenTestScenario,
         onlyPumpAndSettle,
-        pumpOnce;
+        pumpOnce,
+        // `whilePerforming:` interactions. `press` is the ONLY deterministic
+        // way to golden a transient press state: it holds the gesture for a
+        // FIXED duration, so the ink radius is byte-stable, where a hand-rolled
+        // `startGesture` + `pumpAndSettle` would drain the splash back to rest
+        // and silently capture the idle card instead.
+        Interaction,
+        press,
+        longPress;
 export 'package:flutter/material.dart' show BoxConstraints, Size;
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 

@@ -30,7 +30,6 @@ part 'appointment_detail_response.g.dart';
 /// * [clientComment] - The client's booking-creation note for the whole visit.
 /// * [createdAt]
 /// * [items]
-/// * [canReview] - True iff this visit is COMPLETED, has a registered client, and the client has not yet reviewed it — the CLIENT's one-review-per-visit CTA gate (BE-6). The COMPLETED + no-existing-review predicate, computed by the service, mirrors BookingDetailResponse.canReview lifted to the visit. A visit review is left via POST /appointments/{id}/review.
 /// * [providerComment] - Written by the provider on the visit /decline or /not-complete. Shown to the CLIENT on both DECLINED and NOT_COMPLETED visits — intentional, by the locked \"all notes visible for all sides\" decision, NOT a privacy leak. Do not suppress for any audience. Same field/rule as BookingDetailResponse.providerComment, lifted to the visit header.
 /// * [clientCancellationNote] - Written by the CLIENT on the visit /cancel — the symmetric counterpart of providerComment, shown to the provider. Only ever non-null on a CANCELLED visit. Same field/rule as BookingDetailResponse.clientCancellationNote.
 /// * [cityLabel] - Discovery city label (Ukrainian). Resolved by the service through the same district-primary DiscoveryLocationResolver seam as BookingDetailResponse — salon locality when salon-employed, else the master's own user row.
@@ -98,10 +97,6 @@ abstract class AppointmentDetailResponse
 
   @BuiltValueField(wireName: r'items')
   BuiltList<AppointmentItemResponse>? get items;
-
-  /// True iff this visit is COMPLETED, has a registered client, and the client has not yet reviewed it — the CLIENT's one-review-per-visit CTA gate (BE-6). The COMPLETED + no-existing-review predicate, computed by the service, mirrors BookingDetailResponse.canReview lifted to the visit. A visit review is left via POST /appointments/{id}/review.
-  @BuiltValueField(wireName: r'canReview')
-  bool? get canReview;
 
   /// Written by the provider on the visit /decline or /not-complete. Shown to the CLIENT on both DECLINED and NOT_COMPLETED visits — intentional, by the locked \"all notes visible for all sides\" decision, NOT a privacy leak. Do not suppress for any audience. Same field/rule as BookingDetailResponse.providerComment, lifted to the visit header.
   @BuiltValueField(wireName: r'providerComment')
@@ -279,13 +274,6 @@ class _$AppointmentDetailResponseSerializer
         object.items,
         specifiedType:
             const FullType(BuiltList, [FullType(AppointmentItemResponse)]),
-      );
-    }
-    if (object.canReview != null) {
-      yield r'canReview';
-      yield serializers.serialize(
-        object.canReview,
-        specifiedType: const FullType(bool),
       );
     }
     if (object.providerComment != null) {
@@ -486,13 +474,6 @@ class _$AppointmentDetailResponseSerializer
                 const FullType(BuiltList, [FullType(AppointmentItemResponse)]),
           ) as BuiltList<AppointmentItemResponse>;
           result.items.replace(valueDes);
-          break;
-        case r'canReview':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.canReview = valueDes;
           break;
         case r'providerComment':
           final valueDes = serializers.deserialize(

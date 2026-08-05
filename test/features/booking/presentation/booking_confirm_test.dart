@@ -559,13 +559,34 @@ void main() {
         final Finder masterStrip = find.byType(MasterStrip);
         expect(masterStrip, findsOneWidget);
 
+        // ── Phase 240 tappability policy (LOCKED) — the TAPPABLE half ──────
+        //
+        // «Підтвердження» is a TERMINAL screen: leaving it costs the client
+        // nothing and a back-swipe restores it exactly, so the strip routes
+        // into the master's reviews here. This is the one TAPPABLE screen of
+        // the three whose branch had no assertion of its own — the other two
+        // («Деталі запису», «Залишити відгук») are pinned in their own
+        // suites. Without this, a refactor that made the whole booking flow
+        // uniformly inert would break the policy silently in the other
+        // direction from the SlotDate/SlotTime assertions.
+        expect(
+          tester.widget<MasterStrip>(masterStrip).onTap,
+          isNotNull,
+          reason:
+              'the confirm step is terminal — the strip must offer the route '
+              'into the master\'s reviews.',
+        );
+
         final l10n = AppLocalizations.of(tester.element(masterStrip));
         final String roleLabel = masterRoleLabel(_kMaster.type, l10n);
         expect(
           find.descendant(of: masterStrip, matching: find.text(roleLabel)),
           findsOneWidget,
         );
-        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        // `!` is deliberate: the fixture defines a non-null rating, and this
+        // assertion must stay strict — falling back to the `—` placeholder
+        // here would let a regression that drops the rating pass silently.
+        final String ratingLabel = _kMaster.avgRating!.toStringAsFixed(1);
         expect(
           find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
           findsOneWidget,

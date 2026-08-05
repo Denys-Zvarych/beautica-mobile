@@ -54,7 +54,9 @@ abstract final class MasterMapper {
       locationNote: dto.locationNote,
       bio: dto.bio,
       avatarUrl: dto.avatarUrl,
-      avgRating: (dto.avgRating ?? 0).toDouble(),
+      // NOT coalesced to 0 (Phase 240): a null average is the backend saying
+      // "no reviews yet", not a rating of zero. See `Master.avgRating`'s doc.
+      avgRating: dto.avgRating?.toDouble(),
       reviewCount: dto.reviewCount ?? 0,
       type: dto.masterType != null
           ? _masterTypeFromDto(dto.masterType!)

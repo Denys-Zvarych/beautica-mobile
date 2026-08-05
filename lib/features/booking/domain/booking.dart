@@ -165,6 +165,33 @@ abstract class Booking with _$Booking {
     /// generic-role fallback for where a placeholder DOES belong).
     String? masterProfessionalTitle,
 
+    /// The master's public average rating (1.0–5.0), as served by
+    /// `GET /bookings/{id}` and `GET /bookings/me` (Phase 240).
+    ///
+    /// **`null` means "no reviews yet" — NEVER render it as `0.0`.** The
+    /// backend stores `0.00` for an unreviewed master (`masters.avg_rating` is
+    /// `NOT NULL DEFAULT 0.00`) and deliberately normalises that storage
+    /// artefact to `null` on the wire, precisely so a brand-new master is not
+    /// shown a damning zero stars. Coalescing this to `0` client-side would
+    /// re-introduce exactly the bug the backend just removed.
+    ///
+    /// This is the same denormalised column `GET /masters/{id}` serves, and the
+    /// backend evicts the master-detail cache when a review lands, so the value
+    /// here agrees exactly with the profile screen rather than eventually.
+    ///
+    /// Render the no-rating treatment when null — see [masterReviewCount] for
+    /// the count that accompanies it, and `MasterStrip` for the established
+    /// presentation.
+    double? masterAvgRating,
+
+    /// How many reviews [masterAvgRating] is computed from.
+    ///
+    /// `0` is a TRUE fact about an unreviewed master (unlike a `0.0` average),
+    /// so it is meaningful and safe to render. Kept nullable to distinguish
+    /// "unknown" (field absent — e.g. a pre-Phase-240 backend) from a genuine
+    /// zero; treat `null` as unknown, not as zero.
+    int? masterReviewCount,
+
     /// The provider's free-text arrival hint («3-й поверх, код на дверях
     /// 1234»), resolved server-side by the same salon-vs-independent rule as
     /// [street]/[buildingNo]. Never part of the composed address — see

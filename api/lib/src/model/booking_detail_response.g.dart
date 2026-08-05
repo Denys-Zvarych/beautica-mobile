@@ -244,6 +244,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? clientAvatarUrl;
   @override
   final bool? awaitingClosure;
+  @override
+  final num? masterAvgRating;
+  @override
+  final int? masterReviewCount;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -283,7 +287,9 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.providerCanReviewClient,
       this.appointmentId,
       this.clientAvatarUrl,
-      this.awaitingClosure})
+      this.awaitingClosure,
+      this.masterAvgRating,
+      this.masterReviewCount})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -331,7 +337,9 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         providerCanReviewClient == other.providerCanReviewClient &&
         appointmentId == other.appointmentId &&
         clientAvatarUrl == other.clientAvatarUrl &&
-        awaitingClosure == other.awaitingClosure;
+        awaitingClosure == other.awaitingClosure &&
+        masterAvgRating == other.masterAvgRating &&
+        masterReviewCount == other.masterReviewCount;
   }
 
   @override
@@ -371,6 +379,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, appointmentId.hashCode);
     _$hash = $jc(_$hash, clientAvatarUrl.hashCode);
     _$hash = $jc(_$hash, awaitingClosure.hashCode);
+    _$hash = $jc(_$hash, masterAvgRating.hashCode);
+    _$hash = $jc(_$hash, masterReviewCount.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -411,7 +421,9 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('providerCanReviewClient', providerCanReviewClient)
           ..add('appointmentId', appointmentId)
           ..add('clientAvatarUrl', clientAvatarUrl)
-          ..add('awaitingClosure', awaitingClosure))
+          ..add('awaitingClosure', awaitingClosure)
+          ..add('masterAvgRating', masterAvgRating)
+          ..add('masterReviewCount', masterReviewCount))
         .toString();
   }
 }
@@ -576,6 +588,16 @@ class BookingDetailResponseBuilder
   set awaitingClosure(bool? awaitingClosure) =>
       _$this._awaitingClosure = awaitingClosure;
 
+  num? _masterAvgRating;
+  num? get masterAvgRating => _$this._masterAvgRating;
+  set masterAvgRating(num? masterAvgRating) =>
+      _$this._masterAvgRating = masterAvgRating;
+
+  int? _masterReviewCount;
+  int? get masterReviewCount => _$this._masterReviewCount;
+  set masterReviewCount(int? masterReviewCount) =>
+      _$this._masterReviewCount = masterReviewCount;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -617,6 +639,8 @@ class BookingDetailResponseBuilder
       _appointmentId = $v.appointmentId;
       _clientAvatarUrl = $v.clientAvatarUrl;
       _awaitingClosure = $v.awaitingClosure;
+      _masterAvgRating = $v.masterAvgRating;
+      _masterReviewCount = $v.masterReviewCount;
       _$v = null;
     }
     return this;
@@ -672,6 +696,8 @@ class BookingDetailResponseBuilder
           appointmentId: appointmentId,
           clientAvatarUrl: clientAvatarUrl,
           awaitingClosure: awaitingClosure,
+          masterAvgRating: masterAvgRating,
+          masterReviewCount: masterReviewCount,
         );
     replace(_$result);
     return _$result;

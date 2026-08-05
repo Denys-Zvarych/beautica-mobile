@@ -254,6 +254,10 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               // at mismatched y-offsets the instant the push settles.
               child: Hero(
                 tag: 'master-strip-${widget.args.master.id}',
+                // INERT (no `onTap`) per the policy on `MasterStrip.onTap`:
+                // an in-flight wizard step. It is also the Hero SOURCE of the
+                // flight into «Час» — a tap that pushed a third route
+                // mid-gesture would strand that flight.
                 child: MasterStrip.fromMaster(
                   widget.args.master,
                   showRole: true,
@@ -588,6 +592,10 @@ class SlotTimeScreen extends ConsumerWidget {
                     // `onChange` performed.
                     Hero(
                       tag: 'master-strip-${args.master.id}',
+                      // INERT (no `onTap`) per the policy on
+                      // `MasterStrip.onTap`: the last in-flight wizard step
+                      // before «Підтвердження», where the strip becomes
+                      // tappable.
                       child: MasterStrip.fromMaster(
                         args.master,
                         showRole: true,

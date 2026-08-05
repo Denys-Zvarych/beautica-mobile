@@ -109,7 +109,6 @@ import 'package:beautica_api/src/model/client_review_response.dart';
 import 'package:beautica_api/src/model/contact_support_request.dart';
 import 'package:beautica_api/src/model/contact_support_response.dart';
 import 'package:beautica_api/src/model/create_appointment_request.dart';
-import 'package:beautica_api/src/model/create_appointment_review_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
 import 'package:beautica_api/src/model/create_category_request_request.dart';
 import 'package:beautica_api/src/model/create_client_review_request.dart';
@@ -320,7 +319,6 @@ part 'serializers.g.dart';
   ContactSupportRequest,
   ContactSupportResponse,
   CreateAppointmentRequest,
-  CreateAppointmentReviewRequest,
   CreateBookingRequest,
   CreateCategoryRequestRequest,
   CreateClientReviewRequest,

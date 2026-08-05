@@ -76,7 +76,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
@@ -99,7 +98,6 @@ import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/cancel_booking_dialog.dart';
 import 'widgets/complete_booking_dialog.dart';
-import 'widgets/master_strip.dart';
 import 'booking_cancel_navigation.dart';
 import 'reschedule_navigation.dart';
 
@@ -819,42 +817,16 @@ class _DetailBody extends StatelessWidget {
     NeumorphicButton(
       label: l10n.bookingDetailRebookCta,
       icon: Icons.refresh_rounded,
-      onPressed: onRebook,
+      // Same guard as the counterparty strip's: `booking_mapper.dart:119`
+      // maps `masterId: dto.masterId ?? ''`, and `_onRebook` pushes
+      // `/masters/<id>`. An empty id makes `/masters/` — which cannot match
+      // `/masters/:masterId` (go_router compiles the param to `[^/]+`) — and
+      // `app_router.dart` declares no `errorBuilder`, so the tap would dump
+      // the client on go_router's default "page not found". Disabled is the
+      // honest affordance: we don't know which master to rebook with.
+      onPressed: booking.masterId.isEmpty ? null : onRebook,
     ),
   ];
-}
-
-/// Adapts [MasterStrip] to the enriched [Booking] fields — mirrors
-/// `MasterStrip.fromMaster`/`.fromSchedule`'s pattern, but a `Booking` has
-/// no [MasterType] on the wire the strip's constructor set expects, so this
-/// composes the base [MasterStrip] constructor directly instead of adding a
-/// fourth factory to a widget three other flows already share.
-class MasterStripFromBooking extends StatelessWidget {
-  const MasterStripFromBooking({super.key, required this.booking});
-
-  final Booking booking;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isDead =
-        booking.status == BookingStatus.cancelled ||
-        booking.status == BookingStatus.declined;
-    return Opacity(
-      opacity: isDead ? 0.7 : 1,
-      child: MasterStrip(
-        name: booking.masterName,
-        // A booking record carries no live `MasterType` — the strip's
-        // fallback role label is resolved directly from `atSalon` instead
-        // (mirrors `masterRoleLabel`'s two salon-vs-independent strings).
-        type: booking.atSalon
-            ? MasterType.salonMaster
-            : MasterType.independentMaster,
-        professionalTitle: booking.masterProfessionalTitle,
-        showRole: true,
-        showRating: false,
-      ),
-    );
-  }
 }
 
 /// The un-animated back affordance — see `BookingSuccessScaffold.leading`'s

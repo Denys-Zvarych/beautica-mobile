@@ -62,6 +62,33 @@ extension BookingDisplayX on Booking {
     return initials.isEmpty ? '?' : initials;
   }
 
+  /// The master's average rating to DISPLAY on a booking surface, or `null`
+  /// when there is nothing to show and the caller must render the no-rating
+  /// treatment («—»).
+  ///
+  /// The booking-side twin of [MasterRatingX.displayRating] (`master.dart`),
+  /// folding the same three "no rating yet" shapes onto one null so «Деталі
+  /// запису», «Залишити відгук» and [MasterStrip.fromBooking] cannot disagree:
+  ///
+  ///  * [Booking.masterAvgRating] is `null` — the Phase 240 wire contract for
+  ///    an unreviewed master.
+  ///  * [Booking.masterAvgRating] is `<= 0` — the pre-240 wire shape, and
+  ///    still what a stale backend or an older cached response sends. A real
+  ///    average is always >= 1.0, so a zero is a storage artefact, never a
+  ///    score. Guarding on the review count ALONE let `0.0` + an absent count
+  ///    print «0.0» — the exact artefact Phase 240 removed.
+  ///  * [Booking.masterReviewCount] is a KNOWN `0` — no reviews can produce an
+  ///    average. It stays nullable-for-unknown (a pre-240 backend omits it),
+  ///    so an unknown count does NOT by itself suppress a genuine average; the
+  ///    `<= 0` guard above already covers the artefact case.
+  double? get masterDisplayRating {
+    final double? avg = masterAvgRating;
+    if (avg == null || avg <= 0) return null;
+    final int? count = masterReviewCount;
+    if (count != null && count <= 0) return null;
+    return avg;
+  }
+
   /// A salon booking (`salonName != null`) was acted on BY THE SALON; an
   /// independent-master booking was acted on BY THE MASTER. The cancelled /
   /// declined LABEL no longer varies on this (both read the neutral

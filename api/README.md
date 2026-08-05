@@ -149,7 +149,6 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancel**](doc/PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancelInfo**](doc/PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**info**](doc/PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
-[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createAppointmentReview**](doc/ReviewControllerApi.md#createappointmentreview) | **POST** /api/v1/appointments/{appointmentId}/review | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -289,7 +288,6 @@ Class | Method | HTTP request | Description
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
  - [ContactSupportResponse](doc/ContactSupportResponse.md)
  - [CreateAppointmentRequest](doc/CreateAppointmentRequest.md)
- - [CreateAppointmentReviewRequest](doc/CreateAppointmentReviewRequest.md)
  - [CreateBookingRequest](doc/CreateBookingRequest.md)
  - [CreateCategoryRequestRequest](doc/CreateCategoryRequestRequest.md)
  - [CreateClientReviewRequest](doc/CreateClientReviewRequest.md)

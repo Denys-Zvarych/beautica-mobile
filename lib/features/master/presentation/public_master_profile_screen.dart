@@ -450,14 +450,17 @@ class _PublicProfileBody extends StatelessWidget {
                         context.push(RouteNames.masterPublicReviews(masterId)),
                     child: StatTile(
                       icon: Icons.star_rounded,
+                      // `displayRating` folds all three "no rating yet" shapes
+                      // (null average, a stale 0.0, zero reviews) onto null, so
+                      // the star and the readout cannot disagree. [hasReviews]
+                      // still governs the count tile below, where 0 is a true,
+                      // renderable fact. See `MasterRatingX.displayRating`.
                       iconWidget: RatingStar(
-                        rating: hasReviews ? master.avgRating : null,
+                        rating: master.displayRating,
                         size: 18,
                         showLabel: false,
                       ),
-                      value: hasReviews
-                          ? master.avgRating.toStringAsFixed(1)
-                          : '—',
+                      value: master.displayRating?.toStringAsFixed(1) ?? '—',
                       caption: l10n.masterRatingLabel,
                       valueKey: const Key('public-master-profile-rating-value'),
                     ),

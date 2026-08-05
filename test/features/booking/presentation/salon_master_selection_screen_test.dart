@@ -13,6 +13,7 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
@@ -22,6 +23,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -257,4 +259,114 @@ void main() {
       ]);
     },
   );
+
+  // ── a11y regression (re-audit MEDIUM) ────────────────────────────────────
+  //
+  // `_MasterPickRow` wraps its subtree in `ExcludeSemantics`, which strips the
+  // `MasterStrip` InkWell's tap action out of the tree. The outer `Semantics`
+  // therefore has to carry the action itself, or TalkBack is handed a
+  // checkable BUTTON WITH NO ACTION — the master cannot be selected at all and
+  // the salon booking flow is unfinishable by screen reader.
+  //
+  // Asserting `hasTapAction` alone is not enough: the whole defect was that
+  // the flags were right and the action was missing. So this drives the real
+  // assistive-tech path — `semanticsOwner.performAction` — and asserts the
+  // SELECTION actually happened, not that a callback shape exists.
+  testWidgets('screen reader can activate a master row (semantics tap action '
+      'reaches the selection callback)', (tester) async {
+    await _pumpTall(tester);
+    // Disposed explicitly at the end rather than via `addTearDown`: the
+    // framework's leaked-handle check runs BEFORE tear-downs and fails the
+    // test regardless of the assertions.
+    final SemanticsHandle handle = tester.ensureSemantics();
+
+    final args = _args(ids: const <String>['svc-1']);
+    await tester.pumpRoutedApp(
+      _routerFor(args),
+      overrides: _overrides(args: args),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder row = find.byKey(const Key('salon_booking_master_row_m1'));
+    final SemanticsNode node = tester.getSemantics(row);
+
+    // The announcement contract AND the action, together — the whole defect
+    // was that the flags were right while the action was absent, so asserting
+    // either one alone would have passed on the broken build. The label check
+    // also confirms this is the node a screen reader focuses for this row.
+    expect(node.label, contains('Олена Ковальчук'));
+    expect(
+      node,
+      isSemantics(
+        isButton: true,
+        hasCheckedState: true,
+        isChecked: false,
+        hasTapAction: true,
+      ),
+    );
+
+    // Drive the platform path a screen reader uses. Nothing below this line
+    // touches the widget tree directly — no `tester.tap`, no callback poke.
+    node.owner!.performAction(node.id, SemanticsAction.tap);
+    await tester.pumpAndSettle();
+
+    // The selection landed: the row now reports checked, and the CTA that is
+    // gated on having a master picked is present.
+    expect(tester.getSemantics(row), isSemantics(isChecked: true));
+    expect(find.byKey(const Key('booking-summary-cta')), findsOneWidget);
+
+    handle.dispose();
+  });
+
+  // ── hit-target regression (re-audit LOW) ─────────────────────────────────
+  //
+  // Deleting the row-wide `GestureDetector` (the F1 scroll-pin fix) left the
+  // `SizedBox(width: VelvetSpacing.sm + 2)` gutter between the strip and the
+  // select token as a dead zone — a tap there toggled nothing. The row
+  // detector is back (opaque, tap-only, no press state), so the gutter selects
+  // again. Tapped by OFFSET, inside the gutter but outside both the strip and
+  // the token, so it cannot pass by accidentally hitting either one.
+  testWidgets('the gutter between the strip and the select token selects', (
+    tester,
+  ) async {
+    await _pumpTall(tester);
+    final args = _args(ids: const <String>['svc-1']);
+    SalonBookingTimeArgs? reached;
+    await tester.pumpRoutedApp(
+      _routerFor(args, onReached: (a) => reached = a),
+      overrides: _overrides(args: args),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder row = find.byKey(const Key('salon_booking_master_row_m1'));
+    final Finder strip = find.descendant(
+      of: row,
+      matching: find.byType(MasterStrip),
+    );
+    final Rect stripRect = tester.getRect(strip);
+    final Rect rowRect = tester.getRect(row);
+
+    // A point in the dead gutter: past the strip's right edge, before the
+    // token. Guard the geometry so the test fails loudly if the layout ever
+    // stops having a gap rather than silently testing the strip.
+    final double gutterX = stripRect.right + 2;
+    expect(gutterX, lessThan(rowRect.right - _SelectTokenProbe.size));
+
+    await tester.tapAt(Offset(gutterX, rowRect.center.dy));
+    await tester.pumpAndSettle();
+
+    // Selection happened from the gutter alone. Asserted by DRIVING the flow —
+    // `booking-summary-cta` is always mounted (`enabled: picked != null`), so
+    // merely finding it would pass on a dead gutter.
+    await tester.tap(find.byKey(const Key('booking-summary-cta')));
+    await tester.pumpAndSettle();
+    expect(reached, isNotNull);
+    expect(reached!.visit.masterId, 'm1');
+  });
+}
+
+/// The `_SelectToken` side length, mirrored here because the token itself is
+/// private. Only used to assert the probe point lands in the gutter.
+abstract final class _SelectTokenProbe {
+  static const double size = 30;
 }

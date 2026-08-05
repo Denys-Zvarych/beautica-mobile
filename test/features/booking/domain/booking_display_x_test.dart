@@ -9,6 +9,7 @@
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Booking _booking({
@@ -22,6 +23,8 @@ Booking _booking({
   String? buildingNo,
   int durationMinutes = 90,
   DateTime? start,
+  double? masterAvgRating,
+  int? masterReviewCount,
 }) {
   final DateTime startInstant = start ?? DateTime.utc(2026, 7, 20, 15);
   return Booking(
@@ -50,6 +53,8 @@ Booking _booking({
     clientCancellationNote: null,
     masterProfessionalTitle: null,
     locationNote: null,
+    masterAvgRating: masterAvgRating,
+    masterReviewCount: masterReviewCount,
   );
 }
 
@@ -296,6 +301,143 @@ void main() {
         buildingNo: null,
       );
       expect(b.hasDestination, isFalse);
+    });
+  });
+
+  // ── Phase 240 rating visibility ─────────────────────────────────────────
+  //
+  // The booking-side twin of `MasterRatingX.displayRating` (pinned in
+  // `test/features/master/domain/master_rating_x_test.dart`). Both exist so
+  // no surface can render a damning «0.0» for a master nobody has reviewed;
+  // this one additionally feeds `MasterStrip.fromBooking`, so it is the guard
+  // standing behind «Деталі запису» AND «Залишити відгук» at once.
+  group('masterDisplayRating — the "unrated" shapes fold to null', () {
+    test('a null masterAvgRating (the Phase 240 wire contract) is null', () {
+      expect(
+        _booking(
+          status: BookingStatus.completed,
+          masterAvgRating: null,
+          masterReviewCount: 0,
+        ).masterDisplayRating,
+        isNull,
+      );
+    });
+
+    test('a stale 0.0 average is null, NOT a rating of zero', () {
+      expect(
+        _booking(
+          status: BookingStatus.completed,
+          masterAvgRating: 0,
+          masterReviewCount: 0,
+        ).masterDisplayRating,
+        isNull,
+      );
+    });
+
+    test('a stale 0.0 average is null EVEN WITH an ABSENT count — this is the '
+        'exact hole a count-only guard leaves open, and the artefact this '
+        'whole surface exists to remove', () {
+      expect(
+        _booking(
+          status: BookingStatus.completed,
+          masterAvgRating: 0,
+          masterReviewCount: null,
+        ).masterDisplayRating,
+        isNull,
+      );
+    });
+
+    test(
+      'a KNOWN-zero count is null even when the average carries a number',
+      () {
+        expect(
+          _booking(
+            status: BookingStatus.completed,
+            masterAvgRating: 4.8,
+            masterReviewCount: 0,
+          ).masterDisplayRating,
+          isNull,
+        );
+      },
+    );
+
+    test('the SCALE FLOOR (1.0) survives — a low rating is a real rating, and '
+        'a guard written `avg < 1` would erase every one-star master', () {
+      expect(
+        _booking(
+          status: BookingStatus.completed,
+          masterAvgRating: 1,
+          masterReviewCount: 1,
+        ).masterDisplayRating,
+        1.0,
+      );
+    });
+
+    test('a genuine average passes through byte-identical — a FILTER, never a '
+        'transform', () {
+      expect(
+        _booking(
+          status: BookingStatus.completed,
+          masterAvgRating: 4.87,
+          masterReviewCount: 42,
+        ).masterDisplayRating,
+        4.87,
+      );
+    });
+  });
+
+  // ── The DELIBERATE divergence between the two derivations ────────────────
+  //
+  // `Master.reviewCount` is a NON-NULLABLE int, so `0` there is a fact: "this
+  // master has no reviews". `Booking.masterReviewCount` is NULLABLE, and null
+  // there means UNKNOWN — a pre-240 backend simply omits the field. The two
+  // getters therefore MUST answer differently on an absent/zero count paired
+  // with a real average, and they do.
+  //
+  // This group exists so that divergence cannot be "tidied up" into a bug.
+  // Making the two symmetric in either direction is a regression:
+  //   • suppressing on a null booking count hides a REAL rating behind a
+  //     merely-absent field (the reported bug, reintroduced);
+  //   • not suppressing on a zero Master count prints an average for a master
+  //     with no reviews.
+  group('the two derivations DIVERGE on an absent count — intentional, do not '
+      'symmetrise', () {
+    test(
+      'a booking with a real average and an UNKNOWN (null) count STILL '
+      'shows the rating — an omitted field is not evidence of no reviews',
+      () {
+        expect(
+          _booking(
+            status: BookingStatus.completed,
+            masterAvgRating: 4.9,
+            masterReviewCount: null,
+          ).masterDisplayRating,
+          4.9,
+          reason:
+              'null means UNKNOWN on the booking wire, never zero. Suppressing '
+              'here would hide a genuine rating — the exact invisibility this '
+              'change was raised to fix.',
+        );
+      },
+    );
+
+    test('the Master-side twin, given the same average and the CLOSEST thing '
+        'it can express (a non-nullable 0), suppresses instead', () {
+      expect(
+        const Master(
+          id: 'm1',
+          firstName: 'Оксана',
+          lastName: 'Коваль',
+          avgRating: 4.9,
+          reviewCount: 0,
+          type: MasterType.independentMaster,
+        ).displayRating,
+        isNull,
+        reason:
+            'Master.reviewCount cannot be null, so 0 is a positive assertion '
+            'of "no reviews" — the opposite meaning to the booking side. The '
+            'two getters are asymmetric BY DESIGN.',
+      );
     });
   });
 }

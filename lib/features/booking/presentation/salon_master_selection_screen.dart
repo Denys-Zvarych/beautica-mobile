@@ -617,7 +617,30 @@ class _MasterPickRowListenerState extends State<_MasterPickRowListener> {
 
 /// One selectable master row: the shared [MasterStrip] identity card + a radio
 /// select token.
-class _MasterPickRow extends StatefulWidget {
+///
+/// ## Why there is no row-wide press scale (mobile-perf MEDIUM)
+///
+/// This row used to add its own `AnimatedScale(0.99)` press affordance. It was
+/// driven by a `Listener`, because a second `GestureDetector` here would enter
+/// the gesture arena against [MasterStrip]'s own — deeper, therefore winning —
+/// `InkWell` and lose, leaving the scale stuck mid-press.
+///
+/// But `Listener` is not an arena member either, and that is exactly the
+/// problem: when the enclosing `Scrollable` claims the drag, the row is never
+/// told. `onPointerDown` set the flag and only `onPointerUp`/`onPointerCancel`
+/// cleared it, neither of which fires until the finger lifts — so EVERY scroll
+/// begun on a row pinned that row at 0.99 for the whole drag and fling, while
+/// the `InkWell` (a proper arena member) correctly dropped its highlight. The
+/// two press affordances visibly disagreed. `master_booking_card.dart:1715`
+/// documents this same failure mode from an earlier audit.
+///
+/// The fix is to delete the row scale rather than to patch its reset, because
+/// since M2 the strip owns its own tap and therefore its own press feedback:
+/// the row was showing TWO stacked press signals for one gesture. Deleting it
+/// leaves the `InkWell` as the sole affordance — and, crucially, adds no new
+/// gesture recognizer, so the arena conflict that forced the `Listener` in the
+/// first place cannot come back. The row is stateless again as a result.
+class _MasterPickRow extends StatelessWidget {
   const _MasterPickRow({
     required this.master,
     required this.avatarGradient,
@@ -631,16 +654,9 @@ class _MasterPickRow extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_MasterPickRow> createState() => _MasterPickRowState();
-}
-
-class _MasterPickRowState extends State<_MasterPickRow> {
-  bool _pressed = false;
-
-  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final SalonMasterSummary m = widget.master;
+    final SalonMasterSummary m = master;
     final String name = '${m.firstName} ${m.lastName}'.trim();
     final String? ownTitle = m.professionalTitle?.trim();
     final String role = (ownTitle != null && ownTitle.isNotEmpty)
@@ -652,39 +668,61 @@ class _MasterPickRowState extends State<_MasterPickRow> {
 
     return Semantics(
       button: true,
-      checked: widget.selected,
+      checked: selected,
       label: l10n.salonMasterCardSemanticLabel(name, role, ratingLabel),
+      // REQUIRED, not decorative. `ExcludeSemantics` strips the `InkWell`'s
+      // and the row detector's tap actions out of the subtree, so without an
+      // action of its own this node announced to TalkBack as a checkable
+      // button that could not be activated — a screen-reader user could not
+      // pick a master at all, which makes the whole salon booking flow
+      // unfinishable. Same defect class as `master_strip_shell.dart:214`.
+      onTap: onTap,
       child: ExcludeSemantics(
+        // Restores the dead hit zone the deleted row-wide detector used to
+        // cover: the `SizedBox` gutter between the strip and the token (a
+        // ~40dp column) toggled nothing once the row went stateless.
+        //
+        // Safe against the F1 scroll-pin regression this row was rewritten to
+        // cure: a `TapGestureRecognizer` is a proper arena member, so when the
+        // enclosing `Scrollable` claims the drag this loses the arena and is
+        // cancelled — unlike the `Listener` that pinned the old press scale.
+        // It also adds NO press state: the row stays stateless and the strip's
+        // `InkWell` remains the sole press affordance. Being shallower than
+        // that `InkWell`, it never steals the strip region (arena sweep
+        // resolves to the first-added member, which is the deepest).
         child: GestureDetector(
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTapUp: (_) {
-            setState(() => _pressed = false);
-            widget.onTap();
-          },
-          child: AnimatedScale(
-            scale: _pressed ? 0.99 : 1,
-            duration: const Duration(milliseconds: 110),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: MasterStrip(
-                    name: name,
-                    type: m.type,
-                    professionalTitle: m.professionalTitle,
-                    avgRating: avgRating,
-                    reviewCount: m.reviewCount,
-                    showLabel: false,
-                    showRole: true,
-                    showRating: true,
-                    avatarGradient: widget.avatarGradient,
-                    avatarBordered: true,
-                  ),
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: MasterStrip(
+                  name: name,
+                  type: m.type,
+                  professionalTitle: m.professionalTitle,
+                  avgRating: avgRating,
+                  reviewCount: m.reviewCount,
+                  showLabel: false,
+                  showRole: true,
+                  showRating: true,
+                  avatarGradient: avatarGradient,
+                  avatarBordered: true,
+                  // The strip owns its tap (M2), and since the row-wide press
+                  // SCALE was deleted its `InkWell` is also the row's only
+                  // press affordance — the row detector above is hit-target
+                  // coverage only and paints nothing. Here the tap SELECTS
+                  // this master rather than navigating to their reviews, so
+                  // this row is exempt from the leave/stay policy documented
+                  // on `MasterStrip.onTap`.
+                  onTap: onTap,
                 ),
-                const SizedBox(width: VelvetSpacing.sm + 2),
-                _SelectToken(selected: widget.selected),
-              ],
-            ),
+              ),
+              const SizedBox(width: VelvetSpacing.sm + 2),
+              // The select token no longer needs a detector of its own: the
+              // row-wide opaque one above covers it (and the gutter) against
+              // the identical callback.
+              _SelectToken(selected: selected),
+            ],
           ),
         ),
       ),

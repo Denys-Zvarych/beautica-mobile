@@ -967,6 +967,18 @@ void main() {
         final Finder masterStrip = find.byType(MasterStrip);
         expect(masterStrip, findsOneWidget);
 
+        // Phase 240 tappability policy (LOCKED) — the INERT half. See the
+        // SlotTimeScreen assertion below for the full rationale: an in-flight
+        // wizard step must never offer a tap that abandons a half-made
+        // booking.
+        expect(
+          tester.widget<MasterStrip>(masterStrip).onTap,
+          isNull,
+          reason:
+              'SlotDateScreen is an IN-FLIGHT wizard step — the strip must '
+              'stay inert.',
+        );
+
         final l10n = AppLocalizations.of(tester.element(masterStrip));
         final String roleLabel = masterRoleLabel(_kMaster.type, l10n);
         expect(
@@ -978,7 +990,10 @@ void main() {
               'l10n.masterRoleIndependent',
         );
 
-        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        // `!` is deliberate: the fixture defines a non-null rating, and this
+        // assertion must stay strict — falling back to the `—` placeholder
+        // here would let a regression that drops the rating pass silently.
+        final String ratingLabel = _kMaster.avgRating!.toStringAsFixed(1);
         expect(
           find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
           findsOneWidget,
@@ -1186,6 +1201,25 @@ void main() {
               'change — it must appear exactly once now',
         );
 
+        // ── Phase 240 tappability policy (LOCKED) — the INERT half ────────
+        //
+        // The strip became tappable in Phase 240, but deliberately NOT on the
+        // three in-flight wizard steps: a stray tap here would yank the client
+        // out of a half-made booking to go read reviews. The policy is written
+        // down in `MasterStrip.onTap`'s doc and, until this assertion, was
+        // enforced by nothing — a refactor that threaded `onTap` through every
+        // call site uniformly would have silently broken it, and the resulting
+        // bug (losing a half-made booking to a mis-tap) is one users report as
+        // "the app randomly left my booking".
+        expect(
+          tester.widget<MasterStrip>(masterStrip).onTap,
+          isNull,
+          reason:
+              'SlotTimeScreen is an IN-FLIGHT wizard step — the strip must '
+              'stay inert. Tappability is for terminal/review-shaped screens '
+              '(confirm, «Деталі запису», «Залишити відгук») only.',
+        );
+
         // The master's name must render INSIDE MasterStrip itself, not just
         // somewhere on screen.
         final String masterName = '${_kMaster.firstName} ${_kMaster.lastName}'
@@ -1258,7 +1292,10 @@ void main() {
           findsOneWidget,
         );
 
-        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        // `!` is deliberate: the fixture defines a non-null rating, and this
+        // assertion must stay strict — falling back to the `—` placeholder
+        // here would let a regression that drops the rating pass silently.
+        final String ratingLabel = _kMaster.avgRating!.toStringAsFixed(1);
         expect(
           find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
           findsOneWidget,

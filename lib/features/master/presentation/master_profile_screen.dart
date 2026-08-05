@@ -482,16 +482,15 @@ class _ProfileBody extends StatelessWidget {
                     onTap: () => context.push(RouteNames.masterReceivedReviews),
                     child: StatTile(
                       icon: Icons.star_rounded,
+                      // `displayRating` folds all three "no rating yet" shapes
+                      // (null average, a stale 0.0, zero reviews) onto null, so
+                      // the star and the readout cannot disagree. See its doc.
                       iconWidget: RatingStar(
-                        rating: master.reviewCount == 0
-                            ? null
-                            : master.avgRating,
+                        rating: master.displayRating,
                         size: 18,
                         showLabel: false,
                       ),
-                      value: master.reviewCount == 0
-                          ? '—'
-                          : master.avgRating.toStringAsFixed(1),
+                      value: master.displayRating?.toStringAsFixed(1) ?? '—',
                       caption: l10n.masterRatingLabel,
                       valueKey: const Key('master-profile-rating-value'),
                     ),

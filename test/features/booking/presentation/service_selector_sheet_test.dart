@@ -524,7 +524,9 @@ void main() {
         expect(
           find.descendant(
             of: masterStrip,
-            matching: find.text(_kTitledMaster.avgRating.toStringAsFixed(1)),
+            // `!` is deliberate: the fixture defines a non-null rating and
+            // this assertion must stay strict.
+            matching: find.text(_kTitledMaster.avgRating!.toStringAsFixed(1)),
           ),
           findsOneWidget,
           reason: 'showRating:true must render avgRating.toStringAsFixed(1).',

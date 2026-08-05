@@ -2084,6 +2084,25 @@ final class FakeBackend {
   num bookingPrice = 650;
   num? bookingPriceMax;
 
+  /// Phase 240 — the master's public rating, as carried BY THE BOOKING.
+  ///
+  /// Both default to `null`, which is the PRE-240 wire shape (a backend that
+  /// simply omits the fields), so every pre-existing flow keeps seeing exactly
+  /// the payload it saw before and its assertions are untouched. A flow that
+  /// exercises the rating surfaces sets them before boot.
+  ///
+  /// They are deliberately SEPARATE knobs rather than one: the whole point of
+  /// `BookingDisplayX.masterDisplayRating` is that the average and the count
+  /// disagree in three distinct ways (null average, stale `0.0` average,
+  /// known-zero count), and a single knob could not seed those apart.
+  ///
+  /// `null` here is NOT the same as `0`. A null COUNT means "unknown" (a
+  /// pre-240 backend), which must not suppress a genuine average; a `0` count
+  /// is a positive assertion of "no reviews". Keep them independently
+  /// settable so a flow can seed either.
+  num? bookingMasterAvgRating;
+  int? bookingMasterReviewCount;
+
   /// `PATCH /bookings/{id}/cancel` call count + the last comment sent.
   int cancelBookingCalls = 0;
   String? lastCancelComment;
@@ -2279,6 +2298,14 @@ final class FakeBackend {
     'providerComment': null,
     'clientCancellationNote': bookingClientCancellationNote,
     'masterProfessionalTitle': 'Майстриня манікюру',
+    // Phase 240. Emitted ONLY when seeded, so the default payload keeps the
+    // PRE-240 shape (fields absent entirely) and every pre-existing flow's
+    // assertions are untouched. An absent `masterReviewCount` is exactly the
+    // "unknown count" case `masterDisplayRating` must not treat as zero.
+    if (bookingMasterAvgRating != null)
+      'masterAvgRating': bookingMasterAvgRating,
+    if (bookingMasterReviewCount != null)
+      'masterReviewCount': bookingMasterReviewCount,
     'locationNote': null,
     'appointmentId': bookingAppointmentId,
   };

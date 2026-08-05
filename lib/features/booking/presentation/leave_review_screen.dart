@@ -37,6 +37,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_detail_notifier.dart';
@@ -44,6 +45,7 @@ import '../application/leave_review_notifier.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
 import 'widgets/master_feedback_card.dart';
+import 'widgets/master_strip.dart';
 import 'widgets/star_rating_input.dart';
 
 /// The «ВІДГУК ПРО МАЙСТРА» screen for the booking identified by [bookingId].
@@ -190,6 +192,25 @@ class _Form extends StatelessWidget {
     final String visitContext =
         '${booking.serviceName} · ${formatFullDate(booking.startAt)}';
 
+    // The master's PUBLIC rating, surfaced here so the client can see (and
+    // reach) the reviews other clients left before writing their own — the
+    // whole reason this screen was a dead end for ratings until now.
+    //
+    // "No reviews yet" must render «—», never «0.0». Routed through the one
+    // `BookingDisplayX.masterDisplayRating` guard that `MasterStrip.fromBooking`
+    // also uses, so this screen and «Деталі запису» cannot disagree about what
+    // an unrated master looks like.
+    final int reviewCount = booking.masterReviewCount ?? 0;
+    final double? avgRating = booking.masterDisplayRating;
+    final String ratingLabel =
+        avgRating?.toStringAsFixed(1) ?? MasterStrip.noRatingLabel;
+
+    // Same guard as `BookingCounterpartyHeader._MasterStrip`: `booking_mapper`
+    // can hand us an empty `masterId`, and `/masters//reviews` matches no
+    // route, so an empty id leaves the card inert rather than routing the
+    // client into go_router's "page not found".
+    final String masterId = booking.masterId;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -206,9 +227,23 @@ class _Form extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 MasterFeedbackCard(
+                  key: const Key('leave-review-master-card'),
                   name: booking.masterName,
                   roleLabel: roleLabel,
                   visitContext: visitContext,
+                  avgRating: avgRating,
+                  reviewCount: reviewCount,
+                  semanticsLabel:
+                      '${l10n.bookingSummaryMasterSemantics(booking.masterName, roleLabel, ratingLabel, l10n.salonReviewCountLabel(reviewCount))}, $visitContext',
+                  // TAPPABLE per the policy on `MasterStrip.onTap` — a
+                  // review-shaped screen; reading the master's existing
+                  // reviews is a natural detour, and `push` brings the client
+                  // back with the half-typed comment intact.
+                  onTap: masterId.isEmpty
+                      ? null
+                      : () => context.push(
+                          RouteNames.masterPublicReviews(masterId),
+                        ),
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
                 _RatingCard(rating: rating, onChanged: onRatingChanged),

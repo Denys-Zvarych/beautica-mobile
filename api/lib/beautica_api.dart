@@ -130,7 +130,6 @@ export 'package:beautica_api/src/model/client_review_response.dart';
 export 'package:beautica_api/src/model/contact_support_request.dart';
 export 'package:beautica_api/src/model/contact_support_response.dart';
 export 'package:beautica_api/src/model/create_appointment_request.dart';
-export 'package:beautica_api/src/model/create_appointment_review_request.dart';
 export 'package:beautica_api/src/model/create_booking_request.dart';
 export 'package:beautica_api/src/model/create_category_request_request.dart';
 export 'package:beautica_api/src/model/create_client_review_request.dart';

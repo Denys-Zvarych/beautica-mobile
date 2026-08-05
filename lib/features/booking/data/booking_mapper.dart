@@ -169,6 +169,17 @@ abstract final class BookingMapper {
       providerComment: dto.providerComment,
       clientCancellationNote: dto.clientCancellationNote,
       masterProfessionalTitle: dto.masterProfessionalTitle,
+      // Phase 240. NOT coalesced, for the same reason as `priceMax` above: a
+      // null average is MEANINGFUL — it is the backend saying "this master has
+      // no reviews yet". The wire value is already normalised server-side (the
+      // stored 0.00 of an unreviewed master is sent as null), so a `?? 0` here
+      // would launder that signal back into a rating of zero and show a
+      // brand-new master zero stars. Stays nullable all the way to the UI.
+      masterAvgRating: dto.masterAvgRating?.toDouble(),
+      // Left nullable rather than defaulted to 0: a pre-240 backend omitting
+      // the field entirely means "unknown", which is not the same as a genuine
+      // zero-review master. See `Booking.masterReviewCount`'s doc.
+      masterReviewCount: dto.masterReviewCount,
       locationNote: dto.locationNote,
       // Additive (MO-1): null on a standalone single-service booking, set when
       // this booking is one line of a multi-service visit. Carried through for

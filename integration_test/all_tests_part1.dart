@@ -47,6 +47,8 @@ import 'booking_unknown_status_readonly_flow_test.dart'
     as booking_unknown_status_readonly;
 import 'client_elapsed_booking_readonly_flow_test.dart'
     as client_elapsed_booking_readonly;
+import 'client_booking_rating_visibility_flow_test.dart'
+    as client_booking_rating_visibility;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_visit_render_flow_test.dart' as client_visit_render;
@@ -129,6 +131,17 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
+  // Phase 240 rating visibility (Step 2.7 Rule 3b, mobile-qa) — the REPORTED
+  // bug's journey: a master's rating reaching «Деталі запису» and «Залишити
+  // відгук» off the WIRE (which no mocked-repository tier can prove), and
+  // BOTH cards taping through to that master's public reviews. Plus the
+  // pre-240 stale-`0.0`-with-absent-count negative control, which is a
+  // property of the wire alone.
+  group(
+    'client_booking_rating_visibility_flow',
+    client_booking_rating_visibility.main,
+  );
+
   // CLIENT multi-service VISIT journey (Step 2.7 Rule 3b) — a multi-service
   // visit renders as separate per-booking cards (no grouping), and cancelling
   // one leg routes through the per-booking `cancelBooking`, never any

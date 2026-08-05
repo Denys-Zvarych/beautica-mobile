@@ -438,6 +438,13 @@ class _ConfirmBody extends StatelessWidget {
                 master,
                 showRole: true,
                 showRating: true,
+                // TAPPABLE per the policy on `MasterStrip.onTap`: this is the
+                // last step, everything is already chosen, and checking the
+                // master's reviews before committing is exactly the doubt a
+                // client has here. `push` returns to this screen with the
+                // selections and the typed comment intact.
+                onTap: () =>
+                    context.push(RouteNames.masterPublicReviews(master.id)),
               ),
             ),
             addressLine: addressLine,
