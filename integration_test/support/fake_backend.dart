@@ -1126,8 +1126,11 @@ final class FakeBackend {
           'lastName': 'Бондар',
           'cityLabel': 'Київ',
           'districtLabel': 'Печерський',
-          'avgRating': 4.9,
-          'reviewCount': 24,
+          // Same master, same aggregate as the public detail / summary — a
+          // search card that disagreed with the profile it opens would be the
+          // same harness infidelity, just moved one endpoint over.
+          'avgRating': kPublicMasterAvgRatingBeforeReview,
+          'reviewCount': kPublicMasterReviewCountBeforeReview,
           'avatarUrl': null,
           'minEffectivePrice': 450,
         },
@@ -1242,21 +1245,27 @@ final class FakeBackend {
   /// fixture seeds), so a CLIENT pushing `/masters/master-aaa` resolves a real
   /// profile: «Софія Бондар», INDEPENDENT_MASTER, an Instagram handle (so the
   /// validated contact tile renders + launches), and a rating/reviews block.
-  static Map<String, dynamic> _publicMasterDetailEnvelope() =>
-      _ok(<String, dynamic>{
-        'masterId': 'master-aaa',
-        'firstName': 'Софія',
-        'lastName': 'Бондар',
-        'city': 'Київ',
-        'street': 'вул. Хрещатик',
-        'buildingNo': '12',
-        'locationNote': '2 поверх',
-        'bio': 'Майстриня манікюру з 6-річним досвідом.',
-        'instagram': '@sofia_nails',
-        'avgRating': 4.9,
-        'reviewCount': 24,
-        'masterType': 'INDEPENDENT_MASTER',
-      });
+  ///
+  /// INSTANCE (not static) because the rating block MOVES once the client's
+  /// `POST /reviews` lands — see [publicMasterReviewLanded].
+  Map<String, dynamic> _publicMasterDetailEnvelope() => _ok(<String, dynamic>{
+    'masterId': 'master-aaa',
+    'firstName': 'Софія',
+    'lastName': 'Бондар',
+    'city': 'Київ',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'locationNote': '2 поверх',
+    'bio': 'Майстриня манікюру з 6-річним досвідом.',
+    'instagram': '@sofia_nails',
+    'avgRating': publicMasterReviewLanded
+        ? kPublicMasterAvgRatingAfterReview
+        : kPublicMasterAvgRatingBeforeReview,
+    'reviewCount': publicMasterReviewLanded
+        ? kPublicMasterReviewCountAfterReview
+        : kPublicMasterReviewCountBeforeReview,
+    'masterType': 'INDEPENDENT_MASTER',
+  });
 
   /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
   /// list so the profile's services-count stat tile renders «2». Shapes match
@@ -1523,8 +1532,10 @@ final class FakeBackend {
           'firstName': 'Софія',
           'lastName': 'Бондар',
           'avatarUrl': null,
-          'avgRating': 4.9,
-          'reviewCount': 24,
+          // Same master as the public detail / summary / search card — the
+          // rail card opens THAT profile, so the numbers must match.
+          'avgRating': kPublicMasterAvgRatingBeforeReview,
+          'reviewCount': kPublicMasterReviewCountBeforeReview,
           'masterType': 'SALON_MASTER',
         },
         <String, dynamic>{
@@ -1873,13 +1884,24 @@ final class FakeBackend {
       ];
 
   /// Matches [_publicMasterReviews] (one 5★, one 4★) and the seeded
-  /// `master-aaa` public-detail `avgRating: 4.9`.
-  static Map<String, dynamic> _publicMasterReviewSummaryEnvelope() =>
+  /// `master-aaa` public-detail `avgRating`.
+  ///
+  /// INSTANCE (not static): once the client's `POST /reviews` lands the
+  /// aggregate moves and the 5★ bucket gains the new review — see
+  /// [publicMasterReviewLanded].
+  Map<String, dynamic> _publicMasterReviewSummaryEnvelope() =>
       _ok(<String, dynamic>{
-        'avgRating': 4.9,
-        'reviewCount': 2,
+        'avgRating': publicMasterReviewLanded
+            ? kPublicMasterAvgRatingAfterReview
+            : kPublicMasterAvgRatingBeforeReview,
+        'reviewCount': publicMasterReviewLanded
+            ? kPublicMasterReviewCountAfterReview
+            : kPublicMasterReviewCountBeforeReview,
         'ratingDistribution': <Map<String, dynamic>>[
-          <String, dynamic>{'rating': 5, 'count': 1},
+          <String, dynamic>{
+            'rating': 5,
+            'count': publicMasterReviewLanded ? 2 : 1,
+          },
           <String, dynamic>{'rating': 4, 'count': 1},
           <String, dynamic>{'rating': 3, 'count': 0},
           <String, dynamic>{'rating': 2, 'count': 0},
@@ -1890,9 +1912,27 @@ final class FakeBackend {
   /// Returns [_publicMasterReviews] server-ordered by the `sort` wire value —
   /// mirrors [_masterReviewsFor]'s reordering so a future sort test on the
   /// public reviews screen has the same real-reorder guarantee.
-  static List<Map<String, dynamic>> _publicMasterReviewsFor(String? sort) {
+  /// The review row the CLIENT's `POST /reviews` adds to `master-aaa`'s public
+  /// list. `createdAt` is just BEFORE the harness's injected `kFixedNow`
+  /// (2026-06-14 12:00 UTC), so it is genuinely the NEWEST row without being a
+  /// future timestamp — the clock the app renders it against is the same
+  /// injected one (M15: fixture clock and app clock must not disagree).
+  static const Map<String, dynamic> _clientPublicReview = <String, dynamic>{
+    'id': kClientReviewId,
+    'clientDisplayName': 'Олена К.',
+    'rating': 5,
+    'comment': 'Дуже задоволена, дякую!',
+    'createdAt': '2026-06-14T11:00:00Z',
+    'serviceName': 'Манікюр з покриттям',
+  };
+
+  /// INSTANCE (not static): includes [_clientPublicReview] once the client's
+  /// review has landed — see [publicMasterReviewLanded]. The new row is added
+  /// BEFORE sorting, so it lands in the right place in every sort bucket.
+  List<Map<String, dynamic>> _publicMasterReviewsFor(String? sort) {
     final List<Map<String, dynamic>> list = <Map<String, dynamic>>[
       ..._publicMasterReviews,
+      if (publicMasterReviewLanded) _clientPublicReview,
     ];
     switch (sort) {
       case 'OLDEST':
@@ -1994,6 +2034,58 @@ final class FakeBackend {
   int? lastReviewRating;
   String? lastReviewComment;
   String? lastReviewBookingId;
+
+  /// True once a `POST /reviews` has landed — the review the CLIENT just wrote
+  /// is now part of `master-aaa`'s PUBLIC review data.
+  ///
+  /// Exists for the `client_review_refreshes_master_surfaces_flow` regression:
+  /// the three master public surfaces are independent `keepAlive` caches with a
+  /// 5-minute TTL, so an E2E can only tell "refetched" from "served stale" if
+  /// the SERVER's answer actually MOVES after the write. Flipping this changes
+  /// three fixtures at once, exactly as the real backend would:
+  ///   • `_publicMasterDetailEnvelope` → [kPublicMasterAvgRatingAfterReview] /
+  ///     [kPublicMasterDetailReviewCountAfterReview] (the profile stat tiles);
+  ///   • `_publicMasterReviewSummaryEnvelope` → the same average and
+  ///     [kPublicMasterSummaryCountAfterReview] (the aggregate card);
+  ///   • `_publicMasterReviewsFor` → appends [kClientReviewId] to every sort
+  ///     bucket (the review the client just wrote).
+  ///
+  /// Starts `false`, so every pre-existing flow sees the original fixtures
+  /// unchanged; only a flow that BOTH posts a review AND then reads the public
+  /// master surfaces is affected.
+  bool publicMasterReviewLanded = false;
+
+  /// `master-aaa`'s review aggregate — ONE number per field, shared by EVERY
+  /// endpoint that reports it.
+  ///
+  /// These used to disagree: the public DETAIL said `reviewCount: 24` while the
+  /// review SUMMARY for the same master said `2`, and the search card / salon
+  /// roster said `24` again. A count-consistency regression between two of
+  /// those payloads was therefore invisible — the fixture already disagreed by
+  /// design, so no assertion could tell a bug from the baseline.
+  ///
+  /// The reconciled base is the SEEDED TRUTH, not the larger number: the
+  /// summary's own `ratingDistribution` (one 5★ + one 4★) and
+  /// [_publicMasterReviews] (two rows) both say TWO reviews, and the average is
+  /// exactly (5+4)/2. Reconciling upward to 24 would have required inventing a
+  /// 24-wide distribution AND would have made the post-review assertions
+  /// toothless: one more 5★ review cannot move a 1-decimal average across 24
+  /// existing ones (123/25 = 4.92 → still «4.9»), so the E2E could no longer
+  /// tell a genuine re-fetch from a stale `keepAlive` cache by value.
+  ///
+  /// After the client's 5★ lands: three reviews, (5+5+4)/3 = 4.67 → «4.7».
+  /// Both fields move, and both moves are arithmetically derivable from the
+  /// review rows the list endpoint actually returns.
+  static const double kPublicMasterAvgRatingBeforeReview = 4.5;
+  static const double kPublicMasterAvgRatingAfterReview = 4.7;
+  static const int kPublicMasterReviewCountBeforeReview = 2;
+  static const int kPublicMasterReviewCountAfterReview = 3;
+
+  /// Id of the review row the client's `POST /reviews` adds to `master-aaa`'s
+  /// public list. Distinct from the seeded `pub-r*` rows so
+  /// `find.byKey(Key('master-review-$kClientReviewId'))` is unambiguous proof
+  /// that the list was re-fetched rather than served from the keepAlive cache.
+  static const String kClientReviewId = 'pub-r-new';
 
   /// Server-computed `providerCanReviewClient` for the seeded booking (track
   /// 7.x Wave B). Gates `BookingDetailScreen`'s own «Залишити відгук про
@@ -4203,6 +4295,11 @@ final class FakeBackend {
         lastReviewRating = body['rating'] as int?;
         lastReviewComment = body['comment'] as String?;
         bookingCanReview = false;
+        // The written review is now part of master-aaa's PUBLIC review data:
+        // the profile's rating/count, the summary aggregate and the review list
+        // all move. Without this the E2E could not tell a real re-fetch from a
+        // keepAlive cache hit — both would render identical numbers.
+        publicMasterReviewLanded = true;
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),

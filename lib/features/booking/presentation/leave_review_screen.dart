@@ -36,6 +36,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/master/presentation/master_review_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
@@ -104,8 +105,20 @@ class _LeaveReviewScreenState extends ConsumerState<LeaveReviewScreen> {
       return;
     }
 
-    // Success — thank the client and pop back to the detail (whose `canReview`
-    // the notifier already invalidated to false).
+    // Success. The notifier already invalidated `bookingDetailProvider` (which
+    // flips `canReview` to false); the master's public profile, its review
+    // summary and its review list are THREE separate keepAlive caches that
+    // nothing else refreshes, so fan out to them here before popping —
+    // otherwise the client re-opens the master and sees neither their own
+    // review nor a moved rating until the 5-minute TTL expires.
+    //
+    // Done from the screen, not the notifier: the fan-out takes a `WidgetRef`
+    // so it structurally cannot run inside a Notifier (see
+    // `master_review_invalidation.dart`). `booking` is the full entity here, so
+    // `masterId` costs nothing extra.
+    invalidateMasterReviewSurfaces(ref, booking.masterId);
+
+    // Thank the client and pop back to the detail.
     messenger
       ..clearSnackBars()
       ..showSnackBar(SnackBar(content: Text(l10n.reviewSubmitSuccess)));

@@ -715,7 +715,7 @@ void main() {
     );
     expect(
       avg.data,
-      '4.9',
+      FakeBackend.kPublicMasterAvgRatingBeforeReview.toStringAsFixed(1),
       reason: 'the summary average must bind from the real response data',
     );
   }, timeout: const Timeout(Duration(seconds: 90)));

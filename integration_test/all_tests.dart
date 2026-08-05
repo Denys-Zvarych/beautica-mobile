@@ -74,6 +74,8 @@ import 'client_elapsed_booking_readonly_flow_test.dart'
 import 'client_booking_rating_visibility_flow_test.dart'
     as client_booking_rating_visibility;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
+import 'client_review_refreshes_master_surfaces_flow_test.dart'
+    as client_review_refreshes_master_surfaces;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
@@ -205,6 +207,16 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
+  // CLIENT review-staleness regression (Step 2.7 Rule 3b, mobile-qa) — the
+  // REPORTED bug: a client who viewed a master's public profile, then left a
+  // review WITHOUT restarting the app, saw a stale rating / review count and
+  // none of their own review. The three master surfaces are independent
+  // 5-minute `keepAlive` caches; `invalidateMasterReviewSurfaces` fans out to
+  // all of them (all four review SORT buckets included).
+  group(
+    'client_review_refreshes_master_surfaces_flow',
+    client_review_refreshes_master_surfaces.main,
+  );
   // Phase 240 rating visibility (Step 2.7 Rule 3b, mobile-qa) — the REPORTED
   // bug's journey: a master's rating reaching «Деталі запису» and «Залишити
   // відгук» off the WIRE (which no mocked-repository tier can prove), and
