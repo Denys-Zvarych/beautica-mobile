@@ -248,6 +248,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final num? masterAvgRating;
   @override
   final int? masterReviewCount;
+  @override
+  final String? salonId;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -289,7 +291,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.clientAvatarUrl,
       this.awaitingClosure,
       this.masterAvgRating,
-      this.masterReviewCount})
+      this.masterReviewCount,
+      this.salonId})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -339,7 +342,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         clientAvatarUrl == other.clientAvatarUrl &&
         awaitingClosure == other.awaitingClosure &&
         masterAvgRating == other.masterAvgRating &&
-        masterReviewCount == other.masterReviewCount;
+        masterReviewCount == other.masterReviewCount &&
+        salonId == other.salonId;
   }
 
   @override
@@ -381,6 +385,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, awaitingClosure.hashCode);
     _$hash = $jc(_$hash, masterAvgRating.hashCode);
     _$hash = $jc(_$hash, masterReviewCount.hashCode);
+    _$hash = $jc(_$hash, salonId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -423,7 +428,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('clientAvatarUrl', clientAvatarUrl)
           ..add('awaitingClosure', awaitingClosure)
           ..add('masterAvgRating', masterAvgRating)
-          ..add('masterReviewCount', masterReviewCount))
+          ..add('masterReviewCount', masterReviewCount)
+          ..add('salonId', salonId))
         .toString();
   }
 }
@@ -598,6 +604,10 @@ class BookingDetailResponseBuilder
   set masterReviewCount(int? masterReviewCount) =>
       _$this._masterReviewCount = masterReviewCount;
 
+  String? _salonId;
+  String? get salonId => _$this._salonId;
+  set salonId(String? salonId) => _$this._salonId = salonId;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -641,6 +651,7 @@ class BookingDetailResponseBuilder
       _awaitingClosure = $v.awaitingClosure;
       _masterAvgRating = $v.masterAvgRating;
       _masterReviewCount = $v.masterReviewCount;
+      _salonId = $v.salonId;
       _$v = null;
     }
     return this;
@@ -698,6 +709,7 @@ class BookingDetailResponseBuilder
           awaitingClosure: awaitingClosure,
           masterAvgRating: masterAvgRating,
           masterReviewCount: masterReviewCount,
+          salonId: salonId,
         );
     replace(_$result);
     return _$result;

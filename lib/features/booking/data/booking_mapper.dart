@@ -122,6 +122,13 @@ abstract final class BookingMapper {
       masterAvatarUrl: dto.masterAvatarUrl,
       masterType: dto.masterType?.name ?? '',
       salonName: dto.salonName,
+      // Phase 232. Deliberately NOT in the required-field set above: a null
+      // `salonId` is a legitimate INDEPENDENT_MASTER booking, never a broken
+      // payload, so it must not throw [ServerFailure] and must not be dropped
+      // by [fromDtoList]'s resilience loop. Mapped verbatim and INDEPENDENTLY
+      // of `salonName` — neither is derived from the other (see
+      // `Booking.salonId`'s doc).
+      salonId: dto.salonId,
       // Phase 7.2 — the counterparty as the PROVIDER sees it. `clientId` is
       // legitimately null on a guest/LINK booking; `clientFirstName`/
       // `clientLastName` are NOT defaulted to '' here (unlike the master

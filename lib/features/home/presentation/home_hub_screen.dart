@@ -293,8 +293,11 @@ class _HomeHubBody extends ConsumerWidget {
 // (from _HomeHubBody down into this leaf) but not WHAT subtree it lives in —
 // both are still inside the same StatefulShellBranch offstage/onstage
 // boundary as before, so the existing "ref.invalidate on an autoDispose
-// provider with only paused listeners disposes it; the refetch lands on
-// resume" behaviour is unchanged.
+// provider with only paused listeners defers its rebuild; the refetch lands on
+// resume" behaviour is unchanged. (Corrected 2026-08-06: this said "disposes
+// it". It does not at riverpod 3.1.0 — `hasNonWeakListeners` counts PAUSED
+// subscriptions, so `_performDispose` skips it; `scheduler.dart:167`,
+// `element.dart:407`. Only the mechanism was wrong, never the observable.)
 // ---------------------------------------------------------------------------
 
 class _NextAppointmentSection extends ConsumerWidget {

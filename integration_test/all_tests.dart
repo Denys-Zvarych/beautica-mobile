@@ -76,6 +76,8 @@ import 'client_booking_rating_visibility_flow_test.dart'
 import 'client_leave_review_flow_test.dart' as client_leave_review;
 import 'client_review_refreshes_master_surfaces_flow_test.dart'
     as client_review_refreshes_master_surfaces;
+import 'client_review_refreshes_salon_surfaces_flow_test.dart'
+    as client_review_refreshes_salon_surfaces;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
@@ -216,6 +218,17 @@ void main() {
   group(
     'client_review_refreshes_master_surfaces_flow',
     client_review_refreshes_master_surfaces.main,
+  );
+  // Phase 233 — the SALON half of the same bug, unblocked by phase 232's
+  // `Booking.salonId`. Same journey, same three independent 5-minute
+  // `keepAlive` caches, keyed on the salon instead of the master;
+  // `invalidateSalonReviewSurfaces` fans out to all of them (all four salon
+  // SORT buckets included). The fake's salon aggregate is seeded SMALL and
+  // reconciled (4.0 → 4.2 across five reviews) so the assertions can tell a
+  // genuine refetch from a cache hit BY VALUE.
+  group(
+    'client_review_refreshes_salon_surfaces_flow',
+    client_review_refreshes_salon_surfaces.main,
   );
   // Phase 240 rating visibility (Step 2.7 Rule 3b, mobile-qa) — the REPORTED
   // bug's journey: a master's rating reaching «Деталі запису» and «Залишити

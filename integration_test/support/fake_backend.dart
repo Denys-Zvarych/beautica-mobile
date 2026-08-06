@@ -1499,10 +1499,18 @@ final class FakeBackend {
     'instagramUrl': '@kamelia_salon',
     'avatarUrl': null,
     'coverImageUrl': null,
-    // Matches the review-summary aggregate below ((5+4+3)/3 = 4.0) so the
-    // hero card's ★ rating and the "Відгуки" tab's headline average agree.
-    'avgRating': 4.0,
-    'reviewCount': 3,
+    // ONE reconciled number per field, shared with the review-summary envelope
+    // below and derivable from the rows [_salonReviewsFor] actually returns.
+    // This used to read `reviewCount: 3` against the summary's `4` — the exact
+    // shape of defanging that made the master-side flow toothless (detail said
+    // 24, summary said 2), so no assertion could tell a stale cache from a
+    // refetch. See [kSalonAvgRatingBeforeReview].
+    'avgRating': salonReviewLanded
+        ? kSalonAvgRatingAfterReview
+        : kSalonAvgRatingBeforeReview,
+    'reviewCount': salonReviewLanded
+        ? kSalonReviewCountAfterReview
+        : kSalonReviewCountBeforeReview,
   });
 
   /// PUBLIC masters rail for `salon-xyz` — EIGHT masters, deliberately over
@@ -1698,18 +1706,53 @@ final class FakeBackend {
   /// assertion in `public_salon_profile_flow_test.dart` is unaffected by the
   /// 4th review added for the empty-string serviceName branch below). Shape
   /// matches `SalonReviewSummaryResponse` → `RatingBucket`.
-  static Map<String, dynamic> _salonReviewSummaryEnvelope() =>
-      _ok(<String, dynamic>{
-        'avgRating': 4.0,
-        'reviewCount': 4,
-        'ratingDistribution': <Map<String, dynamic>>[
-          <String, dynamic>{'rating': 5, 'count': 1},
-          <String, dynamic>{'rating': 4, 'count': 2},
-          <String, dynamic>{'rating': 3, 'count': 1},
-          <String, dynamic>{'rating': 2, 'count': 0},
-          <String, dynamic>{'rating': 1, 'count': 0},
-        ],
-      });
+  ///
+  /// After [salonReviewLanded] flips, the client's own 5★ joins the aggregate:
+  /// five reviews, (5+4+3+4+5)/5 = 4.2 EXACTLY, and the 5★ bucket goes 1 → 2.
+  /// Both moves are arithmetically derivable from the rows [_salonReviewsFor]
+  /// returns, and 4.2 is exact in one decimal — no rounding-boundary ambiguity
+  /// (which is why the seeded 5th review is a 5★ and not, say, a 4★: that
+  /// would land on 4.0 and move nothing at all).
+  Map<String, dynamic> _salonReviewSummaryEnvelope() => _ok(<String, dynamic>{
+    'avgRating': salonReviewLanded
+        ? kSalonAvgRatingAfterReview
+        : kSalonAvgRatingBeforeReview,
+    'reviewCount': salonReviewLanded
+        ? kSalonReviewCountAfterReview
+        : kSalonReviewCountBeforeReview,
+    'ratingDistribution': <Map<String, dynamic>>[
+      <String, dynamic>{'rating': 5, 'count': salonReviewLanded ? 2 : 1},
+      <String, dynamic>{'rating': 4, 'count': 2},
+      <String, dynamic>{'rating': 3, 'count': 1},
+      <String, dynamic>{'rating': 2, 'count': 0},
+      <String, dynamic>{'rating': 1, 'count': 0},
+    ],
+  });
+
+  /// The salon's review rows as the server would serve them RIGHT NOW: the four
+  /// seeded rows, plus the client's own review once [salonReviewLanded] flips.
+  ///
+  /// Appended to EVERY sort bucket — the fake does not re-implement the
+  /// backend's ordering (see [_salonReviews]), and the per-sort invalidation
+  /// loop is proven by the CALL COUNTER plus the row's presence in a second,
+  /// separately-warmed bucket rather than by its position in the list.
+  List<Map<String, dynamic>> _salonReviewsFor() => <Map<String, dynamic>>[
+    ..._salonReviews,
+    if (salonReviewLanded)
+      <String, dynamic>{
+        'id': kSalonClientReviewId,
+        'masterId': 'master-aaa',
+        'masterFirstName': 'Софія',
+        'masterLastName': 'Бондар',
+        'clientDisplayName': 'Олена К.',
+        'serviceName': 'Манікюр з покриттям',
+        'rating': 5,
+        'comment': 'Дуже задоволена, дякую!',
+        // M15 — anchored to the harness's INJECTED clock, the same one the app
+        // renders this row against. Never the host clock.
+        'createdAt': kFixedNow.toUtc().toIso8601String(),
+      },
+  ];
 
   /// PUBLIC reviews list for `salon-xyz` — four reviews split across both
   /// seeded masters. The fake ignores the `sort` query value and always
@@ -2055,6 +2098,49 @@ final class FakeBackend {
   /// master surfaces is affected.
   bool publicMasterReviewLanded = false;
 
+  /// The SALON-side twin of [publicMasterReviewLanded] (phase 233). Flipped by
+  /// the same `POST /reviews`, because a review of a salon-employed master
+  /// moves `salons.avg_rating` / `review_count` too — `ReviewEventListener`
+  /// recalculates BOTH aggregates before the 201 returns.
+  ///
+  /// Exists for the `client_review_refreshes_salon_surfaces_flow` regression,
+  /// for exactly the reason its master twin does: the three salon surfaces are
+  /// independent `keepAlive` caches behind a 5-minute TTL, so an E2E can only
+  /// tell "refetched" from "served stale" if the SERVER's answer genuinely
+  /// MOVES after the write. Flipping this changes three fixtures at once:
+  ///   • `_publicSalonDetailEnvelope` → the hero card's ★ rating / count;
+  ///   • `_salonReviewSummaryEnvelope` → the same average, plus the 5★ bucket;
+  ///   • `_salonReviewsFor` → appends [kSalonClientReviewId] to every bucket.
+  ///
+  /// Starts `false`, so every pre-existing salon flow sees the original
+  /// fixtures unchanged.
+  bool salonReviewLanded = false;
+
+  /// `salon-xyz`'s review aggregate — ONE number per field, shared by the
+  /// public DETAIL and the review SUMMARY endpoints alike.
+  ///
+  /// These used to disagree (detail `reviewCount: 3` vs summary `4`) — the
+  /// same defanging that made the master fixture toothless before it was
+  /// reconciled. The seeded truth is FOUR: [_salonReviews] has four rows and
+  /// the summary's own distribution (one 5★, two 4★, one 3★) sums to four, and
+  /// (5+4+4+3)/4 = 4.0 exactly.
+  ///
+  /// The base is deliberately SMALL. One more 5★ across a large base cannot
+  /// shift a 1-decimal average (the master fixture's old 24-review base put
+  /// 123/25 = 4.92 → still «4.9»), and an assertion that cannot move cannot
+  /// distinguish a refetch from a `keepAlive` cache hit. Across four it does:
+  /// (5+4+4+3+5)/5 = 4.2 EXACTLY — a full 0.2 move, no rounding boundary.
+  static const double kSalonAvgRatingBeforeReview = 4.0;
+  static const double kSalonAvgRatingAfterReview = 4.2;
+  static const int kSalonReviewCountBeforeReview = 4;
+  static const int kSalonReviewCountAfterReview = 5;
+
+  /// Id of the review row the client's `POST /reviews` adds to `salon-xyz`'s
+  /// public list. Distinct from the seeded `salon-review-*` rows so
+  /// `find.byKey(Key('salon-review-$kSalonClientReviewId'))` is unambiguous
+  /// proof the list was re-fetched rather than served from the keepAlive cache.
+  static const String kSalonClientReviewId = 'salon-r-new';
+
   /// `master-aaa`'s review aggregate — ONE number per field, shared by EVERY
   /// endpoint that reports it.
   ///
@@ -2347,6 +2433,26 @@ final class FakeBackend {
   /// the top of the shared route callback, before any dispatch.
   Map<String, dynamic>? lastMyBookingsQuery;
 
+  /// The seeded booking's provider affiliation (phase 232). Defaults to the
+  /// INDEPENDENT_MASTER shape every pre-existing flow already asserts against:
+  /// no salon name, no salon id.
+  ///
+  /// ⚠️ [bookingSalonId] and [bookingSalonName] are SEPARATE knobs on purpose —
+  /// seeding one without the other is a legitimate (if unusual) wire shape, and
+  /// `booking_mapper_test` pins that neither is derived from the other. A flow
+  /// that wants a realistic salon booking seeds all three fields together:
+  /// ```dart
+  /// final fb = FakeBackend()
+  ///   ..bookingMasterType = 'SALON_MASTER'
+  ///   ..bookingSalonId = 'salon-xyz'
+  ///   ..bookingSalonName = 'Студія Краси «Камелія»';
+  /// ```
+  /// `salon-xyz` is the id the public-salon fixtures above already serve, so
+  /// the review fan-out lands on a salon this fake can actually render.
+  String bookingMasterType = 'INDEPENDENT_MASTER';
+  String? bookingSalonName;
+  String? bookingSalonId;
+
   /// The enriched `BookingDetailResponse` body for the seeded booking, built
   /// from the CURRENT mutable status/note so a post-cancel re-fetch reflects
   /// the new state. Wire keys mirror the DTO the [BookingMapper] reads.
@@ -2356,8 +2462,15 @@ final class FakeBackend {
     'masterFirstName': 'Софія',
     'masterLastName': 'Бондар',
     'masterAvatarUrl': null,
-    'masterType': 'INDEPENDENT_MASTER',
-    'salonName': null,
+    'masterType': bookingMasterType,
+    'salonName': bookingSalonName,
+    // Phase 232. Emitted UNCONDITIONALLY (not behind an `if`, unlike the
+    // Phase-240 rating pair below) because `null` is this field's real
+    // steady-state value: the default seeded booking is an INDEPENDENT_MASTER
+    // booking, and the mapper must map that null cleanly rather than treat it
+    // as a missing field. A flow that needs the salon half seeds all three of
+    // [bookingSalonId] / [bookingSalonName] / [bookingMasterType].
+    'salonId': bookingSalonId,
     // Phase 7.2 — the counterparty as the PROVIDER sees it. Seeded from the
     // same [clientFirstName]/[clientLastName] the `/users/me` handler serves,
     // so the master's booking detail shows the client whose session the client
@@ -3559,11 +3672,12 @@ final class FakeBackend {
           req.queryParameters,
           'sort',
         );
+        final List<Map<String, dynamic>> rows = _salonReviewsFor();
         return _searchEnvelope(
-          _salonReviews,
+          rows,
           page: 0,
           totalPages: 1,
-          totalElements: _salonReviews.length,
+          totalElements: rows.length,
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -4300,6 +4414,17 @@ final class FakeBackend {
         // all move. Without this the E2E could not tell a real re-fetch from a
         // keepAlive cache hit — both would render identical numbers.
         publicMasterReviewLanded = true;
+        // …and, when the booking was made at a salon, of that SALON's public
+        // review data too: the backend recalculates `salons.avg_rating` /
+        // `review_count` in the same listener, before the 201 returns. Same
+        // rationale as the line above — without this the salon E2E could not
+        // tell a real re-fetch from a keepAlive cache hit.
+        //
+        // Gated on the seeded booking actually having a salon, so an
+        // INDEPENDENT_MASTER flow never silently moves salon numbers it has no
+        // business moving (and the negative half of the widget suite keeps a
+        // truthful server to mirror).
+        if (bookingSalonId != null) salonReviewLanded = true;
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),

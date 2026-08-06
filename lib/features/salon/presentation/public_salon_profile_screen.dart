@@ -746,6 +746,13 @@ class _SalonHeroCard extends StatelessWidget {
                               Flexible(
                                 child: Text(
                                   '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
+                                  // Keyed so the review-invalidation regression
+                                  // can pin the hero's COUNT half of the
+                                  // aggregate by widget rather than by a
+                                  // localised string (M2) — `avgRating` alone
+                                  // moving is not proof the whole snapshot
+                                  // refreshed.
+                                  key: const Key('salon-profile-review-count'),
                                   style: VelvetText.feedbackMuted13,
                                   overflow: TextOverflow.ellipsis,
                                 ),

@@ -36,7 +36,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/master/presentation/master_review_invalidation.dart';
+import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
@@ -112,11 +112,26 @@ class _LeaveReviewScreenState extends ConsumerState<LeaveReviewScreen> {
     // otherwise the client re-opens the master and sees neither their own
     // review nor a moved rating until the 5-minute TTL expires.
     //
-    // Done from the screen, not the notifier: the fan-out takes a `WidgetRef`
-    // so it structurally cannot run inside a Notifier (see
-    // `master_review_invalidation.dart`). `booking` is the full entity here, so
-    // `masterId` costs nothing extra.
+    // Done from the SCREEN, not the notifier, for two reasons. The fan-out
+    // takes a `WidgetRef`, which a Notifier does not have; and it must live in
+    // a file whose name does not contain `notifier`, or
+    // `scripts/forbid_provider_self_invalidation.sh` — a pure filename glob —
+    // would flag its cross-provider invalidates. See the header of
+    // `review_surface_invalidation.dart`. `booking` is the full entity here, so
+    // both ids cost nothing extra.
     invalidateMasterReviewSurfaces(ref, booking.masterId);
+
+    // Phase 233 — the salon half. A review of a SALON-employed master also
+    // moves `salons.avg_rating` / `review_count` server-side, and the salon's
+    // profile / summary / review-list are another three independent keepAlive
+    // caches. Guarded rather than unconditional: an `INDEPENDENT_MASTER`
+    // booking carries no salon, and that null is a legitimate state, not a
+    // broken payload. Keyed on `salonId` (the booking's own snapshot), never
+    // re-derived from `salonName`.
+    final String? salonId = booking.salonId;
+    if (salonId != null) {
+      invalidateSalonReviewSurfaces(ref, salonId);
+    }
 
     // Thank the client and pop back to the detail.
     messenger

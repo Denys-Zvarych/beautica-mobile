@@ -41,6 +41,26 @@ abstract class Booking with _$Booking {
     /// master's booking.
     String? salonName,
 
+    /// The salon this booking was made AT, as snapshotted on the booking row
+    /// (`bookings.salon_id`).
+    ///
+    /// Null for an `INDEPENDENT_MASTER` booking. Exists to key salon-side cache
+    /// invalidation after a review (`invalidateSalonReviewSurfaces` in
+    /// `features/review/presentation/review_surface_invalidation.dart`) — and
+    /// for nothing else. It is the id whose `avgRating` / `reviewCount` the
+    /// backend just moved: `ReviewService#createReview` stamps the review with
+    /// the BOOKING's salon, and `ReviewEventListener` recalculates THAT salon.
+    ///
+    /// ⚠️ NOT interchangeable with [salonName], even though backend phase 242
+    /// made both resolve from this same booking snapshot (before 242 [salonName]
+    /// came from the master's LIVE salon and the two could disagree after a
+    /// rotation). They stay separate fields carrying separate meanings: one is a
+    /// cache key, the other is display text, and an older backend still on the
+    /// pre-242 contract can send one without the other. `atSalon` stays
+    /// `salonName != null` — do not re-express it on this field, and do not
+    /// derive either field from the other at the mapping boundary.
+    String? salonId,
+
     // ── The COUNTERPARTY as the PROVIDER sees it (Phase 7.2) ──────────────
     //
     // Added for the provider-view «Деталі запису». A client viewer never reads

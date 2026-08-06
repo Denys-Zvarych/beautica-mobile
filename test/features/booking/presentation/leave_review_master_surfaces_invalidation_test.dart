@@ -16,8 +16,13 @@
 //   • masterReviewsProvider(masterId, sort)  — a family keyed on (id, SORT)
 //
 // The fix is `invalidateMasterReviewSurfaces(ref, masterId)`
-// (`lib/features/master/presentation/master_review_invalidation.dart`), called
-// from the success branch of `LeaveReviewScreen._submit`.
+// (`lib/features/review/presentation/review_surface_invalidation.dart` — it
+// lived at `features/master/presentation/master_review_invalidation.dart` until
+// phase 233 added the salon half and a `master_*` name stopped being true),
+// called from the success branch of `LeaveReviewScreen._submit`.
+//
+// The SALON half of the same bug is pinned by the sibling
+// `leave_review_salon_surfaces_invalidation_test.dart`.
 //
 // WHAT THIS SUITE ASSERTS, AND WHY IN THIS SHAPE
 // ----------------------------------------------

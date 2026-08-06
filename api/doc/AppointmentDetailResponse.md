@@ -16,7 +16,7 @@ Name | Type | Description | Notes
 **masterProfessionalTitle** | **String** | The master's professional title/headline. Nullable — a master may never have set one. | [optional] 
 **masterAvatarUrl** | **String** |  | [optional] 
 **masterType** | **String** |  | [optional] 
-**salonName** | **String** | The salon name, or null for an independent master. | [optional] 
+**salonName** | **String** | The name of the salon THIS VISIT was booked at (the visit's own salon snapshot), or null when the visit was with an independent master. Not the master's current affiliation — a master who has since moved salons does not rewrite a past visit's premises. | [optional] 
 **startsAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **endsAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **totalDurationMinutes** | **int** |  | [optional] 
@@ -29,9 +29,9 @@ Name | Type | Description | Notes
 **clientCancellationNote** | **String** | Written by the CLIENT on the visit /cancel — the symmetric counterpart of providerComment, shown to the provider. Only ever non-null on a CANCELLED visit. Same field/rule as BookingDetailResponse.clientCancellationNote. | [optional] 
 **cityLabel** | **String** | Discovery city label (Ukrainian). Resolved by the service through the same district-primary DiscoveryLocationResolver seam as BookingDetailResponse — salon locality when salon-employed, else the master's own user row. | [optional] 
 **districtLabel** | **String** | Discovery district label (Ukrainian). Same resolution as cityLabel. | [optional] 
-**street** | **String** | Arrival street — the salon's when salon-employed, else the master's own. Same salon-vs-independent rule as BookingDetailResponse.street; a salon-employed master's PERSONAL street never leaks onto a salon visit. | [optional] 
+**street** | **String** | Arrival street — the BOOKED salon's when the visit was made at a salon, else the master's own. Same salon-vs-independent rule as BookingDetailResponse.street, resolved against the visit's own salon snapshot: a salon-employed master's PERSONAL street never leaks onto a salon visit, AND a master who has since moved salons cannot cause this visit to display the address of premises it was never booked at. | [optional] 
 **buildingNo** | **String** | Arrival building number. | [optional] 
-**locationNote** | **String** | Provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\"). Same salon-vs-independent resolution as street/buildingNo — a salon booking surfaces the salon's own note, never the master's personal one. | [optional] 
+**locationNote** | **String** | Provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\"). Same salon-vs-independent resolution as street/buildingNo, against the salon THIS VISIT was booked at — never the master's personal note, and never a salon the master merely works at today. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

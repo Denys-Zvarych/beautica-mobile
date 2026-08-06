@@ -386,8 +386,14 @@ void main() {
       // `:405-417`), and Navigator disables `TickerMode` for covered routes.
       // Both providers are `autoDispose` (`booking_detail_notifier.dart:22`,
       // `my_bookings_notifier.dart:95`), so `ref.invalidate` with only PAUSED
-      // listeners DISPOSES them instead of re-fetching. The fetch lands on
+      // listeners does not re-fetch there and then — the fetch lands on
       // RESUME. "Mounted" is not "subscribed".
+      //
+      // (Corrected 2026-08-06: this used to say invalidate DISPOSES such a
+      // provider. It does not at riverpod 3.1.0 — `_performDispose` skips it
+      // because `hasNonWeakListeners` counts PAUSED subscriptions,
+      // `scheduler.dart:167` / `element.dart:407`, measured `exists` → true.
+      // The deferred-to-resume observable this test relies on is unchanged.)
       //
       // So walk the user's actual return path and assert the fetch where it
       // really happens. This is strictly STRONGER than an offstage-count
