@@ -701,20 +701,19 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           ),
                         ],
                       ),
-                    ] else if (!on) ...<Widget>[
+                    ] else if (!on && (locked || ownedNow)) ...<Widget>[
                       const SizedBox(height: 2),
                       Text(
-                        // One slot, three mutually exclusive facts, most
+                        // One slot, two mutually exclusive facts, most
                         // specific first: an already-added row says "you
                         // already offer this"; a row the catalogue refresh just
                         // claimed says "уже у вашому переліку" and is emphasised
-                        // because it CHANGED under the master; a merely-off row
-                        // says "not offered". They never compete for the line.
+                        // because it CHANGED under the master. A merely-off row
+                        // (neither locked nor ownedNow) renders no sub-label at
+                        // all — nothing to say beyond the switch itself.
                         locked
                             ? l10n.serviceSetupRowAlreadyAdded
-                            : (ownedNow
-                                  ? l10n.serviceSetupRowAlreadyInMenu
-                                  : l10n.serviceSetupRowExcluded),
+                            : l10n.serviceSetupRowAlreadyInMenu,
                         style: ownedNow
                             ? VelvetText.svcCaptionNote.copyWith(
                                 fontWeight: FontWeight.w800,

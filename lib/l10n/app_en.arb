@@ -2596,10 +2596,6 @@
       "total": { "type": "int" }
     }
   },
-  "serviceSetupRowExcluded": "Not offered",
-  "@serviceSetupRowExcluded": {
-    "description": "Sub-label shown on a service-type row card when its include toggle is OFF."
-  },
   "serviceSetupRowAlreadyAdded": "Already added",
   "@serviceSetupRowAlreadyAdded": {
     "description": "Sub-label and semantic label on a service-type row the master already offers. The row is inert: it cannot be selected and is never submitted."

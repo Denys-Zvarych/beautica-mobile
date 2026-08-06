@@ -21,6 +21,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -461,6 +463,59 @@ Finder _textInRow(String typeId, String message) => find.descendant(
   of: find.byKey(Key('setup_row_$typeId')),
   matching: find.text(message),
 );
+
+/// True when [style] carries the ROLE reserved for a collapsed row's
+/// off-state sub-label: [VelvetText.svcCaptionNote] — the exact style
+/// `service_setup_widgets.dart`'s `else if (!on && (locked || ownedNow))`
+/// branch (~:704-724) renders into. The `ownedNow` arm only overrides
+/// `fontWeight`/`color` via `copyWith`, so `fontSize`/`height`/`fontFamily`
+/// still pin the base token for both branches.
+///
+/// Verified unique within a collapsed row's `Text` descendants: the row name
+/// uses `subheading16` (fontSize 13, Comfortaa), the header-flag line uses
+/// `feedback()` (fontSize 13, Nunito 700) and is unreachable while
+/// `on == false` regardless (`showHeaderFlag` requires `clientFlagged`, which
+/// requires `on`), and `svcCaptionNote` is not used anywhere else in
+/// `service_setup_widgets.dart`.
+bool _isOffStateSubLabelStyle(TextStyle? style) =>
+    style != null &&
+    style.fontSize == VelvetText.svcCaptionNote.fontSize &&
+    style.height == VelvetText.svcCaptionNote.height &&
+    style.fontFamily == VelvetText.svcCaptionNote.fontFamily;
+
+/// Asserts a COLLAPSED row (`on == false`) renders no off-state sub-label,
+/// checked two ways:
+///
+///  1. ROLE (content-independent, primary): no `Text` descendant of the row
+///     carries [_isOffStateSubLabelStyle]. This trips on ANY reinstated
+///     sub-label regardless of its string, l10n key, or locale — unlike a
+///     literal/key-based check — while an unrelated `Text` (a badge, a price
+///     hint, a duration chip) later added to the row with a DIFFERENT style
+///     does not false-FAIL it.
+///  2. FACT (additional — kept for locked/ownedNow exclusivity coverage): the
+///     row renders neither [AppLocalizations.serviceSetupRowAlreadyAdded] nor
+///     [AppLocalizations.serviceSetupRowAlreadyInMenu] specifically (via
+///     [_textInRow]).
+void _expectRowHasNoOffStateSubLabel(
+  WidgetTester tester,
+  AppLocalizations l10n,
+  String typeId,
+) {
+  expect(
+    find.descendant(
+      of: find.byKey(Key('setup_row_$typeId')),
+      matching: find.byWidgetPredicate(
+        (Widget w) => w is Text && _isOffStateSubLabelStyle(w.style),
+      ),
+    ),
+    findsNothing,
+    reason:
+        'a merely-off row must render no Text carrying the off-state '
+        'sub-label ROLE style, regardless of its copy/locale',
+  );
+  expect(_textInRow(typeId, l10n.serviceSetupRowAlreadyAdded), findsNothing);
+  expect(_textInRow(typeId, l10n.serviceSetupRowAlreadyInMenu), findsNothing);
+}
 
 /// Taps a category chip and settles — the shared version of the `expandManicure`
 /// closure the older groups each define locally.
@@ -1152,8 +1207,8 @@ void main() {
     }
 
     testWidgets(
-      'toggling a flagged row OFF removes its flag message and shows the '
-      'excluded sub-label instead (no error rim on the excluded card)',
+      'toggling a flagged row OFF removes its flag message and renders no '
+      'sub-label at all (no error rim on the merely-off card)',
       (tester) async {
         await _pump(
           tester,
@@ -1175,10 +1230,11 @@ void main() {
         // AND `_setIncluded` clears the flag.
         await _tapIncludeSwitch(tester, 'type-classic');
 
-        // The flag message is GONE; the excluded sub-label takes its place.
+        // The flag message is GONE; a merely-off row (neither locked nor
+        // ownedNow) renders no sub-label at all.
         expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
-        expect(find.text(l10n.serviceSetupRowExcluded), findsOneWidget);
-        // The excluded card carries no error rim.
+        _expectRowHasNoOffStateSubLabel(tester, l10n, 'type-classic');
+        // The merely-off card carries no error rim.
         expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
       },
     );
@@ -1219,9 +1275,9 @@ void main() {
         expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
         expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
         // (b) NEW contract: collapse deselected the row, so the re-expanded card
-        // is now EXCLUDED — it shows the "Не пропонується" sub-label, not an
+        // is now merely off — it renders no sub-label at all, not an
         // unflagged-but-included row.
-        expect(find.text(l10n.serviceSetupRowExcluded), findsOneWidget);
+        _expectRowHasNoOffStateSubLabel(tester, l10n, 'type-classic');
       },
     );
 
@@ -1242,17 +1298,20 @@ void main() {
 
         final l10n = await includeAndBlock(tester);
 
-        // Toggle OFF (was flagged) → excluded, unflagged.
+        // Toggle OFF (was flagged) → merely off, unflagged, no sub-label.
         await _tapIncludeSwitch(tester, 'type-classic');
         expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
-        expect(find.text(l10n.serviceSetupRowExcluded), findsOneWidget);
+        _expectRowHasNoOffStateSubLabel(tester, l10n, 'type-classic');
         expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
 
         // Toggle back ON — re-including starts clean (clearFlag on include); no
-        // stale flag carries over from the earlier blocked save.
+        // stale flag carries over from the earlier blocked save, and no
+        // leftover off-state sub-label lingers either (that branch is gated
+        // on `!on`, so it never fires once the row is included).
         await _tapIncludeSwitch(tester, 'type-classic');
         expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
-        expect(find.text(l10n.serviceSetupRowExcluded), findsNothing);
+        expect(find.text(l10n.serviceSetupRowAlreadyAdded), findsNothing);
+        expect(find.text(l10n.serviceSetupRowAlreadyInMenu), findsNothing);
         expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
       },
     );
@@ -1939,11 +1998,11 @@ void main() {
           findsOneWidget,
         );
         expect(
-          _textInRow('type-classic', l10n.serviceSetupRowExcluded),
+          _textInRow('type-classic', l10n.serviceSetupRowAlreadyInMenu),
           findsNothing,
           reason:
               'the already-added fact must take the sub-label slot, not the '
-              'generic «не пропонується» off-state copy',
+              'catalogue-refresh «already in menu» fact',
         );
 
         // The selectable sibling is untouched — proves the exclusion is keyed on
@@ -1952,14 +2011,9 @@ void main() {
           find.byKey(const Key('setup_row_toggle_type-gel')),
           findsOneWidget,
         );
-        expect(
-          _textInRow('type-gel', l10n.serviceSetupRowAlreadyAdded),
-          findsNothing,
-        );
-        expect(
-          _textInRow('type-gel', l10n.serviceSetupRowExcluded),
-          findsOneWidget,
-        );
+        // The selectable sibling is merely off (neither locked nor ownedNow),
+        // so it renders no sub-label at all.
+        _expectRowHasNoOffStateSubLabel(tester, l10n, 'type-gel');
 
         // One-of-two owned is NOT the "all already added" case.
         expect(find.text(l10n.serviceSetupAllAlreadyAdded), findsNothing);
@@ -2149,6 +2203,161 @@ void main() {
         expect(find.text(l10n.serviceSetupGroupCount(0, 0)), findsOneWidget);
       },
     );
+  });
+
+  // ── Off-state sub-label — the three mutually exclusive facts, together ─────
+  //
+  // The sub-label slot under a collapsed row's name renders AT MOST one of two
+  // facts now (`locked` → «Вже додано», `ownedNow` → «уже у вашому переліку»,
+  // emphasised). A THIRD, merely-off row — neither at-load-owned nor just
+  // claimed by a catalogue refresh — used to render a generic «Не пропонується»
+  // sub-label; that branch was deleted, so it now renders NOTHING beyond the
+  // name (regression: see the "renders no sub-label" assertions above, each
+  // proven to go RED against the old 3-way branch by a mutation probe).
+  //
+  // The three states are exercised individually elsewhere in this file. This
+  // group is the ONE place that stands all three up side by side in a single
+  // screen — classic is owned at load (`locked`), art gets claimed by a
+  // catalogue refresh mid-session (`ownedNow`), gel is never touched
+  // (merely off) — so mutual exclusivity and the emphasis style are pinned
+  // against real siblings rather than in isolation.
+  group('off-state sub-label — locked / ownedNow / merely-off side by side', () {
+    testWidgets('locked shows AlreadyAdded plainly, ownedNow shows AlreadyInMenu '
+        'emphasised, merely-off shows neither — and no row ever renders the '
+        'deleted generic «Не пропонується» copy', (tester) async {
+      when(
+        () => h.repo.bulkCreate(any()),
+      ).thenAnswer((_) async => throw const ServiceDuplicateFailure());
+
+      // Build 1 (initState snapshot): classic already owned → `locked`.
+      // Build 2 (post-409 re-read): art JOINS the owned set → `ownedNow`.
+      // Gel is never included in either build and never toggled, so it stays
+      // merely off for the whole test.
+      final servicesList = _MutatingServicesList(<List<MasterService>>[
+        _ownsClassic,
+        <MasterService>[
+          ..._ownsClassic,
+          const MasterService(
+            id: 'svc-owned-art',
+            serviceDefId: 'def-owned-art',
+            name: 'Художній розпис',
+            serviceTypeId: 'type-art',
+            durationMinutes: 45,
+            priceMin: 300,
+            priceDisplay: '300 ₴',
+          ),
+        ],
+      ]);
+
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 2000),
+        overrides: <Object>[
+          serviceRepositoryProvider.overrideWithValue(h.repo),
+          servicesListProvider.overrideWith(() => servicesList),
+          approvedCategoriesProvider.overrideWith(
+            (ref) => const <ServiceCategoryOption>[_manicure],
+          ),
+          serviceTypesProvider('MANICURE').overrideWith(
+            (ref) => const <ServiceTypeOption>[
+              _typeClassic,
+              _typeGel,
+              _typeArt,
+            ],
+          ),
+        ],
+      );
+      await _expand(tester, 'MANICURE');
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      // Include + fill art, then trigger the 409 re-read that claims it.
+      await _toggleRowOn(tester, 'type-art');
+      await _fillRowFixed(tester, 'type-art', duration: '45', price: '300');
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      // ── classic — locked (owned at load) ──────────────────────────────
+      expect(
+        find.byKey(const Key('setup_row_toggle_type-classic')),
+        findsNothing,
+        reason: 'a locked row renders no include switch at all',
+      );
+      expect(
+        _textInRow('type-classic', l10n.serviceSetupRowAlreadyAdded),
+        findsOneWidget,
+      );
+      expect(
+        _textInRow('type-classic', l10n.serviceSetupRowAlreadyInMenu),
+        findsNothing,
+        reason: 'locked and ownedNow are mutually exclusive facts',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              _textInRow('type-classic', l10n.serviceSetupRowAlreadyAdded),
+            )
+            .style
+            ?.fontWeight,
+        isNot(FontWeight.w800),
+        reason:
+            'the plain "already added" fact must NOT carry the '
+            'catalogue-refresh emphasis style',
+      );
+
+      // ── art — ownedNow (claimed by the mid-session catalogue refresh) ──
+      expect(
+        find.byKey(const Key('setup_row_toggle_type-art')),
+        findsOneWidget,
+        reason:
+            'unlike locked, ownedNow is not the immutable at-load '
+            'exclusion — the row keeps its (now-off) switch',
+      );
+      expect(
+        _textInRow('type-art', l10n.serviceSetupRowAlreadyInMenu),
+        findsOneWidget,
+      );
+      expect(
+        _textInRow('type-art', l10n.serviceSetupRowAlreadyAdded),
+        findsNothing,
+        reason: 'ownedNow and locked are mutually exclusive facts',
+      );
+      final artSubLabelStyle = tester
+          .widget<Text>(
+            _textInRow('type-art', l10n.serviceSetupRowAlreadyInMenu),
+          )
+          .style;
+      expect(
+        artSubLabelStyle?.fontWeight,
+        FontWeight.w800,
+        reason:
+            'ownedNow is the one fact that CHANGED under the master — '
+            'it must read as emphasised, not as a routine label',
+      );
+      expect(artSubLabelStyle?.color, BrandColors.accentDeep);
+
+      // ── gel — merely off (never locked, never claimed) ─────────────────
+      expect(
+        find.byKey(const Key('setup_row_toggle_type-gel')),
+        findsOneWidget,
+        reason: 'a merely-off row stays freely selectable',
+      );
+      // Neither locked nor ownedNow — nothing to say beyond the switch itself.
+      _expectRowHasNoOffStateSubLabel(tester, l10n, 'type-gel');
+
+      // ── no row, anywhere on screen, resurrects the deleted generic copy ─
+      expect(
+        // i18n-finder-ok: pins the exact DELETED literal, not live UI copy — asserts serviceSetupRowExcluded never resurfaces under a new l10n key
+        find.text('Не пропонується'),
+        findsNothing,
+        reason:
+            'serviceSetupRowExcluded was deleted from both ARBs — this '
+            'pins the exact removed literal, not just a Text count, so a '
+            'regression that reintroduces it under a NEW l10n key still '
+            'fails this assertion',
+      );
+    });
   });
 
   // ── State-level guard — ServiceRowState.included refuses alreadyAdded ───────
