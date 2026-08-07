@@ -33,6 +33,15 @@ final class FakeAuthRepository implements AuthRepository {
   /// Return value for the next [me] call.
   Object? meResult;
 
+  /// When non-null, [me] awaits this future before inspecting [meResult].
+  ///
+  /// Set to a non-completing Future (e.g. `Completer<void>().future`) to park
+  /// `AuthNotifier.build()` inside its cold-start `repo.me()` await, holding
+  /// `authProvider` in [AsyncLoading] with `coldStartAccessToken` populated —
+  /// the window `interceptor_chain_test.dart` drives the stale-bearer replay
+  /// regression through. Mirrors [resendDelay] / [requestPasswordResetDelay].
+  Future<void>? meDelay;
+
   /// Whether [logout] should throw.
   bool logoutThrows = false;
 
@@ -145,6 +154,9 @@ final class FakeAuthRepository implements AuthRepository {
   >
   registerCalls = [];
   int logoutCallCount = 0;
+
+  /// Captured call count for [me] (cold-start profile load + [refreshUser]).
+  int meCallCount = 0;
 
   /// Captured arguments for each [verifyEmail] call.
   /// Tests can assert `verifyEmailCalls.first.email` / `.otp`.
@@ -261,6 +273,8 @@ final class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<User> me() async {
+    meCallCount++;
+    if (meDelay != null) await meDelay!;
     final result = meResult;
     if (result is Failure) throw result;
     if (result is User) return result;
