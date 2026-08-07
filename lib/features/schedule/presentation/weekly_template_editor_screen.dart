@@ -49,6 +49,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
@@ -540,16 +541,8 @@ class _WeeklyTemplateEditorScreenState
   // ── Save ──────────────────────────────────────────────────────────────────────
   Future<void> _save() async {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     if (_hasErrors) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            backgroundColor: BrandColors.error,
-            content: Text(l10n.weeklyEditorErrorsBanner),
-          ),
-        );
+      showErrorSnack(context, l10n.weeklyEditorErrorsBanner);
       return;
     }
 
@@ -587,13 +580,10 @@ class _WeeklyTemplateEditorScreenState
         final DateTime end = draft.end.isBefore(today) ? today : draft.end;
         setState(() => _draftWindow = DateTimeRange(start: today, end: end));
         _onDayMutated();
-        messenger
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(l10n.weeklyEditorWindowReanchored(_ddmm(today))),
-            ),
-          );
+        showWarningSnack(
+          context,
+          l10n.weeklyEditorWindowReanchored(_ddmm(today)),
+        );
         return;
       }
     }
@@ -647,14 +637,16 @@ class _WeeklyTemplateEditorScreenState
           weeklyScheduleProvider,
         );
         if (result.hasError) {
-          _showError(messenger, result.error, l10n);
+          final Object? error = result.error;
+          showErrorSnack(
+            context,
+            error is Failure ? error.userMessage(context) : l10n.errUnknown,
+          );
           return;
         }
       }
 
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(l10n.savedSnackbar)));
+      showSuccessSnack(context, l10n.savedSnackbar);
       if (context.canPop()) {
         context.pop();
       } else {
@@ -666,25 +658,6 @@ class _WeeklyTemplateEditorScreenState
         _saveGateNotifier.value = _saveGate;
       }
     }
-  }
-
-  /// Shows the failure snackbar for a swallowed-into-state save/delete mutation.
-  /// [error] is the provider's [AsyncValue.error]: a typed [Failure] when the
-  /// repository mapped it, otherwise the generic unknown-error copy. Does NOT
-  /// pop and does NOT show a success snackbar — the false-success guard.
-  void _showError(
-    ScaffoldMessengerState messenger,
-    Object? error,
-    AppLocalizations l10n,
-  ) {
-    final String message = error is Failure
-        ? error.userMessage(context)
-        : l10n.errUnknown;
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(backgroundColor: BrandColors.error, content: Text(message)),
-      );
   }
 
   /// Maps the 7 draft days onto a [WeeklySchedule], preserving the loaded

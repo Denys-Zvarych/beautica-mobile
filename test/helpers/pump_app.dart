@@ -161,8 +161,11 @@ extension PumpUntil on WidgetTester {
   }
 
   /// Inverse of [pumpUntilFound] — pumps until [finder] matches nothing (e.g.
-  /// waiting out a SnackBar's own auto-dismiss timer instead of guessing its
-  /// duration).
+  /// waiting out a snack's own auto-dismiss timer instead of guessing its
+  /// duration). For a [VelvetSnack] specifically, prefer
+  /// `pumpPastVelvetSnack` (`test/helpers/velvet_snack_matchers.dart`) — it
+  /// pumps the exact lifecycle duration rather than polling, and drains the
+  /// dwell `Timer` the leak check requires.
   Future<void> pumpUntilGone(
     Finder finder, {
     Duration timeout = const Duration(seconds: 10),

@@ -34,6 +34,7 @@ import 'package:beautica_mobile/features/auth/presentation/reset_password_screen
 import 'package:beautica_mobile/features/auth/presentation/widgets/password_checklist.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,6 +42,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const String _kTicket = 'raw-reset-ticket';
@@ -450,14 +452,14 @@ void main() {
           'Password1',
         );
         await tester.tap(find.byKey(const ValueKey<String>('reset_submit')));
-        // Deliberately NOT pumpAndSettle() yet — the SnackBar auto-dismisses
-        // on its own timer, and pumpAndSettle() pumps straight past that,
+        // Deliberately NOT pumpAndSettle() yet — the VelvetSnack auto-dismisses
+        // on its own dwell timer, and pumpAndSettle() pumps straight past that,
         // leaving nothing to assert against. A few bounded pumps let the
-        // async confirmPasswordReset → logout → snackbar → context.go chain
-        // settle while the SnackBar is still on screen.
+        // async confirmPasswordReset → logout → snack → context.go chain
+        // settle while the snack is still on screen.
         await tester.pump(); // begin async confirmPasswordReset
         await tester.pump(); // microtasks (logout, storage wipe)
-        // fixed-wait-ok: real-async step — SnackBar must still be visible below (see comment above).
+        // fixed-wait-ok: real-async step — VelvetSnack must still be visible below (see comment above).
         await tester.pump(const Duration(milliseconds: 50));
 
         // confirmPasswordReset was called with the ticket + new password.
@@ -475,16 +477,17 @@ void main() {
           findsNothing,
         );
 
-        // Lands on /login with the forced-logout snackbar message still visible.
+        // Lands on /login with the forced-logout VelvetSnack message still
+        // visible (warning variant — a state change the user did not ask for,
+        // not a failure).
         expect(find.text('login'), findsOneWidget);
-        expect(
-          find.text(l10n.changePasswordForcedLogoutMessage),
-          findsOneWidget,
+        expectVelvetSnack(
+          l10n.changePasswordForcedLogoutMessage,
+          variant: VelvetSnackVariant.warning,
         );
 
-        // Let the SnackBar's own timer finish so no pending timers leak past
-        // the test.
-        await tester.pumpAndSettle();
+        // Drain the dwell Timer so it does not leak past the test.
+        await pumpPastVelvetSnack(tester);
       },
     );
 

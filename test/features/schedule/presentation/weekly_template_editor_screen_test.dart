@@ -46,6 +46,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 import '../../../helpers/clock_instant.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Fixtures.
@@ -2223,13 +2224,14 @@ void main() {
           reason: 'the first Save after the rollover only re-anchors + bails',
         );
 
-        // Dismiss the reanchored snackbar so it no longer overlays the Save
-        // button at the bottom of the screen (otherwise the second tap lands on
-        // the snackbar, not the button).
-        ScaffoldMessenger.of(
-          tester.element(find.byType(WeeklyTemplateEditorScreen)),
-        ).hideCurrentSnackBar();
-        await tester.pumpAndSettle();
+        // Let the reanchored VelvetSnack run its full lifecycle (entrance +
+        // dwell + exit) so it stops overlaying the Save button at the bottom
+        // of the screen. `ScaffoldMessenger.hideCurrentSnackBar()` is a no-op
+        // against VelvetSnack (wrong host — see
+        // test/helpers/velvet_snack_matchers.dart) and leaves the snack
+        // mounted, hit-testing the second tap into the Overlay instead of the
+        // button underneath.
+        await pumpPastVelvetSnack(tester);
 
         // SECOND Save — the re-anchored start (10.06) is present → persists.
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));

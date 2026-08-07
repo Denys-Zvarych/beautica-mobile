@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -164,11 +165,11 @@ void main() {
         findsOneWidget,
         reason: 'the LOCALIZED duplicate copy must render inline',
       );
-      // The whole point of the fix: never the generic errServer snackbar.
+      // The whole point of the fix: never the generic errServer snack.
       expect(
-        find.byType(SnackBar),
+        find.byType(VelvetSnack),
         findsNothing,
-        reason: 'a duplicate 409 must NOT fall through to a snackbar',
+        reason: 'a duplicate 409 must NOT fall through to a snack',
       );
       expect(
         find.text(l10n.errServer),

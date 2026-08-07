@@ -134,6 +134,7 @@ import 'service_preselection_flow_test.dart' as service_preselection;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
+import 'velvet_snack_flow_test.dart' as velvet_snack;
 
 void main() {
   // Initialise the integration binding ONCE for the whole aggregated run.
@@ -366,4 +367,9 @@ void main() {
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);
+  // VelvetSnack AS A FEATURE (mobile-qa, Step 2.7 Rule 3b) — a real
+  // failure-path error snack raised + auto-retired, a success snack
+  // surviving the context.pop() that follows it, and single-slot
+  // pre-emption against a real (non-same-tick) second trigger.
+  group('velvet_snack_flow', velvet_snack.main);
 }

@@ -39,6 +39,7 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,6 +47,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'select_dropdown_test_helpers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../../helpers/velvet_snack_matchers.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -189,11 +191,11 @@ void main() {
         reason:
             'a fieldless mismatch-400 must render the LOCALIZED inline message',
       );
-      // The fix replaced the raw English snackbar with the inline error.
+      // The fix replaced the raw English snack with the inline error.
       expect(
-        find.byType(SnackBar),
+        find.byType(VelvetSnack),
         findsNothing,
-        reason: 'fieldless mismatch must NOT fall through to a raw snackbar',
+        reason: 'fieldless mismatch must NOT fall through to a raw snack',
       );
       expect(
         find.text('service type does not belong to the selected category'),
@@ -204,14 +206,16 @@ void main() {
   );
 
   testWidgets(
-    'M2. fieldless 400 + category NOT dirty → generic snackbar (gate is '
-    'structural, not a string match)',
+    'M2. fieldless 400 + category NOT dirty → generic LOCALIZED snackbar '
+    '(gate is structural, not a string match; raw serverMessage never shown '
+    '— mobile-security, 2026-08)',
     (tester) async {
+      const serverMsg = 'some unrelated business rule failed';
       await pumpForm(
         tester,
         onSubmit: (_) async => throw const ValidationFailure(
           fieldErrors: <String, String>{},
-          serverMessage: 'some unrelated business rule failed',
+          serverMessage: serverMsg,
         ),
         initial: _editService,
       );
@@ -230,11 +234,16 @@ void main() {
             'an unrelated fieldless 400 (category not dirty) must NOT be mapped '
             'to the service-type inline error',
       );
-      expect(
-        find.byType(SnackBar),
-        findsOneWidget,
-        reason: 'an unattributable fieldless 400 still surfaces as a snackbar',
+      expectVelvetSnack(
+        _l10n(tester).errValidation,
+        variant: VelvetSnackVariant.error,
       );
+      expect(
+        find.text(serverMsg),
+        findsNothing,
+        reason: 'the raw English server message must never reach the UI',
+      );
+      await pumpPastVelvetSnack(tester);
     },
   );
 
@@ -261,7 +270,7 @@ void main() {
         find.descendant(of: errorRow, matching: find.text(serverMsg)),
         findsOneWidget,
       );
-      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(VelvetSnack), findsNothing);
     },
   );
 }

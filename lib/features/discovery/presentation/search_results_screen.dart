@@ -59,6 +59,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 
 import '../application/search_results_notifier.dart';
 import '../domain/search_filters.dart';
@@ -198,14 +199,15 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 
   void _showFavoriteError(Failure failure) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(failure.userMessage(context)),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    // This route (`/search/results`, pushed onto the client shell's Search
+    // branch) is NOT in `ClientShell`'s bottom-nav suppression list — that
+    // list matches the booking-DETAIL pattern only — so the 5-tab bar stays
+    // mounted underneath. bottomInset lifts the snack clear of it.
+    showErrorSnack(
+      context,
+      failure.userMessage(context),
+      bottomInset: VelvetSizes.bottomNavClearanceClient,
+    );
   }
 
   @override

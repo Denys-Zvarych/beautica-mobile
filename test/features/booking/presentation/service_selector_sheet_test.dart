@@ -31,6 +31,7 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,6 +39,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -565,7 +567,7 @@ void main() {
   group('visit-selection cap (MO-3)', () {
     testWidgets(
       'caps the selection at maxServicesPerVisit (10) — the 11th add is '
-      'refused with a friendly cap SnackBar, and «Далі» carries exactly 10 ids',
+      'refused with a friendly cap VelvetSnack, and «Далі» carries exactly 10 ids',
       (tester) async {
         tester.view.physicalSize = const Size(800, 8000);
         tester.view.devicePixelRatio = 1.0;
@@ -591,11 +593,15 @@ void main() {
         final l10n = AppLocalizations.of(
           tester.element(find.byType(ServiceSelectorSheet)),
         );
-        expect(
-          find.text(l10n.bookingMaxServicesReached(maxServicesPerVisit)),
-          findsOneWidget,
-          reason: 'the 11th add must surface the friendly cap message',
+        expectVelvetSnack(
+          l10n.bookingMaxServicesReached(maxServicesPerVisit),
+          variant: VelvetSnackVariant.warning,
         );
+        // Drains the dwell Timer AND removes the OverlayEntry — a still-
+        // mounted snack is bottom-anchored and hit-test-intercepts the
+        // «Далі» tap right below (the pinned `BookingSummaryBar` sits at the
+        // very bottom of this pushed, nav-bar-less screen).
+        await pumpPastVelvetSnack(tester);
 
         // «Далі» → the slots stub carries exactly 10 ordered ids (the 11th was
         // never added, so a duplicate/over-cap payload can never be sent).

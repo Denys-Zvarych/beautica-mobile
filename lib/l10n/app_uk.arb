@@ -1906,7 +1906,7 @@
 
   "validationFieldErrorLine": "{field}: {message}",
   "@validationFieldErrorLine": {
-    "description": "One line of a server-side field-validation banner: a localized field name followed by the server-supplied message. Used when a ValidationFailure carries fieldErrors and the failing field is not rendered on the current screen (e.g. post-OTP save surfaces register step 2/3 field errors).",
+    "description": "One line of a server-side field-validation banner: a localized field name followed by a message. Used when a ValidationFailure carries fieldErrors and the failing field is not rendered on the current screen (e.g. post-OTP save surfaces register step 2/3 field errors). The message is ALWAYS `fieldErrorGeneric` now, never the raw backend value — this banner routes to a live-narrated generic surface (VelvetSnack / AuthBanner), not a per-field inline slot, so untranslated/technical server text must not reach it (mobile-security finding, 2026-08).",
     "placeholders": {
       "field": {
         "type": "String",
@@ -1914,9 +1914,13 @@
       },
       "message": {
         "type": "String",
-        "example": "не може перевищувати 255 символів"
+        "example": "Перевірте значення"
       }
     }
+  },
+  "fieldErrorGeneric": "Перевірте значення",
+  "@fieldErrorGeneric": {
+    "description": "Fixed per-field notice used by buildFieldErrorBanner() in place of the backend's raw fieldErrors message — that raw text is never shown on a generic/live-narrated surface, only the field name plus this notice."
   },
   "fieldNameFirstName": "Ім'я",
   "@fieldNameFirstName": {
@@ -1953,6 +1957,10 @@
   "fieldNameEmail": "Електронна пошта",
   "@fieldNameEmail": {
     "description": "Field name used in server-error validation banners for the email field."
+  },
+  "fieldNameUnknown": "Поле",
+  "@fieldNameUnknown": {
+    "description": "Fallback field name used in server-error validation banners when the backend's raw field key (JSON path in the errors map) fails the render-safety check in serverFieldNameOr — too long or carrying a control/bidi character. localizedFieldName() must never emit an unguarded raw key into a live-narrated (Semantics liveRegion) surface (mobile-security, 2026-08)."
   },
 
   "workingHoursTitle": "Робочі години",
@@ -2460,6 +2468,13 @@
     "description": "Error message for ScheduleOverrideRateLimitedFailure (HTTP 429 on PUT /overrides/{date}) when the server sent a Retry-After header — either the per-minute write-rate limit or the aggregate per-hour decline budget.",
     "placeholders": {
       "seconds": { "type": "int" }
+    }
+  },
+  "scheduleOverrideSpanPartialFailure": "{count, plural, one{Не вдалося зберегти {count} дату. Спробуйте ще раз.} few{Не вдалося зберегти {count} дати. Спробуйте ще раз.} many{Не вдалося зберегти {count} дат. Спробуйте ще раз.} other{Не вдалося зберегти {count} дат. Спробуйте ще раз.}}",
+  "@scheduleOverrideSpanPartialFailure": {
+    "description": "Error message for OverrideSpanPartialFailure — a multi-day override span (OverridesNotifier.putSpan) expanded into one PUT per date, and one or more of those per-date writes failed. [count] is the number of dates that failed; the exact dates are kept on the failure object for a future retry/detail affordance, never shown as raw text here.",
+    "placeholders": {
+      "count": { "type": "int" }
     }
   },
   "applyScheduleTitle": "Період дії графіка",
@@ -5100,5 +5115,25 @@
         "example": "Послуги"
       }
     }
+  },
+  "velvetSnackPrefixSuccess": "Готово",
+  "@velvetSnackPrefixSuccess": {
+    "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the success variant, so the register survives when colour and glyph do not."
+  },
+  "velvetSnackPrefixError": "Помилка",
+  "@velvetSnackPrefixError": {
+    "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the error variant."
+  },
+  "velvetSnackPrefixInfo": "Інформація",
+  "@velvetSnackPrefixInfo": {
+    "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the info variant."
+  },
+  "velvetSnackPrefixWarning": "Увага",
+  "@velvetSnackPrefixWarning": {
+    "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the warning variant."
+  },
+  "velvetSnackDismissSemantic": "Закрити сповіщення",
+  "@velvetSnackDismissSemantic": {
+    "description": "VelvetSnack (shared/feedback) — semantic label for the optional explicit dismiss (close) affordance."
   }
 }

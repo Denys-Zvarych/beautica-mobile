@@ -63,6 +63,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -239,7 +240,7 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
 
   /// Toggles [id] in/out of the visit selection, capped at
   /// [maxServicesPerVisit] (the backend `MAX_SERVICES_PER_VISIT`). An ADD that
-  /// would exceed the cap is refused with a friendly SnackBar rather than
+  /// would exceed the cap is refused with a friendly VelvetSnack rather than
   /// silently dropped — a removal is never blocked. Deselection also naturally
   /// dedupes the eventual `POST /appointments` payload: the selection is a
   /// `Set` keyed by service id, so a service can be chosen at most once.
@@ -247,14 +248,10 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
     final bool willAdd = !_selectionController.isSelected(id);
     if (willAdd && _selectionController.value.length >= maxServicesPerVisit) {
       final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(l10n.bookingMaxServicesReached(maxServicesPerVisit)),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      showWarningSnack(
+        context,
+        l10n.bookingMaxServicesReached(maxServicesPerVisit),
+      );
       return;
     }
     _selectionController.toggleService(id);

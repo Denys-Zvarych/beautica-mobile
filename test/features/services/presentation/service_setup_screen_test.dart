@@ -22,6 +22,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -37,6 +38,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/service_s
 import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +47,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -765,6 +768,7 @@ void main() {
 
         verify(() => h.repo.bulkCreate(any())).called(1);
         expect(h.pushedRoutes, contains(RouteNames.services));
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -1455,6 +1459,7 @@ void main() {
         expect(ids, <String>['type-cut']);
         expect(ids, isNot(contains('type-classic')));
         expect(ids, isNot(contains('type-gel')));
+        await pumpPastVelvetSnack(tester);
       },
     );
   });
@@ -1608,22 +1613,22 @@ void main() {
   });
 
   // ── HIGH regression — per-field 400 lands inline on the offending SUBMITTED
-  //   row instead of the generic «Перевірте дані» snackbar.
+  //   row instead of the generic «Перевірте дані» snack.
   //
   // The user-reported bug: a bulk-save 400 carrying per-field errors
   // (`errors: {"items[1].durationMinutes": "…"}`) surfaced the GENERIC
-  // `errValidation` snackbar and flagged NO row, so the master could not tell
+  // `errValidation` snack and flagged NO row, so the master could not tell
   // WHICH service the backend rejected. The fix:
   //   • service_setup_screen.dart — `_assemble()` captures `_submittedRows`
   //     (INCLUDED rows, in submitted order); `_save()` parses each
   //     `items[<i>].<field>` key, maps `i → _submittedRows[i]`, stamps
   //     `serverDurationError` (localized `serviceSetupDurationMax`) /
   //     `serverPriceError`, scrolls to the first flagged row, and only shows the
-  //     generic snackbar when NO key maps;
+  //     generic snack when NO key maps;
   //   • service_setup_widgets.dart — the row card coalesces the server error into
   //     its inline field slot + red rim, and clears it on field edit.
   //
-  // These tests FAIL against the old behaviour (generic snackbar, no row
+  // These tests FAIL against the old behaviour (generic snack, no row
   // flagged) and PASS now.
 
   group('per-field 400 maps to the offending submitted row (HIGH regression)', () {
@@ -1862,7 +1867,7 @@ void main() {
 
         verify(() => h.repo.bulkCreate(any())).called(1);
 
-        // Unmappable key → the generic snackbar is preserved (fallback intact).
+        // Unmappable key → the generic snack is preserved (fallback intact).
         expect(find.text(l10n.errValidation), findsOneWidget);
         // No row flag / rim — nothing mapped to a row.
         expect(
@@ -1870,6 +1875,7 @@ void main() {
           findsNothing,
         );
         expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -2103,6 +2109,7 @@ void main() {
               'submitting an already-owned service type 409s the ENTIRE batch — '
               'it must never be assembled into the payload',
         );
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -2357,6 +2364,7 @@ void main() {
             'regression that reintroduces it under a NEW l10n key still '
             'fails this assertion',
       );
+      await pumpPastVelvetSnack(tester);
     });
   });
 
@@ -2564,17 +2572,15 @@ void main() {
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
         expect(calls(), 1);
-        expect(find.text(l10n.serviceSetupErrBusy), findsOneWidget);
 
         // The retry affordance itself — remove `onRetry` from lib/ and this is
-        // the assertion that goes red.
-        expect(
-          find.byType(SnackBarAction),
-          findsOneWidget,
-          reason:
-              'a 503 must carry an actionable RETRY, not a dismiss-only error',
+        // the assertion that goes red. expectVelvetSnack's `actionLabel` param
+        // asserts the trailing action text renders on the showing snack.
+        expectVelvetSnack(
+          l10n.serviceSetupErrBusy,
+          variant: VelvetSnackVariant.error,
+          actionLabel: l10n.serviceSetupRetry,
         );
-        expect(find.text(l10n.serviceSetupRetry), findsOneWidget);
 
         // The master stays put with their configuration intact.
         expect(find.byType(ServiceSetupScreen), findsOneWidget);
@@ -2599,26 +2605,31 @@ void main() {
         );
         expect(find.byType(ServiceSetupScreen), findsOneWidget);
         expect(h.pushedRoutes, isEmpty);
+        // The retry re-fired the same (still-failing) save, which shows a
+        // SECOND retryable snack — drain it so its dwell timer does not leak.
+        await pumpPastVelvetSnack(tester, hasAction: true);
       },
     );
 
     testWidgets(
-      'a NON-retryable failure (409) shows no SnackBarAction — the retry '
-      'affordance is specific to the 503 branch',
+      'a NON-retryable failure (409) shows no action-carrying VelvetSnack — '
+      'the retry affordance is specific to the 503 branch',
       (tester) async {
         final calls = await failingSaveOnce(
           tester,
           const ServiceDuplicateFailure(),
         );
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
         expect(calls(), 1);
         expect(
-          find.byType(SnackBarAction),
+          find.text(l10n.serviceSetupRetry),
           findsNothing,
           reason:
               'only the transient 503 gets a RETRY; a duplicate would fail '
               'identically on every retry',
         );
+        await pumpPastVelvetSnack(tester);
       },
     );
   });
@@ -2693,6 +2704,7 @@ void main() {
               ?.text,
           '60',
         );
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -2718,6 +2730,7 @@ void main() {
               'assertion above meaningful rather than vacuous',
         );
         expect(find.byType(ServiceSetupScreen), findsNothing);
+        await pumpPastVelvetSnack(tester);
       },
     );
   });
@@ -2806,6 +2819,7 @@ void main() {
             initialServiceName: any(named: 'initialServiceName'),
           ),
         ).called(1);
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -3006,6 +3020,7 @@ void main() {
             description: any(named: 'description'),
           ),
         ).called(1);
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -3107,6 +3122,10 @@ void main() {
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
         expect(find.text(l10n.serviceTypeSuggestSuccess), findsOneWidget);
+        // Drain the still-showing snack BEFORE the next tap: it is
+        // bottom-anchored and would otherwise sit over the category chip,
+        // hit-testing into the overlay and silently swallowing the tap below.
+        await pumpPastVelvetSnack(tester);
 
         // Collapse, then re-expand — «the next expand», exactly as the
         // invalidate's own doc comment promises.
@@ -3134,22 +3153,23 @@ void main() {
     );
   });
 
-  // ── 503 RETRY AFTER LEAVING — the snackbar outlives the route ──────────────
+  // ── 503 RETRY AFTER LEAVING — the snack must not survive with a live action ─
   //
-  // `_showSnack` posts through `ScaffoldMessenger.of(context)`, which resolves
-  // to the ROOT messenger MaterialApp installs ABOVE the Router. So the 503 bar
-  // — the one deliberately given an 8 s dwell so it is still up while the
-  // master decides — survives a pop/go away from the setup screen, with its
-  // «Повторити» action still wired to `_save` on a State that is by then
-  // DISPOSED.
+  // `_showErrorSnack` posts a VelvetSnack on the app's ROOT `Overlay` (see
+  // `velvet_snack_host.dart`), which — like the retired `ScaffoldMessenger`-
+  // backed bar before it — is NOT scoped to this route's own Navigator. So
+  // WITHOUT the explicit `dispose()` → `unawaited(_retrySnack?.dismiss())`
+  // call, the 503 snack (deliberately given the longer `dwellWithAction`, 6s,
+  // so it is still up while the master decides) would survive a pop/go away
+  // from the setup screen, with its «Повторити» action still wired to `_save`
+  // on a State that is by then DISPOSED.
   //
-  // `_save`'s very first statement is `AppLocalizations.of(context)`, so the tap
-  // does not degrade — it throws on a deactivated element.
-  //
-  // Two fixes are legitimate (scope the messenger to the route so the bar dies
-  // with it, or make the action inert once unmounted), so this test asserts the
-  // INVARIANT both of them satisfy — no exception, and no second POST — rather
-  // than one particular shape.
+  // `_save`'s very first statement is `AppLocalizations.of(context)`, so a tap
+  // on a still-live action does not degrade — it throws on a deactivated
+  // element. `dispose()`'s explicit dismiss is the fix; this test asserts the
+  // INVARIANT it guarantees — no exception, and no second POST — leaving room
+  // for the snack to still be mid-exit-animation at the moment we check rather
+  // than asserting it is instantly gone.
 
   group('503 retry AFTER leaving the screen (disposed-state crash)', () {
     testWidgets(
@@ -3210,10 +3230,12 @@ void main() {
           reason: 'leaving the screen must not throw on its own',
         );
 
-        // The retry action may or may not still be on screen — a fix that
-        // scopes the messenger to the route removes it, a fix that guards the
-        // callback leaves it. Both are correct; only "still there AND still
-        // live" is not. Tap it if it survived.
+        // `dispose()`'s `unawaited(_retrySnack?.dismiss())` starts an async
+        // exit animation, so the snack may still be mid-teardown for a frame
+        // or two — this stays a conditional tap (not an unconditional
+        // `findsNothing`) so the test is not coupled to that animation timing.
+        // Either way, "still there AND still live enough to crash on tap" is
+        // the one outcome that must never happen.
         final Finder retry = find.text(l10n.serviceSetupRetry);
         if (retry.evaluate().isNotEmpty) {
           await tester.tap(retry);
@@ -3224,10 +3246,10 @@ void main() {
           tester.takeException(),
           isNull,
           reason:
-              'the retry action outlives the route via the ROOT '
-              'ScaffoldMessenger; invoking it must never run _save against a '
-              'disposed ConsumerState (AppLocalizations.of on a deactivated '
-              'element throws)',
+              'even if the snack outlives the route for a frame (it lives on '
+              'the ROOT Overlay, not scoped to this route), invoking its '
+              'action must never run _save against a disposed ConsumerState '
+              '(AppLocalizations.of on a deactivated element throws)',
         );
         expect(
           calls,
@@ -3286,33 +3308,38 @@ void main() {
 
   // ── _retrySnack handle lifetime ────────────────────────────────────────────
   //
-  // `dispose` closes the tracked 503 bar so a route the master left cannot
-  // leave a live retry action behind. That handle must therefore be dropped the
-  // moment the bar leaves the messenger queue by any route OTHER than
-  // `_showSnack` replacing it or `dispose` closing it — because those are the
-  // only two the screen itself clears.
+  // `dispose` dismisses the tracked 503 snack so a route the master left cannot
+  // leave a live retry action behind.
   //
-  // WHICH ROUTE, EXACTLY — the timeout is NOT one of them.
-  // `SnackBar`'s constructor ends `persist = persist ?? action != null`
-  // (snack_bar.dart), so a bar carrying a `SnackBarAction` — which the retry
-  // bar does, by definition — NEVER auto-dismisses. Its `duration` is inert:
-  // the dismiss timer fires and returns early on `persist`. Verified here: the
-  // bar survives 30 s of pumping. So the reachable unattended removal is the
-  // SWIPE, which `SnackBar` wires to
-  // `removeCurrentSnackBar(reason: swipe)` through its `Dismissible`
-  // (`DismissDirection.down` by default for floating bars). A third party
-  // calling `clearSnackBars`/`hideCurrentSnackBar` on the ROOT messenger is the
-  // same shape.
+  // This group predates the VelvetSnack migration and originally pinned a
+  // `ScaffoldFeatureController`-specific footgun: a handle whose bar had
+  // already left the `ScaffoldMessenger` queue (by timeout, swipe, or a third
+  // party clearing it) made `close()` operate on an EMPTY queue —
+  // `assert(_snackBars.first == controller)` threw `StateError: No element` in
+  // debug, and silently killed an unrelated bar in release. `_retrySnack` had
+  // to be nulled the instant its bar left the queue by any route OTHER than
+  // `_showSnack` replacing it or `dispose` closing it, tracked via
+  // `controller.closed.whenComplete` + an `identical()` guard against a
+  // slow-completing older bar nulling a newer handle.
   //
-  // A handle outliving its bar makes `close()` operate on an empty queue.
-  // `ScaffoldMessengerState`'s controller callback is
-  // `{ assert(_snackBars.first == controller); hideCurrentSnackBar(); }`, so:
-  //   • debug/profile/test — `.first` on an empty queue throws
-  //     `StateError: No element` out of `dispose`;
-  //   • release — the assert is stripped and `hideCurrentSnackBar` silently
-  //     kills whatever unrelated bar is front on the ROOT messenger.
-  // The release symptom is the harder one to trace, which is why this is pinned
-  // at the debug tier where it is loud.
+  // VelvetSnack removes the whole footgun structurally: [VelvetSnackHandle]
+  // wraps a `GlobalKey`, and `dismiss()` is `_key.currentState?.retire(...)` —
+  // null-safe by construction. Calling `dismiss()` on a handle whose snack
+  // already retired (by timeout, swipe, or single-slot pre-emption from a
+  // NEWER snack) is simply a no-op; there is no queue to be out of sync with,
+  // and no `identical()` guard is needed because `_showErrorSnack` overwrites
+  // `_retrySnack` SYNCHRONOUSLY when it posts a new snack (no async completion
+  // race to lose to). The tests below are kept as the regression net for that
+  // null-safety property, updated for the mechanism that actually makes them
+  // pass now.
+  //
+  // ALSO NOTE — the timeout IS now a reachable removal path, unlike before.
+  // The old `SnackBar` set `persist = persist ?? action != null`, so a bar
+  // carrying a `SnackBarAction` never auto-dismissed at all. VelvetSnack has no
+  // such escape hatch: an action-carrying snack dwells LONGER
+  // (`VelvetSnackMotion.dwellWithAction`, 6s, vs the plain 4s) but still
+  // eventually retires on its own. The first test below pins that dwell
+  // window instead of pinning eternal persistence.
 
   group('_retrySnack is dropped when its bar goes away on its own', () {
     /// Stands up one valid row, saves into a 503, and returns once the retry
@@ -3341,66 +3368,79 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    testWidgets('the 503 snack carries an action, so it dwells the LONGER '
+        'dwellWithAction window (6s) rather than the plain 4s — but, unlike '
+        'the retired SnackBar `persist` footgun, it still eventually retires '
+        'on its own', (tester) async {
+      await saveInto503(tester);
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      expect(find.text(l10n.serviceSetupRetry), findsOneWidget);
+
+      // Past the PLAIN dwell (4s) but comfortably short of the action dwell
+      // (6s) — proves the retry snack is using `dwellWithAction`, not the
+      // shorter default, giving the master real time to reach the action.
+      // fixed-wait-ok: probing a dwell WINDOW, not a race — the margin below
+      // the 6s ceiling is deliberate, not a flaky timing guess.
+      await tester.pump(VelvetSnackMotion.dwell + const Duration(seconds: 1));
+      expect(
+        find.text(l10n.serviceSetupRetry),
+        findsOneWidget,
+        reason:
+            'a snack carrying an action must dwell VelvetSnackMotion.'
+            'dwellWithAction (6s), not the plain 4s dwell — if this goes '
+            'red the retry snack started expiring before the master can '
+            'realistically reach the action',
+      );
+
+      // Unlike the retired ScaffoldMessenger-backed bar (`persist = persist
+      // ?? action != null`, which NEVER auto-dismissed a bar carrying a
+      // SnackBarAction), VelvetSnack has no such escape hatch — it always
+      // eventually retires an action-carrying snack too, just later.
+      await pumpPastVelvetSnack(tester, hasAction: true);
+      expect(
+        find.text(l10n.serviceSetupRetry),
+        findsNothing,
+        reason:
+            'VelvetSnack auto-retires eventually even with an action — '
+            'this is the deliberate behaviour change from the old SnackBar '
+            '`persist` footgun this migration removes',
+      );
+    });
+
     testWidgets(
-      'the 503 bar carries an action, so it does NOT auto-dismiss — the '
-      'timeout is not the path that strands the handle',
+      'a 503 snack SWIPED away, then a dispose, must not throw — dismiss() '
+      'on an already-retired handle is a safe no-op',
       (tester) async {
         await saveInto503(tester);
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
-        expect(find.text(l10n.serviceSetupRetry), findsOneWidget);
-
-        // This asserts a NEGATIVE — that the bar is STILL up long after its
-        // own 8 s TTL would have elapsed. There is no state to pump UNTIL; the
-        // whole claim is that nothing happens, so a pump-until-condition helper
-        // has no condition to wait on. The value only has to sit comfortably
-        // past the TTL being crossed, and it is fake-async time, so a generous
-        // margin costs nothing on CI.
-        // fixed-wait-ok: crossing the SnackBar duration to prove non-expiry
-        await tester.pump(const Duration(seconds: 30));
-        await tester.pumpAndSettle();
-
         expect(
           find.text(l10n.serviceSetupRetry),
           findsOneWidget,
-          reason:
-              'SnackBar sets `persist = persist ?? action != null`, so a bar '
-              'with a SnackBarAction ignores its duration. If this ever goes '
-              'red the framework changed that default, the retry bar starts '
-              'expiring unattended, and the `whenComplete` clearing in '
-              '_showSnack becomes load-bearing on a SECOND path — keep it',
-        );
-      },
-    );
-
-    testWidgets(
-      'a 503 bar SWIPED away, then a dispose, must not throw — the stale '
-      'handle would close an already-empty snackbar queue',
-      (tester) async {
-        await saveInto503(tester);
-        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-
-        expect(
-          find.text(l10n.serviceSetupRetry),
-          findsOneWidget,
-          reason: 'precondition: the 503 branch put its retry bar up',
+          reason: 'precondition: the 503 branch put its retry snack up',
         );
 
-        // The reachable unattended removal: the master flicks the bar away
-        // rather than acting on it. SnackBar's Dismissible calls
-        // `removeCurrentSnackBar(reason: swipe)` — nothing tells the screen.
-        await tester.fling(find.byType(SnackBar), const Offset(0, 300), 1000);
+        // The reachable unattended removal: the master flicks the snack away
+        // rather than acting on it. VelvetSnack wires the exact same
+        // `Dismissible` (DismissDirection.down) the old SnackBar did — see
+        // `velvet_snack_host.dart`'s `_VelvetSnackScope.build()`.
+        await tester.fling(
+          find.byType(VelvetSnack),
+          const Offset(0, 300),
+          1000,
+        );
         await tester.pumpAndSettle();
 
         expect(
           find.text(l10n.serviceSetupRetry),
           findsNothing,
           reason:
-              'precondition: the swipe really removed the bar from the queue. '
-              'If it is still up, the dispose assertion below is vacuous',
+              'precondition: the swipe really removed the snack. If it is '
+              'still up, the dispose assertion below is vacuous',
         );
 
-        // Now leave. `dispose` will call `_retrySnack?.close()`.
+        // Now leave. `dispose` will call `_retrySnack?.dismiss()`.
         await tester.tap(find.byKey(const Key('btn-setup-close')));
         await tester.pumpAndSettle();
 
@@ -3413,31 +3453,35 @@ void main() {
           tester.takeException(),
           isNull,
           reason:
-              'the swipe must have cleared `_retrySnack`; closing a controller '
-              'whose bar already left the queue trips '
-              'assert(_snackBars.first == controller) on an EMPTY queue',
+              'the swipe already retired the underlying `_VelvetSnackScopeState`'
+              ', so its `GlobalKey.currentState` is null by the time dispose '
+              'calls dismiss() — `VelvetSnackHandle.dismiss()` is null-safe by '
+              'construction (`_key.currentState?.retire(...)`), unlike the '
+              'retired `ScaffoldFeatureController.close()`, which asserted '
+              '`_snackBars.first == controller` and threw on an empty queue',
         );
       },
     );
 
     testWidgets(
-      'two 503s in a row — the second bar is still owned, so leaving closes '
-      'it (an older bar completing must not null the newer handle)',
+      'two 503s in a row — the second snack is still owned, so leaving '
+      'dismisses it (the first snack retiring must not null the newer '
+      'handle)',
       (tester) async {
         await saveInto503(tester);
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
-        // Retry immediately: `_showSnack` clears the queue (starting the FIRST
-        // bar's exit) and posts a second retry bar. The first bar's `closed`
-        // future resolves a frame or two later — by which time `_retrySnack`
-        // already holds the SECOND controller.
+        // Retry immediately: `_showErrorSnack` posts a second retry snack,
+        // which pre-empts (retires) the first via the single-slot host, and
+        // SYNCHRONOUSLY overwrites `_retrySnack` with the new handle — no
+        // async completion race to lose to (see the group doc comment above).
         await tester.tap(find.text(l10n.serviceSetupRetry));
         await tester.pumpAndSettle();
 
         expect(
           find.text(l10n.serviceSetupRetry),
           findsOneWidget,
-          reason: 'precondition: the retry 503 posted a fresh retry bar',
+          reason: 'precondition: the retry 503 posted a fresh retry snack',
         );
 
         await tester.tap(find.byKey(const Key('btn-setup-close')));
@@ -3448,16 +3492,16 @@ void main() {
           find.text(l10n.serviceSetupRetry),
           findsNothing,
           reason:
-              'dispose must still own the SECOND bar and close it. If the '
-              'first bar completing had nulled `_retrySnack`, this bar would '
+              'dispose must still own the SECOND snack and dismiss it. If the '
+              'first snack retiring had nulled `_retrySnack`, this snack would '
               'outlive the route with a live action bound to a disposed State',
         );
       },
     );
 
     testWidgets(
-      '503 then SUCCESS — the untracked success bar survives the pop and the '
-      'stale retry handle takes nothing with it',
+      '503 then SUCCESS — the untracked success snack survives the pop and '
+      'the stale retry handle takes nothing with it',
       (tester) async {
         var calls = 0;
         when(() => h.repo.bulkCreate(any())).thenAnswer((_) async {
@@ -3492,8 +3536,13 @@ void main() {
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
         expect(find.text(l10n.serviceSetupRetry), findsOneWidget);
 
-        // The retry succeeds: `_showSnack` clears the retry bar, drops the
-        // handle, posts an UNTRACKED success bar, and the screen leaves.
+        // The retry succeeds: the single-slot VelvetSnack host pre-empts the
+        // still-showing retry snack with an UNTRACKED success snack (never
+        // routed through `_retrySnack`), and the screen leaves. The old
+        // retry snack's underlying state retires as part of that
+        // pre-emption, so `_retrySnack` — still holding THAT handle, since
+        // the success path never touches the field — is stale by the time
+        // dispose runs.
         await tester.tap(find.text(l10n.serviceSetupRetry));
         await tester.pumpAndSettle();
 
@@ -3502,16 +3551,19 @@ void main() {
         expect(
           find.byType(ServiceSetupScreen),
           findsNothing,
-          reason: 'precondition: success pops back to the list',
+          reason:
+              'precondition: success replaces the setup route with the list',
         );
         expect(
           find.text(l10n.serviceSetupSuccess),
           findsOneWidget,
           reason:
-              'the success bar is deliberately NOT tracked, so dispose must '
-              'leave it alone — the master reads the confirmation on the list '
-              'screen they were just returned to',
+              'the success snack is deliberately NOT tracked, so dispose '
+              '(dismissing only the stale `_retrySnack` handle, a safe no-op '
+              'here) must leave it alone — the master reads the confirmation '
+              'on the list screen they were just returned to',
         );
+        await pumpPastVelvetSnack(tester);
       },
     );
   });
@@ -3739,6 +3791,7 @@ void main() {
           '700',
           reason: 'and its price',
         );
+        await pumpPastVelvetSnack(tester);
       },
     );
   });
@@ -3825,6 +3878,7 @@ void main() {
               'the plain duplicate copy asserts the save definitely did not '
               'happen — exactly the claim this path cannot make',
         );
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -3863,14 +3917,14 @@ void main() {
               'the next save must be a deliberate CTA tap, not a retry',
         );
 
-        // The floating 500 bar sits OVER the CTA, so the next tap would be
-        // swallowed by the snackbar. Dismiss it through the messenger rather
-        // than waiting out its 4 s dwell — a fixed wait is both slower and
-        // exactly what `forbid_fixed_wait.sh` exists to keep out of the corpus.
-        tester
-            .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger).first)
-            .clearSnackBars();
-        await tester.pumpAndSettle();
+        // The floating 500 snack sits OVER the CTA, so the next tap would be
+        // swallowed by the overlay. `ScaffoldMessenger.clearSnackBars()` is a
+        // no-op against VelvetSnack (wrong host entirely — see
+        // `test/helpers/velvet_snack_matchers.dart`'s file header); draining
+        // its full lifecycle via `pumpPastVelvetSnack` is what actually
+        // removes it (and, unlike a raw fixed wait, drives the SAME virtual
+        // clock `pumpAndSettle` already uses rather than sleeping real time).
+        await pumpPastVelvetSnack(tester);
 
         // A fresh save, from the CTA, that duplicates.
         await tester.tap(find.byKey(const Key('btn-setup-save')));
@@ -3892,6 +3946,7 @@ void main() {
               'as "may already have saved", telling the master to go hunting '
               'for a service that was never written',
         );
+        await pumpPastVelvetSnack(tester);
       },
     );
   });
@@ -3996,6 +4051,7 @@ void main() {
         );
 
         await suggestType(tester, 'MANICURE', 'Lamination');
+        await pumpPastVelvetSnack(tester);
 
         // The refetch ran and brought the new type in.
         expect(typeFetches, greaterThanOrEqualTo(2));
@@ -4069,6 +4125,10 @@ void main() {
         expect(find.byKey(const Key('setup_row_type-gel')), findsOneWidget);
 
         await suggestType(tester, 'MANICURE', 'Lamination');
+        // Drain the success snack BEFORE the next tap below (_toggleRowOn) —
+        // it is bottom-anchored and would otherwise sit over the row's
+        // include switch, hit-testing into the overlay and silently missing.
+        await pumpPastVelvetSnack(tester);
 
         expect(typeFetches, greaterThanOrEqualTo(2));
         expect(

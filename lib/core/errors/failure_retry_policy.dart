@@ -173,6 +173,13 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   ReviewNotAllowedFailure() => false,
   ClientReviewAlreadyExistsFailure() => false,
   ClientReviewNotAllowedFailure() => false,
+  // A mixed-result summary of PUTs already attempted (some succeeded, some
+  // failed) — not a single request outcome, so a generic re-issue of "the
+  // same request" is not meaningful here. Like [BulkSetupBusyFailure] /
+  // [ServiceRateLimitedFailure], this classification is advisory: `putSpan`
+  // runs through a notifier mutation, never a provider build, so
+  // [beauticaProviderRetry] is not actually on this failure's path.
+  OverrideSpanPartialFailure() => false,
 
   // ---- deterministic: throttles (trap 2 in the file header) --------------
   ResendThrottledFailure() => false,

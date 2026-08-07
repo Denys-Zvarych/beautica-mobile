@@ -65,6 +65,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 
 import '../../master/application/public_master_profile_notifier.dart';
 import '../../master/domain/master.dart';
@@ -97,8 +98,8 @@ import '../domain/booking_status.dart';
 /// booked [MasterService] the picker requires, then pushes
 /// [RouteNames.bookingSlots] with [BookingSlotPickerArgs.rescheduleBookingId]
 /// set. On any failure (load error, non-confirmed booking, or a service no
-/// longer in the master's catalogue) it surfaces a transient SnackBar and does
-/// NOT navigate.
+/// longer in the master's catalogue) it surfaces a transient VelvetSnack and
+/// does NOT navigate.
 Future<void> startBookingReschedule({
   required BuildContext context,
   required WidgetRef ref,
@@ -112,14 +113,18 @@ Future<void> startBookingReschedule({
     bookingRescheduleInFlightProvider.notifier,
   );
 
-  // Capture context-bound handles BEFORE the first await so they are never
-  // read across an async gap.
-  final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+  // `l10n` is read BEFORE the first await so it is never read across an
+  // async gap. `showUnavailable`/the catch below re-check `context.mounted`
+  // at their own call sites instead — VelvetSnack needs a LIVE context (it
+  // looks up the root `Overlay` at show time), unlike the old captured
+  // `ScaffoldMessengerState` handle this replaces.
   final AppLocalizations l10n = AppLocalizations.of(context);
 
-  void showUnavailable() => messenger
-    ..clearSnackBars()
-    ..showSnackBar(SnackBar(content: Text(l10n.bookingRescheduleUnavailable)));
+  // A defensive, pre-emptive guard (not a caught failure) — the booking is
+  // no longer in a state reschedule can act on. Matches the design register's
+  // own "soft block" example.
+  void showUnavailable() =>
+      showWarningSnack(context, l10n.bookingRescheduleUnavailable);
 
   // Reflect the loading window so both reschedule triggers can show a
   // spinner/disabled state while the up-to-two seeding GETs run. Cleared in
@@ -133,6 +138,7 @@ Future<void> startBookingReschedule({
     // Reschedule is CONFIRMED-only server-side — a defensive guard (the CTAs
     // that call this are already confirmed-gated).
     if (booking.status != BookingStatus.confirmed) {
+      if (!context.mounted) return;
       showUnavailable();
       return;
     }
@@ -146,6 +152,7 @@ Future<void> startBookingReschedule({
     if (service == null) {
       // The booked service was removed from the master's catalogue — there is
       // no duration to fetch slots against, so reschedule cannot proceed.
+      if (!context.mounted) return;
       showUnavailable();
       return;
     }
@@ -164,9 +171,8 @@ Future<void> startBookingReschedule({
       ),
     );
   } catch (_) {
-    messenger
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
+    if (!context.mounted) return;
+    showErrorSnack(context, l10n.errUnknown);
   } finally {
     inFlight.end();
   }

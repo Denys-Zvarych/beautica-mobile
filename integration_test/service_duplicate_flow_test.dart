@@ -34,20 +34,21 @@
 //   5. Arm the fake backend to reject the BULK POST with the 409
 //      DUPLICATE_SERVICE envelope.
 //   6. Tap Save → the bulk POST fires → the localized duplicate copy renders in
-//      a SnackBar; the generic errServer copy is NOT shown; the route stays on
-//      /services/setup (no pop / no forced navigation away).
+//      a VelvetSnack; the generic errServer copy is NOT shown; the route stays
+//      on /services/setup (no pop / no forced navigation away).
 //
-// SNACKBAR, NOT AN INLINE ROW ERROR
-// ---------------------------------
+// VELVETSNACK, NOT AN INLINE ROW ERROR
+// -------------------------------------
 // This flow used to assert an inline `error-service-type` row AND
 // `find.byType(SnackBar) == findsNothing`, because the deleted single-create
 // form had a service-type field to flag. The setup screen has no such field —
 // the duplicate is a WHOLE-BATCH verdict, not a per-row one (the backend does
 // not even name the offender: `serviceName` is null on the bulk envelope). So
 // `_ServiceSetupScreenState._save` routes `ServiceDuplicateFailure` to
-// `_showSnack(error.userMessage(context))` and RETURNS — no pop, no `_leave()`.
-// The old "no snackbar" assertion therefore inverts here: a SnackBar carrying
-// the duplicate copy is the CORRECT surface, and its absence is the regression.
+// `_showErrorSnack(error.userMessage(context))` and RETURNS — no pop, no
+// `_leave()`. The old "no snackbar" assertion therefore inverts here: a
+// VelvetSnack carrying the duplicate copy is the CORRECT surface, and its
+// absence is the regression.
 //
 // WHAT THIS COVERS (and what it does NOT)
 // ---------------------------------------
@@ -81,6 +82,7 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -88,6 +90,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -211,22 +214,20 @@ void main() {
             'the 409 mapping under test was never exercised at all',
       );
 
-      // The duplicate copy renders in a SnackBar — the setup screen has no
+      // The duplicate copy renders in a VelvetSnack — the setup screen has no
       // service-type field to flag inline, and the bulk envelope names no
       // offending service, so the whole-batch verdict is surfaced as a
       // transient message. See the header note on why this INVERTS the old
       // `findsNothing` snackbar assertion.
-      final Finder duplicateSnack = find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.text(l10n.serviceErrDuplicate),
-      );
-      await tester.pumpUntilFound(duplicateSnack);
-      expect(
-        duplicateSnack,
-        findsOneWidget,
-        reason:
-            'the 409 DUPLICATE_SERVICE must surface as the localized duplicate '
-            'copy in a snackbar',
+      //
+      // Unscoped by construction: VelvetSnack lives on the app's ROOT
+      // `Overlay`, a SIBLING of the routed screen subtree, never a descendant
+      // of it — see `test/helpers/velvet_snack_matchers.dart`'s file header.
+      final Finder duplicateSnackText = find.text(l10n.serviceErrDuplicate);
+      await tester.pumpUntilFound(duplicateSnackText);
+      expectVelvetSnack(
+        l10n.serviceErrDuplicate,
+        variant: VelvetSnackVariant.error,
       );
 
       // The screen did NOT pop and did NOT navigate away — the master stays on
@@ -249,6 +250,10 @@ void main() {
         findsNothing,
         reason: 'the generic "server error, try again" copy must never show',
       );
+
+      // Drain the dwell Timer so none is pending at teardown (mirrors
+      // `master_bookings_flow_test.dart`'s identical drain).
+      await pumpPastVelvetSnack(tester);
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );

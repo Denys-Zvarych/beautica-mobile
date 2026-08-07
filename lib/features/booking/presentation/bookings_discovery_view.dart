@@ -88,6 +88,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -498,8 +499,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// own "book a master" flow (wrong direction: it would walk a MASTER
   /// through booking themselves as a client). Rather than wire this to a
   /// route that means something else, or invent a new backend call, this
-  /// shows the same transient-SnackBar "coming soon" pattern the app already
-  /// uses for other unscoped affordances (e.g.
+  /// shows the same transient-VelvetSnack "coming soon" pattern the app
+  /// already uses for other unscoped affordances (e.g.
   /// `reschedule_navigation.dart`'s `bookingRescheduleUnavailable`,
   /// `SalonBookingComingSoonScreen`'s placeholder copy).
   ///
@@ -518,9 +519,15 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// happened; do not reintroduce the `BuildContext` parameter.
   void _showAddComingSoon() {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(l10n.masterBookingsAddComingSoon)));
+    // This screen (via `MasterBookingsScreen`) always renders the master's
+    // own `VelvetBottomNavBar` as its `bottomNavigationBar` — never
+    // suppressed — so the bottom-anchored snack needs `bottomInset` to clear
+    // it; see `VelvetSizes.bottomNavClearanceMaster`'s doc.
+    showInfoSnack(
+      context,
+      l10n.masterBookingsAddComingSoon,
+      bottomInset: VelvetSizes.bottomNavClearanceMaster,
+    );
   }
 
   // ── Build ───────────────────────────────────────────────────────────────

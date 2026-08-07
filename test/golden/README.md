@@ -22,8 +22,10 @@ Every golden covers: **{320, 360, 414} dp × {textScale 1.0, 1.3}**
 | `services_form_golden_test.dart` | ServiceForm (CREATE + EDIT) | 12 |
 | `calendar_working_hours_golden_test.dart` | WorkingHoursScreen (LOADED + LOADING) | 12 |
 | `master_profile_golden_test.dart` | MasterProfileScreen (DATA) | 6 |
+| `error_state_golden_test.dart` | shared ErrorState (4 failure variants + no-retry) + ResultsError (2 variants) | 7 |
+| `velvet_snack_golden_test.dart` | VelvetSnack (4 variants + action+close combo), single 360dp width | 5 |
 
-**Total: 66 goldens**
+**Total: 78 goldens**
 
 Masters live in `test/golden/goldens/` and are committed to git.
 

@@ -17,7 +17,7 @@
 //   • the `!canReview` info state — a stale `/bookings/{id}/review` deep link
 //     lands on the not-reviewable body, NOT the form;
 //   • an API failure ([ReviewNotAllowedFailure]) — the localized message
-//     surfaces in a SnackBar and the client STAYS on the form (no pop);
+//     surfaces in a VelvetSnack and the client STAYS on the form (no pop);
 //   • the fetch error + loading states behind the shared top bar.
 //
 // Plus the booking-detail ENTRY CTA: `booking-detail-leave-review` is present
@@ -44,6 +44,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_fee
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +52,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 const String _bookingId = 'b1';
 
@@ -386,7 +388,7 @@ void main() {
 
     testWidgets(
       'a successful submit invalidates bookingDetailProvider, shows the '
-      'thank-you SnackBar and pops back to the detail',
+      'thank-you VelvetSnack and pops back to the detail',
       (tester) async {
         final _MockBookingRepository repo = _MockBookingRepository();
         // The "server": before the review exists canReview is true; the
@@ -427,8 +429,11 @@ void main() {
           () =>
               repo.createReview(bookingId: _bookingId, rating: 4, comment: ''),
         ).called(1);
-        // The thank-you SnackBar surfaced…
-        expect(find.text(l10n.reviewSubmitSuccess), findsOneWidget);
+        // The thank-you VelvetSnack surfaced…
+        expectVelvetSnack(
+          l10n.reviewSubmitSuccess,
+          variant: VelvetSnackVariant.success,
+        );
         // …the screen popped back to /host…
         expect(find.byType(LeaveReviewScreen), findsNothing);
         expect(
@@ -439,7 +444,7 @@ void main() {
         expect(fetches, 2, reason: 'ref.invalidate(bookingDetailProvider)');
         expect(find.text('cr:false'), findsOneWidget);
 
-        await tester.pumpUntilGone(find.text(l10n.reviewSubmitSuccess));
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -469,7 +474,10 @@ void main() {
 
         final AppLocalizations l10n = _l10n(tester);
         // The clean localized "can't be reviewed" message — never errUnknown.
-        expect(find.text(l10n.reviewErrNotAllowed), findsOneWidget);
+        expectVelvetSnack(
+          l10n.reviewErrNotAllowed,
+          variant: VelvetSnackVariant.error,
+        );
         expect(find.text(l10n.errUnknown), findsNothing);
         // The client is STILL on the review form (no pop on failure). The
         // review screen was reached via `context.push`, so its ImperativeRoute-
@@ -477,7 +485,7 @@ void main() {
         // memory) — the mounted screen is the reliable "did not pop" proof.
         expect(find.byType(LeaveReviewScreen), findsOneWidget);
 
-        await tester.pumpUntilGone(find.text(l10n.reviewErrNotAllowed));
+        await pumpPastVelvetSnack(tester);
       },
     );
 

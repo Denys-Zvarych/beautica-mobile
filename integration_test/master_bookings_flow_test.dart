@@ -79,6 +79,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/my_booking
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
@@ -93,6 +94,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 /// The REAL rendered geometry of the [MasterBookingCard] keyed
@@ -1814,33 +1816,40 @@ void main() {
   // ── 2026-07-22 — the header's «+» add-booking affordance ───────────────────
   //
   // Step 2.7 Rule 3b: `_showAddComingSoon` (`bookings_discovery_view.dart`)
-  // reads `AppLocalizations`/`ScaffoldMessenger` off a REAL `BuildContext` —
-  // the widget tier can prove the callback fires against a mocked notifier,
-  // but not that the real chrome (a real `Scaffold`/`MaterialApp`-hosted
-  // `ScaffoldMessenger`, behind a real login) actually surfaces the SnackBar.
-  testWidgets('the «+» add-booking affordance shows a coming-soon SnackBar', (
-    tester,
-  ) async {
-    final fb = FakeBackend()..currentRole = UserRole.independentMaster;
-    final GoRouter router = await AppHarness.boot(tester, fb);
-    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-    await AppHarness.settle(tester);
-    expect(find.byType(MasterBookingsScreen), findsOneWidget);
-    expect(AppHarness.location(router), startsWith(RouteNames.masterBookings));
+  // reads `AppLocalizations` off a REAL `BuildContext` and shows through the
+  // REAL root `Overlay` — the widget tier can prove the callback fires
+  // against a mocked notifier, but not that the real chrome (a real
+  // `MaterialApp`-hosted `Overlay`, behind a real login) actually surfaces
+  // the VelvetSnack.
+  testWidgets(
+    'the «+» add-booking affordance shows a coming-soon VelvetSnack',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
 
-    final AppLocalizations l10n = _l10nOf(tester, MasterBookingsScreen);
+      final AppLocalizations l10n = _l10nOf(tester, MasterBookingsScreen);
 
-    await tester.tap(find.byKey(const Key('master-bookings-add')));
-    await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-bookings-add')));
+      await AppHarness.settle(tester);
 
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.text(l10n.masterBookingsAddComingSoon), findsOneWidget);
+      expectVelvetSnack(
+        l10n.masterBookingsAddComingSoon,
+        variant: VelvetSnackVariant.info,
+      );
 
-    // Drain the SnackBar's auto-dismiss timer so none is pending at teardown
-    // (mirrors `client_leave_review_flow_test.dart`'s identical drain).
-    await tester.pumpUntilGone(find.text(l10n.masterBookingsAddComingSoon));
-  });
+      // Drain the dwell Timer so none is pending at teardown (mirrors
+      // `client_leave_review_flow_test.dart`'s identical drain).
+      await pumpPastVelvetSnack(tester);
+    },
+  );
 
   // ── 2026-07-22 — the day-scoped SKELETON, while the first fetch is pending ─
   //

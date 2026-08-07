@@ -6,10 +6,10 @@
 // context (supplied by the caller, never user-entered) to
 // [ServiceRepository.suggestServiceType].
 //
-// On success it pops `true` (the caller shows the success SnackBar). A 400
+// On success it pops `true` (the caller shows the success VelvetSnack). A 400
 // ValidationFailure carrying a `name` field error maps to the inline name-field
-// error and the dialog STAYS OPEN; a 429 throttle surfaces a SnackBar within the
-// dialog and STAYS OPEN.
+// error and the dialog STAYS OPEN; a 429 throttle surfaces a VelvetSnack within
+// the dialog and STAYS OPEN.
 //
 // Finders use Key lookups (M2). The repository is mocked (Isolation); no real
 // network. The slug-arg assertion is the M4 guard: the dialog must forward the
@@ -23,7 +23,7 @@
 //   3. (Change 1 guard) the removed description field is ABSENT from the tree so
 //      it cannot silently return.
 //   4. 400 ValidationFailure{name} → inline name error, dialog stays open.
-//   5. 429 CategoryRequestThrottledFailure → throttle SnackBar, dialog stays
+//   5. 429 CategoryRequestThrottledFailure → throttle VelvetSnack, dialog stays
 //      open.
 //   6a. (Change 2 — genuine regression) with a 300 px keyboard the Dialog
 //       outer AnimatedPadding.padding.bottom == viewInsets + xl (332), NOT
@@ -34,12 +34,14 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -119,7 +121,12 @@ AppLocalizations _l10n(WidgetTester tester) => AppLocalizations.of(
 );
 
 /// Asserts [message] renders inline inside the dialog (the name field's error
-/// row) and NOT inside a SnackBar.
+/// row) and NOT inside a VelvetSnack.
+///
+/// VelvetSnack lives on the app's ROOT `Overlay` — a SIBLING of the dialog
+/// route, never a descendant of it — so the "not a snack" half of this check
+/// must be an UNSCOPED `find.byType(VelvetSnack)`, not a `find.descendant(of:
+/// ...)` scoped to the dialog (that would vacuously pass no matter what).
 void _expectInlineNameError(WidgetTester tester, String message) {
   expect(
     find.descendant(
@@ -130,9 +137,9 @@ void _expectInlineNameError(WidgetTester tester, String message) {
     reason: 'Inline name error must render inside the dialog.',
   );
   expect(
-    find.descendant(of: find.byType(SnackBar), matching: find.text(message)),
+    find.byType(VelvetSnack),
     findsNothing,
-    reason: 'A mapped field error must not also appear in a SnackBar.',
+    reason: 'A mapped field error must not also appear in a VelvetSnack.',
   );
 }
 
@@ -256,14 +263,14 @@ void main() {
       await _submit(tester);
 
       _expectInlineNameError(tester, serverMsg);
-      // No SnackBar — the field error was mapped inline.
-      expect(find.byType(SnackBar), findsNothing);
+      // No VelvetSnack — the field error was mapped inline.
+      expect(find.byType(VelvetSnack), findsNothing);
       // Dialog stays open.
       expect(find.byType(ServiceTypeSuggestionDialog), findsOneWidget);
     },
   );
 
-  testWidgets('5. 429 CategoryRequestThrottledFailure → throttle SnackBar, '
+  testWidgets('5. 429 CategoryRequestThrottledFailure → throttle VelvetSnack, '
       'dialog stays open', (tester) async {
     when(
       () => repo.suggestServiceType(
@@ -279,14 +286,10 @@ void main() {
     await _enterName(tester, 'Забагато запитів');
     await _submit(tester);
 
-    // A non-field failure surfaces the throttle copy in a SnackBar.
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.text(l10n.categoryRequestErrThrottled),
-      ),
-      findsOneWidget,
+    // A non-field failure surfaces the throttle copy in a VelvetSnack.
+    expectVelvetSnack(
+      l10n.categoryRequestErrThrottled,
+      variant: VelvetSnackVariant.error,
     );
     // No inline name error for a non-field failure.
     expect(
@@ -298,6 +301,7 @@ void main() {
     );
     // Dialog stays open so the user can retry.
     expect(find.byType(ServiceTypeSuggestionDialog), findsOneWidget);
+    await pumpPastVelvetSnack(tester);
   });
 
   // ---------------------------------------------------------------------------

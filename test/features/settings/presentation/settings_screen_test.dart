@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/master/presentation/widgets/settings_ro
 import 'package:beautica_mobile/features/settings/presentation/settings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,6 +38,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 GoRouter _makeRouter() => GoRouter(
@@ -240,10 +242,13 @@ void main() {
       expect(repo.requestChangePasswordOtpCallCount, 1);
       // Stayed on /settings — never navigated to a dead OTP screen.
       expect(find.text('change-password'), findsNothing);
-      expect(
-        find.text(l10n.verificationErrResendThrottled(42)),
-        findsOneWidget,
+      expectVelvetSnack(
+        l10n.verificationErrResendThrottled(42),
+        variant: VelvetSnackVariant.error,
       );
+
+      // Drain the dwell Timer so it does not leak past the test.
+      await pumpPastVelvetSnack(tester);
     });
 
     // mobile-perf MEDIUM fix — the change-password row now surfaces the

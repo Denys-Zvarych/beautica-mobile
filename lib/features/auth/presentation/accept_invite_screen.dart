@@ -27,6 +27,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
+import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../../../shared/validators/name_validator.dart';
 import '../../../shared/validators/phone_validator.dart';
@@ -240,11 +241,9 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     authState.when(
       data: (_) {
         // Session is now Authenticated — the router redirect forwards to /home.
-        // Show a snackbar as a positive confirmation before the transition.
+        // Show a snack as a positive confirmation before the transition.
         final l10n = AppLocalizations.of(context);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l10n.inviteSuccessSnackbar)));
+        showSuccessSnack(context, l10n.inviteSuccessSnackbar);
         if (kDebugMode) {
           log(
             'Accept-invite: success — routing to home',
@@ -261,7 +260,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
         // A ValidationFailure with field errors maps onto each field's inline
         // errorText (firstName / lastName / phone / password) instead of
         // collapsing to a single banner. The banner is kept only as the
-        // fallback for an empty field map (serverMessage → generic) or any
+        // fallback for an empty field map (localized generic) or any
         // non-validation failure.
         if (e is ValidationFailure && e.fieldErrors.isNotEmpty) {
           setState(() {
@@ -271,15 +270,15 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           });
           return;
         }
-        final String message;
-        if (e is ValidationFailure) {
-          final serverMessage = e.serverMessage?.trim();
-          message = (serverMessage != null && serverMessage.isNotEmpty)
-              ? serverMessage
-              : l10n.errValidation;
-        } else {
-          message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
-        }
+        // ValidationFailure.userMessage() already returns the localized
+        // errValidation copy — no need to branch on it separately. The raw
+        // serverMessage fallback that used to live here was removed
+        // (mobile-security, 2026-08): it could surface untranslated/technical
+        // backend text on this live-narrated banner. Per-field specificity is
+        // unaffected — the fieldErrors branch above already returned.
+        final String message = e is Failure
+            ? e.userMessage(context)
+            : l10n.errUnknown;
         setState(() {
           _loading = false;
           _inlineError = message;

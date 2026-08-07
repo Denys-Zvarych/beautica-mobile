@@ -16,9 +16,9 @@
 //   • a [ClientReviewAlreadyExistsFailure] (409) — the ONLY signal this
 //     screen ever gets that feedback was already left, per the file header's
 //     gating-limitation note — swaps the form for the not-reviewable info
-//     state, no SnackBar;
+//     state, no VelvetSnack;
 //   • a [ClientReviewNotAllowedFailure] — the localized message surfaces in a
-//     SnackBar and the provider STAYS on the form (no pop);
+//     VelvetSnack and the provider STAYS on the form (no pop);
 //   • the inline «Клієнт цього коментаря не побачить» reminder renders (the
 //     thing that makes this screen more than a mirror of the client's own
 //     leave-review form);
@@ -40,6 +40,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,6 +48,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 const String _bookingId = 'b1';
 
@@ -236,7 +238,7 @@ void main() {
     });
 
     testWidgets(
-      'a successful submit shows the success SnackBar and pops back',
+      'a successful submit shows the success VelvetSnack and pops back',
       (tester) async {
         final repo = _MockClientReviewRepository();
         when(
@@ -267,7 +269,10 @@ void main() {
             comment: '',
           ),
         ).called(1);
-        expect(find.text(l10n.clientReviewSubmitSuccess), findsOneWidget);
+        expectVelvetSnack(
+          l10n.clientReviewSubmitSuccess,
+          variant: VelvetSnackVariant.success,
+        );
         expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
         // Read AFTER the pop, not while the feedback screen's
         // ImperativeRouteMatch (from context.push) is still on the stack —
@@ -283,7 +288,7 @@ void main() {
           '/host',
         );
 
-        await tester.pumpUntilGone(find.text(l10n.clientReviewSubmitSuccess));
+        await pumpPastVelvetSnack(tester);
       },
     );
 
@@ -325,9 +330,6 @@ void main() {
         1,
         reason: 'exactly one fetch backs the initial screen load',
       );
-      // Captured BEFORE the pop — the screen is gone afterwards.
-      final AppLocalizations l10n = _l10n(tester);
-
       await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
@@ -344,7 +346,7 @@ void main() {
             'CTA that would 409 on a second tap',
       );
 
-      await tester.pumpUntilGone(find.text(l10n.clientReviewSubmitSuccess));
+      await pumpPastVelvetSnack(tester);
     });
 
     testWidgets(
@@ -372,7 +374,10 @@ void main() {
         await tester.pumpAndSettle();
 
         final AppLocalizations l10n = _l10n(tester);
-        expect(find.text(l10n.clientReviewErrNotAllowed), findsOneWidget);
+        expectVelvetSnack(
+          l10n.clientReviewErrNotAllowed,
+          variant: VelvetSnackVariant.error,
+        );
         expect(find.text(l10n.errUnknown), findsNothing);
         expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
         expect(
@@ -381,7 +386,7 @@ void main() {
           reason: 'a not-allowed failure must NOT swap to the info state',
         );
 
-        await tester.pumpUntilGone(find.text(l10n.clientReviewErrNotAllowed));
+        await pumpPastVelvetSnack(tester);
       },
     );
 

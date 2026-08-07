@@ -46,6 +46,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -653,7 +654,7 @@ class _PublicProfileBody extends StatelessWidget {
   /// Opens the master's Instagram in the Instagram app or a browser, sanitising
   /// [rawValue] through [canonicalInstagramUri] (STRICT https + host/charset
   /// allow-list) before launch — an unvalidated string is never handed to
-  /// [launchUrl]. On a null result / launch failure a localized SnackBar shows.
+  /// [launchUrl]. On a null result / launch failure a localized VelvetSnack shows.
   static Future<void> _openInstagram(
     BuildContext context,
     String? rawValue,
@@ -680,11 +681,16 @@ class _PublicProfileBody extends StatelessWidget {
     if (!launched) _showInstagramError(context);
   }
 
+  /// This route is registered TOP-LEVEL, outside the CLIENT `StatefulShellRoute`
+  /// (app_router.dart) — pushed full-screen OVER `ClientShell`, which replaces
+  /// it entirely (the shared `ClientBottomNav` is not part of this route's
+  /// tree at all). The screen's own bottom slot is `_BookingShelf`, a local
+  /// per-screen CTA, not the shared nav bar the `bottomNavClearance*` constants
+  /// exist to clear — so no `bottomInset` is needed here.
   static void _showInstagramError(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(AppLocalizations.of(context).masterInstagramOpenError),
-      ),
+    showErrorSnack(
+      context,
+      AppLocalizations.of(context).masterInstagramOpenError,
     );
   }
 
@@ -707,7 +713,7 @@ class _PublicProfileBody extends StatelessWidget {
 /// A 48×48 raised neumorphic heart that flips the favourite flag for this
 /// master via [favoriteToggleProvider] (targetType = MASTER). The icon pops on
 /// toggle; the button depresses on press. On a failed toggle the notifier
-/// reverts the optimistic flag and a localized SnackBar is shown.
+/// reverts the optimistic flag and a localized VelvetSnack is shown.
 class _FavoriteToggleButton extends ConsumerStatefulWidget {
   const _FavoriteToggleButton({required this.masterId});
 
@@ -729,10 +735,10 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
     final Failure? failure = await ref
         .read(favoriteToggleProvider.notifier)
         .toggle(_target);
+    // See `_showInstagramError`'s doc above — this top-level route sits over
+    // `ClientShell`, not inside it, so no `bottomInset` is needed here either.
     if (failure != null && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      showErrorSnack(context, failure.userMessage(context));
     }
   }
 

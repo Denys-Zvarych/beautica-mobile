@@ -46,6 +46,7 @@
 // hardcoded category seed replaced by the live `approvedCategoriesProvider` /
 // `serviceTypesProvider` data.
 
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -72,6 +73,9 @@ import 'package:beautica_mobile/features/services/presentation/widgets/service_s
 import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack_host.dart'
+    show VelvetSnackHandle;
 import 'package:beautica_mobile/shared/formatters/server_field_message.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
@@ -161,21 +165,21 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
   late final ScreenProtectionManager _screenProtection;
 
-  /// The live handle on the 503 RETRY snackbar, when one is up.
+  /// The live handle on the 503 RETRY snack, when one is up.
   ///
-  /// `_showSnack` posts through `ScaffoldMessenger.of(context)`, which resolves
-  /// to the ROOT messenger `MaterialApp` installs ABOVE the Router — so a bar
-  /// posted here outlives this route. That is harmless for the 4 s
-  /// informational bars, and NOT harmless for the retry bar: it carries an
-  /// action bound to `_save` on a State that a `pop` has since disposed — and
-  /// because `SnackBar` defaults `persist` to `action != null`, that bar does
-  /// not time out at all. Its 8 s `duration` is inert; only a swipe, a
-  /// replacement, or [dispose] takes it down. So the handle is mandatory: it is
-  /// the only way the route can reclaim a bar that would otherwise sit there
-  /// indefinitely.
-  /// [dispose] closes this one bar (never the whole queue — the success path
-  /// posts its confirmation and THEN leaves, and that bar must survive).
-  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _retrySnack;
+  /// VelvetSnack lives on the app's ROOT `Overlay` (see `velvet_snack_host.dart`),
+  /// so a snack posted here outlives this route exactly like the old
+  /// `ScaffoldMessenger`-backed bar did. That is harmless for a plain
+  /// confirmation snack, and NOT harmless for the retry snack specifically: its
+  /// action is bound to `_save` on a State that a `pop` has since disposed. Its
+  /// 8 s dwell (`VelvetSnackMotion.dwellWithAction`) is the only real timeout —
+  /// unlike the old `SnackBar`, VelvetSnack does not disable its dwell timer
+  /// just because an action is present — but the route can still be popped well
+  /// before that timer fires, so [dispose] reclaims the handle explicitly.
+  /// Only the retry snack is tracked: the plain success/info snacks never carry
+  /// a callback into this State, so there is nothing on them dispose needs to
+  /// reclaim.
+  VelvetSnackHandle? _retrySnack;
 
   /// True while the NEXT [_save] is a retry issued from the 503 bar's action.
   ///
@@ -212,16 +216,23 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   @override
   void dispose() {
     _screenProtection.release();
-    // Kill the retry bar with the route. `_save` also refuses to run unmounted.
+    // Kill the retry snack with the route. `_save` also refuses to run unmounted.
     //
-    // What the tests actually pin: this `close()` ALONE satisfies the
+    // `_retrySnack` targets a `_VelvetSnackScopeState` that lives on the
+    // app's ROOT `Overlay`, with its own lifecycle independent of this
+    // screen's route (see velvet_snack_host.dart's file-level doc on why a
+    // VelvetSnack survives a route pop) — it deliberately outlives this
+    // disposing `State` by design. Calling `dismiss()` on it here is not a
+    // use-after-unmount: do not "fix" this into a `mounted`/context guard.
+    //
+    // What the tests actually pin: this `dismiss()` ALONE satisfies the
     // disposed-retry test and its control (QA mutation-probed the `mounted`
-    // guard out and both stayed green — closing the bar removes the button, so
-    // nothing is left to tap). The guard is therefore DEFENSIVE, not covered:
-    // it catches a tap already dispatched when the pop lands, a race a widget
-    // test cannot schedule deterministically. Keep it — "untested" here means
-    // "untestable at this tier", not "redundant".
-    _retrySnack?.close();
+    // guard out and both stayed green — dismissing the snack removes the
+    // button, so nothing is left to tap). The guard is therefore DEFENSIVE, not
+    // covered: it catches a tap already dispatched when the pop lands, a race a
+    // widget test cannot schedule deterministically. Keep it — "untested" here
+    // means "untestable at this tier", not "redundant".
+    unawaited(_retrySnack?.dismiss());
     _retrySnack = null;
     // Final wholesale cleanup — every row (across every loaded category, even
     // collapsed ones whose controllers we deliberately retained) is disposed
@@ -572,7 +583,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     if (created != null) {
       // Success — refresh the catalogue views and pop back to the list.
       invalidateMasterServiceCatalogues(ref);
-      _showSnack(l10n.serviceSetupSuccess);
+      showSuccessSnack(context, l10n.serviceSetupSuccess);
       _leave();
       return;
     }
@@ -587,7 +598,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // explicit RETRY, rather than a dead-end error they can only dismiss.
     // The copy must never imply the services were saved (they were not).
     if (error is BulkSetupBusyFailure) {
-      _showSnack(
+      _showErrorSnack(
         error.userMessage(context),
         onRetry: () {
           // Mark the NEXT save as a retry so a 409 landing on it is reported as
@@ -601,11 +612,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     }
 
     // 429: a per-master write bucket is exhausted (bulk 10/min, single writes
-    // 60/min). Deliberately NO retry action — see [_showSnack]. The selection
-    // stays untouched and the CTA stays live, so the master re-fires it when
-    // they choose to.
+    // 60/min). Deliberately NO retry action — see [_showErrorSnack]. The
+    // selection stays untouched and the CTA stays live, so the master re-fires
+    // it when they choose to.
     if (error is ServiceRateLimitedFailure) {
-      _showSnack(error.userMessage(context));
+      _showErrorSnack(error.userMessage(context));
       return;
     }
 
@@ -632,7 +643,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // switches to the one that claims neither outcome — see [_retryingAfterBusy].
     if (error is ServiceDuplicateFailure) {
       invalidateMasterServiceCatalogues(ref);
-      _showSnack(
+      _showErrorSnack(
         afterBusyRetry
             ? l10n.serviceSetupErrDuplicateAfterRetry
             : error.userMessage(context),
@@ -653,7 +664,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     final message = error is Failure
         ? error.userMessage(context)
         : l10n.errUnknown;
-    _showSnack(message);
+    _showErrorSnack(message);
   }
 
   /// Re-reads the master's catalogue after a 409 and switches OFF every
@@ -729,7 +740,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     final bool? sent = await showCategoryRequestDialog(context);
     if (!mounted || sent != true) return;
     ref.invalidate(approvedCategoriesProvider);
-    _showSnack(l10n.categoryRequestSuccess);
+    showSuccessSnack(context, l10n.categoryRequestSuccess);
   }
 
   /// Opens the suggest-a-service-type dialog for [categorySlug].
@@ -744,7 +755,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       categoryName: categorySlug,
     );
     if (!mounted || sent != true) return;
-    _showSnack(l10n.serviceTypeSuggestSuccess);
+    showSuccessSnack(context, l10n.serviceTypeSuggestSuccess);
     // Drop this category's cached type list so an auto-approved suggestion can
     // appear immediately.
     ref.invalidate(serviceTypesProvider(categorySlug));
@@ -819,78 +830,33 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     return mappedAny;
   }
 
-  /// Shows a floating snackbar. When [onRetry] is supplied the bar also carries
-  /// a retry action and stays up longer — used for the transient 503, where the
-  /// only useful next step is "try that again".
+  /// Shows a floating error VelvetSnack. When [onRetry] is supplied the snack
+  /// also carries a retry action, which VelvetSnack automatically dwells
+  /// longer for (`VelvetSnackMotion.dwellWithAction`, 6 s) — used for the
+  /// transient 503, where the only useful next step is "try that again".
   ///
   /// A retry action is offered for the 503 ONLY. Notably not for the 429: the
   /// implicit promise of a «Повторити» button is "this will work now", and while
   /// the rate-limit bucket is closed that is false by construction — the tap
   /// spends the master's next allowance on a request that cannot succeed. That
-  /// bar states the wait and lets the CTA (still enabled) carry the retry on the
-  /// master's own schedule.
-  void _showSnack(String message, {VoidCallback? onRetry}) {
+  /// snack states the wait and lets the CTA (still enabled) carry the retry on
+  /// the master's own schedule.
+  ///
+  /// VelvetSnack pre-empts whatever is currently showing on its own
+  /// (single-slot host, see `velvet_snack_host.dart`) — unlike the old
+  /// `ScaffoldMessenger` FIFO queue, no manual "clear before show" step is
+  /// needed here.
+  void _showErrorSnack(String message, {VoidCallback? onRetry}) {
     final l10n = AppLocalizations.of(context);
-    final messenger = ScaffoldMessenger.of(context)..clearSnackBars();
-    // Any previous retry bar was just cleared, so the stale handle must go too.
-    _retrySnack = null;
-    final controller = messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: BrandColors.accentDeep,
-        behavior: SnackBarBehavior.floating,
-        // A retryable failure gets a longer dwell — the default 4 s is not
-        // enough to read the message AND decide to act on it.
-        //
-        // The 8 s is documentation of intent, not a mechanism: `SnackBar`
-        // defaults `persist` to `action != null`, so the retry bar ignores its
-        // duration entirely and stays until swiped, replaced, or closed by
-        // [dispose]. Only the 4 s branch actually elapses.
-        duration: onRetry == null
-            ? const Duration(seconds: 4)
-            : const Duration(seconds: 8),
-        action: onRetry == null
-            ? null
-            : SnackBarAction(
-                label: l10n.serviceSetupRetry,
-                // `white` IS the cream token (#F5EDE0) — the on-accent
-                // foreground, correct against the accentDeep snackbar fill.
-                textColor: BrandColors.white,
-                onPressed: onRetry,
-              ),
-      ),
+    final VelvetSnackHandle handle = showErrorSnack(
+      context,
+      message,
+      actionLabel: onRetry == null ? null : l10n.serviceSetupRetry,
+      onAction: onRetry,
     );
-    // Only the retry bar is tracked: it is the only one whose action outlives
-    // the route (see [_retrySnack]).
-    if (onRetry != null) {
-      _retrySnack = controller;
-      // Drop the handle the moment the bar leaves the queue. Nothing else
-      // does: `_showSnack` only clears it when a NEW bar is posted, and
-      // `dispose` only when the route dies.
-      //
-      // The gap between those two is the master SWIPING the bar away —
-      // `SnackBar`'s `Dismissible` calls `removeCurrentSnackBar(reason: swipe)`
-      // and tells us nothing — or any other holder of the ROOT messenger
-      // clearing it. Note the timeout is NOT in that set: `SnackBar` ends its
-      // constructor with `persist = persist ?? action != null`, so THIS bar,
-      // the only one carrying an action, never auto-dismisses and its 8 s
-      // `duration` is inert. (A test pins that framework default, because if it
-      // flips, expiry becomes a second path into the same bug.)
-      //
-      // A handle outliving its bar makes `close()` operate on an empty queue:
-      // `assert(_snackBars.first == controller)` throws `StateError: No
-      // element` in debug, and in release (assert stripped)
-      // `hideCurrentSnackBar` silently kills whatever unrelated bar is front on
-      // the ROOT messenger — the quieter and harder-to-trace symptom.
-      //
-      // `identical` is load-bearing: `closed` resolves a frame or two AFTER the
-      // bar is torn down, so a rapid second 503 has already parked ITS
-      // controller here by the time the first one completes. Without the check
-      // the older completion nulls the newer, live handle.
-      controller.closed.whenComplete(() {
-        if (identical(_retrySnack, controller)) _retrySnack = null;
-      });
-    }
+    // Only the retry snack is tracked: it is the only one whose action can
+    // outlive the route (see [_retrySnack]'s doc comment).
+    _retrySnack = onRetry == null ? null : handle;
   }
 
   // -------------------------------------------------------------------------

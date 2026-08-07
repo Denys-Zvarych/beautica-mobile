@@ -50,6 +50,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/pricing_f
 import 'package:beautica_mobile/features/services/presentation/widgets/searchable_select_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
@@ -806,15 +807,14 @@ class _ServiceFormState extends State<ServiceForm> {
           }
           return;
         }
-        // No recognised field — surface the backend's generic message (or a
-        // localized fallback) as a snackbar so the submit never dies silently.
+        // No recognised field — surface a localized generic message as a
+        // snackbar so the submit never dies silently. The backend's raw
+        // serverMessage is deliberately NOT shown here (mobile-security,
+        // 2026-08): it can be untranslated/technical, and this VelvetSnack is
+        // a liveRegion that would narrate it verbatim. f.userMessage()
+        // already returns the localized errValidation copy.
         if (context.mounted) {
-          final String msg = (f.serverMessage?.trim().isNotEmpty ?? false)
-              ? f.serverMessage!.trim()
-              : f.userMessage(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
-          );
+          showErrorSnack(context, f.userMessage(context));
         }
         return;
       }
@@ -1216,10 +1216,10 @@ class _ServiceTypeDropdown extends ConsumerWidget {
   ///
   /// Mirrors `_CategoryDropdown._openSuggestDialog`: closes the menu first so
   /// the dialog is the top surface, opens it on the root context (the sheet
-  /// context is torn down by the pop), then raises the success SnackBar on the
-  /// parent messenger when the dialog pops `true`. The picker is only rendered
-  /// once a category is selected, so [categoryName] is always a non-empty slug
-  /// here — the backend requires it.
+  /// context is torn down by the pop), then raises the success VelvetSnack on
+  /// that same root context when the dialog pops `true`. The picker is only
+  /// rendered once a category is selected, so [categoryName] is always a
+  /// non-empty slug here — the backend requires it.
   Future<void> _openSuggestDialog(
     BuildContext sheetContext,
     BuildContext rootContext,
@@ -1230,13 +1230,11 @@ class _ServiceTypeDropdown extends ConsumerWidget {
       rootContext,
       categoryName: categoryName,
     );
+    // The dialog has already popped by the time `submitted` resolves, so this
+    // shows on the form's own still-mounted root context — above whatever the
+    // dialog sat on top of, not stranded with it.
     if (submitted == true && rootContext.mounted) {
-      ScaffoldMessenger.of(rootContext).showSnackBar(
-        SnackBar(
-          content: Text(l10n.serviceTypeSuggestSuccess),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      showSuccessSnack(rootContext, l10n.serviceTypeSuggestSuccess);
     }
   }
 
@@ -1422,13 +1420,11 @@ class _CategoryDropdown extends ConsumerWidget {
     // the root context (the sheet context is torn down by the pop).
     dismissOverlay(sheetContext);
     final submitted = await showCategoryRequestDialog(rootContext);
+    // The dialog has already popped by the time `submitted` resolves, so this
+    // shows on the form's own still-mounted root context — above whatever the
+    // dialog sat on top of, not stranded with it.
     if (submitted == true && rootContext.mounted) {
-      ScaffoldMessenger.of(rootContext).showSnackBar(
-        SnackBar(
-          content: Text(l10n.categoryRequestSuccess),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      showSuccessSnack(rootContext, l10n.categoryRequestSuccess);
     }
   }
 

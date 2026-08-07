@@ -46,6 +46,7 @@ import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -55,6 +56,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/overflow_guard.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockSearchRepository extends Mock implements SearchRepository {}
@@ -1425,7 +1427,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('favorite_master_m1')));
       await tester.pump(); // optimistic fill
-      await tester.pumpAndSettle(); // add() rejects → revert + snackbar
+      await tester.pump(); // add() rejects, mounts the VelvetSnack
+      await pumpVelvetSnackIn(tester); // entrance animation to completion
 
       // Reverted to the outlined heart.
       expect(
@@ -1435,7 +1438,11 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.byType(SnackBar), findsOneWidget);
+      // VelvetSnack lives on the root overlay — a SIBLING of the routed
+      // screen, never a descendant (see velvet_snack_matchers.dart header).
+      expect(find.byType(VelvetSnack), findsOneWidget);
+
+      await pumpPastVelvetSnack(tester); // drain the dwell Timer
     });
 
     testWidgets('toggling one heart does not flip an unrelated card heart', (

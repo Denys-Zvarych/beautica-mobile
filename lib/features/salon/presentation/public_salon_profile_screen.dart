@@ -48,6 +48,7 @@ import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
@@ -1031,11 +1032,15 @@ class _AboutTab extends StatelessWidget {
     if (!launched) _showInstagramError(context);
   }
 
+  /// Same top-level-route reasoning as `PublicMasterProfileScreen`'s identical
+  /// method: this route is registered OUTSIDE the CLIENT `StatefulShellRoute`,
+  /// pushed full-screen over `ClientShell` (which it replaces entirely), and
+  /// its own bottom slot is the local `_BookingShelf` CTA, not the shared
+  /// `ClientBottomNav` — so no `bottomInset` is needed here.
   static void _showInstagramError(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(AppLocalizations.of(context).masterInstagramOpenError),
-      ),
+    showErrorSnack(
+      context,
+      AppLocalizations.of(context).masterInstagramOpenError,
     );
   }
 }
@@ -1788,10 +1793,10 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
     final Failure? failure = await ref
         .read(favoriteToggleProvider.notifier)
         .toggle(_target);
+    // See `_showInstagramError`'s doc above — no `bottomInset` needed on this
+    // top-level route.
     if (failure != null && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      showErrorSnack(context, failure.userMessage(context));
     }
   }
 

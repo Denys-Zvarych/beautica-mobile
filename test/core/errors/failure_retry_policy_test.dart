@@ -91,6 +91,7 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'CategoryRequestThrottledFailure': false,
   'BookingRateLimitedFailure': false,
   'ScheduleOverrideRateLimitedFailure': false,
+  'OverrideSpanPartialFailure': false,
   'UnknownFailure': false,
 };
 
@@ -155,6 +156,9 @@ Map<String, Failure> _instances() {
     'BookingRateLimitedFailure': const BookingRateLimitedFailure(),
     'ScheduleOverrideRateLimitedFailure':
         const ScheduleOverrideRateLimitedFailure(retryAfterSeconds: 30),
+    'OverrideSpanPartialFailure': OverrideSpanPartialFailure(
+      failedDates: <DateTime>[at],
+    ),
     'UnknownFailure': const UnknownFailure(),
   };
 }

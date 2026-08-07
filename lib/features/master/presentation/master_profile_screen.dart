@@ -48,6 +48,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
@@ -715,7 +716,7 @@ class _ProfileBody extends StatelessWidget {
   /// "@"-prefixed, or full URL). It is sanitized through
   /// [canonicalInstagramUri] (STRICT https + host/charset allow-list) before
   /// launch — an unvalidated string is never handed to [launchUrl]. On a null
-  /// result (no safe URL) or a launch failure, a localized SnackBar is shown.
+  /// result (no safe URL) or a launch failure, a localized VelvetSnack is shown.
   ///
   /// Invoked fire-and-forget from the tile's synchronous [ContactTile.onTap];
   /// [context.mounted] is re-checked after the await before touching the tree.
@@ -748,12 +749,17 @@ class _ProfileBody extends StatelessWidget {
     if (!launched) _showInstagramError(context);
   }
 
-  /// Shows the localized "couldn't open Instagram" SnackBar.
+  /// Shows the localized "couldn't open Instagram" error VelvetSnack.
+  ///
+  /// This is the master's OWN tab-root screen — its `bottomNavBar` always
+  /// renders the shared `VelvetBottomNavBar` (never suppressed), so the
+  /// bottom-anchored snack needs `bottomInset` to clear it; see
+  /// `VelvetSizes.bottomNavClearanceMaster`'s doc.
   static void _showInstagramError(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(AppLocalizations.of(context).masterInstagramOpenError),
-      ),
+    showErrorSnack(
+      context,
+      AppLocalizations.of(context).masterInstagramOpenError,
+      bottomInset: VelvetSizes.bottomNavClearanceMaster,
     );
   }
 

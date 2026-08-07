@@ -78,6 +78,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 
 import '../application/booking_cancel_dialog_visible_notifier.dart';
 import '../application/booking_cancel_in_flight_notifier.dart';
@@ -118,9 +119,7 @@ Future<void> startBookingCancel({
 
   final AppLocalizations l10n = AppLocalizations.of(context);
 
-  void showUnknownError() => ScaffoldMessenger.of(context)
-    ..clearSnackBars()
-    ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
+  void showUnknownError() => showErrorSnack(context, l10n.errUnknown);
 
   // Reflect the loading window across the WHOLE flow — load, confirm dialog,
   // AND the cancelBooking write — not just the load. Cleared in the outer
@@ -170,9 +169,7 @@ Future<void> startBookingCancel({
       // message AND refetch so the caller re-renders read-only, never a raw
       // 409.
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      showErrorSnack(context, failure.userMessage(context));
       ref.invalidate(bookingDetailProvider(booking.id));
       return;
     } catch (_) {

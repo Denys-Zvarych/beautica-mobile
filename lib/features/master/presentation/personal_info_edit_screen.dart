@@ -12,13 +12,13 @@
 //   would wipe Instagram.
 //
 // Save flow: validate → updateMyProfile(merged) → invalidate
-// masterProfileProvider → saved SnackBar → pop.
+// masterProfileProvider → saved VelvetSnack → pop.
 //
 // Server field errors: [ValidationFailure.fieldErrors] keyed by field name.
 // Each validator checks the server error first, then the local rule.
 //
 // Avatar edit is deferred — tapping the camera badge shows a "Незабаром…"
-// SnackBar (photo upload ships later).
+// info VelvetSnack (photo upload ships later).
 //
 // Security: ScreenProtector active in release builds (PII-bearing screen).
 //
@@ -44,6 +44,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 
 import 'master_profile_notifier.dart';
@@ -289,11 +290,9 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
     if (!_validateAndUpdateErrors()) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: const Key('snackbar-validation-summary'),
-            content: Text(AppLocalizations.of(context).editValidationSummary),
-          ),
+        showErrorSnack(
+          context,
+          AppLocalizations.of(context).editValidationSummary,
         );
       }
       return;
@@ -320,12 +319,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
       if (!mounted) return;
       ref.invalidate(masterProfileProvider);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          key: const Key('snackbar-saved'),
-          content: Text(AppLocalizations.of(context).savedSnackbar),
-        ),
-      );
+      showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
       context.go(RouteNames.masterProfile);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
@@ -335,22 +329,15 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
       });
       _validateAndUpdateErrors();
       if (f.fieldErrors.isEmpty) {
-        final serverMessage = f.serverMessage?.trim();
-        final text = (serverMessage != null && serverMessage.isNotEmpty)
-            ? serverMessage
-            : AppLocalizations.of(context).errValidation;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: const Key('snackbar-validation-error'),
-            content: Text(text),
-          ),
-        );
+        // Localized only — the raw backend serverMessage can be
+        // untranslated/technical and must not reach this VelvetSnack
+        // (mobile-security, 2026-08). f.userMessage() already returns the
+        // localized errValidation copy for ValidationFailure.
+        showErrorSnack(context, f.userMessage(context));
       }
     } on Failure catch (f) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(f.userMessage(context))));
+      showErrorSnack(context, f.userMessage(context));
       setState(() => _saving = false);
     } catch (e, st) {
       if (kDebugMode) {
@@ -363,9 +350,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
         );
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context).errUnknown)),
-      );
+      showErrorSnack(context, AppLocalizations.of(context).errUnknown);
       setState(() => _saving = false);
     } finally {
       if (mounted && _saving) setState(() => _saving = false);
@@ -374,9 +359,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
   void _onAvatarTap() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context).snackbarAvatarSoon)),
-    );
+    showInfoSnack(context, AppLocalizations.of(context).snackbarAvatarSoon);
   }
 
   String _buildInitials() {

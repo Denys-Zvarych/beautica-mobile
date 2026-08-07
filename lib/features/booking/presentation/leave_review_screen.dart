@@ -39,6 +39,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_detail_notifier.dart';
@@ -86,7 +87,6 @@ class _LeaveReviewScreenState extends ConsumerState<LeaveReviewScreen> {
   Future<void> _submit(Booking booking) async {
     if (_rating == 0) return;
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
     await ref
         .read(leaveReviewProvider.notifier)
@@ -99,9 +99,16 @@ class _LeaveReviewScreenState extends ConsumerState<LeaveReviewScreen> {
       final String message = error is Failure
           ? error.userMessage(context)
           : l10n.errUnknown;
-      messenger
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(message)));
+      // This route (`/bookings/:bookingId/review`) nests one level deeper
+      // than the exact `/bookings/:bookingId` pattern `ClientShell` hides its
+      // `ClientBottomNav` on, so that bar is still visible here — the snack
+      // needs `bottomInset` to clear it; see
+      // `VelvetSizes.bottomNavClearanceClient`'s doc.
+      showErrorSnack(
+        context,
+        message,
+        bottomInset: VelvetSizes.bottomNavClearanceClient,
+      );
       return;
     }
 
@@ -134,9 +141,11 @@ class _LeaveReviewScreenState extends ConsumerState<LeaveReviewScreen> {
     }
 
     // Thank the client and pop back to the detail.
-    messenger
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(l10n.reviewSubmitSuccess)));
+    showSuccessSnack(
+      context,
+      l10n.reviewSubmitSuccess,
+      bottomInset: VelvetSizes.bottomNavClearanceClient,
+    );
     if (context.canPop()) context.pop();
   }
 

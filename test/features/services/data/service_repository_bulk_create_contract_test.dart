@@ -238,8 +238,9 @@ void main() {
       },
     );
 
-    test('the top-level `message` survives as serverMessage (the snackbar '
-        'fallback when no field key maps to a submitted row)', () async {
+    test('the top-level `message` survives as serverMessage on the typed '
+        'Failure (data-layer contract only — the UI no longer renders this '
+        'raw value; see mobile-security, 2026-08)', () async {
       final h = _wire();
       h.adapter.onPost(
         _bulkPath,

@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -167,8 +168,8 @@ void main() {
           find.descendant(of: errorRow, matching: find.text(serverMsg)),
           findsOneWidget,
         );
-        // Inline path — never the generic snackbar.
-        expect(find.byType(SnackBar), findsNothing);
+        // Inline path — never the generic snack.
+        expect(find.byType(VelvetSnack), findsNothing);
       },
     );
 

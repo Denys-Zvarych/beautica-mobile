@@ -26,11 +26,13 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 const String _kSalonId = 'salon-1';
 
@@ -538,7 +540,7 @@ void main() {
   group('visit-selection cap + dedupe (MO-4)', () {
     testWidgets(
       'caps the selection at maxServicesPerVisit (10) — the 11th add is refused '
-      'with the friendly cap SnackBar, and «Далі» carries exactly 10 ids',
+      'with the friendly cap VelvetSnack, and «Далі» carries exactly 10 ids',
       (tester) async {
         tester.view.physicalSize = const Size(800, 8000);
         tester.view.devicePixelRatio = 1.0;
@@ -568,11 +570,15 @@ void main() {
         final l10n = AppLocalizations.of(
           tester.element(find.byType(SalonServiceSelectionScreen)),
         );
-        expect(
-          find.text(l10n.bookingMaxServicesReached(maxServicesPerVisit)),
-          findsOneWidget,
-          reason: 'the 11th add must surface the friendly cap message',
+        expectVelvetSnack(
+          l10n.bookingMaxServicesReached(maxServicesPerVisit),
+          variant: VelvetSnackVariant.warning,
         );
+        // Drains the dwell Timer AND removes the OverlayEntry — a still-
+        // mounted snack is bottom-anchored and hit-test-intercepts the
+        // «Далі» tap right below (the pinned `BookingSummaryBar` sits at the
+        // very bottom of this pushed, nav-bar-less screen).
+        await pumpPastVelvetSnack(tester);
 
         await tester.tap(find.byKey(const Key('booking-summary-cta')));
         await tester.pumpAndSettle();

@@ -4,10 +4,10 @@
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
 // --------------------------------------------------------------
 // leave_review_screen_test.dart proves each surface in isolation: the rating
-// gate, the star fill, the createReview call args, the success pop + SnackBar,
-// the `!canReview` info state, and the booking-detail entry CTA's presence +
-// push. NONE of them proves the REAL journey wired together against a mutating
-// backend:
+// gate, the star fill, the createReview call args, the success pop +
+// VelvetSnack, the `!canReview` info state, and the booking-detail entry
+// CTA's presence + push. NONE of them proves the REAL journey wired together
+// against a mutating backend:
 //
 //   1. CLIENT logs in and opens the Записи branch.
 //   2. A COMPLETED, still-reviewable booking is visible in Минулі («Виконано»).
@@ -34,13 +34,14 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/booking_ca
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_tab_bar.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
-import '../test/helpers/pump_app.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -144,11 +145,10 @@ void main() {
         reason: 'the server marks the booking no longer reviewable',
       );
 
-      // The thank-you SnackBar surfaced…
-      expect(
-        find.text(reviewL10n.reviewSubmitSuccess),
-        findsOneWidget,
-        reason: 'the client must be thanked on success',
+      // The thank-you VelvetSnack surfaced…
+      expectVelvetSnack(
+        reviewL10n.reviewSubmitSuccess,
+        variant: VelvetSnackVariant.success,
       );
 
       // ── 7. Popped back to the detail, which now HIDES the entry CTA. ──────
@@ -166,8 +166,8 @@ void main() {
             'second review is no longer offered',
       );
 
-      // Drain the SnackBar's auto-dismiss timer so none is pending at teardown.
-      await tester.pumpUntilGone(find.text(reviewL10n.reviewSubmitSuccess));
+      // Drain the dwell Timer so none is pending at teardown.
+      await pumpPastVelvetSnack(tester);
     },
   );
 }

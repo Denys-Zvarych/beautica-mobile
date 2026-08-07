@@ -59,6 +59,7 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
@@ -69,6 +70,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Finders
@@ -2727,12 +2729,15 @@ void main() {
   //   • a valid handle → launchUrl invoked with the canonical
   //     `https://instagram.com/<handle>` URL.
   //   • a full canonical URL → launchUrl invoked with that exact URL.
-  //   • null / '—' → NO launch + localized masterInstagramOpenError SnackBar.
+  //   • null / '—' → NO launch + localized masterInstagramOpenError
+  //     error VelvetSnack.
   //
   // The platform launcher is mocked (UrlLauncherPlatform.instance) so no real
   // intent/browser fires and the URL string handed to it can be captured.
-  // Widget lookups use the tile Key, never raw Ukrainian finders; the SnackBar
-  // text is resolved via l10n from the live tree (no hardcoded string).
+  // Widget lookups use the tile Key, never raw Ukrainian finders; the
+  // VelvetSnack text is resolved via l10n from the live tree (no hardcoded
+  // string). VelvetSnack renders on the ROOT overlay (a sibling of the
+  // screen, never a descendant) — see test/helpers/velvet_snack_matchers.dart.
 
   group('instagram contact tile — launch behavior', () {
     late _MockUrlLauncher launcher;
@@ -2833,7 +2838,7 @@ void main() {
 
     testWidgets(
       'tapping the instagram tile when instagram is null does NOT launch and '
-      'shows the masterInstagramOpenError SnackBar',
+      'shows the masterInstagramOpenError error VelvetSnack',
       (tester) async {
         when(
           () => launcher.launchUrl(any(), any()),
@@ -2846,23 +2851,28 @@ void main() {
         );
 
         await tester.tap(tile);
-        await tester.pump(); // let the SnackBar insert.
+        await pumpVelvetSnackIn(tester); // let the VelvetSnack insert + settle.
 
         // No launch attempt — canonicalInstagramUri(null) returned null.
         verifyNever(() => launcher.launchUrl(any(), any()));
 
-        // The localized error SnackBar must be shown (resolved via l10n, not a
-        // hardcoded Ukrainian literal).
+        // The localized error VelvetSnack must be shown (resolved via l10n,
+        // not a hardcoded Ukrainian literal).
         final l10n = AppLocalizations.of(
           tester.element(find.byType(MasterProfileScreen)),
         );
-        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
+        expectVelvetSnack(
+          l10n.masterInstagramOpenError,
+          variant: VelvetSnackVariant.error,
+        );
+
+        await pumpPastVelvetSnack(tester); // drain the dwell Timer
       },
     );
 
     testWidgets(
       'tapping the instagram tile when value is the "—" sentinel does NOT '
-      'launch and shows the error SnackBar',
+      'launch and shows the error VelvetSnack',
       (tester) async {
         when(
           () => launcher.launchUrl(any(), any()),
@@ -2874,48 +2884,52 @@ void main() {
         );
 
         await tester.tap(tile);
-        await tester.pump();
+        await pumpVelvetSnackIn(tester);
 
         verifyNever(() => launcher.launchUrl(any(), any()));
 
         final l10n = AppLocalizations.of(
           tester.element(find.byType(MasterProfileScreen)),
         );
-        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
+        expectVelvetSnack(
+          l10n.masterInstagramOpenError,
+          variant: VelvetSnackVariant.error,
+        );
+
+        await pumpPastVelvetSnack(tester); // drain the dwell Timer
       },
     );
 
-    testWidgets(
-      'when the launcher reports failure (returns false) the error SnackBar '
-      'is shown',
-      (tester) async {
-        // Valid handle so the URL passes the allow-list, but the platform
-        // launcher fails — the screen must surface the localized error.
-        when(
-          () => launcher.launchUrl(any(), any()),
-        ).thenAnswer((_) async => false);
+    testWidgets('when the launcher reports failure (returns false) the error '
+        'VelvetSnack is shown', (tester) async {
+      // Valid handle so the URL passes the allow-list, but the platform
+      // launcher fails — the screen must surface the localized error.
+      when(
+        () => launcher.launchUrl(any(), any()),
+      ).thenAnswer((_) async => false);
 
-        final tile = await pumpAndRevealInstagramTile(
-          tester,
-          master: _stubMaster.copyWith(instagram: 'olena_nails'),
-        );
+      final tile = await pumpAndRevealInstagramTile(
+        tester,
+        master: _stubMaster.copyWith(instagram: 'olena_nails'),
+      );
 
-        await tester.tap(tile);
-        await tester.pumpAndSettle();
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
 
-        // launch was attempted with the canonical URL...
-        final captured = verify(
-          () => launcher.launchUrl(captureAny(), any()),
-        ).captured;
-        expect(captured.single, 'https://instagram.com/olena_nails');
+      // launch was attempted with the canonical URL...
+      final captured = verify(
+        () => launcher.launchUrl(captureAny(), any()),
+      ).captured;
+      expect(captured.single, 'https://instagram.com/olena_nails');
 
-        // ...but failed, so the error SnackBar appears.
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(MasterProfileScreen)),
-        );
-        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
-      },
-    );
+      // ...but failed, so the error VelvetSnack appears. pumpAndSettle
+      // above already drove it through its full lifecycle, so a plain
+      // find.text (not expectVelvetSnack) is enough here.
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+      expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
+    });
   });
 
   // ── professionalTitle rendering (feat/provider-professional-title) ─────────

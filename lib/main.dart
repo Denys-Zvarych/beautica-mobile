@@ -173,6 +173,14 @@ Future<void> _warmSharedSvgs() async {
   }
 }
 
+/// `BeauticaApp` needs no explicit mount point for `VelvetSnack`
+/// (`lib/shared/feedback/`): `showVelvetSnack` resolves
+/// `Overlay.of(context, rootOverlay: true)`, which is the `Overlay` the root
+/// `Navigator` below creates on the very first frame and never rebuilds —
+/// every route, shell tab, dialog and bottom sheet mounted under
+/// `MaterialApp.router` already has it as an ancestor. See
+/// `velvet_snack_host.dart`'s file-level doc for the full rationale
+/// (including why a snack fired immediately before a route pop survives it).
 class BeauticaApp extends ConsumerWidget {
   const BeauticaApp({super.key});
 

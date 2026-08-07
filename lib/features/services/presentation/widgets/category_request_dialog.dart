@@ -13,10 +13,10 @@
 // name field surfaces an inline error instead of submitting an invalid slug.
 //
 // On submit the dialog calls [ServiceRepository.requestCategory]. On success it
-// pops returning `true` so the caller can show the success SnackBar (the dialog
-// itself does not own the ScaffoldMessenger). On 409/429/other failures it
-// shows an inline SnackBar within the dialog's own Scaffold messenger context
-// and stays open so the user can correct or retry.
+// pops returning `true` so the caller can show the success VelvetSnack (the
+// dialog itself never shows the success confirmation). On 409/429/other
+// failures it shows an inline error VelvetSnack on its own still-mounted
+// context and stays open so the user can correct or retry.
 //
 // Styling is 1:1 with the VelvetTouch neumorphic system used by service_form.dart
 // (NeumorphicCard surface, NeumorphicInset field wells, NeumorphicButton CTA).
@@ -31,6 +31,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/server_field_message.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -40,7 +41,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// Opens the suggest-a-category dialog.
 ///
 /// Resolves to `true` when a request was submitted successfully (the caller
-/// should then show the success SnackBar), or `null`/`false` when the user
+/// should then show the success VelvetSnack), or `null`/`false` when the user
 /// cancelled or dismissed.
 Future<bool?> showCategoryRequestDialog(BuildContext context) {
   return showDialog<bool>(
@@ -148,7 +149,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
             initialServiceName: initialService.isEmpty ? null : initialService,
           );
       if (mounted) {
-        // Return true so the caller surfaces the success SnackBar against the
+        // Return true so the caller surfaces the success VelvetSnack against the
         // parent screen's messenger (not the dialog's transient context).
         // dismissOverlay pops the dialog route and resolves the awaiting
         // showDialog<bool> future in _openSuggestDialog with `true`.
@@ -185,9 +186,11 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
         }
         setState(() => _submitting = false);
         final message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-        );
+        // The dialog stays OPEN on this branch (no field mapped the error), so
+        // this is the dialog's own still-mounted context — the snack renders on
+        // the app's root overlay, above the dialog barrier, and the dialog
+        // remains interactable underneath it for a correction/retry.
+        showErrorSnack(context, message);
       }
     }
   }

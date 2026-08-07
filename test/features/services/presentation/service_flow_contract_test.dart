@@ -6,13 +6,13 @@
 // server response to the right Failure. This file proves the matching UI half:
 // the create / edit / delete SCREENS, driven through the REAL repository over a
 // faked socket (with the REAL ErrorMapperInterceptor), surface the right
-// user-visible feedback — a success SnackBar on 2xx, an error SnackBar on every
-// 4xx/5xx/network failure — and NEVER a silent dead state (the class of bug that
-// shipped: a Save that does nothing visible).
+// user-visible feedback — a success VelvetSnack on 2xx, an error VelvetSnack on
+// every 4xx/5xx/network failure — and NEVER a silent dead state (the class of
+// bug that shipped: a Save that does nothing visible).
 //
 // Here the production HttpServiceRepository + generated ServiceControllerApi +
 // real interceptor all run; only the HTTP socket is faked. So a backend response
-// the app mishandles surfaces as a wrong/absent SnackBar and fails the test.
+// the app mishandles surfaces as a wrong/absent VelvetSnack and fails the test.
 //
 // Scope note (2026-08-04): the CREATE half of this file was removed with
 // `ServiceCreateScreen` — see the comment in `main()` for where that coverage
@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/services/presentation/service_edit_scre
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -37,6 +38,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 const _baseUrl = 'http://localhost:8080';
 const _masterId = 'master-1';
@@ -274,7 +276,7 @@ void main() {
   // EDIT — success + failure feedback (cache-hit seeds the form)
   // =========================================================================
   group('ServiceEditScreen — real-transport feedback contract', () {
-    testWidgets('POSITIVE: 200 → update success SnackBar', (tester) async {
+    testWidgets('POSITIVE: 200 → update success VelvetSnack', (tester) async {
       final h = _wireRepo();
       h.adapter.onPatch(
         _mutatePath,
@@ -296,11 +298,14 @@ void main() {
       await tester.pumpAndSettle();
 
       final l10n = _l10n(tester, ServiceEditScreen);
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.serviceUpdatedSuccess), findsOneWidget);
+      expectVelvetSnack(
+        l10n.serviceUpdatedSuccess,
+        variant: VelvetSnackVariant.success,
+      );
+      await pumpPastVelvetSnack(tester);
     });
 
-    testWidgets('NEGATIVE: 404 (stale serviceDefId) → not-found SnackBar, '
+    testWidgets('NEGATIVE: 404 (stale serviceDefId) → not-found VelvetSnack, '
         'screen stays', (tester) async {
       final h = _wireRepo();
       h.adapter.onPatch(
@@ -322,12 +327,12 @@ void main() {
       await tester.pumpAndSettle();
 
       final l10n = _l10n(tester, ServiceEditScreen);
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.errNotFound), findsOneWidget);
+      expectVelvetSnack(l10n.errNotFound, variant: VelvetSnackVariant.error);
       expect(find.byType(ServiceEditScreen), findsOneWidget);
+      await pumpPastVelvetSnack(tester);
     });
 
-    testWidgets('NEGATIVE: 500 → server-error SnackBar', (tester) async {
+    testWidgets('NEGATIVE: 500 → server-error VelvetSnack', (tester) async {
       final h = _wireRepo();
       h.adapter.onPatch(
         _mutatePath,
@@ -348,8 +353,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final l10n = _l10n(tester, ServiceEditScreen);
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.errServer), findsOneWidget);
+      expectVelvetSnack(l10n.errServer, variant: VelvetSnackVariant.error);
+      await pumpPastVelvetSnack(tester);
     });
 
     // ---- DELETE path on the edit screen ----
@@ -374,16 +379,16 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
       await tester.pumpAndSettle();
 
-      // No error SnackBar — a clean delete shows no failure feedback.
+      // No error VelvetSnack — a clean delete shows no failure feedback.
       // (Screen pops in a real router; here Navigator.maybePop is a no-op since
-      // it is the root route, so the screen remains but with NO error SnackBar.)
+      // it is the root route, so the screen remains but with NO error VelvetSnack.)
       final l10n = _l10n(tester, ServiceEditScreen);
       expect(find.text(l10n.errServer), findsNothing);
       expect(find.text(l10n.errNotFound), findsNothing);
       expect(find.text(l10n.errUnknown), findsNothing);
     });
 
-    testWidgets('NEGATIVE: delete confirm → 409 conflict → error SnackBar', (
+    testWidgets('NEGATIVE: delete confirm → 409 conflict → error VelvetSnack', (
       tester,
     ) async {
       final h = _wireRepo();
@@ -407,9 +412,9 @@ void main() {
 
       // 409 → ServerFailure(409) → errServer. Never a silent swallow.
       final l10n = _l10n(tester, ServiceEditScreen);
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.errServer), findsOneWidget);
+      expectVelvetSnack(l10n.errServer, variant: VelvetSnackVariant.error);
       expect(find.byType(ServiceEditScreen), findsOneWidget);
+      await pumpPastVelvetSnack(tester);
     });
   });
 }

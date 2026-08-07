@@ -14,7 +14,7 @@
 //        slug as `name` and the raw display name as `displayName`.
 //     5. A non-derivable (punctuation-only) name fails validation on the name
 //        field; repository is NOT called.
-//     6. 409 → "already exists" SnackBar; 429 → "too many requests" SnackBar.
+//     6. 409 → "already exists" VelvetSnack; 429 → "too many requests" VelvetSnack.
 //    15. Valid Ukrainian name → submit sends transliterated slug as `name`,
 //        raw name as `displayName` (exact-arg mock assertion).
 //    16. Empty name → required-field error; repository NOT called.
@@ -23,7 +23,7 @@
 //        re-fetches (repo called again) and the success chip row renders.
 //     8. pending → 'category-chips-loading' skeleton renders.
 //   DIALOG (audit-driven additions)
-//     9. generic (non-Failure) exception → l10n.errUnknown SnackBar; dialog
+//     9. generic (non-Failure) exception → l10n.errUnknown VelvetSnack; dialog
 //        stays open; submit button re-enabled (_submitting reset).
 //    10. displayName > 100 chars → validation error; repository NOT called.
 
@@ -38,6 +38,7 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,6 +47,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'widgets/select_dropdown_test_helpers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -425,9 +427,9 @@ void main() {
     );
   });
 
-  // ── 6. 409 / 429 surface the right SnackBar ─────────────────────────────────
+  // ── 6. 409 / 429 surface the right VelvetSnack ────────────────────────────
 
-  testWidgets('6a. 409 shows the already-exists SnackBar', (tester) async {
+  testWidgets('6a. 409 shows the already-exists VelvetSnack', (tester) async {
     when(
       () => repo.requestCategory(
         name: any(named: 'name'),
@@ -451,13 +453,16 @@ void main() {
     );
     await tester.pump();
     await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
-    await tester.pump(); // start async
-    await tester.pump(); // SnackBar inserted
+    await pumpVelvetSnackIn(tester);
 
-    expect(find.text(l10n.categoryRequestErrExists), findsOneWidget);
+    expectVelvetSnack(
+      l10n.categoryRequestErrExists,
+      variant: VelvetSnackVariant.error,
+    );
+    await pumpPastVelvetSnack(tester);
   });
 
-  testWidgets('6b. 429 shows the throttled SnackBar', (tester) async {
+  testWidgets('6b. 429 shows the throttled VelvetSnack', (tester) async {
     when(
       () => repo.requestCategory(
         name: any(named: 'name'),
@@ -481,10 +486,13 @@ void main() {
     );
     await tester.pump();
     await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
-    await tester.pump();
-    await tester.pump();
+    await pumpVelvetSnackIn(tester);
 
-    expect(find.text(l10n.categoryRequestErrThrottled), findsOneWidget);
+    expectVelvetSnack(
+      l10n.categoryRequestErrThrottled,
+      variant: VelvetSnackVariant.error,
+    );
+    await pumpPastVelvetSnack(tester);
   });
 
   // ── 7. Picker error + retry ─────────────────────────────────────────────────
@@ -593,7 +601,7 @@ void main() {
   // ── 9. Dialog generic-failure branch ────────────────────────────────────────
 
   testWidgets(
-    '9. generic exception shows errUnknown SnackBar; dialog stays open; '
+    '9. generic exception shows errUnknown VelvetSnack; dialog stays open; '
     'submit re-enabled',
     (tester) async {
       // A non-Failure, non-409/429 error → the dialog falls back to errUnknown.
@@ -622,11 +630,10 @@ void main() {
       );
       await tester.pump();
       await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
-      await tester.pump(); // start async
-      await tester.pump(); // SnackBar inserted
+      await pumpVelvetSnackIn(tester);
 
       // Generic fallback message.
-      expect(find.text(l10n.errUnknown), findsOneWidget);
+      expectVelvetSnack(l10n.errUnknown, variant: VelvetSnackVariant.error);
       // Dialog stays open (did not pop).
       expect(
         find.byKey(const Key('field-category-request-name')),
@@ -642,6 +649,7 @@ void main() {
         findsNothing,
         reason: '_submitting must be reset so the submit CTA is re-enabled',
       );
+      await pumpPastVelvetSnack(tester);
     },
   );
 

@@ -1635,4 +1635,36 @@ abstract final class VelvetText {
     height: 1.0,
     fontWeight: FontWeight.w600,
   );
+
+  // ---------------------------------------------------------------------------
+  // VelvetSnack (`lib/shared/feedback/`) — the unified transient-feedback
+  // surface. Transcribed verbatim from the approved preview app at
+  // `docs/signup-designs/VelvetSnack/lib/theme/velvet_tokens.dart`
+  // (`VelvetText.snackMessage` / `.snackAction`). Color references changed
+  // from `VelvetColors.*` to `BrandColors.*`.
+  // ---------------------------------------------------------------------------
+
+  static final TextStyle _snackMessageStyle = GoogleFonts.nunito(
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+    height: 1.4,
+    color: BrandColors.text,
+  );
+
+  static final TextStyle _snackActionBase = GoogleFonts.nunito(
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0.2,
+  );
+
+  /// The snack message — [bodyStrong] (12/700) tightened to `height: 1.4` so
+  /// a two-line message stays a compact block rather than an airy paragraph.
+  static TextStyle snackMessage() => _snackMessageStyle;
+
+  /// The trailing action label ("Повторити" / "Скасувати") — one weight
+  /// above the message so it out-ranks the text beside it without needing a
+  /// box around it. Colour (the variant accent) is applied at the call site
+  /// via [TextStyle.copyWith].
+  static TextStyle snackAction(Color color) =>
+      _snackActionBase.copyWith(color: color);
 }

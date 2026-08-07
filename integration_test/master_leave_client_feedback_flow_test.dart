@@ -5,8 +5,8 @@
 // --------------------------------------------------------------
 // `leave_client_feedback_screen_test.dart` (widget tier) proves the rating
 // gate, the star fill, the submit call args against a MOCKED
-// `ClientReviewRepository`, the success pop + SnackBar, the 409/400 failure
-// handling, and the private-chip/privacy-note rendering.
+// `ClientReviewRepository`, the success pop + VelvetSnack, the 409/400
+// failure handling, and the private-chip/privacy-note rendering.
 // `booking_detail_client_feedback_cta_test.dart` proves the footer CTA's
 // presence + push in isolation. NEITHER proves the REAL journey wired
 // together against a mutating backend:
@@ -36,13 +36,14 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
-import '../test/helpers/pump_app.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -116,11 +117,10 @@ void main() {
       expect(fb.lastClientReviewRating, 5);
       expect(fb.lastClientReviewComment, 'Пунктуальна, приємна клієнтка.');
 
-      // The thank-you SnackBar surfaced…
-      expect(
-        find.text(feedbackL10n.clientReviewSubmitSuccess),
-        findsOneWidget,
-        reason: 'the provider must be thanked on success',
+      // The thank-you VelvetSnack surfaced…
+      expectVelvetSnack(
+        feedbackL10n.clientReviewSubmitSuccess,
+        variant: VelvetSnackVariant.success,
       );
 
       // ── 5. Popped back to the detail. ──────────────────────────────────────
@@ -158,10 +158,8 @@ void main() {
             'closes',
       );
 
-      // Drain the SnackBar's auto-dismiss timer so none is pending at teardown.
-      await tester.pumpUntilGone(
-        find.text(feedbackL10n.clientReviewSubmitSuccess),
-      );
+      // Drain the dwell Timer so none is pending at teardown.
+      await pumpPastVelvetSnack(tester);
     },
   );
 }

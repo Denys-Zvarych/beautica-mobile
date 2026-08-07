@@ -79,6 +79,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_detail_notifier.dart';
@@ -191,17 +192,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       // surface the clean localized message AND refetch so the footer
       // re-renders from the server's authoritative state, never a raw 409.
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      showErrorSnack(context, failure.userMessage(context));
       ref.invalidate(bookingDetailProvider(booking.id));
       return;
     } catch (_) {
       if (!context.mounted) return;
       final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
+      showErrorSnack(context, l10n.errUnknown);
       return;
     }
     if (!mounted) return;
@@ -256,17 +253,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       // server refused to honour it. Same resolution as the decline 409:
       // localized message + refetch so the footer re-renders correctly.
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      showErrorSnack(context, failure.userMessage(context));
       ref.invalidate(bookingDetailProvider(booking.id));
       return;
     } catch (_) {
       if (!context.mounted) return;
       final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
+      showErrorSnack(context, l10n.errUnknown);
       return;
     }
     if (!mounted) return;

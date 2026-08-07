@@ -16,6 +16,15 @@ abstract final class VelvetRadii {
   /// stay perfectly circular regardless of the element's height.
   /// Transcribed from `docs/signup-designs/ServiceListScreen/lib/theme/velvet_tokens.dart`.
   static const double pill = 999;
+
+  /// VelvetSnack's leading icon holder — a softened square, deliberately
+  /// tighter than [field] so the holder reads as a glyph chip, not a mini
+  /// input. Transcribed verbatim from
+  /// `docs/signup-designs/VelvetSnack/lib/theme/velvet_tokens.dart`
+  /// (`VelvetRadii.snackIcon`). The snack's own outer shell reuses [card]
+  /// directly (24) rather than a separate alias — see
+  /// `ARCHITECTURE-mobile.md` § 9.
+  static const double snackIcon = 12;
 }
 
 /// Spacing scale (8 dp rhythm with a 4 dp half-step) — VelvetTouch.
@@ -39,6 +48,42 @@ abstract final class VelvetSizes {
   static const double field = 49;
   static const double cta = 49;
   static const double logoTile = 78;
+
+  /// VelvetSnack minimum height — one line of message plus 12dp vertical
+  /// padding around a 32dp icon holder. Grows to fit two lines. Transcribed
+  /// verbatim from
+  /// `docs/signup-designs/VelvetSnack/lib/theme/velvet_tokens.dart`.
+  static const double snackMinHeight = 56;
+
+  /// VelvetSnack's leading icon holder edge.
+  static const double snackIconHolder = 32;
+
+  /// Width of VelvetSnack's leading accent spine — its one saturated
+  /// element, the signature of the component.
+  static const double snackSpine = 4;
+
+  /// Extra bottom clearance a [VelvetSnack] (`shared/feedback/`) must pass as
+  /// `bottomInset` on a screen sitting behind the MASTER's own 4-tile
+  /// `VelvetBottomNavBar` (`shared/widgets/velvet_bottom_nav_bar.dart`) — a
+  /// bar that widget builds inline as its host screen's own
+  /// `bottomNavigationBar`, never suppressed. Mirrors that bar's own
+  /// `ConstrainedBox(minHeight: 62)` plus its outer `VelvetSpacing.md` bottom
+  /// margin; the device's own bottom safe-area inset is NOT included here —
+  /// `VelvetSnackScope` already adds `MediaQuery.viewPadding.bottom` itself,
+  /// so folding it into this constant too would double-count it. Keep this
+  /// number in sync if `VelvetBottomNavBar`'s own dimensions ever change.
+  static const double bottomNavClearanceMaster = 62 + VelvetSpacing.md;
+
+  /// Same as [bottomNavClearanceMaster], for a screen sitting behind the
+  /// CLIENT's 5-tab `ClientBottomNav`
+  /// (`features/shell/presentation/widgets/client_bottom_nav.dart`) while
+  /// that bar is NOT suppressed by `ClientShell` (it only hides on the exact
+  /// `/bookings/:bookingId` route — a nested push one level deeper, e.g.
+  /// `/bookings/:bookingId/review`, still shows it). Mirrors that bar's own
+  /// 64dp rectangle plus its outer `VelvetSpacing.md` bottom margin; same
+  /// device-safe-area exclusion rationale as [bottomNavClearanceMaster]. Keep
+  /// this number in sync if `ClientBottomNav`'s own dimensions ever change.
+  static const double bottomNavClearanceClient = 64 + VelvetSpacing.md;
 }
 
 /// Neumorphic shadow recipes — pre-built [BoxShadow] lists so every surface
@@ -156,6 +201,61 @@ abstract final class VelvetShadows {
   static final List<BoxShadow> destructiveLift = <BoxShadow>[
     BoxShadow(color: BrandColors.error.withValues(alpha: 0.30), blurRadius: 14),
   ];
+
+  /// VelvetSnack's lift. [borderedCard] widened one notch (blur 10 -> 16)
+  /// because the snack floats further from the page than an in-flow bordered
+  /// card and needs a deeper halo to detach from a busy list behind it. Still
+  /// non-offset and alpha-attenuated, so the Impeller-GLES safety rule holds —
+  /// this is the ONLY shadow `VelvetSnack` is allowed to use, since it floats
+  /// over arbitrary content rather than being welded to the page background.
+  /// Transcribed verbatim from
+  /// `docs/signup-designs/VelvetSnack/lib/theme/velvet_tokens.dart`.
+  static final List<BoxShadow> snackLift = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkCard.withValues(alpha: 0.55),
+      blurRadius: 16,
+    ),
+  ];
+}
+
+/// Motion constants for [VelvetSnack] (`lib/shared/feedback/velvet_snack.dart`)
+/// and its host — hoisted here (rather than inlined at call sites) so the
+/// port kept exact numbers. Transcribed verbatim from
+/// `docs/signup-designs/VelvetSnack/lib/theme/velvet_tokens.dart`
+/// (`VelvetSnackMotion`).
+abstract final class VelvetSnackMotion {
+  /// Entrance — long enough to read as a deliberate settle, short enough not
+  /// to delay the message.
+  static const Duration enter = Duration(milliseconds: 320);
+
+  /// Exit — deliberately faster than [enter]. Arrivals are announced, exits
+  /// get out of the way.
+  static const Duration exit = Duration(milliseconds: 200);
+
+  /// Fast replace when a second snack pre-empts the current one.
+  static const Duration replace = Duration(milliseconds: 120);
+
+  static const Curve enterCurve = Curves.easeOutCubic;
+  static const Curve exitCurve = Curves.easeInCubic;
+
+  /// Slide travel, as a fraction of the snack's own height. 0.35 (not 1.0) so
+  /// it rises **out of** the surface rather than flying in from off-screen —
+  /// the neumorphic read is "extruded", not "launched".
+  static const Offset slideFrom = Offset(0, 0.35);
+
+  /// Entrance scale — a 4% inflate on the same curve, reinforcing the extrude.
+  static const double scaleFrom = 0.96;
+
+  /// Fade completes at 60% of the entrance so the text is legible before the
+  /// slide finishes.
+  static const Interval fadeIn = Interval(0, 0.6, curve: Curves.easeOut);
+
+  /// Default dwell time before auto-dismiss.
+  static const Duration dwell = Duration(seconds: 4);
+
+  /// Dwell when a trailing action is present — the user needs time to reach
+  /// it.
+  static const Duration dwellWithAction = Duration(seconds: 6);
 }
 
 // NOTE — a `cardDropShadow` recipe (a single OFFSET, fully-opaque

@@ -16,7 +16,7 @@
 //   3. On success → context.go(RouteNames.home).
 //   4. On EMAIL_NOT_VERIFIED → show inline AuthBanner; banner action navigates
 //      to /verification.
-//   5. On any other error → floating SnackBar with localised message.
+//   5. On any other error → VelvetSnack (error variant) with localised message.
 //
 // ScreenProtector is kept for security (mobile-security MS-1).
 // All user-facing strings go through AppLocalizations.
@@ -38,6 +38,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
 import 'auth_notifier.dart';
@@ -52,8 +53,8 @@ import 'widgets/auth_scaffold.dart';
 ///
 /// Submits to [AuthNotifier.login]. On [AuthSession.authenticated] navigates
 /// to [RouteNames.home]. On EMAIL_NOT_VERIFIED shows an inline [AuthBanner]
-/// instead of a SnackBar. On all other errors surfaces [Failure.userMessage]
-/// in a floating [SnackBar].
+/// instead of a snack. On all other errors surfaces [Failure.userMessage]
+/// via [showErrorSnack].
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -168,21 +169,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           return;
         }
         final message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
-        _showErrorSnackBar(message);
+        showErrorSnack(context, message);
       },
-    );
-  }
-
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: BrandColors.error,
-        behavior: SnackBarBehavior.floating,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(VelvetRadii.field)),
-        ),
-      ),
     );
   }
 

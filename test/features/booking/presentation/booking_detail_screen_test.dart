@@ -39,6 +39,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/booking_st
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,6 +47,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // Fixture note values injected BY these tests (not app copy) — declared once so
 // the same constant drives both the fixture and the rendered-note assertion,
@@ -538,7 +540,7 @@ void main() {
   // A NON-elapsed CONFIRMED booking shows «Скасувати запис», but the SERVER
   // clock is authoritative: it can 409 BOOKING_ALREADY_ELAPSED between the
   // screen opening and the confirm tap. The screen must catch it, surface the
-  // localized `bookingErrorAlreadyElapsed` SnackBar (never a raw 409), and
+  // localized `bookingErrorAlreadyElapsed` VelvetSnack (never a raw 409), and
   // refetch the booking (invalidate `bookingDetailProvider`) so it re-renders
   // read-only.
   // -------------------------------------------------------------------------
@@ -585,7 +587,10 @@ void main() {
 
         final l10n = _l10n(tester);
         // The clean localized message surfaced (not a raw 409 / errUnknown).
-        expect(find.text(l10n.bookingErrorAlreadyElapsed), findsOneWidget);
+        expectVelvetSnack(
+          l10n.bookingErrorAlreadyElapsed,
+          variant: VelvetSnackVariant.error,
+        );
         expect(find.text(l10n.errUnknown), findsNothing);
         // The write was attempted exactly once…
         verify(() => repo.cancelBooking('b1', reason: null)).called(1);
@@ -596,9 +601,8 @@ void main() {
           reason: 'ref.invalidate(bookingDetailProvider) forced a refetch',
         );
 
-        // Drain the SnackBar's auto-dismiss timer so none is pending at
-        // teardown (fixed-Duration waits are banned — pump until it is gone).
-        await tester.pumpUntilGone(find.text(l10n.bookingErrorAlreadyElapsed));
+        // Drain the dwell Timer so none is pending at teardown.
+        await pumpPastVelvetSnack(tester);
       },
     );
   });

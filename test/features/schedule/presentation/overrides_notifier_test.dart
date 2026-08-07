@@ -125,7 +125,7 @@ void main() {
   });
 
   test(
-    'partial failure → ValidationFailure naming the failed date(s)',
+    'partial failure → OverrideSpanPartialFailure naming the failed date(s)',
     () async {
       // PUT for 2026-06-12 fails; the others succeed.
       when(() => repo.putOverride(any())).thenAnswer((inv) async {
@@ -146,8 +146,14 @@ void main() {
       final state = container.read(overridesProvider(range));
       expect(state.hasError, isTrue);
       final err = state.error;
-      expect(err, isA<ValidationFailure>());
-      expect((err as ValidationFailure).serverMessage, contains('2026-06-12'));
+      // Typed failure, not a hand-built ValidationFailure.serverMessage
+      // string (mobile-security, 2026-08) — the failed date is now a real
+      // `DateTime` on a dedicated field, not a substring of prose.
+      expect(err, isA<OverrideSpanPartialFailure>());
+      expect(
+        (err as OverrideSpanPartialFailure).failedDates,
+        equals(<DateTime>[DateTime(2026, 6, 12)]),
+      );
     },
   );
 

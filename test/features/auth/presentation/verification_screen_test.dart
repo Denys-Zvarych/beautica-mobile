@@ -2434,21 +2434,28 @@ void main() {
         expect(find.text('home'), findsNothing);
 
         // The AuthBanner carries the field-named multi-line banner, NOT the
-        // generic errValidation string.
+        // generic errValidation string, and NOT the raw backend field
+        // messages (mobile-security, 2026-08 — only the localized field
+        // names + fixed generic notice survive).
         expect(find.byType(AuthBanner), findsOneWidget);
         expect(find.text(expectedBanner), findsOneWidget);
         expect(find.text(l10n.errValidation), findsNothing);
+        // i18n-finder-ok: raw backend fieldErrors VALUE asserted ABSENT (data, not UI copy) — this is the security regression guard itself, not a locale-coupled widget lookup.
+        expect(find.text('Вулиця обовʼязкова'), findsNothing);
+        // i18n-finder-ok: raw backend fieldErrors VALUE asserted ABSENT (data, not UI copy) — this is the security regression guard itself, not a locale-coupled widget lookup.
+        expect(find.text('Будинок занадто довгий'), findsNothing);
       },
     );
 
     // -----------------------------------------------------------------------
     // Test 20c — post-OTP save returns a ValidationFailure with an EMPTY field
-    //            map but a serverMessage: the banner falls back to the server
-    //            message (not the generic errValidation copy).
+    //            map and a serverMessage: the banner shows the localized
+    //            generic copy, NEVER the raw backend serverMessage
+    //            (mobile-security, 2026-08).
     // -----------------------------------------------------------------------
     testWidgets(
-      '20c. post-OTP save ValidationFailure with empty fieldErrors falls back '
-      'to serverMessage in the banner',
+      '20c. post-OTP save ValidationFailure with empty fieldErrors shows the '
+      'localized errValidation copy, never the raw serverMessage',
       (tester) async {
         final repo = FakeAuthRepository();
         final masterRepo = _MockMasterRepository();
@@ -2532,9 +2539,10 @@ void main() {
 
         expect(find.text('home'), findsNothing);
         expect(find.byType(AuthBanner), findsOneWidget);
-        // serverMessage wins over the generic errValidation fallback.
-        expect(find.text(serverMsg), findsOneWidget);
-        expect(find.text(l10n.errValidation), findsNothing);
+        // The localized errValidation copy is shown; the raw backend
+        // serverMessage never reaches this AuthBanner.
+        expect(find.text(l10n.errValidation), findsOneWidget);
+        expect(find.text(serverMsg), findsNothing);
       },
     );
 
@@ -3291,17 +3299,19 @@ void main() {
 
     // -----------------------------------------------------------------------
     // Test 26 — SALON_OWNER POST /salons FAILS with a ValidationFailure:
-    //           the server field-rejection message is surfaced inline and the
-    //           user stays on the verification screen.
+    //           the localized generic message is surfaced inline (never the
+    //           raw serverMessage — mobile-security, 2026-08) and the user
+    //           stays on the verification screen.
     //
     // Distinct reachable branch of _setInlineError: `error is ValidationFailure`
-    // → buildFieldErrorBanner (empty here) → falls back to the server message.
+    // → buildFieldErrorBanner (empty here) → falls back to `userMessage`.
     // Backend rejects e.g. a duplicate salon name on POST /salons; the offending
-    // field lives on a previous register step, so the user must see why.
+    // field lives on a previous register step, so the user must see why — but
+    // the backend's raw wording is never guaranteed safe to narrate verbatim.
     // -----------------------------------------------------------------------
     testWidgets(
-      '26. SALON_OWNER POST /salons ValidationFailure: server field message shown '
-      'inline, stays on verification screen',
+      '26. SALON_OWNER POST /salons ValidationFailure: localized generic '
+      'message shown inline, stays on verification screen',
       (tester) async {
         const serverMsg = 'Назва салону вже зайнята';
         final repo = FakeAuthRepository();
@@ -3380,18 +3390,32 @@ void main() {
               'verification screen, not navigate to /home.',
         );
 
-        // The banner renders the server-supplied field message (empty fieldErrors
-        // → buildFieldErrorBanner returns null → serverMessage fallback).
+        // The banner renders the localized generic message (empty fieldErrors
+        // → buildFieldErrorBanner returns null → userMessage fallback) —
+        // NEVER the raw backend serverMessage.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AuthBanner)),
+        );
         expect(find.byType(AuthBanner), findsOneWidget);
         expect(
           tester
               .widgetList<Text>(find.byType(Text))
-              .any((t) => t.data == serverMsg),
+              .any((t) => t.data == l10n.errValidation),
           isTrue,
           reason:
-              'The ValidationFailure.serverMessage ("$serverMsg") must surface '
-              'in the inline banner when no field-level errors are present. '
+              'ValidationFailure.userMessage resolves to l10n.errValidation — '
+              'that copy must appear in the inline banner when no '
+              'field-level errors are present. '
               'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == serverMsg),
+          isFalse,
+          reason:
+              'The raw backend serverMessage ("$serverMsg") must NEVER surface '
+              'in this live-narrated banner (mobile-security, 2026-08).',
         );
       },
     );

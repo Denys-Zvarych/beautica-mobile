@@ -4,7 +4,7 @@
 // booking_detail_interactions_test.dart proves the HAPPY path (a CONFIRMED
 // booking → the slot picker seeded with `rescheduleBookingId`). This suite pins
 // the three short-circuits the helper owns — each must surface the calm
-// «Цей запис не можна перенести» / «errUnknown» SnackBar and NEVER navigate:
+// «Цей запис не можна перенести» / «errUnknown» VelvetSnack and NEVER navigate:
 //
 //   1. a non-CONFIRMED booking (defensive — the CTA is confirmed-gated, but the
 //      helper must not rely on that);
@@ -36,12 +36,14 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 const String _bookingId = 'booking-1';
 const String _masterId = 'master-aaa';
@@ -158,12 +160,14 @@ void main() {
         services: const <MasterService>[_bookedService],
       );
 
-      expect(
-        find.text(_l10n(tester).bookingRescheduleUnavailable),
-        findsOneWidget,
+      expectVelvetSnack(
+        _l10n(tester).bookingRescheduleUnavailable,
+        variant: VelvetSnackVariant.warning,
       );
       expect(probe.navigated, isFalse);
       expect(find.byKey(const Key('slots_stub')), findsNothing);
+      // Drains the dwell Timer — otherwise flutter_test flags it as a leak.
+      await pumpPastVelvetSnack(tester);
     },
   );
 
@@ -188,12 +192,13 @@ void main() {
         ],
       );
 
-      expect(
-        find.text(_l10n(tester).bookingRescheduleUnavailable),
-        findsOneWidget,
+      expectVelvetSnack(
+        _l10n(tester).bookingRescheduleUnavailable,
+        variant: VelvetSnackVariant.warning,
       );
       expect(probe.navigated, isFalse);
       expect(find.byKey(const Key('slots_stub')), findsNothing);
+      await pumpPastVelvetSnack(tester);
     },
   );
 
@@ -206,9 +211,13 @@ void main() {
         services: const <MasterService>[_bookedService],
       );
 
-      expect(find.text(_l10n(tester).errUnknown), findsOneWidget);
+      expectVelvetSnack(
+        _l10n(tester).errUnknown,
+        variant: VelvetSnackVariant.error,
+      );
       expect(probe.navigated, isFalse);
       expect(find.byKey(const Key('slots_stub')), findsNothing);
+      await pumpPastVelvetSnack(tester);
     },
   );
 }

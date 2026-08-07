@@ -61,6 +61,30 @@ final RegExp _kUnrenderableChars = RegExp(
   r'\u2028\u2029\u202A-\u202E\u2066-\u2069]',
 );
 
+/// The longest server-supplied string that still reads as a plausible FIELD
+/// NAME — the backend `errors` map's JSON *key*, not its message value.
+///
+/// Used by `server_field_error_banner.dart`'s `localizedFieldName` for the
+/// unknown-key fallback, which (unlike a per-field `errorText`) renders on a
+/// live-narrated `Semantics(liveRegion: true)` surface (`VelvetSnack` /
+/// `AuthBanner`). `ErrorMapperInterceptor._extractFieldErrors` caps the
+/// map's VALUES at 200 chars but never caps the KEYS at all (mobile-security,
+/// 2026-08). Field names are short identifiers (`firstName`, `cityId`,
+/// occasionally a dotted path like `address.street`) — nothing legitimate
+/// comes anywhere near [kMaxServerFieldMessageChars]'s 90, so this uses its
+/// own, tighter cap.
+const int kMaxServerFieldNameChars = 40;
+
+/// Shared keep-or-reject check behind [serverFieldMessageOr] and
+/// [serverFieldNameOr]: fit to render means non-blank, within [maxChars], and
+/// free of [_kUnrenderableChars].
+bool _fitsToRender(String trimmed, int maxChars) {
+  if (trimmed.isEmpty) return false;
+  if (trimmed.length > maxChars) return false;
+  if (_kUnrenderableChars.hasMatch(trimmed)) return false;
+  return true;
+}
+
 /// Returns [raw] when it is fit to render as an inline field error, otherwise
 /// [fallback].
 ///
@@ -75,8 +99,24 @@ final RegExp _kUnrenderableChars = RegExp(
 String serverFieldMessageOr(String? raw, String fallback) {
   if (raw == null) return fallback;
   final trimmed = raw.trim();
-  if (trimmed.isEmpty) return fallback;
-  if (trimmed.length > kMaxServerFieldMessageChars) return fallback;
-  if (_kUnrenderableChars.hasMatch(trimmed)) return fallback;
-  return trimmed;
+  return _fitsToRender(trimmed, kMaxServerFieldMessageChars)
+      ? trimmed
+      : fallback;
+}
+
+/// Returns [raw] when it is fit to render as a field NAME, otherwise
+/// [fallback].
+///
+/// Same rejection rule as [serverFieldMessageOr] (blank, oversized, or
+/// carrying a control/line-break/bidi-override character — see
+/// [_kUnrenderableChars]), but against [kMaxServerFieldNameChars] by default
+/// — a much tighter cap, since the input is a JSON map key, not a message.
+String serverFieldNameOr(
+  String? raw,
+  String fallback, {
+  int maxChars = kMaxServerFieldNameChars,
+}) {
+  if (raw == null) return fallback;
+  final trimmed = raw.trim();
+  return _fitsToRender(trimmed, maxChars) ? trimmed : fallback;
 }

@@ -39,6 +39,7 @@ import 'package:beautica_mobile/features/home/data/client_profile_repository.dar
 import 'package:beautica_mobile/features/home/domain/client_profile_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 
 import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
@@ -202,11 +203,9 @@ class _ClientContactsEditScreenState
 
     if (!_validateAndUpdateErrors()) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: const Key('snackbar-validation-summary'),
-            content: Text(AppLocalizations.of(context).editValidationSummary),
-          ),
+        showErrorSnack(
+          context,
+          AppLocalizations.of(context).editValidationSummary,
         );
       }
       return;
@@ -231,12 +230,7 @@ class _ClientContactsEditScreenState
       if (!mounted) return;
       ref.invalidate(clientEditProfileProvider);
       ref.invalidate(clientProfileProvider);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          key: const Key('snackbar-saved'),
-          content: Text(AppLocalizations.of(context).savedSnackbar),
-        ),
-      );
+      showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
       context.go(RouteNames.clientHome);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
@@ -246,22 +240,15 @@ class _ClientContactsEditScreenState
       });
       _validateAndUpdateErrors();
       if (f.fieldErrors.isEmpty) {
-        final serverMessage = f.serverMessage?.trim();
-        final text = (serverMessage != null && serverMessage.isNotEmpty)
-            ? serverMessage
-            : AppLocalizations.of(context).errValidation;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: const Key('snackbar-validation-error'),
-            content: Text(text),
-          ),
-        );
+        // Localized only — the raw backend serverMessage can be
+        // untranslated/technical and must not reach this VelvetSnack
+        // (mobile-security, 2026-08). f.userMessage() already returns the
+        // localized errValidation copy for ValidationFailure.
+        showErrorSnack(context, f.userMessage(context));
       }
     } on Failure catch (f) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(f.userMessage(context))));
+      showErrorSnack(context, f.userMessage(context));
       setState(() => _saving = false);
     } catch (e, st) {
       if (kDebugMode) {
@@ -274,9 +261,7 @@ class _ClientContactsEditScreenState
         );
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context).errUnknown)),
-      );
+      showErrorSnack(context, AppLocalizations.of(context).errUnknown);
       setState(() => _saving = false);
     } finally {
       if (mounted && _saving) setState(() => _saving = false);

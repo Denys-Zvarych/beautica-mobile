@@ -7,7 +7,7 @@
 //
 // Also covers: pre-population of the address fields from the cached master,
 // validation blocking save when street is filled but no city is selected, and
-// the save-success path (invalidate + saved SnackBar + navigate).
+// the save-success path (invalidate + saved VelvetSnack + navigate).
 //
 // City selection is driven by invoking LocalityCascade.onCity directly (the same
 // approach the retired monolithic-form test used) to bypass the bottom-sheet
@@ -315,54 +315,57 @@ void main() {
     verifyNever(() => repo.updateMyProfile(any()));
   });
 
-  testWidgets('save success invalidates the profile, shows the saved SnackBar '
-      'and navigates to the profile when canPop is false', (tester) async {
-    final states = <AsyncValue<Object?>>[];
+  testWidgets(
+    'save success invalidates the profile, shows the saved VelvetSnack '
+    'and navigates to the profile when canPop is false',
+    (tester) async {
+      final states = <AsyncValue<Object?>>[];
 
-    await tester.pumpWidget(
-      ProviderScope(
-        retry: beauticaProviderRetry,
-        overrides: _overrides(repo).cast(),
-        child: _InvalidationWatcher(
-          states: states,
-          child: MaterialApp.router(
-            routerConfig: _buildRouter(),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: _overrides(repo).cast(),
+          child: _InvalidationWatcher(
+            states: states,
+            child: MaterialApp.router(
+              routerConfig: _buildRouter(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
+      );
+      await tester.pump();
+      await tester.pump();
 
-    final before = states.length;
+      final before = states.length;
 
-    tester
-        .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
-        .onCity(_stubCity);
-    await tester.pump();
-    await tester.enterText(_field('field-street'), 'вул. Шевченка');
-    await tester.pump();
-    await tester.enterText(_field('field-buildingNo'), '1');
-    await tester.pump();
+      tester
+          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
+          .onCity(_stubCity);
+      await tester.pump();
+      await tester.enterText(_field('field-street'), 'вул. Шевченка');
+      await tester.pump();
+      await tester.enterText(_field('field-buildingNo'), '1');
+      await tester.pump();
 
-    await tester.tap(find.byKey(const Key('btn-save-location')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-save-location')));
+      await tester.pumpAndSettle();
 
-    verify(
-      () => repo.updateLocality(
-        cityId: any(named: 'cityId'),
-        districtId: any(named: 'districtId'),
-        street: any(named: 'street'),
-        buildingNo: any(named: 'buildingNo'),
-        locationNote: any(named: 'locationNote'),
-      ),
-    ).called(1);
-    expect(find.byKey(const Key('stub-profile')), findsOneWidget);
-    expect(states.length, greaterThan(before));
-  });
+      verify(
+        () => repo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      ).called(1);
+      expect(find.byKey(const Key('stub-profile')), findsOneWidget);
+      expect(states.length, greaterThan(before));
+    },
+  );
 
   // ── REGRESSION GUARD: street + building UNCONDITIONALLY required ────────────
   // Phase 10.6 reversal — _validateLocation() dropped the old `editingAddress`

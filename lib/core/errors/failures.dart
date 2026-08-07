@@ -892,3 +892,32 @@ final class ScheduleOverrideRateLimitedFailure extends Failure {
     return AppLocalizations.of(ctx).scheduleOverrideErrRateLimited(seconds);
   }
 }
+
+/// Emitted by [OverridesNotifier.putSpan] (`lib/features/schedule/presentation
+/// /overrides_notifier.dart`) when a multi-day override span — expanded
+/// client-side into one `PUT /overrides/{date}` per date — has one or more
+/// per-date writes fail while the rest succeed.
+///
+/// Replaces an earlier stopgap that stuffed a hand-built, hardcoded-English
+/// sentence (`'Failed to save override for: $iso'`) into
+/// [ValidationFailure.serverMessage] — a field documented as carrying the
+/// backend's own envelope text, not client-authored diagnostics, and never
+/// safe to route to a generic/live-narrated surface untranslated
+/// (mobile-security finding, 2026-08). [failedDates] keeps the same
+/// information in structured, typed form: [userMessage] reports only the
+/// COUNT (always safe, always localized), while the exact dates stay
+/// available on the failure object for a future "retry failed dates" or
+/// detail-list affordance — nothing is actually lost, just no longer smuggled
+/// through a text field meant for something else.
+final class OverrideSpanPartialFailure extends Failure {
+  const OverrideSpanPartialFailure({required this.failedDates, super.cause});
+
+  /// The dates whose per-date `PUT /overrides/{date}` write failed. Never
+  /// empty — the notifier only throws this when at least one date failed.
+  final List<DateTime> failedDates;
+
+  @override
+  String userMessage(BuildContext ctx) => AppLocalizations.of(
+    ctx,
+  ).scheduleOverrideSpanPartialFailure(failedDates.length);
+}

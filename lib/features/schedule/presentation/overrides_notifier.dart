@@ -229,12 +229,10 @@ class OverridesNotifier extends _$OverridesNotifier {
       }
 
       if (failedDates.isNotEmpty) {
-        final iso = failedDates
-            .map((d) => d.toIso8601String().split('T').first)
-            .join(', ');
-        throw ValidationFailure(
-          fieldErrors: const <String, String>{},
-          serverMessage: 'Failed to save override for: $iso',
+        // Structured failure, not a hand-built serverMessage string — see
+        // [OverrideSpanPartialFailure]'s doc for why (mobile-security, 2026-08).
+        throw OverrideSpanPartialFailure(
+          failedDates: List<DateTime>.unmodifiable(failedDates),
         );
       }
     });
