@@ -6,10 +6,10 @@
 // bookings and are READ-ONLY — there is no preferences entity and no edit path.
 //
 // Hydrated by [PassportMapper.fromDto] off `GET /clients/me/passport`
-// (backend 19.5). That endpoint/DTO is NOT yet in the committed OpenAPI client,
-// so the mapper + repository currently return a placeholder empty passport and
-// carry a TODO(19.5). When the contract lands the mapper maps the generated DTO
-// and the domain shape stays unchanged.
+// (backend 19.5), live via `HttpPassportRepository`. [reviewsLeft] and
+// [memberSinceYear] are NOT on that wire contract — the backend record carries
+// neither — so they keep their defaults (0 / null) rather than being
+// fabricated by the mapper.
 //
 // Pure Dart: no Flutter imports in this file.
 

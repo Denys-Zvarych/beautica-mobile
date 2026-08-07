@@ -13,11 +13,15 @@
 //     UAH budget value, and the reviews footer (count + member-since).
 //   • EMPTY (Passport.empty()): the encouraging empty variant renders with its
 //     CTA — NOT the populated table (no brand title, no column chips).
+//   • ERROR: a failed fetch renders the DISTINCT error+retry card, never the
+//     empty variant; tapping retry re-runs the provider and the in-flight retry
+//     does not flash the error card back.
 //   • REMOVED elements: no «+ Додати ще» anywhere; no expand_more chevron in the
 //     profile location line.
 //   • FLAG_SECURE: acquire() fires on mount, release() on dispose (mirrors the
 //     HomeHub screen-protection lifecycle).
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
@@ -204,6 +208,101 @@ void main() {
         expect(find.text('BEAUTY PASSPORT'), findsNothing);
       },
     );
+  });
+
+  group('PassportScreen — error state', () {
+    // REGRESSION GUARD (Phase 13.8 wire-up). The error branch used to render
+    // `_PassportHero.empty(...)`, so a 401/500 was pixel-identical to "no
+    // history yet" — which is precisely what hid the always-placeholder data
+    // layer for a whole phase. These tests pin the two states apart.
+    testWidgets('a failed fetch renders the ERROR card, NOT the empty variant', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: [
+          screenProtectionProvider.overrideWithValue(ScreenProtectionManager()),
+          clientProfileProvider.overrideWith((ref) async => _sampleProfile),
+          passportProvider.overrideWith(
+            (ref) async => throw const ServerFailure(statusCode: 500),
+          ),
+        ],
+        // Retry OFF. `beauticaProviderRetry` (the pumpApp default, and
+        // production's policy) treats a 5xx ServerFailure as transient, so the
+        // element would sit in AsyncLoading(retrying: true) through
+        // pumpAndSettle and never reach AsyncError. This test is about the
+        // SURFACED error state, so the automatic retry is disabled and the
+        // USER-driven one (below) is what gets exercised.
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = await _uk();
+      expect(find.byKey(const Key('passport_error_state')), findsOneWidget);
+      expect(find.text(l10n.passportErrorTitle), findsOneWidget);
+      expect(find.text(l10n.passportErrorBody), findsOneWidget);
+      expect(find.byKey(const Key('passport_retry_button')), findsOneWidget);
+
+      // The empty variant must NOT be what an error renders.
+      expect(
+        find.text(l10n.passportEmptyTitle),
+        findsNothing,
+        reason:
+            'a failed passport fetch must be visually distinct from the '
+            'empty-passport state — collapsing them is the bug this guards',
+      );
+      expect(
+        find.byKey(const Key('passport_find_master_button')),
+        findsNothing,
+      );
+      expect(find.byType(PassportCard), findsNothing);
+    });
+
+    testWidgets('tapping retry re-runs the fetch and shows the passport', (
+      tester,
+    ) async {
+      // First read throws, second succeeds — proves the retry actually re-runs
+      // the provider AND that an in-flight retry does not keep painting the
+      // error card (AsyncLoading carries the previous error forward, so
+      // `hasError` stays true while retrying; the screen must match isLoading
+      // first).
+      var attempt = 0;
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: [
+          screenProtectionProvider.overrideWithValue(ScreenProtectionManager()),
+          clientProfileProvider.overrideWith((ref) async => _sampleProfile),
+          passportProvider.overrideWith((ref) async {
+            attempt++;
+            if (attempt == 1) throw const ServerFailure(statusCode: 500);
+            return _populatedPassport;
+          }),
+        ],
+        // Automatic retry OFF (see the note above) so the only retry under test
+        // is the user-driven `ref.invalidate` behind the retry button.
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('passport_error_state')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('passport_retry_button')));
+      await tester.pump();
+
+      // Retry in flight: the error card is gone (not flashed back under the
+      // retained error) and the skeleton is showing instead.
+      expect(
+        find.byKey(const Key('passport_error_state')),
+        findsNothing,
+        reason:
+            'an in-flight retry must not keep rendering the error card — '
+            'AsyncLoading(retrying) still reports hasError',
+      );
+
+      await tester.pumpAndSettle();
+      expect(attempt, 2);
+      expect(find.byType(PassportCard), findsOneWidget);
+      expect(find.byKey(const Key('passport_error_state')), findsNothing);
+    });
   });
 
   group('PassportScreen — removed elements', () {

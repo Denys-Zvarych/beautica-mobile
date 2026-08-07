@@ -156,6 +156,17 @@ const List<String> kPiiPathPrefixes = <String>[
   // exact-match entry in [kPiiPaths] (no trailing dynamic segment to match a
   // prefix).
   '/api/v1/appointments/',
+  // Phase 13.8 — CLIENT self endpoints. `GET /clients/me/passport` returns
+  // BEHAVIOURAL PII (favourite procedures, favourite districts, spend/budget
+  // band); the sibling `/clients/me` routes carry the client's own profile PII.
+  // Without this entry `LoggingInterceptor.onError` logs `err.response?.data`
+  // verbatim (debug builds), so a 4xx/5xx on the passport route would spill the
+  // client's taste + spend profile into the log. Deliberately the WIDER
+  // `/clients/me` prefix rather than `.../passport`: every self-scoped client
+  // route under it is PII-bearing, and a prefix (not an exact [kPiiPaths]
+  // entry) is what covers the `/passport` tail and any future sub-route.
+  // Same rationale as `/api/v1/search/masters` above.
+  '/api/v1/clients/me',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

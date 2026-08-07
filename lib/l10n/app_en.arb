@@ -3222,6 +3222,14 @@
   "@passportEmptyCta": {
     "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
   },
+  "passportErrorTitle": "Couldn't load your passport",
+  "@passportErrorTitle": {
+    "description": "Heading of the BEAUTY PASSPORT error state, shown when GET /clients/me/passport fails. Deliberately distinct from the empty state so a network/server failure is never mistaken for 'no history yet'."
+  },
+  "passportErrorBody": "Check your connection and try again.",
+  "@passportErrorBody": {
+    "description": "Body copy of the BEAUTY PASSPORT error state, accompanying the retry button (retryLabel)."
+  },
   "searchTitle": "Search",
   "@searchTitle": {
     "description": "Title of the CLIENT Пошук (Search) filters screen — the elevated center bottom-nav tab."

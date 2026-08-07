@@ -4,9 +4,13 @@
 // The title "BEAUTY PASSPORT" is intentionally an untranslated English brand
 // constant per the locked product decision.
 //
-// The card currently always shows the empty/placeholder state because
-// GET /clients/me/passport (backend 19.5) is not yet shipped.
-// TODO(19.5): show bookingsConsidered count + favourite procedures/districts/budget.
+// DELIBERATELY DATA-FREE: this tile is a pure navigation affordance (brand
+// title + subtitle + glyph) and renders NO derived passport values, so it has
+// nothing to disagree with the passport tab about. It is therefore NOT a
+// Consumer — watching `passportProvider` here would fire
+// GET /clients/me/passport on every Home hub build for data the tile does not
+// display. The approved design (docs/signup-designs/) gives it no numeric slot;
+// adding one is a design change, not a wire-up (see Phase 13.8 status note).
 //
 // MyRatingStatCard replaces the old ReviewsStatCard (Phase 13.7 revision):
 // shows the client's aggregate two-sided rating (SVG star + n.n) or an em-dash

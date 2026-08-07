@@ -5,15 +5,15 @@
 // on every visit but the data still refreshes after the window elapses.
 //
 // Data source: [PassportRepository.getMyPassport] → `GET /clients/me/passport`
-// (backend 19.5). That endpoint is NOT yet in the committed OpenAPI client, so
-// the repository is the [PlaceholderPassportRepository] which returns an empty
-// passport (TODO 19.5) — mirroring how `home_hub_notifier.dart` placeholders the
-// other 19.x cards. The screen therefore renders the empty-passport variant
-// until the contract ships.
+// (backend 19.5), live via [HttpPassportRepository] over the generated
+// [ClientControllerApi]. A failed fetch surfaces as a typed `Failure` in the
+// [AsyncValue], which the screen renders as its error+retry state — an error is
+// deliberately NOT collapsed into the empty-passport variant.
 //
 // The footer's reviews count + member-since year are part of the [Passport]
-// aggregate (reviewsLeft / memberSinceYear). Until backend 19.5 supplies them
-// they default to 0 / null via the placeholder, exactly like the Home Hub.
+// aggregate (reviewsLeft / memberSinceYear) but are NOT on the wire contract —
+// the backend record carries neither — so they keep their domain defaults
+// (0 / null). The mapper does not fabricate them.
 
 import 'dart:async';
 import 'dart:developer';
@@ -21,6 +21,7 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../core/network/api_client_provider.dart';
 import '../data/passport_repository.dart';
 import '../domain/passport.dart';
 
@@ -31,12 +32,12 @@ part 'passport_notifier.g.dart';
 /// booking completion), so a generous window avoids redundant calls.
 const Duration _passportCacheTtl = Duration(minutes: 5);
 
-/// Binds the passport repository. Swapped to an `HttpPassportRepository` once
-/// backend 19.5 ships and the OpenAPI client regenerates.
-/// TODO(19.5): return `HttpPassportRepository(ref.watch(clientsApiProvider))`.
+/// Binds the passport repository to the live `GET /clients/me/passport`
+/// endpoint. Override in tests with a mocktail mock — never construct
+/// [HttpPassportRepository] directly in tests.
 @riverpod
 PassportRepository passportRepository(Ref ref) =>
-    const PlaceholderPassportRepository();
+    HttpPassportRepository(ref.watch(clientApiProvider));
 
 /// The CLIENT's auto-derived [Passport]. Kept alive with a [_passportCacheTtl]
 /// TTL so tab-hopping does not re-fetch on every visit.
@@ -50,7 +51,7 @@ Future<Passport> passport(Ref ref) async {
 
   if (kDebugMode) {
     log(
-      'passport: fetching via repository (placeholder until backend 19.5)',
+      'passport: fetching GET /clients/me/passport',
       name: 'feature.passport',
       level: 700,
     );

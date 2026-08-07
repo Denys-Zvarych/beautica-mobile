@@ -26,6 +26,16 @@
 // for the profile; `passportProvider` (placeholder until backend 19.5) for the
 // derived card.
 //
+// Both async surfaces on this page are rendered with an EXPLICIT branch
+// order (`isLoading` → `hasError` → value), never `.when()`: Riverpod
+// carries the previous error forward through an in-flight retry, so
+// `hasError` alone cannot separate loading from failed. Each surface has
+// three states — loading, ERROR and data — the error being a real affordance
+// (`_ProfileError` for the profile block, `_PassportError` for the hero),
+// never a silent degrade to a blank-field profile or to the empty-passport
+// variant. Collapsing a failure into "no data yet" is what let the
+// always-empty passport bug hide; the two are separately test-pinned.
+//
 // l10n gate: every Ukrainian string goes through AppLocalizations EXCEPT the
 // locked brand literals "BEAUTY PASSPORT" / «Твій б'юті-паспорт у Beautica»
 // (in passport_table.dart) and the lowercase "beautica" wordmark.
@@ -177,23 +187,46 @@ class _PassportBody extends ConsumerWidget {
           // Scoped Consumer: only this subtree rebuilds on a profile refresh.
           Consumer(
             builder: (BuildContext context, WidgetRef ref, _) {
-              final profileAsync = ref.watch(clientProfileProvider);
-              return profileAsync.when(
-                data: (ClientProfileSummary p) =>
-                    _ProfileBlock(profile: p, onCamera: onCamera),
-                loading: () => const _ProfileSkeleton(),
-                error: (Object e, _) => _ProfileBlock(
-                  profile: const ClientProfileSummary(
-                    firstName: '',
-                    lastName: '',
-                    city: '',
-                    phone: '',
-                    clientRating: null,
-                    memberSinceYear: 0,
-                  ),
-                  onCamera: onCamera,
-                ),
+              final AsyncValue<ClientProfileSummary> profileAsync = ref.watch(
+                clientProfileProvider,
               );
+
+              // Same explicit branch order as the hero below — deliberately NOT
+              // `.when()`.
+              //
+              // A retry re-enters `AsyncLoading` while STILL carrying the
+              // previous error, so `hasError` stays true for the whole in-flight
+              // retry. Matching `isLoading` FIRST is what stops the error
+              // affordance flashing straight back the instant the client taps
+              // «Спробувати знову».
+              //
+              // A failure must NEVER fall through to a blank-field profile: a
+              // synthesised all-empty [ClientProfileSummary] renders as the
+              // placeholder city/phone lines and an initial-less avatar, which
+              // is visually indistinguishable from "this client has no details
+              // yet". That collapse is the same defect class that let the
+              // always-empty passport bug hide for a whole phase.
+              if (profileAsync.isLoading) {
+                // Seamless reload: `ref.invalidate` RETAINS the previous value,
+                // so keep a good profile on screen rather than collapsing to the
+                // skeleton. Only a genuine first load re-skeletons.
+                final ClientProfileSummary? retained = profileAsync.value;
+                return retained == null
+                    ? const _ProfileSkeleton()
+                    : _ProfileBlock(profile: retained, onCamera: onCamera);
+              }
+              if (profileAsync.hasError) {
+                return _ProfileError(
+                  // The retry listener is on-screen and visible here, so the
+                  // offstage-pause caveat (an invalidate whose only listeners
+                  // are paused defers its refetch to resume) cannot bite.
+                  onRetry: () => ref.invalidate(clientProfileProvider),
+                );
+              }
+              final ClientProfileSummary? profile = profileAsync.value;
+              return profile == null
+                  ? const _ProfileSkeleton()
+                  : _ProfileBlock(profile: profile, onCamera: onCamera);
             },
           ),
           const SizedBox(height: VelvetSpacing.sm + 2),
@@ -204,16 +237,49 @@ class _PassportBody extends ConsumerWidget {
           Expanded(
             child: Consumer(
               builder: (BuildContext context, WidgetRef ref, _) {
-                final passportAsync = ref.watch(passportProvider);
-                return passportAsync.when(
-                  data: (Passport passport) => _PassportHero(
-                    passport: passport,
-                    onFindMaster: onFindMaster,
-                  ),
-                  loading: () => const _PassportCardSkeleton(),
-                  error: (Object e, _) =>
-                      _PassportHero.empty(onFindMaster: onFindMaster),
+                final AsyncValue<Passport> passportAsync = ref.watch(
+                  passportProvider,
                 );
+
+                // Explicit branch order — deliberately NOT `.when()`.
+                //
+                // A retry puts the provider back into `AsyncLoading` while it
+                // STILL CARRIES the previous error, so `hasError` stays true for
+                // the whole in-flight retry. Matching `isLoading` FIRST is what
+                // keeps the error card from flashing straight back the instant
+                // the client taps «Спробувати знову».
+                //
+                // An error must NEVER fall through to the empty-passport
+                // variant: that collapse is exactly what let the "always empty"
+                // bug hide — a 401/500 looked identical to "no history yet".
+                if (passportAsync.isLoading) {
+                  // Seamless reload: `ref.invalidate` RETAINS the previous
+                  // value, so if a good passport is already on screen keep it
+                  // rendered rather than collapsing to the skeleton. Only a
+                  // genuine first load (no retained value) shows the skeleton.
+                  final Passport? retained = passportAsync.value;
+                  return retained == null
+                      ? const _PassportCardSkeleton()
+                      : _PassportHero(
+                          passport: retained,
+                          onFindMaster: onFindMaster,
+                        );
+                }
+                if (passportAsync.hasError) {
+                  return _PassportError(
+                    // The retry listener is on-screen and visible here, so the
+                    // offstage-pause caveat (an invalidate whose only listeners
+                    // are paused defers its refetch to resume) cannot bite.
+                    onRetry: () => ref.invalidate(passportProvider),
+                  );
+                }
+                final Passport? passport = passportAsync.value;
+                return passport == null
+                    ? const _PassportCardSkeleton()
+                    : _PassportHero(
+                        passport: passport,
+                        onFindMaster: onFindMaster,
+                      );
               },
             ),
           ),
@@ -229,8 +295,6 @@ class _PassportBody extends ConsumerWidget {
 
 class _PassportHero extends StatelessWidget {
   const _PassportHero({required this.passport, required this.onFindMaster});
-
-  const _PassportHero.empty({required this.onFindMaster}) : passport = null;
 
   final Passport? passport;
   final VoidCallback onFindMaster;
@@ -373,6 +437,93 @@ class _EmptyPassport extends StatelessWidget {
   }
 }
 
+/// The passport FAILED TO LOAD. A DISTINCT state, never the empty variant.
+///
+/// The empty passport is an invitation ("book your first service and Beautica
+/// starts collecting"); a failed fetch is a fault the client can act on by
+/// retrying. Rendering the former for the latter is what let the always-empty
+/// data layer hide for a whole phase — a 401/500 was pixel-identical to "no
+/// history yet", so nobody could see the difference from the outside.
+///
+/// Deliberately built on [_EmptyPassport]'s geometry — the same extruded card,
+/// the same 92 dp neumorphic well, the same title/body/CTA rhythm — so the
+/// failure reads as the same surface in a different state rather than as a
+/// foreign widget in the hero slot. Only the glyph, copy and CTA differ.
+///
+/// The retry is `ref.invalidate(passportProvider)`. Because the caller matches
+/// `isLoading` BEFORE `hasError`, this card is unmounted for the whole
+/// in-flight retry and the skeleton (or the retained passport) shows instead —
+/// `AsyncLoading(retrying: true)` still reports `hasError`, so a `.when()` or a
+/// `hasError`-first order would paint this card straight back under the
+/// client's finger. That ordering is pinned by
+/// `test/features/passport/presentation/passport_screen_test.dart`.
+class _PassportError extends StatelessWidget {
+  const _PassportError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  static final BoxDecoration _cardDecoration = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.card),
+    boxShadow: VelvetShadows.extrudedCard,
+  );
+
+  static const BoxDecoration _glyphWellDecoration = BoxDecoration(
+    color: BrandColors.base,
+    shape: BoxShape.circle,
+    boxShadow: VelvetShadows.extrudedSmall,
+  );
+
+  static final TextStyle _bodyStyle = VelvetText.body14;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Container(
+      key: const Key('passport_error_state'),
+      width: double.infinity,
+      decoration: _cardDecoration,
+      padding: const EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.lg,
+        vertical: VelvetSpacing.lg,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            height: 92,
+            width: 92,
+            decoration: _glyphWellDecoration,
+            child: const Icon(
+              Icons.cloud_off_rounded,
+              size: 38,
+              color: BrandColors.accent,
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
+          Text(
+            l10n.passportErrorTitle,
+            textAlign: TextAlign.center,
+            style: VelvetText.subheading(),
+          ),
+          const SizedBox(height: VelvetSpacing.sm),
+          Text(
+            l10n.passportErrorBody,
+            textAlign: TextAlign.center,
+            style: _bodyStyle,
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
+          HubFilledButton(
+            key: const Key('passport_retry_button'),
+            label: l10n.retryLabel,
+            onTap: onRetry,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Profile block — mirrors the Головна profile block; NO location chevron/tap.
 // ---------------------------------------------------------------------------
@@ -476,6 +627,84 @@ class _ProfileBlock extends StatelessWidget {
         const SizedBox(width: VelvetSpacing.sm),
         Flexible(
           child: Text(text, style: _lineStyle, overflow: TextOverflow.ellipsis),
+        ),
+      ],
+    );
+  }
+}
+
+/// The PROFILE FAILED TO LOAD. The sub-block counterpart of [_PassportError]:
+/// same glyph (`cloud_off_rounded`), same accent tint, same neumorphic well,
+/// same `retryLabel` CTA — nothing new enters the visual language. It is laid
+/// out as a ROW on [_ProfileBlock]'s own geometry (a 96 dp well exactly where
+/// the avatar sits, copy + retry exactly where the name/location/phone lines
+/// sit) rather than as the hero's full extruded card: this is a sub-block, so
+/// it gets the block's footprint and no more. Occupying that footprint also
+/// keeps the passport hero at an unchanged vertical position — the failure
+/// costs no layout jump.
+///
+/// The copy reuses `homeHubProfileLoadError` — the identical failure of the
+/// identical `clientProfileProvider` already worded for the Home Hub's profile
+/// section, so the two screens report one fault in one voice.
+///
+/// Like the hero, the caller matches `isLoading` BEFORE `hasError`, so this row
+/// is unmounted for the whole in-flight retry — `AsyncLoading(retrying: true)`
+/// still reports `hasError`, and a `.when()` or a `hasError`-first order would
+/// paint the failure straight back under the client's finger. That ordering is
+/// pinned by `test/features/passport/presentation/passport_profile_error_test.dart`.
+class _ProfileError extends StatelessWidget {
+  const _ProfileError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  static const BoxDecoration _glyphWellDecoration = BoxDecoration(
+    color: BrandColors.base,
+    shape: BoxShape.circle,
+    boxShadow: VelvetShadows.extrudedSmall,
+  );
+
+  static final TextStyle _messageStyle = VelvetText.body14Text;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Row(
+      key: const Key('passport_profile_error_state'),
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        // Matches the avatar's 100 dp slot / 96 dp disc so the row keeps
+        // _ProfileBlock's exact height and the hero below never shifts.
+        SizedBox(
+          height: 100,
+          width: 100,
+          child: Center(
+            child: Container(
+              height: 96,
+              width: 96,
+              decoration: _glyphWellDecoration,
+              child: const Icon(
+                Icons.cloud_off_rounded,
+                size: 38,
+                color: BrandColors.accent,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: VelvetSpacing.md),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(l10n.homeHubProfileLoadError, style: _messageStyle),
+              const SizedBox(height: VelvetSpacing.sm + 2),
+              HubFilledButton(
+                key: const Key('passport_profile_retry_button'),
+                label: l10n.retryLabel,
+                onTap: onRetry,
+              ),
+            ],
+          ),
         ),
       ],
     );

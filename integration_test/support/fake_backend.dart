@@ -667,6 +667,20 @@ final class FakeBackend {
   String? lastResetPasswordNewPassword;
 
   int getMeCalls = 0; // GET /api/v1/users/me counter
+
+  /// `GET /api/v1/clients/me/passport` call counter (Phase 13.8 wire-up).
+  int getPassportCalls = 0;
+
+  /// Body served by `GET /api/v1/clients/me/passport`. Defaults to the EMPTY
+  /// passport — `bookingsConsidered: 0` is what drives the encouraging
+  /// empty-passport variant. Replace wholesale in a flow to serve a populated
+  /// one (favoriteProcedures / favoriteDistricts / budget).
+  Map<String, dynamic> passportBody = <String, dynamic>{
+    'favoriteProcedures': <String>[],
+    'favoriteDistricts': <String>[],
+    'budget': null,
+    'bookingsConsidered': 0,
+  };
   int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
   Map<String, dynamic>?
   lastPatchMeBody; // body of the most recent PATCH /users/me
@@ -3254,6 +3268,23 @@ final class FakeBackend {
           if (myRatingDistribution != null)
             'ratingDistribution': myRatingDistribution,
         });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/clients/me/passport — CLIENT's derived BEAUTY PASSPORT
+    // (backend 19.5). Wired now that HttpPassportRepository calls the real
+    // endpoint: without this route the mock router 404s and the passport tab
+    // renders its ERROR state instead of the empty variant the flow asserts.
+    //
+    // Defaults to the EMPTY passport (bookingsConsidered 0, no lists, no
+    // budget) — the state a freshly-seeded fake client is in. Mutate
+    // [passportBody] from a flow to serve a populated passport instead.
+    _adapter.onRoute(
+      '/api/v1/clients/me/passport',
+      (server) => server.replyCallback(200, (_) {
+        getPassportCalls++;
+        return _ok(passportBody);
       }),
       request: const Request(method: RequestMethods.get),
     );
