@@ -13,7 +13,6 @@ part 'passport_response.g.dart';
 /// PassportResponse
 ///
 /// Properties:
-/// * [favoriteProcedures]
 /// * [favoriteDistricts]
 /// * [favoriteCities]
 /// * [budget]
@@ -23,9 +22,6 @@ part 'passport_response.g.dart';
 @BuiltValue()
 abstract class PassportResponse
     implements Built<PassportResponse, PassportResponseBuilder> {
-  @BuiltValueField(wireName: r'favoriteProcedures')
-  BuiltList<String>? get favoriteProcedures;
-
   @BuiltValueField(wireName: r'favoriteDistricts')
   BuiltList<String>? get favoriteDistricts;
 
@@ -70,13 +66,6 @@ class _$PassportResponseSerializer
     PassportResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.favoriteProcedures != null) {
-      yield r'favoriteProcedures';
-      yield serializers.serialize(
-        object.favoriteProcedures,
-        specifiedType: const FullType(BuiltList, [FullType(String)]),
-      );
-    }
     if (object.favoriteDistricts != null) {
       yield r'favoriteDistricts';
       yield serializers.serialize(
@@ -144,13 +133,6 @@ class _$PassportResponseSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'favoriteProcedures':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(BuiltList, [FullType(String)]),
-          ) as BuiltList<String>;
-          result.favoriteProcedures.replace(valueDes);
-          break;
         case r'favoriteDistricts':
           final valueDes = serializers.deserialize(
             value,

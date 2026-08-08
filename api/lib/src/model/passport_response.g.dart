@@ -8,8 +8,6 @@ part of 'passport_response.dart';
 
 class _$PassportResponse extends PassportResponse {
   @override
-  final BuiltList<String>? favoriteProcedures;
-  @override
   final BuiltList<String>? favoriteDistricts;
   @override
   final BuiltList<String>? favoriteCities;
@@ -27,8 +25,7 @@ class _$PassportResponse extends PassportResponse {
       (PassportResponseBuilder()..update(updates))._build();
 
   _$PassportResponse._(
-      {this.favoriteProcedures,
-      this.favoriteDistricts,
+      {this.favoriteDistricts,
       this.favoriteCities,
       this.budget,
       this.bookingsConsidered,
@@ -47,7 +44,6 @@ class _$PassportResponse extends PassportResponse {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is PassportResponse &&
-        favoriteProcedures == other.favoriteProcedures &&
         favoriteDistricts == other.favoriteDistricts &&
         favoriteCities == other.favoriteCities &&
         budget == other.budget &&
@@ -59,7 +55,6 @@ class _$PassportResponse extends PassportResponse {
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, favoriteProcedures.hashCode);
     _$hash = $jc(_$hash, favoriteDistricts.hashCode);
     _$hash = $jc(_$hash, favoriteCities.hashCode);
     _$hash = $jc(_$hash, budget.hashCode);
@@ -73,7 +68,6 @@ class _$PassportResponse extends PassportResponse {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'PassportResponse')
-          ..add('favoriteProcedures', favoriteProcedures)
           ..add('favoriteDistricts', favoriteDistricts)
           ..add('favoriteCities', favoriteCities)
           ..add('budget', budget)
@@ -87,12 +81,6 @@ class _$PassportResponse extends PassportResponse {
 class PassportResponseBuilder
     implements Builder<PassportResponse, PassportResponseBuilder> {
   _$PassportResponse? _$v;
-
-  ListBuilder<String>? _favoriteProcedures;
-  ListBuilder<String> get favoriteProcedures =>
-      _$this._favoriteProcedures ??= ListBuilder<String>();
-  set favoriteProcedures(ListBuilder<String>? favoriteProcedures) =>
-      _$this._favoriteProcedures = favoriteProcedures;
 
   ListBuilder<String>? _favoriteDistricts;
   ListBuilder<String> get favoriteDistricts =>
@@ -132,7 +120,6 @@ class PassportResponseBuilder
   PassportResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _favoriteProcedures = $v.favoriteProcedures?.toBuilder();
       _favoriteDistricts = $v.favoriteDistricts?.toBuilder();
       _favoriteCities = $v.favoriteCities?.toBuilder();
       _budget = $v.budget?.toBuilder();
@@ -162,7 +149,6 @@ class PassportResponseBuilder
     try {
       _$result = _$v ??
           _$PassportResponse._(
-            favoriteProcedures: _favoriteProcedures?.build(),
             favoriteDistricts: _favoriteDistricts?.build(),
             favoriteCities: _favoriteCities?.build(),
             budget: _budget?.build(),
@@ -173,8 +159,6 @@ class PassportResponseBuilder
     } catch (_) {
       late String _$failedField;
       try {
-        _$failedField = 'favoriteProcedures';
-        _favoriteProcedures?.build();
         _$failedField = 'favoriteDistricts';
         _favoriteDistricts?.build();
         _$failedField = 'favoriteCities';

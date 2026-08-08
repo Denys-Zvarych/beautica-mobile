@@ -8,7 +8,6 @@ import 'package:beautica_api/api.dart';
 ## Properties
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**favoriteProcedures** | **BuiltList&lt;String&gt;** |  | [optional] 
 **favoriteDistricts** | **BuiltList&lt;String&gt;** |  | [optional] 
 **favoriteCities** | **BuiltList&lt;String&gt;** |  | [optional] 
 **budget** | [**BudgetBand**](BudgetBand.md) |  | [optional] 
