@@ -101,7 +101,6 @@ const _sampleProfile = ClientProfileSummary(
 /// The preview's worst-case derived history: the district that used to clip to
 /// «Шев…», three of them, plus two cities on a second line.
 const _populatedPassport = Passport(
-  favoriteProcedures: <String>['Манікюр', 'Брови', 'Педикюр'],
   favoriteDistricts: <String>['Шевченківський', 'Голосіївський', 'Печерський'],
   favoriteCities: <String>['Київ', 'Бровари'],
   // `max` differs from `avg` so a page still rendering the CEILING draws a
@@ -116,7 +115,6 @@ const _populatedPassport = Passport(
 /// derived block is OMITTED here, not rendered empty, so this cell is what
 /// pins that the page collapses rather than showing an empty card.
 const _noHistoryPassport = Passport(
-  favoriteProcedures: <String>[],
   favoriteDistricts: <String>[],
   favoriteCities: <String>[],
   budget: null,

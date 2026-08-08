@@ -106,16 +106,10 @@ const int _wireReviewsWritten = 12;
 /// re-derived the join year could not produce it.
 const int _wireMemberSinceYear = 2021;
 
-/// The still-carried-but-no-longer-rendered procedures list. Asserted ABSENT:
-/// the «Улюблені процедури» column went with the document card, and the point
-/// is that the RENDER dropped it while the wire still sends it.
-const List<String> _wireProcedures = <String>['Манікюр', 'Брови', 'Педикюр'];
-
 /// A POPULATED `GET /clients/me/passport` body. Every value is deliberately
 /// distinguishable from the no-history body, so an assertion below cannot be
 /// satisfied by the payload the flow previously (and only) exercised.
 Map<String, dynamic> _populatedPassportBody() => <String, dynamic>{
-  'favoriteProcedures': _wireProcedures,
   'favoriteDistricts': _wireDistricts,
   'favoriteCities': _wireCities,
   'budget': <String, dynamic>{
@@ -379,19 +373,6 @@ void main() {
             'max differs from its avg so this cannot pass by coincidence',
       );
       expect(find.text(l10n.passportBudgetUnknown), findsNothing);
-
-      // The retired «Улюблені процедури» column: still on the wire, no longer
-      // rendered.
-      for (final String procedure in _wireProcedures) {
-        expect(
-          // i18n-finder-ok: values come from the wire fixture above.
-          find.text(procedure),
-          findsNothing,
-          reason:
-              'the procedures column was deleted with the document card — '
-              '«$procedure» must not render even though the wire sends it',
-        );
-      }
 
       // ── 3. THE WISH LIST: exactly TWO cards + «Показати всі (5)» ───────────
       await _scrollToWishList(tester);

@@ -116,7 +116,6 @@ const int _kReviewsWritten = 12;
 const int _kMemberSinceYear = 2021;
 
 const _populatedPassport = Passport(
-  favoriteProcedures: <String>['Манікюр', 'Брови', 'Педикюр'],
   favoriteDistricts: _kDistricts,
   favoriteCities: _kCities,
   // `max` differs from `avg`, so a screen still reading the CEILING renders 900
@@ -131,7 +130,6 @@ const _populatedPassport = Passport(
 /// Reachable in production: the derivation ran (bookings were considered) and
 /// produced nothing statable.
 const _noDerivedDataPassport = Passport(
-  favoriteProcedures: <String>[],
   favoriteDistricts: <String>[],
   favoriteCities: <String>[],
   budget: null,

@@ -688,7 +688,6 @@ final class FakeBackend {
   /// rebuilt page (Phase 238) renders both — the cities on the derived block's
   /// locality line, the review count in the identity strip's counter column.
   Map<String, dynamic> passportBody = <String, dynamic>{
-    'favoriteProcedures': <String>[],
     'favoriteDistricts': <String>[],
     'favoriteCities': <String>[],
     'budget': null,

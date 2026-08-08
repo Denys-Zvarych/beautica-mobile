@@ -88,7 +88,6 @@ const _sampleProfile = ClientProfileSummary(
 /// would be indistinguishable from «the block is absent», which is a different
 /// contract (pinned in passport_screen_test.dart).
 Passport _passportWithBudget(BudgetBand? budget) => Passport(
-  favoriteProcedures: const <String>['Манікюр', 'Брови', 'Педикюр'],
   favoriteDistricts: const <String>['Шевченківський', 'Голосіївський'],
   favoriteCities: const <String>['Київ'],
   budget: budget,

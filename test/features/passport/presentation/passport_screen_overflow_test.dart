@@ -96,11 +96,6 @@ const _sampleProfile = ClientProfileSummary(
 );
 
 const _populatedPassport = Passport(
-  favoriteProcedures: <String>[
-    'Манікюр гель-лак',
-    'Брови ламінування',
-    'Косметологія обличчя',
-  ],
   favoriteDistricts: <String>['Шевченківський', 'Голосіївський', 'Печерський'],
   favoriteCities: <String>['Київ', 'Бровари'],
   budget: BudgetBand(avg: 1250, min: 400, max: 2400),

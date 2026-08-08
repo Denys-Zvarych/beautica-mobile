@@ -27,7 +27,6 @@ void main() {
       final Passport p = Passport.empty(memberSinceYear: 2024);
 
       expect(p.bookingsConsidered, 0);
-      expect(p.favoriteProcedures, isEmpty);
       expect(p.favoriteDistricts, isEmpty);
       expect(p.favoriteCities, isEmpty);
       expect(p.budget, isNull);
@@ -70,7 +69,6 @@ void main() {
   group('Passport.isEmpty', () {
     test('is false once any completed booking was considered', () {
       const Passport p = Passport(
-        favoriteProcedures: <String>['Манікюр'],
         favoriteDistricts: <String>['Центр'],
         favoriteCities: <String>['Львів'],
         budget: BudgetBand(avg: 600, min: 400, max: 800),
@@ -85,7 +83,6 @@ void main() {
     test('keys off bookingsConsidered, not off empty derived lists '
         '(history present but lists transiently empty ⇒ NOT empty)', () {
       const Passport p = Passport(
-        favoriteProcedures: <String>[],
         favoriteDistricts: <String>[],
         favoriteCities: <String>[],
         budget: null,
@@ -99,7 +96,6 @@ void main() {
 
     test('is true exactly when bookingsConsidered == 0', () {
       const Passport p = Passport(
-        favoriteProcedures: <String>['Брови'],
         favoriteDistricts: <String>['Сихів'],
         favoriteCities: <String>['Львів'],
         budget: BudgetBand(avg: 500, min: 500, max: 500),
@@ -129,7 +125,6 @@ void main() {
       // Untouched fields preserved — including the join year, which copyWith
       // must carry through rather than re-derive.
       expect(next.memberSinceYear, 2020);
-      expect(next.favoriteProcedures, isEmpty);
       expect(next.favoriteDistricts, isEmpty);
       expect(next.budget, isNull);
       expect(next.isEmpty, isFalse);
@@ -137,7 +132,6 @@ void main() {
 
     test('value equality / hashCode hold for identical field sets', () {
       const Passport a = Passport(
-        favoriteProcedures: <String>['Манікюр', 'Брови'],
         favoriteDistricts: <String>['Центр'],
         favoriteCities: <String>['Львів', 'Київ'],
         budget: BudgetBand(avg: 600, min: 400, max: 900),
@@ -146,7 +140,6 @@ void main() {
         memberSinceYear: 2023,
       );
       const Passport b = Passport(
-        favoriteProcedures: <String>['Манікюр', 'Брови'],
         favoriteDistricts: <String>['Центр'],
         favoriteCities: <String>['Львів', 'Київ'],
         budget: BudgetBand(avg: 600, min: 400, max: 900),
@@ -161,7 +154,6 @@ void main() {
 
     test('favoriteCities participates in equality (not an ignored field)', () {
       const Passport a = Passport(
-        favoriteProcedures: <String>[],
         favoriteDistricts: <String>[],
         favoriteCities: <String>['Львів'],
         budget: null,

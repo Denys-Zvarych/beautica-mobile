@@ -102,7 +102,6 @@ const _sampleProfile = ClientProfileSummary(
 );
 
 const _populatedPassport = Passport(
-  favoriteProcedures: <String>['Манікюр', 'Брови', 'Педикюр'],
   favoriteDistricts: <String>['Центр', 'Сихів', 'Франківський'],
   favoriteCities: <String>['Львів', 'Київ'],
   budget: BudgetBand(avg: 600, min: 400, max: 800),

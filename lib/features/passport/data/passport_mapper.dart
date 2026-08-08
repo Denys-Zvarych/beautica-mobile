@@ -7,9 +7,8 @@
 // NULLABILITY POLICY — the generated [PassportResponse] / [BudgetBand] declare
 // EVERY field nullable (SpringDoc emits no `required` list), so the mapper is
 // the single place that decides the domain's non-null shape:
-//   • favoriteProcedures / favoriteDistricts / favoriteCities — absent ⇒
-//     `const <String>[]` (an omitted list means "nothing derived", never an
-//     error).
+//   • favoriteDistricts / favoriteCities — absent ⇒ `const <String>[]` (an
+//     omitted list means "nothing derived", never an error).
 //   • budget — absent ⇒ null. Present but with a null `avg`/`min`/`max` ⇒ ALSO
 //     null: a partially-filled band cannot be rendered as a spend envelope, and
 //     defaulting a missing bound to 0 would fabricate a figure the client never
@@ -63,7 +62,6 @@ abstract final class PassportMapper {
       throw const ServerFailure(statusCode: null);
     }
     return Passport(
-      favoriteProcedures: dto.favoriteProcedures?.toList() ?? const <String>[],
       favoriteDistricts: dto.favoriteDistricts?.toList() ?? const <String>[],
       favoriteCities: dto.favoriteCities?.toList() ?? const <String>[],
       budget: _budgetFromDto(dto.budget),

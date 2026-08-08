@@ -105,7 +105,6 @@ Key _rowHeart(String id) => Key('wishlist_row_heart_$id');
 /// `passport_flow_test.dart`'s job; it is here only so the wish-list section
 /// sits where it does in production, below a full-height page.
 Map<String, dynamic> _populatedPassportBody() => <String, dynamic>{
-  'favoriteProcedures': <String>['Манікюр', 'Брови'],
   'favoriteDistricts': <String>['Шевченківський', 'Голосіївський'],
   'favoriteCities': <String>['Київ'],
   'budget': <String, dynamic>{

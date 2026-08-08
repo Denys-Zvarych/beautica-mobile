@@ -48,7 +48,6 @@ const int _joinYear = 2021;
 api.PassportResponse _populatedDto() => api.PassportResponse(
   (b) => b
     ..memberSinceYear = _joinYear
-    ..favoriteProcedures.replace(<String>['Манікюр', 'Брови', 'Педикюр'])
     ..favoriteDistricts.replace(<String>['Центр', 'Сихів', 'Франківський'])
     ..favoriteCities.replace(<String>['Львів', 'Київ', 'Одеса'])
     ..bookingsConsidered = 7
@@ -64,7 +63,6 @@ api.PassportResponse _populatedDto() => api.PassportResponse(
 api.PassportResponse _emptyDto() => api.PassportResponse(
   (b) => b
     ..memberSinceYear = _joinYear
-    ..favoriteProcedures.replace(const <String>[])
     ..favoriteDistricts.replace(const <String>[])
     ..favoriteCities.replace(const <String>[])
     ..bookingsConsidered = 0
@@ -85,7 +83,6 @@ void main() {
     test('maps every derived field off the wire onto the domain model', () {
       final Passport p = PassportMapper.fromDto(_populatedDto());
 
-      expect(p.favoriteProcedures, <String>['Манікюр', 'Брови', 'Педикюр']);
       expect(p.favoriteDistricts, <String>['Центр', 'Сихів', 'Франківський']);
       expect(p.favoriteCities, <String>['Львів', 'Київ', 'Одеса']);
       expect(p.bookingsConsidered, 7);
@@ -118,8 +115,6 @@ void main() {
         // The backend ranks most-frequent-first and caps at 3; the mapper must
         // not reorder. Asserting `first`/`last` explicitly so an alphabetical or
         // reversed copy fails rather than passing a set-equality check.
-        expect(p.favoriteProcedures.first, 'Манікюр');
-        expect(p.favoriteProcedures.last, 'Педикюр');
         expect(p.favoriteDistricts.first, 'Центр');
         expect(p.favoriteDistricts.last, 'Франківський');
         // Львів is first by frequency; alphabetically it would sort last of the
@@ -162,7 +157,6 @@ void main() {
     test('an empty-but-present payload maps to the empty passport', () {
       final Passport p = PassportMapper.fromDto(_emptyDto());
 
-      expect(p.favoriteProcedures, isEmpty);
       expect(p.favoriteDistricts, isEmpty);
       expect(p.favoriteCities, isEmpty);
       expect(p.budget, isNull);
@@ -219,42 +213,25 @@ void main() {
       expect(p.favoriteDistricts, isEmpty);
     });
 
-    test('absent favoriteProcedures becomes an empty list, not null', () {
-      final api.PassportResponse dto = api.PassportResponse(
-        (b) => b
-          ..memberSinceYear = _joinYear
-          ..favoriteDistricts.replace(<String>['Центр'])
-          ..bookingsConsidered = 2,
-      );
-
-      final Passport p = PassportMapper.fromDto(dto);
-
-      expect(p.favoriteProcedures, isEmpty);
-      // The sibling list is unaffected — an omitted key must not blank the
-      // whole aggregate.
-      expect(p.favoriteDistricts, <String>['Центр']);
-      expect(p.bookingsConsidered, 2);
-    });
-
     test('absent favoriteDistricts becomes an empty list, not null', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
           ..memberSinceYear = _joinYear
-          ..favoriteProcedures.replace(<String>['Манікюр'])
+          ..favoriteCities.replace(<String>['Львів'])
           ..bookingsConsidered = 2,
       );
 
       final Passport p = PassportMapper.fromDto(dto);
 
       expect(p.favoriteDistricts, isEmpty);
-      expect(p.favoriteProcedures, <String>['Манікюр']);
+      expect(p.favoriteCities, <String>['Львів']);
     });
 
     test('absent bookingsConsidered defaults to 0 (the conservative read)', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
           ..memberSinceYear = _joinYear
-          ..favoriteProcedures.replace(<String>['Манікюр']),
+          ..favoriteDistricts.replace(<String>['Центр']),
       );
 
       final Passport p = PassportMapper.fromDto(dto);
@@ -323,7 +300,6 @@ void main() {
         // so the test cannot pass because of some unrelated null.
         final api.PassportResponse dto = api.PassportResponse(
           (b) => b
-            ..favoriteProcedures.replace(<String>['Манікюр'])
             ..favoriteDistricts.replace(<String>['Центр'])
             ..favoriteCities.replace(<String>['Львів'])
             ..bookingsConsidered = 7
@@ -451,17 +427,5 @@ void main() {
         expect(PassportMapper.fromDto(dto).budget!.currency, 'EUR');
       },
     );
-  });
-
-  group('PassportMapper.fromDto — favoriteProcedures (removal pending)', () {
-    test('still maps favoriteProcedures while the wire still carries it', () {
-      // The approved page dropped the «Улюблені процедури» column, but backend
-      // 250 has not yet removed the field and it is GATED on this port landing.
-      // Until both sides drop it, silently discarding it here would be an
-      // undocumented contract change. Delete this test with the field.
-      final Passport p = PassportMapper.fromDto(_populatedDto());
-
-      expect(p.favoriteProcedures, <String>['Манікюр', 'Брови', 'Педикюр']);
-    });
   });
 }

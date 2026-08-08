@@ -24,21 +24,12 @@ part 'passport.freezed.dart';
 /// The CLIENT's auto-derived beauty passport.
 ///
 /// [bookingsConsidered] is the number of COMPLETED bookings the derivation drew
-/// from; `0` ⇒ the empty-passport state (no history yet). [favoriteProcedures],
-/// [favoriteDistricts] and [favoriteCities] are rank-ordered (most-frequent
-/// first) and capped to the top 3 by the backend. [budget] is null when there
-/// is no spend history.
+/// from; `0` ⇒ the empty-passport state (no history yet). [favoriteDistricts]
+/// and [favoriteCities] are rank-ordered (most-frequent first) and capped to
+/// the top 3 by the backend. [budget] is null when there is no spend history.
 @freezed
 abstract class Passport with _$Passport {
   const factory Passport({
-    /// Top-3 most-booked service-type names, rank-ordered (most-frequent first).
-    ///
-    /// DEPRECATED BY DESIGN, NOT YET REMOVED: the approved page dropped the
-    /// «Улюблені процедури» column. Backend 250 removes the wire field and the
-    /// follow-up phase removes this one, together with the screen (238). Until
-    /// then the wire still carries it, so the model still carries it.
-    required List<String> favoriteProcedures,
-
     /// Top-3 most-visited district names, rank-ordered (most-frequent first).
     required List<String> favoriteDistricts,
 
@@ -76,7 +67,6 @@ abstract class Passport with _$Passport {
   /// yet", not "no account yet" — the client's join year is known regardless,
   /// and this factory must not become a back door for a fabricated one.
   factory Passport.empty({required int memberSinceYear}) => Passport(
-    favoriteProcedures: const <String>[],
     favoriteDistricts: const <String>[],
     favoriteCities: const <String>[],
     budget: null,

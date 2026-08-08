@@ -46,7 +46,6 @@ Response<api.ApiResponsePassportResponse> _okPopulated() =>
       data: api.ApiResponsePassportResponse(
         (b) => b
           ..success = true
-          ..data.favoriteProcedures.replace(<String>['Манікюр', 'Брови'])
           ..data.favoriteDistricts.replace(<String>['Центр', 'Сихів'])
           ..data.favoriteCities.replace(<String>['Львів', 'Київ'])
           ..data.bookingsConsidered = 7
@@ -109,7 +108,6 @@ void main() {
         final Passport p = await repository.getMyPassport();
 
         verify(() => clientApi.getPassport()).called(1);
-        expect(p.favoriteProcedures, <String>['Манікюр', 'Брови']);
         expect(p.favoriteDistricts, <String>['Центр', 'Сихів']);
         expect(p.bookingsConsidered, 7);
         expect(p.budget!.max, 800.0);
@@ -133,7 +131,6 @@ void main() {
           data: api.ApiResponsePassportResponse(
             (b) => b
               ..success = true
-              ..data.favoriteProcedures.replace(const <String>[])
               ..data.favoriteDistricts.replace(const <String>[])
               ..data.favoriteCities.replace(const <String>[])
               ..data.bookingsConsidered = 0

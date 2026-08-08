@@ -68,7 +68,6 @@ const _sampleProfile = ClientProfileSummary(
 /// chips. Declared ONCE so the fixture and its assertions cannot drift, and so
 /// the finders read the payload instead of re-typing it — these are BACKEND
 /// DATA, never AppLocalizations copy, so they survive the EN locale landing.
-const List<String> _wireProcedures = <String>['Манікюр', 'Брови', 'Педикюр'];
 const List<String> _wireDistricts = <String>['Центр', 'Сихів', 'Франківський'];
 const int _wireBudgetAvg = 600;
 const List<String> _wireCities = <String>['Львів', 'Київ'];
@@ -89,7 +88,6 @@ Response<api.ApiResponsePassportResponse> _populatedEnvelope() =>
       data: api.ApiResponsePassportResponse(
         (b) => b
           ..success = true
-          ..data.favoriteProcedures.replace(_wireProcedures)
           ..data.favoriteDistricts.replace(_wireDistricts)
           ..data.favoriteCities.replace(_wireCities)
           ..data.bookingsConsidered = 7
@@ -109,7 +107,6 @@ Response<api.ApiResponsePassportResponse> _emptyEnvelope() =>
       data: api.ApiResponsePassportResponse(
         (b) => b
           ..success = true
-          ..data.favoriteProcedures.replace(const <String>[])
           ..data.favoriteDistricts.replace(const <String>[])
           ..data.favoriteCities.replace(const <String>[])
           ..data.bookingsConsidered = 0
@@ -201,7 +198,6 @@ void main() {
       final Passport p = await container.read(passportProvider.future);
 
       verify(() => clientApi.getPassport()).called(1);
-      expect(p.favoriteProcedures, _wireProcedures);
       expect(p.favoriteDistricts, _wireDistricts);
       expect(p.favoriteCities, _wireCities);
       expect(p.bookingsConsidered, 7);
@@ -350,20 +346,6 @@ void main() {
           find.text(l10n.passportMemberSince('$_wireMemberSinceYear')),
           findsOneWidget,
         );
-
-        // The «Улюблені процедури» column was DELETED with the document card.
-        // The wire still carries the field and the model still maps it, so this
-        // asserts the RENDER dropped it rather than the payload having changed.
-        // i18n-finder-ok: values come from the mocked envelope, never AppLocalizations.
-        for (final String procedure in _wireProcedures) {
-          expect(
-            find.text(procedure),
-            findsNothing,
-            reason:
-                'the procedures column is gone from the approved page — "$procedure" '
-                'must not render even though the wire still carries it',
-          );
-        }
 
         expect(find.byKey(const Key('passport_error_state')), findsNothing);
         expect(find.byKey(const Key('passport_skeleton')), findsNothing);
