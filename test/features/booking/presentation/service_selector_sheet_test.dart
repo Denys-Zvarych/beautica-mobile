@@ -31,7 +31,7 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
 import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart'
-    show wishlistRepositoryProvider;
+    show wishlistProvider, wishlistRepositoryProvider;
 import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
@@ -106,20 +106,24 @@ PublicMasterProfileData get _twoCategoryData =>
     (_kMaster, const <MasterService>[_kManicure, _kPedicure]);
 
 /// [n] services all in one `NAILS` category — used to drive the visit-selection
-/// cap (MO-3: at most [maxServicesPerVisit] services per visit).
-List<MasterService> _manyServices(int n) => <MasterService>[
-  for (int i = 0; i < n; i++)
-    MasterService(
-      id: 'svc-$i',
-      serviceDefId: 'def-$i',
-      // i18n-finder-ok: fixture service name, never asserted by value.
-      name: 'Послуга $i',
-      durationMinutes: 30,
-      priceMin: 100,
-      priceDisplay: '100 ₴',
-      category: 'NAILS',
-    ),
-];
+/// cap (MO-3: at most [maxServicesPerVisit] services per visit) and, with
+/// [isFavorite] set, the >20-favourites correctness fix (Phase 243) that the
+/// old wish-list-page-0 prime could never have satisfied.
+List<MasterService> _manyServices(int n, {bool isFavorite = false}) =>
+    <MasterService>[
+      for (int i = 0; i < n; i++)
+        MasterService(
+          id: 'svc-$i',
+          serviceDefId: 'def-$i',
+          // i18n-finder-ok: fixture service name, never asserted by value.
+          name: 'Послуга $i',
+          durationMinutes: 30,
+          priceMin: 100,
+          priceDisplay: '100 ₴',
+          category: 'NAILS',
+          isFavorite: isFavorite,
+        ),
+    ];
 
 // A titled master for the identity-card test below: Change 2 flipped the top
 // `MasterStrip` to `showRole:true, showRating:true`, so the strip must now show
@@ -138,8 +142,10 @@ PublicMasterProfileData get _titledTwoCategoryData =>
     (_kTitledMaster, const <MasterService>[_kManicure, _kPedicure]);
 
 /// Fixture wish-list entry — only [masterServiceId] is ever asserted on by
-/// the heart tests; the rest is filler satisfying [WishlistService]'s
-/// required fields.
+/// `should_refreshWishlist_when_unheartingFromBookingSheet`, the one
+/// remaining test that talks to `wishlistProvider` directly (Phase 243
+/// dropped the sheet's own prime from it — see the "favourite heart" group
+/// below). The rest is filler satisfying [WishlistService]'s required fields.
 WishlistService _wishlistEntry(String masterServiceId) => WishlistService(
   masterServiceId: masterServiceId,
   masterId: _kMasterId,
@@ -150,9 +156,8 @@ WishlistService _wishlistEntry(String masterServiceId) => WishlistService(
 );
 
 List<Object> _overrides(
-  FutureOr<PublicMasterProfileData> Function(Ref ref) create, {
-  List<WishlistService> wishlist = const <WishlistService>[],
-}) => <Object>[
+  FutureOr<PublicMasterProfileData> Function(Ref ref) create,
+) => <Object>[
   publicMasterProfileProvider(_kMasterId).overrideWith(create),
   // approvedCategoriesProvider footgun: sources from the real Dio-backed
   // categoryRequestApiProvider, independent of the service repository —
@@ -160,16 +165,21 @@ List<Object> _overrides(
   approvedCategoriesProvider.overrideWith(
     (ref) async => const <ServiceCategoryOption>[],
   ),
-  // Phase 240 — every catalogue row now renders a FavoriteHeartButton, which
-  // watches favoriteToggleProvider (→ authProvider) and this screen watches
-  // wishlistProvider (→ the real Dio-backed favoriteApiProvider, via
-  // wishlistRepositoryProvider) to prime it. Both MUST be overridden or the
+  // Every catalogue row now renders a FavoriteHeartButton, which watches
+  // favoriteToggleProvider (→ authProvider) — MUST be overridden or the
   // pre-existing tests in this file (which never touch favourites) would fire
-  // a real auth/network call under `flutter test`.
+  // a real auth call under `flutter test`.
   favoriteToggleProvider.overrideWith(_AuthFreeFavoriteToggleNotifier.new),
-  wishlistRepositoryProvider.overrideWithValue(
-    FakeWishlistRepository(services: wishlist),
-  ),
+  // Phase 243 — the sheet itself no longer reads `wishlistProvider` (hearts
+  // now prime from `MasterService.isFavorite` on the fetched payload; see the
+  // "favourite heart" group below). This override stays as defense-in-depth:
+  // `favoriteToggleProvider.toggle()` still invalidates `wishlistProvider` on
+  // a successful add/remove (unrelated to priming — it keeps the Beauty
+  // Passport / wish-list screens fresh), and a bare `FakeWishlistRepository`
+  // here means that invalidation can never reach the real Dio-backed
+  // repository if some future change makes another widget in this tree watch
+  // it.
+  wishlistRepositoryProvider.overrideWithValue(FakeWishlistRepository()),
 ];
 
 GoRouter _router() => GoRouter(
@@ -759,9 +769,14 @@ void main() {
   });
 
   // ===========================================================================
-  // Phase 240 — the favourite heart on the master-flow catalogue row.
+  // Phase 240 introduced the favourite heart on the master-flow catalogue row,
+  // primed from a `GET /favorites/services` round trip fired on every mount.
+  // Phase 243 replaced that source with `MasterService.isFavorite`, already
+  // riding on the payload this sheet fetches — no second request, no 20-row
+  // wish-list-page-0 cap. The heart widget itself (`FavoriteHeartButton`) is
+  // untouched; only where its `initialIsFavorite` seed comes from changed.
   // ===========================================================================
-  group('favourite heart (Phase 240)', () {
+  group('favourite heart (Phase 243)', () {
     Finder heartIcon(String masterServiceId, IconData icon) => find.descendant(
       of: find.byKey(Key('booking_service_heart_$masterServiceId')),
       matching: find.byIcon(icon),
@@ -777,12 +792,15 @@ void main() {
 
       await tester.pumpApp(
         const ServiceSelectorSheet(masterId: _kMasterId),
+        // Nothing favourite-related overridden beyond `_overrides`'s own
+        // defaults (an empty wish-list fake, never read by this sheet
+        // anymore) — the heart's seed comes entirely from the fetched
+        // service's own `isFavorite` flag now.
         overrides: _overrides(
-          (ref) => _twoCategoryData,
-          // Settled BEFORE the tile is ever built (pumpAndSettle below), so
-          // the heart primes correctly on its first frame — see the "PAGE
-          // 0 ONLY" / load-order comment on `_CatalogueBodyState.build()`.
-          wishlist: <WishlistService>[_wishlistEntry(_kManicure.id)],
+          (ref) => (
+            _kMaster,
+            <MasterService>[_kManicure.copyWith(isFavorite: true), _kPedicure],
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -794,12 +812,54 @@ void main() {
         heartIcon(_kManicure.id, Icons.favorite_rounded),
         findsOneWidget,
         reason:
-            'svc-mani is in the wish-list fixture — its heart must prime '
+            'svc-mani is fetched with isFavorite:true — its heart must prime '
             'filled on first build, not outline-then-flip',
       );
       expect(
         heartIcon(_kManicure.id, Icons.favorite_border_rounded),
         findsNothing,
+      );
+    });
+
+    testWidgets('should_notFetchWishlist_when_sheetMounts', (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // Throws if ever called — the headline claim of this phase. Without
+      // this test, the round trip could silently come back in a later
+      // refactor and this would be the only thing to catch it.
+      final FakeWishlistRepository throwingRepo = FakeWishlistRepository(
+        failure: const NetworkFailure(),
+      );
+
+      await tester.pumpApp(
+        const ServiceSelectorSheet(masterId: _kMasterId),
+        overrides: <Object>[
+          publicMasterProfileProvider(
+            _kMasterId,
+          ).overrideWith((ref) => _twoCategoryData),
+          approvedCategoriesProvider.overrideWith(
+            (ref) async => const <ServiceCategoryOption>[],
+          ),
+          favoriteToggleProvider.overrideWith(
+            _AuthFreeFavoriteToggleNotifier.new,
+          ),
+          wishlistRepositoryProvider.overrideWithValue(throwingRepo),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('booking_category_MANICURE')));
+      await tester.pumpAndSettle();
+
+      expect(
+        throwingRepo.getCallCount,
+        0,
+        reason:
+            'ServiceSelectorSheet must never read wishlistProvider — hearts '
+            'prime from MasterService.isFavorite instead',
       );
     });
 
@@ -827,6 +887,115 @@ void main() {
       expect(heartIcon(_kManicure.id, Icons.favorite_rounded), findsNothing);
     });
 
+    testWidgets('should_showFilledHeartsBeyondTwentyFavourites', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 20000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // 25 services, all favourited — more than the old wish-list prime's
+      // page-0 cap of 20 (`wishlist_repository.dart`) could ever have
+      // satisfied. The server-side isFavorite flag is exact and uncapped, so
+      // every single one must render filled.
+      const int total = 25;
+      final List<MasterService> services = _manyServices(
+        total,
+        isFavorite: true,
+      );
+
+      await tester.pumpApp(
+        const ServiceSelectorSheet(masterId: _kMasterId),
+        overrides: _overrides((ref) => (_kMaster, services)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('booking_category_NAILS')));
+      await tester.pumpAndSettle();
+
+      for (int i = 0; i < total; i++) {
+        expect(
+          heartIcon('svc-$i', Icons.favorite_rounded),
+          findsOneWidget,
+          reason:
+              'svc-$i is favourited beyond the old 20-row wish-list cap — '
+              'its heart must still render filled',
+        );
+      }
+    });
+
+    testWidgets('should_keepUserToggle_when_servicesListRebuilds', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // Mutated then re-read via `container.invalidate` below, to force a
+      // second, DISTINCT `widget.services` list — same isFavorite:false seed
+      // as the first — through `publicMasterProfileProvider` without any
+      // change to what the fixture itself claims about favourites.
+      PublicMasterProfileData current = _twoCategoryData;
+
+      await tester.pumpApp(
+        const ServiceSelectorSheet(masterId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides((ref) => current),
+          favoriteRepositoryProvider.overrideWithValue(
+            FakeFavoriteRepository(),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('booking_category_MANICURE')));
+      await tester.pumpAndSettle();
+
+      // Starts outline (isFavorite:false on the fixture) — tap fills it via
+      // favoriteToggleProvider, NOT via the seed.
+      expect(
+        heartIcon(_kManicure.id, Icons.favorite_border_rounded),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(Key('booking_service_heart_${_kManicure.id}')),
+      );
+      await tester.pumpAndSettle();
+      expect(heartIcon(_kManicure.id, Icons.favorite_rounded), findsOneWidget);
+
+      // Rebuild with a NEW `widget.services` list — same isFavorite:false
+      // seed as before, standing in for a resolved-again fetch (e.g. pull-
+      // to-refresh upstream). `FavoriteToggleNotifier.primeIfAbsent` must
+      // never overwrite the user's own toggle with the stale seed.
+      current = (
+        _kMaster,
+        <MasterService>[
+          _kManicure.copyWith(name: 'Манікюр з покриттям (оновлено)'),
+          _kPedicure,
+        ],
+      );
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(ServiceSelectorSheet)),
+      );
+      container.invalidate(publicMasterProfileProvider(_kMasterId));
+      await tester.pumpAndSettle();
+
+      expect(
+        heartIcon(_kManicure.id, Icons.favorite_rounded),
+        findsOneWidget,
+        reason:
+            'the user\'s own toggle must survive a services-list rebuild — '
+            'primeIfAbsent must not stomp an existing entry with a stale '
+            'isFavorite:false seed',
+      );
+      expect(
+        heartIcon(_kManicure.id, Icons.favorite_border_rounded),
+        findsNothing,
+      );
+    });
+
     testWidgets('should_notRebuildSiblingHearts_when_oneServiceToggled', (
       tester,
     ) async {
@@ -839,11 +1008,13 @@ void main() {
         const ServiceSelectorSheet(masterId: _kMasterId),
         overrides: <Object>[
           ..._overrides(
-            (ref) => _twoCategoryData,
-            wishlist: <WishlistService>[
-              _wishlistEntry(_kManicure.id),
-              _wishlistEntry(_kPedicure.id),
-            ],
+            (ref) => (
+              _kMaster,
+              <MasterService>[
+                _kManicure.copyWith(isFavorite: true),
+                _kPedicure.copyWith(isFavorite: true),
+              ],
+            ),
           ),
           favoriteRepositoryProvider.overrideWithValue(
             FakeFavoriteRepository(),
@@ -882,26 +1053,21 @@ void main() {
       };
       addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildHook);
 
-      // Audit cycle 3 — `favorite_toggle_notifier.dart`'s `toggle` now
-      // invalidates `wishlistProvider` on a successful SERVICE toggle in
-      // EITHER direction (add or remove), and `_CatalogueBodyState`
-      // unconditionally `ref.watch`es `wishlistProvider`. A REAL tap on any
-      // heart on this screen therefore now legitimately rebuilds the WHOLE
-      // catalogue body — including svc-pedi's heart — via that unrelated
-      // channel. That is the intended fix, not a regression, so it can no
-      // longer be dodged by picking "remove" the way the previous version of
-      // this test did (both directions invalidate now).
-      //
-      // So the `.select()` scoping claim is isolated a different way: drive
-      // the SAME notifier method the real tap uses, but with
-      // `refreshWishlist: false` — the exact opt-out
-      // `WishlistNotifier.removeService` itself relies on — so THIS
-      // measurement changes ONLY `favoriteToggleProvider`'s map, with no
-      // wishlist side-channel to confound the count. This still exercises the
-      // real widget's real `.select()` expression (the heart still reads the
-      // same provider via the same watch), just without going through the
-      // gesture detector — the gesture-to-toggle wiring is already covered by
-      // `should_showFilledHeart_when_serviceAlreadyInWishlist` and
+      // Audit cycle 3 — `favorite_toggle_notifier.dart`'s `toggle` invalidates
+      // `wishlistProvider` on a successful SERVICE toggle in EITHER direction
+      // (add or remove), a channel unrelated to this sheet's own hearts. Phase
+      // 243 removed `_CatalogueBodyState`'s watch on `wishlistProvider`
+      // entirely (hearts now prime from `MasterService.isFavorite`), so that
+      // side-channel can no longer confound this measurement even via a real
+      // tap. `refreshWishlist: false` is kept anyway — driving the SAME
+      // notifier method the real tap uses, the exact opt-out
+      // `WishlistNotifier.removeService` itself relies on — so this stays a
+      // narrow, deliberate test of `.select()` scoping rather than leaning on
+      // an absence that a future change could reintroduce. This still
+      // exercises the real widget's real `.select()` expression (the heart
+      // still reads the same provider via the same watch), just without going
+      // through the gesture detector — the gesture-to-toggle wiring is already
+      // covered by `should_showFilledHeart_when_serviceAlreadyInWishlist` and
       // `should_revertHeart_when_addFails`.
       final ProviderContainer container = ProviderScope.containerOf(
         tester.element(find.byType(ServiceSelectorSheet)),
@@ -1010,16 +1176,33 @@ void main() {
     });
 
     // =========================================================================
-    // Audit cycle 3 — un-hearting FROM THIS SHEET must refresh the wish list.
+    // Audit cycle 3 — un-hearting FROM THIS SHEET must still invalidate the
+    // wish list, so the Beauty Passport / wish-list screens don't keep showing
+    // a service the client just removed. That invalidate lives in
+    // `favorite_toggle_notifier.dart` (the "Audit cycle 3 fix") and is
+    // EXPLICITLY out of scope for Phase 243 — only the priming source changed
+    // (§ 6 of the phase doc: "the other five wishlistProvider readers are
+    // unaffected").
     //
-    // Phase 240 made a successful SERVICE *add* invalidate `wishlistProvider`
-    // but left *remove* untouched, reasoning that the only remove call site was
-    // `WishlistNotifier.removeService` (which manages its own state and must
-    // NOT be refetched out from under itself). That reasoning missed that THIS
-    // sheet's heart is a SECOND, independent remove call site — un-hearting a
-    // service here previously left the wish list showing a service the client
-    // had just removed, for up to the 5-minute TTL. See
-    // `favorite_toggle_notifier.dart`'s "Audit cycle 3 fix".
+    // Before Phase 243, this sheet's own `ref.watch(wishlistProvider)` was
+    // what made the invalidate observable in a widget test. Phase 243 removes
+    // that watch, so this test installs a `container.listen` in its place —
+    // NOT a stand-in for the real (paused) Passport consumer, just the
+    // simplest active listener that makes `ref.invalidate` trigger an
+    // observable refetch at all. A `container.listen` is a container-level
+    // subscription, which Riverpod NEVER pauses (see
+    // `leave_review_salon_surfaces_invalidation_test.dart`'s header, point 3),
+    // so this test proves the invalidate call fires against an active
+    // listener — a real assertion in its own right (the invalidate-on-success
+    // contract), just not evidence about the paused-consumer path. That path
+    // — the real risk, since `PassportScreen` is the actual sole consumer and
+    // it sits COVERED behind this sheet in the live nav stack — is exercised
+    // separately below by
+    // `should_disposeAndRefetchOnResume_when_unheartingWhilePassportIsPaused`,
+    // which pauses a real `Consumer` via `TickerMode(enabled: false)` (the
+    // exact mechanism go_router's `Offstage`-wrapped inactive shell branch
+    // uses under the hood — see `_IndexedStackedRouteBranchContainer` in
+    // `go_router`'s `route.dart`).
     // =========================================================================
     testWidgets('should_refreshWishlist_when_unheartingFromBookingSheet', (
       tester,
@@ -1038,9 +1221,15 @@ void main() {
       await tester.pumpApp(
         const ServiceSelectorSheet(masterId: _kMasterId),
         overrides: <Object>[
-          publicMasterProfileProvider(
-            _kMasterId,
-          ).overrideWith((ref) => _twoCategoryData),
+          publicMasterProfileProvider(_kMasterId).overrideWith(
+            (ref) => (
+              _kMaster,
+              <MasterService>[
+                _kManicure.copyWith(isFavorite: true),
+                _kPedicure,
+              ],
+            ),
+          ),
           approvedCategoriesProvider.overrideWith(
             (ref) async => const <ServiceCategoryOption>[],
           ),
@@ -1055,13 +1244,31 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // One fetch to prime every row's heart on first build.
+      // The sheet itself fetches nothing — svc-mani's heart primes filled
+      // straight from `isFavorite: true` on the payload it already fetched.
+      expect(
+        wishlistRepo.getCallCount,
+        0,
+        reason:
+            'ServiceSelectorSheet no longer reads wishlistProvider (Phase 243)',
+      );
+
+      // An ACTIVE (never-paused) container-level listener — see the group
+      // header above for why this is not a stand-in for the real, paused
+      // Passport consumer. It is what makes the invalidate-on-unheart below
+      // actually trigger a refetch instead of a silent no-op on a never-built
+      // provider.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(ServiceSelectorSheet)),
+      );
+      container.listen(wishlistProvider, (_, _) {});
+      await tester.pumpAndSettle();
       expect(wishlistRepo.getCallCount, 1);
 
       await tester.tap(find.byKey(const Key('booking_category_MANICURE')));
       await tester.pumpAndSettle();
 
-      // svc-mani starts favourited (in the wish-list fixture) — tapping its
+      // svc-mani starts favourited (isFavorite:true fixture) — tapping its
       // heart un-favourites it.
       await tester.tap(
         find.byKey(Key('booking_service_heart_${_kManicure.id}')),
@@ -1082,6 +1289,156 @@ void main() {
             'stop showing a service the client just removed',
       );
     });
+
+    // =========================================================================
+    // THE REAL paused-consumer path — `should_refreshWishlist_when_
+    // unheartingFromBookingSheet` above proves the invalidate CALL fires; this
+    // one proves what actually happens to the one real listener
+    // (`PassportScreen`) when it is genuinely paused, per
+    // `favorite_toggle_notifier.dart`'s header comment.
+    //
+    // `TickerMode(enabled: false)` is not a stand-in or an approximation — it
+    // is the EXACT signal go_router's own inactive-branch container uses
+    // (`Offstage(child: TickerMode(enabled: isActive, child: ...))` in
+    // go_router's `_IndexedStackedRouteBranchContainer`,
+    // package:go_router/src/route.dart), and it is the exact signal
+    // `flutter_riverpod`'s `Consumer` reads via `TickerMode.of` to decide
+    // whether to pause its subscriptions (`flutter_riverpod`'s
+    // `consumer.dart`). So a `Consumer` under a disabled `TickerMode` here is
+    // paused for the identical reason `PassportScreen` would be paused behind
+    // this sheet in the real nav stack.
+    // =========================================================================
+    testWidgets(
+      'should_disposeAndRefetchOnResume_when_unheartingWhilePassportIsPaused',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final FakeWishlistRepository wishlistRepo = FakeWishlistRepository(
+          services: <WishlistService>[_wishlistEntry(_kManicure.id)],
+        );
+
+        // Starts `false`: in the real nav stack the Passport branch is
+        // ALREADY covered the moment this booking sheet exists on top of it.
+        // Flips to `true` later only to simulate the user switching back to
+        // the Passport tab (the "resume").
+        final ValueNotifier<bool> passportActive = ValueNotifier<bool>(false);
+        addTearDown(passportActive.dispose);
+        AsyncValue<List<WishlistService>>? lastSeen;
+
+        await tester.pumpApp(
+          Stack(
+            children: <Widget>[
+              const ServiceSelectorSheet(masterId: _kMasterId),
+              ValueListenableBuilder<bool>(
+                valueListenable: passportActive,
+                builder: (context, active, _) => TickerMode(
+                  enabled: active,
+                  child: Consumer(
+                    builder: (context, ref, _) {
+                      lastSeen = ref.watch(wishlistProvider);
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+          overrides: <Object>[
+            publicMasterProfileProvider(_kMasterId).overrideWith(
+              (ref) => (
+                _kMaster,
+                <MasterService>[
+                  _kManicure.copyWith(isFavorite: true),
+                  _kPedicure,
+                ],
+              ),
+            ),
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[],
+            ),
+            favoriteToggleProvider.overrideWith(
+              _AuthFreeFavoriteToggleNotifier.new,
+            ),
+            wishlistRepositoryProvider.overrideWithValue(wishlistRepo),
+            favoriteRepositoryProvider.overrideWithValue(
+              FakeFavoriteRepository(),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Mount fetch — the paused Consumer's very first build still creates
+        // the subscription (TickerMode only suppresses notification of LATER
+        // changes, not this initial creation), so the repository is hit once
+        // regardless of pause state.
+        final int callsAfterMount = wishlistRepo.getCallCount;
+        expect(callsAfterMount, greaterThanOrEqualTo(1));
+
+        await tester.tap(find.byKey(const Key('booking_category_MANICURE')));
+        await tester.pumpAndSettle();
+
+        // svc-mani starts favourited (isFavorite:true fixture) — tapping its
+        // heart un-favourites it, which invalidates `wishlistProvider` from
+        // `favorite_toggle_notifier.dart`.
+        await tester.tap(
+          find.byKey(Key('booking_service_heart_${_kManicure.id}')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          heartIcon(_kManicure.id, Icons.favorite_border_rounded),
+          findsOneWidget,
+          reason: 'the tapped heart must have actually un-favourited',
+        );
+
+        // THE TRAP ITSELF: with the sole listener paused, `ref.invalidate`
+        // disposes the provider instead of reloading it — there must be NO
+        // immediate second fetch.
+        expect(
+          wishlistRepo.getCallCount,
+          callsAfterMount,
+          reason:
+              'a PAUSED consumer must not see an immediate refetch — '
+              'Riverpod 3 defers the dispose-and-refetch to resume (project '
+              'memory: "Riverpod offstage-pause invalidate gotcha"); seeing '
+              'a fetch here would mean the pause path was never actually '
+              'exercised',
+        );
+
+        // Resume: the user switches back to the Passport tab.
+        passportActive.value = true;
+        await tester.pumpAndSettle();
+        // One more settle: the dispose-and-recreate on resume can leave a
+        // trailing microtask/timer chain (the fake repository's own
+        // artificial `Future.delayed`) that the first `pumpAndSettle` call
+        // catches mid-flight. A second call is a no-op once truly settled.
+        await tester.pumpAndSettle();
+
+        expect(
+          wishlistRepo.getCallCount,
+          greaterThan(callsAfterMount),
+          reason:
+              'resuming the paused consumer must trigger the deferred '
+              'dispose-and-refetch — this is the "on resume" half of the '
+              'documented trade in favorite_toggle_notifier.dart',
+        );
+        // Nothing crashed, and the resumed read is a genuine value — not
+        // stuck in error/loading and not silently reusing a stale one.
+        expect(
+          lastSeen?.hasError,
+          isFalse,
+          reason: 'the resumed provider must not surface an error',
+        );
+        expect(
+          lastSeen?.value,
+          isNotNull,
+          reason: 'the resumed provider must resolve to real data, not hang',
+        );
+      },
+    );
   });
 
   // ===========================================================================

@@ -582,7 +582,20 @@ void main() {
 
       // Comfortably past the heart's pop — safe to overshoot; the gated
       // collapse delay cannot resolve early regardless of how long this waits.
-      await tester.pump(WishlistHeartButton.popDuration * 3);
+      //
+      // Widened 3x -> 10x (mobile-qa, 2026-08-08): under two concurrent
+      // CPU-saturating audit-agent processes this file returned an anomalous
+      // +1/-2 in a five-file back-to-back run, while passing 3/3 alone. The
+      // 3x margin (330 ms) assumed the process gets scheduled promptly enough
+      // for the heart's OWN un-gated 110 ms `Future.delayed` to fire within
+      // that wall-clock window; under severe host contention the single-
+      // threaded isolate can be starved past that. The widen costs ~0.8s of
+      // real test time and is risk-free per the overshoot argument above (the
+      // assertions below are bounded by the COMPLETER gate, not by this
+      // wait — confirmed by mutation: this wait can be set to Duration.zero
+      // and every assertion in this block still passes, because nothing here
+      // depends on the pop animation having actually completed).
+      await tester.pump(WishlistHeartButton.popDuration * 10);
 
       expect(
         fb.removeFavoriteCalls,

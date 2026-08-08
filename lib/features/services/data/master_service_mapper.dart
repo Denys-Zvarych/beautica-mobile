@@ -19,6 +19,10 @@
 //       * priceDisplay ← MasterServiceResponse.priceDisplay ?? serviceDefinition.priceDisplay ?? ''
 //       * bufferMinutesAfter ← serviceDefinition.bufferMinutesAfter ?? 0
 //       * isActive     ← MasterServiceResponse.isActive ?? true
+//       * isFavorite   ← MasterServiceResponse.isFavorite ?? false (three-state
+//                        wire contract collapses to two-state at the mapper;
+//                        always false on the fromServiceDefinitionDto path,
+//                        which has no such field)
 //
 //   - Price fields are delivered as Dart `num` (not kopeck amounts). The mapper
 //     converts to `double` via `.toDouble()`. No divide-by-100 is needed.
@@ -214,6 +218,11 @@ abstract final class MasterServiceMapper {
       priceDisplay: priceDisplay,
       bufferMinutesAfter: def?.bufferMinutesAfter ?? 0,
       isActive: dto.isActive ?? true,
+      // Three-state wire contract (true/false/null) collapses to two-state
+      // here: null means "no wish-list answer applies" (anonymous/non-CLIENT
+      // caller, or a cache read decorated pre-request) and the render only
+      // has filled/hollow, so it reads identically to "not favourited".
+      isFavorite: dto.isFavorite ?? false,
     );
   }
 
@@ -271,6 +280,12 @@ abstract final class MasterServiceMapper {
       priceDisplay: priceDisplay,
       bufferMinutesAfter: dto.bufferMinutesAfter ?? 0,
       isActive: dto.isActive ?? true,
+      // ServiceDefinitionResponse (the update-endpoint payload) carries no
+      // isFavorite field at all — it is not a MasterServiceResponse envelope.
+      // Hardcoded false, not an oversight: this response is only ever
+      // consumed to refresh a service the master just edited, never to
+      // render a client-facing heart.
+      isFavorite: false,
     );
   }
 

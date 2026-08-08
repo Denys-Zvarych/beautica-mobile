@@ -61,8 +61,6 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
-import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
-import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -621,26 +619,13 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
   List<MasterService>? _cachedServices;
   List<ServiceCategoryOption>? _cachedOptions;
 
-  // Same memoization shape as the group cache above, kept as a SEPARATE pair
-  // rather than folded into `_rebuildIfNeeded`: that method's cache key is
-  // specifically (services, resolved category options), and the wish list is
-  // an unrelated third input that changes on its own schedule (a favourite
-  // toggle elsewhere) — mixing it in would make `_rebuildIfNeeded` invalidate
-  // the groups cache on a wishlist change it has nothing to do with.
-  // (mobile-perf finding, follow-up to #1 above.)
-  List<WishlistService>? _cachedWishlistItems;
+  // Phase 243 — favourite heart seeding folded into this SAME memo (Phase 240
+  // kept it as a separate cache keyed off `wishlistProvider`, because the wish
+  // list changed on its own schedule independent of `widget.services`). Now
+  // that the flag rides on `MasterService.isFavorite`, its only input IS
+  // `widget.services` — already this memo's cache key — so a second cache
+  // buys nothing.
   Set<String> _cachedFavoriteServiceIds = const <String>{};
-
-  Set<String> _favoriteIdsFor(List<WishlistService>? items) {
-    if (identical(_cachedWishlistItems, items)) {
-      return _cachedFavoriteServiceIds;
-    }
-    _cachedWishlistItems = items;
-    _cachedFavoriteServiceIds =
-        items?.map((WishlistService w) => w.masterServiceId).toSet() ??
-        const <String>{};
-    return _cachedFavoriteServiceIds;
-  }
 
   List<CatalogueCategoryGroup> _groupsFor(
     AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
@@ -669,6 +654,10 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
     );
     _cachedServices = widget.services;
     _cachedOptions = options;
+    _cachedFavoriteServiceIds = widget.services
+        .where((MasterService s) => s.isFavorite)
+        .map((MasterService s) => s.id)
+        .toSet();
   }
 
   /// Stable partition: categories containing a search-matched service first (in
@@ -694,36 +683,15 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
       categoriesAsync,
       l10n,
     );
-    // Phase 240 — primes every row's heart from the client's wish list. Only
-    // correct when the wish list is LOADED (`.value` reads null while loading
-    // or on error — Riverpod 3.x removed `.valueOrNull`, see
-    // `auth_selectors.dart` — degrading every heart to "not favourited"
-    // rather than throwing) and only up to the wish list's own PAGE 0 ONLY cap
-    // (`wishlist_repository.dart` — 20 entries, no paging). A service
-    // favourited beyond that cap renders with an outline heart here even
-    // though it is genuinely in the wish list, until the backend adds paging —
-    // the same limitation the wish-list screens themselves already accept.
-    //
-    // mobile-perf audit (KEEP AS-IS — do not gate this watch on
-    // `ref.exists(...)`): this fires one `GET /favorites/services` on every
-    // mount of booking Step 1, the app's hottest screen transition, even for
-    // clients who have never favourited anything. Accepted because the cost
-    // is small and non-blocking — page-0 capped at 20 rows, 5-minute TTL
-    // shared app-wide with the passport and wish-list screens (so most
-    // mounts hit cache, not network), and hearts still render outline-first
-    // and fill in only once the fetch resolves, so nothing here blocks the
-    // sheet's own paint. Removing the prime would leave hearts hollow for
-    // services the client HAS already favourited — a correctness bug, not a
-    // perf win — and `mobile-debugger` confirmed gating on `ref.exists`
-    // breaks the approved
-    // `should_showFilledHeart_when_serviceAlreadyInWishlist` test, which
-    // pumps this sheet with nothing pre-warming the provider. The real fix is
-    // server-side: fold an `isFavorite` flag onto the master-services payload
-    // `publicMasterProfileProvider` already fetches for this same screen,
-    // which would make priming cost zero extra round trips.
-    final Set<String> favoriteServiceIds = _favoriteIdsFor(
-      ref.watch(wishlistProvider).value,
-    );
+    // Phase 243 — every row's heart is primed from `MasterService.isFavorite`,
+    // a flag already riding on the payload this sheet fetches (Phase 242).
+    // This replaced a Phase 240 prime that fired a second, independent
+    // `GET /favorites/services` on every mount and was capped at wish-list
+    // page 0 (20 rows) — a client with more favourites saw hollow hearts on
+    // services they genuinely favourited. The server flag is exact and
+    // uncapped, so hearts are now correct on the first paint, with no fill-in
+    // frame and no extra round trip.
+    final Set<String> favoriteServiceIds = _cachedFavoriteServiceIds;
     String headerSemantics({
       required String label,
       required int count,

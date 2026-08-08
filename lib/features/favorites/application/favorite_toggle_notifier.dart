@@ -59,16 +59,45 @@
 // wishlist_notifier_test.dart`'s "does NOT refetch" case (the suppression
 // direction, unchanged).
 //
-// Riverpod covered-consumer trap, checked not assumed: `wishlistProvider`
-// keeps itself alive past zero listeners via its own `ref.keepAlive()` + TTL
-// (see `wishlist_notifier.dart`), so `ref.invalidate` here does not need an
-// active listener to avoid the dispose-on-invalidate trap — but in EVERY
-// current SERVICE-heart call site, `ServiceSelectorSheet` itself already
-// holds an active (unpaused) watch on `wishlistProvider` at the moment of
-// toggle (it primes every row's heart from it), so the refetch fires
-// immediately, not on some later resume. The freshly-fetched value then rides
-// the TTL through the pop back to the client shell, so the BEAUTY PASSPORT's
-// own (new) listener reads it from cache — no spinner, no second round trip.
+// Riverpod covered-consumer trap, checked not assumed — and, as of Phase 243,
+// actually LANDED on us, not just theoretical:
+//
+// `wishlistProvider`'s ONLY remaining consumer is `PassportScreen`
+// (`lib/routing/app_router.dart`'s `kClientPassportBranch`, one of five
+// `StatefulShellBranch`es inside the CLIENT shell's `IndexedStack`).
+// `ServiceSelectorSheet` used to hold its own active watch on
+// `wishlistProvider` too (it primed every row's heart from it), which is what
+// made the refetch below fire immediately at toggle time. Phase 243 replaced
+// that priming source with `MasterService.isFavorite` off the payload the
+// sheet already fetches, and dropped the watch entirely — see
+// `service_selector_sheet.dart`'s Phase 243 header and this file's own
+// "Audit cycle 3 fix" note above.
+//
+// So at toggle time — reached via `RouteNames.bookingNew`, a sibling
+// `GoRoute` pushed ON TOP of the client shell (`app_router.dart`) —
+// `PassportScreen` is mounted but COVERED, which Riverpod 3 reports to its
+// `Consumer`/`ConsumerWidget`s as `TickerMode(enabled: false)`
+// (`flutter_riverpod`'s `consumer.dart`): the covered branch's Navigator sits
+// under go_router's own `Offstage` + `TickerMode(enabled: isActive)` wrapper.
+// A `TickerMode`-disabled consumer's subscription is PAUSED, and invalidating
+// an autoDispose provider whose only listener is paused DISPOSES it rather
+// than reloading it — the refetch is deferred to resume, with no retained
+// previous value in between (project memory: "Riverpod offstage-pause
+// invalidate gotcha"; mirrors `wishlist_notifier.dart`'s own trap #1, which is
+// exactly why THAT file's `removeService` mutates state in place instead of
+// invalidating).
+//
+// ACCEPTED TRADE, not a bug to fix: a client who un-hearts a service from this
+// booking sheet and then switches to the Passport tab sees a brief loading
+// spinner instead of instant cached-fresh data — because the dispose-and-
+// refetch actually happens on that tab switch (the resume), not before. We
+// keep the invalidate anyway. The data ends up correct, the case is narrow
+// (only a toggle from the booking sheet followed by a Passport visit), and a
+// brief spinner is a fair price for removing a guaranteed network round trip
+// from the app's hottest screen transition (see `wishlistProvider`'s own
+// `_wishlistCacheTtl` comment for why a generous cache window is otherwise the
+// norm here). Do not "fix" this by re-adding a watch to `ServiceSelectorSheet`
+// — that regresses Phase 243's >20-favourites correctness fix.
 
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
