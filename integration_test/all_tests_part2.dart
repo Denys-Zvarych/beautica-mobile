@@ -47,6 +47,7 @@ import 'support_contact_flow_test.dart' as support_contact;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
+import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -101,6 +102,10 @@ void main() {
   // race surfacing as a normal booking-flow failure and dropping the dead
   // entry afterward.
   group('wishlist_rebook_flow', wishlist_rebook.main);
+  // mobile-qa (2026-08-08) — the FAILED un-favourite: optimistic removal
+  // asserted mid-flight, restore at the ORIGINAL index (not appended), and
+  // the failure snack. Closes the last known Beauty Passport track gap.
+  group('wishlist_remove_failure_flow', wishlist_remove_failure.main);
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);
   group('register_flow', register.main);
