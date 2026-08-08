@@ -70,6 +70,8 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -103,6 +105,17 @@ class _FixedAuthNotifier extends AuthNotifier {
     state = _session;
     return _session.value;
   }
+}
+
+/// [Wishlist] stub that resolves immediately to an empty list, bypassing the
+/// real notifier's `build()` body ENTIRELY — including its unconditional
+/// 5-minute keep-alive TTL `Timer` — so ServiceSelectorSheet's Phase 240
+/// wish-list watch cannot leak a Timer past this file's manual
+/// `ProviderContainer` disposal. See the override site in
+/// `_masterDataOverrides` above.
+class _SettledWishlistNotifier extends Wishlist {
+  @override
+  Future<List<WishlistService>> build() async => const <WishlistService>[];
 }
 
 /// Builds a fresh container wired with the auth stub + the screen's data
@@ -282,6 +295,17 @@ List<Object> get _masterDataOverrides => <Object>[
   approvedCategoriesProvider.overrideWith(
     (ref) async => const <ServiceCategoryOption>[],
   ),
+  // Phase 240 — ServiceSelectorSheet now also watches wishlistProvider (to
+  // prime each row's favourite heart). Overriding the NESTED
+  // wishlistRepositoryProvider is NOT enough: `Wishlist.build()`
+  // unconditionally starts its own 5-minute keep-alive TTL Timer BEFORE it
+  // ever reads the repository, and `ref.onDispose` only cancels it when the
+  // PROVIDER disposes — which for this file's manual `ProviderContainer` +
+  // `addTearDown(container.dispose)` happens AFTER flutter_test's
+  // `!timersPending` invariant check has already run. Bypassing
+  // `Wishlist.build()` entirely — not just its repository dependency — is
+  // the fix; see `_SettledWishlistNotifier` below.
+  wishlistProvider.overrideWith(_SettledWishlistNotifier.new),
 ];
 
 const _kMasterMatchSeed = PendingServicePreselection(
@@ -662,6 +686,7 @@ void main() {
                 'GEL_MANICURE did not match the filter → svc-other must stay '
                 'unchecked (exact-slug, no false positive)',
           );
+          c.dispose();
         },
       );
 
@@ -687,6 +712,7 @@ void main() {
                 'a later booking never re-reads it',
           );
           expect(tester.takeException(), isNull);
+          c.dispose();
         },
       );
 
@@ -731,6 +757,7 @@ void main() {
             reason: 're-entry after a consumed payload must pre-check nothing',
           );
           expect(tester.takeException(), isNull);
+          c.dispose();
         },
       );
 
@@ -770,6 +797,7 @@ void main() {
             reason: 'a payload for a different target must pre-check nothing',
           );
           expect(tester.takeException(), isNull);
+          c.dispose();
         },
       );
     },
@@ -820,6 +848,7 @@ void main() {
         expect(_masterHairTile, findsNothing);
         expect(_masterBrowTile, findsNothing);
         expect(tester.takeException(), isNull);
+        c.dispose();
       },
     );
 
@@ -867,6 +896,7 @@ void main() {
         expect(_checkedFace(_masterOtherTile), findsNothing);
         expect(_masterHairTile, findsNothing);
         expect(tester.takeException(), isNull);
+        c.dispose();
       },
     );
 
@@ -902,6 +932,7 @@ void main() {
         expect(_masterMatchTile, findsNothing);
         expect(_anyCheckedFace, findsNothing);
         expect(tester.takeException(), isNull);
+        c.dispose();
       },
     );
 
@@ -941,6 +972,7 @@ void main() {
         // … but the tile is now unchecked.
         expect(_checkedFace(_masterMatchTile), findsNothing);
         expect(tester.takeException(), isNull);
+        c.dispose();
       },
     );
   });

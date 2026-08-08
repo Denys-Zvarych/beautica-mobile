@@ -79,6 +79,16 @@ abstract final class RouteNames {
   static const String clientBookings = '/bookings';
   static const String clientPassport = '/passport';
 
+  /// Phase 239 — «Усі збережені», the full BEAUTY WISH LIST. Nested under
+  /// [clientPassport] so it pushes onto the passport branch's OWN navigator:
+  /// swipe-back then returns to the still-scrolled passport page instead of
+  /// unwinding to a branch root.
+  ///
+  /// ⚠ Reached with `context.push`, never `context.go`. A pushed leaf collapses
+  /// to the PARENT path in `GoRouterState.fullPath`, so a `go`-based navigation
+  /// test would false-pass against `/passport`.
+  static const String clientWishlist = '$clientPassport/wishlist';
+
   /// Phase 14.3 — «Деталі запису», nested under [clientBookings] so it
   /// pushes onto that branch's own navigator (swipe-back returns to the
   /// still-scrolled list). Reached by tapping any `BookingCard`.

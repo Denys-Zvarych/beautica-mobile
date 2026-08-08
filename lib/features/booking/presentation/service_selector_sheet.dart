@@ -61,6 +61,8 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -83,6 +85,7 @@ class ServiceSelectorSheet extends ConsumerStatefulWidget {
     super.key,
     required this.masterId,
     this.initialServiceId,
+    this.autoAdvance = false,
   });
 
   /// Target master's backend UUID.
@@ -91,10 +94,25 @@ class ServiceSelectorSheet extends ConsumerStatefulWidget {
   /// Optional service id the client tapped BEFORE reaching this screen (e.g.
   /// from a specific service card on the profile). When it resolves to a real
   /// service, that service starts pre-selected and its category starts
-  /// expanded. Not currently threaded from any call site (the public master
-  /// profile's booking shelf CTA carries only the master id), so this is an
-  /// extension point rather than an exercised path today.
+  /// expanded.
   final String? initialServiceId;
+
+  /// Phase 241 — when true AND [initialServiceId] resolves to a real,
+  /// still-bookable service in the freshly-loaded catalogue, the screen skips
+  /// the manual "Далі" tap and advances straight to the slot picker the
+  /// instant the catalogue confirms the match — the wish-list rebook CTA
+  /// already knows exactly which service to book, so Step 1 has nothing left
+  /// for the client to decide.
+  ///
+  /// A no-op when [initialServiceId] is null, or when it does not resolve
+  /// (e.g. the master deactivated that service between the caller's own data
+  /// load and this screen's fetch): the catalogue then simply renders
+  /// normally, nothing pre-selected, same as arriving with no pre-selection at
+  /// all. This is deliberately NOT surfaced as an error here — the flow's own
+  /// booking-creation failure (a stale service the client did carry through)
+  /// is the meaningful failure to show, and it already renders further down
+  /// the flow via the normal [Failure] path.
+  final bool autoAdvance;
 
   @override
   ConsumerState<ServiceSelectorSheet> createState() =>
@@ -134,6 +152,17 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
   /// Null when the client did not arrive from a search with an active service
   /// filter, or the pending payload targeted a different provider.
   PendingServicePreselection? _preselection;
+
+  /// Set by [_seedOnce] when [widget.autoAdvance] is true and
+  /// [widget.initialServiceId] resolved to a real, still-bookable service —
+  /// consumed once (post-frame) by the `data` branch of [build] to skip
+  /// straight to the slot picker. See [widget.autoAdvance]'s doc for the
+  /// no-match case (stays null; the catalogue just renders normally).
+  MasterService? _autoAdvanceTarget;
+
+  /// Guards [_autoAdvanceTarget] from firing more than once (e.g. a rebuild
+  /// after the post-frame push already scheduled).
+  bool _autoAdvanceScheduled = false;
 
   @override
   void initState() {
@@ -195,6 +224,9 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
       if (match != null) {
         selectedIds.add(match.id);
         _expandedKeys.add((match.category ?? '').trim().toUpperCase());
+        if (widget.autoAdvance) {
+          _autoAdvanceTarget = match;
+        }
       }
     }
 
@@ -255,6 +287,29 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
       return;
     }
     _selectionController.toggleService(id);
+  }
+
+  /// Surfaces a failed favourite toggle (from any row's heart) as an error
+  /// snack. Mirrors `search_results_screen.dart`'s `_showFavoriteError` — same
+  /// pattern, kept local because this screen is a full pushed page with no
+  /// shared parent to hoist the handler to.
+  void _showFavoriteError(Failure failure) {
+    if (!mounted) return;
+    showErrorSnack(context, failure.userMessage(context));
+  }
+
+  /// Fires [_goNext] with the resolved [_autoAdvanceTarget] exactly once,
+  /// off the build phase (post-frame) — `context.push` during `build()` is
+  /// unsafe the same way a provider write is (see the deferred `clear()`
+  /// above).
+  void _maybeAutoAdvance(Master master) {
+    final MasterService? target = _autoAdvanceTarget;
+    if (target == null || _autoAdvanceScheduled) return;
+    _autoAdvanceScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _goNext(master, <MasterService>[target]);
+    });
   }
 
   void _goNext(Master master, List<MasterService> selected) {
@@ -331,6 +386,7 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                 data: (PublicMasterProfileData data) {
                   final (Master master, List<MasterService> services) = data;
                   _seedOnce(services);
+                  _maybeAutoAdvance(master);
                   if (services.isEmpty) {
                     return _EmptyCatalogue(masterName: master.firstName);
                   }
@@ -342,6 +398,7 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                     expandedKeys: _expandedKeys,
                     onToggleService: _onToggleService,
                     onToggleExpand: _toggleExpand,
+                    onFavoriteError: _showFavoriteError,
                   );
                 },
               ),
@@ -514,6 +571,11 @@ CatalogueRow _toCatalogueRow(MasterService s) {
 /// This screen always shows the plain count / selected-count badges in the
 /// header's trailing slot (unlike the salon flow, which shows neither — see
 /// `showCountBadges` on `CatalogueCategorySection`).
+///
+/// It also always renders a per-row favourite heart (`showFavoriteHeart:
+/// true`) — this is the ONLY booking flow that may, because [MasterService.id]
+/// here is a real `master_services` row id. The salon flow leaves
+/// `showFavoriteHeart` at its `false` default; see that widget's file header.
 Key _bookingTileKeyForId(String id) => Key('booking_service_tile_$id');
 
 class _CatalogueBody extends ConsumerStatefulWidget {
@@ -525,6 +587,7 @@ class _CatalogueBody extends ConsumerStatefulWidget {
     required this.expandedKeys,
     required this.onToggleService,
     required this.onToggleExpand,
+    required this.onFavoriteError,
   });
 
   final Master master;
@@ -537,6 +600,10 @@ class _CatalogueBody extends ConsumerStatefulWidget {
   final Set<String> expandedKeys;
   final ValueChanged<String> onToggleService;
   final ValueChanged<String> onToggleExpand;
+
+  /// Forwarded to every row's favourite heart — see
+  /// `_ServiceSelectorSheetState._showFavoriteError`.
+  final void Function(Failure failure) onFavoriteError;
 
   @override
   ConsumerState<_CatalogueBody> createState() => _CatalogueBodyState();
@@ -553,6 +620,27 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
   List<CatalogueCategoryGroup>? _cachedGroups;
   List<MasterService>? _cachedServices;
   List<ServiceCategoryOption>? _cachedOptions;
+
+  // Same memoization shape as the group cache above, kept as a SEPARATE pair
+  // rather than folded into `_rebuildIfNeeded`: that method's cache key is
+  // specifically (services, resolved category options), and the wish list is
+  // an unrelated third input that changes on its own schedule (a favourite
+  // toggle elsewhere) — mixing it in would make `_rebuildIfNeeded` invalidate
+  // the groups cache on a wishlist change it has nothing to do with.
+  // (mobile-perf finding, follow-up to #1 above.)
+  List<WishlistService>? _cachedWishlistItems;
+  Set<String> _cachedFavoriteServiceIds = const <String>{};
+
+  Set<String> _favoriteIdsFor(List<WishlistService>? items) {
+    if (identical(_cachedWishlistItems, items)) {
+      return _cachedFavoriteServiceIds;
+    }
+    _cachedWishlistItems = items;
+    _cachedFavoriteServiceIds =
+        items?.map((WishlistService w) => w.masterServiceId).toSet() ??
+        const <String>{};
+    return _cachedFavoriteServiceIds;
+  }
 
   List<CatalogueCategoryGroup> _groupsFor(
     AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
@@ -605,6 +693,36 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
     final List<CatalogueCategoryGroup> groups = _groupsFor(
       categoriesAsync,
       l10n,
+    );
+    // Phase 240 — primes every row's heart from the client's wish list. Only
+    // correct when the wish list is LOADED (`.value` reads null while loading
+    // or on error — Riverpod 3.x removed `.valueOrNull`, see
+    // `auth_selectors.dart` — degrading every heart to "not favourited"
+    // rather than throwing) and only up to the wish list's own PAGE 0 ONLY cap
+    // (`wishlist_repository.dart` — 20 entries, no paging). A service
+    // favourited beyond that cap renders with an outline heart here even
+    // though it is genuinely in the wish list, until the backend adds paging —
+    // the same limitation the wish-list screens themselves already accept.
+    //
+    // mobile-perf audit (KEEP AS-IS — do not gate this watch on
+    // `ref.exists(...)`): this fires one `GET /favorites/services` on every
+    // mount of booking Step 1, the app's hottest screen transition, even for
+    // clients who have never favourited anything. Accepted because the cost
+    // is small and non-blocking — page-0 capped at 20 rows, 5-minute TTL
+    // shared app-wide with the passport and wish-list screens (so most
+    // mounts hit cache, not network), and hearts still render outline-first
+    // and fill in only once the fetch resolves, so nothing here blocks the
+    // sheet's own paint. Removing the prime would leave hearts hollow for
+    // services the client HAS already favourited — a correctness bug, not a
+    // perf win — and `mobile-debugger` confirmed gating on `ref.exists`
+    // breaks the approved
+    // `should_showFilledHeart_when_serviceAlreadyInWishlist` test, which
+    // pumps this sheet with nothing pre-warming the provider. The real fix is
+    // server-side: fold an `isFavorite` flag onto the master-services payload
+    // `publicMasterProfileProvider` already fetches for this same screen,
+    // which would make priming cost zero extra round trips.
+    final Set<String> favoriteServiceIds = _favoriteIdsFor(
+      ref.watch(wishlistProvider).value,
     );
     String headerSemantics({
       required String label,
@@ -681,6 +799,9 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
               headerSemanticsLabel: headerSemantics,
               tileKeyForId: _bookingTileKeyForId,
               headerVerticalPadding: VelvetSpacing.sm + 2,
+              showFavoriteHeart: true,
+              favoriteServiceIds: favoriteServiceIds,
+              onFavoriteError: widget.onFavoriteError,
             ),
           ),
         ),

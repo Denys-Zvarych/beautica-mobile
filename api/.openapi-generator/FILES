@@ -42,6 +42,7 @@ doc/ApiResponsePageResponseBookingDetailResponse.md
 doc/ApiResponsePageResponseBookingResponse.md
 doc/ApiResponsePageResponseFavoriteMasterResponse.md
 doc/ApiResponsePageResponseFavoriteSalonResponse.md
+doc/ApiResponsePageResponseFavoriteServiceResponse.md
 doc/ApiResponsePageResponseMasterSearchResult.md
 doc/ApiResponsePageResponseMasterSummaryResponse.md
 doc/ApiResponsePageResponseMyReviewResponse.md
@@ -118,6 +119,7 @@ doc/FavoriteControllerApi.md
 doc/FavoriteMasterResponse.md
 doc/FavoriteResponse.md
 doc/FavoriteSalonResponse.md
+doc/FavoriteServiceResponse.md
 doc/ForgotPasswordRequest.md
 doc/GuestBookingRequest.md
 doc/GuestBookingResponse.md
@@ -154,6 +156,7 @@ doc/PageResponseBookingDetailResponse.md
 doc/PageResponseBookingResponse.md
 doc/PageResponseFavoriteMasterResponse.md
 doc/PageResponseFavoriteSalonResponse.md
+doc/PageResponseFavoriteServiceResponse.md
 doc/PageResponseMasterSearchResult.md
 doc/PageResponseMasterSummaryResponse.md
 doc/PageResponseMyReviewResponse.md
@@ -305,6 +308,7 @@ lib/src/model/api_response_page_response_booking_detail_response.dart
 lib/src/model/api_response_page_response_booking_response.dart
 lib/src/model/api_response_page_response_favorite_master_response.dart
 lib/src/model/api_response_page_response_favorite_salon_response.dart
+lib/src/model/api_response_page_response_favorite_service_response.dart
 lib/src/model/api_response_page_response_master_search_result.dart
 lib/src/model/api_response_page_response_master_summary_response.dart
 lib/src/model/api_response_page_response_my_review_response.dart
@@ -373,6 +377,7 @@ lib/src/model/effective_day_response.dart
 lib/src/model/favorite_master_response.dart
 lib/src/model/favorite_response.dart
 lib/src/model/favorite_salon_response.dart
+lib/src/model/favorite_service_response.dart
 lib/src/model/forgot_password_request.dart
 lib/src/model/guest_booking_request.dart
 lib/src/model/guest_booking_response.dart
@@ -404,6 +409,7 @@ lib/src/model/page_response_booking_detail_response.dart
 lib/src/model/page_response_booking_response.dart
 lib/src/model/page_response_favorite_master_response.dart
 lib/src/model/page_response_favorite_salon_response.dart
+lib/src/model/page_response_favorite_service_response.dart
 lib/src/model/page_response_master_search_result.dart
 lib/src/model/page_response_master_summary_response.dart
 lib/src/model/page_response_my_review_response.dart
@@ -473,3 +479,6 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_page_response_favorite_service_response_test.dart
+test/favorite_service_response_test.dart
+test/page_response_favorite_service_response_test.dart

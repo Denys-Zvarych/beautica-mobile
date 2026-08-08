@@ -55,6 +55,7 @@ import 'package:beautica_api/src/model/api_response_page_response_booking_detail
 import 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_master_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_salon_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_favorite_service_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_search_result.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_my_review_response.dart';
@@ -122,6 +123,7 @@ import 'package:beautica_api/src/model/effective_day_response.dart';
 import 'package:beautica_api/src/model/favorite_master_response.dart';
 import 'package:beautica_api/src/model/favorite_response.dart';
 import 'package:beautica_api/src/model/favorite_salon_response.dart';
+import 'package:beautica_api/src/model/favorite_service_response.dart';
 import 'package:beautica_api/src/model/forgot_password_request.dart';
 import 'package:beautica_api/src/model/guest_booking_request.dart';
 import 'package:beautica_api/src/model/guest_booking_response.dart';
@@ -153,6 +155,7 @@ import 'package:beautica_api/src/model/page_response_booking_detail_response.dar
 import 'package:beautica_api/src/model/page_response_booking_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_master_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_salon_response.dart';
+import 'package:beautica_api/src/model/page_response_favorite_service_response.dart';
 import 'package:beautica_api/src/model/page_response_master_search_result.dart';
 import 'package:beautica_api/src/model/page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/page_response_my_review_response.dart';
@@ -265,6 +268,7 @@ part 'serializers.g.dart';
   ApiResponsePageResponseBookingResponse,
   ApiResponsePageResponseFavoriteMasterResponse,
   ApiResponsePageResponseFavoriteSalonResponse,
+  ApiResponsePageResponseFavoriteServiceResponse,
   ApiResponsePageResponseMasterSearchResult,
   ApiResponsePageResponseMasterSummaryResponse,
   ApiResponsePageResponseMyReviewResponse,
@@ -332,6 +336,7 @@ part 'serializers.g.dart';
   FavoriteMasterResponse,
   FavoriteResponse,
   FavoriteSalonResponse,
+  FavoriteServiceResponse,
   ForgotPasswordRequest,
   GuestBookingRequest,
   GuestBookingResponse,
@@ -363,6 +368,7 @@ part 'serializers.g.dart';
   PageResponseBookingResponse,
   PageResponseFavoriteMasterResponse,
   PageResponseFavoriteSalonResponse,
+  PageResponseFavoriteServiceResponse,
   PageResponseMasterSearchResult,
   PageResponseMasterSummaryResponse,
   PageResponseMyReviewResponse,

@@ -57,6 +57,8 @@ final class HttpFavoriteRepository implements FavoriteRepository {
         return AddFavoriteRequestTargetTypeEnum.MASTER;
       case FavoriteTargetType.salon:
         return AddFavoriteRequestTargetTypeEnum.SALON;
+      case FavoriteTargetType.service:
+        return AddFavoriteRequestTargetTypeEnum.SERVICE;
     }
   }
 

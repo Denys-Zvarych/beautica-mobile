@@ -3165,25 +3165,21 @@
       }
     }
   },
-  "passportColumnProcedures": "Favourite procedures",
-  "@passportColumnProcedures": {
-    "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
+  "passportLocalitiesLabel": "Favourite districts and cities",
+  "@passportLocalitiesLabel": {
+    "description": "Eyebrow of the passport derived block's locality field — the auto-derived districts and cities the client books in most. One label over both lines: they are one fact, read at two zoom levels."
   },
-  "passportColumnDistricts": "Favourite districts",
-  "@passportColumnDistricts": {
-    "description": "Eyebrow label of the BEAUTY PASSPORT card's second column (auto-derived top-3 most-visited districts)."
+  "passportAverageSpendLabel": "Average spend",
+  "@passportAverageSpendLabel": {
+    "description": "Eyebrow of the passport derived block's spend field. An AVERAGE, not a ceiling — the retired card said «up to 1 200 ₴», this says «≈ 750 ₴». The «≈» marker is drawn beside the price pill by the widget, never baked into this copy."
   },
-  "passportColumnBudget": "Budget",
-  "@passportColumnBudget": {
-    "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
-  },
-  "passportBudgetCeiling": "up to {max} ₴",
-  "@passportBudgetCeiling": {
-    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in ₴.",
+  "passportBudgetAverage": "{avg} ₴",
+  "@passportBudgetAverage": {
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the client's derived AVERAGE spend, in ₴. A pure money string: the «≈» marker is drawn beside the pill by the widget, not baked into the copy.",
     "placeholders": {
-      "max": {
+      "avg": {
         "type": "int",
-        "example": "800"
+        "example": "750"
       }
     }
   },
@@ -3210,18 +3206,6 @@
       }
     }
   },
-  "passportEmptyTitle": "Your passport is still empty",
-  "@passportEmptyTitle": {
-    "description": "Heading of the empty BEAUTY PASSPORT state, shown when the client has no completed bookings yet."
-  },
-  "passportEmptyBody": "Book your first service — and Beautica will start collecting your favourite services, districts and budget.",
-  "@passportEmptyBody": {
-    "description": "Body copy of the empty BEAUTY PASSPORT state inviting the client to book their first service."
-  },
-  "passportEmptyCta": "Find a master",
-  "@passportEmptyCta": {
-    "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
-  },
   "passportErrorTitle": "Couldn't load your passport",
   "@passportErrorTitle": {
     "description": "Heading of the BEAUTY PASSPORT error state, shown when GET /clients/me/passport fails. Deliberately distinct from the empty state so a network/server failure is never mistaken for 'no history yet'."
@@ -3229,6 +3213,56 @@
   "passportErrorBody": "Check your connection and try again.",
   "@passportErrorBody": {
     "description": "Body copy of the BEAUTY PASSPORT error state, accompanying the retry button (retryLabel)."
+  },
+  "wishlistSectionLede": "Saved from masters' profiles — rebook in one tap.",
+  "@wishlistSectionLede": {
+    "description": "Lede under the BEAUTY WISH LIST section header, on both the passport page and the full-list page. The section NAME itself is the locked English brand literal «Beauty wish list» and is never translated; only this line is."
+  },
+  "wishlistShowAll": "Show all ({count})",
+  "@wishlistShowAll": {
+    "description": "Outline overflow button under the passport page's two-card wish-list line — opens the full «All saved» page.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "wishlistPageTitle": "All saved",
+  "@wishlistPageTitle": {
+    "description": "Back-bar title of the full wish-list page. Names the page's SCOPE so the English brand literal «Beauty wish list» is carried exactly once per screen — by the section header below it."
+  },
+  "wishlistBackSemantics": "Back",
+  "@wishlistBackSemantics": {
+    "description": "Semantics label of the back button on the full wish-list page."
+  },
+  "wishlistBookCta": "Book",
+  "@wishlistBookCta": {
+    "description": "Filled CTA on every wish-list entry (compact card and full-width row) — starts a booking for that exact master + service."
+  },
+  "wishlistRemoveSemantics": "Remove from wish list",
+  "@wishlistRemoveSemantics": {
+    "description": "Semantics label of the filled heart on a wish-list entry. Tapping it un-favourites the service. Worded for the wish list specifically rather than reusing favoriteRemoveLabel, which names the masters «Favourites» tab — a different collection."
+  },
+  "wishlistMasterFallbackName": "Master",
+  "@wishlistMasterFallbackName": {
+    "description": "Shown in place of the master's name on a wish-list entry when the wire carried neither name part. The mapper leaves that field empty on purpose and lets presentation choose the copy."
+  },
+  "wishlistEmptyMessage": "Tap the heart on a service in a master's profile — it lands here, and your next booking takes one tap.",
+  "@wishlistEmptyMessage": {
+    "description": "Empty state of the BEAUTY WISH LIST, on both surfaces. An empty screen is an invitation to act: it names exactly where the heart lives and what happens when it is tapped."
+  },
+  "wishlistEmptyCta": "Find a master",
+  "@wishlistEmptyCta": {
+    "description": "Call-to-action on the empty wish-list state — opens discovery search."
+  },
+  "wishlistErrorTitle": "Couldn't load your saved services",
+  "@wishlistErrorTitle": {
+    "description": "Heading of the wish-list load-failure state. Deliberately distinct from the empty state: a failed fetch is a fault the client can retry, an empty list is an invitation. The two are independent of the derived block's own states."
+  },
+  "wishlistErrorBody": "Check your connection and try again.",
+  "@wishlistErrorBody": {
+    "description": "Body copy of the wish-list error state, accompanying the retry button (retryLabel). Same wording as passportErrorBody but a separate key — the two surfaces fail independently and either may be reworded without dragging the other with it."
   },
   "searchTitle": "Search",
   "@searchTitle": {
@@ -3510,6 +3544,14 @@
   "favoriteRemoveLabel": "Remove from favourites",
   "@favoriteRemoveLabel": {
     "description": "Accessibility label for the favourite heart when the item IS favourited (tapping removes it)."
+  },
+  "favoriteServiceAddLabel": "Add to wish list",
+  "@favoriteServiceAddLabel": {
+    "description": "Accessibility label for the favourite heart on a booking-flow service row (Phase 240) when the service is NOT yet in the wish list (tapping adds it). Distinct wording from favoriteAddLabel, which names the masters/salons «Favourites» tab — a different collection from the beauty wish list."
+  },
+  "favoriteServiceRemoveLabel": "Remove from wish list",
+  "@favoriteServiceRemoveLabel": {
+    "description": "Accessibility label for the favourite heart on a booking-flow service row (Phase 240) when the service IS already in the wish list (tapping removes it). Matches wishlistRemoveSemantics's wording for consistency."
   },
   "searchSortButtonLabel": "Sort",
   "@searchSortButtonLabel": {

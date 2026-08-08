@@ -42,6 +42,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
+import '../../../core/widgets/staggered_reveal.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
@@ -165,8 +166,8 @@ class _HomeHubBody extends ConsumerWidget {
     final timelineAsync = ref.watch(beautyTimelineProvider);
 
     return RepaintBoundary(
-      child: _StaggeredReveal(
-        builder: (BuildContext context, _RevealFn reveal) {
+      child: StaggeredReveal(
+        builder: (BuildContext context, RevealFn reveal) {
           return ListView(
             // Top inset matches the gap the on-screen bar used to leave above
             // the profile block: the shell-owned ClientTopBar sits directly
@@ -601,124 +602,4 @@ class _CardErrorState extends StatelessWidget {
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Staggered reveal (ported from branch_placeholders.dart, same as preview's
-// StaggeredReveal, but ticker-gated for the StatefulShellRoute IndexedStack)
-// ---------------------------------------------------------------------------
-
-typedef _RevealFn =
-    Widget Function({
-      required double start,
-      required double end,
-      required Widget child,
-    });
-
-class _StaggeredReveal extends StatefulWidget {
-  const _StaggeredReveal({required this.builder});
-
-  final Widget Function(BuildContext context, _RevealFn reveal) builder;
-
-  @override
-  State<_StaggeredReveal> createState() => _StaggeredRevealState();
-}
-
-/// One section's reveal animations, built once per distinct interval.
-///
-/// [opacity] is a `CurvedAnimation` and OWNS a status listener on the parent
-/// controller — it must be disposed. [position] is only a `Tween.animate(...)`
-/// view over it and needs no disposal of its own.
-class _RevealAnimations {
-  const _RevealAnimations({required this.opacity, required this.position});
-
-  final CurvedAnimation opacity;
-  final Animation<Offset> position;
-}
-
-class _StaggeredRevealState extends State<_StaggeredReveal>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  bool _started = false;
-
-  // PERF: `_reveal` is invoked once per section on EVERY build of the hub's
-  // ListView, and `_HomeHubBody` watches four providers — so allocating a fresh
-  // `CurvedAnimation` per call leaked a listener on each one. `CurvedAnimation`'s
-  // constructor calls `parent.addStatusListener(...)` and ONLY its `dispose()`
-  // removes it, so undisposed instances accumulated on `_controller` for the
-  // whole lifetime of the screen. Building each distinct `(start, end)` interval
-  // exactly once — and disposing every cached one in `dispose()` — keeps the
-  // listener set bounded AND properly torn down. Keyed on the interval record:
-  // Dart records have structural equality, so identical bounds reuse one entry.
-  final Map<(double, double), _RevealAnimations> _revealCache =
-      <(double, double), _RevealAnimations>{};
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_started && TickerMode.valuesOf(context).enabled) {
-      _started = true;
-      // Post-frame so initial paint is not lost at 0.0 opacity.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final bool animationsDisabled =
-            MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-        if (animationsDisabled) {
-          _controller.value = 1.0;
-        } else {
-          _controller.forward();
-        }
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    // Each cached CurvedAnimation still holds a status listener on _controller —
-    // dispose them BEFORE the controller so every listener is removed.
-    for (final _RevealAnimations anims in _revealCache.values) {
-      anims.opacity.dispose();
-    }
-    _revealCache.clear();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Widget _reveal({
-    required double start,
-    required double end,
-    required Widget child,
-  }) {
-    // Lazily memoized per interval — see the `_revealCache` comment above for
-    // why re-allocating these on every build is a listener leak.
-    final _RevealAnimations anims = _revealCache.putIfAbsent((start, end), () {
-      final CurvedAnimation opacity = CurvedAnimation(
-        parent: _controller,
-        curve: Interval(start, end, curve: Curves.easeOutCubic),
-      );
-      return _RevealAnimations(
-        opacity: opacity,
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.35),
-          end: Offset.zero,
-        ).animate(opacity),
-      );
-    });
-    return FadeTransition(
-      opacity: anims.opacity,
-      child: SlideTransition(position: anims.position, child: child),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.builder(context, _reveal);
 }

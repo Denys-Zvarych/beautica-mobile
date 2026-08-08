@@ -29,17 +29,35 @@ TextStyle _sectionLabelBase() => VelvetText.sectionLabel();
 // ---------------------------------------------------------------------------
 
 /// A circular camel-gradient avatar stand-in for a network photo.
+///
+/// The initials' type scale is DERIVED FROM [size], not passed in. Above
+/// [_kPortraitThreshold] the disc is a page-level portrait and takes
+/// `displayName`; below it the disc is an in-card mark and takes `statValue`.
+/// This is the approved preview's own rule (`docs/signup-designs/BeautyPassport/
+/// lib/widgets/hub_widgets.dart:26`) and it exists because a per-call-site
+/// `fontSize` is the hole off-scale type walks in through: a 32 dp in-card disc
+/// was rendering its initials at 20 pt — a size that appears nowhere in
+/// [VelvetText] — purely because that was the parameter's default.
 class HubAvatar extends StatelessWidget {
   const HubAvatar({
     super.key,
     required this.initials,
     this.size = 64,
-    this.fontSize = 20,
+    this.fontSize,
   });
 
   final String initials;
   final double size;
-  final double fontSize;
+
+  /// An EXPLICIT off-scale override, for the two 96 dp profile portraits that
+  /// predate this widget's size-based rule. Leave it null everywhere else: null
+  /// is what selects the scale [size] actually calls for.
+  final double? fontSize;
+
+  /// At or above this diameter the disc is a page-level portrait, below it an
+  /// in-card mark. The preview's `_portraitThreshold`, verbatim: it separates
+  /// the profile block (96) from the wish-list discs (38 / 32).
+  static const double _kPortraitThreshold = 64;
 
   static const _gradientColors = <Color>[
     BrandColors.accentLogo,
@@ -47,16 +65,29 @@ class HubAvatar extends StatelessWidget {
     BrandColors.accentLatte,
   ];
 
-  // Cached per-size TextStyle map to avoid per-build copyWith allocations.
-  // HubAvatar is used with a small fixed set of fontSize values (20, 30).
-  static final Map<double, TextStyle> _textStyleCache = {};
-  TextStyle get _textStyle => _textStyleCache.putIfAbsent(
-    fontSize,
-    () => VelvetText.displayName().copyWith(
-      fontSize: fontSize,
-      color: BrandColors.white,
-    ),
+  /// The size-derived scale, hoisted so the common (override-free) path
+  /// allocates no [TextStyle] at all.
+  static final TextStyle _portraitStyle = VelvetText.displayName().copyWith(
+    color: BrandColors.white,
   );
+  static final TextStyle _markStyle = VelvetText.statValue().copyWith(
+    color: BrandColors.white,
+  );
+
+  // Cached per-size TextStyle map for the OVERRIDE path only — a small fixed
+  // set of values (27).
+  static final Map<double, TextStyle> _textStyleCache = {};
+
+  TextStyle get _textStyle {
+    final double? override = fontSize;
+    if (override == null) {
+      return size >= _kPortraitThreshold ? _portraitStyle : _markStyle;
+    }
+    return _textStyleCache.putIfAbsent(
+      override,
+      () => _portraitStyle.copyWith(fontSize: override),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -338,6 +369,23 @@ class _CountdownChipState extends State<CountdownChip> {
 }
 
 // ---------------------------------------------------------------------------
+// Compact-button geometry — shared by HubFilledButton and HubOutlineButton
+// ---------------------------------------------------------------------------
+
+// The compact hub button's height and corner radius. `velvet_geometry.dart`
+// names neither (its `VelvetSizes.cta` is the 49dp full-width CTA, a different
+// control), so they live here beside their only two consumers rather than as
+// bare numbers repeated in each — the same shape `client_bottom_nav.dart` and
+// `HubEmptyState` already use for their own local geometry.
+//
+// The two buttons MUST share these: the outline variant is the section's
+// overflow control sitting directly under a filled «Записатись», and a
+// one-pixel difference in height or radius between the two reads as a mistake
+// rather than as a hierarchy.
+const double _kCompactButtonHeight = 38;
+const double _kCompactButtonRadius = 12;
+
+// ---------------------------------------------------------------------------
 // HubFilledButton
 // ---------------------------------------------------------------------------
 
@@ -387,11 +435,11 @@ class _HubFilledButtonState extends State<HubFilledButton> {
           scale: _pressed ? 0.96 : 1,
           duration: const Duration(milliseconds: 110),
           child: Container(
-            height: 38,
+            height: _kCompactButtonHeight,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: BrandColors.accent,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(_kCompactButtonRadius),
             ),
             // Overflow-hardening: scale the label down instead of clipping when
             // the button is squeezed (narrow widths + large font scale).
@@ -413,6 +461,115 @@ class _HubFilledButtonState extends State<HubFilledButton> {
                       style: _style,
                     ),
                   ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HubOutlineButton
+// ---------------------------------------------------------------------------
+
+/// An outline secondary action (e.g. «Показати всі (5)»). Same compact pill
+/// footprint as [HubFilledButton] — [_kCompactButtonHeight],
+/// [_kCompactButtonRadius], [VelvetText.cta135] — differing ONLY in fill and
+/// stroke.
+///
+/// Outline is load-bearing, not decoration. This is a section's overflow
+/// control, and it sits directly under the camel-filled «Записатись» CTAs that
+/// are the section's real actions: a second filled button would read as a
+/// second peer action and flatten the hierarchy the section depends on. The
+/// face is a near-transparent cream wash rather than nothing at all, so the
+/// control still reads as a surface against the warm-taupe base instead of as a
+/// floating stroke.
+///
+/// [danger] swaps the label and stroke to [BrandColors.error] for a destructive
+/// secondary action ("Скасувати"). The face is unchanged: the stroke and the
+/// label carry the warning, and tinting the fill red as well would make a
+/// secondary control shout louder than the primary one beside it.
+class HubOutlineButton extends StatefulWidget {
+  const HubOutlineButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+
+  /// Renders the label and stroke in [BrandColors.error] instead of mocha.
+  final bool danger;
+
+  @override
+  State<HubOutlineButton> createState() => _HubOutlineButtonState();
+}
+
+class _HubOutlineButtonState extends State<HubOutlineButton> {
+  bool _pressed = false;
+
+  /// The outline button's own two washes, named so the same alpha is never
+  /// re-derived by hand at a second call site.
+  static const double _kFaceAlpha = 0.4;
+  static const double _kStrokeAlpha = 0.45;
+
+  /// Precomputed per foreground colour, mirroring the memoization every other
+  /// widget in this file already applies: only two foregrounds exist (mocha and
+  /// error), so the map converges at two entries and no `copyWith` /
+  /// `BoxDecoration` is allocated per build.
+  static final Map<Color, TextStyle> _labelStyleCache = <Color, TextStyle>{};
+  static final Map<Color, BoxDecoration> _decorationCache =
+      <Color, BoxDecoration>{};
+
+  static TextStyle _labelStyle(Color fg) => _labelStyleCache.putIfAbsent(
+    fg,
+    () => VelvetText.cta135.copyWith(color: fg),
+  );
+
+  static BoxDecoration _decoration(Color fg) => _decorationCache.putIfAbsent(
+    fg,
+    () => BoxDecoration(
+      color: BrandColors.white.withValues(alpha: _kFaceAlpha),
+      borderRadius: BorderRadius.circular(_kCompactButtonRadius),
+      border: Border.all(color: fg.withValues(alpha: _kStrokeAlpha)),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final Color fg = widget.danger ? BrandColors.error : BrandColors.accentDeep;
+    return Semantics(
+      button: true,
+      label: widget.label,
+      child: GestureDetector(
+        key: const Key('hub_outline_button'),
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) {
+          setState(() => _pressed = false);
+          widget.onTap();
+        },
+        child: AnimatedScale(
+          scale: _pressed ? 0.96 : 1,
+          duration: const Duration(milliseconds: 110),
+          child: Container(
+            height: _kCompactButtonHeight,
+            alignment: Alignment.center,
+            decoration: _decoration(fg),
+            // Overflow-hardening, identical to [HubFilledButton]: scale the
+            // label down instead of clipping when the button is squeezed
+            // (narrow widths + large font scale).
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _labelStyle(fg),
+              ),
+            ),
           ),
         ),
       ),

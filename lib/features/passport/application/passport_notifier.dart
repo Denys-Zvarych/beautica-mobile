@@ -10,10 +10,12 @@
 // [AsyncValue], which the screen renders as its error+retry state — an error is
 // deliberately NOT collapsed into the empty-passport variant.
 //
-// The footer's reviews count + member-since year are part of the [Passport]
-// aggregate (reviewsLeft / memberSinceYear) but are NOT on the wire contract —
-// the backend record carries neither — so they keep their domain defaults
-// (0 / null). The mapper does not fabricate them.
+// The footer's reviews count + member-since year (`reviewsWritten` /
+// `memberSinceYear`) ARE on the wire contract since backend 245. Neither is
+// ever fabricated: an absent count maps to 0 (indistinguishable in meaning from
+// "wrote none"), and an absent year is a broken payload the mapper rejects with
+// a [ServerFailure] — surfaced here as the error+retry state, never as a
+// synthesised current year.
 
 import 'dart:async';
 import 'dart:developer';

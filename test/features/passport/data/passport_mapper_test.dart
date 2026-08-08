@@ -1,4 +1,4 @@
-// Phase 13.8 wire-up — TIER 1 unit tests for [PassportMapper.fromDto].
+// Phase 13.8 wire-up / 235 — TIER 1 unit tests for [PassportMapper.fromDto].
 //
 // WHY THIS FILE EXISTS
 // --------------------
@@ -15,9 +15,17 @@
 // documented in `passport_mapper.dart` gets its own case here — a policy with
 // no test is a comment, not a contract.
 //
+// PHASE 235 added `favoriteCities`, renamed `reviewsLeft` → `reviewsWritten`,
+// and made `memberSinceYear` a REQUIRED non-null int. The last one changes the
+// mapper's contract from "never throws" to "throws on exactly one omission":
+// there is no honest default for a join year, and the alternative the screen
+// used to run — `?? DateTime.now().year` — fabricated the current year for
+// every client. The throw is pinned below so nobody can reintroduce a default.
+//
 // Pure Dart: no ProviderScope, no widget tree, no Dio.
 
 import 'package:beautica_api/beautica_api.dart' as api;
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/passport/data/passport_mapper.dart';
 import 'package:beautica_mobile/features/passport/domain/passport.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +33,11 @@ import 'package:flutter_test/flutter_test.dart';
 // ---------------------------------------------------------------------------
 // DTO builders
 // ---------------------------------------------------------------------------
+
+/// The join year every fixture carries. Deliberately NOT the current year: a
+/// `?? DateTime.now().year` fallback sneaking back into the mapper would still
+/// satisfy an `isNotNull` assertion, but it cannot produce 2021.
+const int _joinYear = 2021;
 
 /// A FULLY POPULATED wire payload. Every value is deliberately distinguishable
 /// from the empty passport AND from every other value in the fixture, so an
@@ -34,9 +47,12 @@ import 'package:flutter_test/flutter_test.dart';
 /// JSON integer, so the `num → double` widening is exercised for real.
 api.PassportResponse _populatedDto() => api.PassportResponse(
   (b) => b
+    ..memberSinceYear = _joinYear
     ..favoriteProcedures.replace(<String>['Манікюр', 'Брови', 'Педикюр'])
     ..favoriteDistricts.replace(<String>['Центр', 'Сихів', 'Франківський'])
+    ..favoriteCities.replace(<String>['Львів', 'Київ', 'Одеса'])
     ..bookingsConsidered = 7
+    ..reviewsWritten = 5
     ..budget.avg = 600
     ..budget.min = 400
     ..budget.max = 800
@@ -47,13 +63,17 @@ api.PassportResponse _populatedDto() => api.PassportResponse(
 /// budget band, zero completed bookings considered.
 api.PassportResponse _emptyDto() => api.PassportResponse(
   (b) => b
+    ..memberSinceYear = _joinYear
     ..favoriteProcedures.replace(const <String>[])
     ..favoriteDistricts.replace(const <String>[])
-    ..bookingsConsidered = 0,
+    ..favoriteCities.replace(const <String>[])
+    ..bookingsConsidered = 0
+    ..reviewsWritten = 0,
 );
 
-/// A payload where EVERY key is omitted — the worst case the mapper promises
-/// never to throw on.
+/// A payload where EVERY key is omitted. Since Phase 235 this is the ONE shape
+/// the mapper rejects: with no `memberSinceYear` there is nothing honest to
+/// map, so it throws instead of inventing a year.
 api.PassportResponse _allNullDto() => api.PassportResponse((b) => b);
 
 void main() {
@@ -67,7 +87,10 @@ void main() {
 
       expect(p.favoriteProcedures, <String>['Манікюр', 'Брови', 'Педикюр']);
       expect(p.favoriteDistricts, <String>['Центр', 'Сихів', 'Франківський']);
+      expect(p.favoriteCities, <String>['Львів', 'Київ', 'Одеса']);
       expect(p.bookingsConsidered, 7);
+      expect(p.reviewsWritten, 5);
+      expect(p.memberSinceYear, _joinYear);
       expect(p.budget, isNotNull);
       expect(p.budget!.avg, 600.0);
       expect(p.budget!.min, 400.0);
@@ -84,20 +107,27 @@ void main() {
             'a populated wire payload must not map to the empty-passport '
             'state — that collapse is the Phase 13.8 bug this file guards',
       );
-      expect(p, isNot(Passport.empty()));
+      expect(p, isNot(Passport.empty(memberSinceYear: _joinYear)));
     });
 
-    test('rank order of both derived lists is preserved, not re-sorted', () {
-      final Passport p = PassportMapper.fromDto(_populatedDto());
+    test(
+      'rank order of all three derived lists is preserved, not re-sorted',
+      () {
+        final Passport p = PassportMapper.fromDto(_populatedDto());
 
-      // The backend ranks most-frequent-first and caps at 3; the mapper must
-      // not reorder. Asserting `first`/`last` explicitly so an alphabetical or
-      // reversed copy fails rather than passing a set-equality check.
-      expect(p.favoriteProcedures.first, 'Манікюр');
-      expect(p.favoriteProcedures.last, 'Педикюр');
-      expect(p.favoriteDistricts.first, 'Центр');
-      expect(p.favoriteDistricts.last, 'Франківський');
-    });
+        // The backend ranks most-frequent-first and caps at 3; the mapper must
+        // not reorder. Asserting `first`/`last` explicitly so an alphabetical or
+        // reversed copy fails rather than passing a set-equality check.
+        expect(p.favoriteProcedures.first, 'Манікюр');
+        expect(p.favoriteProcedures.last, 'Педикюр');
+        expect(p.favoriteDistricts.first, 'Центр');
+        expect(p.favoriteDistricts.last, 'Франківський');
+        // Львів is first by frequency; alphabetically it would sort last of the
+        // three, so a stray `..sort()` fails here rather than passing.
+        expect(p.favoriteCities.first, 'Львів');
+        expect(p.favoriteCities.last, 'Одеса');
+      },
+    );
 
     test('widens the num bounds to double even for integral JSON numbers', () {
       final Passport p = PassportMapper.fromDto(_populatedDto());
@@ -113,6 +143,7 @@ void main() {
     test('carries fractional bounds through unrounded', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
+          ..memberSinceYear = _joinYear
           ..bookingsConsidered = 3
           ..budget.avg = 612.5
           ..budget.min = 399.99
@@ -133,25 +164,65 @@ void main() {
 
       expect(p.favoriteProcedures, isEmpty);
       expect(p.favoriteDistricts, isEmpty);
+      expect(p.favoriteCities, isEmpty);
       expect(p.budget, isNull);
       expect(p.bookingsConsidered, 0);
+      expect(p.reviewsWritten, 0);
       expect(p.isEmpty, isTrue);
-      expect(p, Passport.empty());
+      expect(p, Passport.empty(memberSinceYear: _joinYear));
     });
 
+    // PHASE 235 — this case USED to assert "never throws". It now asserts the
+    // opposite for one specific reason: `memberSinceYear` has no honest
+    // default. Everything else on an all-keys-absent payload still degrades
+    // gracefully; the join year alone is fatal, because the only way to supply
+    // one is to invent it.
     test(
-      'an all-keys-absent payload maps to the empty passport, never throws',
+      'an all-keys-absent payload throws ServerFailure (no fabricated year)',
       () {
-        final Passport p = PassportMapper.fromDto(_allNullDto());
-
-        expect(p, Passport.empty());
-        expect(p.isEmpty, isTrue);
+        expect(
+          () => PassportMapper.fromDto(_allNullDto()),
+          throwsA(isA<ServerFailure>()),
+        );
       },
     );
+
+    test('absent favoriteCities becomes an empty list, not null', () {
+      final api.PassportResponse dto = api.PassportResponse(
+        (b) => b
+          ..memberSinceYear = _joinYear
+          ..favoriteDistricts.replace(<String>['Центр'])
+          ..bookingsConsidered = 2,
+      );
+
+      final Passport p = PassportMapper.fromDto(dto);
+
+      expect(p.favoriteCities, isEmpty);
+      // The sibling list is unaffected — an omitted key must not blank the
+      // whole aggregate.
+      expect(p.favoriteDistricts, <String>['Центр']);
+    });
+
+    test('favoriteCities present maps through verbatim', () {
+      final api.PassportResponse dto = api.PassportResponse(
+        (b) => b
+          ..memberSinceYear = _joinYear
+          ..favoriteCities.replace(<String>['Львів', 'Тернопіль'])
+          ..bookingsConsidered = 6,
+      );
+
+      final Passport p = PassportMapper.fromDto(dto);
+
+      // Asserted against a fixture DISTINCT from `favoriteDistricts` so a
+      // copy-paste that maps districts into cities fails here.
+      expect(p.favoriteCities, <String>['Львів', 'Тернопіль']);
+      expect(p.favoriteDistricts, isEmpty);
+    });
 
     test('absent favoriteProcedures becomes an empty list, not null', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
+          ..memberSinceYear = _joinYear
           ..favoriteDistricts.replace(<String>['Центр'])
           ..bookingsConsidered = 2,
       );
@@ -168,6 +239,7 @@ void main() {
     test('absent favoriteDistricts becomes an empty list, not null', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
+          ..memberSinceYear = _joinYear
           ..favoriteProcedures.replace(<String>['Манікюр'])
           ..bookingsConsidered = 2,
       );
@@ -180,7 +252,9 @@ void main() {
 
     test('absent bookingsConsidered defaults to 0 (the conservative read)', () {
       final api.PassportResponse dto = api.PassportResponse(
-        (b) => b..favoriteProcedures.replace(<String>['Манікюр']),
+        (b) => b
+          ..memberSinceYear = _joinYear
+          ..favoriteProcedures.replace(<String>['Манікюр']),
       );
 
       final Passport p = PassportMapper.fromDto(dto);
@@ -194,10 +268,94 @@ void main() {
     });
   });
 
+  group('PassportMapper.fromDto — client standing (Phase 235)', () {
+    test('maps reviewsWritten off the wire', () {
+      final api.PassportResponse dto = api.PassportResponse(
+        (b) => b
+          ..memberSinceYear = _joinYear
+          ..bookingsConsidered = 9
+          ..reviewsWritten = 4,
+      );
+
+      // 4 ≠ 9 and 4 ≠ 0, so neither a bookingsConsidered mix-up nor a silent
+      // fallback to the default can satisfy this.
+      expect(PassportMapper.fromDto(dto).reviewsWritten, 4);
+    });
+
+    test('absent reviewsWritten defaults to 0 (nothing is invented)', () {
+      final api.PassportResponse dto = api.PassportResponse(
+        (b) => b
+          ..memberSinceYear = _joinYear
+          ..bookingsConsidered = 9,
+      );
+
+      // 0 is honest here: "wrote none" and "count omitted" mean the same thing
+      // on screen. Contrast with memberSinceYear, where 0 would be a lie.
+      expect(PassportMapper.fromDto(dto).reviewsWritten, 0);
+    });
+
+    test('maps memberSinceYear off the wire verbatim', () {
+      final api.PassportResponse dto = api.PassportResponse(
+        (b) => b
+          ..memberSinceYear = 2019
+          ..bookingsConsidered = 3,
+      );
+
+      final Passport p = PassportMapper.fromDto(dto);
+
+      expect(p.memberSinceYear, 2019);
+      // The regression guard. `DateTime.now().year` was the live fallback in
+      // `passport_screen.dart` until Phase 235; a mapper that re-derived the
+      // year instead of reading it would pass the equality above only by
+      // accident in 2019.
+      expect(
+        p.memberSinceYear,
+        isNot(DateTime.now().year), // instant-ok: asserting NON-fabrication
+        reason: 'the join year must come off the wire, never from the clock',
+      );
+    });
+
+    test(
+      'throws ServerFailure when memberSinceYear is missing from an otherwise '
+      'complete payload',
+      () {
+        // Everything else present — this isolates the year as the sole cause,
+        // so the test cannot pass because of some unrelated null.
+        final api.PassportResponse dto = api.PassportResponse(
+          (b) => b
+            ..favoriteProcedures.replace(<String>['Манікюр'])
+            ..favoriteDistricts.replace(<String>['Центр'])
+            ..favoriteCities.replace(<String>['Львів'])
+            ..bookingsConsidered = 7
+            ..reviewsWritten = 2
+            ..budget.avg = 600
+            ..budget.min = 400
+            ..budget.max = 800,
+        );
+
+        expect(
+          () => PassportMapper.fromDto(dto),
+          throwsA(
+            isA<ServerFailure>().having(
+              (ServerFailure f) => f.statusCode,
+              'statusCode',
+              isNull,
+            ),
+          ),
+          reason:
+              'a broken payload must surface the screen error state — the '
+              'alternative is inventing a year, which the design forbids',
+        );
+      },
+    );
+  });
+
   group('PassportMapper.fromDto — budget band nullability policy', () {
     test('an absent budget band maps to null', () {
       final api.PassportResponse dto = api.PassportResponse(
-        (b) => b..bookingsConsidered = 4,
+        (b) => b
+          ..memberSinceYear = _joinYear
+          ..bookingsConsidered = 4,
       );
 
       expect(PassportMapper.fromDto(dto).budget, isNull);
@@ -213,6 +371,7 @@ void main() {
       () {
         final api.PassportResponse dto = api.PassportResponse(
           (b) => b
+            ..memberSinceYear = _joinYear
             ..bookingsConsidered = 4
             ..budget.min = 400
             ..budget.max = 800,
@@ -225,6 +384,7 @@ void main() {
     test('a band missing min maps the WHOLE band to null', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
+          ..memberSinceYear = _joinYear
           ..bookingsConsidered = 4
           ..budget.avg = 600
           ..budget.max = 800,
@@ -236,6 +396,7 @@ void main() {
     test('a band missing max maps the WHOLE band to null', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
+          ..memberSinceYear = _joinYear
           ..bookingsConsidered = 4
           ..budget.avg = 600
           ..budget.min = 400,
@@ -247,6 +408,7 @@ void main() {
     test('a band present but wholly empty maps to null', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
+          ..memberSinceYear = _joinYear
           ..bookingsConsidered = 4
           // Touching the nested builder materialises an all-null BudgetBand on
           // the wire object — the shape SpringDoc allows and the mapper must
@@ -261,6 +423,7 @@ void main() {
     test('an absent currency defaults to UAH (Ukrainian market)', () {
       final api.PassportResponse dto = api.PassportResponse(
         (b) => b
+          ..memberSinceYear = _joinYear
           ..bookingsConsidered = 4
           ..budget.avg = 600
           ..budget.min = 400
@@ -275,6 +438,7 @@ void main() {
       () {
         final api.PassportResponse dto = api.PassportResponse(
           (b) => b
+            ..memberSinceYear = _joinYear
             ..bookingsConsidered = 4
             ..budget.avg = 60
             ..budget.min = 40
@@ -289,15 +453,15 @@ void main() {
     );
   });
 
-  group('PassportMapper.fromDto — fields NOT on the wire contract', () {
-    test('reviewsLeft and memberSinceYear keep their domain defaults', () {
-      // The backend record carries neither. The mapper must not synthesise
-      // them: a fabricated review count would be a lie, and the screen already
-      // has a fallback for an absent member-since year.
+  group('PassportMapper.fromDto — favoriteProcedures (removal pending)', () {
+    test('still maps favoriteProcedures while the wire still carries it', () {
+      // The approved page dropped the «Улюблені процедури» column, but backend
+      // 250 has not yet removed the field and it is GATED on this port landing.
+      // Until both sides drop it, silently discarding it here would be an
+      // undocumented contract change. Delete this test with the field.
       final Passport p = PassportMapper.fromDto(_populatedDto());
 
-      expect(p.reviewsLeft, 0);
-      expect(p.memberSinceYear, isNull);
+      expect(p.favoriteProcedures, <String>['Манікюр', 'Брови', 'Педикюр']);
     });
   });
 }

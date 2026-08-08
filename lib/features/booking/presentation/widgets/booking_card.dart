@@ -147,7 +147,8 @@ const double _tearLineX =
 /// the row can never overflow. Do NOT lower it below ~80 — that would start
 /// scaling real bands.
 ///
-/// `master_booking_card.dart`'s `_PriceTag._maxTextWidth` is also 96, but that
+/// The shared `PriceTag.maxTextWidth` (`core/widgets/price_tag.dart`) is also
+/// 96, but that
 /// is a COINCIDENCE of two independent measurements, NOT a shared knob: that
 /// card renders the price in `VelvetText.pill` (Nunito 11/w800), where the same
 /// «12500–25000 ₴» band measures 83.77dp and leaves only ~12dp of headroom. The

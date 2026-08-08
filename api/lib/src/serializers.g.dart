@@ -49,6 +49,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponsePageResponseBookingResponse.serializer)
       ..add(ApiResponsePageResponseFavoriteMasterResponse.serializer)
       ..add(ApiResponsePageResponseFavoriteSalonResponse.serializer)
+      ..add(ApiResponsePageResponseFavoriteServiceResponse.serializer)
       ..add(ApiResponsePageResponseMasterSearchResult.serializer)
       ..add(ApiResponsePageResponseMasterSummaryResponse.serializer)
       ..add(ApiResponsePageResponseMyReviewResponse.serializer)
@@ -129,6 +130,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(FavoriteResponse.serializer)
       ..add(FavoriteResponseTargetTypeEnum.serializer)
       ..add(FavoriteSalonResponse.serializer)
+      ..add(FavoriteServiceResponse.serializer)
+      ..add(FavoriteServiceResponsePriceTypeEnum.serializer)
       ..add(ForgotPasswordRequest.serializer)
       ..add(GuestBookingRequest.serializer)
       ..add(GuestBookingResponse.serializer)
@@ -170,6 +173,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(PageResponseBookingResponse.serializer)
       ..add(PageResponseFavoriteMasterResponse.serializer)
       ..add(PageResponseFavoriteSalonResponse.serializer)
+      ..add(PageResponseFavoriteServiceResponse.serializer)
       ..add(PageResponseMasterSearchResult.serializer)
       ..add(PageResponseMasterSummaryResponse.serializer)
       ..add(PageResponseMyReviewResponse.serializer)
@@ -330,6 +334,10 @@ Serializers _$serializers = (Serializers().toBuilder()
               BuiltList, const [const FullType(FavoriteSalonResponse)]),
           () => ListBuilder<FavoriteSalonResponse>())
       ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(FavoriteServiceResponse)]),
+          () => ListBuilder<FavoriteServiceResponse>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(MasterSearchResult)]),
           () => ListBuilder<MasterSearchResult>())
       ..addBuilderFactory(
@@ -474,6 +482,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(TimelineItemResponse)]),
           () => ListBuilder<TimelineItemResponse>())
@@ -537,6 +548,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

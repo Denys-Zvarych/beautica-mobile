@@ -90,6 +90,8 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -271,6 +273,17 @@ class _SettledMasterProfileNotifier extends MasterProfile {
   );
 }
 
+/// [Wishlist] stub that resolves immediately to an empty list, bypassing the
+/// real notifier's `build()` body ENTIRELY — including its unconditional
+/// 5-minute keep-alive TTL `Timer` — so ServiceSelectorSheet's Phase 240
+/// wish-list watch cannot leak a Timer past this file's manual
+/// `ProviderContainer` disposal. Mirrors `myRatingProvider`'s identical fix
+/// below for the same ordering gotcha.
+class _SettledWishlistNotifier extends Wishlist {
+  @override
+  Future<List<WishlistService>> build() async => const <WishlistService>[];
+}
+
 /// [SlotPicker] stub that starts with a date ALREADY selected.
 ///
 /// `SlotTimeScreen` self-pops (via a post-frame `context.pop()`) when
@@ -349,6 +362,19 @@ void main() {
           approvedCategoriesProvider.overrideWith(
             (ref) async => const <ServiceCategoryOption>[],
           ),
+          // Phase 240 — ServiceSelectorSheet now also watches wishlistProvider
+          // (to prime each row's favourite heart). Overriding the NESTED
+          // wishlistRepositoryProvider is NOT enough: `Wishlist.build()`
+          // unconditionally starts its own 5-minute keep-alive TTL Timer
+          // BEFORE it ever reads the repository, and `ref.onDispose` only
+          // cancels it when the PROVIDER disposes — which for this file's
+          // manual `ProviderContainer` happens in `container.dispose()`
+          // (`addTearDown`), AFTER flutter_test's `!timersPending` check —
+          // same ordering gotcha `myRatingProvider`'s override below
+          // documents. Bypassing `Wishlist.build()` entirely — not just its
+          // repository dependency — is the fix; see
+          // `_SettledWishlistNotifier` below.
+          wishlistProvider.overrideWith(_SettledWishlistNotifier.new),
           // Settles the INDEPENDENT_MASTER redirect target (/master/profile)
           // synchronously — same leaked-timer regression, different screen.
           masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),

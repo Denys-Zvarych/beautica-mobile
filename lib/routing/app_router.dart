@@ -42,6 +42,7 @@ import '../features/auth/domain/auth_session.dart';
 import '../features/auth/domain/reset_password_args.dart';
 import '../features/auth/domain/user_role.dart';
 import '../features/booking/domain/booking_confirm_args.dart';
+import '../features/booking/domain/booking_entry_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
 import '../features/booking/domain/booking_success_args.dart';
 import '../features/booking/domain/salon_booking_args.dart';
@@ -81,6 +82,7 @@ import '../features/home/presentation/client_personal_info_edit_screen.dart';
 import '../features/home/presentation/client_settings_hub_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
+import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
 import '../features/shell/presentation/branch_placeholders.dart';
@@ -510,6 +512,23 @@ GoRouter appRouter(Ref ref) {
                 path: RouteNames.clientPassport,
                 pageBuilder: (context, state) =>
                     _instantPage(state, const PassportScreen()),
+                routes: [
+                  // Phase 239 — /passport/wishlist, «Усі збережені». Pushed
+                  // from the section's «Показати всі (N)» outline button.
+                  // Nested under the passport branch so it lands on that
+                  // branch's own navigator and swipe-back returns to the
+                  // still-scrolled passport page.
+                  //
+                  // `builder:`, NOT `pageBuilder: _instantPage` — the default
+                  // Material transition and the swipe-back gesture apply, which
+                  // is what every other pushed-detail route in this file does.
+                  // `_instantPage` is for branch ROOTS, where a transition
+                  // would animate a tab switch.
+                  GoRoute(
+                    path: 'wishlist',
+                    builder: (context, state) => const WishlistScreen(),
+                  ),
+                ],
               ),
             ],
           ),
@@ -614,19 +633,38 @@ GoRouter appRouter(Ref ref) {
       // redirects to the CLIENT home shell instead of rendering the screen
       // with an empty masterId, matching the fail-safe shape already used by
       // the nested `bookingSlots`/`bookingSlots/time` routes below.
+      //
+      // Phase 241 — ADDITIVE second `extra` shape: a [BookingEntryArgs] for a
+      // caller that already knows exactly which service to book (the
+      // wish-list rebook CTA). The bare-`String` shape above is UNCHANGED and
+      // every existing call site keeps working verbatim — this is the "add a
+      // pre-selection argument rather than forking the flow" seam, not a
+      // second route.
       GoRoute(
         path: RouteNames.bookingNew,
         redirect: (context, state) {
           final roleRedirect = clientOnlyGuard(context, state);
           if (roleRedirect != null) return roleRedirect;
           final Object? extra = state.extra;
-          if (extra is! String || extra.isEmpty) {
-            return RouteNames.clientHome;
-          }
+          final bool validExtra = switch (extra) {
+            String s => s.isNotEmpty,
+            BookingEntryArgs args => args.masterId.isNotEmpty,
+            _ => false,
+          };
+          if (!validExtra) return RouteNames.clientHome;
           return null;
         },
-        builder: (context, state) =>
-            ServiceSelectorSheet(masterId: state.extra! as String),
+        builder: (context, state) {
+          final Object? extra = state.extra;
+          if (extra is BookingEntryArgs) {
+            return ServiceSelectorSheet(
+              masterId: extra.masterId,
+              initialServiceId: extra.preselectedServiceId,
+              autoAdvance: true,
+            );
+          }
+          return ServiceSelectorSheet(masterId: extra! as String);
+        },
       ),
       // Booking flow Step 2 — the single date→time picker for the WHOLE visit
       // (MO-3). The client picks ONE date then ONE start time; availability is

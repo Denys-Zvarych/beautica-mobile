@@ -76,6 +76,7 @@ export 'package:beautica_api/src/model/api_response_page_response_booking_detail
 export 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_favorite_master_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_favorite_salon_response.dart';
+export 'package:beautica_api/src/model/api_response_page_response_favorite_service_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_master_search_result.dart';
 export 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_my_review_response.dart';
@@ -143,6 +144,7 @@ export 'package:beautica_api/src/model/effective_day_response.dart';
 export 'package:beautica_api/src/model/favorite_master_response.dart';
 export 'package:beautica_api/src/model/favorite_response.dart';
 export 'package:beautica_api/src/model/favorite_salon_response.dart';
+export 'package:beautica_api/src/model/favorite_service_response.dart';
 export 'package:beautica_api/src/model/forgot_password_request.dart';
 export 'package:beautica_api/src/model/guest_booking_request.dart';
 export 'package:beautica_api/src/model/guest_booking_response.dart';
@@ -174,6 +176,7 @@ export 'package:beautica_api/src/model/page_response_booking_detail_response.dar
 export 'package:beautica_api/src/model/page_response_booking_response.dart';
 export 'package:beautica_api/src/model/page_response_favorite_master_response.dart';
 export 'package:beautica_api/src/model/page_response_favorite_salon_response.dart';
+export 'package:beautica_api/src/model/page_response_favorite_service_response.dart';
 export 'package:beautica_api/src/model/page_response_master_search_result.dart';
 export 'package:beautica_api/src/model/page_response_master_summary_response.dart';
 export 'package:beautica_api/src/model/page_response_my_review_response.dart';

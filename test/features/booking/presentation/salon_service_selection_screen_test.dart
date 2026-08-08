@@ -21,6 +21,7 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/favorite_heart_button.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -263,6 +264,43 @@ void main() {
       await tester.pumpAndSettle();
       // i18n-finder-ok: fixture service name (test data), not app UI copy.
       expect(find.text('Класичний манікюр'), findsNothing);
+    });
+  });
+
+  // ===========================================================================
+  // Phase 240 — THE TRAP this phase exists to guard against. This screen's
+  // rows are the SALON's catalogue mapped into `MasterService`/`CatalogueRow`
+  // shape, but the row id is a salon-catalogue-service id, NOT a real
+  // `master_services` id (no master is even chosen until a later step). A
+  // favourite heart here would toggle a favorite against an id the backend
+  // has never heard of. Guarded STRUCTURALLY — this screen simply never
+  // passes `showFavoriteHeart: true` to `CatalogueCategorySection`, whose
+  // default is `false` — not by convention alone.
+  // ===========================================================================
+  group('favourite heart (Phase 240 trap guard)', () {
+    testWidgets('never renders a favourite heart, even with rows on screen', (
+      tester,
+    ) async {
+      await tester.pumpRoutedApp(
+        _routerFor(),
+        overrides: [
+          salonServiceCatalogProvider(
+            _kSalonId,
+          ).overrideWith((ref) async => _stubCatalog),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // The first category is expanded by default — its rows are on
+      // screen, so a heart WOULD be visible here if one could ever render.
+      // i18n-finder-ok: fixture service name (test data), not app UI copy.
+      expect(find.text('Класичний манікюр'), findsOneWidget);
+
+      expect(find.byType(FavoriteHeartButton), findsNothing);
+      expect(
+        find.byKey(const Key('booking_service_heart_svc-a1')),
+        findsNothing,
+      );
     });
   });
 

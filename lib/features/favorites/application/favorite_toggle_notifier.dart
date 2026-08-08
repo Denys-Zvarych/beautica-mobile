@@ -25,6 +25,50 @@
 // keepAlive + auth-watched: the flags survive the push from results into a
 // profile and back, and reset to empty on a fresh session (logout → login) —
 // the same self-clearing pattern every per-user keepAlive provider uses.
+//
+// ## Phase 240 fix — a successful SERVICE add refreshes the wish list
+//
+// `wishlistProvider` primes its hearts from `favoriteToggleProvider` (see
+// `ServiceSelectorSheet`'s `_CatalogueBodyState`), but the reverse link was
+// missing: nothing ever told `wishlistProvider` a NEW favourite existed, so
+// the wish list read stale data for the rest of the session. [toggle] closes
+// that loop centrally — every SERVICE-add call site gets it for free, with no
+// fork of `FavoriteHeartButton`.
+//
+// ## Audit cycle 3 fix — caller-selected refresh, not add-only
+//
+// The add-only version above left a REAL user-visible bug: un-hearting a
+// service from `ServiceSelectorSheet` (the booking sheet) never refreshed
+// `wishlistProvider` either, so a client who un-hearted a service there would
+// still see it on the Beauty Passport for up to the 5-minute TTL. That
+// affordance (un-hearting from the booking sheet at all) is itself new to
+// this phase, so the staleness is in-diff, not a pre-existing gap.
+//
+// [toggle] now takes [refreshWishlist], defaulted to `true` — so
+// `FavoriteHeartButton` (the booking sheet's only caller, which never passes
+// it) refreshes on BOTH add and remove. `WishlistNotifier.removeService` is
+// the ONE call site that passes `false`: it already does its own wire call
+// through this exact method, then mutates its OWN state in place and restores
+// at the original index on failure — a design its own file header requires
+// specifically to dodge the paused-listener trap below. Invalidating here on
+// every one of ITS removes too would refetch out from under that in-flight
+// optimistic edit, discarding the restore-on-failure bookkeeping for a round
+// trip it exists to avoid — a regression, not a fix. See
+// `test/features/favorites/favorite_toggle_notifier_test.dart` (both
+// directions pinned) and `test/features/wishlist/application/
+// wishlist_notifier_test.dart`'s "does NOT refetch" case (the suppression
+// direction, unchanged).
+//
+// Riverpod covered-consumer trap, checked not assumed: `wishlistProvider`
+// keeps itself alive past zero listeners via its own `ref.keepAlive()` + TTL
+// (see `wishlist_notifier.dart`), so `ref.invalidate` here does not need an
+// active listener to avoid the dispose-on-invalidate trap — but in EVERY
+// current SERVICE-heart call site, `ServiceSelectorSheet` itself already
+// holds an active (unpaused) watch on `wishlistProvider` at the moment of
+// toggle (it primes every row's heart from it), so the refetch fires
+// immediately, not on some later resume. The freshly-fetched value then rides
+// the TTL through the pop back to the client shell, so the BEAUTY PASSPORT's
+// own (new) listener reads it from cache — no spinner, no second round trip.
 
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -32,6 +76,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 
 import '../../auth/presentation/auth_notifier.dart';
+import '../../wishlist/application/wishlist_notifier.dart';
 import '../data/favorite_repository_provider.dart';
 import '../domain/favorite_target.dart';
 
@@ -102,7 +147,16 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
   /// Returns `null` on success, or the [Failure] on error (so the caller can
   /// show a snackbar). A no-op (returns `null`) when a call for [target] is
   /// already in flight, so a rapid double-tap can't fire overlapping requests.
-  Future<Failure?> toggle(FavoriteTarget target) async {
+  ///
+  /// [refreshWishlist] gates the `wishlistProvider` invalidation on a
+  /// successful SERVICE-target toggle (add OR remove) — defaults to `true` so
+  /// every caller except `WishlistNotifier.removeService` refreshes for free.
+  /// See the file header ("Audit cycle 3 fix") for why that one call site
+  /// passes `false`.
+  Future<Failure?> toggle(
+    FavoriteTarget target, {
+    bool refreshWishlist = true,
+  }) async {
     final FavoriteEntry current =
         state[target] ?? const FavoriteEntry(isFavorite: false);
     if (current.pending) return null;
@@ -121,6 +175,19 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
       }
       // 3. Success — keep the flipped flag, clear pending.
       _set(target, FavoriteEntry(isFavorite: next));
+      // Phase 240 fix, widened in audit cycle 3 — a successful SERVICE toggle
+      // (add OR remove) tells the wish list to refetch, UNLESS the caller
+      // opted out via [refreshWishlist] (see the file header).
+      if (refreshWishlist && target.type == FavoriteTargetType.service) {
+        // wishlistProvider.build() only ref.watches wishlistRepositoryProvider;
+        // removeService() only ref.reads (never watches) this notifier — no
+        // back-edge, so invalidating it here cannot close a cycle. Proved on
+        // the real provider graph (not just code-read) by
+        // test/core/provider_cycle_guard_test.dart's
+        // "favoriteToggleProvider.notifier.toggle()" registry row.
+        // cycle-safe: no back-edge from wishlistProvider to this notifier.
+        ref.invalidate(wishlistProvider);
+      }
       return null;
     } on Failure catch (failure) {
       // 4. Revert to the pre-toggle flag, clear pending.

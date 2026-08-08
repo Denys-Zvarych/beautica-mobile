@@ -34,6 +34,7 @@ import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'schedule_override_conflict_flow_test.dart'
     as schedule_override_conflict;
+import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
@@ -44,6 +45,8 @@ import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
+import 'wishlist_flow_test.dart' as wishlist;
+import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -88,6 +91,16 @@ void main() {
   group('master_profile_address_block_flow', master_profile_address_block.main);
   group('master_received_reviews_flow', master_received_reviews.main);
   group('passport_flow', passport.main);
+  // Phase 239 — the wish list's own journey: the nested /passport/wishlist
+  // push, the shared-notifier removal across both surfaces, and the LAST
+  // removal asserted mid-flight. Registered beside passport_flow because the
+  // two share the same page and the same fake-backend fixtures.
+  group('wishlist_flow', wishlist.main);
+  // Phase 241 (mobile-qa) — «Записатись» rebooks a wish-list entry into the
+  // REAL booking flow (pre-seeded + slot-scoped), plus the stale-service 404
+  // race surfacing as a normal booking-flow failure and dropping the dead
+  // entry afterward.
+  group('wishlist_rebook_flow', wishlist_rebook.main);
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);
   group('register_flow', register.main);
@@ -105,6 +118,10 @@ void main() {
   // DayOffConflictDialog, confirming declines the conflicting booking,
   // backing out persists nothing at all.
   group('schedule_override_conflict_flow', schedule_override_conflict.main);
+  // Phase 240 (mobile-qa) — hearting a SERVICE on the booking service-
+  // selection sheet is a REAL POST /favorites; the wish list read-back is the
+  // "origin story" the phase exists for.
+  group('service_favourite_flow', service_favourite.main);
   // APPEND: a master WITH a catalogue opens /services/setup from the list FAB,
   // the type they already offer renders inert, and the bulk POST carries only
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).

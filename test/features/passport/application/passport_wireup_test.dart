@@ -37,7 +37,9 @@ import 'package:beautica_mobile/features/passport/application/passport_notifier.
 import 'package:beautica_mobile/features/passport/data/passport_repository.dart';
 import 'package:beautica_mobile/features/passport/domain/passport.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
-import 'package:beautica_mobile/features/passport/presentation/widgets/passport_table.dart';
+import 'package:beautica_mobile/features/passport/presentation/widgets/passport_derived_block.dart';
+import 'package:beautica_mobile/features/passport/presentation/widgets/passport_identity_strip.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +47,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/fakes/fake_wishlist_repository.dart';
 import '../../../helpers/pump_app.dart';
 
 class _MockClientControllerApi extends Mock
@@ -67,7 +70,13 @@ const _sampleProfile = ClientProfileSummary(
 /// DATA, never AppLocalizations copy, so they survive the EN locale landing.
 const List<String> _wireProcedures = <String>['Манікюр', 'Брови', 'Педикюр'];
 const List<String> _wireDistricts = <String>['Центр', 'Сихів', 'Франківський'];
-const int _wireBudgetMax = 800;
+const int _wireBudgetAvg = 600;
+const List<String> _wireCities = <String>['Львів', 'Київ'];
+const int _wireReviewsWritten = 3;
+
+/// Deliberately not the current year — a re-derived-from-the-clock join year
+/// could not produce it.
+const int _wireMemberSinceYear = 2021;
 
 /// A populated wire envelope. Every value differs from the empty passport AND
 /// from the other values in the fixture, so no assertion can be satisfied by a
@@ -82,10 +91,13 @@ Response<api.ApiResponsePassportResponse> _populatedEnvelope() =>
           ..success = true
           ..data.favoriteProcedures.replace(_wireProcedures)
           ..data.favoriteDistricts.replace(_wireDistricts)
+          ..data.favoriteCities.replace(_wireCities)
           ..data.bookingsConsidered = 7
-          ..data.budget.avg = 600
+          ..data.reviewsWritten = _wireReviewsWritten
+          ..data.memberSinceYear = _wireMemberSinceYear
+          ..data.budget.avg = _wireBudgetAvg
           ..data.budget.min = 400
-          ..data.budget.max = _wireBudgetMax
+          ..data.budget.max = 800
           ..data.budget.currency = 'UAH',
       ),
     );
@@ -99,7 +111,10 @@ Response<api.ApiResponsePassportResponse> _emptyEnvelope() =>
           ..success = true
           ..data.favoriteProcedures.replace(const <String>[])
           ..data.favoriteDistricts.replace(const <String>[])
-          ..data.bookingsConsidered = 0,
+          ..data.favoriteCities.replace(const <String>[])
+          ..data.bookingsConsidered = 0
+          ..data.reviewsWritten = 0
+          ..data.memberSinceYear = _wireMemberSinceYear,
       ),
     );
 
@@ -122,6 +137,16 @@ List<Object> _screenOverrides(api.ClientControllerApi mock) => <Object>[
   screenProtectionProvider.overrideWithValue(ScreenProtectionManager()),
   clientProfileProvider.overrideWith((ref) async => _sampleProfile),
   clientApiProvider.overrideWithValue(mock),
+  // Phase 238: the page's fourth block (`WishlistSection`) watches
+  // `wishlistProvider`. Silenced with a fake repository so it neither attempts a
+  // real call nor paints its own failure card over the assertions below.
+  //
+  // THIS IS NOT A RELAXATION OF THE FILE'S RULE. The ban is on stubbing the
+  // PASSPORT chain — `passportProvider` or `passportRepositoryProvider` — which
+  // is the chain under test. The wish list is an unrelated feature that merely
+  // shares the page; leaving it live would add noise, not coverage. Its own
+  // chain is covered by the wish-list suite.
+  wishlistRepositoryProvider.overrideWithValue(FakeWishlistRepository()),
   // NOTE the absence of a `passportProvider` override. Adding one back would
   // sever the chain under test — see the file header.
 ];
@@ -161,7 +186,7 @@ void main() {
     // `bookingsConsidered` reads 0, both chip lists read empty and `budget`
     // reads null, because the wire payload was never consulted. Confirmed RED
     // by temporarily re-adding a `passportRepositoryProvider` override that
-    // returns `Passport.empty()` — all six expectations below fail and the
+    // returns an empty passport — all six expectations below fail and the
     // `verify` reports 0 calls.
     test('a populated response reaches the domain model intact', () async {
       when(
@@ -178,7 +203,11 @@ void main() {
       verify(() => clientApi.getPassport()).called(1);
       expect(p.favoriteProcedures, _wireProcedures);
       expect(p.favoriteDistricts, _wireDistricts);
+      expect(p.favoriteCities, _wireCities);
       expect(p.bookingsConsidered, 7);
+      expect(p.reviewsWritten, _wireReviewsWritten);
+      expect(p.memberSinceYear, _wireMemberSinceYear);
+      expect(p.budget!.avg, _wireBudgetAvg.toDouble());
       expect(p.budget!.max, 800.0);
       expect(
         p.isEmpty,
@@ -187,7 +216,7 @@ void main() {
             'the provider must surface the real payload — an always-empty '
             'passport is the exact defect this chain test exists to catch',
       );
-      expect(p, isNot(Passport.empty()));
+      expect(p, isNot(Passport.empty(memberSinceYear: _wireMemberSinceYear)));
     });
 
     test('an empty response still resolves to the empty passport', () async {
@@ -203,7 +232,7 @@ void main() {
       final Passport p = await container.read(passportProvider.future);
 
       verify(() => clientApi.getPassport()).called(1);
-      expect(p, Passport.empty());
+      expect(p, Passport.empty(memberSinceYear: _wireMemberSinceYear));
     });
 
     test(
@@ -245,17 +274,24 @@ void main() {
   });
 
   group('PassportScreen — rendered off the real chain (no provider stub)', () {
-    // THE SCREEN-LEVEL TWIN of the chain test. Every pre-existing widget test
-    // in passport_screen_test.dart overrides `passportProvider` directly and
+    // THE SCREEN-LEVEL TWIN of the chain test. Every widget test in
+    // passport_screen_test.dart overrides `passportProvider` directly and
     // therefore renders its own fixture; this one renders whatever the WIRE
     // says, through the real repository and mapper.
     //
     // Confirmed RED against the shipped behaviour: with the repository swapped
-    // back to a `Passport.empty()` stand-in, the PassportCard is absent and
-    // every chip finder reports findsNothing — the screen falls into the empty
-    // variant, exactly as it did in production.
+    // back to an empty-passport stand-in, the derived block is absent and every
+    // locality finder reports findsNothing, exactly as in production.
+    //
+    // PHASE 238 RE-POINT. `PassportCard` (passport_table.dart) was deleted with
+    // its whole file, so "did the payload reach the screen" is now asserted
+    // against its two replacements: [PassportIdentityStrip] (the client's
+    // standing) and [PassportDerivedBlock] (localities + average spend). The
+    // `passport_find_master_button` empty hero went with it, so the empty case
+    // below asserts what the page ACTUALLY renders for a history-less client —
+    // the strip alone, with the derived block dropped.
     testWidgets(
-      'a populated payload renders the passport card, not the empty CTA',
+      'a populated payload reaches the identity strip AND the derived block',
       (tester) async {
         when(
           () => clientApi.getPassport(),
@@ -269,78 +305,127 @@ void main() {
 
         final AppLocalizations l10n = await _uk();
 
-        expect(find.byType(PassportCard), findsOneWidget);
+        expect(
+          find.byKey(const Key('passport_identity_strip')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('passport_derived_block')), findsOneWidget);
+        expect(find.byType(PassportIdentityStrip), findsOneWidget);
+        expect(find.byType(PassportDerivedBlock), findsOneWidget);
+
         // Derived values from the WIRE payload — each one impossible to render
-        // from `Passport.empty()`. Asserted against the SAME constants the mock
+        // from the empty passport. Asserted against the SAME constants the mock
         // served, so fixture and expectation cannot drift.
-        // i18n-finder-ok: values come from the mocked envelope, never AppLocalizations.
-        for (final String chip in <String>[
-          ..._wireProcedures,
+        //
+        // SCOPED to the derived block, not page-wide: the profile block above
+        // renders the client's own city, which can legitimately coincide with a
+        // derived favourite city. A page-wide finder would then report two
+        // matches and fail for a reason that has nothing to do with the chain.
+        for (final String locality in <String>[
           ..._wireDistricts,
+          ..._wireCities,
         ]) {
           expect(
-            find.text(chip),
+            find.descendant(
+              of: find.byKey(const Key('passport_derived_block')),
+              // i18n-finder-ok: values come from the mocked envelope, never
+              // AppLocalizations.
+              matching: find.text(locality),
+            ),
             findsOneWidget,
-            reason: 'derived chip "$chip" from the wire payload must render',
+            reason:
+                'derived locality "$locality" from the wire payload must render',
           );
         }
         expect(
-          find.text(l10n.passportBudgetCeiling(_wireBudgetMax)),
+          find.text(l10n.passportBudgetAverage(_wireBudgetAvg)),
+          findsOneWidget,
+        );
+        // The standing line and the join YEAR, both straight off the wire.
+        expect(
+          find.text(l10n.passportReviewsLeft(_wireReviewsWritten)),
+          findsOneWidget,
+        );
+        expect(
+          find.text(l10n.passportMemberSince('$_wireMemberSinceYear')),
           findsOneWidget,
         );
 
-        // The empty variant must be gone — this is the state the bug pinned the
-        // screen to for every client.
+        // The «Улюблені процедури» column was DELETED with the document card.
+        // The wire still carries the field and the model still maps it, so this
+        // asserts the RENDER dropped it rather than the payload having changed.
+        // i18n-finder-ok: values come from the mocked envelope, never AppLocalizations.
+        for (final String procedure in _wireProcedures) {
+          expect(
+            find.text(procedure),
+            findsNothing,
+            reason:
+                'the procedures column is gone from the approved page — "$procedure" '
+                'must not render even though the wire still carries it',
+          );
+        }
+
+        expect(find.byKey(const Key('passport_error_state')), findsNothing);
+        expect(find.byKey(const Key('passport_skeleton')), findsNothing);
+        verify(() => clientApi.getPassport()).called(1);
+      },
+    );
+
+    testWidgets(
+      'an EMPTY payload renders the strip alone, derived block dropped',
+      (tester) async {
+        // The counterpart: proves the no-derived-data rendering is EARNED from
+        // the wire (empty lists, null budget) rather than hardcoded. A suite
+        // that only asserted the populated case could be satisfied by a mapper
+        // that never produces an empty passport at all.
+        when(
+          () => clientApi.getPassport(),
+        ).thenAnswer((_) async => _emptyEnvelope());
+
+        await tester.pumpApp(
+          const PassportScreen(),
+          overrides: _screenOverrides(clientApi),
+        );
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = await _uk();
+
+        // The strip STAYS — it is what makes a history-less passport meaningful
+        // and is why Phase 238 could delete the empty hero outright.
         expect(
-          find.byKey(const Key('passport_find_master_button')),
+          find.byKey(const Key('passport_identity_strip')),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.passportReviewsLeft(0)), findsOneWidget);
+        expect(
+          find.text(l10n.passportMemberSince('$_wireMemberSinceYear')),
+          findsOneWidget,
+          reason:
+              'the join year is a WIRE value even for an empty passport — a '
+              'screen re-deriving it from the clock would print the current '
+              'year here',
+        );
+
+        expect(
+          find.byKey(const Key('passport_derived_block')),
           findsNothing,
           reason:
-              'a client WITH derived history must never see the empty-passport '
-              'CTA — that is the shipped Phase 13.8 defect',
+              'nothing derivable ⇒ the caller drops the whole block rather '
+              'than rendering an empty card',
         );
-        expect(find.text(l10n.passportEmptyTitle), findsNothing);
         expect(find.byKey(const Key('passport_error_state')), findsNothing);
         verify(() => clientApi.getPassport()).called(1);
       },
     );
 
-    testWidgets('an empty payload renders the empty CTA off the real chain', (
-      tester,
-    ) async {
-      // The counterpart: proves the empty variant is still reachable and is now
-      // EARNED from the wire (bookingsConsidered 0) rather than hardcoded. A
-      // suite that only asserted the populated case could be satisfied by a
-      // mapper that never produces an empty passport at all.
-      when(
-        () => clientApi.getPassport(),
-      ).thenAnswer((_) async => _emptyEnvelope());
-
-      await tester.pumpApp(
-        const PassportScreen(),
-        overrides: _screenOverrides(clientApi),
-      );
-      await tester.pumpAndSettle();
-
-      final AppLocalizations l10n = await _uk();
-
-      expect(
-        find.byKey(const Key('passport_find_master_button')),
-        findsOneWidget,
-      );
-      expect(find.text(l10n.passportEmptyTitle), findsOneWidget);
-      expect(find.byType(PassportCard), findsNothing);
-      expect(find.byKey(const Key('passport_error_state')), findsNothing);
-      verify(() => clientApi.getPassport()).called(1);
-    });
-
     testWidgets(
-      'a 500 renders the ERROR card off the real chain, not the empty CTA',
+      'a 500 renders the ERROR card off the real chain, never a no-data page',
       (tester) async {
         // The end-to-end version of the error split: the failure originates at
         // the TRANSPORT (a Dio 500), travels through the repository's typed
-        // mapping and the provider, and must land on the error card. The
-        // pre-existing widget test injects the failure at `passportProvider`, so
-        // it cannot prove the repository maps transport errors at all.
+        // mapping and the provider, and must land on the error card. The widget
+        // test injects the failure at `passportProvider`, so it cannot prove the
+        // repository maps transport errors at all.
         when(
           () => clientApi.getPassport(),
         ).thenAnswer((_) async => throw _serverError());
@@ -360,27 +445,32 @@ void main() {
         expect(find.byKey(const Key('passport_error_state')), findsOneWidget);
         expect(find.text(l10n.passportErrorTitle), findsOneWidget);
         expect(find.byKey(const Key('passport_retry_button')), findsOneWidget);
+
+        // A transport failure must be visually distinct from "no history yet"
+        // ALL THE WAY from Dio to the rendered card. With the empty hero gone,
+        // that means the strip must be absent too: a strip full of zeroes is
+        // precisely the "new client" rendering an error must never collapse to.
         expect(
-          find.byKey(const Key('passport_find_master_button')),
+          find.byKey(const Key('passport_identity_strip')),
           findsNothing,
           reason:
-              'a transport failure must be visually distinct from "no history '
-              'yet" all the way from Dio to the rendered card',
+              'an errored passport must not render the standing strip — a '
+              'zero-filled strip reads as a brand-new client',
         );
-        expect(find.byType(PassportCard), findsNothing);
+        expect(find.byKey(const Key('passport_derived_block')), findsNothing);
       },
     );
 
     testWidgets(
-      'a refresh over a GOOD passport keeps the card, never flashes a skeleton',
+      'a refresh over a GOOD passport keeps the strip, never flashes a skeleton',
       (tester) async {
-        // Pins the seamless-reload branch (`passportAsync.isLoading` with a
-        // RETAINED value). `ref.invalidate` keeps the previous value, so a
-        // refresh over an already-rendered passport must keep painting it; a
-        // naive `.when()` would collapse to the skeleton and make every
-        // background refresh look like a cold load. Untestable from a stubbed
-        // `passportProvider` — the retained-value shape only arises when a real
-        // async fetch is in flight, which is why it lives in this file.
+        // Pins the seamless-reload branch (`isLoading` with a RETAINED value).
+        // `ref.invalidate` keeps the previous value, so a refresh over an
+        // already-rendered passport must keep painting it; a naive `.when()`
+        // would collapse to the skeleton and make every background refresh look
+        // like a cold load. Untestable from a stubbed `passportProvider` — the
+        // retained-value shape only arises when a real async fetch is in
+        // flight, which is why it lives in this file.
         final Completer<Response<api.ApiResponsePassportResponse>> second =
             Completer<Response<api.ApiResponsePassportResponse>>();
         var call = 0;
@@ -395,7 +485,10 @@ void main() {
           overrides: _screenOverrides(clientApi),
         );
         await tester.pumpAndSettle();
-        expect(find.byType(PassportCard), findsOneWidget);
+        expect(
+          find.byKey(const Key('passport_identity_strip')),
+          findsOneWidget,
+        );
 
         // Kick a refresh and hold the response open.
         final BuildContext ctx = tester.element(find.byType(PassportScreen));
@@ -407,51 +500,72 @@ void main() {
 
         expect(call, 2, reason: 'the refresh must re-issue the real GET');
         expect(
-          find.byType(PassportCard),
+          find.byKey(const Key('passport_identity_strip')),
           findsOneWidget,
           reason:
               'an in-flight refresh over a retained passport must keep the '
-              'card on screen — collapsing to the skeleton is the regression',
+              'strip on screen — collapsing to the skeleton is the regression',
         );
+        expect(
+          find.byKey(const Key('passport_derived_block')),
+          findsOneWidget,
+          reason: 'the derived block is retained by the same value',
+        );
+        expect(find.byKey(const Key('passport_skeleton')), findsNothing);
         expect(find.byKey(const Key('passport_error_state')), findsNothing);
 
         // Let the refresh land so no pending future outlives the test.
         second.complete(_populatedEnvelope());
         await tester.pumpAndSettle();
-        expect(find.byType(PassportCard), findsOneWidget);
+        expect(
+          find.byKey(const Key('passport_identity_strip')),
+          findsOneWidget,
+        );
       },
     );
 
-    testWidgets('retry re-hits the endpoint and renders the recovered payload', (
-      tester,
-    ) async {
-      // Proves the user-driven retry goes all the way back to the TRANSPORT —
-      // the call count is the assertion that a stubbed provider cannot make.
-      var attempt = 0;
-      when(() => clientApi.getPassport()).thenAnswer((_) async {
-        attempt++;
-        if (attempt == 1) throw _serverError();
-        return _populatedEnvelope();
-      });
+    testWidgets(
+      'retry re-hits the endpoint and renders the recovered payload',
+      (tester) async {
+        // Proves the user-driven retry goes all the way back to the TRANSPORT —
+        // the call count is the assertion that a stubbed provider cannot make.
+        var attempt = 0;
+        when(() => clientApi.getPassport()).thenAnswer((_) async {
+          attempt++;
+          if (attempt == 1) throw _serverError();
+          return _populatedEnvelope();
+        });
 
-      await tester.pumpApp(
-        const PassportScreen(),
-        overrides: _screenOverrides(clientApi),
-        retry: (_, _) => null,
-      );
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('passport_error_state')), findsOneWidget);
-      expect(attempt, 1);
+        await tester.pumpApp(
+          const PassportScreen(),
+          overrides: _screenOverrides(clientApi),
+          retry: (_, _) => null,
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('passport_error_state')), findsOneWidget);
+        expect(attempt, 1);
 
-      await tester.tap(find.byKey(const Key('passport_retry_button')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('passport_retry_button')));
+        await tester.pumpAndSettle();
 
-      expect(attempt, 2, reason: 'retry must re-issue the real GET');
-      verify(() => clientApi.getPassport()).called(2);
-      expect(find.byType(PassportCard), findsOneWidget);
-      // i18n-finder-ok: value comes from the mocked envelope, never AppLocalizations.
-      expect(find.text(_wireProcedures.first), findsOneWidget);
-      expect(find.byKey(const Key('passport_error_state')), findsNothing);
-    });
+        expect(attempt, 2, reason: 'retry must re-issue the real GET');
+        verify(() => clientApi.getPassport()).called(2);
+        expect(
+          find.byKey(const Key('passport_identity_strip')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('passport_derived_block')), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('passport_derived_block')),
+            // i18n-finder-ok: value comes from the mocked envelope, never
+            // AppLocalizations.
+            matching: find.text(_wireDistricts.first),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('passport_error_state')), findsNothing);
+      },
+    );
   });
 }

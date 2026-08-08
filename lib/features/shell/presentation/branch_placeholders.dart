@@ -22,6 +22,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/widgets/staggered_reveal.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
@@ -62,8 +63,8 @@ class ClientBranchPlaceholder extends StatelessWidget {
     // The whole staggered entrance subtree is isolated so its 1s reveal repaint
     // is bounded and never bleeds into the surrounding shell.
     return RepaintBoundary(
-      child: _StaggeredReveal(
-        builder: (BuildContext context, _RevealFn reveal) {
+      child: StaggeredReveal(
+        builder: (BuildContext context, RevealFn reveal) {
           return Padding(
             padding: const EdgeInsets.fromLTRB(
               VelvetSpacing.lg,
@@ -303,99 +304,6 @@ class ClientPassportPlaceholderScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Staggered fade-up entrance (ported verbatim from the preview's
-// `staggered_reveal.dart`). Kept local to this file — it is only used by the
-// placeholder bodies and will retire alongside them as real screens ship.
-// ---------------------------------------------------------------------------
-
-typedef _RevealFn =
-    Widget Function({
-      required double start,
-      required double end,
-      required Widget child,
-    });
-
-class _StaggeredReveal extends StatefulWidget {
-  const _StaggeredReveal({required this.builder});
-
-  final Widget Function(BuildContext context, _RevealFn reveal) builder;
-
-  @override
-  State<_StaggeredReveal> createState() => _StaggeredRevealState();
-}
-
-class _StaggeredRevealState extends State<_StaggeredReveal>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  // PERF (MEDIUM): the CLIENT shell is a StatefulShellRoute.indexedStack, so all
-  // five branches build and keep-alive at mount. Without this gate, the four
-  // off-screen 1s reveal controllers would all fire during the post-login frame
-  // budget. IndexedStack sets TickerMode=false for its off-screen children, so
-  // we only start the reveal once ticking is enabled (the visible branch) and
-  // react to it flipping true the first time a branch becomes visible on a tab
-  // switch — see didChangeDependencies.
-  bool _started = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Start the one-shot reveal only when this branch is actually ticking
-    // (i.e. it is the visible IndexedStack child). Off-screen branches have
-    // TickerMode=false at mount and flip to true the first time their tab is
-    // selected, at which point this fires and the reveal plays once.
-    if (!_started && TickerMode.valuesOf(context).enabled) {
-      _started = true;
-      _controller.forward();
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Widget _reveal({
-    required double start,
-    required double end,
-    required Widget child,
-  }) {
-    final Animation<double> curved = CurvedAnimation(
-      parent: _controller,
-      curve: Interval(start, end, curve: Curves.easeOutCubic),
-    );
-    // PERF (LOW): drive fade + upward slide via FadeTransition + SlideTransition
-    // (layer-level — no per-frame widget rebuild) instead of an AnimatedBuilder
-    // rebuilding Opacity + Transform.translate every tick. The slide starts
-    // ~18 logical px below (0.18 of the ~100px subtree band ≈ the previous fixed
-    // 18px offset feel) and settles to zero as the interval completes.
-    return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.35),
-          end: Offset.zero,
-        ).animate(curved),
-        child: child,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.builder(context, _reveal);
 }
 
 // ---------------------------------------------------------------------------

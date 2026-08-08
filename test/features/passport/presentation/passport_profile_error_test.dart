@@ -38,6 +38,13 @@
 // The fixture throws from an `async` body (never a bare `thenThrow`): a sync
 // throw during provider build bypasses Riverpod's retry machinery entirely,
 // so it would model a failure shape a Dio-backed repository can never produce.
+//
+// PHASE 238 — THE PAGE GREW A FOURTH BLOCK
+// ----------------------------------------
+// `WishlistSection` now sits under the passport section and watches
+// `wishlistProvider`. Its repository MUST be overridden here (see [_overrides]):
+// left live it fails its fetch and renders a second `cloud_off` failure card,
+// which silently changes what every glyph assertion in this file measures.
 
 import 'dart:async';
 
@@ -49,11 +56,14 @@ import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/passport/application/passport_notifier.dart';
 import 'package:beautica_mobile/features/passport/domain/passport.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../helpers/fakes/fake_wishlist_repository.dart';
 import '../../../helpers/overflow_guard.dart';
 import '../../../helpers/pump_app.dart';
 
@@ -94,20 +104,55 @@ const _sampleProfile = ClientProfileSummary(
 const _populatedPassport = Passport(
   favoriteProcedures: <String>['Манікюр', 'Брови', 'Педикюр'],
   favoriteDistricts: <String>['Центр', 'Сихів', 'Франківський'],
+  favoriteCities: <String>['Львів', 'Київ'],
   budget: BudgetBand(avg: 600, min: 400, max: 800),
   bookingsConsidered: 7,
-  reviewsLeft: 5,
+  reviewsWritten: 5,
+  // A WIRE value; nothing in this file reads a clock.
   memberSinceYear: 2024,
 );
 
-/// A never-failing passport so the ONLY failure on screen is the profile —
-/// otherwise the hero's own error card would confound every assertion.
+/// Two saved favourites, so the page's fourth block renders its HAPPY state and
+/// contributes no failure glyph of its own — see [_overrides].
+const List<WishlistService> _kFavourites = <WishlistService>[
+  WishlistService(
+    masterServiceId: 'w1',
+    masterId: 'm-w1',
+    serviceName: 'Ламінування та фарбування брів',
+    masterName: 'Анастасія Мельниченко',
+    durationMinutes: 150,
+    priceDisplay: '1 200 ₴',
+  ),
+  WishlistService(
+    masterServiceId: 'w2',
+    masterId: 'm-w2',
+    serviceName: 'Манікюр з покриттям гель-лак',
+    masterName: 'Ірина Бондаренко',
+    durationMinutes: 90,
+    priceDisplay: '600–900 ₴',
+  ),
+];
+
+/// A never-failing passport AND a never-failing wish list, so the ONLY failure
+/// on screen is the profile.
+///
+/// THE WISH-LIST OVERRIDE IS NOT OPTIONAL (Phase 238). `WishlistSection` watches
+/// `wishlistProvider`, which resolves through the real `HttpWishlistRepository`
+/// unless the repository is overridden — so without this the section fails its
+/// fetch and paints `WishlistErrorState`, which draws a SECOND
+/// `Icons.cloud_off_rounded` onto the page. That is exactly how this file broke
+/// when the page gained its fourth block: `find.byIcon(Icons.cloud_off_rounded)`
+/// started reporting two widgets and the profile-error assertion became an
+/// assertion about an unrelated block's failure.
 List<Object> _overrides(
   Future<ClientProfileSummary> Function(Ref ref) profile,
 ) => <Object>[
   screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
   clientProfileProvider.overrideWith(profile),
   passportProvider.overrideWith((ref) async => _populatedPassport),
+  wishlistRepositoryProvider.overrideWithValue(
+    FakeWishlistRepository(services: _kFavourites),
+  ),
 ];
 
 /// The native FLAG_SECURE plugin must never fire under `flutter test`.
@@ -148,7 +193,28 @@ void main() {
         // The affordance itself: distinct state + a real retry CTA.
         expect(find.byKey(_kProfileErrorState), findsOneWidget);
         expect(find.byKey(_kProfileRetryButton), findsOneWidget);
-        expect(find.byIcon(Icons.cloud_off_rounded), findsOneWidget);
+        // DISAMBIGUATED (Phase 238). Every failure state on this page draws
+        // `Icons.cloud_off_rounded` — the profile error, the passport error and
+        // the wish-list error. A bare `findsOneWidget` on the glyph is
+        // therefore not a statement about WHICH block failed, so the finder is
+        // scoped to the state under test AND the page-wide count is asserted
+        // separately (it is 1 only because the other two blocks are overridden
+        // to succeed).
+        expect(
+          find.descendant(
+            of: find.byKey(_kProfileErrorState),
+            matching: find.byIcon(Icons.cloud_off_rounded),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byIcon(Icons.cloud_off_rounded),
+          findsOneWidget,
+          reason:
+              'only the PROFILE failed, so exactly one cloud_off may be on the '
+              'page — a second one means another provider is failing silently '
+              '(an un-overridden wishlistRepositoryProvider is the usual cause)',
+        );
         expect(find.text(l10n.homeHubProfileLoadError), findsOneWidget);
         expect(find.text(l10n.retryLabel), findsOneWidget);
 

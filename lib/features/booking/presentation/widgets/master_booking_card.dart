@@ -92,7 +92,7 @@
 // The divider and its two gaps are 9dp of NET-NEW vertical cost the
 // outgoing two-row layout did not carry (it measured 55dp natural). The
 // status dot buys WIDTH, not height. That 9dp was paid for out of the
-// PRICE PILL's own vertical padding — 3dp -> 1dp via [_PriceTag]'s new
+// PRICE PILL's own vertical padding — 3dp -> 1dp via [PriceTag]'s new
 // `verticalPadding` knob (default 3, so [_buildFullBody] renders
 // byte-identically) — and NOT out of any type size: in a card whose whole
 // job is legibility at a glance in a scrolling timeline, the type scale is
@@ -306,13 +306,13 @@
 //     `priceType`/`priceOverride`/the service's current catalogue state,
 //     which describe the service today rather than what was agreed then.
 //
-// Both layouts render whichever form applies via the same [_PriceTag], fed
+// Both layouts render whichever form applies via the same [PriceTag], fed
 // by the shared `BookingDisplayX.priceLabel` (→ `formatBookingPrice`) so the
 // separator (en-dash), rounding and «₴» suffix can never drift from the
 // client card or «Деталі запису». The `showsPrice` gate is unchanged and
 // applies identically to a band.
 //
-// [_PriceTag] caps its own width and scales down rather than clipping — see
+// [PriceTag] caps its own width and scales down rather than clipping — see
 // its doc — because a two-number band is materially wider than the single
 // figure this card's compact 56dp layout was originally sized around.
 //
@@ -395,6 +395,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/widgets/price_tag.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
@@ -496,7 +497,7 @@ class MasterBookingCard extends StatefulWidget {
   /// to meet it — [minHeight] is a floor, never a ceiling.
   ///
   /// Row 2's 17dp term is the price pill, and that pill's height is pinned
-  /// independently of its horizontal `BoxFit.scaleDown` — see [_PriceTag]'s
+  /// independently of its horizontal `BoxFit.scaleDown` — see [PriceTag]'s
   /// zero-width height anchor. Without that anchor a band wide enough to hit
   /// the pill's width cap would have scaled the pill's HEIGHT down with it
   /// (uniform fit), silently dragging the compact card below this figure.
@@ -784,7 +785,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   );
 
   /// The price pill's vertical padding inside the COMPACT layout — 1dp,
-  /// against [_PriceTag]'s own 3dp default which [_buildFullBody] keeps.
+  /// against [PriceTag]'s own 3dp default which [_buildFullBody] keeps.
   ///
   /// This 4dp (2 × 2) is exactly what paid for the hairline divider and its
   /// two `VelvetSpacing.xs` gaps — see this file's "THE 41dp BUDGET" header
@@ -793,7 +794,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// a 112dp card is over-articulated inside a 56dp one, whereas shrinking
   /// the type would cost the card the legibility-at-a-glance that is its
   /// entire job in a scrolling timeline.
-  static const double _kCompactPriceVPad = 1;
+  static const double _kCompactPriceVPad = PriceTag.compactVerticalPadding;
 
   // THE COMPACT PRICE CAP IS GONE — REMOVED 2026-07-22 (mobile-perf MEDIUM)
   // ----------------------------------------------------------------------
@@ -805,7 +806,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   // resolved to 135dp against the pill's own 112dp ceiling), and the
   // measurement it required cost a relayout boundary per card up to 100 times
   // per day AND made the whole card illegal under `IntrinsicHeight`. Overflow
-  // safety on that row is structural, not arithmetic — see [_PriceTag]'s
+  // safety on that row is structural, not arithmetic — see [PriceTag]'s
   // `Flexible` + `FittedBox(fit: BoxFit.scaleDown)` and row 2's comment in
   // [_buildCompactBody]. Do not reintroduce a width-measuring cap here.
 
@@ -1050,7 +1051,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // — 24 + 24 screen padding, 42 ruler, 4 gap — so a 320dp device
         // yields `320 − 94 = 226`), which is 203dp of inner width after this
         // card's padding and border. The cap resolved to `203 − 68 = 135dp`,
-        // ABOVE [_PriceTag._maxTextWidth]'s own 112dp ceiling, so it never
+        // ABOVE [PriceTag.maxTextWidth]'s own 112dp ceiling, so it never
         // bound anything.
         //
         // What it DID cost, up to 100 times per day: a relayout boundary per
@@ -1072,8 +1073,8 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // `passport_table.dart`), so that was a one-line landmine for any
         // future caller.
         //
-        // OVERFLOW SAFETY IS STRUCTURAL, NOT ARITHMETIC: [_PriceTag] caps its
-        // own text at [_PriceTag._maxTextWidth] and wraps it in a `Flexible` +
+        // OVERFLOW SAFETY IS STRUCTURAL, NOT ARITHMETIC: [PriceTag] caps its
+        // own text at [PriceTag.maxTextWidth] and wraps it in a `Flexible` +
         // `FittedBox(fit: BoxFit.scaleDown)`, so it scales into whatever
         // bounded width this `Row` hands it however narrow that gets — no
         // reserve, and no row-width measurement, required.
@@ -1096,12 +1097,12 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
               const SizedBox(width: VelvetSpacing.xs),
               // NON-flex, exactly as the retired `ConstrainedBox` was: a
               // `Row` hands its non-flex children unbounded width, under
-              // which [_PriceTag]'s own `Flexible` + [_PriceTag._maxTextWidth]
+              // which [PriceTag]'s own `Flexible` + [PriceTag.maxTextWidth]
               // resolve to the identical 112dp ceiling the inert 135dp cap
               // used to sit above. Making it `Flexible` here would NOT be
               // equivalent — it would split the free space with the service
               // name's `Expanded` instead of leaving the remainder to it.
-              _PriceTag(
+              PriceTag(
                 price: b.priceLabel,
                 verticalPadding: _kCompactPriceVPad,
               ),
@@ -1257,7 +1258,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // THE PRICE IS `Expanded` + LEFT-ALIGNED, NOT A NON-FLEX PILL BESIDE
         // A `Spacer` (226dp narrow-lane pass, 2026-07-21)
         // ---------------------------------------------------------------
-        // This row used to be `_PriceTag` + `Spacer` + badge, i.e. TWO
+        // This row used to be `PriceTag` + `Spacer` + badge, i.e. TWO
         // non-flex children either side of the flex. A `Row` lays non-flex
         // children out unbounded, so neither could ever see how little room
         // the row had: on the narrowest real lane (226dp → 191dp of inner
@@ -1270,7 +1271,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // `Expanded` + `Align` is what gives it: the badge (short, and the
         // one thing on this row that must stay fully legible) keeps its
         // intrinsic width, the price then gets ALL the remaining width as a
-        // real bounded constraint, and [_PriceTag]'s inner `Flexible` scales
+        // real bounded constraint, and [PriceTag]'s inner `Flexible` scales
         // the band into it. `Align(centerLeft)` reproduces the retired
         // `Spacer`'s visual result exactly — pill hard left, badge hard
         // right — with the leftover living inside the `Expanded` instead of
@@ -1284,7 +1285,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
               Expanded(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: _PriceTag(price: b.priceLabel),
+                  child: PriceTag(price: b.priceLabel),
                 ),
               )
             else
@@ -1296,224 +1297,6 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
           ],
         ),
       ],
-    );
-  }
-}
-
-/// A price pill — «450 ₴», or the frozen band «300–500 ₴».
-///
-/// Design-parity pass (finding #9): the approved design draws this as a
-/// `NeumorphicInset` recessed well (`booking_widgets.dart`'s `PriceTag`);
-/// transcribed verbatim via the shared `core/widgets/neumorphic.dart`
-/// `NeumorphicInset` — the same widget the design's own token file's
-/// `NeumorphicInset` maps to, so this is a like-for-like port, not a
-/// reinterpretation.
-///
-/// ## Why the width cap exists (frozen-band pass)
-///
-/// This pill sits beside an `Expanded` service name (compact) or a status
-/// badge (full). A long band («12500–25000 ₴») is materially wider than the
-/// single figure this card was sized around, so left unbounded it could
-/// out-measure the room the row has left and trip a `RenderFlex` overflow.
-/// Capping the TEXT at [_maxTextWidth] and letting [FittedBox] scale it down
-/// keeps the pill hugging its content (so it stays hard against its row's
-/// edge, and the service name still ellipsises into whatever it leaves) while
-/// making an overflow structurally impossible. `scaleDown` shrinks rather than
-/// clips, so a pathological band stays legible instead of losing its ceiling
-/// to an ellipsis.
-///
-/// ## The cap is a CEILING; the incoming constraint is the real limit
-/// (226dp narrow-lane pass, 2026-07-21)
-///
-/// [_maxTextWidth] alone was NOT enough, and the reason is a `RenderFlex`
-/// detail rather than a mis-measured constant: a `Row` lays its NON-flex
-/// children out with an UNBOUNDED `maxWidth`, so a pill parked as a plain
-/// non-flex child never saw how much room its row actually had. It always
-/// took the full capped 112dp (96 text + 2×8 padding) — and on the real
-/// narrowest lane (226dp: a 320dp device minus 94 of ruler/padding/gap — see
-/// `bookings_timeline_grid.dart`'s "ADDENDUM 3") that overflowed BOTH layouts
-/// once a frozen band was present.
-///
-/// The fix is on the CALLER side, in both rows, and this widget's job is to
-/// honour it: the pill's inner band is a [Flexible], so whenever the pill is
-/// handed a bounded `maxWidth` the [FittedBox] scales into THAT instead of
-/// into a flat 96. The two callers bound it differently, each matching its
-/// row's own priority order:
-///
-///   * compact row 2 — a plain NON-flex child, so [_maxTextWidth] alone is
-///     the ceiling. It stays non-flex on purpose: the service name must keep
-///     absorbing the slack (a `Flexible` pill would split the row's free
-///     space evenly with the `Expanded` name and cost that name ~17dp on
-///     every device, for nothing). The row-width-derived `ConstrainedBox`
-///     that used to sit here was removed 2026-07-22 — it never bound, and
-///     buying it cost a `LayoutBuilder` per card; see [MasterBookingCard]'s
-///     row 2 comment.
-///   * full row 3 — an `Expanded` + `Align`, which hands the pill the row's
-///     entire remaining width after the status badge. No reserve is needed
-///     because nothing else in that row competes for it.
-///
-/// Both keep [_maxTextWidth] as the ceiling: on any lane wide enough (266dp
-/// and up) neither bound binds and the pill renders exactly as it always did.
-class _PriceTag extends StatelessWidget {
-  const _PriceTag({required this.price, this.verticalPadding = _kDefaultVPad});
-
-  /// The pill's default vertical padding — the approved design's own
-  /// `PriceTag` value, which [MasterBookingCard]'s FULL layout keeps
-  /// verbatim. Named (was a bare `3` literal on the constructor default) so
-  /// [_paddingDefault] below can be a compile-time constant without
-  /// re-stating the number.
-  static const double _kDefaultVPad = 3;
-
-  /// Already-formatted — «450 ₴» or «300–500 ₴». See
-  /// `BookingDisplayX.priceLabel`; this widget never formats money itself.
-  final String price;
-
-  /// Vertical padding inside the pill. Defaults to 3dp — the approved
-  /// design's own `PriceTag` value, which [MasterBookingCard]'s FULL layout
-  /// keeps verbatim. The COMPACT layout passes 1dp
-  /// ([MasterBookingCard]'s `_kCompactPriceVPad`): those 4dp are exactly
-  /// what paid for the compact card's hairline divider and its two gaps —
-  /// see `master_booking_card.dart`'s "THE 41dp BUDGET" header section.
-  ///
-  /// A PARAMETER rather than a second widget, and defaulted so the >=1h card
-  /// renders byte-identically — the same shape [TimelineStatusBadge.
-  /// verticalPadding] already established for the same reason. The HEIGHT
-  /// ANCHOR below is unaffected: it pins the pill's LINE box, and this knob
-  /// only moves the padding around it.
-  final double verticalPadding;
-
-  /// The widest the pill's TEXT may grow before it scales down. A CAP, not a
-  /// column width — a short «450 ₴» still sizes to its own content.
-  ///
-  /// Sized to the longest band this card can realistically be asked to draw,
-  /// «12500–25000 ₴» (5 + 5 digits), in [VelvetText.pill] (Nunito 11/w800):
-  /// 83.8dp measured, so ~12dp of headroom under this 96
-  /// (`VelvetSpacing.xxl * 2`).
-  ///
-  /// ## The 96 it shares with `booking_card.dart` is a COINCIDENCE — do not
-  /// treat the two as one knob
-  ///
-  /// `booking_card.dart`'s `_priceMaxWidth` is also 96, and an earlier version
-  /// of this doc claimed that made "the two booking cards scale their price at
-  /// the same threshold". That is FALSE and has been corrected: the two caps
-  /// are equal in dp but NOT in glyphs, because the two cards render the price
-  /// at different type scales.
-  ///
-  ///   * this card — [VelvetText.pill] (Nunito 11/w800): «12500–25000 ₴»
-  ///     measures 83.77dp, leaving ~12dp of headroom.
-  ///   * `booking_card.dart` — `VelvetText.bookingCardPrice` (Nunito 10/w800):
-  ///     the same band measures 76.96dp, leaving ~19dp. (Re-measured when that
-  ///     card's band finally got test coverage of its own — it had been
-  ///     carrying an estimated «~74dp / ~22dp» that nothing checked.)
-  ///
-  /// So a future type-scale bump trips THIS card roughly 7dp of band-width
-  /// earlier than the other one. Deliberately left as two independent
-  /// constants rather than one shared token: unifying them would encode a
-  /// coupling that does not exist and would invite the exact wrong edit
-  /// (bumping one token and assuming both cards are still clear). If either
-  /// card's price type scale changes, RE-MEASURE THAT CARD ONLY — and update
-  /// the headroom figures on both docs so this comparison stays honest.
-  static const double _maxTextWidth = VelvetSpacing.xxl * 2; // 96
-
-  /// The two padding values this widget is ACTUALLY built with, pre-resolved
-  /// as compile-time constants (mobile-perf INFO-2, 2026-07-21).
-  ///
-  /// Turning the vertical inset into a FIELD cost the `EdgeInsets` its
-  /// constness — one allocation per card per build where HEAD had a `const`.
-  /// Only two values exist in the whole app ([_kDefaultVPad] for the >=1h
-  /// card, [_MasterBookingCardState._kCompactPriceVPad] for the compact one),
-  /// so [_resolvePadding] selects between these two instead of building a
-  /// third. The knob itself stays a `double` field — see [verticalPadding]'s
-  /// doc for why it is a parameter and not a second widget — so the
-  /// non-const branch below remains as the correct fallback for any other
-  /// value rather than an assert that would turn a cosmetic tweak into a
-  /// crash.
-  static const EdgeInsets _paddingDefault = EdgeInsets.symmetric(
-    horizontal: VelvetSpacing.sm,
-    vertical: _kDefaultVPad,
-  );
-  static const EdgeInsets _paddingCompact = EdgeInsets.symmetric(
-    horizontal: VelvetSpacing.sm,
-    vertical: _MasterBookingCardState._kCompactPriceVPad,
-  );
-
-  EdgeInsets _resolvePadding() {
-    if (verticalPadding == _kDefaultVPad) return _paddingDefault;
-    if (verticalPadding == _MasterBookingCardState._kCompactPriceVPad) {
-      return _paddingCompact;
-    }
-    return EdgeInsets.symmetric(
-      horizontal: VelvetSpacing.sm,
-      vertical: verticalPadding,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return NeumorphicInset(
-      radius: VelvetRadii.pill,
-      child: Padding(
-        padding: _resolvePadding(),
-        // HEIGHT IS PINNED INDEPENDENTLY OF THE HORIZONTAL SCALE
-        // ---------------------------------------------------------------
-        // `BoxFit.scaleDown` scales UNIFORMLY, so the moment
-        // [_maxTextWidth] binds it shrinks the band's HEIGHT by the same
-        // factor, not just its width — measured: an over-cap band renders
-        // its text at 13.0dp instead of the style's natural 15.0dp. Left
-        // alone that silently drags the whole compact card under
-        // [MasterBookingCard.estimatedNaturalHeight], whose derivation names
-        // this pill's ~20dp row as the card's tallest.
-        //
-        // The zero-width [Text] below is a HEIGHT ANCHOR: an empty string in
-        // the same [VelvetText.pill] style lays out at Size(0.0, 15.0) — no
-        // width contributed to the [Row], full natural line height held. The
-        // [Row] then takes the taller of (anchor, scaled band), which is the
-        // anchor for every scale <= 1, so the pill keeps its natural height
-        // no matter how far the band scales horizontally.
-        //
-        // IT MUST STAY A [Text], NOT A `SizedBox(height: 15)`. 15.0 is the
-        // line height at textScaler 1.0 ONLY; a box cannot see the ambient
-        // scaler, so under the app's own MediaQuery clamp (see `main.dart`'s
-        // 1.3 ceiling) it would under-anchor and hand the height back to the
-        // scaled band — measured with the constant swapped in: at 1.1 the pill
-        // goes 23.0 (in-cap) vs 21.0 (over-cap), at 1.3 23.76 vs 21.0, i.e.
-        // exactly the defect this anchor removes. The [Text] re-derives its
-        // height from the inherited scaler on every build; the constant
-        // freezes one scale. A scale-1.3 case in
-        // `master_booking_card_test.dart` fails on the swap.
-        //
-        // Structural, not documentary, on purpose: the alternative (just
-        // documenting the coupling on `estimatedNaturalHeight`) leaves a live
-        // mechanism that quietly shrinks a real card, and the over-cap case
-        // is now exercised by `master_booking_card_test.dart`'s
-        // "the width cap actually engages" group.
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text('', style: VelvetText.pill()),
-            // [Flexible], not a bare [ConstrainedBox] — see this class's
-            // "the cap is a CEILING, the incoming constraint is the floor"
-            // section. A [Row] hands its NON-flex children unbounded width,
-            // so without this the [ConstrainedBox] below would resolve to a
-            // flat [_maxTextWidth] even when the pill's own incoming
-            // `maxWidth` is narrower than that — and the overflow would
-            // simply move INSIDE the pill. Under an unbounded incoming
-            // width (the pill's original non-flex call shape) `Flexible`
-            // lays the child out unbounded exactly as before, so this is a
-            // no-op there.
-            Flexible(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: _maxTextWidth),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerRight,
-                  child: Text(price, style: VelvetText.pill(), maxLines: 1),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

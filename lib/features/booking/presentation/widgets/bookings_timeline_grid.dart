@@ -292,7 +292,7 @@
 // is no `RenderViewport` culling — so at the server's `size: 100` ceiling the
 // grid mounted ~200 layers and issued ~200 `MaskFilter.blur` RRect draws per
 // day (every `MasterBookingCard` carries a `RepaintBoundary`, and its
-// `_PriceTag` → `NeumorphicInset` a second one plus a blurred `CustomPaint`),
+// `PriceTag` → `NeumorphicInset` a second one plus a blurred `CustomPaint`),
 // whether or not the card was anywhere near the viewport.
 //
 // THE FIX, AND WHY IT IS NOT A `ListView`: a lazy list cannot lay lanes out

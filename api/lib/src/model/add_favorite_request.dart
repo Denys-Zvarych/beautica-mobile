@@ -19,7 +19,7 @@ abstract class AddFavoriteRequest
     implements Built<AddFavoriteRequest, AddFavoriteRequestBuilder> {
   @BuiltValueField(wireName: r'targetType')
   AddFavoriteRequestTargetTypeEnum get targetType;
-  // enum targetTypeEnum {  MASTER,  SALON,  };
+  // enum targetTypeEnum {  MASTER,  SALON,  SERVICE,  };
 
   @BuiltValueField(wireName: r'targetId')
   String get targetId;
@@ -135,6 +135,9 @@ class AddFavoriteRequestTargetTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SALON')
   static const AddFavoriteRequestTargetTypeEnum SALON =
       _$addFavoriteRequestTargetTypeEnum_SALON;
+  @BuiltValueEnumConst(wireName: r'SERVICE')
+  static const AddFavoriteRequestTargetTypeEnum SERVICE =
+      _$addFavoriteRequestTargetTypeEnum_SERVICE;
 
   static Serializer<AddFavoriteRequestTargetTypeEnum> get serializer =>
       _$addFavoriteRequestTargetTypeEnumSerializer;

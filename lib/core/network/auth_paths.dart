@@ -113,6 +113,11 @@ const Set<String> kPiiPaths = {
   // that must not land in plain-text debug logs. Mirrors the `/api/v1/
   // bookings` and `/api/v1/appointments` exact-match precedents above.
   '/api/v1/client-reviews',
+  // Phase 13.x — CLIENT wish-list toggle endpoint. Exact match: the bare
+  // `/api/v1/favorites` path (no dynamic segment) is hit on POST/DELETE and
+  // echoes back the saved service/master identifiers. The `/favorites/services`
+  // read route is covered by the prefix in [kPiiPathPrefixes] below.
+  '/api/v1/favorites',
 };
 
 /// Path PREFIXES whose request/response bodies — and URL query strings — carry
@@ -167,6 +172,14 @@ const List<String> kPiiPathPrefixes = <String>[
   // entry) is what covers the `/passport` tail and any future sub-route.
   // Same rationale as `/api/v1/search/masters` above.
   '/api/v1/clients/me',
+  // Phase 13.x — CLIENT wish-list read endpoint. `GET /favorites/services`
+  // returns the client's saved service names, master names and prices —
+  // booking-intent PII. Without this entry `LoggingInterceptor.onError` logs
+  // `err.response?.data` verbatim on a 4xx/5xx, spilling the wish list. A
+  // prefix (not the exact-match [kPiiPaths] entry above) so it also covers
+  // `/favorites` itself and any future sub-path. Same class of gap already
+  // fixed for `/api/v1/clients/me` above.
+  '/api/v1/favorites',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

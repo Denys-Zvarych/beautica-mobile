@@ -10,8 +10,11 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **favoriteProcedures** | **BuiltList&lt;String&gt;** |  | [optional] 
 **favoriteDistricts** | **BuiltList&lt;String&gt;** |  | [optional] 
+**favoriteCities** | **BuiltList&lt;String&gt;** |  | [optional] 
 **budget** | [**BudgetBand**](BudgetBand.md) |  | [optional] 
 **bookingsConsidered** | **int** |  | [optional] 
+**reviewsWritten** | **int** |  | [optional] 
+**memberSinceYear** | **int** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

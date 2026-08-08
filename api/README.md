@@ -109,6 +109,7 @@ Class | Method | HTTP request | Description
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**addFavorite**](doc/FavoriteControllerApi.md#addfavorite) | **POST** /api/v1/favorites | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listMasterFavorites**](doc/FavoriteControllerApi.md#listmasterfavorites) | **GET** /api/v1/favorites/masters | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listSalonFavorites**](doc/FavoriteControllerApi.md#listsalonfavorites) | **GET** /api/v1/favorites/salons | 
+[*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listServiceFavorites**](doc/FavoriteControllerApi.md#listservicefavorites) | **GET** /api/v1/favorites/services | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**removeFavorite**](doc/FavoriteControllerApi.md#removefavorite) | **DELETE** /api/v1/favorites | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateLocality**](doc/IndependentMasterControllerApi.md#updatelocality) | **PATCH** /api/v1/independent-masters/me | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateProfile**](doc/IndependentMasterControllerApi.md#updateprofile) | **PATCH** /api/v1/independent-masters/me/profile | 
@@ -234,6 +235,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePageResponseBookingResponse](doc/ApiResponsePageResponseBookingResponse.md)
  - [ApiResponsePageResponseFavoriteMasterResponse](doc/ApiResponsePageResponseFavoriteMasterResponse.md)
  - [ApiResponsePageResponseFavoriteSalonResponse](doc/ApiResponsePageResponseFavoriteSalonResponse.md)
+ - [ApiResponsePageResponseFavoriteServiceResponse](doc/ApiResponsePageResponseFavoriteServiceResponse.md)
  - [ApiResponsePageResponseMasterSearchResult](doc/ApiResponsePageResponseMasterSearchResult.md)
  - [ApiResponsePageResponseMasterSummaryResponse](doc/ApiResponsePageResponseMasterSummaryResponse.md)
  - [ApiResponsePageResponseMyReviewResponse](doc/ApiResponsePageResponseMyReviewResponse.md)
@@ -301,6 +303,7 @@ Class | Method | HTTP request | Description
  - [FavoriteMasterResponse](doc/FavoriteMasterResponse.md)
  - [FavoriteResponse](doc/FavoriteResponse.md)
  - [FavoriteSalonResponse](doc/FavoriteSalonResponse.md)
+ - [FavoriteServiceResponse](doc/FavoriteServiceResponse.md)
  - [ForgotPasswordRequest](doc/ForgotPasswordRequest.md)
  - [GuestBookingRequest](doc/GuestBookingRequest.md)
  - [GuestBookingResponse](doc/GuestBookingResponse.md)
@@ -332,6 +335,7 @@ Class | Method | HTTP request | Description
  - [PageResponseBookingResponse](doc/PageResponseBookingResponse.md)
  - [PageResponseFavoriteMasterResponse](doc/PageResponseFavoriteMasterResponse.md)
  - [PageResponseFavoriteSalonResponse](doc/PageResponseFavoriteSalonResponse.md)
+ - [PageResponseFavoriteServiceResponse](doc/PageResponseFavoriteServiceResponse.md)
  - [PageResponseMasterSearchResult](doc/PageResponseMasterSearchResult.md)
  - [PageResponseMasterSummaryResponse](doc/PageResponseMasterSummaryResponse.md)
  - [PageResponseMyReviewResponse](doc/PageResponseMyReviewResponse.md)

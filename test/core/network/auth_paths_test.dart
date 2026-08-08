@@ -405,5 +405,37 @@ void main() {
         reason: 'the verify-email link token must never reach the log',
       );
     });
+
+    // ── mobile-security MEDIUM fix — favourites PII paths ────────────────────
+    //
+    // `GET /api/v1/favorites/services` and `POST`/`DELETE /api/v1/favorites`
+    // echo the client's wish list (service names, master first/last names,
+    // prices) — booking-intent PII. This is the exact class already fixed for
+    // `/api/v1/clients/me` (the sibling passport endpoint) one phase earlier;
+    // the favourites endpoints shipped without the same treatment. Without
+    // these entries `LoggingInterceptor.onError` would log
+    // `err.response?.data` verbatim on any 4xx/5xx in a debug build. This is
+    // the tripwire guarding the fix — if either entry is ever removed from
+    // [kPiiPaths] / [kPiiPathPrefixes], these fail loudly.
+    test('bare /api/v1/favorites is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/favorites'),
+        isTrue,
+        reason:
+            'POST/DELETE /favorites echoes the saved service/master '
+            'identifiers — its body must be redacted in debug logs.',
+      );
+    });
+
+    test('GET /api/v1/favorites/services is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/favorites/services'),
+        isTrue,
+        reason:
+            'GET /favorites/services returns the client\'s wish list — '
+            'service names, master names, prices — and must be redacted, '
+            'exactly like GET /clients/me/passport.',
+      );
+    });
   });
 }

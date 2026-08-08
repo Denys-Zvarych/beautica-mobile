@@ -4,7 +4,7 @@
 // --------------------
 // `HttpPassportRepository` did not exist before the wire-up: the provider bound
 // a `PlaceholderPassportRepository` whose `getMyPassport()` returned
-// `Passport.empty()` unconditionally and never touched the network. There was
+// `Passport.empty(memberSinceYear: 2024)` unconditionally and never touched the network. There was
 // therefore no repository test at all, and the endpoint that had been live
 // since backend 19.5 was never called by the app. This file pins the transport
 // half of the chain — the API is actually invoked, its envelope is unwrapped,
@@ -48,7 +48,10 @@ Response<api.ApiResponsePassportResponse> _okPopulated() =>
           ..success = true
           ..data.favoriteProcedures.replace(<String>['Манікюр', 'Брови'])
           ..data.favoriteDistricts.replace(<String>['Центр', 'Сихів'])
+          ..data.favoriteCities.replace(<String>['Львів', 'Київ'])
           ..data.bookingsConsidered = 7
+          ..data.reviewsWritten = 3
+          ..data.memberSinceYear = 2021
           ..data.budget.avg = 600
           ..data.budget.min = 400
           ..data.budget.max = 800
@@ -93,7 +96,7 @@ void main() {
   group('HttpPassportRepository.getMyPassport — success', () {
     // THE HEADLINE REGRESSION GUARD at this tier. The deleted placeholder
     // satisfied the same `PassportRepository` interface while calling nothing
-    // and returning `Passport.empty()`. Both halves of this test kill it: the
+    // and returning `Passport.empty(memberSinceYear: 2024)`. Both halves of this test kill it: the
     // `verify` proves the endpoint is actually hit, and the value assertions
     // prove the response reaches the domain model.
     test(
@@ -116,7 +119,7 @@ void main() {
           isFalse,
           reason:
               'a populated response must not read as the empty passport — the '
-              'placeholder repository this replaced returned Passport.empty() '
+              'placeholder repository this replaced returned Passport.empty(memberSinceYear: 2024) '
               'for every client, forever',
         );
       },
@@ -132,14 +135,17 @@ void main() {
               ..success = true
               ..data.favoriteProcedures.replace(const <String>[])
               ..data.favoriteDistricts.replace(const <String>[])
-              ..data.bookingsConsidered = 0,
+              ..data.favoriteCities.replace(const <String>[])
+              ..data.bookingsConsidered = 0
+              ..data.reviewsWritten = 0
+              ..data.memberSinceYear = 2024,
           ),
         ),
       );
 
       final Passport p = await repository.getMyPassport();
 
-      expect(p, Passport.empty());
+      expect(p, Passport.empty(memberSinceYear: 2024));
       expect(p.isEmpty, isTrue);
     });
   });

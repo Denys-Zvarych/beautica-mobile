@@ -671,16 +671,43 @@ final class FakeBackend {
   /// `GET /api/v1/clients/me/passport` call counter (Phase 13.8 wire-up).
   int getPassportCalls = 0;
 
-  /// Body served by `GET /api/v1/clients/me/passport`. Defaults to the EMPTY
-  /// passport — `bookingsConsidered: 0` is what drives the encouraging
-  /// empty-passport variant. Replace wholesale in a flow to serve a populated
-  /// one (favoriteProcedures / favoriteDistricts / budget).
+  /// Body served by `GET /api/v1/clients/me/passport`. Defaults to the passport
+  /// of a client with NO derived history: empty lists, no budget band,
+  /// `bookingsConsidered: 0`. Replace wholesale in a flow to serve a populated
+  /// one.
+  ///
+  /// `memberSinceYear` IS REQUIRED AND MUST STAY. `PassportMapper` THROWS on a
+  /// payload that omits it (Phase 235 removed the `DateTime.now().year`
+  /// fabrication that used to paper over exactly this), so a body without it
+  /// makes the passport section render its ERROR card rather than any data
+  /// state — a fake-backend defect that would look like a screen bug. It is a
+  /// fixed literal on purpose: deriving it from the host clock would be the
+  /// clock-mixing trap (`kFixedNow` pins the app's clock, the host does not).
+  ///
+  /// `favoriteCities` and `reviewsWritten` are likewise always present: the
+  /// rebuilt page (Phase 238) renders both — the cities on the derived block's
+  /// locality line, the review count in the identity strip's counter column.
   Map<String, dynamic> passportBody = <String, dynamic>{
     'favoriteProcedures': <String>[],
     'favoriteDistricts': <String>[],
+    'favoriteCities': <String>[],
     'budget': null,
     'bookingsConsidered': 0,
+    'reviewsWritten': 0,
+    'memberSinceYear': 2021,
   };
+
+  /// `GET /api/v1/favorites/services` call counter — the BEAUTY WISH LIST feed
+  /// (backend 247, mobile Phase 237).
+  int listServiceFavoritesCalls = 0;
+
+  /// Rows served by `GET /api/v1/favorites/services`. Defaults to EMPTY, which
+  /// drives the wish-list section's empty state. Replace wholesale in a flow.
+  ///
+  /// Each row is a `FavoriteServiceResponse`: `masterServiceId`, `masterId`,
+  /// `serviceName`, `masterFirstName`, `masterLastName`, `durationMinutes`,
+  /// `priceType` (`FIXED` | `RANGE`), `priceMin`, `priceMax`, `priceDisplay`.
+  List<Map<String, dynamic>> favoriteServiceRows = <Map<String, dynamic>>[];
   int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
   Map<String, dynamic>?
   lastPatchMeBody; // body of the most recent PATCH /users/me
@@ -1071,6 +1098,29 @@ final class FakeBackend {
   int removeFavoriteCalls = 0;
   Map<String, dynamic>? lastRemoveFavoriteQuery;
 
+  /// `DELETE /api/v1/favorites` failure override. `null` (default) keeps the
+  /// idempotent 204. Set via [forceRemoveFavoriteFailure] — never assign
+  /// directly, since a status change needs the route RE-REGISTERED (see that
+  /// method's doc).
+  int? _removeFavoriteFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent) `DELETE /api/v1/favorites`
+  /// answer [statusCode] instead of the default 204 — e.g. to simulate a
+  /// FAILED un-favourite. Call again with `null` to restore the default.
+  ///
+  /// A re-registration hook, not a mutable field the route reads lazily:
+  /// `http_mock_adapter`'s `replyCallback` bakes its status code in as a
+  /// fixed `int` argument AT REGISTRATION time (never a per-request
+  /// callback), so changing the status requires calling `_adapter.onRoute`
+  /// again for the same path — which wins because [Recording.mockResponse]
+  /// resolves to the LAST matching entry in `history`, not the first.
+  /// Mirrors `_wireCreateService`'s identical `_createRejectDuplicate` +
+  /// re-registration precedent elsewhere in this file.
+  void forceRemoveFavoriteFailure(int? statusCode) {
+    _removeFavoriteFailureStatusCode = statusCode;
+    _wireRemoveFavorite();
+  }
+
   // ── Override telemetry (Phase 15.8) ───────────────────────────────────────
   int putOverrideCalls = 0;
 
@@ -1349,6 +1399,36 @@ final class FakeBackend {
   /// Public services count for `master-aaa` — used by the E2E to assert the
   /// rendered services-count stat without hard-coding the literal in two places.
   static int get publicMasterServicesCount => _publicMasterServices.length;
+
+  /// `FavoriteServiceResponse` display fields for master-aaa's two public
+  /// services, keyed by `masterServiceId` — mirrors [_publicMasterServices]
+  /// verbatim. Used by the `POST /api/v1/favorites` (SERVICE) handler below to
+  /// make an add genuinely visible on the next `GET /favorites/services`.
+  static const Map<String, Map<String, dynamic>>
+  _masterAaaFavoriteServiceFields = <String, Map<String, dynamic>>{
+    'pub-assign-1': <String, dynamic>{
+      'masterId': 'master-aaa',
+      'serviceName': 'Манікюр з покриттям',
+      'masterFirstName': 'Софія',
+      'masterLastName': 'Бондар',
+      'durationMinutes': 90,
+      'priceType': 'FIXED',
+      'priceMin': 500,
+      'priceMax': null,
+      'priceDisplay': '500 ₴',
+    },
+    'pub-assign-2': <String, dynamic>{
+      'masterId': 'master-aaa',
+      'serviceName': 'Дизайн нігтів',
+      'masterFirstName': 'Софія',
+      'masterLastName': 'Бондар',
+      'durationMinutes': 60,
+      'priceType': 'RANGE',
+      'priceMin': 300,
+      'priceMax': 600,
+      'priceDisplay': 'від 300 до 600 ₴',
+    },
+  };
 
   /// Builds one `BookableMasterResponse`-shaped envelope entry (Phase 23.x
   /// `GET /salons/{salonId}/services/{serviceDefId}/masters`) for [masterId]
@@ -3000,6 +3080,30 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers `DELETE /api/v1/favorites?targetType&targetId`.
+  /// See [forceRemoveFavoriteFailure].
+  void _wireRemoveFavorite() {
+    final int? failStatus = _removeFavoriteFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/favorites',
+      (server) => server.replyCallback(failStatus ?? 204, (req) {
+        removeFavoriteCalls++;
+        lastRemoveFavoriteQuery = Map<String, dynamic>.from(
+          req.queryParameters,
+        );
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to remove favorite',
+          };
+        }
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete),
+    );
+  }
+
   /// (Re-)registers `POST /api/v1/independent-masters/me/services/bulk`.
   /// See [bulkRejectDurationField] and [bulkRejectDuplicate].
   void _wireBulkCreateServices() {
@@ -4235,14 +4339,67 @@ final class FakeBackend {
 
     // ── Favorites (Phase 13.4) ────────────────────────────────────────────────
     //
+    // GET /api/v1/favorites/services — the CLIENT's BEAUTY WISH LIST feed
+    // (backend 247). Registered BEFORE `/api/v1/favorites` deliberately:
+    // DioAdapter matches on the PATH, so the longer path must get first
+    // refusal or the bare `/favorites` handlers would swallow it.
+    //
+    // Without this route the mock router 404s and the passport page's wish-list
+    // section renders its ERROR card — which draws a `cloud_off` glyph and
+    // silently changes what every other assertion on that page measures.
+    _adapter.onRoute(
+      '/api/v1/favorites/services',
+      (server) => server.replyCallback(200, (_) {
+        listServiceFavoritesCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': favoriteServiceRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': favoriteServiceRows.length,
+            'totalPages': favoriteServiceRows.isEmpty ? 0 : 1,
+          },
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // POST /api/v1/favorites — add (idempotent 200). Returns a FavoriteResponse
     // envelope so the generated addFavorite() deserializes cleanly.
+    //
+    // Phase 240 (mobile-qa, service_favourite_flow_test.dart): a SERVICE add
+    // also appends the corresponding row to [favoriteServiceRows], so a
+    // following `GET /favorites/services` genuinely reflects it — mirroring
+    // the real backend's persistence. The app itself never bridges
+    // `favoriteToggleProvider` (the heart) to `wishlistProvider` (the list) —
+    // see `service_selector_sheet.dart`'s prime-from-wishlist comment — so
+    // this is the ONLY source of truth the fake can offer for "does the just-
+    // favourited service show up on the wish list". Looked up from
+    // [_masterAaaFavoriteServiceFields] (master-aaa is the only master this
+    // fake fully catalogues); an unknown id is a no-op, same as before this
+    // change.
     _adapter.onRoute(
       '/api/v1/favorites',
       (server) => server.replyCallback(200, (req) {
         addFavoriteCalls++;
         final body = _decodeBody(req.data);
         lastAddFavoriteBody = body;
+        if (body['targetType'] == 'SERVICE') {
+          final String targetId = (body['targetId'] as String?) ?? '';
+          final Map<String, dynamic>? fields =
+              _masterAaaFavoriteServiceFields[targetId];
+          if (fields != null &&
+              !favoriteServiceRows.any(
+                (Map<String, dynamic> r) => r['masterServiceId'] == targetId,
+              )) {
+            favoriteServiceRows = <Map<String, dynamic>>[
+              ...favoriteServiceRows,
+              <String, dynamic>{'masterServiceId': targetId, ...fields},
+            ];
+          }
+        }
         return _ok(<String, dynamic>{
           'id': 'fav-1',
           'targetType': body['targetType'] ?? 'MASTER',
@@ -4253,18 +4410,9 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
-    // DELETE /api/v1/favorites?targetType&targetId — remove (idempotent 204).
-    _adapter.onRoute(
-      '/api/v1/favorites',
-      (server) => server.replyCallback(204, (req) {
-        removeFavoriteCalls++;
-        lastRemoveFavoriteQuery = Map<String, dynamic>.from(
-          req.queryParameters,
-        );
-        return null;
-      }),
-      request: const Request(method: RequestMethods.delete),
-    );
+    // DELETE /api/v1/favorites?targetType&targetId — remove (idempotent 204
+    // by default; see [forceRemoveFavoriteFailure] for the failure variant).
+    _wireRemoveFavorite();
 
     // GET /api/v1/bookings/me/booked-days?from=&to= — the dot set behind the
     // master's «Мої записи» day rail (backend Phase 26.5). Registered BEFORE

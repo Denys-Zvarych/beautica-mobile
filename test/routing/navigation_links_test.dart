@@ -289,6 +289,10 @@ void main() {
       'clientSearch': RouteNames.clientSearch,
       'clientBookings': RouteNames.clientBookings,
       'clientPassport': RouteNames.clientPassport,
+      // Phase 239 — «Усі збережені», a pushed leaf nested under the passport
+      // branch. Registered, so it belongs in `allRoutes` rather than in
+      // `deliberatelyUnregistered`.
+      'clientWishlist': RouteNames.clientWishlist,
       'bookingDetail()': RouteNames.bookingDetail(kSampleId),
       'bookingReview()': RouteNames.bookingReview(kSampleId),
       'clientSearchResults': RouteNames.clientSearchResults,
