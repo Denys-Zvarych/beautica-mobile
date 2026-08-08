@@ -23,6 +23,7 @@ Name | Type | Description | Notes
 **serviceTypeId** | **String** | Chosen service type id; null when no service type was selected. | [optional] 
 **serviceTypeNameUk** | **String** | Ukrainian display name of the chosen service type; null when none was selected. | [optional] 
 **serviceTypeSlug** | **String** | Stable slug of the chosen platform service type (matches the search filter's service-type key); null when none was selected. | [optional] 
+**isFavorite** | **bool** | true/false only for an authenticated CLIENT caller; null for anonymous/non-CLIENT callers and always null inside the masterServices cache — decorated per-request, after the cache read. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

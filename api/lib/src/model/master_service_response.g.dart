@@ -97,6 +97,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
   final String? serviceTypeNameUk;
   @override
   final String? serviceTypeSlug;
+  @override
+  final bool? isFavorite;
 
   factory _$MasterServiceResponse(
           [void Function(MasterServiceResponseBuilder)? updates]) =>
@@ -117,7 +119,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
       this.priceDisplay,
       this.serviceTypeId,
       this.serviceTypeNameUk,
-      this.serviceTypeSlug})
+      this.serviceTypeSlug,
+      this.isFavorite})
       : super._();
   @override
   MasterServiceResponse rebuild(
@@ -146,7 +149,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
         priceDisplay == other.priceDisplay &&
         serviceTypeId == other.serviceTypeId &&
         serviceTypeNameUk == other.serviceTypeNameUk &&
-        serviceTypeSlug == other.serviceTypeSlug;
+        serviceTypeSlug == other.serviceTypeSlug &&
+        isFavorite == other.isFavorite;
   }
 
   @override
@@ -167,6 +171,7 @@ class _$MasterServiceResponse extends MasterServiceResponse {
     _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jc(_$hash, serviceTypeNameUk.hashCode);
     _$hash = $jc(_$hash, serviceTypeSlug.hashCode);
+    _$hash = $jc(_$hash, isFavorite.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -188,7 +193,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
           ..add('priceDisplay', priceDisplay)
           ..add('serviceTypeId', serviceTypeId)
           ..add('serviceTypeNameUk', serviceTypeNameUk)
-          ..add('serviceTypeSlug', serviceTypeSlug))
+          ..add('serviceTypeSlug', serviceTypeSlug)
+          ..add('isFavorite', isFavorite))
         .toString();
   }
 }
@@ -267,6 +273,10 @@ class MasterServiceResponseBuilder
   set serviceTypeSlug(String? serviceTypeSlug) =>
       _$this._serviceTypeSlug = serviceTypeSlug;
 
+  bool? _isFavorite;
+  bool? get isFavorite => _$this._isFavorite;
+  set isFavorite(bool? isFavorite) => _$this._isFavorite = isFavorite;
+
   MasterServiceResponseBuilder() {
     MasterServiceResponse._defaults(this);
   }
@@ -289,6 +299,7 @@ class MasterServiceResponseBuilder
       _serviceTypeId = $v.serviceTypeId;
       _serviceTypeNameUk = $v.serviceTypeNameUk;
       _serviceTypeSlug = $v.serviceTypeSlug;
+      _isFavorite = $v.isFavorite;
       _$v = null;
     }
     return this;
@@ -327,6 +338,7 @@ class MasterServiceResponseBuilder
             serviceTypeId: serviceTypeId,
             serviceTypeNameUk: serviceTypeNameUk,
             serviceTypeSlug: serviceTypeSlug,
+            isFavorite: isFavorite,
           );
     } catch (_) {
       late String _$failedField;
