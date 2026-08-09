@@ -40,15 +40,16 @@
 //  13.  /api/v1/masters/me is in kPiiPaths but NOT kAuthPaths.
 //  14.  kAuthPaths has exactly 12 entries — no undocumented extras.
 //  14b. kPiiPaths is a strict superset of kAuthPaths.
-//  15.  kPiiPaths has exactly 20 entries = kAuthPaths (12) + 8 authenticated
+//  15.  kPiiPaths has exactly 21 entries = kAuthPaths (12) + 9 authenticated
 //       PII paths: /api/v1/independent-masters/me,
 //       /api/v1/independent-masters/me/profile, /api/v1/masters/me, the two
 //       auth-gated discovery search paths /api/v1/search/masters +
 //       /api/v1/search/salons (added by commit b550428 — auth-gated address
 //       redaction), the Phase 14.0 CLIENT booking create endpoint
 //       /api/v1/bookings, the MO-1 CLIENT appointment create endpoint
-//       /api/v1/appointments, and the track 7.x Wave B PROVIDER→CLIENT
-//       feedback create endpoint /api/v1/client-reviews.
+//       /api/v1/appointments, the track 7.x Wave B PROVIDER→CLIENT
+//       feedback create endpoint /api/v1/client-reviews, and the Phase 13.x
+//       CLIENT wish-list toggle endpoint /api/v1/favorites.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -342,6 +343,25 @@ void main() {
       );
     });
 
+    test('13h. /api/v1/favorites is in kPiiPaths (wish-list redaction) but NOT '
+        'kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/favorites'),
+        reason:
+            'Phase 13.x — POST/DELETE /favorites echoes the saved service / '
+            'master identifiers (booking-intent PII); its body must be '
+            'redacted in debug logs.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/favorites')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
     // -----------------------------------------------------------------------
     // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
@@ -376,8 +396,9 @@ void main() {
       }
       // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 + the
       // 2026-06-25 address-redaction fix + Phase 14.0 + the MO-1 appointment
-      // create endpoint + the track 7.x Wave B client-review create endpoint
-      // added 8 authenticated PII paths that are NOT in kAuthPaths).
+      // create endpoint + the track 7.x Wave B client-review create endpoint +
+      // the Phase 13.x wish-list toggle endpoint added 9 authenticated PII
+      // paths that are NOT in kAuthPaths).
       expect(
         kPiiPaths.length,
         greaterThan(kAuthPaths.length),
@@ -385,16 +406,17 @@ void main() {
             'kPiiPaths must contain additional entries beyond kAuthPaths '
             '(/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
             '/api/v1/masters/me, /api/v1/search/masters, /api/v1/search/salons, '
-            '/api/v1/bookings, /api/v1/appointments, and /api/v1/client-reviews).',
+            '/api/v1/bookings, /api/v1/appointments, /api/v1/client-reviews, '
+            'and /api/v1/favorites).',
       );
     });
 
     test(
-      '15. kPiiPaths has exactly 20 entries (kAuthPaths union + 8 authenticated PII paths)',
+      '15. kPiiPaths has exactly 21 entries (kAuthPaths union + 9 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(20),
+          equals(21),
           reason:
               'kPiiPaths must equal kAuthPaths (12) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
@@ -402,16 +424,19 @@ void main() {
               '/api/v1/search/masters + /api/v1/search/salons, the '
               'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings, '
               'the MO-1 CLIENT appointment create endpoint /api/v1/appointments, '
-              'and the track 7.x Wave B PROVIDER→CLIENT feedback create '
-              'endpoint /api/v1/client-reviews '
-              '(8 authenticated PII paths = 20 total). The search paths were '
+              'the track 7.x Wave B PROVIDER→CLIENT feedback create '
+              'endpoint /api/v1/client-reviews, and the Phase 13.x CLIENT '
+              'wish-list toggle endpoint /api/v1/favorites '
+              '(9 authenticated PII paths = 21 total). The search paths were '
               'added by commit b550428 (auth-gated address redaction); '
               '/api/v1/bookings was added by the Phase 14.0 security fix '
               '(POST /bookings carries the free-text clientComment field); '
               '/api/v1/appointments was added by the MO-1 fix '
               '(POST /appointments carries the free-text clientComment field); '
               '/api/v1/client-reviews was added by track 7.x Wave B '
-              '(POST /client-reviews carries the provider\'s free-text comment). '
+              '(POST /client-reviews carries the provider\'s free-text comment); '
+              '/api/v1/favorites was added by the Phase 13.x wish-list track '
+              '(POST/DELETE /favorites echoes the saved service/master ids). '
               'Update this count if new PII endpoints are added.',
         );
       },
