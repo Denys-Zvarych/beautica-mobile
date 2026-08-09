@@ -21,6 +21,20 @@
 // (`DateTime.now()`), not the harness `clockProvider`, so the seed window is a
 // fixed year-2020 instant — elapsed regardless of the runner's wall clock.
 //
+// PHASE 227 NOTE (mobile-qa): this file uses the FakeBackend's single-seed
+// route (`_seededBookingJson`, not `seedManyBookingsDataset`), which has
+// never read `partition` and still classifies purely on `status` — i.e. it
+// always models the Phase 227 rollout-safety-valve's OLD-BACKEND fallback,
+// regardless of what `MyBookingsNotifier` now sends. That is why the booking
+// is still reached via Майбутні below: it is exercising the "detail screen
+// is read-only for an elapsed CONFIRMED booking, independent of which tab
+// found it" invariant, NOT the Phase 227 partition-driven reclassification
+// (an elapsed CONFIRMED booking landing in Минулі against a
+// PARTITION-AWARE backend). That is proven separately, end-to-end, by
+// `client_my_bookings_partition_flow_test.dart`, which drives a
+// `seedManyBookingsDataset`-backed fake that DOES implement the backend
+// 28.1/28.2 partition predicate.
+//
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears in
 // CONTENT ASSERTIONS only, and status copy is asserted through l10n.
 
@@ -82,7 +96,14 @@ void main() {
       // Open «Деталі запису».
       await tester.tap(find.byType(BookingCard));
       await AppHarness.settle(tester);
-      AppHarness.expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      // `/bookings/:bookingId` is a child GoRoute INSIDE the client shell's
+      // bookings branch, reached via `context.push` — so `matches.last` stays a
+      // ShellRouteMatch and plain `expectLocation` reads the stale branch root
+      // `/bookings`. Only the drill-down resolver sees the pushed leaf.
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.bookingDetail('booking-1'),
+      );
       expect(find.byType(BookingDetailScreen), findsOneWidget);
 
       // READ-ONLY: the three CONFIRMED affordances are all suppressed because

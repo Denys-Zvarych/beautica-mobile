@@ -39,6 +39,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,7 @@ void main() {
   /// serviceTypes('HAIRCUT') key so every family invalidation re-fetches.
   Future<ProviderContainer> pumpScreen(WidgetTester tester) async {
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [
         serviceRepositoryProvider.overrideWithValue(repo),
         // approvedCategoriesProvider fetches directly; override it so the list's

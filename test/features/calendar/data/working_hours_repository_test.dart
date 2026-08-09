@@ -33,22 +33,27 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/calendar/data/working_hours_repository.dart';
 import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 class _MockMasterControllerApi extends Mock implements MasterControllerApi {}
 
 const _masterId = 'master-1';
 const _basePath = '/api/v1/masters/$_masterId/weekly-schedules';
 
-/// Today as a date-only [DateTime], mirroring the repo's `_todayKyiv()`. Used to
-/// build schedules whose window deterministically covers "today" at test time.
-DateTime _today() {
-  final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day);
-}
+/// Today as a Kyiv-anchored date token, mirroring the repo's `_todayKyiv()`
+/// EXACTLY (backlog :226) — both the test's fixtures (schedules built to
+/// cover "today") and its assertions (e.g. "validFrom = today (Kyiv)") must
+/// agree with what the repository under test actually computes, on any host
+/// TZ, not just the dev VM's Europe/Kyiv. Was a bare `DateTime(now.year,
+/// now.month, now.day)` (the device's own day) until the TZ=Asia/Tokyo sweep
+/// caught the divergence (2026-08-02).
+DateTime _today() => kyivToday(DateTime.now);
 
 Date _date(DateTime d) => Date(d.year, d.month, d.day);
 
@@ -539,5 +544,82 @@ void main() {
         () => masterApi.getWeeklySchedules(masterId: any(named: 'masterId')),
       );
     });
+  });
+
+  group('_todayKyiv — Kyiv-anchored "today" (mobile-dev, 2026-08-02, '
+      'backlog :226)', () {
+    test(
+      'a fresh (create-path) validFrom is stamped with the KYIV day, not '
+      "the device's own calendar day, when the device sits in Asia/Tokyo",
+      () async {
+        initBeauticaTimeZones();
+
+        // 2026-08-02 05:00 in Asia/Tokyo (UTC+9, no DST) is 2026-08-01
+        // 20:00Z, which is 2026-08-01 23:00 Kyiv (EEST, +3) — a full Kyiv day
+        // EARLIER than the device's own calendar day. The backend's
+        // `@FutureOrPresent` window validation is anchored to Kyiv civil
+        // time, so a device-day-stamped validFrom is the wrong value even
+        // though it differs from the correct one by "only" a day.
+        final tz.TZDateTime deviceInstant = tz.TZDateTime(
+          tz.getLocation('Asia/Tokyo'),
+          2026,
+          8,
+          2,
+          5,
+          0,
+        );
+        final tokyoRepo = HttpWorkingHoursRepository(
+          masterApi: masterApi,
+          masterId: _masterId,
+          now: () => deviceInstant,
+        );
+
+        when(
+          () => masterApi.getWeeklySchedules(masterId: _masterId),
+        ).thenAnswer((_) async => _listEnvelope(const []));
+        when(
+          () => masterApi.createWeeklySchedule(
+            masterId: any(named: 'masterId'),
+            weeklyScheduleRequest: any(named: 'weeklyScheduleRequest'),
+          ),
+        ).thenAnswer(
+          (_) async => _savedEnvelope(
+            _schedule(
+              id: 'new-sched',
+              validFrom: DateTime(2026, 8, 1),
+              activeDays: const [1],
+            ),
+          ),
+        );
+
+        await tokyoRepo.replaceAll([_domainDay(1)]);
+
+        final captured =
+            verify(
+                  () => masterApi.createWeeklySchedule(
+                    masterId: _masterId,
+                    weeklyScheduleRequest: captureAny(
+                      named: 'weeklyScheduleRequest',
+                    ),
+                  ),
+                ).captured.single
+                as WeeklyScheduleRequest;
+
+        expect(
+          captured.validFrom,
+          Date(2026, 8, 1),
+          reason: 'must stamp the KYIV day (Aug 1), not the Tokyo device day',
+        );
+        expect(
+          captured.validFrom,
+          isNot(Date(2026, 8, 2)),
+          reason:
+              "the device's own calendar day (Tokyo, Aug 2) must never leak "
+              'through as validFrom — the exact shape of bug a bare '
+              '`DateTime(now.year, now.month, now.day)` regression would '
+              'produce',
+        );
+      },
+    );
   });
 }

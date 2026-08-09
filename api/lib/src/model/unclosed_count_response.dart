@@ -1,0 +1,117 @@
+//
+// AUTO-GENERATED FILE, DO NOT MODIFY!
+//
+
+// ignore_for_file: unused_element
+import 'package:built_value/built_value.dart';
+import 'package:built_value/serializer.dart';
+
+part 'unclosed_count_response.g.dart';
+
+/// UnclosedCountResponse
+///
+/// Properties:
+/// * [count] - Non-negative count of the caller's own bookings currently awaiting closure (CONFIRMED and elapsed). Scope mirrors GET /bookings/me's provider/client scope exactly — see that endpoint's role table.
+@BuiltValue()
+abstract class UnclosedCountResponse
+    implements Built<UnclosedCountResponse, UnclosedCountResponseBuilder> {
+  /// Non-negative count of the caller's own bookings currently awaiting closure (CONFIRMED and elapsed). Scope mirrors GET /bookings/me's provider/client scope exactly — see that endpoint's role table.
+  @BuiltValueField(wireName: r'count')
+  int? get count;
+
+  UnclosedCountResponse._();
+
+  factory UnclosedCountResponse(
+      [void updates(UnclosedCountResponseBuilder b)]) = _$UnclosedCountResponse;
+
+  @BuiltValueHook(initializeBuilder: true)
+  static void _defaults(UnclosedCountResponseBuilder b) => b;
+
+  @BuiltValueSerializer(custom: true)
+  static Serializer<UnclosedCountResponse> get serializer =>
+      _$UnclosedCountResponseSerializer();
+}
+
+class _$UnclosedCountResponseSerializer
+    implements PrimitiveSerializer<UnclosedCountResponse> {
+  @override
+  final Iterable<Type> types = const [
+    UnclosedCountResponse,
+    _$UnclosedCountResponse
+  ];
+
+  @override
+  final String wireName = r'UnclosedCountResponse';
+
+  Iterable<Object?> _serializeProperties(
+    Serializers serializers,
+    UnclosedCountResponse object, {
+    FullType specifiedType = FullType.unspecified,
+  }) sync* {
+    if (object.count != null) {
+      yield r'count';
+      yield serializers.serialize(
+        object.count,
+        specifiedType: const FullType(int),
+      );
+    }
+  }
+
+  @override
+  Object serialize(
+    Serializers serializers,
+    UnclosedCountResponse object, {
+    FullType specifiedType = FullType.unspecified,
+  }) {
+    return _serializeProperties(serializers, object,
+            specifiedType: specifiedType)
+        .toList();
+  }
+
+  void _deserializeProperties(
+    Serializers serializers,
+    Object serialized, {
+    FullType specifiedType = FullType.unspecified,
+    required List<Object?> serializedList,
+    required UnclosedCountResponseBuilder result,
+    required List<Object?> unhandled,
+  }) {
+    for (var i = 0; i < serializedList.length; i += 2) {
+      final key = serializedList[i] as String;
+      final value = serializedList[i + 1];
+      switch (key) {
+        case r'count':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.count = valueDes;
+          break;
+        default:
+          unhandled.add(key);
+          unhandled.add(value);
+          break;
+      }
+    }
+  }
+
+  @override
+  UnclosedCountResponse deserialize(
+    Serializers serializers,
+    Object serialized, {
+    FullType specifiedType = FullType.unspecified,
+  }) {
+    final result = UnclosedCountResponseBuilder();
+    final serializedList = (serialized as Iterable<Object?>).toList();
+    final unhandled = <Object?>[];
+    _deserializeProperties(
+      serializers,
+      serialized,
+      specifiedType: specifiedType,
+      serializedList: serializedList,
+      unhandled: unhandled,
+      result: result,
+    );
+    return result.build();
+  }
+}

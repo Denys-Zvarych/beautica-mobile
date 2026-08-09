@@ -13,11 +13,14 @@
 // appointment-child booking and must route its writes to the whole-visit
 // endpoints instead.
 //
-// Track 27.x/MO-6 follow-up: the backend gained
-// `PATCH /appointments/{id}/reschedule`, so «Перенести» is RE-ENABLED here too
-// (previously hidden — see the git history of this file for the old guard) —
-// tapping it now routes to `startAppointmentReschedule`
-// (`reschedule_navigation.dart`), never the per-booking flow.
+// Track 27.x/MO-6 follow-up, cut over to per-item by track 30.x: the backend
+// gained `PATCH /appointments/{id}/services/{bookingId}/reschedule`, so
+// «Перенести» is RE-ENABLED here too (previously hidden — see the git history
+// of this file for the old guard) — tapping it now routes through the SAME
+// `startBookingReschedule` (`reschedule_navigation.dart`) the plain
+// single-booking case uses, just with `appointmentId` also passed through, so
+// the confirm-step submit calls the per-item endpoint instead of the
+// per-booking one.
 //
 // This suite pins:
 //   • complete on an appointment-child booking calls
@@ -34,8 +37,11 @@
 //     elapsed (`hasStarted`) booking, since the backend allows a provider
 //     decline at any time;
 //   • «Перенести» (reschedule) is SHOWN on an appointment-child booking, same
-//     key as the single-booking case — the provider-facing
-//     `/appointments/{id}/reschedule` endpoint now exists;
+//     key as the single-booking case, and routes through
+//     `startBookingReschedule` WITHOUT ever calling
+//     `AppointmentRepository.getAppointment` (track 30.x retired the earlier
+//     whole-visit `startAppointmentReschedule` flow that used to resolve the
+//     visit that way);
 //   • REGRESSION GUARD — a plain single-service booking (`appointmentId ==
 //     null`) is UNCHANGED: it still calls the per-booking endpoints and still
 //     offers «Перенести» (mirrors `booking_detail_provider_footer_test.dart`,
@@ -49,13 +55,12 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/appointment_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
-import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
@@ -215,10 +220,12 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Reschedule routing (track 27.x/MO-6) — tapping «Перенести» on an
-  // appointment-child booking launches the WHOLE-VISIT reschedule flow
-  // (`startAppointmentReschedule`), never the per-booking one; a plain
-  // single-service booking is unchanged (still `startBookingReschedule`).
+  // Reschedule routing (track 30.x — cut over from the whole-VISIT flow) —
+  // tapping «Перенести» on an appointment-child booking routes through the
+  // SAME `startBookingReschedule` a plain single-service booking uses, in
+  // BOTH cases resolving via `bookingDetailProvider` +
+  // `publicMasterProfileProvider` — never `AppointmentRepository
+  // .getAppointment`, which only the retired whole-visit flow ever called.
   // -------------------------------------------------------------------------
 
   group('reschedule routing', () {
@@ -241,42 +248,24 @@ void main() {
       category: 'NAILS',
     );
 
-    Appointment appointmentFixture(Booking booking) => Appointment(
-      id: 'appt-1',
-      status: BookingStatus.confirmed,
-      masterId: booking.masterId,
-      masterFirstName: booking.masterFirstName,
-      masterLastName: booking.masterLastName,
-      masterType: booking.masterType,
-      startAt: booking.startAt,
-      endAt: booking.endAt,
-      totalDurationMinutes: booking.durationMinutes,
-      totalPrice: booking.price,
-      items: <AppointmentItem>[
-        AppointmentItem(
-          bookingId: booking.id,
-          masterServiceId: service.id,
-          serviceName: booking.serviceName,
-          startAt: booking.startAt,
-          endAt: booking.endAt,
-          durationMinutes: booking.durationMinutes,
-          price: booking.price,
-        ),
-      ],
-      canReview: false,
-    );
-
     /// Pumps [BookingDetailScreen] inside a real `GoRouter` (required for
-    /// `context.push` inside `startAppointmentReschedule`/
-    /// `startBookingReschedule`) whose `RouteNames.bookingSlots` route is a
-    /// probe — reaching it proves the reschedule flow navigated.
-    Future<bool Function()> pumpRouted(
+    /// `context.push` inside `startBookingReschedule`) whose
+    /// `RouteNames.bookingSlots` route is a probe — reaching it proves the
+    /// reschedule flow navigated. The 2nd element of the returned record
+    /// captures the pushed [BookingSlotPickerArgs] (`state.extra`) so a
+    /// caller can assert on the exact `(rescheduleAppointmentId,
+    /// rescheduleBookingId)` pair `context.push` carried — merely proving
+    /// navigation happened would pass even if `_onReschedule` silently
+    /// dropped `appointmentId`, degrading a visit-item move to a plain
+    /// single-booking reschedule (mobile-qa F3 regression guard).
+    Future<(bool Function(), BookingSlotPickerArgs? Function())> pumpRouted(
       WidgetTester tester,
       Booking booking, {
       required _MockBookingRepository bookingRepo,
       required _MockAppointmentRepository appointmentRepo,
     }) async {
       bool navigated = false;
+      BookingSlotPickerArgs? lastArgs;
       final GoRouter router = GoRouter(
         initialLocation: '/detail',
         routes: <RouteBase>[
@@ -286,8 +275,9 @@ void main() {
           ),
           GoRoute(
             path: RouteNames.bookingSlots,
-            builder: (_, _) {
+            builder: (_, GoRouterState state) {
               navigated = true;
+              lastArgs = state.extra as BookingSlotPickerArgs?;
               return const Scaffold(key: Key('slots_stub'));
             },
           ),
@@ -297,30 +287,28 @@ void main() {
         router,
         overrides: <Object>[
           ..._overrides(booking, bookingRepo, appointmentRepo),
-          appointmentDetailProvider(
-            'appt-1',
-          ).overrideWith((ref) async => appointmentFixture(booking)),
           publicMasterProfileProvider(
             booking.masterId,
           ).overrideWith((ref) async => (master, <MasterService>[service])),
         ],
       );
       await tester.pumpAndSettle();
-      return () => navigated;
+      return (() => navigated, () => lastArgs);
     }
 
     testWidgets(
-      'appointment-child booking: reschedule tap resolves the visit via '
-      'AppointmentRepository.getAppointment and navigates to the slot picker',
+      'appointment-child booking: reschedule tap navigates to the slot '
+      'picker WITHOUT calling AppointmentRepository.getAppointment — the '
+      'per-item endpoint is resolved at CONFIRM time, not seed time',
       (tester) async {
         final Booking booking = _booking(appointmentId: 'appt-1');
         final bookingRepo = _MockBookingRepository();
         final appointmentRepo = _MockAppointmentRepository();
-        when(
-          () => appointmentRepo.getAppointment('appt-1'),
-        ).thenAnswer((_) async => appointmentFixture(booking));
 
-        final bool Function() navigated = await pumpRouted(
+        final (
+          bool Function() navigated,
+          BookingSlotPickerArgs? Function() lastArgs,
+        ) = await pumpRouted(
           tester,
           booking,
           bookingRepo: bookingRepo,
@@ -334,6 +322,17 @@ void main() {
 
         expect(navigated(), isTrue);
         expect(find.byKey(const Key('slots_stub')), findsOneWidget);
+        verifyNever(() => appointmentRepo.getAppointment(any()));
+
+        // mobile-qa F3 — the regression this guards: a dropped
+        // `appointmentId: booking.appointmentId` in `_onReschedule` would
+        // still navigate (so `navigated()`/`slots_stub` alone can't catch
+        // it) but would silently degrade this to a plain single-booking
+        // reschedule. Assert the exact pushed pair instead.
+        final BookingSlotPickerArgs? args = lastArgs();
+        expect(args, isNotNull);
+        expect(args!.rescheduleAppointmentId, 'appt-1');
+        expect(args.rescheduleBookingId, booking.id);
       },
     );
 
@@ -346,7 +345,10 @@ void main() {
         final bookingRepo = _MockBookingRepository();
         final appointmentRepo = _MockAppointmentRepository();
 
-        final bool Function() navigated = await pumpRouted(
+        final (
+          bool Function() navigated,
+          BookingSlotPickerArgs? Function() lastArgs,
+        ) = await pumpRouted(
           tester,
           booking,
           bookingRepo: bookingRepo,
@@ -360,6 +362,14 @@ void main() {
 
         expect(navigated(), isTrue);
         verifyNever(() => appointmentRepo.getAppointment(any()));
+
+        // A plain single-service booking must carry a NULL
+        // rescheduleAppointmentId — this is what discriminates it from the
+        // per-item visit path above.
+        final BookingSlotPickerArgs? args = lastArgs();
+        expect(args, isNotNull);
+        expect(args!.rescheduleAppointmentId, isNull);
+        expect(args.rescheduleBookingId, booking.id);
       },
     );
   });

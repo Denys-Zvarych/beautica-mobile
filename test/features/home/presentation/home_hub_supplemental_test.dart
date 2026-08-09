@@ -26,6 +26,7 @@ import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
@@ -89,7 +90,7 @@ const _sampleProfile = ClientProfileSummary(
 
 List<Object> _overrides({
   AsyncValue<ClientProfileSummary> profile = const AsyncData(_sampleProfile),
-  AsyncValue<NextAppointment?> nextAppt = const AsyncData(null),
+  AsyncValue<Booking?> nextAppt = const AsyncData(null),
   AsyncValue<List<FavoriteMasterItem>> favorites = const AsyncData(
     <FavoriteMasterItem>[],
   ),
@@ -116,7 +117,7 @@ List<Object> _overrides({
     nextAppointmentProvider.overrideWith((ref) async {
       return nextAppt.when(
         data: (v) => v,
-        loading: () => Completer<NextAppointment?>().future,
+        loading: () => Completer<Booking?>().future,
         error: (e, _) => Future.error(e),
       );
     }),
@@ -160,8 +161,15 @@ void main() {
   //      clientProfileProvider is a user-controlled dependency that the test
   //      can produce a settled AsyncError for.
   //
-  // Integration test (client_home_hub_flow_test.dart) covers the full error
-  // → retry → reload flow end-to-end against the fake backend.
+  // mobile-qa audit correction (was: "Integration test (client_home_hub_flow_
+  // test.dart) covers the full error → retry → reload flow end-to-end
+  // against the fake backend" — VERIFIED FALSE, that integration file carries
+  // zero error/retry/failure fixtures). The real coverage for the
+  // `_NextAppointmentSection` error → retry path lives in
+  // `home_hub_screen_test.dart`'s "Next appointment section — error + retry
+  // (via HomeHubScreen)" group (2 tests), pumping the real `HomeHubScreen`
+  // against a rejecting `nextAppointmentProvider` override and driving the
+  // retry CTA.
 
   group('HomeHubScreen — error state widgets', () {
     testWidgets(

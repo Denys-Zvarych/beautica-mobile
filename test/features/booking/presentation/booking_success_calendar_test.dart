@@ -35,6 +35,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_b
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -42,6 +43,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 const MethodChannel _kCalendarChannel = MethodChannel('add_2_calendar');
 
@@ -123,13 +125,19 @@ Future<void> _tap(WidgetTester tester, Key key) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> _dismissErrorSnackBar(
+Future<void> _dismissErrorSnack(
   WidgetTester tester,
   AppLocalizations l10n,
 ) async {
-  final Finder snack = find.text(l10n.bookingAddToCalendarError);
-  expect(snack, findsOneWidget);
-  await tester.pumpUntilGone(snack);
+  expectVelvetSnack(
+    l10n.bookingAddToCalendarError,
+    variant: VelvetSnackVariant.error,
+  );
+  // Drains the dwell Timer and removes the OverlayEntry — otherwise a
+  // still-mounted snack can hit-test-intercept the next tap on the
+  // (bottom-anchored) calendar button and flutter_test flags the pending
+  // Timer as a leak at test end. See `velvet_snack_matchers.dart`'s header.
+  await pumpPastVelvetSnack(tester);
 }
 
 Map<Object?, Object?> _argsOf(List<MethodCall> calls) {
@@ -272,7 +280,7 @@ void main() {
     );
 
     testWidgets(
-      'a FAILED export (PlatformException) surfaces the error SnackBar AND '
+      'a FAILED export (PlatformException) surfaces the error VelvetSnack AND '
       'releases the guard — a repeat tap re-exports',
       (tester) async {
         bool failNext = true;
@@ -293,7 +301,7 @@ void main() {
 
         await _tap(tester, _kCalendarKey);
         expect(calls, hasLength(1));
-        await _dismissErrorSnackBar(tester, l10n);
+        await _dismissErrorSnack(tester, l10n);
 
         calls.clear();
         await _tap(tester, _kCalendarKey);
@@ -304,7 +312,7 @@ void main() {
 
     testWidgets(
       'the plugin answering FALSE (no calendar app) is a failure too — '
-      'SnackBar shown, guard released, a repeat tap re-exports',
+      'VelvetSnack shown, guard released, a repeat tap re-exports',
       (tester) async {
         bool refuseNext = true;
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -324,7 +332,7 @@ void main() {
 
         await _tap(tester, _kCalendarKey);
         expect(calls, hasLength(1));
-        await _dismissErrorSnackBar(tester, l10n);
+        await _dismissErrorSnack(tester, l10n);
 
         calls.clear();
         await _tap(tester, _kCalendarKey);

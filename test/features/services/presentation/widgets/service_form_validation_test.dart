@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart'
     show kNameMaxLength;
 import 'package:flutter/material.dart';
@@ -40,6 +41,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks + fallbacks
@@ -152,6 +155,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
           approvedCategoriesProvider.overrideWith((ref) async => categories),
@@ -303,9 +307,9 @@ void main() {
         await tapSubmit(tester);
         await tester.pumpAndSettle();
 
-        // Inline message present, no snackbar.
+        // Inline message present, no snack.
         expect(find.text(serverMsg), findsOneWidget);
-        expect(find.byType(SnackBar), findsNothing);
+        expect(find.byType(VelvetSnack), findsNothing);
       },
     );
 
@@ -324,7 +328,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(serverMsg), findsOneWidget);
-      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(VelvetSnack), findsNothing);
     });
 
     testWidgets(
@@ -351,12 +355,13 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text(serverMsg), findsOneWidget);
-        expect(find.byType(SnackBar), findsNothing);
+        expect(find.byType(VelvetSnack), findsNothing);
       },
     );
 
     testWidgets(
-      'unmapped server field falls back to a SnackBar with the server message '
+      'unmapped server field falls back to a VelvetSnack with the localized '
+      'generic message, never the raw serverMessage '
       '(edit mode — category unchanged, so the type-mismatch net is dormant)',
       (tester) async {
         const serverMsg = 'Невідома помилка валідації сервера';
@@ -379,9 +384,15 @@ void main() {
         await tapSubmit(tester);
         await tester.pumpAndSettle();
 
-        // Generic snackbar carrying the server message; no inline field error.
-        expect(find.byType(SnackBar), findsOneWidget);
-        expect(find.text(serverMsg), findsOneWidget);
+        // Generic error snack carrying the localized copy; no inline field
+        // error, and the raw backend serverMessage never reaches this
+        // liveRegion VelvetSnack (mobile-security, 2026-08).
+        expectVelvetSnack(
+          _l10n(tester).errValidation,
+          variant: VelvetSnackVariant.error,
+        );
+        expect(find.text(serverMsg), findsNothing);
+        await pumpPastVelvetSnack(tester);
       },
     );
 

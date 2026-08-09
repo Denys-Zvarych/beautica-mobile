@@ -40,6 +40,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
+import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -50,6 +51,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/slider_geometry.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -66,18 +68,68 @@ void main() {
     return results.initialFilters;
   }
 
+  /// Scrolls the Пошук filters screen's outer (vertical) [ListView] until
+  /// [key] is inflated AND visible.
+  ///
+  /// `-d flutter-tester`'s window is `Size(800, 600)` — short and wide, unlike
+  /// any phone. The query field plus the three-field `_LocationSection`
+  /// (Region/City/District) alone consume the whole 600px budget, pushing
+  /// `_CategorySection` (the rail + service-chip drawer) and `_PriceSection`
+  /// below the fold. The screen body is a plain `ListView(children: [...])`
+  /// (search_filters_screen.dart, NOT `.builder`) — it still only inflates
+  /// Elements near the viewport (`SliverChildListDelegate` under a
+  /// `SliverList`), so an un-scrolled `find.byKey(...)` on anything below the
+  /// locality block reports 0 matches. Plain `tester.ensureVisible` requires
+  /// the target Element to already exist, so it cannot bring an un-inflated
+  /// widget into view; `scrollUntilVisible` drags the enclosing scrollable in
+  /// bounded steps and re-checks after each drag, which is what actually
+  /// builds the element.
+  ///
+  /// `scrollUntilVisible` only ever drags in ONE fixed direction per call
+  /// (derived once from the `Scrollable`'s current `axisDirection`) — it
+  /// cannot recover a target ABOVE the current scroll offset, only one
+  /// further along. Once a prior call has scrolled down to the category rail
+  /// / price slider, a later call for a locality field back near the top
+  /// would just keep dragging further down and exhaust `maxScrolls` without
+  /// ever finding it (`Bad state: No element`). Jumping to offset 0 first
+  /// makes every call direction-agnostic: fields at/near the top are
+  /// immediately visible with nothing left to drag, and fields further down
+  /// are then reached by the forward drag. `.first` on the `Scrollable`
+  /// finder always resolves to the outer vertical list (a depth-first
+  /// ancestor of the category rail's own nested horizontal
+  /// `ListView.separated`), so this stays unambiguous once the rail mounts.
+  Future<void> scrollFilterFieldIntoView(WidgetTester tester, Key key) async {
+    final Finder outerScrollable = find.byType(Scrollable).first;
+    tester.state<ScrollableState>(outerScrollable).position.jumpTo(0);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(key),
+      200,
+      scrollable: outerScrollable,
+    );
+    await tester.pumpAndSettle();
+  }
+
   /// Drives the THREE-field locality funnel through the REAL picker sheets:
   /// Region («Київська») then City («Київ»). City is gated on a Region, so the
   /// region MUST be picked first — tapping the city row before that is inert.
   /// The seeded «Київ» has hasDistricts:false, so the District field stays
   /// disabled and the (optional) district step is correctly skipped.
+  ///
+  /// Defensively scrolls each field into view before tapping it: a caller that
+  /// already scrolled down to the category/price sections (below the fold)
+  /// would otherwise find the region/city rows un-inflated. When the fields
+  /// are already visible (the common case — nothing has scrolled yet) this is
+  /// a cheap no-op.
   Future<void> pickRegionThenCity(WidgetTester tester) async {
+    await scrollFilterFieldIntoView(tester, const Key('search_region_value'));
     await tester.tap(find.byKey(const Key('search_region_value')));
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
     );
     await tester.pumpAndSettle();
+    await scrollFilterFieldIntoView(tester, const Key('search_city_value'));
     await tester.tap(find.byKey(const Key('search_city_value')));
     await tester.pumpAndSettle();
     await tester.tap(
@@ -112,6 +164,13 @@ void main() {
       // All five filter sections are present (Variant A — category RAIL).
       expect(find.byKey(const Key('search_query_field')), findsOneWidget);
       expect(find.byKey(const Key('search_city_value')), findsOneWidget);
+      // `_CategorySection` sits below the fold at the flutter-tester's short,
+      // wide Size(800, 600) — scroll it into view before asserting anything
+      // inside it (see [scrollFilterFieldIntoView]'s doc comment).
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_category_rail'),
+      );
       expect(find.byKey(const Key('search_category_rail')), findsOneWidget);
       // The rail now renders EVERY approved category (no `take(6)` cap) and the
       // «Всі категорії» more-tile + its sheet are DELETED — so it is absent.
@@ -136,7 +195,13 @@ void main() {
         findsNothing,
         reason: 'the search top bar omits the burger (redundant settings hub)',
       );
+      // `_PriceSection` sits further below the fold than the category rail —
+      // scroll again before asserting on it.
+      await scrollFilterFieldIntoView(tester, const Key('search_price_slider'));
       expect(find.byKey(const Key('search_price_slider')), findsOneWidget);
+      // The sticky CTA is OUTSIDE the scrollable body (a fixed footer pinned by
+      // the screen's own Column — see search_filters_screen.dart), so it is
+      // always mounted and visible regardless of the ListView's scroll offset.
       expect(find.byKey(const Key('search_show_masters_cta')), findsOneWidget);
 
       // ── Pick a region → city through the REAL three-field cascade ─────────
@@ -152,12 +217,22 @@ void main() {
       expect(cityValue.data, 'Київ');
 
       // ── Select a category in the rail (NAILS) → reveals the chip drawer ───
+      // pickRegionThenCity's scrolls left the viewport on the locality block —
+      // scroll back down to the rail before tapping it.
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_type_NAILS'),
+      );
       await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
       await tester.pumpAndSettle();
 
       // Variant A second level: the recessed service-chip drawer opens with the
       // NAILS family chips fetched live from the fake backend's
       // GET /service-types?categoryName=NAILS slice (slug CLASSIC_MANICURE).
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_chip_CLASSIC_MANICURE'),
+      );
       expect(
         find.byType(ServiceChipDrawer),
         findsOneWidget,
@@ -179,17 +254,67 @@ void main() {
       await tester.pumpAndSettle();
 
       // ── Drag the price slider down from the «будь-яка» ceiling ────────────
-      await tester.drag(
+      await scrollFilterFieldIntoView(tester, const Key('search_price_slider'));
+      // TWO independent facts govern this drag; both matter.
+      //
+      // (1) WHICH thumb moves. A `RangeSlider` starts with BOTH thumbs at the
+      //     extremes (min at 0, max at the ceiling), so a drag started at the
+      //     WIDGET's geometric CENTER is exactly equidistant from either thumb
+      //     — an ambiguous tie that can grab the MIN thumb instead of the
+      //     intended MAX one. Starting near the RIGHT edge, unambiguously
+      //     inside the max thumb's hit region, resolves that.
+      //
+      // (2) WHERE it lands. This is what a fixed `Offset(-160, 0)` got wrong.
+      //     `_RenderRangeSlider._handleDragUpdate` derives the new value from
+      //     the ABSOLUTE final pointer x
+      //     (`_getValueFromGlobalPosition(details.globalPosition)`) — NOT from
+      //     the accumulated delta. So the drag distance carries no meaning at
+      //     all; only the x-coordinate the pointer ends on does. A relative
+      //     `-160` therefore landed on whatever value that absolute x mapped
+      //     to (measured: 15500), not "160px worth of price lower".
+      //
+      // So: compute the target x from the value we want. The track is inset
+      // from the widget rect by the `RoundSliderOverlayShape` radius on each
+      // side, and `kSearchPriceDivisions` (40) quantises the ceiling into
+      // 500-₴ steps, so a multiple of 500 snaps exactly.
+      // [kSliderOverlayInset] is SHARED with the widget-tier pin in
+      // `test/features/discovery/presentation/search_filters_price_slider_drag_test.dart`
+      // via `test/helpers/slider_geometry.dart` — it used to be a second
+      // hand-copied `24` here, kept honest only by a comment. If the slider
+      // geometry ever drifts, that widget pin goes red first and names itself;
+      // do not re-inline the literal.
+      const double targetMax = 3000; // multiple of 500 → snaps exactly
+      final Rect sliderRect = tester.getRect(
         find.byKey(const Key('search_price_slider')),
-        const Offset(-160, 0),
       );
+      final double trackLeft = sliderRect.left + kSliderOverlayInset;
+      final double trackWidth = sliderRect.width - 2 * kSliderOverlayInset;
+      final Offset dragStart = Offset(
+        sliderRect.right - 16,
+        sliderRect.center.dy,
+      );
+      final double targetX =
+          trackLeft + (targetMax / kSearchPriceCeiling) * trackWidth;
+      await tester.dragFrom(dragStart, Offset(targetX - dragStart.dx, 0));
       await tester.pumpAndSettle();
 
       // ── Tap «Показати майстрів» → push /search/results ────────────────────
+      // NOT `pumpAndSettle()`: FakeBackend's /search/masters fixture seeds
+      // `totalPages: 2`, so the results screen mounts a trailing INDETERMINATE
+      // `_LoadMoreSpinner` the instant page 0 loads — its repeating
+      // AnimationController keeps a frame perpetually scheduled, so
+      // `pumpAndSettle` would never observe quiescence. Pump-until-found
+      // instead (see [AppHarness.pumpUntilFound]).
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
 
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
       expect(
         find.byKey(const Key('client-search-results')),
         findsOneWidget,
@@ -214,7 +339,8 @@ void main() {
         isNotNull,
         reason: 'a dragged-down slider must carry a finite max price',
       );
-      expect(filters.maxPrice, lessThan(5000));
+      // The computed drag lands the max thumb on an exact division boundary.
+      expect(filters.maxPrice, targetMax);
 
       // ── Regression (Step 2.7 Rule 3b) — CLIENT 403 decoupling ─────────────
       // A CLIENT walking the entire search journey must NEVER hit the
@@ -301,6 +427,11 @@ void main() {
       );
       // Tapping the disabled CTA is inert — it must NOT navigate to results.
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      // results-settle-ok: the CTA is DISABLED here (onPressed == null), so
+      // this tap pushes nothing — the results screen never mounts and there is
+      // no _LoadMoreSpinner to keep a frame scheduled. A plain settle is both
+      // correct and necessary: the assertion below is that NOTHING happened,
+      // so there is no arrival state for pumpUntilFound to wait on.
       await tester.pumpAndSettle();
       expect(
         find.byKey(const Key('client-search-results')),
@@ -328,10 +459,20 @@ void main() {
       );
 
       // ── Submit → the search scopes to the FLAT location.cityId ──────────────
+      // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
+      // (FakeBackend's masters fixture always leaves a page pending on first
+      // load, so the trailing indeterminate spinner never lets pumpAndSettle
+      // observe quiescence).
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
 
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
       // The region→city pick reached the wire as location.cityId on BOTH
@@ -376,10 +517,17 @@ void main() {
     // ── Reach the search screen + submit with no filters (browse all) ───────
     await tester.tap(find.byKey(const Key('client-nav-search-center')));
     await tester.pumpAndSettle(const Duration(seconds: 1));
+    // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
+    // (FakeBackend's masters fixture always leaves a page pending on first
+    // load, so the trailing indeterminate spinner never lets pumpAndSettle
+    // observe quiescence).
     await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-    await tester.pumpAndSettle(const Duration(seconds: 1));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('results_list')),
+    );
 
-    AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+    AppHarness.expectNestedPushLocation(router, RouteNames.clientSearchResults);
     expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
     // ── Page 0 fetched BOTH endpoints and rendered the merged cards ─────────
@@ -418,8 +566,28 @@ void main() {
 
     // ── Tap the master heart → optimistic flip → POST /favorites ────────────
     expect(fb.addFavoriteCalls, 0);
-    await tester.tap(find.byKey(const Key('favorite_master_master-aaa')));
-    await tester.pumpAndSettle();
+    // `pumpUntilFound(results_list)` returns when the DATA lands, which is
+    // unrelated to the route transition: /search/results is a plain
+    // MaterialPage (app_router.dart:441) and the app pins
+    // CupertinoPageTransitionsBuilder for every platform (app_theme.dart:37),
+    // so the page slides in from the right over 500 ms. Mid-slide the heart is
+    // in the TREE (findsOneWidget passes) but its global centre can sit past
+    // the right edge of the 800x600 flutter-tester view — measured at x=898.6
+    // on a red run, vs. a resting 746.0 with only 54 px of spare room. tap()
+    // then hits NOTHING, onTap never runs, and the wait below can never
+    // succeed. Gate on the widget being genuinely hit-testable.
+    final Finder heart = find.byKey(const Key('favorite_master_master-aaa'));
+    await AppHarness.pumpUntilFound(tester, heart.hitTestable());
+    await tester.tap(heart);
+    // Not `pumpAndSettle()` — page 0 already left the trailing indeterminate
+    // spinner mounted (masterHasMore is still true; only the loadMore below
+    // clears it), so pumpAndSettle still can't observe quiescence here. Wait
+    // on the POST itself landing instead (see [AppHarness.pumpUntilCondition]).
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fb.addFavoriteCalls >= 1,
+      description: 'POST /favorites to land',
+    );
 
     expect(
       fb.addFavoriteCalls,
@@ -487,10 +655,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
+      // (FakeBackend's masters fixture always leaves a page pending on first
+      // load, so the trailing indeterminate spinner never lets pumpAndSettle
+      // observe quiescence).
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
 
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
       // Item 2 — the free-text query reached the wire on both endpoints with the
@@ -500,12 +678,42 @@ void main() {
       expect(fb.lastSearchMastersSort, 'RATING_DESC');
 
       // ── Open the sort sheet, pick «Спочатку дешевші» (PRICE_ASC) ─────────────
-      await tester.tap(find.byKey(const Key('results_sort_button')));
-      await tester.pumpAndSettle();
+      // Same mid-transition hazard as the heart tap above: `pumpUntilFound(
+      // results_list)` returns on DATA, not on the 500 ms Cupertino slide that
+      // /search/results (a plain MaterialPage) rides in on, so a bare tap here
+      // can land off the right edge of the 800x600 view and hit nothing. Gate
+      // on the button being genuinely hit-testable — a no-op once the page has
+      // finished sliding home.
+      final Finder sortBtn = find.byKey(const Key('results_sort_button'));
+      await AppHarness.pumpUntilFound(tester, sortBtn.hitTestable());
+      await tester.tap(sortBtn);
+      // NOT `pumpAndSettle()` — the results screen UNDERNEATH the sheet still
+      // has `data.hasMore` true (FakeBackend seeds `totalPages: 2`), so its
+      // trailing `_LoadMoreSpinner` keeps an indeterminate
+      // `CircularProgressIndicator` (no `value:` → `repeat()`ing controller)
+      // mounted for the whole sheet-open animation. Quiescence is therefore
+      // never reached and this settle hangs until the test's own timeout fires
+      // mid-pump — which trips `!_expectingFrame` in
+      // `LiveTestWidgetsFlutterBinding.postTest` and kills every LATER test in
+      // the file with `!inTest`. Wait for the sheet's option row instead.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(Key('sort_option_${SearchSort.priceAsc.name}')),
+      );
       await tester.tap(
         find.byKey(Key('sort_option_${SearchSort.priceAsc.name}')),
       );
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      // Re-keys the results notifier to a fresh family member (fresh page 0) —
+      // same trailing-spinner hazard as the initial submit above, so a bounded
+      // pump-until is needed rather than a raw `pumpAndSettle()`. Wait on
+      // the wire-captured sort value actually flipping (the list/spinner Finder
+      // stays non-empty across the re-key, so it cannot serve as the "did the
+      // new page land" signal the way it does right after the first submit).
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.lastSearchMastersSort == 'PRICE_ASC',
+        description: 'the re-keyed search to carry sort=PRICE_ASC',
+      );
 
       // Item 5 — the new ordering re-queried both endpoints; the query persists.
       expect(fb.lastSearchMastersSort, 'PRICE_ASC');
@@ -562,10 +770,17 @@ void main() {
     expect(cityValue.data, 'Київ');
 
     // ── Submit → results screen fires BOTH endpoints with the city scope ────
+    // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
+    // (FakeBackend's masters fixture always leaves a page pending on first
+    // load, so the trailing indeterminate spinner never lets pumpAndSettle
+    // observe quiescence).
     await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-    await tester.pumpAndSettle(const Duration(seconds: 1));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('results_list')),
+    );
 
-    AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+    AppHarness.expectNestedPushLocation(router, RouteNames.clientSearchResults);
     expect(find.byKey(const Key('client-search-results')), findsOneWidget);
     expect(fb.searchMastersCalls, greaterThanOrEqualTo(1));
     expect(fb.searchSalonsCalls, greaterThanOrEqualTo(1));
@@ -637,18 +852,35 @@ void main() {
       expect(cityValue.data, 'Київ');
 
       // ── Submit → results screen fires the scoped search ─────────────────────
+      // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
+      // (FakeBackend's masters fixture always leaves a page pending on first
+      // load, so the trailing indeterminate spinner never lets pumpAndSettle
+      // observe quiescence).
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
 
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
       expect(find.byKey(const Key('results_list')), findsOneWidget);
 
       // ── Item 4 — the city scoped the wire AND the top-bar badge reflects it ─
       expect(fb.lastSearchSalonsCityId, 'city-kyiv');
       // The applied-filters chip ROW was replaced by an SVG funnel filter button
-      // plus an active-filter «(N)» count badge. A single picked facet (the city)
-      // surfaces the badge showing «(1)» beside the filter button.
+      // plus an active-filter «(N)» count badge.
+      //
+      // `SearchFilters.activeFilterCount` counts oblastId / cityId / districtId
+      // as THREE SEPARATE facets (deliberate — pinned by
+      // test/features/discovery/domain/search_filters_test.dart). The
+      // three-field funnel means picking «Київ» necessarily sets BOTH oblastId
+      // and cityId, so the badge reads «(2)», not «(1)». (The older "one facet
+      // = the city" reading predates the funnel, when locality was a single
+      // field.)
       expect(
         find.byKey(const Key('results_filter_button')),
         findsOneWidget,
@@ -660,13 +892,12 @@ void main() {
       expect(
         activeBadge,
         findsOneWidget,
-        reason:
-            'a picked locality (1 facet) must surface the «(N)» count badge',
+        reason: 'a picked locality must surface the «(N)» count badge',
       );
       expect(
         tester.widget<Text>(activeBadge).data,
-        '(1)',
-        reason: 'exactly one facet (the city) is active → «(1)»',
+        '(2)',
+        reason: 'region + city are two separate facets → «(2)»',
       );
 
       // ── The seeded salon card rendered (keyed by backend id) ────────────────
@@ -698,13 +929,19 @@ void main() {
       // formatLocality() joins the raw districtLabel/cityLabel with a
       // hard-coded ', ' and never touches AppLocalizations, so this renders
       // identically under EN — it is backend fixture data, not UI copy.
+      //
+      // TWO cards carry this exact line: the seeded master-aaa and salon-xyz
+      // share the same city/district labels in the fake backend's fixtures, and
+      // this flow renders both result kinds. Asserting `findsOneWidget` here
+      // was simply miscounting the fixture, not detecting a missing line.
       expect(
         // i18n-finder-ok: locale-invariant backend data (see comment above)
         find.text('Печерський, Київ'),
-        findsOneWidget,
+        findsNWidgets(2),
         reason:
             'the two-line layout keeps the «district, city» locality line even '
-            'when an auth-gated street line is also shown.',
+            'when an auth-gated street line is also shown — on BOTH the seeded '
+            'master and salon cards.',
       );
       // The mapper's _formatAddressLine() joins raw street/buildingNo/
       // locationNote with a hard-coded ', ' + ' · ' and never touches
@@ -777,8 +1014,18 @@ void main() {
       );
 
       // ── Select the NAILS category → the service-chip drawer reveals ─────────
+      // `_CategorySection` sits below the fold at the flutter-tester's short,
+      // wide Size(800, 600) — scroll it into view before tapping into it.
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_type_NAILS'),
+      );
       await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
       await tester.pumpAndSettle();
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_chip_CLASSIC_MANICURE'),
+      );
       expect(find.byType(ServiceChipDrawer), findsOneWidget);
       // Both seeded NAILS service types render keyed chips (key = slug).
       expect(
@@ -813,10 +1060,20 @@ void main() {
       );
 
       // ── Apply → push /search/results, firing the scoped search ──────────────
+      // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
+      // (FakeBackend's masters fixture always leaves a page pending on first
+      // load, so the trailing indeterminate spinner never lets pumpAndSettle
+      // observe quiescence).
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
 
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
       // ── WIRE ASSERTION — BOTH selected slugs reached BOTH endpoints ─────────
@@ -885,8 +1142,18 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       // ── Select NAILS + a NAILS service chip ─────────────────────────────────
+      // `_CategorySection` sits below the fold at the flutter-tester's short,
+      // wide Size(800, 600) — scroll it into view before tapping into it.
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_type_NAILS'),
+      );
       await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
       await tester.pumpAndSettle();
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_chip_CLASSIC_MANICURE'),
+      );
       await tester.tap(
         find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
       );
@@ -897,11 +1164,19 @@ void main() {
       );
 
       // ── Switch the category to BROWS → the prior selection must clear ───────
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_type_BROWS'),
+      );
       await tester.tap(find.byKey(const Key('search_service_type_BROWS')));
       await tester.pumpAndSettle();
 
       // The drawer repopulated with the BROWS service type; the NAILS chip is
       // gone and the active-count badge collapsed (selection cleared).
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_chip_BROW_CORRECTION'),
+      );
       expect(
         find.byKey(const Key('search_service_chip_BROW_CORRECTION')),
         findsOneWidget,
@@ -919,10 +1194,20 @@ void main() {
       );
 
       // ── Apply with NO BROWS service picked → NO serviceTypeSlugs on the wire ─
+      // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
+      // (FakeBackend's masters fixture always leaves a page pending on first
+      // load, so the trailing indeterminate spinner never lets pumpAndSettle
+      // observe quiescence).
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
 
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
       // The stale CLASSIC_MANICURE slug never reached the request — the param is
@@ -1248,6 +1533,15 @@ void main() {
       );
 
       // ── Apply a category (NAILS) → the drawer opens + the reset link shows ──
+      // `_CategorySection` is below the fold at the flutter-tester's
+      // Size(800, 600) (query field + three-field locality block + the sticky
+      // footer eat the budget), and the body's `SliverChildListDelegate` never
+      // inflates it un-scrolled — an un-scrolled tap throws `Bad state: No
+      // element`. See [scrollFilterFieldIntoView].
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_service_type_NAILS'),
+      );
       await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
       await tester.pumpAndSettle();
       expect(find.byType(ServiceChipDrawer), findsOneWidget);
@@ -1271,6 +1565,12 @@ void main() {
       expect(find.byKey(const Key('search_clear_filters')), findsNothing);
 
       // ── REGRESSION — the prefilled location is UNTOUCHED ────────────────────
+      // Scrolling down to the category rail pushed the locality rows out of
+      // the viewport, so they are no longer inflated — scroll BACK to them
+      // before reading their Text widgets (the same
+      // `SliverChildListDelegate` inflation rule that required the scroll
+      // down, applied in reverse).
+      await scrollFilterFieldIntoView(tester, const Key('search_city_value'));
       expect(
         tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
         'Київ',

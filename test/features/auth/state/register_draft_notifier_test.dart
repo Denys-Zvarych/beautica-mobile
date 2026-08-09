@@ -11,18 +11,19 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
   group('RegisterDraftNotifier', () {
     test('initial state is null until start(role) is called', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       expect(container.read(registerDraftProvider), isNull);
     });
 
     test('start(role) seeds the draft with empty step-1/2/3 fields', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       container
@@ -48,7 +49,7 @@ void main() {
     });
 
     test('updateStep1 merges email + password + confirmPassword', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       final notifier = container.read(registerDraftProvider.notifier);
@@ -71,7 +72,7 @@ void main() {
     });
 
     test('updateStep2 merges firstName + lastName + phone + salonName', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       final notifier = container.read(registerDraftProvider.notifier);
@@ -101,7 +102,7 @@ void main() {
     });
 
     test('updateStep3 merges address fields', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       final notifier = container.read(registerDraftProvider.notifier);
@@ -139,7 +140,7 @@ void main() {
     test(
       'clearCredentials() wipes password + confirmPassword, keeps the rest',
       () {
-        final container = ProviderContainer();
+        final container = ProviderContainer(retry: beauticaProviderRetry);
         addTearDown(container.dispose);
 
         final notifier = container.read(registerDraftProvider.notifier);
@@ -184,7 +185,7 @@ void main() {
     );
 
     test('clearCredentials() before start() is a no-op (defensive)', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       container.read(registerDraftProvider.notifier).clearCredentials();
@@ -193,7 +194,7 @@ void main() {
     });
 
     test('reset() clears the draft back to null', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       final notifier = container.read(registerDraftProvider.notifier);
@@ -209,7 +210,7 @@ void main() {
     });
 
     test('updateStep1 before start() is a no-op (defensive)', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       container
@@ -220,7 +221,7 @@ void main() {
     });
 
     test('role survives start → updateStep1/2/3 → reset → start(new role)', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
       final notifier = container.read(registerDraftProvider.notifier);

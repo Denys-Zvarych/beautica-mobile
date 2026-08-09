@@ -19,8 +19,8 @@
 //   • valid message → Send enabled; tapping it calls the repo once.
 //   • subject > 150 chars is capped by the field's maxLength.
 //   • tapping Send (valid) shows the success card (support-success-card).
-//   • a 503 failure surfaces the mapped l10n.contactSupportErrUnavailable
-//     SnackBar; a 413 surfaces l10n.contactSupportErrTotalTooBig.
+//   • a 503 failure surfaces the mapped l10n.contactSupportErrUnavailable error
+//     VelvetSnack; a 413 surfaces l10n.contactSupportErrTotalTooBig.
 //
 // Coverage (AttachmentTray):
 //   • the n/maxFiles counter reflects the attachment count.
@@ -39,12 +39,14 @@ import 'package:beautica_mobile/features/support/presentation/contact_support_sc
 import 'package:beautica_mobile/features/support/presentation/widgets/attachment_tray.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 class _MockSupportRepository extends Mock implements SupportRepository {}
 
@@ -243,7 +245,7 @@ void main() {
     },
   );
 
-  // ── Error mapping → SnackBar ────────────────────────────────────────────────
+  // ── Error mapping → VelvetSnack ─────────────────────────────────────────────
 
   group('error mapping surfaces the mapped l10n message', () {
     testWidgets('503 → channel unavailable copy', (tester) async {
@@ -256,12 +258,17 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('support-send')));
-      await tester.pump(); // start the submit
-      await tester.pump(); // surface the SnackBar
+      await pumpVelvetSnackIn(tester);
 
-      expect(find.text(_l10n.contactSupportErrUnavailable), findsOneWidget);
+      expectVelvetSnack(
+        _l10n.contactSupportErrUnavailable,
+        variant: VelvetSnackVariant.error,
+      );
       // The screen returns to the editable form (not the success card).
       expect(find.byKey(const Key('support-success-card')), findsNothing);
+
+      // Drain the dwell Timer so it does not leak past the test.
+      await pumpPastVelvetSnack(tester);
     });
 
     testWidgets('413 → attachments too large copy', (tester) async {
@@ -274,10 +281,15 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('support-send')));
-      await tester.pump();
-      await tester.pump();
+      await pumpVelvetSnackIn(tester);
 
-      expect(find.text(_l10n.contactSupportErrTotalTooBig), findsOneWidget);
+      expectVelvetSnack(
+        _l10n.contactSupportErrTotalTooBig,
+        variant: VelvetSnackVariant.error,
+      );
+
+      // Drain the dwell Timer so it does not leak past the test.
+      await pumpPastVelvetSnack(tester);
     });
   });
 

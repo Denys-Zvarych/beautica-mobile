@@ -43,6 +43,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // A cache manager that records emptyCache() — the purge the fix must trigger.
@@ -92,6 +93,7 @@ _makeAuthenticatedContainer() async {
     ..meResult = _testUser;
 
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       secureStorageProvider.overrideWith((_) => storage),
       authRepositoryProvider.overrideWith((_) => repo),
@@ -156,6 +158,7 @@ void main() {
         ..logoutThrows = true; // server revocation 4xx — tolerated
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),

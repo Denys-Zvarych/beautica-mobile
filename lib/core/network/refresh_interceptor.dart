@@ -34,14 +34,19 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'auth_paths.dart';
 import 'refresh_dio_provider.dart';
 import 'token_refresh_lock.dart';
 
 /// Dio interceptor that handles 401 responses with a silent token refresh.
 ///
-/// Injected into [dioProvider]'s interceptor chain **after**
-/// [ErrorMapperInterceptor]. Constructed with the enclosing [Ref] and the
-/// parent [Dio] instance (so it can replay failed requests via `_dio.fetch`).
+/// Injected into [dioProvider]'s interceptor chain **before**
+/// [ErrorMapperInterceptor] — the mapper ends the error flow with
+/// `handler.reject`, so anything behind it never runs (see the ordering note in
+/// `dio_provider.dart`). Consequently this interceptor sees the RAW
+/// [DioException] and must branch on `err.response?.statusCode`, never on a
+/// mapped [Failure]. Constructed with the enclosing [Ref] and the parent [Dio]
+/// instance (so it can replay failed requests via `_dio.fetch`).
 ///
 /// Thread safety: Dio interceptors run on the same isolate as the initiating
 /// request. The [TokenRefreshLock]-based single-flight guard is therefore safe.
@@ -70,25 +75,32 @@ final class RefreshInterceptor extends Interceptor {
       return handler.next(err);
     }
 
+    // Never treat a 401 from an UNAUTHENTICATED endpoint as an expired-token
+    // signal. [AuthInterceptor.onRequest] does not attach a Bearer token to
+    // these paths, so their 401 is a business answer — bad credentials,
+    // `EMAIL_NOT_VERIFIED`, an invalid/rotated refresh token, an expired invite
+    // — that a refresh cannot change. Without this guard a failed login would
+    // burn a refresh round-trip and then call `logout()` below, wiping an
+    // unrelated live session. `/api/v1/auth/refresh` itself is in [kAuthPaths],
+    // which is the second line of defence against refresh recursion (the first
+    // being that `_runRefresh` issues it on the interceptor-free
+    // [refreshDioProvider]). Mirrors the skip-lists in [AuthInterceptor].
+    if (kAuthPaths.contains(opts.path) ||
+        kPublicPathPrefixes.any(opts.path.startsWith)) {
+      return handler.next(err);
+    }
+
+    final AuthTokens tokens;
     try {
       // Consult the shared lock. If HttpAuthRepository.refresh() or a
       // concurrent interceptor call already started a refresh, await the
       // same Completer result rather than issuing a duplicate request.
       final lock = _ref.read(tokenRefreshLockProvider);
-      final AuthTokens tokens;
       if (lock.pending != null) {
         tokens = await lock.pending!.future;
       } else {
         tokens = await _runRefresh(lock);
       }
-
-      // Replay the original request with the updated token.
-      opts.headers['Authorization'] = 'Bearer ${tokens.accessToken}';
-      // Mark so that a second 401 on the retry doesn't loop.
-      opts.headers['X-No-Retry'] = 'true';
-
-      final retried = await _dio.fetch<dynamic>(opts);
-      handler.resolve(retried);
     } catch (e, st) {
       if (kDebugMode) {
         log(
@@ -101,6 +113,49 @@ final class RefreshInterceptor extends Interceptor {
       }
       // Wipe the session; router guard will redirect to /login.
       await _ref.read(authProvider.notifier).logout();
+      handler.next(err);
+      return;
+    }
+
+    // Replay the original request with the updated token.
+    //
+    // NOTE — this header is authoritative only for paths [AuthInterceptor]
+    // skips or cannot resolve a token for. On every normal path the `_dio.fetch`
+    // below re-enters [AuthInterceptor.onRequest], which OVERWRITES it from
+    // `AuthNotifier.lastKnownAccessToken`. The two agree because
+    // `setAccessToken` (called by `_runRefresh`) writes the new token durably —
+    // including while the notifier is still [AsyncLoading] on cold start. If
+    // that durability is ever removed, this line silently loses to a stale
+    // token again; see `setAccessToken`'s doc comment for the measured failure.
+    opts.headers['Authorization'] = 'Bearer ${tokens.accessToken}';
+    // Mark so that a second 401 on the retry doesn't loop.
+    opts.headers['X-No-Retry'] = 'true';
+
+    try {
+      // `Dio.fetch` re-enters the FULL interceptor chain (dio_mixin.dart:378
+      // builds the same request flow), so the replay is logged with the same
+      // redaction and its own failures are mapped by [ErrorMapperInterceptor]
+      // behind us. The `X-No-Retry` header set above is what stops the replay
+      // from re-entering this branch.
+      final retried = await _dio.fetch<dynamic>(opts);
+      handler.resolve(retried);
+    } on DioException catch (e) {
+      // The refresh SUCCEEDED and the replay failed on its own merits (5xx,
+      // timeout, a genuine 401 for this resource). That is NOT a dead session:
+      // logging out here would sign the user out on any transient server error
+      // that happened to follow a token expiry. Forward the replay's own error
+      // so the caller sees what actually failed rather than the stale 401.
+      handler.next(e);
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'Replay after refresh failed with a non-Dio error',
+          name: 'auth.refresh',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
       handler.next(err);
     }
   }

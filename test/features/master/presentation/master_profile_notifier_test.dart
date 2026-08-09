@@ -36,6 +36,7 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -95,8 +96,23 @@ class _StubAuthUnauthenticated extends AuthNotifier {
 ProviderContainer _makeContainer({
   required AuthNotifier Function() authFactory,
   required MasterRepository repo,
+  // Riverpod failed-build retry predicate. Defaults to [beauticaProviderRetry],
+  // the predicate `main.dart` installs on the production root scope, so error
+  // paths resolve exactly as they do in the app.
+  //
+  // Pass `(_, _) => null` to disable retry entirely when a test asserts the
+  // TERMINAL error state for a TRANSIENT failure (NetworkFailure, 5xx). Under
+  // the production predicate such a build is retried 10 times over ~38 s and
+  // the element is parked in `AsyncLoading(retrying: true)` for the whole
+  // window — so the terminal assertion could only be reached by pumping the
+  // curve to exhaustion. Disabling retry is what lets the stub throw
+  // ASYNCHRONOUSLY (the only shape a Dio-backed repository can produce) while
+  // the assertion stays on the first attempt.
+  Duration? Function(int retryCount, Object error)? retry =
+      beauticaProviderRetry,
 }) {
   final container = ProviderContainer(
+    retry: retry,
     overrides: [
       // Override auth so it never touches the real SecureStorage or Dio.
       authProvider.overrideWith(authFactory),
@@ -181,13 +197,25 @@ void main() {
     );
 
     test('emits AsyncError(NetworkFailure) when repository throws', () async {
+      // ASYNCHRONOUS throw. A Dio-backed repository always fails by completing
+      // its Future with an error; `thenThrow` fails SYNCHRONOUSLY out of
+      // build(), which lands a terminal AsyncError after ONE call and never
+      // enters the retry machinery — so the old stub asserted a state the real
+      // repository could not have produced this way.
+      //
+      // Retry is disabled below (rather than pumping the ~38 s / 10-attempt
+      // curve to exhaustion) because this test is about the TERMINAL error
+      // surface, not the retry window. The mid-retry behaviour of a transient
+      // failure is covered at the screen level by `master_profile_screen_test`
+      // case B4, which keeps the production predicate.
       when(
         () => repo.getMyProfile(_testUserId),
-      ).thenThrow(const NetworkFailure());
+      ).thenAnswer((_) async => throw const NetworkFailure());
 
       final container = _makeContainer(
         authFactory: _StubAuthAuthenticated.new,
         repo: repo,
+        retry: (_, _) => null,
       );
 
       // Settle auth so masterProfileProvider sees Authenticated on its build.
@@ -200,6 +228,14 @@ void main() {
       await Future<void>.delayed(Duration.zero); // let NetworkFailure settle
 
       final state = container.read(masterProfileProvider);
+      // The runtime type matters, not just `hasError`. While a retry is pending
+      // Riverpod emits `AsyncLoading(error: …, retrying: true)` — still
+      // `hasError == true`, still carrying the NetworkFailure — so a check of
+      // `hasError`/`error` alone is satisfied MID-RETRY and cannot tell the
+      // terminal state this test is named for from the loading state B4 covers.
+      // (Verified: with `retry` left at the production predicate and only those
+      // two assertions, this test passes while parked in AsyncLoading.)
+      expect(state, isA<AsyncError<Master>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<NetworkFailure>());
     });
@@ -256,14 +292,30 @@ void main() {
       await container.read(authProvider.future);
       await container.read(masterProfileProvider.future);
 
-      // Stub the repo to fail on next call (refresh).
+      // Stub the repo to fail on next call (refresh) — ASYNCHRONOUSLY, the way
+      // Dio actually fails. Safe to convert with the production retry predicate
+      // still installed: `refresh()` assigns `state` imperatively through
+      // `AsyncValue.guard`, and Riverpod's retry governs failed *builds* only,
+      // so no backoff curve is reachable on this path either way. The
+      // conversion is about fidelity, not timing — it also stops the test
+      // false-passing if `refresh()` were ever refactored from `await` onto a
+      // future chain, which would let a synchronous throw escape the guard.
       when(
         () => repo.getMyProfile(_testUserId),
-      ).thenThrow(const ServerFailure(statusCode: 503));
+      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 503));
 
       await container.read(masterProfileProvider.notifier).refresh();
 
       final state = container.read(masterProfileProvider);
+      // Pin the RUNTIME TYPE, not just `hasError` — symmetric with the build()
+      // failure test above. `AsyncLoading(error: …, retrying: true)` also
+      // satisfies `hasError`/`error`, so those two assertions alone cannot
+      // distinguish the terminal error this test is named for from a state
+      // still parked in loading. No retry curve is reachable on the refresh()
+      // path today (`AsyncValue.guard` assigns `state` imperatively; Riverpod's
+      // retry governs failed *builds* only) — this assertion exists so that
+      // stays a fact the test enforces rather than one it assumes.
+      expect(state, isA<AsyncError<Master>>());
       expect(state.hasError, isTrue);
       expect(
         state.error,

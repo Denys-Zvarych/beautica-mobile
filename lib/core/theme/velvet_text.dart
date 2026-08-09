@@ -151,6 +151,15 @@ abstract final class VelvetText {
     color: BrandColors.faint,
   );
 
+  /// Quiet camel-accent link — same 11 sp Nunito/700 weight as [link], but
+  /// `BrandColors.accent` (camel) instead of `accentDeep` (mocha). Phase 221
+  /// — used by the «більше»/«згорнути» note-expand toggle, which must read as
+  /// a subordinate metadata affordance (camel) rather than a primary link
+  /// (mocha is reserved for actionable CTAs/links elsewhere in this system).
+  static final TextStyle linkAccent = _linkStyle.copyWith(
+    color: BrandColors.accent,
+  );
+
   // ---------------------------------------------------------------------------
   // Pre-composed variants for PasswordChecklist _RuleRow (Batch-2 A5).
   //
@@ -1023,10 +1032,12 @@ abstract final class VelvetText {
     height: 1.0,
   );
 
-  /// Booking-card top-right time — statValue 14 sp, `height: 1.1` (was 17 sp;
-  /// stepped down in the 2026-07-15 compact-card pass). Colour (mocha / muted,
-  /// plus an optional no-show strikethrough) applied at the call site via a
-  /// single `copyWith`.
+  /// Booking-card date-stub time — statValue 14 sp, `height: 1.1` (was 17 sp;
+  /// stepped down in the 2026-07-15 compact-card pass). Third stacked line
+  /// under the day number and month/weekday caption (2026-08 move out of the
+  /// body's top-right corner). Colour (mocha / muted, plus an optional
+  /// no-show strikethrough) applied at the call site via a single
+  /// `copyWith`.
   static final TextStyle bookingTime = _statValueStyle.copyWith(
     fontSize: 14,
     height: 1.1,
@@ -1624,4 +1635,36 @@ abstract final class VelvetText {
     height: 1.0,
     fontWeight: FontWeight.w600,
   );
+
+  // ---------------------------------------------------------------------------
+  // VelvetSnack (`lib/shared/feedback/`) — the unified transient-feedback
+  // surface. Transcribed verbatim from the approved preview app at
+  // `docs/signup-designs/VelvetSnack/lib/theme/velvet_tokens.dart`
+  // (`VelvetText.snackMessage` / `.snackAction`). Color references changed
+  // from `VelvetColors.*` to `BrandColors.*`.
+  // ---------------------------------------------------------------------------
+
+  static final TextStyle _snackMessageStyle = GoogleFonts.nunito(
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+    height: 1.4,
+    color: BrandColors.text,
+  );
+
+  static final TextStyle _snackActionBase = GoogleFonts.nunito(
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0.2,
+  );
+
+  /// The snack message — [bodyStrong] (12/700) tightened to `height: 1.4` so
+  /// a two-line message stays a compact block rather than an airy paragraph.
+  static TextStyle snackMessage() => _snackMessageStyle;
+
+  /// The trailing action label ("Повторити" / "Скасувати") — one weight
+  /// above the message so it out-ranks the text beside it without needing a
+  /// box around it. Colour (the variant accent) is applied at the call site
+  /// via [TextStyle.copyWith].
+  static TextStyle snackAction(Color color) =>
+      _snackActionBase.copyWith(color: color);
 }

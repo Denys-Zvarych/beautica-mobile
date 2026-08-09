@@ -25,6 +25,7 @@ part 'booking_response.g.dart';
 /// * [durationMinutesAtBooking]
 /// * [createdAt]
 /// * [appointmentId] - The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). When non-null, N booking rows sharing this id are ONE client-facing visit — the mobile My Bookings list collapses them into a single card and fetches the full visit via GET /appointments/{appointmentId}. A client that ignores this field is unaffected (strictly additive).
+/// * [awaitingClosure] - Derived, read-time-only (Phase 29.1/29.2) — TRUE when this booking's status is still CONFIRMED but its endsAt has already elapsed: no scheduled job ever transitions such a booking to a terminal state, so this flags the ones the provider still needs to close via /complete, /not-complete or /decline. NEVER persisted, NEVER cached — recomputed on every read from (status, endsAt, the current instant). Orthogonal to any review-eligibility field on the enriched detail DTO: an elapsed CONFIRMED booking is never itself review-eligible.
 @BuiltValue()
 abstract class BookingResponse
     implements Built<BookingResponse, BookingResponseBuilder> {
@@ -69,6 +70,10 @@ abstract class BookingResponse
   /// The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). When non-null, N booking rows sharing this id are ONE client-facing visit — the mobile My Bookings list collapses them into a single card and fetches the full visit via GET /appointments/{appointmentId}. A client that ignores this field is unaffected (strictly additive).
   @BuiltValueField(wireName: r'appointmentId')
   String? get appointmentId;
+
+  /// Derived, read-time-only (Phase 29.1/29.2) — TRUE when this booking's status is still CONFIRMED but its endsAt has already elapsed: no scheduled job ever transitions such a booking to a terminal state, so this flags the ones the provider still needs to close via /complete, /not-complete or /decline. NEVER persisted, NEVER cached — recomputed on every read from (status, endsAt, the current instant). Orthogonal to any review-eligibility field on the enriched detail DTO: an elapsed CONFIRMED booking is never itself review-eligible.
+  @BuiltValueField(wireName: r'awaitingClosure')
+  bool? get awaitingClosure;
 
   BookingResponse._();
 
@@ -185,6 +190,13 @@ class _$BookingResponseSerializer
       yield serializers.serialize(
         object.appointmentId,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.awaitingClosure != null) {
+      yield r'awaitingClosure';
+      yield serializers.serialize(
+        object.awaitingClosure,
+        specifiedType: const FullType(bool),
       );
     }
   }
@@ -304,6 +316,13 @@ class _$BookingResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.appointmentId = valueDes;
+          break;
+        case r'awaitingClosure':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.awaitingClosure = valueDes;
           break;
         default:
           unhandled.add(key);

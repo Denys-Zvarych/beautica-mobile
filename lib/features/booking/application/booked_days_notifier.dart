@@ -66,7 +66,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../../auth/domain/auth_session.dart';
 import '../../auth/domain/user.dart';
@@ -114,7 +116,7 @@ Future<Set<DateTime>> bookedDays(Ref ref) async {
   // 30 minutes rather than the list's 5 because the dots are a navigational
   // HINT, not a correctness gate (nothing is authorised off them), so staleness
   // is cheap here. It is not free, though: the window below is computed from
-  // `DateTime.now()` at build time, so a cached instance held across local
+  // Kyiv "today" at build time, so a cached instance held across Kyiv
   // midnight describes a window one day behind. The TTL is what bounds that
   // drift — 30 minutes of a one-day-shifted ±180-day window moves no dot the
   // user can see, whereas an unconditional keepAlive would let it persist for
@@ -135,7 +137,18 @@ Future<Set<DateTime>> bookedDays(Ref ref) async {
 
   // Recomputed on every build — never hoisted to a field or a top-level final,
   // which would pin "today" to first-use for the process's lifetime.
-  final DateTime today = dateOnly(DateTime.now());
+  //
+  // KYIV-ANCHORED (backlog :226's clockProvider half): the backend interprets
+  // `from`/`to` as Kyiv civil days (`atStartOfDay(TimeZones.KYIV)` throughout
+  // `BookingService`), so "today" here must be the KYIV day the device's
+  // current instant falls on, not the device's own calendar day — see
+  // `shared/time/kyiv_day.dart`'s file header for why those two silently
+  // diverge near midnight for a device outside Europe/Kyiv. `ref.read`, not
+  // `ref.watch`: this is a one-shot read inside a provider body (mirrors the
+  // notifier-action convention in `clock_provider.dart:28`), and `clockProvider`
+  // is `keepAlive`, so a `watch` here would add a dependency edge that never
+  // fires.
+  final DateTime today = kyivToday(ref.read(clockProvider));
   // CALENDAR arithmetic, not `Duration(days: n)`. `DateTime.add`/`subtract`
   // add absolute 24h blocks, so crossing a Europe/Kyiv DST transition lands on
   // 23:00 or 01:00 — and `toApiDate`, which reads local `.day` verbatim, would

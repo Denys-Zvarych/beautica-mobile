@@ -35,6 +35,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/delete_se
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:flutter/foundation.dart';
@@ -66,9 +67,7 @@ void _showServiceEditFailureSnackbar(
   final String message = failure is Failure
       ? failure.userMessage(context)
       : l10n.errUnknown;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-  );
+  showErrorSnack(context, message);
 }
 
 // ---------------------------------------------------------------------------
@@ -215,12 +214,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
               .read(serviceRepositoryProvider)
               .update(service.serviceDefId, patch, assignmentId: service.id);
           if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(l10n.serviceUpdatedSuccess),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            showSuccessSnack(context, l10n.serviceUpdatedSuccess);
             _popServiceEditScreen(context);
           }
           // Invalidate AFTER pop so ServicesListScreen is active and
@@ -434,6 +428,13 @@ class _EditBodyState extends State<_EditBody>
                             // ServiceForm. Rethrow so the form can claim them;
                             // it shows a generic snackbar itself when no field
                             // matches, so onError is not invoked for 400s.
+                            rethrow;
+                          } on ServiceDuplicateFailure {
+                            // Backend 409 DUPLICATE_SERVICE is mapped inline by
+                            // ServiceForm onto the service-type field. Rethrow
+                            // so it can claim it — routing it to onError would
+                            // show a transient snackbar and leave the offending
+                            // field unflagged, so the user re-hits the same 409.
                             rethrow;
                           } catch (e) {
                             widget.onError(e);

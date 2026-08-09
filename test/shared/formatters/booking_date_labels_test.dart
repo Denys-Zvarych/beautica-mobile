@@ -25,6 +25,8 @@
 // clock time, is read from the converted instant.
 
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart'
+    show weekdayAbbrev;
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -96,6 +98,55 @@ void main() {
     });
   });
 
+  group('formatStubDayNumber', () {
+    test('Wednesday 19 June (EEST, UTC+3) → "19"', () {
+      // Same fixture as the formatStubDayLine test above — on the booking
+      // card the two lines stack together and must describe the same
+      // calendar date, so they share the same instant here too.
+      final DateTime instant = DateTime.utc(2024, 6, 19, 10);
+      expect(formatStubDayNumber(instant), '19');
+    });
+  });
+
+  // ===========================================================================
+  // mobile-qa — 2026-08 regression: `_DateStub`'s day number line read
+  // `start.day.toString()` off the raw UTC instant while its two sibling
+  // lines (`formatStubDayLine`, the slot time) already converted to the
+  // Europe/Kyiv wall-clock via `toBeauticaTime` first. Every fixture ABOVE in
+  // this file sits mid-UTC-day (comments say so explicitly — "isolates
+  // format shape from any DST math" / "same calendar day either way"), so
+  // the day number and the Kyiv conversion always agreed by accident: none
+  // of them would have failed pre-fix. These two sit in the UTC 21:00–23:59
+  // divergence window instead (winter UTC+2 / summer UTC+3), where Kyiv is
+  // already the next calendar day.
+  //
+  // Winter AND summer are both required, not just one: this proves
+  // `toBeauticaTime`'s DST-awareness itself, since it reads the real IANA
+  // Europe/Kyiv database — a test pinning only one offset could pass by
+  // accident against an implementation that hardcoded +2 or +3.
+  //
+  // Worked proof the pre-fix bug was not cosmetic: 2026-06-18 22:30Z is
+  // 2026-06-19 01:30 Kyiv, a Friday — but 18 June 2026 (the pre-fix, raw-UTC
+  // day number) is a Thursday. No 18 June 2026 is ever a Friday; pre-fix the
+  // card paired a real weekday caption with a day number that date can never
+  // have.
+  // ===========================================================================
+  group('formatStubDayNumber — UTC 21:00–23:59 divergence window', () {
+    test('summer/EEST: 2026-06-18T22:30Z is 2026-06-19 01:30 Kyiv (Friday) → '
+        '"19", agreeing with formatStubDayLine\'s "червня, пт"', () {
+      final DateTime instant = DateTime.utc(2026, 6, 18, 22, 30);
+      expect(formatStubDayNumber(instant), '19');
+      expect(formatStubDayLine(instant), 'червня, пт');
+    });
+
+    test('winter/EET: 2026-01-18T22:30Z is 2026-01-19 00:30 Kyiv (Monday) → '
+        '"19", agreeing with formatStubDayLine\'s "січня, пн"', () {
+      final DateTime instant = DateTime.utc(2026, 1, 18, 22, 30);
+      expect(formatStubDayNumber(instant), '19');
+      expect(formatStubDayLine(instant), 'січня, пн');
+    });
+  });
+
   // ===========================================================================
   // Phase 23.3 — cross-midnight regression (mandated by the phase doc).
   //
@@ -134,5 +185,46 @@ void main() {
         expect(formatFullDate(crossing), 'середа, 15 липня');
       },
     );
+
+    // The stub formatters (Phase 14.3) were not covered by this group before
+    // mobile-qa's 2026-08 audit — see the dedicated divergence-window group
+    // above for why that mattered in practice.
+    test(
+      'formatStubDayNumber reads the Kyiv day, not the raw UTC day → "15"',
+      () {
+        expect(formatStubDayNumber(crossing), '15');
+      },
+    );
+
+    test(
+      'formatStubDayLine reads the Kyiv day/weekday/month → "липня, ср"',
+      () {
+        expect(formatStubDayLine(crossing), 'липня, ср');
+      },
+    );
+
+    test('formatStubDayNumber and formatStubDayLine agree on the same calendar '
+        'date — the invariant the 2026-08 bug violated', () {
+      // Parse the day number out of formatStubDayNumber's own output and
+      // independently derive its weekday via plain Gregorian arithmetic
+      // (`DateTime(year, month, day).weekday`, Dart core — NOT
+      // `toBeauticaTime`, so this does not just re-run the same conversion
+      // the fix performs), then confirm that weekday is the one
+      // formatStubDayLine actually printed. Pre-fix, formatStubDayNumber
+      // returned the raw UTC day (14, a Tuesday) while formatStubDayLine
+      // still correctly read "липня, ср" (Wednesday) — the two lines
+      // named two different dates, which is exactly what this pins.
+      final int day = int.parse(formatStubDayNumber(crossing));
+      final int trueWeekday = DateTime(2026, 7, day).weekday;
+      final String expectedAbbrev = weekdayAbbrev(trueWeekday);
+
+      expect(
+        formatStubDayLine(crossing),
+        endsWith(', $expectedAbbrev'),
+        reason:
+            'day number $day and formatStubDayLine "${formatStubDayLine(crossing)}" '
+            'must name the same weekday',
+      );
+    });
   });
 }

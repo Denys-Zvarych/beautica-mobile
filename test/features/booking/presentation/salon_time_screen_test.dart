@@ -23,6 +23,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -185,7 +186,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final DateTime today = DateTime.now();
+      final DateTime today = kyivToday(DateTime.now);
       await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
 
@@ -231,7 +232,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final DateTime today = DateTime.now();
+    final DateTime today = kyivToday(DateTime.now);
     await tester.tapCalendarDay(today.day);
     await tester.pumpAndSettle();
 
@@ -267,7 +268,7 @@ void main() {
     await tester.pumpRoutedApp(_router(fake), overrides: _overrides(fake));
     await tester.pumpAndSettle();
 
-    final DateTime today = DateTime.now();
+    final DateTime today = kyivToday(DateTime.now);
     await tester.tapCalendarDay(today.day);
     await tester.pumpAndSettle();
     // In time phase now — the calendar is gone.

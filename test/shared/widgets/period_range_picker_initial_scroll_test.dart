@@ -34,6 +34,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 
 import '../../helpers/pump_app.dart';
@@ -98,8 +99,14 @@ void main() {
     testWidgets('with no initialScrollMonth, the list opens at firstMonth', (
       WidgetTester tester,
     ) async {
-      final DateTime now = DateTime.now();
-      final DateTime firstMonth = DateTime(now.year, now.month - 6);
+      // Kyiv "today", not the DEVICE's today: `PeriodRangePicker` derives its
+      // own `_today` via `kyivDayOf(widget.clock?.call() ?? DateTime.now())`
+      // (`period_range_picker.dart:279`), so a month computed off a bare
+      // `DateTime.now().month` is the HOST's month and can disagree with the
+      // widget's by one near a month boundary in any non-Kyiv zone — which
+      // would shift the expected today-index this test measures.
+      final DateTime today = kyivToday(DateTime.now);
+      final DateTime firstMonth = DateTime(today.year, today.month - 6);
 
       await tester.pumpApp(
         Scaffold(

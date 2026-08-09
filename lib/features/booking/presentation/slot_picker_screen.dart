@@ -44,11 +44,13 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../application/slot_picker_notifier.dart';
 import '../application/working_days_notifier.dart';
@@ -92,8 +94,12 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   @override
   void initState() {
     super.initState();
-    final DateTime now = DateTime.now();
-    _today = DateTime(now.year, now.month, now.day);
+    // Kyiv-anchored (backlog :226): slot availability is a Kyiv-day concept
+    // on the backend (`SlotCalculationService`'s `atStartOfDay(TimeZones
+    // .KYIV)`), so "today" — which gates the calendar's past-day cells and
+    // anchors the booking horizon below — must be the Kyiv day, not the
+    // device's own. See `shared/time/kyiv_day.dart`.
+    _today = kyivToday(ref.read(clockProvider));
     _firstMonth = DateTime(_today.year, _today.month, 1);
     _lastMonth = DateTime(_today.year, _today.month + _horizonMonths, 1);
     _visibleMonth = _firstMonth;
@@ -248,6 +254,10 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               // at mismatched y-offsets the instant the push settles.
               child: Hero(
                 tag: 'master-strip-${widget.args.master.id}',
+                // INERT (no `onTap`) per the policy on `MasterStrip.onTap`:
+                // an in-flight wizard step. It is also the Hero SOURCE of the
+                // flight into «Час» — a tap that pushed a third route
+                // mid-gesture would strand that flight.
                 child: MasterStrip.fromMaster(
                   widget.args.master,
                   showRole: true,
@@ -368,26 +378,57 @@ class _WorkingDaysErrorBody extends StatelessWidget {
     final String message = failure is Failure
         ? (failure as Failure).userMessage(context)
         : l10n.errUnknown;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(VelvetSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              message,
-              style: VelvetText.body(),
-              textAlign: TextAlign.center,
+    // Scrollable so the retry state cannot RenderFlex-overflow at a short
+    // viewport. The slot this body renders into is only ~83px tall on an
+    // 800×600 surface while a two-line message + CTA needs ~86px; a portrait
+    // phone has room to spare, but a landscape phone, a split-screen window or
+    // a large text scale does not, and an overflowing error state hides the
+    // retry button that is the only way out of it.
+    //
+    // `LayoutBuilder` + `ConstrainedBox(minHeight: maxHeight)` is what keeps
+    // the content VERTICALLY CENTRED while it is also scrollable. A bare
+    // `SingleChildScrollView(child: Center(…))` does not: this body renders
+    // into an `Expanded` (see `_calendarBody`'s call site), so the scroll view
+    // hands its child UNBOUNDED height, `Center` collapses to its child's own
+    // size, and the message + retry silently pin to the TOP of the calendar
+    // area on every roomy viewport. Giving the child a minimum equal to the
+    // viewport restores "centre when there is room, scroll when there is not".
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // `.isFinite` guard: an infinite `minHeight` is an assertion crash, and
+        // this widget is one refactor away from a caller that does not bound
+        // it (today it is always inside an `Expanded`). Falling back to 0
+        // degrades to the old top-aligned layout instead of throwing.
+        final double minHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 0.0;
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(VelvetSpacing.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      message,
+                      style: VelvetText.body(),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: VelvetSpacing.md),
+                    NeumorphicButton(
+                      key: const Key('booking-calendar-retry'),
+                      label: l10n.retryLabel,
+                      onPressed: onRetry,
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: VelvetSpacing.md),
-            NeumorphicButton(
-              key: const Key('booking-calendar-retry'),
-              label: l10n.retryLabel,
-              onPressed: onRetry,
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -551,6 +592,10 @@ class SlotTimeScreen extends ConsumerWidget {
                     // `onChange` performed.
                     Hero(
                       tag: 'master-strip-${args.master.id}',
+                      // INERT (no `onTap`) per the policy on
+                      // `MasterStrip.onTap`: the last in-flight wizard step
+                      // before «Підтвердження», where the strip becomes
+                      // tappable.
                       child: MasterStrip.fromMaster(
                         args.master,
                         showRole: true,

@@ -19,7 +19,7 @@
 //        category"}                                       (NO `errors` map)
 //     Change the category and submit. The form must surface the LOCALIZED inline
 //     error (`l10n.serviceTypeCategoryMismatch`) on the keyed `error-service-type`
-//     row — NOT a raw English snackbar.
+//     row — NOT a raw English VelvetSnack.
 //
 // HARNESS
 // -------
@@ -34,12 +34,14 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -183,11 +185,15 @@ void main() {
       );
       // Successful save pops back to /services.
       AppHarness.expectLocation(router, RouteNames.services);
+
+      // The success VelvetSnack lives on the app's ROOT Overlay and survives
+      // the pop — drain its dwell Timer so none is pending at teardown.
+      await pumpPastVelvetSnack(tester);
     },
     timeout: const Timeout(Duration(seconds: 40)),
   );
 
-  // ── NEGATIVE — fieldless backend 400 → localized inline error, no snackbar ──
+  // ── NEGATIVE — fieldless backend 400 → localized inline error, no VelvetSnack ──
 
   testWidgets(
     'a fieldless mismatch-400 from the backend surfaces as a localized inline '
@@ -234,11 +240,11 @@ void main() {
         findsOneWidget,
         reason: 'the inline message must be the LOCALIZED key value',
       );
-      // …and NEVER a raw English snackbar.
+      // …and NEVER a raw English VelvetSnack.
       expect(
-        find.byType(SnackBar),
+        find.byType(VelvetSnack),
         findsNothing,
-        reason: 'fieldless mismatch must not fall through to a snackbar',
+        reason: 'fieldless mismatch must not fall through to a snack',
       );
       expect(
         find.text('service type does not belong to the selected category'),

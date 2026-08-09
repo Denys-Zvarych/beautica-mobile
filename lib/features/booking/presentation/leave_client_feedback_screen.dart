@@ -53,6 +53,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_detail_notifier.dart';
@@ -114,7 +115,6 @@ class _LeaveClientFeedbackScreenState
   Future<void> _submit(Booking booking) async {
     if (_rating.value == 0) return;
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
     await ref
         .read(leaveClientFeedbackProvider.notifier)
@@ -137,9 +137,7 @@ class _LeaveClientFeedbackScreenState
       final String message = error is Failure
           ? error.userMessage(context)
           : l10n.errUnknown;
-      messenger
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(message)));
+      showErrorSnack(context, message);
       return;
     }
 
@@ -150,9 +148,7 @@ class _LeaveClientFeedbackScreenState
     // makes it re-fetch and drop the now-stale review CTA the instant we pop
     // back onto it (see the file header's gating note).
     ref.invalidate(bookingDetailProvider(widget.bookingId));
-    messenger
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(l10n.clientReviewSubmitSuccess)));
+    showSuccessSnack(context, l10n.clientReviewSubmitSuccess);
     if (context.canPop()) context.pop();
   }
 

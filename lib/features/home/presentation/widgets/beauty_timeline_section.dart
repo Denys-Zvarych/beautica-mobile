@@ -65,15 +65,25 @@ class BeautyTimelineSection extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.md),
         if (entries.isEmpty)
-          HubFlatCard(
-            key: const Key('timeline_empty'),
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.lg,
-            ),
-            child: HubEmptyState(
-              icon: Icons.history_rounded,
-              message: l10n.homeHubTimelineEmpty,
+          // Width is pinned to the full content width on purpose. The outer
+          // Column uses CrossAxisAlignment.start, which hands its children
+          // LOOSE width constraints, so an unpinned HubFlatCard would shrink to
+          // its widest child — the message Text. That made this card render
+          // narrower than the favourites empty state purely because
+          // `homeHubTimelineEmpty` is a shorter string. Pinning the width keeps
+          // the two sections aligned regardless of future l10n copy edits.
+          SizedBox(
+            width: double.infinity,
+            child: HubFlatCard(
+              key: const Key('timeline_empty'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: VelvetSpacing.md,
+                vertical: VelvetSpacing.lg,
+              ),
+              child: HubEmptyState(
+                icon: Icons.history_rounded,
+                message: l10n.homeHubTimelineEmpty,
+              ),
             ),
           )
         else

@@ -42,6 +42,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// [AuthNotifier] stub that settles immediately to `unauthenticated` — this
 /// test never navigates or asserts on auth-gated behaviour, it only needs
@@ -73,6 +74,7 @@ void main() {
       'CustomTransitionPage bypasses the CupertinoPageTransitionsBuilder that '
       'installs the left-edge swipe-back gesture', (tester) async {
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [
         authProvider.overrideWith(_FixedAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),

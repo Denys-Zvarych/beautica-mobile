@@ -90,6 +90,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -137,6 +138,7 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// network / platform-channel I/O.
 GoRouter _productionRouter() {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(
         () => _FixedAuthNotifier(_authenticatedSession),
@@ -287,6 +289,10 @@ void main() {
       'clientSearch': RouteNames.clientSearch,
       'clientBookings': RouteNames.clientBookings,
       'clientPassport': RouteNames.clientPassport,
+      // Phase 239 — «Усі збережені», a pushed leaf nested under the passport
+      // branch. Registered, so it belongs in `allRoutes` rather than in
+      // `deliberatelyUnregistered`.
+      'clientWishlist': RouteNames.clientWishlist,
       'bookingDetail()': RouteNames.bookingDetail(kSampleId),
       'bookingReview()': RouteNames.bookingReview(kSampleId),
       'clientSearchResults': RouteNames.clientSearchResults,
@@ -318,7 +324,6 @@ void main() {
       'masterEditLocation': RouteNames.masterEditLocation,
       'masterReceivedReviews': RouteNames.masterReceivedReviews,
       'services': RouteNames.services,
-      'serviceCreate': RouteNames.serviceCreate,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,
       'masterSchedule': RouteNames.masterSchedule,
@@ -336,23 +341,14 @@ void main() {
     // that it stays UNregistered — so this exclusion is itself covered by a
     // test, not merely asserted here.
     //
-    // MO-8 [mobile-security MEDIUM, fixed] — `appointmentDetail`/
-    // `appointmentReview` (`/bookings/visit/:appointmentId[/review]`) backed
-    // `VisitDetailScreen`'s whole-visit cancel, still `GoRoute`-registered
-    // after MO-7 deleted its only UI entry point (`VisitCard`) — reachable via
-    // an explicit component-targeted intent despite no `intent-filter` data
-    // match. The `GoRoute`s were removed from `app_router.dart`; the
-    // `RouteNames` constants are kept ONLY so `VisitDetailScreen`/
-    // `AppointmentReviewScreen` (retained, not deleted — see their file
-    // headers) and their widget tests can still build the path for their own
-    // self-contained test routers. NL-R01d below asserts both stay
-    // unregistered in the PRODUCTION router, mirroring NL-R01b for
-    // `workingHours`.
-    const Set<String> deliberatelyUnregistered = <String>{
-      'workingHours',
-      'appointmentDetail',
-      'appointmentReview',
-    };
+    // NOT an exclusion — `/services/create` (2026-08-04): the single-create
+    // form (`ServiceCreateScreen`) was deleted and the two "add services"
+    // flows collapsed onto the one surface `/services/setup`. Unlike the
+    // entries below, the `RouteNames.serviceCreate` CONSTANT was deleted too,
+    // so it belongs in neither `allRoutes` nor `deliberatelyUnregistered` —
+    // NL-R01c's `covered.difference(declared)` assertion is what forced the
+    // `allRoutes` row out. `/services/setup` is still covered above.
+    const Set<String> deliberatelyUnregistered = <String>{'workingHours'};
 
     test('NL-R01: every RouteNames constant resolves to a registered GoRoute '
         'in the PRODUCTION app_router', () {
@@ -390,35 +386,6 @@ void main() {
             'RouteNames.workingHours is the ONE constant NL-R01 excludes. If it '
             'is ever re-registered, remove it from `deliberatelyUnregistered` '
             'and delete this test — do not leave the exclusion silently stale.',
-      );
-    });
-
-    test('NL-R01d [mobile-security MEDIUM, fixed] — appointmentDetail/'
-        'appointmentReview stay unregistered in the PRODUCTION router', () {
-      final GoRouter router = _productionRouter();
-
-      expect(
-        router.configuration
-            .findMatch(Uri.parse(RouteNames.appointmentDetail(kSampleId)))
-            .isError,
-        isTrue,
-        reason:
-            'The visit/:appointmentId GoRoute was deliberately removed — it '
-            'had no UI entry point since MO-7 deleted VisitCard, but stayed '
-            'reachable via an explicit component-targeted intent straight to '
-            "VisitDetailScreen's whole-visit cancel. If this ever fails, a "
-            'GoRoute was re-registered without resolving the open product '
-            "question in VisitDetailScreen's file header — see route_names."
-            "dart's appointmentDetail doc.",
-      );
-      expect(
-        router.configuration
-            .findMatch(Uri.parse(RouteNames.appointmentReview(kSampleId)))
-            .isError,
-        isTrue,
-        reason:
-            'The nested review GoRoute was removed alongside its parent — '
-            'see the appointmentDetail case above.',
       );
     });
 
@@ -520,6 +487,7 @@ void main() {
       // A container that starts with an unauthenticated session and
       // transitions to Authenticated after acceptInvite() succeeds.
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => repo),
           secureStorageProvider.overrideWith((_) => storage),
@@ -640,6 +608,7 @@ void main() {
       'navigates to /register (step-1)',
       (tester) async {
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
             secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -730,6 +699,7 @@ void main() {
     testWidgets('NL-B02: tapping the AuthScaffold back button on /register/step-3 '
         'navigates to /register/step-2', (tester) async {
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -844,6 +814,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -920,6 +891,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),

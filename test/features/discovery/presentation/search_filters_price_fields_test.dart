@@ -39,6 +39,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -84,6 +85,7 @@ Future<void> _pumpScreen(WidgetTester tester) async {
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         authProvider.overrideWith(_FixedAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),

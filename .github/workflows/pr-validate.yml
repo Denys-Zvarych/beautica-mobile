@@ -226,6 +226,47 @@ jobs:
         shell: bash
         run: ./scripts/forbid_stale_future_date_fixture.sh
 
+      # 2026-08-02 (Phase 225 audit cycles 4 and 5, and again same day) — the
+      # dev VM this project is built on runs TZ=Europe/Kyiv, which is ALSO the
+      # business timezone (kBeauticaTimeZoneName). A bare local
+      # DateTime(2026, 6, 14, 12) resolves its underlying instant through the
+      # HOST PROCESS's own TZ, so on the dev VM it is indistinguishable from a
+      # correctly-pinned Kyiv instant and silently stops discriminating
+      # anything, while CI (TZ=UTC) or any other machine resolves it to a
+      # DIFFERENT instant — the fixture then either never fails locally no
+      # matter what the zone-conversion code does, or fails only on CI and
+      # reads as unrelated flake. This has shipped three times, most recently
+      # in `lib/core/time/clock_provider.dart`'s own doc comment, which taught
+      # the bad pattern as the canonical override example (fixed alongside
+      # this gate). Every zone-critical test file (one that touches
+      # toBeauticaTime/clockProvider/TZDateTime/beauticaZone/
+      # kBeauticaTimeZoneName) must instead pin `DateTime.utc(...)` or a
+      # `TZDateTime(...)` anchored to a named device zone. No allow-list — see
+      # the script header. Escape hatch: `// host-tz-ok: <reason>`.
+      - name: Forbid host-local instant anchors in zone-critical tests
+        shell: bash
+        run: ./scripts/forbid_host_local_instant_anchor.sh
+
+      # 2026-08-02 — companion PRODUCTION-code gate to the test-only one
+      # above. The locked principle (ARCHITECTURE-mobile.md § 0.9): the
+      # device clock supplies the current INSTANT, Europe/Kyiv decides which
+      # calendar DAY it falls on. A classifying gate that only flags the
+      # BUGGY `DateTime.now()` reads is impossible by grep alone —
+      # `endAt.isBefore(DateTime.now())` (a correct absolute-instant
+      # comparison) and `dateOnly(DateTime.now())` (the bug) are
+      # syntactically identical at the call site; they differ only in what
+      # the RESULT flows into. So this is a DECLARATION gate instead: it
+      # flags every live-code `DateTime.now` reference under `lib/` — call
+      # form and bare tear-off alike — unless it is annotated
+      # `// instant-ok: <reason>` or is the ONE hard-coded exemption
+      # (`clock_provider.dart`'s own seam definition). See the script header
+      # for the full rationale and for why a `dateOnly(` gate was rejected
+      # (real false positives: `days.map(dateOnly)`,
+      # `bookings_day_query.dart`).
+      - name: Forbid un-annotated raw clock reads in production code
+        shell: bash
+        run: ./scripts/forbid_raw_clock_read.sh
+
       # 2026-07-22 — `tester.enterText` is a SILENT NO-OP in profile/release
       # unless the harness registers the test text-input mock: the editing
       # state is posted with client id -1 (both
@@ -273,6 +314,71 @@ jobs:
         shell: bash
         run: ./scripts/forbid_slash_in_patrol_test_name.sh
 
+      # 2026-07-31 — forbid a bare pumpAndSettle() straight after a
+      # results-screen tap. SearchResultsScreen keeps an INDETERMINATE
+      # _LoadMoreSpinner mounted while data.hasMore (FakeBackend seeds
+      # totalPages: 2), so quiescence never arrives and the settle times out
+      # MID-PUMP — tripping !_expectingFrame in postTest, which kills every
+      # LATER test in the file with '!inTest' before they execute a line. That
+      # is how 7 tests in client_search_flow_test.dart had never once been
+      # observed running. The hazard was documented in comments six times in
+      # that one file and still recurred on the seventh flow; prose does not
+      # gate. Deliberately NARROW (local tap→settle adjacency only) — the true
+      # condition is runtime `hasMore`, which no grep can see; see the script
+      # header's KNOWN BLIND SPOTS. Zero baseline, no allow-list.
+      - name: Forbid bare pumpAndSettle after a results-screen tap
+        shell: bash
+        run: ./scripts/forbid_results_bare_pump_and_settle.sh
+
+      # 2026-07-31 — forbid a direct cast on a queryParameters read inside
+      # integration_test/support. The generated OpenAPI client sends repeatable
+      # params as a Dio ListParam, and WHICH params are repeatable is decided by
+      # the backend spec — so a param that is scalar today flips under any
+      # ./scripts/regenerate_api.sh with no mobile code change. The cast then
+      # throws INSIDE the DioAdapter route callback, which never reads as "the
+      # fake is broken": the request fails, the provider goes AsyncError, and
+      # the screen paints an error body, so the failure surfaces as unrelated
+      # downstream assertions in other files. This exact bug has shipped THREE
+      # times in one file (status, then serviceId on working-days, then
+      # serviceId on slots — the last reddened 4 tests across 2 flows). Reads
+      # must route through _multiQueryParam / _scalarQueryParam, which tolerate
+      # ListParam / List / scalar / absent alike. Zero baseline, same-line
+      # `// query-param-cast-ok:` escape hatch.
+      - name: Forbid raw casts on queryParameters reads in test fakes
+        shell: bash
+        run: ./scripts/forbid_raw_query_param_cast.sh
+
+      # 2026-07-31 — forbid a blind tester.tap on a booking-calendar-day-* cell.
+      # MonthCalendar sits in a SingleChildScrollView; on the 800x600 test
+      # surface the scroll fold is at y~419 while the last two grid rows centre
+      # at y~440/490. A blind tap on a below-the-fold cell does NOT throw — the
+      # finder resolves, tap() computes a centre, and the tap lands on the
+      # summary bar and is silently swallowed, failing later on an unrelated
+      # assertion. Crucially it is DATE-DEPENDENT (tests tap DateTime.now().day),
+      # so the suite is green ~18 days a month and red the last ~12 — it reads
+      # as flake and gets re-run rather than fixed. Enabled-cell taps must go
+      # through tester.tapCalendarDay (ensureVisible first). Tests proving a
+      # cell is INERT keep tapping directly and declare it with
+      # `warnIfMissed: false` — that is the exemption token. Zero baseline.
+      - name: Forbid blind taps on calendar day cells
+        shell: bash
+        run: ./scripts/forbid_blind_calendar_tap.sh
+
+      # 2026-07-31 — every CLIENT shell branch screen must carry the stable
+      # `client-branch-<slug>` Key its placeholder exposed. Shell E2Es target
+      # those keys to assert which branch is showing (text would couple them to
+      # UA copy). The Phase 13.7 placeholder->HomeHubScreen migration dropped
+      # `client-branch-home` while every sibling carried theirs over, leaving
+      # two shell flows quietly red for a reason that looked like a navigation
+      # bug. The widget tier is structurally blind to this: its branch-key
+      # assertions pump the PLACEHOLDER, not the replacement. The branch->screen
+      # mapping is derived from app_router.dart, so placeholder-served branches
+      # are skipped automatically and a graduating branch is covered the day it
+      # graduates - no allow-list to maintain.
+      - name: Forbid a client shell branch screen missing its branch Key
+        shell: bash
+        run: ./scripts/forbid_missing_client_branch_key.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
@@ -290,6 +396,15 @@ jobs:
           ./scripts/forbid_missing_test_text_input.sh --self-test
           ./scripts/forbid_expectlocation_home.sh --self-test
           ./scripts/forbid_slash_in_patrol_test_name.sh --self-test
+          ./scripts/forbid_results_bare_pump_and_settle.sh --self-test
+          ./scripts/forbid_raw_query_param_cast.sh --self-test
+          ./scripts/forbid_blind_calendar_tap.sh --self-test
+          ./scripts/forbid_missing_client_branch_key.sh --self-test
+          ./scripts/forbid_magic_padding.sh --self-test
+          ./scripts/forbid_cycle_stub_in_tests.sh --self-test
+          ./scripts/forbid_provider_self_invalidation.sh --self-test
+          ./scripts/forbid_host_local_instant_anchor.sh --self-test
+          ./scripts/forbid_raw_clock_read.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
@@ -336,6 +451,255 @@ jobs:
         env:
           TZ: Europe/Kyiv
         run: flutter test test/features/booking/presentation/bookings_day_rail_test.dart --reporter=expanded
+
+      # 2026-08-02 — a third CI zone, distinct from BOTH the main suite (UTC)
+      # and the DST-rail step above (Europe/Kyiv). The main suite's UTC run
+      # lets slot_time_tz_regression_test.dart PROVE Kyiv-pinning by asserting
+      # Kyiv wall-clocks on a non-Kyiv host — under Kyiv itself a regression to
+      # `.toLocal()` passes that suite silently (mutation-verified). But UTC
+      # and Europe/Kyiv are BOTH zones this codebase's own market anchor cares
+      # about, so a bug that reads the raw device/host clock instead of
+      # converting through toBeauticaTime can still coincidentally agree with
+      # the correct Kyiv-derived value on either of them. A zone with NO
+      # relationship to Kyiv at all closes that gap: any host-clock leak fails
+      # loudly here regardless of which of the other two zones it happened to
+      # slip past.
+      #
+      # Asia/Tokyo specifically: UTC+9, and — unlike Europe/Kyiv — it observes
+      # NO DST, so its offset is constant year-round. That makes the verdict a
+      # property of the CODE under test, never of the CALENDAR DATE the runner
+      # happens to execute on. A larger-skew zone that also carried DST would
+      # make day-boundary divergence fire depending on the HOUR CI happens to
+      # run — flaky-by-clock, exactly the failure mode this whole track exists
+      # to eliminate.
+      #
+      # DIRECTION (2026-08-04, measured — see the Pacific/Honolulu step that
+      # follows this one). Asia/Tokyo is EAST of Kyiv, so it only ever pushes a
+      # host-local fixture BACKWARD across the Kyiv day boundary, and only for
+      # a bounded band of fixture hours. For a bare `DateTime(Y,M,D,H)` on a
+      # host at UTC+O, the Kyiv hour is `H - O + 3`; the Kyiv calendar day
+      # differs from D only when that falls outside [0,24). At O=+9 that means
+      # H < 6 — Tokyo can ONLY catch a host-local anchor whose named hour is
+      # 00:00-05:59. It is structurally blind to every afternoon/evening
+      # fixture, which is most of them in a booking app. That blindness is why
+      # the Honolulu step below was ADDED rather than swapped in: the two zones
+      # catch DISJOINT hour bands and neither subsumes the other. Both
+      # directions were proven by executed mutation, not derived — see the
+      # Honolulu step's own comment for the two probes and their verdicts.
+      #
+      # Scoped to the same date/time-sensitive directories as the rest of this
+      # workflow's zone-specific coverage, not the whole suite — running
+      # obviously zone-independent tests (widget layout, form validation, …)
+      # under a third zone would add CI time without adding any signal.
+      #
+      # MEASURED, not estimated (2026-08-02) — a prior version of this comment
+      # asserted "measured GREEN … (2,343 tests)" for a scope that included
+      # test/shared/widgets/, but that number was never actually run: an
+      # independent static grep of this exact directory list counted ~2,093
+      # top-level test( / testWidgets( calls, and a separate cited run logged
+      # 1,824 tests. Three numbers, none agreeing, because none of them came
+      # from executing the committed scope. This directory list was then
+      # ACTUALLY RUN, twice, against the exact `flutter test` invocation below:
+      #   - with test/shared/widgets/ included: 2,404 passed, 5 skipped,
+      #     0 failed, real 3m56.138s (TZ=Asia/Tokyo).
+      #   - with test/shared/widgets/ dropped (the scope actually committed
+      #     below): 2,311 passed, 5 skipped, 0 failed, real 3m44.128s
+      #     (TZ=Asia/Tokyo). The 5 skips are the DST-rail guards in
+      #     bookings_day_rail_test.dart, which only fire on a host whose UTC
+      #     offset changes across the transition — Asia/Tokyo observes no DST,
+      #     same reason they skip on the main UTC step.
+      # Both runs were 0 failures, so no latent host-clock leak was found by
+      # running this — this scope is a GATE against a future regression, not
+      # a speculative ratchet against a hypothetical one. ~3m44s is well
+      # inside the ~5 minute budget this step was designed around.
+      #
+      # SCOPE DECISION (2026-08-02, on the measurement above): test/shared/
+      # widgets/ is DROPPED, every other directory KEPT. 0 of its 12 files
+      # match scripts/forbid_host_local_instant_anchor.sh's own zone-critical
+      # classifier (toBeauticaTime|clockProvider|TZDateTime|beauticaZone|
+      # kBeauticaTimeZoneName), and 9 of 12 contain no time-related symbol at
+      # all. The remaining 3 (period_range_picker_*_test.dart,
+      # velvet_bottom_nav_bar_mount_parity_test.dart) touch DateTime only for
+      # a "today" ring / a booked-day set fixture, and period_range_picker_
+      # span_cap_test.dart's own header already documents its cases as
+      # identical under TZ=UTC and TZ=Europe/Kyiv (calendar-only DateTime(y,
+      # m, d) literals, not host-clock reads) — not the host-local-instant-
+      # anchor bug class this sweep exists to catch.
+      #
+      # The OTHER directories in this list do NOT all score higher on that
+      # same classifier — measured per directory (zone-critical files /
+      # total files), 2026-08-02:
+      #   test/features/booking/    8/91   test/shared/formatters/   1/8
+      #   test/features/schedule/   0/19   test/shared/time/         1/1
+      #   test/features/home/       1/18   test/shared/calendar/     1/1
+      #   test/routing/             0/17   test/core/time/           1/1
+      # test/features/schedule/ (0/19) and test/routing/ (0/17) score
+      # IDENTICALLY to the dropped test/shared/widgets/ on the classifier
+      # metric alone. They stay in scope anyway, on DOMAIN RELEVANCE rather
+      # than classifier score: the classifier only sees what a TEST FIXTURE
+      # references, not what the production widget/screen under test calls
+      # internally. test/features/schedule/ renders calendar/weekly-template
+      # UI, and test/routing/ contains auth_redirect_test.dart /
+      # booking_route_guard_test.dart — both plausible homes for a screen or
+      # guard calling DateTime.now() directly without the test file ever
+      # naming toBeauticaTime. test/shared/widgets/ was dropped instead
+      # because it is generic UI atoms (rating stars, error states,
+      # swipe-back gestures) and was MANUALLY confirmed non-time-domain file
+      # by file — the per-file check two paragraphs up, a stronger signal
+      # than the classifier score alone. Do not re-derive a "0/N ⇒ safe to
+      # drop" rule from the table above; test/features/schedule/ and
+      # test/routing/ are the standing counterexample.
+      #
+      # REJECTED ALTERNATIVE: trimming to a curated file list (e.g. just the
+      # ~106 files that touch a time-related symbol, or the 13 that are
+      # zone-critical). Rejected because a hardcoded file list silently stops
+      # covering a file added LATER — exactly the "guard that stops guarding"
+      # failure class scripts/forbid_host_local_instant_anchor.sh's own header
+      # was written to eliminate, and it would need manual upkeep forever.
+      # Directory-level scope auto-covers new files the day they're added, at
+      # a measured cost (~3m44s) this step's budget already accepts. Do not
+      # re-litigate this without a fresh measurement of the CURRENT committed
+      # list — see the numbers above and re-run:
+      #   time TZ=Asia/Tokyo flutter test <the directories below> --reporter=expanded
+      #
+      # Step-level `env:` — see the DST rail guards step above for why this
+      # must never become a job-level override; test/ci/dst_rail_ci_coverage_test.dart
+      # asserts there is no job-level `env:` anywhere in this file.
+      # 2026-08-02 — test/features/calendar/ ADDED to the sweep. It was not
+      # previously in this list even though `working_hours_repository.dart`
+      # (`_todayKyiv()`) became genuinely zone-critical in the same change
+      # that added `scripts/forbid_raw_clock_read.sh` — the working-hours
+      # repository's window-selection logic now derives "today" through the
+      # Kyiv-anchored clock seam, exactly the class of code this sweep exists
+      # to catch a host-clock-leak regression in. See
+      # `test/features/calendar/data/working_hours_repository_test.dart`'s
+      # own "Kyiv-anchored" test group for the Tokyo-pinned regression case.
+      - name: Third-timezone sweep (host-clock leak detector)
+        env:
+          TZ: Asia/Tokyo
+        run: |
+          flutter test \
+            test/features/booking/ \
+            test/features/schedule/ \
+            test/features/home/ \
+            test/features/calendar/ \
+            test/shared/formatters/ \
+            test/shared/time/ \
+            test/shared/calendar/ \
+            test/core/time/ \
+            test/routing/ \
+            --reporter=expanded
+
+      # 2026-08-04 — a FOURTH CI zone, WEST of Kyiv. Added, not swapped in for
+      # Asia/Tokyo, because measurement showed the two are complementary rather
+      # than redundant.
+      #
+      # WHAT THIS CATCHES THAT NO GREP CAN
+      # ----------------------------------
+      # scripts/forbid_host_local_instant_anchor.sh's six rules are all
+      # single-file text rules. The bug class they structurally cannot see is
+      # CROSS-FILE DATAFLOW: a test file names a host-local instant, hands it to
+      # a widget, and the widget converts it through Europe/Kyiv somewhere the
+      # test file never references. On 2026-08-04 an attempt to widen that
+      # script's Rule 1 to reach this class was MEASURED AND REFUSED — with its
+      # stage-1 classifier disabled the matcher returned 74 hits / 1 genuine
+      # defect / 73 inert, 1.4% precision, i.e. 73 rubber-stamped annotations
+      # (commit 030ddb18, and the refusal is recorded in that script's header).
+      # The single defect was found instead by EXECUTING the suite under
+      # TZ=Pacific/Honolulu, at precision 1/1 with zero annotations. This step
+      # is that execution, wired. It cannot be rubber-stamped: there is no
+      # marker to add, only a passing or failing test.
+      #
+      # WHY HONOLULU IN ADDITION TO TOKYO — MEASURED IN BOTH DIRECTIONS
+      # --------------------------------------------------------------
+      # For a bare `DateTime(Y,M,D,H)` on a host at UTC+O, the Kyiv wall-clock
+      # hour is `H - O + 3`, so the Kyiv calendar day differs from D only when
+      # that leaves [0,24). Per zone that is a band of FIXTURE HOURS:
+      #   Europe/Kyiv (+3)      none      — the dev VM; blind by construction
+      #   UTC          (0)      H >= 21   — the main suite
+      #   Asia/Tokyo   (+9)     H <  6    — the step above
+      #   Pacific/Honolulu (-10) H >= 11  — this step
+      # Tokyo's band and Honolulu's band are DISJOINT, so neither subsumes the
+      # other and a swap would lose real coverage. Honolulu's band strictly
+      # contains the main UTC suite's.
+      #
+      # Proven by executed mutation on booking_confirm_test.dart, not derived
+      # (2026-08-04). Its `_kStartAt`/`_kEndAt` were reverted to the pre-
+      # 030ddb18 host-local spelling and the file run under all four zones:
+      #   PROBE A  DateTime(2026,7,20,14)  Kyiv PASS  UTC PASS  Tokyo PASS
+      #                                    Honolulu FAIL
+      #     — the real defect 030ddb18 fixed. booking_confirm_screen.dart:248
+      #       keys its bookingsDayProvider invalidation off
+      #       `dateOnly(toBeauticaTime(startAt))`; under Honolulu that instant
+      #       is 03:00 the NEXT Kyiv day, so the invalidation targeted a family
+      #       member the test never subscribed to. Failure was
+      #       `Expected: <2> Actual: <1>` on the "REGRESSION GUARD — ...
+      #       invalidates bookingsDayProvider" test. Tokyo does NOT see it.
+      #   PROBE B  DateTime(2026,7,20,2)   Kyiv PASS  UTC PASS  Honolulu PASS
+      #                                    Tokyo FAIL
+      #     — the mirror direction, same defect shape at an early-morning
+      #       fixture hour. This is what earns Asia/Tokyo its slot: Honolulu
+      #       does NOT see it. Do not "consolidate" the two sweeps into one.
+      # A THIRD probe records the residual gap honestly rather than claiming
+      # full coverage:
+      #   PROBE C  DateTime(2026,7,20,8)   Tokyo PASS  Honolulu PASS
+      # Fixture hours 06:00-10:59 are caught by NO zone in this workflow. Only
+      # a maximal pair (Pacific/Kiritimati UTC+14 with Pacific/Niue UTC-11)
+      # would close it — verified: probe C is RED under Pacific/Kiritimati.
+      # Deliberately NOT adopted: it would mean retiring Asia/Tokyo as the CI
+      # host zone while a dozen test files still use `tz.getLocation('Asia/
+      # Tokyo')` as this codebase's canonical "other zone" idiom, for five
+      # fixture hours. Revisit only WITH a fresh full-sweep measurement under
+      # both replacement zones — neither has ever been run at this scope.
+      #
+      # Pacific/Honolulu specifically: UTC-10 and — like Asia/Tokyo, unlike
+      # Europe/Kyiv — it observes NO DST, so its offset is constant year-round
+      # and the verdict stays a property of the CODE, never of the calendar
+      # date the runner happens to execute on.
+      #
+      # COST, MEASURED (2026-08-04, dev VM, this exact scope, current tree):
+      #   TZ=Asia/Tokyo        2413 passed, 5 skipped, 0 failed, real 6m01.457s
+      #   TZ=Pacific/Honolulu  2413 passed, 5 skipped, 0 failed, real 5m56.630s
+      # The two zones cost the same, so this step adds ~1x the Tokyo step.
+      #
+      # It does NOT "double test wall time" — a claim made when this step was
+      # first proposed, and measured to be wrong. The denominator was measured
+      # too, same machine, same tree: the main `Test` step above
+      # (`flutter test --coverage --exclude-tags golden`, the whole suite) is
+      # 5493 passed, 3 skipped, real 22m47.850s. So the zone-sensitive part of
+      # this job goes from ~29m (main + Kyiv rail file + Tokyo) to ~35m — about
+      # +20%, not +100%. Re-measure both numbers before re-litigating the cost;
+      # the earlier 3m44s Tokyo figure in the step above is from the 2026-08-02
+      # tree and no longer comparable (2311 tests then, 2413 now).
+      #
+      # The 5 skips are bookings_day_rail_test.dart's DST-transition guards, which
+      # need a host whose offset changes — same reason they skip under Tokyo
+      # and under the main UTC suite. It is GREEN on the current tree: the
+      # defect it originally found is already fixed in 030ddb18, so this is a
+      # gate against regression, not a live bug hunt. Scope is deliberately the
+      # SAME directory list as the Tokyo step — see that step's SCOPE DECISION
+      # and REJECTED ALTERNATIVE notes; both apply verbatim here, and the two
+      # lists must be kept identical so a directory added to one is not
+      # silently uncovered in the other direction.
+      #
+      # Step-level `env:` — never job-level, for the reason spelled out on the
+      # DST rail guards step. Pinned by test/ci/dst_rail_ci_coverage_test.dart;
+      # deleting this step fails that test.
+      - name: Fourth-timezone sweep (west-of-Kyiv day-boundary detector)
+        env:
+          TZ: Pacific/Honolulu
+        run: |
+          flutter test \
+            test/features/booking/ \
+            test/features/schedule/ \
+            test/features/home/ \
+            test/features/calendar/ \
+            test/shared/formatters/ \
+            test/shared/time/ \
+            test/shared/calendar/ \
+            test/core/time/ \
+            test/routing/ \
+            --reporter=expanded
 
       # Phase 17.4 — Golden regression suite.
       # Runs the alchemist CI goldens (obscureText=true, renderShadows=false)

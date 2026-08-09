@@ -71,12 +71,19 @@ void main() {
     });
 
     test('surfaces a repository Failure as an AsyncError', () async {
+      // ASYNCHRONOUS throw — a Dio-backed repository never fails synchronously;
+      // it returns a Future that completes with the error. `thenThrow` would
+      // model a shape that cannot occur, and (with the production retry
+      // predicate) would also short-circuit the retry curve for this transient
+      // NetworkFailure. `makeContainer` disables retry outright, so the async
+      // shape still surfaces the terminal AsyncError on the first attempt —
+      // realistic AND deterministic, at no cost in run time.
       when(
         () => repo.getMasterReviews(
           masterId: any(named: 'masterId'),
           sort: any(named: 'sort'),
         ),
-      ).thenThrow(const NetworkFailure());
+      ).thenAnswer((_) async => throw const NetworkFailure());
 
       final ProviderContainer container = makeContainer();
 

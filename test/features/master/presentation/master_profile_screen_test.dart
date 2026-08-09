@@ -50,13 +50,16 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_address_block.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/services_stat_tile.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
@@ -67,6 +70,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Finders
@@ -78,6 +82,40 @@ import '../../../helpers/pump_app.dart';
 final Finder _locationIcon = find.byWidgetPredicate(
   (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
 );
+
+// ---------------------------------------------------------------------------
+// Style matchers
+// ---------------------------------------------------------------------------
+
+/// Asserts [text] carries the address style [MasterAddressBlock] actually
+/// renders: `VelvetText.feedbackMutedXs` MERGED over the ambient
+/// `DefaultTextStyle` (the `Material` above installs `theme.textTheme
+/// .bodyMedium`, which contributes `letterSpacing` among other things).
+///
+/// These assertions used to pin the RAW `VelvetText.feedbackMutedXs`. That was
+/// never what the pixels used — a `Text` with an `inherit: true` style always
+/// renders `DefaultTextStyle.of(context).style.merge(style)` — and pinning the
+/// raw static is precisely what let the block MEASURE one style while
+/// RENDERING another, collapsing addresses that then got ellipsized (Phase 224
+/// mobile-perf MEDIUM). The block now resolves the merge once and hands the
+/// same `TextStyle` to both the measurement and every `Text`, so the
+/// expectation here is the merged style — with the `VelvetText` identity
+/// (size / weight / colour) asserted explicitly so a regression that dropped
+/// the brand style entirely could not pass by merging into whatever ambient
+/// default happened to be installed.
+///
+/// The merge-agreement contract itself is covered at the widget tier in
+/// `widgets/master_address_block_test.dart`, against the real
+/// `RenderParagraph`.
+void _expectEffectiveAddressStyle(WidgetTester tester, Text text) {
+  final TextStyle ambient = DefaultTextStyle.of(
+    tester.element(find.byType(MasterAddressBlock)),
+  ).style;
+  expect(text.style, ambient.merge(VelvetText.feedbackMutedXs));
+  expect(text.style?.fontSize, VelvetText.feedbackMutedXs.fontSize);
+  expect(text.style?.fontWeight, VelvetText.feedbackMutedXs.fontWeight);
+  expect(text.style?.color, VelvetText.feedbackMutedXs.color);
+}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -146,7 +184,10 @@ const _stubMasterCityOnly = Master(
 );
 
 /// Street + city, no buildingNo, no locationNote.
-/// Expected locationLine: "вул. Хрещатик, Київ".
+///
+/// Phase 224: SHORT enough that "Київ, вул. Хрещатик" fits on one line at the
+/// default 800dp test surface — takes the COLLAPSED path
+/// (`master-profile-address-combined-text`).
 const _stubMasterStreetAndCity = Master(
   id: 'user-1',
   firstName: 'Тест',
@@ -159,7 +200,9 @@ const _stubMasterStreetAndCity = Master(
 );
 
 /// Street + buildingNo + city + locationNote — full address.
-/// Expected locationLine: "вул. Хрещатик, 22, Київ".
+///
+/// Phase 224: "Київ, вул. Хрещатик, 22" fits on one line at the default 800dp
+/// test surface — takes the COLLAPSED path.
 /// Expected note row: "кв. 3, 2 поверх".
 const _stubMasterFullAddress = Master(
   id: 'user-1',
@@ -174,11 +217,121 @@ const _stubMasterFullAddress = Master(
   type: MasterType.independentMaster,
 );
 
+/// Phase 224 — a city + street + building combination whose COLLAPSED form
+/// («Кам'янець-Подільський, вул. Академіка Володимира Філатова, 145-Б») cannot
+/// fit on one line in the identity card's right-hand column at a narrow-phone
+/// width, so the block must fall back to the Phase 220 two-row split.
+///
+/// This fixture is the split path's only guard: without it every remaining
+/// two-field fixture takes the collapsed path and a regression that made the
+/// collapse unconditional would go unnoticed.
+const _stubMasterLongAddress = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: "Кам'янець-Подільський",
+  street: 'вул. Академіка Володимира Філатова',
+  buildingNo: '145-Б',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// Street only, no city, no buildingNo — Phase 220 (C) promotion case: with
+/// no locality, the street line is promoted to the primary (icon-bearing)
+/// row and keyed `master-profile-address-text`, matching the promotion rule
+/// in `result_address_block.dart`.
+const _stubMasterStreetOnly = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  street: 'вул. Хрещатик',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
 /// No city, no street — location row must be hidden entirely.
 const _stubMasterNoLocation = Master(
   id: 'user-1',
   firstName: 'Тест',
   lastName: 'Майстер',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+// ---------------------------------------------------------------------------
+// mobile-qa gap-fill (Phase 219/220 QA audit) — three edge-matrix combos the
+// widget tier never exercised: city+buildingNo with NO street, street+
+// buildingNo with NO city (promotion WITH a building number), and buildingNo
+// ALONE. The pure-function matrix lives in
+// `test/shared/formatters/address_lines_test.dart`;
+// these three pin the same combos through the REAL production Row/Text tree.
+// ---------------------------------------------------------------------------
+
+/// City + buildingNo, NO street — the building number must be dropped
+/// entirely (never leaked beside the city with a dangling comma).
+/// Expected: locality line "Київ" only; no address-text line at all.
+const _stubMasterCityAndBuildingNoStreet = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: 'Київ',
+  buildingNo: '22',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// Street + buildingNo, NO city — promotion path WITH a building number
+/// attached. Expected: no locality line; the promoted address line reads
+/// "вул. Хрещатик, 22".
+const _stubMasterStreetAndBuildingNoCity = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  street: 'вул. Хрещатик',
+  buildingNo: '22',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// buildingNo ALONE — no city, no street. The whole location row (icon +
+/// both lines) must be hidden; a building number must never render on its
+/// own.
+const _stubMasterBuildingNoOnly = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  buildingNo: '22',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// A ~400-character [locationNote] — a realistic long entrance-instructions
+/// note within the backend's `@Size(max = 1000)` bound. Phase 219 reproduction
+/// fixture: proves the `maxLines: null` + `overflow: ellipsis` combination
+/// collapses the note instead of wrapping it across its available width.
+const String _kLongLocationNote =
+    'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+    'плутайте з сусіднім під\'їздом, там кодовий замок не працює. Тримайтеся '
+    'правої стіни, минаєте дитячий майданчик, підіймаєтесь трьома сходинками '
+    'до скляних дверей із синьою наклейкою. Домофон код 45В, дзвоніть двічі '
+    'коротко. Якщо домофон не відповідає — телефонуйте адміністратору, номер '
+    'вказано на вивісці біля дверей. Кабінет на другому поверсі, одразу '
+    'ліворуч від сходів, третій номер за рахунком.';
+
+const _stubMasterLongNote = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: 'Київ',
+  street: 'вул. Хрещатик',
+  buildingNo: '22',
+  locationNote: _kLongLocationNote,
   avgRating: 4.5,
   reviewCount: 0,
   type: MasterType.independentMaster,
@@ -779,8 +932,17 @@ void main() {
 
       // Location icon must be present (the locationMarker AppIcon is in the Row).
       expect(_locationIcon, findsOneWidget);
-      // The combined address text must equal just the city.
+      // Phase 220 (C): city-only renders on the LOCALITY line (no street
+      // line at all — there is nothing to promote).
       expect(find.text('Київ'), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-locality-text')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-profile-address-text')),
+        findsNothing,
+      );
     });
 
     testWidgets('does not render a note row when locationNote is null', (
@@ -800,9 +962,8 @@ void main() {
       expect(find.text('кв. 3, 2 поверх'), findsNothing);
     });
 
-    testWidgets('address text widget uses VelvetText.feedbackMutedXs style', (
-      tester,
-    ) async {
+    testWidgets('locality text widget renders VelvetText.feedbackMutedXs '
+        'merged over the ambient DefaultTextStyle', (tester) async {
       await tester.pumpApp(
         const MasterProfileScreen(),
         overrides: _buildOverrides(
@@ -813,54 +974,280 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Phase 220 (C): city-only renders on `master-profile-locality-text`
+      // — `master-profile-address-text` is reserved for the street line.
       final addressText = tester.widget<Text>(
-        find.byKey(const Key('master-profile-address-text')),
+        find.byKey(const Key('master-profile-locality-text')),
       );
-      expect(addressText.style, VelvetText.feedbackMutedXs);
+      _expectEffectiveAddressStyle(tester, addressText);
     });
   });
 
   // ── 10. Location line — street + city ─────────────────────────────────────
 
-  group('location line — street and city, no building', () {
-    testWidgets('renders street comma city when buildingNo is absent', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const MasterProfileScreen(),
-        overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(_stubMasterStreetAndCity),
-          repo: repo,
-          serviceRepo: mockServiceRepo,
-        ),
-      );
-      await tester.pumpAndSettle();
+  // WHY EVERY COLLAPSE-PATH TEST BELOW PASSES AN EXPLICIT `width`
+  // -------------------------------------------------------------
+  // Surface width is not incidental setup here — it is THE INPUT the decision
+  // under test consumes. `MasterAddressBlock` measures the combined string
+  // against the width its column actually receives and collapses only if it
+  // fits, so a test asserting "collapsed" is asserting something about a width.
+  // Leaving that width to `pumpApp`'s implicit 800dp default meant a change to
+  // the default surface would flip these cases onto the SPLIT path, where they
+  // would keep passing while asserting the opposite of what they were written
+  // to assert. The split-path cases already state their width (320); these now
+  // do too.
+  //
+  // WHY 400 — measured, not guessed. The identity card's chrome takes a fixed
+  // 200dp, so the address column gets `surface - 200`. The longest fixture on
+  // this path ("Київ, вул. Хрещатик, 22") needs ~148dp including the pin and
+  // its gap, putting the collapse/split crossover at a ~348dp surface. 400dp
+  // gives the column 200dp against that 148dp requirement — ~35 % headroom, far
+  // more than any plausible font-metric drift — while staying a realistic
+  // modern-phone logical width, so the collapse is proven where it has to work
+  // rather than only on a tablet-scale surface. 320dp (the split-path cases)
+  // sits on the other side of the same crossover, so the two groups now bracket
+  // the real boundary.
+  const double collapsingWidth = 400;
 
-      expect(find.text('вул. Хрещатик, Київ'), findsOneWidget);
-    });
+  group('location line — street and city, no building', () {
+    testWidgets(
+      'collapses city + street onto ONE line when the combined string fits '
+      '(Phase 224)',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterStreetAndCity),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: collapsingWidth,
+        );
+        await tester.pumpAndSettle();
+
+        // Phase 224: "Київ, вул. Хрещатик" fits on one line at a 400dp
+        // surface, so the block collapses to the single combined row.
+        expect(
+          find.byKey(const Key('master-profile-address-combined-text')),
+          findsOneWidget,
+        );
+        expect(find.text('Київ, вул. Хрещатик'), findsOneWidget);
+        // The split rows must NOT also render — the two paths are exclusive.
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsNothing,
+        );
+        // The pre-220 street-first order must never come back.
+        expect(find.text('вул. Хрещатик, Київ'), findsNothing);
+        // One pin, on the one row.
+        expect(_locationIcon, findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the combined line renders VelvetText.feedbackMutedXs merged over the '
+      'ambient DefaultTextStyle and is clamped to a single line',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterStreetAndCity),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          // Explicit: this case only reaches the combined row on the collapse
+          // side of the crossover — see the note above group 10.
+          width: collapsingWidth,
+        );
+        await tester.pumpAndSettle();
+
+        final Text combined = tester.widget<Text>(
+          find.byKey(const Key('master-profile-address-combined-text')),
+        );
+        _expectEffectiveAddressStyle(tester, combined);
+        expect(combined.maxLines, 1);
+      },
+    );
+  });
+
+  // ── 10a. Location line — long address falls back to the 220 split ─────────
+
+  group('location line — combined string does NOT fit', () {
+    testWidgets(
+      'falls back to the Phase 220 two-row split when the collapsed address '
+      'cannot fit on one line at a narrow width',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 320,
+        );
+        await tester.pumpAndSettle();
+
+        // No collapsed row — the measurement rejected it.
+        expect(
+          find.byKey(const Key('master-profile-address-combined-text')),
+          findsNothing,
+        );
+        // Exactly today's split: locality beside the pin, street indented.
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsOneWidget,
+        );
+        expect(find.text("Кам'янець-Подільський"), findsOneWidget);
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsOneWidget,
+        );
+        expect(
+          find.text('вул. Академіка Володимира Філатова, 145-Б'),
+          findsOneWidget,
+        );
+        expect(_locationIcon, findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the split path keeps the street line on a 2-line budget (Phase 219 A '
+      'regression guard)',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 320,
+        );
+        await tester.pumpAndSettle();
+
+        final Text street = tester.widget<Text>(
+          find.byKey(const Key('master-profile-address-text')),
+        );
+        expect(street.maxLines, 2);
+        expect(street.overflow, TextOverflow.ellipsis);
+        _expectEffectiveAddressStyle(tester, street);
+      },
+    );
+
+    testWidgets(
+      'the SAME long address collapses onto one line once the column is wide '
+      'enough — the decision is width, not content',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 1200,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-profile-address-combined-text')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            "Кам'янець-Подільський, вул. Академіка Володимира Філатова, 145-Б",
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+      },
+    );
+  });
+
+  // ── 10b. Location line — street only, no city (promotion) ─────────────────
+
+  group('location line — street only, no city', () {
+    testWidgets(
+      'promotes the street line to the icon-bearing row when there is no '
+      'locality',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterStreetOnly),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // No locality at all — the street line is promoted to the primary
+        // (icon-bearing) row and keyed as the address line, not orphaned
+        // under a blank locality line.
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsOneWidget,
+        );
+        expect(find.text('вул. Хрещатик'), findsOneWidget);
+        // The pin icon must still be present beside the promoted line.
+        expect(_locationIcon, findsOneWidget);
+      },
+    );
   });
 
   // ── 11. Location line — full address (street + building + city + note) ─────
 
   group('location line — full address', () {
-    testWidgets('renders street comma building comma city and note row', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const MasterProfileScreen(),
-        overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(_stubMasterFullAddress),
-          repo: repo,
-          serviceRepo: mockServiceRepo,
-        ),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'collapses city + street + building onto ONE line and still renders the '
+      'note beneath it (Phase 224)',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterFullAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          // Explicit: this case only reaches the combined row on the collapse
+          // side of the crossover — see the note above group 10.
+          width: collapsingWidth,
+        );
+        await tester.pumpAndSettle();
 
-      // Combined address line must include street, building and city.
-      expect(find.text('вул. Хрещатик, 22, Київ'), findsOneWidget);
-      // Note row must be rendered beneath the location line.
-      expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
-    });
+        // Phase 224: the whole address fits on one line at a 400dp surface, so
+        // it renders city-first on the single combined row.
+        expect(
+          find.byKey(const Key('master-profile-address-combined-text')),
+          findsOneWidget,
+        );
+        expect(find.text('Київ, вул. Хрещатик, 22'), findsOneWidget);
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsNothing,
+        );
+        // The pre-220 street-first order must never come back.
+        expect(find.text('вул. Хрещатик, 22, Київ'), findsNothing);
+        // Note row must still render beneath the address, on either path.
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+      },
+    );
 
     testWidgets('location icon is present with full address', (tester) async {
       await tester.pumpApp(
@@ -916,6 +1303,363 @@ void main() {
     });
   });
 
+  // ── 12a. Location line — edge-matrix gap-fill (mobile-qa audit) ───────────
+  //
+  // Three combinations the widget tier never exercised before this audit:
+  // city+buildingNo with NO street, street+buildingNo with NO city
+  // (promotion WITH a building number), and buildingNo ALONE. Mirrors the
+  // exhaustive pure-function matrix in
+  // `test/shared/formatters/address_lines_test.dart`, but through the REAL production
+  // Row/Text tree so a wiring regression (e.g. the caller's `if` gate or key
+  // assignment) is caught here even if the pure function stays correct.
+
+  group('location line — edge-matrix gap-fill', () {
+    testWidgets('city + buildingNo, NO street: building is dropped — only the '
+        'locality line renders, no address-text line, no dangling comma', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(
+            _stubMasterCityAndBuildingNoStreet,
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_locationIcon, findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-locality-text')),
+        findsOneWidget,
+      );
+      expect(find.text('Київ'), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-address-text')),
+        findsNothing,
+        reason:
+            'a building number with no street must never render its own '
+            'line, even when a city is present',
+      );
+      // The lone buildingNo value must never leak onto the locality line.
+      expect(find.text('Київ, 22'), findsNothing);
+      expect(find.textContaining(', 22'), findsNothing);
+    });
+
+    testWidgets('street + buildingNo, NO city: promotes the combined "street, '
+        'building" line to the icon-bearing row with no locality line', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(
+            _stubMasterStreetAndBuildingNoCity,
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_locationIcon, findsOneWidget);
+      expect(
+        find.byKey(const Key('master-profile-locality-text')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('master-profile-address-text')),
+        findsOneWidget,
+      );
+      expect(find.text('вул. Хрещатик, 22'), findsOneWidget);
+      // No stray leading/trailing comma variant renders instead.
+      expect(find.text(', вул. Хрещатик, 22'), findsNothing);
+      expect(find.text('вул. Хрещатик, 22,'), findsNothing);
+    });
+
+    testWidgets(
+      'buildingNo ALONE (no city, no street): the whole location row is '
+      'hidden — a building number never renders on its own',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterBuildingNoOnly),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(_locationIcon, findsNothing);
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-profile-address-text')),
+          findsNothing,
+        );
+        expect(find.text('22'), findsNothing);
+        // Name still renders — only the location row is suppressed.
+        expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
+      },
+    );
+  });
+
+  // ── 12b. Location note — long-text reproduction (Phase 219) ───────────────
+  //
+  // ORIGINALLY opened this fix with a reproduction test pinning the PRE-FIX
+  // rendering of a long `locationNote`: the widget then had `maxLines: null`
+  // + `overflow: ellipsis`, and the measured rendered height came back
+  // near-single-line (well under `oneLineHeight * 1.5`) versus a
+  // `fullWrapHeight` more than 7x taller — proving the paragraph collapsed
+  // instead of wrapping, confirming the diagnosis rather than assuming it.
+  //
+  // Now flipped to the CORRECTED expectation (Phase 219 A): `maxLines: 3` +
+  // `overflow: ellipsis` clamps the note to (at most) 3 lines — taller than
+  // one line, but still well short of the full ~400-char height.
+  group('location note — long text (maxLines: 3 clamp)', () {
+    testWidgets(
+      'AFTER FIX: a ~400-char note renders at ~3-line height, not 1 line '
+      'and not its full unclamped height',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongNote),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder noteFinder = find.text(_kLongLocationNote);
+        expect(
+          noteFinder,
+          findsOneWidget,
+          reason:
+              'The Text widget always carries the full string as its `data` '
+              'regardless of visual clipping — this only proves the widget '
+              'exists, not that it is fully VISIBLE.',
+        );
+
+        final Size actual = tester.getSize(noteFinder);
+
+        // Reference layout #1: capped to exactly one line.
+        final TextPainter oneLine = TextPainter(
+          text: TextSpan(
+            text: _kLongLocationNote,
+            style: VelvetText.feedbackMutedNote,
+          ),
+          maxLines: 1,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: actual.width);
+        final double oneLineHeight = oneLine.size.height;
+        oneLine.dispose();
+
+        // Reference layout #2: capped to exactly 3 lines — what the fixed
+        // widget's `maxLines: 3` should produce.
+        final TextPainter threeLines = TextPainter(
+          text: TextSpan(
+            text: _kLongLocationNote,
+            style: VelvetText.feedbackMutedNote,
+          ),
+          maxLines: 3,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: actual.width);
+        final double threeLineHeight = threeLines.size.height;
+        threeLines.dispose();
+
+        // Reference layout #3: NO cap at all — the height the paragraph
+        // would need to show the full ~400-char note with zero clipping.
+        final TextPainter fullWrap = TextPainter(
+          text: TextSpan(
+            text: _kLongLocationNote,
+            style: VelvetText.feedbackMutedNote,
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: actual.width);
+        final double fullWrapHeight = fullWrap.size.height;
+        fullWrap.dispose();
+
+        // Fixture sanity check: _kLongLocationNote must need more than 3
+        // lines at the measured width for this test to exercise the clamp.
+        expect(fullWrapHeight, greaterThan(threeLineHeight));
+
+        // The fix: rendered height matches the 3-line reference layout —
+        // more than a single line, but clamped well short of the full
+        // unclipped paragraph.
+        expect(actual.height, moreOrLessEquals(threeLineHeight, epsilon: 0.5));
+        expect(actual.height, greaterThan(oneLineHeight * 1.5));
+        expect(actual.height, lessThan(fullWrapHeight));
+      },
+    );
+  });
+
+  // ── 12c. Location note — tap-to-expand (Phase 221 B) ───────────────────────
+
+  group('location note — tap-to-expand toggle', () {
+    testWidgets(
+      'a SHORT note (fits within maxLines: 3) shows NO toggle affordance',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            // "кв. 3, 2 поверх" — well under 3 lines at any reasonable width.
+            masterState: const AsyncData<Master>(_stubMasterFullAddress),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('master-profile-name'))),
+        );
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+        expect(
+          find.byKey(const Key('expandable-note-toggle')),
+          findsNothing,
+          reason:
+              'An inert toggle on a note that already fits is a small lie — '
+              'it must not render at all.',
+        );
+        expect(find.text(l10n.expandableNoteShowMore), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a LONG note (overflows maxLines: 3) shows the «більше» toggle, '
+      'collapsed by default',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongNote),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('master-profile-name'))),
+        );
+        expect(find.byKey(const Key('expandable-note-toggle')), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'tapping «більше» expands the note to its FULL text and flips the '
+      'toggle to «згорнути»; tapping again re-collapses it',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongNote),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('master-profile-name'))),
+        );
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        expect(toggle, findsOneWidget);
+
+        // Collapsed: the note Text renders with maxLines: 3 — its measured
+        // height must be far shorter than the fully-expanded height (proven
+        // in the group above). Expand it.
+        final Size collapsedSize = tester.getSize(
+          find.text(_kLongLocationNote),
+        );
+
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowMore), findsNothing);
+
+        final Size expandedSize = tester.getSize(find.text(_kLongLocationNote));
+        expect(
+          expandedSize.height,
+          greaterThan(collapsedSize.height),
+          reason:
+              'Expanding must grow the note to its full untruncated height.',
+        );
+
+        // Collapse it back.
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsNothing);
+        final Size reCollapsedSize = tester.getSize(
+          find.text(_kLongLocationNote),
+        );
+        expect(
+          reCollapsedSize.height,
+          moreOrLessEquals(collapsedSize.height, epsilon: 0.5),
+        );
+      },
+    );
+  });
+
+  // ── 12d. Location block — large text scale (textScaler 2.0) ───────────────
+  //
+  // `pumpApp`'s `textScaleFactor` knob + `installOverflowGuard()` (armed by
+  // `pumpApp` for every test) together turn any `RenderFlex` overflow at a
+  // stress scale into a hard test failure via `tearDown` — no manual
+  // assertion needed beyond letting the scenario pump/settle/interact.
+  group('location block — textScaler 2.0 stress', () {
+    testWidgets(
+      'full address + long note + expand/collapse produces no overflow at '
+      'textScaler 2.0 on a narrow (320dp) surface',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterLongNote),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 320,
+          textScaleFactor: 2.0,
+        );
+        await tester.pumpAndSettle();
+
+        // Sanity: the screen actually rendered the location block at this
+        // stress scale (not skipped/short-circuited).
+        expect(
+          find.byKey(const Key('master-profile-locality-text')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('expandable-note-toggle')), findsOneWidget);
+
+        // Exercise the expand/collapse toggle too — the widest content state
+        // this block can be in.
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle, warnIfMissed: false);
+        await tester.pumpAndSettle();
+        await tester.tap(toggle, warnIfMissed: false);
+        await tester.pumpAndSettle();
+
+        // No explicit overflow assertion needed here — installOverflowGuard()
+        // (wired into pumpApp) fails this test in tearDown if any
+        // RenderFlex overflow was reported during the pump/tap/settle above.
+      },
+    );
+  });
+
   // ── 13. Services section states ──────────────────────────────────────────
 
   /// Four sub-tests exercise all three [servicesListProvider] states rendered
@@ -962,9 +1706,23 @@ void main() {
     testWidgets('B. services error state shows errUnknown text', (
       tester,
     ) async {
+      // ASYNCHRONOUS throw — the only shape a Dio-backed repository can
+      // produce. `thenThrow` fails synchronously out of the provider build,
+      // which bypasses Riverpod's retry machinery entirely: the element goes
+      // straight to a terminal AsyncError after ONE attempt. That is a path
+      // production cannot take, so the old stub reached this assertion through
+      // a mechanism that does not exist.
+      //
+      // The retry predicate is deliberately left at `pumpApp`'s default (the
+      // production `beauticaProviderRetry`), so this now asserts the terminal
+      // error surface the user actually lands on — AFTER the full 10-attempt /
+      // ~38 s transient-failure curve, which `pumpAndSettle` burns on the fake
+      // clock. Measured: no wall-clock difference against disabling retry
+      // (9.77 s vs 9.85 s for this file), so there is no reason to trade the
+      // fidelity away. B4 below pins the window BEFORE this state.
       when(
         () => mockServiceRepo.listMyServices(),
-      ).thenThrow(const NetworkFailure());
+      ).thenAnswer((_) async => throw const NetworkFailure());
 
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -982,6 +1740,192 @@ void main() {
       );
       expect(find.text(l10n.errUnknown), findsOneWidget);
     });
+
+    // ── B2. Error state — stat tile shows '?', never the empty-state dash ────
+    //
+    // SECURITY REGRESSION GUARD (mobile-security LOW, closed). The services
+    // stat tile collapses BOTH an unresolved (loading) catalogue and a
+    // genuinely empty one onto '—'. A failed /services load must NOT join
+    // them: an attacker who can suppress that call would otherwise make a
+    // master with a populated catalogue render as "0 services" with no UI
+    // signal. The failed branch renders '?' instead. Goes RED if the error
+    // branch is ever folded back onto the dash.
+    testWidgets('B2. services error state shows "?" in the stat tile', (
+      tester,
+    ) async {
+      // Async throw, production retry predicate — same reasoning as case B
+      // above. The security contract under test is the POST-EXHAUSTION failed
+      // state; B4 below pins the mid-retry window on the same stub shape, so
+      // the pair spans the whole curve between them.
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Text servicesValue = tester.widget<Text>(
+        find.byKey(const Key('master-profile-services-value')),
+      );
+      expect(
+        servicesValue.data,
+        '?',
+        reason:
+            'a failed catalogue load must stay distinguishable from an empty '
+            'catalogue, which renders the em-dash',
+      );
+    });
+
+    // ── B3. Loading state — stat tile keeps the em-dash placeholder ──────────
+    //
+    // Pins the other half of the B2 contract: '?' is reserved for FAILURE.
+    // An in-flight load still renders '—', identical to an empty catalogue.
+    testWidgets('B3. services loading state shows the dash in the stat tile', (
+      tester,
+    ) async {
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenAnswer((_) => Completer<List<MasterService>>().future);
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      // pumpAndSettle would hang — listMyServices() never completes.
+      await tester.pump(const Duration(milliseconds: 1200));
+
+      final Text servicesValue = tester.widget<Text>(
+        find.byKey(const Key('master-profile-services-value')),
+      );
+      expect(
+        servicesValue.data,
+        '—',
+        reason: 'an in-flight catalogue load must render the dash, not "?"',
+      );
+    });
+
+    // ── B4. MID-RETRY window — tile and section must agree ──────────────────
+    //
+    // B2 above pins only the POST-EXHAUSTION state: `pumpAndSettle` runs the
+    // fake clock through all 10 retries (SkeletonShimmerScope's
+    // `..repeat(reverse: true)` keeps frames scheduled, so settle never
+    // returns early) and lands on the terminal AsyncError. The ~38 s window
+    // BEFORE that was pinned by nothing — and it is the entire reason the
+    // screen derives `hasError` from the `when` arms rather than from
+    // `servicesAsync.hasError`.
+    //
+    // The mechanism: `NetworkFailure` is transient (failure_retry_policy.dart)
+    // so `beauticaProviderRetry` — which `pumpApp` installs by default, the
+    // same predicate main.dart installs in production — delegates to
+    // Riverpod's 10-attempt, 200 ms→6400 ms backoff. While a retry is pending
+    // Riverpod emits `AsyncLoading(error: …, retrying: true)`: runtime type
+    // AsyncLoading, but `hasError == true`. `AsyncValue.when` routes that to
+    // its `loading()` arm; `.hasError` would report `true`.
+    //
+    // So reading `.hasError` (or passing `skipLoadingOnReload: true`) would
+    // flip THIS tile to '?' while `_ProfileCategoriesSection` — deriving from
+    // the SAME AsyncValue via its own `when` — still rendered shimmer
+    // skeletons. A screen contradicting itself: "failed" in the stat row,
+    // "loading" 400 px below. This test asserts the two agree, not merely that
+    // the glyph is a dash, so the contradiction is what fails it.
+    testWidgets(
+      'B4. while transient-failure retries are still in flight the stat tile '
+      'keeps the dash AND the categories section keeps its skeletons',
+      (tester) async {
+        // NOTE — the failure must be ASYNCHRONOUS. A `thenThrow` stub throws
+        // SYNCHRONOUSLY, and a synchronous build throw bypasses Riverpod's
+        // retry machinery entirely: the element goes straight to a terminal
+        // AsyncError after ONE call, so no retrying state ever exists to
+        // observe. A Dio-backed repository never fails that way — it returns a
+        // Future that completes with an error, which is what this stub models
+        // and what makes the retry curve engage.
+        // (Measured: sync throw = 1 call; async throw = 6 calls by t≈8.4 s.)
+        //
+        // B and B2 now use this same async shape under the same production
+        // predicate. What separates this case from those is only how far the
+        // curve is pumped: they settle to exhaustion, this one stops inside the
+        // window on a bounded frame count.
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => throw const NetworkFailure());
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        // Deliberately NOT pumpAndSettle: settling would burn the whole
+        // 10-attempt backoff and land on the terminal AsyncError — i.e.
+        // re-test B2. Pump a BOUNDED number of frames instead.
+        //
+        // Why a loop and not one long pump: a retry needs a FRAME to land, not
+        // just elapsed time. A single `pump(Duration(milliseconds: 1200))` is
+        // one frame, so exactly one further attempt lands however long the
+        // duration is (measured: 1 call). Four 400 ms frames clear the 1100 ms
+        // entrance animation AND leave several attempts behind us — still far
+        // short of the 10 that would exhaust the curve and flip the element to
+        // a terminal AsyncError.
+        for (int frame = 0; frame < 4; frame++) {
+          await tester.pump(const Duration(milliseconds: 400));
+        }
+
+        // Precondition: retries genuinely fired. Without this the test would
+        // still pass while parked in the FIRST attempt — a plain loading state
+        // that B3 already covers — and would prove nothing about the retrying
+        // state this case exists for.
+        verify(() => mockServiceRepo.listMyServices()).called(greaterThan(1));
+
+        // (a) The stat tile shows the unresolved placeholder, NOT the failure
+        // glyph — the load has not failed yet, it is still being attempted.
+        final Text servicesValue = tester.widget<Text>(
+          find.byKey(const Key('master-profile-services-value')),
+        );
+        expect(
+          servicesValue.data,
+          '—',
+          reason:
+              'mid-retry is an UNRESOLVED state, not a failed one — "?" here '
+              'would declare defeat while the fetch is still being retried',
+        );
+
+        // (b) …and the categories section, reading the same AsyncValue, is in
+        // its loading branch. This is the half that makes the test about
+        // AGREEMENT rather than about one glyph.
+        expect(
+          find.byType(SkeletonBlock),
+          findsNWidgets(2),
+          reason:
+              'the categories section must still show its two skeleton rows — '
+              'if the tile says "?" while this shows shimmer, the screen is '
+              'contradicting itself',
+        );
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(
+          find.text(l10n.errUnknown),
+          findsNothing,
+          reason:
+              'the section must NOT have entered its error branch while '
+              'retries are still pending',
+        );
+      },
+    );
 
     // ── C. Empty state — "Додати послуги" CTA replaces the old empty text ────
     //
@@ -1108,6 +2052,101 @@ void main() {
         reason: 'Services stat tile must show the live service count',
       );
     });
+
+    // ── E. Empty catalogue — stat tile shows '—', NOT a bare '0' ────────────
+    //
+    // THE requested behaviour, on THE screen it was requested for: "if an
+    // independent master or salon master doesn't have services, in profile
+    // services card show '-' instead of '0'".
+    //
+    // Test C above already pumps the same zero-services state, but asserts
+    // only the categories section's CTA — the stat tile's value was never
+    // read on the OWN profile, so the entire user-visible point of the change
+    // was unpinned here (the public profile got the assertion; this side did
+    // not). Distinct from B3: B3 covers UNRESOLVED (null count), this covers
+    // RESOLVED-AND-EMPTY (data: []), which reaches the '0' arm of the switch.
+    // Goes RED the moment the empty branch reverts to `list.length.toString()`.
+    testWidgets(
+      'E. services empty state shows the em-dash in the stat tile, not "0"',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => const <MasterService>[]);
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Text servicesValue = tester.widget<Text>(
+          find.byKey(const Key('master-profile-services-value')),
+        );
+        expect(
+          servicesValue.data,
+          '—',
+          reason:
+              'a master with no services must see the em-dash on their OWN '
+              'profile — a bare "0" is the regression this change removed',
+        );
+        expect(
+          find.descendant(
+            of: find.byType(ServicesStatTile),
+            matching: find.text('0'),
+          ),
+          findsNothing,
+          reason: 'no "0" may survive inside the tile for an empty catalogue',
+        );
+      },
+    );
+
+    // ── F. Consolidation guard — the OWN profile builds the SHARED tile ──────
+    //
+    // The two profiles previously hand-rolled this tile independently, which
+    // is precisely how they drifted ('0' here vs '0' there, then a fix landing
+    // on one side only). Pinning the shared widget TYPE at both call sites
+    // (the public side asserts the same in
+    // public_master_profile_screen_test.dart) makes a re-divergence — someone
+    // inlining a bare StatTile again to tweak one screen — fail the build
+    // instead of silently shipping two different empty states. Without this,
+    // every value assertion above could keep passing against a re-forked copy.
+    testWidgets(
+      'F. the own profile renders the shared ServicesStatTile, not an inline '
+      'StatTile copy',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder tile = find.byType(ServicesStatTile);
+        expect(
+          tile,
+          findsOneWidget,
+          reason:
+              'the services stat must come from the shared widget so a change '
+              'to the empty/error rule reaches BOTH profiles at once',
+        );
+        // …and it is the widget carrying THIS screen's value key, not some
+        // unrelated instance elsewhere in the tree.
+        expect(
+          find.descendant(
+            of: tile,
+            matching: find.byKey(const Key('master-profile-services-value')),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   // ── 13a. Empty-state CTA navigation — pushes serviceSetup ─────────────────
@@ -1690,12 +2729,15 @@ void main() {
   //   • a valid handle → launchUrl invoked with the canonical
   //     `https://instagram.com/<handle>` URL.
   //   • a full canonical URL → launchUrl invoked with that exact URL.
-  //   • null / '—' → NO launch + localized masterInstagramOpenError SnackBar.
+  //   • null / '—' → NO launch + localized masterInstagramOpenError
+  //     error VelvetSnack.
   //
   // The platform launcher is mocked (UrlLauncherPlatform.instance) so no real
   // intent/browser fires and the URL string handed to it can be captured.
-  // Widget lookups use the tile Key, never raw Ukrainian finders; the SnackBar
-  // text is resolved via l10n from the live tree (no hardcoded string).
+  // Widget lookups use the tile Key, never raw Ukrainian finders; the
+  // VelvetSnack text is resolved via l10n from the live tree (no hardcoded
+  // string). VelvetSnack renders on the ROOT overlay (a sibling of the
+  // screen, never a descendant) — see test/helpers/velvet_snack_matchers.dart.
 
   group('instagram contact tile — launch behavior', () {
     late _MockUrlLauncher launcher;
@@ -1796,7 +2838,7 @@ void main() {
 
     testWidgets(
       'tapping the instagram tile when instagram is null does NOT launch and '
-      'shows the masterInstagramOpenError SnackBar',
+      'shows the masterInstagramOpenError error VelvetSnack',
       (tester) async {
         when(
           () => launcher.launchUrl(any(), any()),
@@ -1809,23 +2851,28 @@ void main() {
         );
 
         await tester.tap(tile);
-        await tester.pump(); // let the SnackBar insert.
+        await pumpVelvetSnackIn(tester); // let the VelvetSnack insert + settle.
 
         // No launch attempt — canonicalInstagramUri(null) returned null.
         verifyNever(() => launcher.launchUrl(any(), any()));
 
-        // The localized error SnackBar must be shown (resolved via l10n, not a
-        // hardcoded Ukrainian literal).
+        // The localized error VelvetSnack must be shown (resolved via l10n,
+        // not a hardcoded Ukrainian literal).
         final l10n = AppLocalizations.of(
           tester.element(find.byType(MasterProfileScreen)),
         );
-        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
+        expectVelvetSnack(
+          l10n.masterInstagramOpenError,
+          variant: VelvetSnackVariant.error,
+        );
+
+        await pumpPastVelvetSnack(tester); // drain the dwell Timer
       },
     );
 
     testWidgets(
       'tapping the instagram tile when value is the "—" sentinel does NOT '
-      'launch and shows the error SnackBar',
+      'launch and shows the error VelvetSnack',
       (tester) async {
         when(
           () => launcher.launchUrl(any(), any()),
@@ -1837,48 +2884,52 @@ void main() {
         );
 
         await tester.tap(tile);
-        await tester.pump();
+        await pumpVelvetSnackIn(tester);
 
         verifyNever(() => launcher.launchUrl(any(), any()));
 
         final l10n = AppLocalizations.of(
           tester.element(find.byType(MasterProfileScreen)),
         );
-        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
+        expectVelvetSnack(
+          l10n.masterInstagramOpenError,
+          variant: VelvetSnackVariant.error,
+        );
+
+        await pumpPastVelvetSnack(tester); // drain the dwell Timer
       },
     );
 
-    testWidgets(
-      'when the launcher reports failure (returns false) the error SnackBar '
-      'is shown',
-      (tester) async {
-        // Valid handle so the URL passes the allow-list, but the platform
-        // launcher fails — the screen must surface the localized error.
-        when(
-          () => launcher.launchUrl(any(), any()),
-        ).thenAnswer((_) async => false);
+    testWidgets('when the launcher reports failure (returns false) the error '
+        'VelvetSnack is shown', (tester) async {
+      // Valid handle so the URL passes the allow-list, but the platform
+      // launcher fails — the screen must surface the localized error.
+      when(
+        () => launcher.launchUrl(any(), any()),
+      ).thenAnswer((_) async => false);
 
-        final tile = await pumpAndRevealInstagramTile(
-          tester,
-          master: _stubMaster.copyWith(instagram: 'olena_nails'),
-        );
+      final tile = await pumpAndRevealInstagramTile(
+        tester,
+        master: _stubMaster.copyWith(instagram: 'olena_nails'),
+      );
 
-        await tester.tap(tile);
-        await tester.pumpAndSettle();
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
 
-        // launch was attempted with the canonical URL...
-        final captured = verify(
-          () => launcher.launchUrl(captureAny(), any()),
-        ).captured;
-        expect(captured.single, 'https://instagram.com/olena_nails');
+      // launch was attempted with the canonical URL...
+      final captured = verify(
+        () => launcher.launchUrl(captureAny(), any()),
+      ).captured;
+      expect(captured.single, 'https://instagram.com/olena_nails');
 
-        // ...but failed, so the error SnackBar appears.
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(MasterProfileScreen)),
-        );
-        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
-      },
-    );
+      // ...but failed, so the error VelvetSnack appears. pumpAndSettle
+      // above already drove it through its full lifecycle, so a plain
+      // find.text (not expectVelvetSnack) is enough here.
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+      expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
+    });
   });
 
   // ── professionalTitle rendering (feat/provider-professional-title) ─────────

@@ -58,6 +58,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 /// Widget key for the picker's cell representing [day].
 ///
@@ -174,6 +175,7 @@ class PeriodRangePicker extends StatefulWidget {
     this.initialScrollMonth,
     this.maxSpanDays,
     this.monthCount = kPeriodRangePickerDefaultMonths,
+    this.clock,
   }) : assert(
          maxSpanDays == null || maxSpanDays > 0,
          'maxSpanDays must be positive when set',
@@ -231,6 +233,12 @@ class PeriodRangePicker extends StatefulWidget {
 
   final PeriodRangePickerStrings strings;
 
+  /// Injectable LIVE "now" source for the camel "today" ring (backlog :226 —
+  /// Kyiv-anchored, mirrors `DayHoursSheet.clock`). `null` → [DateTime.now]
+  /// in production; tests pass a callback over a fixed/mutable clock for
+  /// deterministic, device-zone-independent rendering.
+  final DateTime Function()? clock;
+
   @override
   State<PeriodRangePicker> createState() => _PeriodRangePickerState();
 }
@@ -263,8 +271,12 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
     // deriving "today" from it would ring an arbitrary day in January. Read
     // the clock instead; the schedule caller is unaffected because for it the
     // two values coincide.
-    final DateTime now = DateTime.now();
-    _today = DateTime(now.year, now.month, now.day);
+    //
+    // Kyiv-anchored (backlog :226): both callers' "today" concepts are Kyiv
+    // civil days on the backend, so the ring must follow Kyiv's calendar, not
+    // the device's — see `shared/time/kyiv_day.dart`.
+    // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
+    _today = kyivDayOf(widget.clock?.call() ?? DateTime.now());
     final DateTime? ism = widget.initialScrollMonth;
     _initialScrollMonth = ism == null
         ? _firstDay

@@ -6,17 +6,17 @@
 // 'field-category-request-initial-service-name'). A backend ValidationFailure
 // carrying a `name` / `displayName` field error must map onto the name field's
 // inline errorText (_serverNameError) rather than collapsing to a transient
-// SnackBar. All other failures (and a ValidationFailure with no name/displayName
-// key) still surface a SnackBar.
+// VelvetSnack. All other failures (and a ValidationFailure with no name/displayName
+// key) still surface a VelvetSnack.
 //
 // Finders use Key lookups (M2). The repository is mocked; no real network.
 //
 // Covered scenarios:
 //   1. ValidationFailure{name}        → inline error under the name field,
-//                                       NO snackbar, dialog stays open.
+//                                       NO VelvetSnack, dialog stays open.
 //   2. ValidationFailure{displayName} → inline error (alias key) under the field.
 //   3. Editing the name after a server error clears the inline error.
-//   4. Non-validation failure (CategoryAlreadyExists) → SnackBar, no inline.
+//   4. Non-validation failure (CategoryAlreadyExists) → VelvetSnack, no inline.
 //   5. (Change 3) initial-service field EMPTY → requestCategory called with
 //      initialServiceName == null; the field is optional (no inline required
 //      error when blank).
@@ -30,11 +30,14 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/category_request_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -73,6 +76,7 @@ Future<void> _openDialog(
 ) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
       child: MaterialApp.router(
         routerConfig: _router(),
@@ -118,7 +122,13 @@ Future<void> _submit(WidgetTester tester) async {
 
 /// Asserts [message] is rendered inline inside the dialog (the _DialogField
 /// error row sits next to the keyed NeumorphicInset, inside CategoryRequestDialog)
-/// and is NOT a SnackBar.
+/// and is NOT a VelvetSnack.
+///
+/// VelvetSnack lives on the app's ROOT `Overlay` — a SIBLING of the dialog
+/// route, never a descendant of it (see `test/helpers/velvet_snack_matchers.dart`)
+/// — so the "not a snack" half of this check must be an UNSCOPED
+/// `find.byType(VelvetSnack)`, not a `find.descendant(of: ...)` scoped to the
+/// dialog (that would vacuously pass no matter what).
 void _expectInlineNameError(WidgetTester tester, String message) {
   expect(
     find.descendant(
@@ -128,11 +138,11 @@ void _expectInlineNameError(WidgetTester tester, String message) {
     findsOneWidget,
     reason: 'Server error must render inline inside the dialog name field row.',
   );
-  // The same message must NOT be inside a SnackBar — it is mapped inline.
+  // The same message must NOT be inside a VelvetSnack — it is mapped inline.
   expect(
-    find.descendant(of: find.byType(SnackBar), matching: find.text(message)),
+    find.byType(VelvetSnack),
     findsNothing,
-    reason: 'A mapped field error must not also appear in a SnackBar.',
+    reason: 'A mapped field error must not also appear in a VelvetSnack.',
   );
 }
 
@@ -167,8 +177,8 @@ void main() {
       await _submit(tester);
 
       _expectInlineNameError(tester, serverMsg);
-      // No SnackBar — the error was mapped inline.
-      expect(find.byType(SnackBar), findsNothing);
+      // No VelvetSnack — the error was mapped inline.
+      expect(find.byType(VelvetSnack), findsNothing);
       // Dialog stays open (submit button still present).
       expect(
         find.byKey(const Key('btn-submit-suggest-category')),
@@ -198,7 +208,7 @@ void main() {
       await _submit(tester);
 
       _expectInlineNameError(tester, serverMsg);
-      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(VelvetSnack), findsNothing);
     },
   );
 
@@ -245,7 +255,7 @@ void main() {
   );
 
   testWidgets(
-    '4. a non-validation failure (CategoryAlreadyExists) shows a SnackBar, '
+    '4. a non-validation failure (CategoryAlreadyExists) shows a VelvetSnack, '
     'not an inline name error',
     (tester) async {
       when(
@@ -265,9 +275,11 @@ void main() {
       await _enterValidName(tester);
       await _submit(tester);
 
-      // Generic failure → SnackBar with the failure's userMessage.
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.categoryRequestErrExists), findsOneWidget);
+      // Generic failure → VelvetSnack with the failure's userMessage.
+      expectVelvetSnack(
+        l10n.categoryRequestErrExists,
+        variant: VelvetSnackVariant.error,
+      );
       // No inline error under the name field for a non-field failure.
       expect(
         find.descendant(
@@ -276,6 +288,7 @@ void main() {
         ),
         findsNothing,
       );
+      await pumpPastVelvetSnack(tester);
     },
   );
 

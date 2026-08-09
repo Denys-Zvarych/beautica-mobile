@@ -24,8 +24,6 @@ test/features/location/presentation/widgets/locality_tap_row_test.dart
 test/features/master/presentation/master_profile_screen_test.dart
 test/features/master/presentation/widgets/contact_service_tile_test.dart
 test/features/master/presentation/widgets/profile_avatar_test.dart
-test/features/passport/presentation/passport_screen_test.dart
-test/features/passport/presentation/widgets/passport_table_test.dart
 test/features/services/presentation/category_picker_test.dart
 test/features/services/presentation/service_create_screen_test.dart
 test/features/services/presentation/service_edit_screen_test.dart

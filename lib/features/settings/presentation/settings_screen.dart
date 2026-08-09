@@ -31,6 +31,7 @@ import '../../../features/master/presentation/widgets/settings_row.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/feedback/show_velvet_snack.dart';
 
 /// Account settings page — VelvetTouch neumorphic design.
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -102,13 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   void _showLanguageSoon() {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(AppLocalizations.of(context).accountLanguageSoon),
-        ),
-      );
+    showInfoSnack(context, AppLocalizations.of(context).accountLanguageSoon);
   }
 
   /// True while the initial change-password OTP request is in flight — guards
@@ -121,9 +116,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   /// sends the code before navigating — `ResetOtpVerificationScreen` never
   /// sends the first code itself, only resends on the user's explicit tap.
   ///
-  /// A failure (e.g. the per-account cooldown 429) shows an inline SnackBar
-  /// and does NOT navigate, so the user is never dropped onto an OTP screen
-  /// for a code that was never actually sent.
+  /// A failure (e.g. the per-account cooldown 429) shows an error snack and
+  /// does NOT navigate, so the user is never dropped onto an OTP screen for a
+  /// code that was never actually sent.
   Future<void> _openChangePassword() async {
     if (_requestingChangePasswordOtp) return;
     setState(() => _requestingChangePasswordOtp = true);
@@ -138,9 +133,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       if (!mounted) return;
       setState(() => _requestingChangePasswordOtp = false);
       final message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
+      showErrorSnack(context, message);
     }
   }
 

@@ -25,13 +25,36 @@
 // screen-specific branch, just a shared string. Header semantics DO differ
 // per screen (different ICU sentences entirely) and stay screen-owned via
 // [CategoryHeaderSemanticsBuilder].
+//
+// Phase 240 — per-row favourite heart, MASTER FLOW ONLY. Added `showFavoriteHeart`
+// to [CatalogueCategorySection], following the EXACT precedent `showCountBadges`
+// already set for a per-flow trailing-slot difference: `ServiceSelectorSheet`
+// (independent-master flow) turns it on because its [CatalogueRow.id] IS a real
+// `master_services` row id; `SalonServiceSelectionScreen` leaves it `false`
+// (the default) because its rows are the SALON's catalogue mapped into the same
+// shape, whose id is a salon-catalogue-service id — not a real `master_services`
+// id, and no master is even chosen until a later step. Favouriting there would
+// send an id the backend has never heard of as a favorite target. This is a
+// STRUCTURAL guard, not a convention to remember: the salon screen simply never
+// passes `showFavoriteHeart: true`, so it can never render a heart no matter
+// what its call site does.
+//
+// This pulls in [FavoriteHeartButton] from `features/discovery/presentation/
+// widgets/` — a cross-feature PRESENTATION import, which the repo's usual rule
+// reserves for `domain/`/`shared/` only. Deliberate exception: the alternative
+// (moving or forking the button) was explicitly ruled out — reuse it verbatim,
+// unmodified, from wherever it already lives. [FavoriteTarget] is a `domain/`
+// import and needs no such carve-out.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/favorite_heart_button.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 // ---------------------------------------------------------------------------
@@ -147,6 +170,9 @@ class CatalogueCategorySection extends StatefulWidget {
     required this.headerVerticalPadding,
     this.headerKey,
     this.showCountBadges = true,
+    this.showFavoriteHeart = false,
+    this.favoriteServiceIds = const <String>{},
+    this.onFavoriteError,
   });
 
   final CatalogueCategoryGroup category;
@@ -177,6 +203,20 @@ class CatalogueCategorySection extends StatefulWidget {
   /// slot used to hold a per-category tri-state "select all" pill, deleted
   /// as part of this refactor, and never showed a plain count either.
   final bool showCountBadges;
+
+  /// Whether each row in this category renders a [FavoriteHeartButton] in its
+  /// trailing slot. OPT-IN per flow, mirroring [showCountBadges] exactly —
+  /// see the file header for why the salon flow must never turn this on.
+  final bool showFavoriteHeart;
+
+  /// Row ids ([CatalogueRow.id]) already in the wish list, used to prime each
+  /// row's heart to its filled state on first build. Ignored when
+  /// [showFavoriteHeart] is false.
+  final Set<String> favoriteServiceIds;
+
+  /// Forwarded to every row's [FavoriteHeartButton.onError]. Ignored when
+  /// [showFavoriteHeart] is false.
+  final void Function(Failure failure)? onFavoriteError;
 
   @override
   State<CatalogueCategorySection> createState() =>
@@ -274,6 +314,11 @@ class _CatalogueCategorySectionState extends State<CatalogueCategorySection> {
                           row: row,
                           selected: _selectedInGroup.contains(row.id),
                           onToggle: () => widget.onToggleService(row.id),
+                          showFavoriteHeart: widget.showFavoriteHeart,
+                          isFavorite: widget.favoriteServiceIds.contains(
+                            row.id,
+                          ),
+                          onFavoriteError: widget.onFavoriteError,
                         ),
                       ),
                   ],
@@ -505,11 +550,27 @@ class CatalogueServiceTile extends StatefulWidget {
     required this.row,
     required this.selected,
     required this.onToggle,
+    this.showFavoriteHeart = false,
+    this.isFavorite = false,
+    this.onFavoriteError,
   });
 
   final CatalogueRow row;
   final bool selected;
   final VoidCallback onToggle;
+
+  /// Renders a [FavoriteHeartButton] targeting `(SERVICE, row.id)` in the
+  /// row's trailing slot when true. Master flow only — see
+  /// [CatalogueCategorySection.showFavoriteHeart].
+  final bool showFavoriteHeart;
+
+  /// Primes the heart's initial filled/outline state. Ignored when
+  /// [showFavoriteHeart] is false.
+  final bool isFavorite;
+
+  /// Forwarded to [FavoriteHeartButton.onError]. Ignored when
+  /// [showFavoriteHeart] is false.
+  final void Function(Failure failure)? onFavoriteError;
 
   @override
   State<CatalogueServiceTile> createState() => _CatalogueServiceTileState();
@@ -517,6 +578,13 @@ class CatalogueServiceTile extends StatefulWidget {
 
 class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
   bool _pressed = false;
+
+  // Hoisted so `build()` — which re-runs on every `_pressed` setState, i.e.
+  // twice per tap — does not allocate a fresh TextStyle each time.
+  static final TextStyle _priceStyle = VelvetText.bodyStrong().copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -589,13 +657,21 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
-                Text(
-                  row.priceLabel,
-                  style: VelvetText.bodyStrong().copyWith(
-                    color: BrandColors.accentDeep,
-                    fontWeight: FontWeight.w800,
+                Text(row.priceLabel, style: _priceStyle),
+                if (widget.showFavoriteHeart) ...<Widget>[
+                  const SizedBox(width: VelvetSpacing.xs),
+                  FavoriteHeartButton(
+                    key: Key('booking_service_heart_${row.id}'),
+                    target: FavoriteTarget(
+                      type: FavoriteTargetType.service,
+                      id: row.id,
+                    ),
+                    initialIsFavorite: widget.isFavorite,
+                    semanticAddLabel: l10n.favoriteServiceAddLabel,
+                    semanticRemoveLabel: l10n.favoriteServiceRemoveLabel,
+                    onError: widget.onFavoriteError,
                   ),
-                ),
+                ],
               ],
             ),
           ),

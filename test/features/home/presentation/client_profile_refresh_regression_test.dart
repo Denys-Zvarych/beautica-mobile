@@ -64,6 +64,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockAuthRepository extends Mock implements AuthRepository {}
 
@@ -184,6 +185,7 @@ void main() {
     when(() => profileRepo.updateMyProfile(any())).thenAnswer((_) async {});
 
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [
         authRepositoryProvider.overrideWith((_) => authRepo),
         secureStorageProvider.overrideWith((_) => storage),
@@ -341,6 +343,7 @@ void main() {
       when(() => profileRepo.getMyProfile()).thenAnswer((_) async => meProfile);
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => authRepo),
           secureStorageProvider.overrideWith((_) => storage),

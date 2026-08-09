@@ -54,8 +54,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
-import 'package:beautica_mobile/shared/formatters/api_date.dart';
-import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
@@ -70,7 +69,7 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 }
 
 /// Kyiv "today" — every landing query is scoped to this day (Phase 7.11).
-DateTime get _kyivToday => dateOnly(toBeauticaTime(DateTime.now()));
+DateTime get _kyivToday => kyivToday(DateTime.now);
 
 /// One recorded `getMyBookings` call — every parameter this phase can change.
 typedef _Call = ({

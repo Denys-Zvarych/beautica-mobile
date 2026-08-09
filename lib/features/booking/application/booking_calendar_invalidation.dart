@@ -28,6 +28,8 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+
 import '../domain/booking_tab.dart';
 import '../domain/bookings_day_query.dart';
 import 'booking_detail_notifier.dart';
@@ -66,6 +68,13 @@ import 'my_bookings_notifier.dart';
 ///     stay whole-family-by-tab (not per-date) — they are already scoped to
 ///     exactly two members, not a whole family sized by every day ever
 ///     visited.
+///   • [nextAppointmentProvider] (Phase 225) — the CLIENT Home Hub's own
+///     «Найближчий запис» card. A declined booking may have BEEN the
+///     client's soonest upcoming appointment, so this must refresh alongside
+///     `upcoming`/`cancelled` above. No cycle risk: `nextAppointmentProvider`
+///     only watches `bookingRepositoryProvider` (the data layer) — it never
+///     watches anything in this file or anything that watches back to it —
+///     so invalidating it here cannot loop back into this function.
 ///
 /// Cost: one refetch per LIVE subscriber (Riverpod drops an invalidated
 /// `autoDispose`/`keepAlive` provider with no listeners instead of refetching
@@ -84,4 +93,5 @@ void invalidateBookingViewsAfterExternalDecline(
   }
   ref.invalidate(myBookingsProvider(BookingTab.upcoming));
   ref.invalidate(myBookingsProvider(BookingTab.cancelled));
+  ref.invalidate(nextAppointmentProvider);
 }

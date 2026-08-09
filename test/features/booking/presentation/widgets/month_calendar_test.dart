@@ -48,7 +48,12 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(cell);
+      // `tapCalendarDay` rather than a blind `tap(cell)`: this fixture mounts
+      // MonthCalendar in a bare Scaffold (no scroll view), so `ensureVisible`
+      // is a no-op here — but the helper is the single uniform entry point for
+      // every enabled-cell tap (scripts/forbid_blind_calendar_tap.sh), so the
+      // day this fixture grows a scroll ancestor it does not silently rot.
+      await tester.tapCalendarDay(15);
       await tester.pumpAndSettle();
 
       expect(selected, DateTime(2026, 7, 15));

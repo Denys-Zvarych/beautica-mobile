@@ -5,12 +5,17 @@
 // blanks the whole screen.
 //
 // Data-wired cards (backend already exists):
-//   • profileAsync  → derived from clientEditProfileProvider (fresh GET
+//   • profileAsync         → derived from clientEditProfileProvider (fresh GET
 //     /users/me) — the same authoritative source the Settings edit screens read,
 //     so the home card and Settings refresh together.
+//   • nextAppointmentAsync → Phase 225 — derived from BookingRepository
+//     .getMyBookings (the same endpoint the «Мої записи» Майбутні tab reads),
+//     see [nextAppointment]'s doc. Returns the raw [Booking] unchanged — the
+//     Home Hub renders it through the SAME `BookingCard` widget «Мої записи»
+//     uses (locked decision), so there is no lossy DTO projection in between
+//     any more.
 //
 // Empty-state-placeholder cards (backend 19.x not yet shipped):
-//   • nextAppointmentAsync  — TODO(19.3) wire GET /bookings/me?status=PENDING,CONFIRMED&sort=startAt&size=1
 //   • favoriteMastersAsync  — TODO(19.1) wire GET /favorites/masters
 //   • timelineAsync         — TODO(19.5) wire GET /clients/me/timeline
 //
@@ -23,8 +28,16 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+
 import '../../../features/auth/domain/user.dart';
 import '../../../features/location/state/location_providers.dart';
+import '../../booking/data/booking_providers.dart';
+import '../../booking/domain/booking.dart';
+import '../../booking/domain/booking_partition.dart';
+import '../../booking/domain/booking_sort.dart';
+import '../../booking/domain/booking_tab.dart';
 import '../domain/home_hub_models.dart';
 import 'client_edit_profile_notifier.dart';
 
@@ -50,6 +63,13 @@ part 'home_hub_notifier.g.dart';
 /// AsyncError.
 @riverpod
 Future<ClientProfileSummary> clientProfile(Ref ref) async {
+  // Read the injected clock seam BEFORE the first `await`: `ref.watch` after a
+  // suspension point is not safe in an async provider body (the provider may
+  // have been rebuilt or disposed in the meantime). The value captured here is
+  // the `DateTime Function()` ITSELF, not an instant — it is invoked below, so
+  // "now" is still read at use time rather than frozen at build entry.
+  final DateTime Function() clock = ref.watch(clockProvider);
+
   final user = await ref.watch(clientEditProfileProvider.future);
   return ClientProfileSummary(
     firstName: user.firstName ?? '',
@@ -61,7 +81,19 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
     phone: user.phoneNumber ?? '',
     // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
     clientRating: null,
-    memberSinceYear: DateTime.now().year,
+    // Placeholder fallback until the backend exposes a real account-creation
+    // date (TODO above's sibling).
+    //
+    // This is a CALENDAR-FIELD read, so it goes through the Kyiv seam like
+    // every other one (ARCHITECTURE-mobile.md § 0.9): the device supplies the
+    // INSTANT, Europe/Kyiv decides which DAY — and therefore which YEAR — that
+    // instant falls in. The divergence window is only year-granular (roughly
+    // the last two-to-three Kyiv hours of 31 December, when a device behind
+    // Kyiv is still in the previous year), but it is a real instance of the
+    // class, and `DateTime.now().year` here was the exact shape the guards ban
+    // elsewhere. `kyivToday` returns a DATE TOKEN — reading `.year` off it is
+    // legal; treating it as an instant is not (see `shared/time/kyiv_day.dart`).
+    memberSinceYear: kyivToday(clock).year,
   );
 }
 
@@ -191,23 +223,107 @@ Future<String?> _resolveDistrictName(Ref ref, User user) async {
 }
 
 // ---------------------------------------------------------------------------
-// Next appointment — placeholder (backend 19.3 not ready)
+// Next appointment — data-wired (Phase 225)
 // ---------------------------------------------------------------------------
 
-/// Returns the soonest upcoming booking for the CLIENT, or null when none.
-/// Currently always returns null (empty state) until the endpoint ships.
-/// TODO(19.3): wire GET /bookings/me?status=PENDING,CONFIRMED&sort=startAt&size=1
+/// Returns the soonest upcoming booking for the CLIENT, or `null` when none
+/// qualifies.
+///
+/// Phase 228 — retires the Phase 225 bounded page-forward scan now that
+/// `GET /bookings/me` supports the backend Phase 28.1/28.2 `partition`
+/// filter: `partition: BookingPartition.upcoming` is `status = CONFIRMED AND
+/// endsAt >= now`, computed server-side, so an elapsed `CONFIRMED` booking
+/// (the actual Phase 225 production bug — the backend has no `@Scheduled`
+/// cron that auto-transitions one) never comes back at all. Page 0 row 0 of
+/// a `size: 1` request **is** the answer; there is nothing left to scan or
+/// skip client-side.
+///
+/// Reuses the EXACT same status/sort shape the «Мої записи» Майбутні tab
+/// issues ([MyBookingsNotifier]) — [BookingTabX.statuses] for
+/// [BookingTab.upcoming] (currently `{CONFIRMED}`; booking auto-confirm
+/// retired `PENDING`) sorted soonest-first ([BookingSort.oldest]) — so this
+/// card can never disagree with that tab about which bookings count as
+/// "upcoming". [BookingTabX.partition] supplies [BookingPartition.upcoming]
+/// alongside it.
+///
+/// **Both `partition` and the legacy `statuses` are sent on every request** —
+/// the same Phase 227 rollout safety valve `MyBookingsNotifier` uses (see
+/// `BookingTab`'s file header and `BookingRepository.getMyBookings`'s doc).
+/// Spring silently DROPS an unrecognised query param instead of 400ing, so a
+/// request carrying only `partition` against a backend without Phase 28.2
+/// would return the caller's entire unfiltered booking history — including a
+/// year-old cancelled booking rendered as "your next appointment". Sending
+/// `statuses` too degrades safely to the pre-Phase-228 status-only filtering
+/// on a stale backend.
+///
+/// **The `from: today` bound stays even though `partition` already excludes
+/// elapsed rows.** `partition` is instant-granular; `from` is day-granular —
+/// they are not the same filter, and keeping `from` costs nothing while
+/// keeping the query cheap for an account with a long booking history (it
+/// discards every prior-day row server-side before the partition filter even
+/// runs). `today` is derived as the **Europe/Kyiv** calendar day, not the
+/// device's local day: the injectable [clockProvider] seam supplies "now" (so
+/// tests can pin it), which is then converted to the Kyiv wall-clock via
+/// [kyivToday] — the single canonical spelling for "the Kyiv calendar day the
+/// injected clock's current instant falls on" (`shared/time/kyiv_day.dart`),
+/// the same one `BookingsDiscoveryView` and [bookedDaysProvider] use for their
+/// own day anchors. The backend interprets `from` as a
+/// Europe/Kyiv local date, so this makes the two sides agree on "today"
+/// regardless of the device's own zone or clock, in EITHER direction: a device
+/// behind Kyiv no longer widens the window, and — the case that actually
+/// matters — a device AHEAD of Kyiv (Asia-Pacific, or simply a wrong clock)
+/// no longer NARROWS it and silently excludes a booking later that same Kyiv
+/// day. **Do not revert this to `dateOnly(DateTime.now())`** — Phase 225's
+/// audit cycles 4 and 5 fought hard to get this derivation right.
+///
+/// [bookedDaysProvider] was, when this doc was first written, still on the
+/// OLDER device-local convention (`dateOnly(DateTime.now())`) for its own
+/// `from`/`to`. It is NOT any more — commit `0434db4f` routed it through the
+/// same seam (`booked_days_notifier.dart:151`,
+/// `kyivToday(ref.read(clockProvider))`), pinned by that file's own
+/// Asia/Tokyo-anchored test. This paragraph is kept, corrected, rather than
+/// deleted because the stale version of it read as a live TODO for two
+/// separate audit passes.
+///
+/// The `BookingDisplayX` elapsed-slot presentation getter is NOT used here —
+/// that getter answers a different question ("what buttons does THIS
+/// booking show", gating «Деталі запису»'s reschedule/cancel vs. read-only
+/// rebook affordances, see `booking_detail_screen.dart`) than "which list
+/// does this booking belong in", which the server-side partition now answers
+/// on its own.
+///
+/// Errors (including an unauthenticated [UnauthorizedFailure] — the router
+/// guard should already have redirected, but this is defensive) are not
+/// caught: they propagate as this provider's `AsyncError`, exactly like
+/// [clientProfile] above.
 @riverpod
-Future<NextAppointment?> nextAppointment(Ref ref) async {
-  // TODO(19.3): call bookings repository when endpoint ships.
-  if (kDebugMode) {
-    log(
-      'nextAppointment: placeholder — backend 19.3 not ready',
-      name: 'feature.home',
-      level: 700,
-    );
-  }
-  return null;
+Future<Booking?> nextAppointment(Ref ref) async {
+  final repository = ref.watch(bookingRepositoryProvider);
+  // Recomputed on every build — never hoisted — so a long-lived cached
+  // instance doesn't pin "today" to first-use for the process's lifetime.
+  // `clockProvider`, not a bare `DateTime.now()`, so tests can pin "now" to a
+  // fixed instant; [kyivToday] then decides which Europe/Kyiv calendar day
+  // that instant falls on — see the doc comment above for why device-local
+  // would be wrong. `kyivToday(clock)` IS `dateOnly(toBeauticaTime(clock()))`
+  // (`shared/time/kyiv_day.dart:84,94`); the canonical spelling is used here
+  // so `lib/` has exactly one name for this derivation, the way `test/`
+  // already does.
+  final DateTime today = kyivToday(ref.watch(clockProvider));
+
+  final page = await repository.getMyBookings(
+    statuses: BookingTab.upcoming.statuses,
+    partition: BookingTab.upcoming.partition,
+    sort: BookingSort.oldest,
+    from: today,
+    page: 0,
+    size: 1,
+  );
+
+  // Returned AS-IS — the Home Hub renders this through the SAME `BookingCard`
+  // widget «Мої записи» uses (locked decision), so there is no lossy
+  // NextAppointment DTO projection any more; the caller gets the full
+  // enriched Booking straight from `page.items.first`.
+  return page.items.isEmpty ? null : page.items.first;
 }
 
 // ---------------------------------------------------------------------------

@@ -134,12 +134,17 @@ abstract final class WorkingHoursMapper {
       final start = _toWireTime(h.startTime);
       final end = _toWireTime(h.endTime);
       if (!_strictlyBefore(start, end)) {
-        throw ValidationFailure(
-          fieldErrors: const {},
-          serverMessage:
-              'End time must be strictly after start time '
-              '(day ${h.dayOfWeek}: $start–$end).',
-        );
+        // No serverMessage here: this is a client-side pre-flight guard, not
+        // backend envelope text, and ValidationFailure.serverMessage is
+        // reserved for the latter (mobile-security finding, 2026-08 — a
+        // hand-built English sentence in that field reads as a genuine server
+        // message to any caller that surfaces it). Currently the sole caller
+        // (working_hours_screen.dart) already renders `userMessage(context)`,
+        // which is the localized `errValidation` copy regardless — dropping
+        // this loses nothing today. `fieldErrors` also stays empty: the
+        // violating day (`h.dayOfWeek`) is not a wire field name the working
+        // hours form's `_fieldErrors` map keys against.
+        throw const ValidationFailure(fieldErrors: <String, String>{});
       }
       dayRequests.add(
         WeeklyScheduleDayRequest(

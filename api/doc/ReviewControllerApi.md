@@ -9,7 +9,6 @@ All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**createAppointmentReview**](ReviewControllerApi.md#createappointmentreview) | **POST** /api/v1/appointments/{appointmentId}/review | 
 [**createReview**](ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [**getMasterReviewSummary**](ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [**getMyReviews**](ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -18,49 +17,6 @@ Method | HTTP request | Description
 [**getSalonReviewSummary**](ReviewControllerApi.md#getsalonreviewsummary) | **GET** /api/v1/salons/{salonId}/reviews/summary | 
 [**getSalonReviews**](ReviewControllerApi.md#getsalonreviews) | **GET** /api/v1/salons/{salonId}/reviews | 
 
-
-# **createAppointmentReview**
-> ApiResponseReviewResponse createAppointmentReview(appointmentId, createAppointmentReviewRequest)
-
-
-
-### Example
-```dart
-import 'package:beautica_api/api.dart';
-
-final api = BeauticaApi().getReviewControllerApi();
-final String appointmentId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-final CreateAppointmentReviewRequest createAppointmentReviewRequest = ; // CreateAppointmentReviewRequest | 
-
-try {
-    final response = api.createAppointmentReview(appointmentId, createAppointmentReviewRequest);
-    print(response);
-} catch on DioException (e) {
-    print('Exception when calling ReviewControllerApi->createAppointmentReview: $e\n');
-}
-```
-
-### Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **appointmentId** | **String**|  | 
- **createAppointmentReviewRequest** | [**CreateAppointmentReviewRequest**](CreateAppointmentReviewRequest.md)|  | 
-
-### Return type
-
-[**ApiResponseReviewResponse**](ApiResponseReviewResponse.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: */*
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **createReview**
 > ApiResponseReviewResponse createReview(createReviewRequest)

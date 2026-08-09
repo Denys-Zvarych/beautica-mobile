@@ -64,15 +64,17 @@ class _FakeAppointmentRepository implements AppointmentRepository {
       totalDurationMinutes: 210,
       totalPrice: 1300,
       items: const <AppointmentItem>[],
-      canReview: false,
     );
   }
 
   @override
   Future<Appointment> getAppointment(String id) => throw UnimplementedError();
   @override
-  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
+  Future<Appointment> rescheduleAppointmentItem(
+    String appointmentId,
+    String bookingId,
+    DateTime newStartAt,
+  ) => throw UnimplementedError();
   @override
   Future<void> cancelAppointment(String id, {String? note}) =>
       throw UnimplementedError();
@@ -85,12 +87,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<void> declineAppointmentService(
     String appointmentId,
     String bookingId, {
-    String? comment,
-  }) => throw UnimplementedError();
-  @override
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
     String? comment,
   }) => throw UnimplementedError();
 }
@@ -124,7 +120,13 @@ SalonBookingConfirmArgs _visitArgs() => SalonBookingConfirmArgs(
     ],
     orderedMasterServiceIds: <String>['assign-m2-svc1', 'assign-m2-svc2'],
   ),
-  startAt: DateTime.now().add(const Duration(days: 1)),
+  // Anchored to the harness's INJECTED clock, not the host's — same fixture
+  // shape, and same reasoning, as `visitStart` in
+  // `independent_multi_service_booking_flow_test.dart` (see the block comment
+  // there): the confirm screen formats this instant as a calendar date
+  // through the app's own clock, so a host-anchored "+1 day" is not
+  // "tomorrow" to the app, and `// instant-ok:` would be a false claim.
+  startAt: kFixedNow.add(const Duration(days: 1)),
   idempotencyKey: 'idem-visit-1',
 );
 

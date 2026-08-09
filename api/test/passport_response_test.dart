@@ -7,11 +7,6 @@ void main() {
   // TODO add properties to the builder and call build()
 
   group(PassportResponse, () {
-    // BuiltList<String> favoriteProcedures
-    test('to test the property `favoriteProcedures`', () async {
-      // TODO
-    });
-
     // BuiltList<String> favoriteDistricts
     test('to test the property `favoriteDistricts`', () async {
       // TODO

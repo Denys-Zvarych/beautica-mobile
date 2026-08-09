@@ -1,5 +1,8 @@
 // Phase 2.2 — Dio singleton provider.
-// Phase 2.7 — RefreshInterceptor added after ErrorMapperInterceptor.
+// Phase 2.7 — RefreshInterceptor added to the chain. It runs BEFORE
+//             ErrorMapperInterceptor — see ORDER IS LOAD-BEARING below; it was
+//             registered after the mapper until 2026-08-07, which made it
+//             unreachable. Do not restore that order.
 // Phase MEDIUM-3 — iOS cert-pinning (mobile-security 2026-05-27).
 //
 // This is the single [Dio] instance used for all authenticated API calls.
@@ -7,10 +10,26 @@
 // `ref.watch(dioProvider)` or `ref.read(dioProvider)`.
 //
 // Interceptor order (matters!):
-//   1. AuthInterceptor         — attaches Bearer token to outgoing requests.
-//   2. LoggingInterceptor      — logs traffic; debug builds only.
-//   3. ErrorMapperInterceptor  — converts DioException → typed Failure.
-//   4. RefreshInterceptor      — handles 401 retry with silent token refresh.
+//   1. AuthInterceptor           — attaches Bearer token to outgoing requests.
+//   2. LoggingInterceptor        — logs traffic; debug builds only.
+//   3. ClockSkewWarningInterceptor — debug-only device/server clock-skew log
+//      (2026-08-02) — diagnostics only, see that file's header; no code path
+//      trusts or applies the value.
+//   4. RefreshInterceptor        — handles 401 retry with silent token refresh.
+//   5. ErrorMapperInterceptor    — converts DioException → typed Failure.
+//
+// ORDER IS LOAD-BEARING — RefreshInterceptor MUST precede ErrorMapperInterceptor
+// (mobile-security 2026-08-07). ErrorMapperInterceptor terminates the error flow
+// with `handler.reject(...)`, which sets `InterceptorResultType.reject`; dio's
+// `errorInterceptorWrapper` (dio_mixin.dart ~:450-460) forwards to the NEXT error
+// interceptor only for `next` / `rejectCallFollowing`. With the mapper first,
+// `RefreshInterceptor.onError` was unreachable for EVERY endpoint in the app:
+// silent 401 refresh never fired and the logout-on-refresh-failure branch was
+// dead code (reproduced with a 2-interceptor harness: mapperRan=true,
+// refreshRan=false). RefreshInterceptor therefore branches on the RAW
+// DioException (`err.response?.statusCode == 401`) and always hands control on
+// with `handler.next(...)`, never `reject`, so callers still receive typed
+// Failures from the mapper behind it. Do not reorder these two.
 //
 // A separate [refreshDioProvider] with NO interceptors is used by
 // [RefreshInterceptor] for POST /auth/refresh to avoid circular requests.
@@ -109,6 +128,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../config/app_config.dart';
 import 'auth_interceptor.dart';
+import 'clock_skew_warning_interceptor.dart';
 import 'error_mapper_interceptor.dart';
 import 'logging_interceptor.dart';
 import 'refresh_interceptor.dart';
@@ -254,8 +274,11 @@ Dio dio(Ref ref) {
   d.interceptors.addAll([
     AuthInterceptor(ref),
     if (kDebugMode) LoggingInterceptor(),
-    ErrorMapperInterceptor(),
+    if (kDebugMode) ClockSkewWarningInterceptor(),
+    // Order is load-bearing — see the header. RefreshInterceptor must run
+    // BEFORE ErrorMapperInterceptor, whose `handler.reject` ends the error flow.
     RefreshInterceptor(ref, d),
+    ErrorMapperInterceptor(),
   ]);
 
   // Wire cert-pinning via IOHttpClientAdapter when the cached SecurityContext

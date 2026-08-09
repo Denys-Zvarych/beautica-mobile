@@ -56,6 +56,7 @@ import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import 'role_landing_chrome_matrix.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
   group('each role lands on a screen that shows its expected nav chrome', () {
@@ -160,6 +161,7 @@ void main() {
 /// timer — same overrides the leaked-timer guard relies on).
 ProviderContainer _authedContainer(UserRole role) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(() => _FixedAuthNotifier(_sessionFor(role))),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),

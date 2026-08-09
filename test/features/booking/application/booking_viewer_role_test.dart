@@ -34,6 +34,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_viewer_role.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// Resolves `build()` to [session].
 class _StubAuth extends AuthNotifier {
@@ -61,6 +62,7 @@ class _FailingAuth extends AuthNotifier {
 
 ProviderContainer _containerWith(AuthNotifier Function() auth) {
   final ProviderContainer container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [authProvider.overrideWith(auth)],
   );
   addTearDown(container.dispose);

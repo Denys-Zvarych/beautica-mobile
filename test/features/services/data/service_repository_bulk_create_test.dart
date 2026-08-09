@@ -12,7 +12,14 @@
 //   1. happy path  — POSTs to the /api/v1-prefixed bulk path; per-item JSON is
 //      correct (FIXED → `price` only, no priceMin/priceMax; RANGE →
 //      priceMin/priceMax only, no `price`); response mapped to domain.
-//   2. 409         → MasterAlreadyHasServicesFailure (first-time guard tripped).
+//   2. 409         → ServiceDuplicateFailure, but ONLY for the typed
+//      `data.code == DUPLICATE_SERVICE` envelope. Since beautica-backend
+//      c5e420f made bulk create ADDITIVE, the "master already has services"
+//      server condition is gone and with it the former
+//      MasterAlreadyHasServicesFailure remap — a plain, untyped 409 now falls
+//      THROUGH to the generic `_mapDioException` mapping.
+//   2b. 503        → BulkSetupBusyFailure (per-master advisory lock still held
+//      at the backend's 3 s ceiling; transient, nothing was written).
 //   3. 400 / 422   → ValidationFailure.
 //   4. transport   → NetworkFailure (connectionError) / ServerFailure (5xx).
 //   5. no raw DioException escapes (only typed Failure subclasses).
@@ -22,6 +29,7 @@
 // Pure Dart: no ProviderScope, no widget tree.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -220,26 +228,51 @@ void main() {
   });
 
   group('bulkCreate — error mapping', () {
-    test(
-      '409 (no typed code) → MasterAlreadyHasServicesFailure (first-time guard)',
-      () async {
-        when(
-          () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
-        ).thenThrow(_dioWithStatus(409));
+    test('409 (no typed code) FALLS THROUGH to the generic mapping — '
+        'ServerFailure(409), not a bespoke bulk-setup failure', () async {
+      // The old contract remapped ANY 409 on this endpoint to
+      // MasterAlreadyHasServicesFailure ("bulk setup is only for a master with
+      // no active services"). beautica-backend c5e420f made bulk create
+      // ADDITIVE and deleted that server condition, so the only 409 the
+      // endpoint still emits is the typed DUPLICATE_SERVICE envelope covered
+      // by the next test. An UNTYPED 409 is now an UNMODELLED conflict: it
+      // must surface as the honest generic server error rather than being
+      // mistranslated into confident, wrong copy (and, in the screen, a forced
+      // navigation away without saving).
+      when(
+        () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
+      ).thenThrow(_dioWithStatus(409));
 
-        await expectLater(
-          repository.bulkCreate(<MasterServiceBulkItem>[_fixedItem]),
-          throwsA(isA<MasterAlreadyHasServicesFailure>()),
-        );
-      },
-    );
+      final failure = await repository
+          .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(
+        failure,
+        isNot(isA<ServiceDuplicateFailure>()),
+        reason:
+            'the duplicate remap is gated on data.code == DUPLICATE_SERVICE; '
+            'a bodiless 409 must NOT claim the service is already in the menu',
+      );
+      expect(failure, isA<ServerFailure>());
+      expect(
+        (failure! as ServerFailure).statusCode,
+        409,
+        reason:
+            'the status must be carried through verbatim — '
+            'failure_retry_policy classifies ServerFailure by statusCode, and '
+            '409 must stay OUT of the retryable 5xx band',
+      );
+    });
 
     test(
       '409 DUPLICATE_SERVICE → ServiceDuplicateFailure (serviceName null on bulk)',
       () async {
-        // On the bulk path the typed 409 envelope must take precedence over the
-        // "already has services" default. `serviceName` is null on this path;
-        // `existingServiceDefId` may be present.
+        // The typed 409 envelope is the ONE modelled conflict on this path (it
+        // must also beat any generic ServerFailure(409) the
+        // ErrorMapperInterceptor attached — see the contract test).
+        // `serviceName` is null on this path; `existingServiceDefId` may be
+        // present.
         when(
           () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
         ).thenThrow(
@@ -312,7 +345,77 @@ void main() {
       );
     });
 
-    test('5xx → ServerFailure', () async {
+    test('503 → BulkSetupBusyFailure (advisory lock held past the 3 s '
+        'ceiling), NOT a generic 5xx ServerFailure', () async {
+      when(
+        () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
+      ).thenThrow(_dioWithStatus(503));
+
+      final failure = await repository
+          .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(failure, isA<BulkSetupBusyFailure>());
+      expect(
+        failure,
+        isNot(isA<ServerFailure>()),
+        reason:
+            'a bare ServerFailure(503) would render the generic server-error '
+            'copy instead of the "setup is busy, try again" message; the '
+            'status-code remap in _mapBulkCreateException exists to prevent '
+            'exactly that',
+      );
+    });
+
+    // ── 429 — the throttle the new retry affordance walks users into ─────────
+    //
+    // The bulk route is rate-limited (10/min per master). `_mapBulkCreateException`
+    // handles 409 and 503 and defers everything else, so a 429 lands in
+    // `_mapDioException`'s `badResponse` default and becomes
+    // `ServerFailure(statusCode: 429)` — the SAME generic "server error, try
+    // again" copy a 500 produces, and classified NON-transient by
+    // `isTransientFailure` (its ServerFailure arm only accepts 500–599).
+    //
+    // That is newly load-bearing in this change: the 503 branch now hands the
+    // master an explicit «Повторити» button, so re-tapping into the limiter is
+    // the behaviour the UI actively invites. When they cross it they are told
+    // "server error" — advice that is both wrong (the server is fine) and
+    // useless (retrying immediately fails again).
+    //
+    // This test pins the fix rather than the current behaviour: it asserts the
+    // 429 is (a) not collapsed into the generic server error and (b) classified
+    // as retryable-after-a-wait. It is RED until the mapping is added.
+    test('429 → a typed, retryable rate-limit failure — NOT the generic '
+        'ServerFailure the 500 path produces', () async {
+      when(
+        () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
+      ).thenThrow(_dioWithStatus(429));
+
+      final failure = await repository
+          .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(failure, isA<Failure>());
+      expect(
+        failure,
+        isNot(isA<ServerFailure>()),
+        reason:
+            'a throttled master must not be told "server error, try again" — '
+            'that is the one piece of advice guaranteed to fail, and the new '
+            '503 retry action makes hitting the 10/min bulk limit reachable',
+      );
+      expect(
+        isTransientFailure(failure! as Failure),
+        isTrue,
+        reason:
+            'a rate limit clears on its own, so it belongs on the transient '
+            'side of the retry policy alongside the 5xx and 503 arms — '
+            'ServerFailure(429) is currently classified DETERMINISTIC because '
+            'that arm only accepts 500-599',
+      );
+    });
+
+    test('5xx (other than 503) → ServerFailure', () async {
       when(
         () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
       ).thenThrow(_dioWithStatus(500));

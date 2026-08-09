@@ -7,6 +7,21 @@
 // opacity 0→1 while sliding up 18 px — so the soft-UI search surface assembles
 // itself rather than snapping in flat. This is the one high-impact motion
 // moment of the screen; everything else stays calm and tactile.
+//
+// STRUCTURAL STABILITY (focus/keyboard bug, defect F):
+//   `reveal(...)` MUST return the same widget SHAPE for the whole life of the
+//   widget. An earlier version short-circuited to the bare `child` once the
+//   controller completed (plus a `setState` from a status listener), which
+//   changed the slot's widget runtimeType from `FadeTransition` to whatever the
+//   child was. `Widget.canUpdate` compares runtimeType, so the element — and
+//   every `State` beneath it, including the `EditableText` inside the search
+//   field — was unmounted and re-inflated 1000 ms after mount. Anyone who
+//   tapped the field and started typing within that first second lost focus and
+//   had the keyboard dismissed. The wrappers are therefore UNCONDITIONAL: the
+//   curves themselves short-circuit (a completed `CurvedAnimation` sits at 1.0,
+//   the `Transform` offset collapses to zero, and the controller stops ticking),
+//   so keeping them costs nothing at steady state. Never reintroduce a branch
+//   here that returns a differently-shaped subtree.
 
 import 'package:flutter/material.dart';
 
@@ -46,16 +61,10 @@ class _SearchStaggeredRevealState extends State<SearchStaggeredReveal>
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
-    // Flip the gate once the entrance finishes so subsequent rebuilds skip the
-    // animation machinery entirely and return children directly.
-    _controller.addStatusListener(_onStatus);
+    // No completion status listener: nothing about this widget's OUTPUT changes
+    // when the entrance finishes, so a `setState` there would only risk
+    // re-inflating the revealed subtrees (see the file header).
     _controller.forward();
-  }
-
-  void _onStatus(AnimationStatus status) {
-    if (status == AnimationStatus.completed && mounted) {
-      setState(() {});
-    }
   }
 
   @override
@@ -63,7 +72,6 @@ class _SearchStaggeredRevealState extends State<SearchStaggeredReveal>
     for (final CurvedAnimation curve in _curves.values) {
       curve.dispose();
     }
-    _controller.removeStatusListener(_onStatus);
     _controller.dispose();
     super.dispose();
   }
@@ -73,11 +81,25 @@ class _SearchStaggeredRevealState extends State<SearchStaggeredReveal>
     required double end,
     required Widget child,
   }) {
-    // Entrance only runs once on mount — after it completes, return the child
-    // directly with no animation wrappers and no per-rebuild allocation.
-    if (_controller.isCompleted) {
-      return child;
-    }
+    // ALWAYS the same shape — FadeTransition > AnimatedBuilder — running or
+    // completed, so the element (and any `State` inside `child`, e.g. an
+    // `EditableText`) is never re-inflated mid-interaction.
+    //
+    // What is actually free at steady state (perf-VERIFIED, LOW-4):
+    //   • the curve is cached per interval, so a rebuild allocates neither a
+    //     `CurvedAnimation` nor a `_controller` listener;
+    //   • the controller stops ticking once the entrance completes
+    //     (`transientCallbacks` drops back to 0) and drives zero rebuilds;
+    //   • a completed `FadeTransition` sits at opacity 1.0, where
+    //     `RenderAnimatedOpacity.alwaysNeedsCompositing` is false — no save
+    //     layer;
+    //   • the `Transform` offset collapses to zero.
+    //
+    // NOT free, and therefore NOT here: a `RepaintBoundary`. Every call site
+    // hands these slots to a `ListView`, which already sets
+    // `addRepaintBoundaries: true` — wrapping again produced a second
+    // `RenderRepaintBoundary` per slot, retained for the life of the (persistent
+    // shell) Пошук branch, buying nothing.
     final CurvedAnimation curved = _curves.putIfAbsent(
       (start, end),
       () => CurvedAnimation(
@@ -87,17 +109,15 @@ class _SearchStaggeredRevealState extends State<SearchStaggeredReveal>
     );
     return FadeTransition(
       opacity: curved,
-      child: RepaintBoundary(
-        child: AnimatedBuilder(
-          animation: curved,
-          builder: (BuildContext context, Widget? c) {
-            return Transform.translate(
-              offset: Offset(0, (1 - curved.value) * 18),
-              child: c,
-            );
-          },
-          child: child,
-        ),
+      child: AnimatedBuilder(
+        animation: curved,
+        builder: (BuildContext context, Widget? c) {
+          return Transform.translate(
+            offset: Offset(0, (1 - curved.value) * 18),
+            child: c,
+          );
+        },
+        child: child,
       ),
     );
   }

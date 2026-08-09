@@ -40,20 +40,36 @@ import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
 import 'client_my_bookings_pagination_sort_flow_test.dart'
     as client_my_bookings_pagination_sort;
+import 'client_my_bookings_partition_flow_test.dart'
+    as client_my_bookings_partition;
 import 'booking_price_band_flow_test.dart' as booking_price_band;
 import 'booking_unknown_status_readonly_flow_test.dart'
     as booking_unknown_status_readonly;
 import 'client_elapsed_booking_readonly_flow_test.dart'
     as client_elapsed_booking_readonly;
+import 'client_booking_rating_visibility_flow_test.dart'
+    as client_booking_rating_visibility;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
+import 'client_review_refreshes_master_surfaces_flow_test.dart'
+    as client_review_refreshes_master_surfaces;
+import 'client_review_refreshes_salon_surfaces_flow_test.dart'
+    as client_review_refreshes_salon_surfaces;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_visit_render_flow_test.dart' as client_visit_render;
 import 'client_logout_flow_test.dart' as client_logout;
+import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
+    as client_profile_location_save_overrides_search_touch;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
+import 'client_search_query_with_filters_flow_test.dart'
+    as client_search_query_with_filters;
+import 'client_search_query_shrink_flow_test.dart'
+    as client_search_query_shrink;
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
+import 'shell_nested_push_resolver_contract_test.dart'
+    as shell_nested_push_resolver;
 import 'client_shell_edge_swipe_back_flow_test.dart'
     as client_shell_edge_swipe_back;
 import 'edit_profile_flow_test.dart' as edit_profile;
@@ -83,6 +99,12 @@ void main() {
     'client_my_bookings_pagination_sort_flow',
     client_my_bookings_pagination_sort.main,
   );
+  // Phase 227 — the headline «Мої записи» server-side `partition` cutover
+  // (Step 2.7 Rule 3b, mobile-qa) — an elapsed CONFIRMED booking reclassified
+  // into Минулі by a partition-AWARE fake backend (the mocked-repository
+  // unit/widget tiers cannot prove this), plus the rollout-safety-valve
+  // negative control.
+  group('client_my_bookings_partition_flow', client_my_bookings_partition.main);
   // Frozen RANGE price band end-to-end (Step 2.7 Rule 3b, mobile-qa) — a wire
   // `priceMaxAtBooking` surviving deserialization → BookingMapper →
   // Booking.priceMax → priceLabel onto the CLIENT list card, «Деталі запису»
@@ -113,25 +135,90 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
-  // CLIENT multi-service VISIT journey (Step 2.7 Rule 3b, MO-5/MO-6) — a grouped
-  // visit card → visit detail → cancel via cancelAppointment (never
-  // cancelBooking), plus the MO-6 review leg: a COMPLETED visit → «Залишити
-  // відгук» → rate + comment → createAppointmentReview once → popped, CTA gone.
+  // CLIENT review-staleness regression (Step 2.7 Rule 3b, mobile-qa) — the
+  // REPORTED bug: a client who viewed a master's public profile, then left a
+  // review WITHOUT restarting the app, saw a stale rating / review count and
+  // none of their own review. The three master surfaces are independent
+  // 5-minute `keepAlive` caches; `invalidateMasterReviewSurfaces` fans out to
+  // all of them (all four review SORT buckets included).
+  group(
+    'client_review_refreshes_master_surfaces_flow',
+    client_review_refreshes_master_surfaces.main,
+  );
+  // Phase 233 — the SALON half of the same bug, unblocked by phase 232's
+  // `Booking.salonId`. Same journey, same three independent 5-minute
+  // `keepAlive` caches, keyed on the salon instead of the master;
+  // `invalidateSalonReviewSurfaces` fans out to all of them (all four salon
+  // SORT buckets included). The fake's salon aggregate is seeded SMALL and
+  // reconciled (4.0 → 4.2 across five reviews) so the assertions can tell a
+  // genuine refetch from a cache hit BY VALUE.
+  group(
+    'client_review_refreshes_salon_surfaces_flow',
+    client_review_refreshes_salon_surfaces.main,
+  );
+  // Phase 240 rating visibility (Step 2.7 Rule 3b, mobile-qa) — the REPORTED
+  // bug's journey: a master's rating reaching «Деталі запису» and «Залишити
+  // відгук» off the WIRE (which no mocked-repository tier can prove), and
+  // BOTH cards taping through to that master's public reviews. Plus the
+  // pre-240 stale-`0.0`-with-absent-count negative control, which is a
+  // property of the wire alone.
+  group(
+    'client_booking_rating_visibility_flow',
+    client_booking_rating_visibility.main,
+  );
+
+  // CLIENT multi-service VISIT journey (Step 2.7 Rule 3b) — a multi-service
+  // visit renders as separate per-booking cards (no grouping), and cancelling
+  // one leg routes through the per-booking `cancelBooking`, never any
+  // appointment-level endpoint. The whole-visit review leg this used to also
+  // cover was removed with `VisitDetailScreen`/`AppointmentReviewScreen` — see
+  // `client_visit_render_flow_test.dart`'s header.
   group('client_visit_render_flow', client_visit_render.main);
   group('client_home_hub_flow', client_home_hub.main);
   group('client_logout_flow', client_logout.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
+  // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`
+  // reaching /search/masters + /search/salons TOGETHER with location.cityId,
+  // category and a price bound on the SAME request, plus the results
+  // screen receiving them intact. (The results screen no longer hosts a search
+  // field; the shrink/below-minimum contract lives in the flow below.)
+  group(
+    'client_search_query_with_filters_flow',
+    client_search_query_with_filters.main,
+  );
+  // Search-query SHRINK round trip (Step 2.7 Rule 3b) — the direction every
+  // other search test misses. Applies «манікюр», renders its results, goes
+  // back, shortens to «ма» and asserts the error state, the blocked CTA, the
+  // surviving typed characters and — the original defect — that the stale
+  // result set is genuinely unreachable (no second GET for the pre-shrink
+  // term). Plus the empty-box escape hatch.
+  group('client_search_query_shrink_flow', client_search_query_shrink.main);
   // Search prefill survives a mid-session name edit (refreshUser) — the
   // `.select(user.id)` narrowing regression (Step 2.7 Rule 3b).
   group(
     'search_prefill_survives_name_edit_flow',
     search_prefill_survives_name_edit.main,
   );
+  // Five-times-patched regression (Step 2.7 Rule 3b, mobile-qa) — a profile-
+  // location save must ALWAYS win over an earlier manual pick made through
+  // Пошук's OWN locality picker (`_userTouchedLocality`), composing all three
+  // legs (Search's real picker touch → real routing to Location edit → real
+  // save → real ClientShell tab switch back into Search) that no single
+  // existing flow covers together.
+  group(
+    'client_profile_location_save_overrides_search_touch_flow',
+    client_profile_location_save_overrides_search_touch.main,
+  );
   group('client_shell_flow', client_shell.main);
   // CLIENT left-edge swipe-back → Home tab (Step 2.7 Rule 3b) — the gesture
   // twin of the R1 system-back flow in client_shell_flow_test.dart Test 7.
   group('client_shell_edge_swipe_back_flow', client_shell_edge_swipe_back.main);
+  // AppHarness location-resolver contract (2026-07-31 debug chain): a
+  // context.push onto a shell-nested leaf (/bookings/:bookingId) must leave
+  // location() on the stale branch root while nestedPushLocation() sees the
+  // leaf — pins the two resolvers apart so neither can be quietly conflated.
+  group('shell_nested_push_resolver_contract', shell_nested_push_resolver.main);
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.

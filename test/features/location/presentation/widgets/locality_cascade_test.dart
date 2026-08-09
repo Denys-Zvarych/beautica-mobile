@@ -28,6 +28,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -163,6 +164,7 @@ Widget _wrap(Widget child) {
   );
 
   return ProviderScope(
+    retry: beauticaProviderRetry,
     overrides: [
       locationRepositoryProvider.overrideWith((_) => _FakeLocationRepository()),
     ],

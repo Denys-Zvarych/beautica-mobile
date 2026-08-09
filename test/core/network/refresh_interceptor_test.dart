@@ -27,6 +27,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../helpers/fakes/fake_auth_repository.dart';
 import '../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 part 'refresh_interceptor_test.g.dart';
 
@@ -109,6 +110,7 @@ ProviderContainer makeContainer({
   TokenRefreshLock? lock,
 }) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       secureStorageProvider.overrideWith((_) => storage),
       authRepositoryProvider.overrideWith((_) => repo),

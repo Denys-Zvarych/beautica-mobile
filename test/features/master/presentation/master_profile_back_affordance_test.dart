@@ -72,6 +72,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks / fakes — mirrors master_profile_screen_refresh_test.dart
@@ -183,6 +184,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: _overrides().cast(),
             child: MaterialApp.router(
               routerConfig: router,
@@ -266,6 +268,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
           child: MaterialApp.router(
             routerConfig: router,

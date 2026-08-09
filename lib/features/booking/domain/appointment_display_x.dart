@@ -50,6 +50,7 @@ extension AppointmentDisplayX on Appointment {
 
   /// Whether the visit's end instant is already in the PAST — a presentation-
   /// only signal, mirroring `BookingDisplayX.isPast`.
+  // instant-ok: absolute-instant comparison, endAt is canonical UTC.
   bool get isPast => endAt.isBefore(DateTime.now());
 
   /// The four location fields as a `(value, detail)` pair for the detail card.

@@ -27,7 +27,9 @@
 //      resolves.
 //   7. ValidationFailure keyed by email → that message shown inline, no
 //      navigation, repo email error preferred over generic copy.
-//   8. ValidationFailure with empty fieldErrors falls back to serverMessage.
+//   8. ValidationFailure with empty fieldErrors shows the localized
+//      errValidation copy, never the raw backend serverMessage
+//      (mobile-security, 2026-08).
 
 import 'dart:async';
 
@@ -37,6 +39,7 @@ import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart
 import 'package:beautica_mobile/features/auth/presentation/forgot_password_request_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/server_field_message.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,6 +47,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 GoRouter _makeRouter() => GoRouter(
   initialLocation: RouteNames.forgotPassword,
@@ -72,6 +76,7 @@ Future<void> _pump(WidgetTester tester, FakeAuthRepository repo) async {
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -275,8 +280,10 @@ void main() {
 
     // ── 7. ValidationFailure with an email field error → inline email error ──
     //
-    // The screen prefers fieldErrors['email'] over the generic errValidation
-    // copy, then serverMessage. Guards the inline-mapping extension.
+    // The screen prefers fieldErrors['email'] (rendered on the email field's
+    // own errorText, so verbatim server text is acceptable here — see the
+    // screen's doc comment) over the generic errValidation copy. Guards the
+    // inline-mapping extension.
     testWidgets(
       '7. ValidationFailure keyed by email → that message shown inline, no '
       'navigation, repo email error preferred over generic copy',
@@ -315,10 +322,12 @@ void main() {
       },
     );
 
-    // ── 8. ValidationFailure, empty fieldErrors + serverMessage → fallback ───
+    // ── 8. ValidationFailure, empty fieldErrors → LOCALIZED, never raw ───────
+    // mobile-security, 2026-08: the raw backend serverMessage must never
+    // reach this inline error — it can be untranslated/technical.
     testWidgets(
-      '8. ValidationFailure with empty fieldErrors falls back to serverMessage '
-      'inline (not the generic errValidation copy)',
+      '8. ValidationFailure with empty fieldErrors shows the localized '
+      'errValidation copy, never the raw serverMessage',
       (WidgetTester tester) async {
         const serverMsg = 'Сервіс тимчасово недоступний';
         final FakeAuthRepository repo = FakeAuthRepository()
@@ -342,8 +351,56 @@ void main() {
         await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
         await tester.pumpAndSettle();
 
-        expect(find.text(serverMsg), findsOneWidget);
-        expect(find.text(l10n.errValidation), findsNothing);
+        expect(find.text(l10n.errValidation), findsOneWidget);
+        expect(find.text(serverMsg), findsNothing);
+        expect(find.textContaining('otp:'), findsNothing);
+      },
+    );
+
+    // ── 9. ValidationFailure with an OVERSIZED email field error → GUARDED ───
+    // mobile-security, 2026-08: unlike test 7's short, plausible email error,
+    // this screen's `errorText:` mapping (forgot_password_request_screen.dart)
+    // bypassed `serverFieldMessageOr` entirely — no length cap, no charset
+    // check — the one per-field surface in the codebase that did. An
+    // oversized backend `fieldErrors['email']` value must fall back to the
+    // localized `errValidation` copy, exactly like every other guarded
+    // per-field surface (service_form.dart's `serverPriceError`, the
+    // suggestion dialogs' `_serverNameError`).
+    testWidgets(
+      '9. ValidationFailure with an OVERSIZED email field error falls back to '
+      'the localized errValidation copy, never the raw oversized value',
+      (WidgetTester tester) async {
+        final String oversizedEmailMsg =
+            'x' * (kMaxServerFieldMessageChars + 1);
+        final FakeAuthRepository repo = FakeAuthRepository()
+          ..requestPasswordResetResult = ValidationFailure(
+            fieldErrors: <String, String>{'email': oversizedEmailMsg},
+          );
+        await _pump(tester, repo);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          'anya@example.com',
+        );
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('forgot_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+        await tester.pumpAndSettle();
+
+        expect(repo.requestPasswordResetCalls.length, 1);
+        // The oversized raw backend value must never render — the guarded
+        // fallback (localized errValidation) shows instead.
+        expect(find.text(oversizedEmailMsg), findsNothing);
+        expect(find.text(l10n.errValidation), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          findsOneWidget,
+        );
         expect(find.textContaining('otp:'), findsNothing);
       },
     );

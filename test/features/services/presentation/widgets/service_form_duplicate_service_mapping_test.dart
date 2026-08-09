@@ -29,12 +29,14 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -99,6 +101,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
           approvedCategoriesProvider.overrideWith((ref) async => categories),
@@ -162,11 +165,11 @@ void main() {
         findsOneWidget,
         reason: 'the LOCALIZED duplicate copy must render inline',
       );
-      // The whole point of the fix: never the generic errServer snackbar.
+      // The whole point of the fix: never the generic errServer snack.
       expect(
-        find.byType(SnackBar),
+        find.byType(VelvetSnack),
         findsNothing,
-        reason: 'a duplicate 409 must NOT fall through to a snackbar',
+        reason: 'a duplicate 409 must NOT fall through to a snack',
       );
       expect(
         find.text(l10n.errServer),

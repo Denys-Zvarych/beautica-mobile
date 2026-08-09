@@ -76,13 +76,20 @@ import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
 
+import '../helpers/fakes/fake_favorite_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/fakes/fake_wishlist_repository.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockAuthRepository extends Mock implements AuthRepository {}
 
@@ -113,14 +120,21 @@ const _testTokens = AuthTokens(
 ProviderContainer _buildRealGraph({
   required AuthRepository authRepo,
   required FakeSecureStorage storage,
+  // Additional LEAF overrides a specific entrypoint needs (e.g. a favorite/
+  // wishlist repository fake) — never an intermediate provider that carries a
+  // watch edge, or the cyclic edge under test would be engineered away (see
+  // the file header's "WHY THE OLD TESTS MISSED IT").
+  List<Object> extraOverrides = const <Object>[],
 }) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       // Leaf data deps only — break NO intermediate watch edge.
       authRepositoryProvider.overrideWith((_) => authRepo),
       secureStorageProvider.overrideWith((_) => storage),
       masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
-    ],
+      ...extraOverrides,
+    ].cast(),
   );
   addTearDown(container.dispose);
   return container;
@@ -134,10 +148,17 @@ class _TeardownEntrypoint {
     required this.subscribeCycleClosers,
     required this.run,
     required this.settle,
+    this.extraOverrides = const <Object>[],
   });
 
   /// Human label for the test name.
   final String description;
+
+  /// Extra LEAF overrides this entrypoint's graph needs (e.g. a repository
+  /// fake) beyond the shared auth/master leaves `_buildRealGraph` always
+  /// applies. Must never override an INTERMEDIATE provider that carries the
+  /// watch edge under test.
+  final List<Object> extraOverrides;
 
   /// Subscribes (via `container.listen`) to every provider whose live
   /// subscription closes the watch cycle through the entrypoint's provider, so
@@ -210,6 +231,57 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
       );
     },
   ),
+
+  // -------------------------------------------------------------------------
+  // favoriteToggleProvider.notifier.toggle() — Phase 240 fix.
+  //
+  // A successful SERVICE *add* now `ref.invalidate(wishlistProvider)`s (see
+  // `favorite_toggle_notifier.dart`'s file header). `wishlistProvider` never
+  // watches `favoriteToggleProvider` back (its `build()` only watches
+  // `wishlistRepositoryProvider`; `removeService()` only `ref.read`s the
+  // toggle notifier, which records no watch edge) — so there is no back-edge
+  // and no cycle. This entrypoint proves that on the REAL graph rather than
+  // by code-reading alone: subscribing to `wishlistProvider` registers it as
+  // a live listener, then `toggle()` must complete without
+  // `CircularDependencyError`.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'favoriteToggleProvider.notifier.toggle() (SERVICE add → '
+        'wishlistProvider invalidate)',
+    extraOverrides: <Object>[
+      favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
+      wishlistRepositoryProvider.overrideWithValue(FakeWishlistRepository()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        wishlistProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container
+          .read(favoriteToggleProvider.notifier)
+          .toggle(
+            const FavoriteTarget(type: FavoriteTargetType.service, id: 'svc-1'),
+          );
+    },
+    settle: (container) {
+      final FavoriteEntry? entry = container.read(
+        favoriteToggleProvider,
+      )[const FavoriteTarget(type: FavoriteTargetType.service, id: 'svc-1')];
+      expect(
+        entry?.isFavorite,
+        isTrue,
+        reason:
+            'toggle() must settle the target favorited via the normal '
+            'optimistic-success path — no manual invalidation of ITSELF, no '
+            'cycle.',
+      );
+    },
+  ),
 ];
 
 void main() {
@@ -241,6 +313,7 @@ void main() {
           final container = _buildRealGraph(
             authRepo: deps.repo,
             storage: deps.storage,
+            extraOverrides: entry.extraOverrides,
           );
 
           // Subscribe to every cycle-closing provider so its real

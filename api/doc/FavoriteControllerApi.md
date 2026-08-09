@@ -12,6 +12,7 @@ Method | HTTP request | Description
 [**addFavorite**](FavoriteControllerApi.md#addfavorite) | **POST** /api/v1/favorites | 
 [**listMasterFavorites**](FavoriteControllerApi.md#listmasterfavorites) | **GET** /api/v1/favorites/masters | 
 [**listSalonFavorites**](FavoriteControllerApi.md#listsalonfavorites) | **GET** /api/v1/favorites/salons | 
+[**listServiceFavorites**](FavoriteControllerApi.md#listservicefavorites) | **GET** /api/v1/favorites/services | 
 [**removeFavorite**](FavoriteControllerApi.md#removefavorite) | **DELETE** /api/v1/favorites | 
 
 
@@ -126,6 +127,47 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponsePageResponseFavoriteSalonResponse**](ApiResponsePageResponseFavoriteSalonResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **listServiceFavorites**
+> ApiResponsePageResponseFavoriteServiceResponse listServiceFavorites(pageable)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getFavoriteControllerApi();
+final Pageable pageable = ; // Pageable | 
+
+try {
+    final response = api.listServiceFavorites(pageable);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling FavoriteControllerApi->listServiceFavorites: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **pageable** | [**Pageable**](.md)|  | 
+
+### Return type
+
+[**ApiResponsePageResponseFavoriteServiceResponse**](ApiResponsePageResponseFavoriteServiceResponse.md)
 
 ### Authorization
 

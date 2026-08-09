@@ -679,5 +679,202 @@ void main() {
         expect(result.single.id, 'booking-1');
       },
     );
+
+    // The test ABOVE puts the throwing row LAST, which makes it blind to the
+    // difference between `continue` and `break`/`return`: with
+    // `[valid, broken]` a loop that ABORTS on the first Failure yields exactly
+    // the same one-element result as a loop that SKIPS. So the assertion
+    // "one broken row is dropped instead of blanking the page" — the whole
+    // documented reason `fromDtoList` has a try/catch — was never actually
+    // pinned down.
+    //
+    // Putting the throwing row in the MIDDLE is what makes it pinned: only a
+    // real `continue` can produce [booking-1, booking-3]. An abort yields
+    // [booking-1]; swallowing the loop yields [].
+    //
+    // Mutation-verified 2026-07-31: replacing `continue` with `break` turns
+    // this red and leaves the trailing-row test above green.
+    test(
+      'a row that throws in the MIDDLE of the list is SKIPPED, not aborted on '
+      '— rows AFTER the broken one still map, in order (this is the '
+      'continue-vs-break distinction the trailing-row test cannot make)',
+      () {
+        final dtos = <BookingDetailResponse>[
+          _validDto(id: 'booking-1'),
+          // Deserializes fine; `fromDto` throws ServerFailure on it because
+          // `id` is absent. The throw happens during MAPPING, inside the loop
+          // — not during deserialization, which is a different skip loop in
+          // HttpBookingRepository._decodeBookingsPage.
+          BookingDetailResponseBuilder().build(),
+          _validDto(
+            id: 'booking-3',
+            status: BookingDetailResponseStatusEnum.COMPLETED,
+          ),
+        ];
+
+        final result = BookingMapper.fromDtoList(dtos);
+
+        expect(
+          result.map((Booking b) => b.id).toList(),
+          <String>['booking-1', 'booking-3'],
+          reason:
+              'exactly the two mappable rows survive, in their original '
+              'order. [booking-1] alone would mean the loop ABORTED on the '
+              'first Failure (break/return, not continue); an empty list '
+              'would mean the whole page was blanked — the precise regression '
+              'this loop exists to prevent.',
+        );
+        expect(
+          result.last.status,
+          BookingStatus.completed,
+          reason:
+              'the row after the broken one is fully mapped, not a '
+              'degraded placeholder',
+        );
+      },
+    );
+
+    test(
+      'a list whose ONLY row throws yields an empty list rather than '
+      'propagating the Failure — the caller gets an empty page, never a crash',
+      () {
+        expect(
+          BookingMapper.fromDtoList(<BookingDetailResponse>[
+            BookingDetailResponseBuilder().build(),
+          ]),
+          isEmpty,
+        );
+      },
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 232 — `salonId`, the key phase 233's salon-side cache fan-out uses.
+  //
+  // Three tests, and the third is the load-bearing one: `salonId` and
+  // `salonName` arrive as two independent wire fields carrying two different
+  // meanings (a cache key vs display text), and a mapper that "helpfully"
+  // derived either from the other would make `invalidateSalonReviewSurfaces`
+  // fire against a name, or skip a salon that has an id but no name. Backend
+  // phase 242 made both resolve from the same booking snapshot, which makes
+  // the two fields agree in practice — precisely why an assertion that only
+  // ever sees them agree proves nothing. These feed them values that DISAGREE.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('BookingMapper.fromDto — salonId (phase 232)', () {
+    /// A valid CONFIRMED DTO with the two salon fields set independently.
+    BookingDetailResponse salonDto({String? salonId, String? salonName}) {
+      final BookingDetailResponseBuilder b = BookingDetailResponseBuilder()
+        ..id = 'booking-1'
+        ..masterId = 'master-1'
+        ..masterServiceId = 'service-1'
+        ..masterFirstName = 'Оля'
+        ..masterLastName = 'Коваль'
+        ..serviceName = 'Манікюр'
+        ..status = BookingDetailResponseStatusEnum.CONFIRMED
+        ..startsAt = DateTime.utc(2026, 7, 10, 10)
+        ..endsAt = DateTime.utc(2026, 7, 10, 11)
+        ..priceAtBooking = 500
+        ..durationMinutesAtBooking = 60
+        ..canReview = false
+        ..masterType = BookingDetailResponseMasterTypeEnum.SALON_MASTER;
+      if (salonId != null) b.salonId = salonId;
+      if (salonName != null) b.salonName = salonName;
+      return b.build();
+    }
+
+    test('should_mapSalonId_when_dtoCarriesSalon', () {
+      final Booking booking = BookingMapper.fromDto(
+        salonDto(salonId: 'salon-xyz', salonName: 'Студія «Камелія»'),
+      );
+
+      expect(
+        booking.salonId,
+        'salon-xyz',
+        reason:
+            'the wire value must reach the domain verbatim — this is the id '
+            '`invalidateSalonReviewSurfaces` keys every one of its six '
+            'invalidations on.',
+      );
+    });
+
+    test('should_mapNullSalonId_when_dtoOmitsSalon', () {
+      // An INDEPENDENT_MASTER booking: no salon on the wire at all.
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-solo'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      // The whole point: this must NOT throw. `salonId` is deliberately absent
+      // from the mapper's required-field set, because a null salon is a
+      // legitimate independent-master booking rather than a broken payload —
+      // if it ever joined that set, `fromDtoList`'s resilience loop would
+      // silently DROP every independent master's booking from «Мої записи».
+      final Booking booking = BookingMapper.fromDto(dto);
+
+      expect(booking.salonId, isNull);
+      expect(booking.id, 'booking-solo', reason: 'the row survives intact');
+      expect(
+        BookingMapper.fromDtoList(<BookingDetailResponse>[dto]),
+        hasLength(1),
+        reason:
+            'a null salonId must never be treated as a mapping Failure — the '
+            'resilience loop must keep the row, not drop it.',
+      );
+    });
+
+    test('should_keepSalonIdAndSalonNameIndependent', () {
+      // Deliberately DISAGREEING values. If either field were derived from the
+      // other, one of the two assertions below is impossible to satisfy.
+      final Booking booking = BookingMapper.fromDto(
+        salonDto(salonId: 'salon-A', salonName: 'Салон Б'),
+      );
+
+      expect(booking.salonId, 'salon-A');
+      expect(booking.salonName, 'Салон Б');
+
+      // And the one-sided shapes, which is where a "derive the missing one"
+      // shortcut would actually show up.
+      final Booking idOnly = BookingMapper.fromDto(
+        salonDto(salonId: 'salon-A'),
+      );
+      expect(idOnly.salonId, 'salon-A');
+      expect(
+        idOnly.salonName,
+        isNull,
+        reason: 'an id must never be laundered into a display name',
+      );
+      expect(
+        idOnly.atSalon,
+        isFalse,
+        reason:
+            '`atSalon` stays keyed on salonName — do not re-express it on '
+            'salonId (phase 232 «Out of scope»).',
+      );
+
+      final Booking nameOnly = BookingMapper.fromDto(
+        salonDto(salonName: 'Салон Б'),
+      );
+      expect(nameOnly.salonName, 'Салон Б');
+      expect(
+        nameOnly.salonId,
+        isNull,
+        reason:
+            'a name must never be laundered into a cache key — the salon '
+            'fan-out would then fire against a display string.',
+      );
+    });
   });
 }

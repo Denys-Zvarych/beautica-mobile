@@ -1148,4 +1148,94 @@ void main() {
       expect(service.priceDisplay, equals('до 500 ₴'));
     });
   });
+
+  // ── J. isFavorite — three-state wire contract collapses to two-state ──────
+
+  group('J. fromDto — isFavorite', () {
+    test('J-1. should_mapIsFavoriteTrue_when_dtoFlagTrue', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'assignment-fav-true'
+                ..serviceDefinition.replace(buildDef(id: 'def-fav-true'))
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 ₴'
+                ..isActive = true
+                ..isFavorite = true)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      expect(service.isFavorite, isTrue);
+    });
+
+    test('J-2. should_mapIsFavoriteFalse_when_dtoFlagFalse', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'assignment-fav-false'
+                ..serviceDefinition.replace(buildDef(id: 'def-fav-false'))
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 ₴'
+                ..isActive = true
+                ..isFavorite = false)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      expect(service.isFavorite, isFalse);
+    });
+
+    test('J-3. should_mapIsFavoriteFalse_when_dtoFlagNull — the '
+        'anonymous/non-CLIENT case; this is the one line where the three-state '
+        'wire contract becomes two-state', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'assignment-fav-null'
+                ..serviceDefinition.replace(buildDef(id: 'def-fav-null'))
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 ₴'
+                ..isActive = true
+                ..isFavorite = null)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      expect(
+        service.isFavorite,
+        isFalse,
+        reason:
+            'null means "no wish-list answer applies" (anonymous/non-CLIENT '
+            'caller, or the shared cache value) — it must collapse to false '
+            'at the mapper, never be confused with a real false answer '
+            'upstream of this line',
+      );
+    });
+
+    test('J-4. should_defaultIsFavoriteFalse_when_constructedDirectly — guards '
+        'the freezed default so existing fixtures across the suite keep '
+        'compiling and keep meaning "not favourited"', () {
+      const service = MasterService(
+        id: 'x',
+        serviceDefId: 'y',
+        name: 'Test',
+        durationMinutes: 30,
+      );
+
+      expect(service.isFavorite, isFalse);
+    });
+
+    test('J-5. fromServiceDefinitionDto always maps isFavorite false — that '
+        'payload carries no such field', () {
+      final dto = buildDef(id: 'def-sdr-fav');
+
+      final service = MasterServiceMapper.fromServiceDefinitionDto(
+        dto,
+        assignmentId: 'assignment-sdr-fav',
+      );
+
+      expect(service.isFavorite, isFalse);
+    });
+  });
 }

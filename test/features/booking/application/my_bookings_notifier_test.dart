@@ -10,6 +10,18 @@
 // as-is (no re-sort), pagination cursor advance, and the existing
 // load-more/refresh/error guards.
 //
+// Phase 227 — «Мої записи» cutover to the backend's server-side `partition`.
+// EVERY `getMyBookings` call the notifier issues now ALSO carries `partition`
+// (the rollout safety valve — see `booking_tab.dart`'s file header and
+// `booking_repository.dart`'s `getMyBookings` doc for the full precedence
+// contract). `_stubTab` below stubs BOTH params together, which is why every
+// pre-existing test in this file keeps passing unmodified in substance: the
+// helper is the single seam that changed. The dedicated
+// "partition argument sent per request" group is the NEW coverage this phase
+// adds — it pins that both call sites (`_fetchFirstPage` AND `loadMore`) send
+// `partition`, and that switching tabs re-issues with the new partition AND
+// the new status together.
+//
 // The PREVIOUS version of this suite asserted the fan-out/merge architecture
 // directly (verifying N separate per-status `getMyBookings` calls, a
 // client-side merge of two independently-paginated streams, and independent
@@ -31,12 +43,14 @@ import 'package:beautica_mobile/features/booking/application/my_bookings_notifie
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -85,6 +99,7 @@ PageResponse<Booking> _page(
 
 ProviderContainer _container(_MockBookingRepository repo) {
   final ProviderContainer c = ProviderContainer(
+    retry: beauticaProviderRetry,
     // ignore: avoid_dynamic_calls
     overrides: <Object>[
       bookingRepositoryProvider.overrideWithValue(repo),
@@ -96,15 +111,24 @@ ProviderContainer _container(_MockBookingRepository repo) {
 
 /// Stubs the ONE `getMyBookings` call [tab] issues at [page] to answer with
 /// [response]. `sort` is derived from the tab (Майбутні only).
+///
+/// Phase 227: also stubs (and therefore pins) `partition: tab.partition` —
+/// every real call the notifier issues now carries it, so a stub that omitted
+/// it would simply never match and every test in this file would throw
+/// `MissingStubError`. [partitionOverride] lets a test deliberately stub a
+/// WRONG partition to prove the real code sends the right one (see the
+/// "partition argument sent per request" group).
 void _stubTab(
   _MockBookingRepository repo,
   BookingTab tab, {
   required int page,
   required PageResponse<Booking> response,
+  BookingPartition? partitionOverride,
 }) {
   when(
     () => repo.getMyBookings(
       statuses: tab.statuses,
+      partition: partitionOverride ?? tab.partition,
       sort: tab == BookingTab.upcoming
           ? BookingSort.oldest
           : BookingSort.newest,
@@ -142,6 +166,7 @@ void main() {
         verify(
           () => repo.getMyBookings(
             statuses: const <BookingStatus>{BookingStatus.confirmed},
+            partition: BookingPartition.upcoming,
             sort: BookingSort.oldest,
             page: 0,
             size: any(named: 'size'),
@@ -186,6 +211,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -230,6 +256,7 @@ void main() {
               BookingStatus.cancelled,
               BookingStatus.declined,
             },
+            partition: BookingPartition.cancelled,
             sort: BookingSort.newest,
             page: 0,
             size: any(named: 'size'),
@@ -331,6 +358,7 @@ void main() {
             verify(
                   () => repo.getMyBookings(
                     statuses: any(named: 'statuses'),
+                    partition: any(named: 'partition'),
                     sort: captureAny(named: 'sort'),
                     page: 0,
                     size: any(named: 'size'),
@@ -426,6 +454,7 @@ void main() {
           verify(
                 () => repo.getMyBookings(
                   statuses: any(named: 'statuses'),
+                  partition: any(named: 'partition'),
                   sort: captureAny(named: 'sort'),
                   page: 1,
                   size: any(named: 'size'),
@@ -443,6 +472,253 @@ void main() {
             'so a descending page 1 inverts the list from the fold down.',
       );
     });
+  });
+
+  // ==========================================================================
+  // Phase 227 — «Мої записи» cutover to the server-side `partition`.
+  //
+  // The notifier now sends `partition` on EVERY `getMyBookings` call
+  // alongside the legacy `statuses` set (the rollout safety valve — see
+  // `booking_tab.dart`'s file header). This group mirrors the "sort direction
+  // argument per tab" group's structure/rigour (asserting the WIRE STRING,
+  // not just the enum member — a `wireValue` typo on `BookingPartition` would
+  // pass an enum-only assertion and still ship the wrong filter) and adds the
+  // two things that group doesn't cover: `loadMore`'s SECOND call site, and
+  // that switching tabs re-issues with the NEW partition (no stale-cached
+  // value from the previously active tab).
+  // ==========================================================================
+  group('partition argument sent per request (Phase 227 cutover)', () {
+    for (final (BookingTab tab, BookingPartition expected, String wire)
+        in <(BookingTab, BookingPartition, String)>[
+          (BookingTab.upcoming, BookingPartition.upcoming, 'UPCOMING'),
+          (BookingTab.past, BookingPartition.past, 'PAST'),
+          (BookingTab.cancelled, BookingPartition.cancelled, 'CANCELLED'),
+        ]) {
+      test('${tab.name} page 0 sends partition=$wire AND its legacy status set '
+          'TOGETHER — both params present, exact expected values', () async {
+        final repo = _MockBookingRepository();
+        _stubTab(repo, tab, page: 0, response: _page(const <Booking>[]));
+        final c = _container(repo);
+
+        await c.read(myBookingsProvider(tab).future);
+
+        final captured = verify(
+          () => repo.getMyBookings(
+            statuses: captureAny(named: 'statuses'),
+            partition: captureAny(named: 'partition'),
+            sort: any(named: 'sort'),
+            page: 0,
+            size: any(named: 'size'),
+          ),
+        ).captured;
+        final Set<BookingStatus>? sentStatuses =
+            captured[0] as Set<BookingStatus>?;
+        final BookingPartition? sentPartition =
+            captured[1] as BookingPartition?;
+
+        expect(
+          sentStatuses,
+          tab.statuses,
+          reason:
+              'the legacy status set must still travel on every request — '
+              'that is what makes the safety valve safe on an old backend',
+        );
+        expect(sentPartition, expected);
+        expect(
+          sentPartition?.wireValue,
+          wire,
+          reason:
+              'asserts the WIRE STRING, not just the enum member — a '
+              'wireValue swap on BookingPartition would pass the enum '
+              'assertion above and still send the wrong filter',
+        );
+      });
+    }
+
+    // `loadMore` is a SEPARATE call site from `_fetchFirstPage` — the two
+    // ternaries/parameter lists are independent copies in the source (see
+    // the identical reasoning in the sort-direction group above). Missing
+    // `partition` on this one specifically would make page 0 of every tab
+    // correct and every subsequent page silently wrong — a bug a user only
+    // hits by scrolling, which is exactly why the phase brief calls this out
+    // by name.
+    test('loadMore (page N+1) ALSO sends partition — the SECOND call site, not '
+        'covered by the page-0 cases above', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.past,
+        page: 0,
+        response: _page(
+          <Booking>[
+            _booking(
+              id: 'p0',
+              status: BookingStatus.completed,
+              startAt: DateTime.utc(2026, 7, 1),
+            ),
+          ],
+          page: 0,
+          totalPages: 2,
+        ),
+      );
+      _stubTab(
+        repo,
+        BookingTab.past,
+        page: 1,
+        response: _page(
+          <Booking>[
+            _booking(
+              id: 'p1',
+              status: BookingStatus.completed,
+              startAt: DateTime.utc(2026, 6, 20),
+            ),
+          ],
+          page: 1,
+          totalPages: 2,
+        ),
+      );
+      final c = _container(repo);
+
+      await c.read(myBookingsProvider(BookingTab.past).future);
+      await c.read(myBookingsProvider(BookingTab.past).notifier).loadMore();
+
+      // The append must actually have happened, or the capture below would
+      // have nothing to disagree with (mirrors the sort group's identical
+      // guard).
+      expect(
+        c
+            .read(myBookingsProvider(BookingTab.past))
+            .value!
+            .items
+            .map((Booking b) => b.id),
+        <String>['p0', 'p1'],
+        reason: 'page 1 did not append — check the page-1 stub matched',
+      );
+
+      final BookingPartition? sentForPageOne =
+          verify(
+                () => repo.getMyBookings(
+                  statuses: any(named: 'statuses'),
+                  partition: captureAny(named: 'partition'),
+                  sort: any(named: 'sort'),
+                  page: 1,
+                  size: any(named: 'size'),
+                ),
+              ).captured.single
+              as BookingPartition?;
+
+      expect(sentForPageOne, BookingPartition.past);
+      expect(sentForPageOne?.wireValue, 'PAST');
+    });
+
+    // Riverpod keys `myBookingsProvider` by [BookingTab] (a `@riverpod class`
+    // family), so each tab gets its OWN notifier instance — there is no
+    // shared mutable field a "stale partition" bug could hide in. This test
+    // proves that at the observable-request level rather than by reading the
+    // source: build TWO tabs' providers side by side and assert each issued
+    // its OWN partition+status pair, neither leaking the other's.
+    test('switching tabs (Майбутні → Минулі) re-issues with the NEW partition '
+        'AND the NEW status together — neither is stale-cached from the '
+        'previously active tab', () async {
+      final repo = _MockBookingRepository();
+      _stubTab(
+        repo,
+        BookingTab.upcoming,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'u1',
+            status: BookingStatus.confirmed,
+            startAt: DateTime.utc(2026, 8, 1),
+          ),
+        ]),
+      );
+      _stubTab(
+        repo,
+        BookingTab.past,
+        page: 0,
+        response: _page(<Booking>[
+          _booking(
+            id: 'p1',
+            status: BookingStatus.completed,
+            startAt: DateTime.utc(2026, 6, 1),
+          ),
+        ]),
+      );
+      final c = _container(repo);
+
+      await c.read(myBookingsProvider(BookingTab.upcoming).future);
+      await c.read(myBookingsProvider(BookingTab.past).future);
+
+      verify(
+        () => repo.getMyBookings(
+          statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
+          sort: BookingSort.oldest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(1);
+      verify(
+        () => repo.getMyBookings(
+          statuses: BookingTab.past.statuses,
+          partition: BookingPartition.past,
+          sort: BookingSort.newest,
+          page: 0,
+          size: any(named: 'size'),
+        ),
+      ).called(1);
+    });
+  });
+
+  group('BookingTab.partition mapping (Phase 227)', () {
+    // Pins the exact enum membership — a future edit that repartitions the
+    // tabs, or accidentally maps two tabs onto the same partition, fails
+    // here first.
+    test('is total over the three tabs and maps 1:1 to a distinct '
+        'BookingPartition (no tab shares a partition with another)', () {
+      expect(BookingTab.upcoming.partition, BookingPartition.upcoming);
+      expect(BookingTab.past.partition, BookingPartition.past);
+      expect(BookingTab.cancelled.partition, BookingPartition.cancelled);
+
+      final Set<BookingPartition> distinct = BookingTab.values
+          .map((BookingTab t) => t.partition)
+          .toSet();
+      expect(
+        distinct,
+        hasLength(BookingTab.values.length),
+        reason: 'every tab must map to a DIFFERENT partition',
+      );
+      expect(
+        distinct.contains(BookingPartition.awaitingClosure),
+        isFalse,
+        reason:
+            'awaitingClosure has no client tab — it is a provider-facing '
+            'subset of Минулі/PAST (phase 229), never selected from the tab '
+            'bar',
+      );
+    });
+
+    // `statuses` must be BYTE-UNCHANGED by this phase — it is the safety
+    // valve's fallback path, not the new primary classification. This is the
+    // literal regression guard for the "git diff on statuses is empty"
+    // requirement.
+    test(
+      'statuses is untouched by this phase — still the pre-227 legacy sets',
+      () {
+        expect(BookingTab.upcoming.statuses, <BookingStatus>{
+          BookingStatus.confirmed,
+        });
+        expect(BookingTab.past.statuses, <BookingStatus>{
+          BookingStatus.completed,
+          BookingStatus.notCompleted,
+        });
+        expect(BookingTab.cancelled.statuses, <BookingStatus>{
+          BookingStatus.cancelled,
+          BookingStatus.declined,
+        });
+      },
+    );
   });
 
   group('loadMore', () {
@@ -501,6 +777,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
+          partition: BookingPartition.cancelled,
           sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
@@ -531,6 +808,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -566,6 +844,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
+          partition: BookingPartition.cancelled,
           sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
@@ -614,6 +893,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
+          partition: BookingPartition.cancelled,
           sort: BookingSort.newest,
           page: 1,
           size: any(named: 'size'),
@@ -650,6 +930,7 @@ void main() {
         when(
           () => repo.getMyBookings(
             statuses: BookingTab.upcoming.statuses,
+            partition: BookingPartition.upcoming,
             sort: BookingSort.oldest,
             page: 1,
             size: any(named: 'size'),
@@ -699,6 +980,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -732,6 +1014,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -804,6 +1087,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -812,31 +1096,52 @@ void main() {
     });
   });
 
-  // Product rule (decided 2026-07-16): a booking moves to «Минулі»/Past ONLY
-  // when the PROVIDER marks it completed — NEVER by elapsed time. The tab
-  // partition is status-driven (see `BookingTabX.statuses`), with no
-  // DateTime.now() predicate anywhere. These guards pin that so a future edit
-  // that (wrongly) adds a time-based rule — or moves CONFIRMED into the past
-  // set — breaks the suite. Mirrors the backend state machine 1:1.
-  group('past-by-status-not-by-time (elapsed CONFIRMED stays Майбутні)', () {
-    // The user's exact case: «Майстер Демо» / «Експрес нарощення»,
-    // 16.07.2026 10:00–10:45. Elapsed same-day appointment, now ~11:54.
-    // Local (not UTC) — this is a wall-clock appointment.
-    final DateTime elapsedStart = DateTime(2026, 7, 16, 10, 0);
-    final DateTime elapsedEnd = DateTime(2026, 7, 16, 10, 45);
-
-    test(
-      'an elapsed CONFIRMED booking is classified UPCOMING, not PAST',
-      () async {
-        // Precondition: the appointment window is genuinely in the past —
-        // monotonically true for any run on/after 2026-07-16 10:45.
+  // Phase 227 reversed the pre-227 product rule this group used to pin
+  // ("a booking moves to Минулі ONLY when the provider marks it completed —
+  // NEVER by elapsed time"): the backend now derives Минулі/Майбутні
+  // membership from elapsed time AT READ TIME via `partition`, which is why
+  // an elapsed CONFIRMED booking finally lands in Минулі — see
+  // `my_bookings_screen_test.dart`'s "elapsed CONFIRMED cutover" group for
+  // that end-to-end behaviour (this notifier is exercised against a MOCKED
+  // repository, so it cannot itself prove what a real backend classifies —
+  // only that the notifier passes through whatever the repository returns,
+  // and sends the right partition to ask for it).
+  //
+  // What SURVIVES from the old group, unchanged: `BookingTab.statuses` is the
+  // LEGACY fallback set (Phase 227's rollout safety valve), and it is still
+  // true that no `DateTime.now()` predicate exists anywhere in this getter —
+  // that remains a real invariant worth pinning, since a future edit could
+  // otherwise "fix" the legacy set to mirror partition semantics, which would
+  // defeat its ENTIRE reason for existing (reproducing PRE-227 behaviour on
+  // an old backend, not current behaviour).
+  group(
+    'legacy statuses set — safety-valve fallback only (Phase 227 superseded '
+    'the old "past-by-status-not-by-time" product rule; real classification '
+    'is now via partition, see the group above)',
+    () {
+      test('CONFIRMED is never in the legacy Past status set, and vice versa — '
+          'the fallback set stays internally consistent with itself', () {
+        expect(BookingTab.upcoming.statuses, <BookingStatus>{
+          BookingStatus.confirmed,
+        });
+        expect(BookingTab.past.statuses, <BookingStatus>{
+          BookingStatus.completed,
+          BookingStatus.notCompleted,
+        });
+        // CONFIRMED must never be a Past status — the legacy set is a
+        // fixed enum membership check, not a time comparison.
         expect(
-          elapsedEnd.isBefore(DateTime.now()),
-          isTrue,
-          reason:
-              'fixture must be an ALREADY-elapsed appointment for the guard '
-              'to mean anything',
+          BookingTab.past.statuses,
+          isNot(contains(BookingStatus.confirmed)),
         );
+      });
+
+      test('an elapsed CONFIRMED booking, if the (mocked) repository still '
+          'returns it under Майбутні, is rendered there by the notifier — '
+          'proving the notifier itself applies no elapsed-time filtering of '
+          'its own; that job now belongs entirely to the backend `partition` '
+          'query, not to this file', () async {
+        final DateTime elapsedStart = DateTime.utc(2000, 1, 1, 10, 0);
 
         final repo = _MockBookingRepository();
         final Booking elapsed = _booking(
@@ -850,81 +1155,23 @@ void main() {
           page: 0,
           response: _page(<Booking>[elapsed]),
         );
-        _stubTab(
-          repo,
-          BookingTab.past,
-          page: 0,
-          response: _page(const <Booking>[]),
-        );
         final c = _container(repo);
 
-        // The Майбутні tab surfaces the elapsed CONFIRMED booking...
         final MyBookingsState upcoming = await c.read(
           myBookingsProvider(BookingTab.upcoming).future,
         );
+
         expect(
           upcoming.items.map((Booking b) => b.id),
           <String>['elapsed-confirmed'],
-          reason: 'CONFIRMED belongs to Майбутні regardless of elapsed time',
-        );
-
-        // ...and the Минулі tab does NOT — elapsed time alone never moves it.
-        final MyBookingsState past = await c.read(
-          myBookingsProvider(BookingTab.past).future,
-        );
-        expect(
-          past.items.where((Booking b) => b.id == 'elapsed-confirmed'),
-          isEmpty,
           reason:
-              'only a provider COMPLETED transition moves a booking to Past',
+              'the notifier renders whatever the repository returns for '
+              'the tab it was asked for — it does not itself gate on '
+              'elapsed time',
         );
-
-        // The booking's own status is in the upcoming partition, not the past.
-        expect(BookingTab.upcoming.statuses, contains(elapsed.status));
-        expect(BookingTab.past.statuses, isNot(contains(elapsed.status)));
-      },
-    );
-
-    test('a COMPLETED booking IS classified PAST', () async {
-      final repo = _MockBookingRepository();
-      final Booking completed = _booking(
-        id: 'completed-1',
-        status: BookingStatus.completed,
-        startAt: elapsedStart,
-      );
-      _stubTab(
-        repo,
-        BookingTab.past,
-        page: 0,
-        response: _page(<Booking>[completed]),
-      );
-      final c = _container(repo);
-
-      final MyBookingsState past = await c.read(
-        myBookingsProvider(BookingTab.past).future,
-      );
-      expect(past.items.map((Booking b) => b.id), <String>['completed-1']);
-      expect(BookingTab.past.statuses, contains(completed.status));
-    });
-
-    test('the partition sets are pinned — no time-based rule may creep in', () {
-      // Pin the EXACT status membership. A future edit that adds a time
-      // predicate, moves CONFIRMED into Past, or repartitions the tabs will
-      // fail here first.
-      expect(BookingTab.upcoming.statuses, <BookingStatus>{
-        BookingStatus.confirmed,
       });
-      expect(BookingTab.past.statuses, <BookingStatus>{
-        BookingStatus.completed,
-        BookingStatus.notCompleted,
-      });
-      // CONFIRMED must never be a Past status — the whole point of the rule.
-      expect(
-        BookingTab.past.statuses,
-        isNot(contains(BookingStatus.confirmed)),
-      );
-    });
-  });
+    },
+  );
 
   group('build error', () {
     test('propagates a repository failure as AsyncError', () async {
@@ -932,6 +1179,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -954,6 +1202,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -1003,6 +1252,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -1051,6 +1301,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),

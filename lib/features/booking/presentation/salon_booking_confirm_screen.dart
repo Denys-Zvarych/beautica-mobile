@@ -35,6 +35,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -118,8 +119,10 @@ class _SalonBookingConfirmScreenState
       // booking shows without a manual pull-to-refresh. A cross-provider
       // invalidate from a Notifier would trip
       // `forbid_provider_self_invalidation`; this is a widget-layer `ref`, so it
-      // is compliant.
+      // is compliant. Also refreshes the Home Hub's own «Найближчий запис»
+      // card, which this new booking may now be (Phase 225).
       ref.invalidate(myBookingsProvider(BookingTab.upcoming));
+      ref.invalidate(nextAppointmentProvider);
       context.pushReplacement(
         RouteNames.salonBookingSuccess,
         extra: SalonBookingSuccessArgs(

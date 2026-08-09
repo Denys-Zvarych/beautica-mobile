@@ -50,6 +50,7 @@ import 'package:beautica_mobile/features/services/presentation/services_list_not
 
 import '../../../helpers/fakes/fake_master_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 
@@ -127,6 +128,7 @@ void main() {
     required FakeSecureStorage storage,
   }) {
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
         secureStorageProvider.overrideWith((_) => storage),
@@ -471,6 +473,7 @@ void main() {
         final screenProtection = ScreenProtectionManager();
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -573,6 +576,7 @@ void main() {
       when(() => lruSpy.clear()).thenReturn(null);
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => repo),
           secureStorageProvider.overrideWith((_) => storage),
@@ -626,6 +630,7 @@ void main() {
       // `ref.watch(authProvider)` reverse edge). This keeps the cyclic edge the
       // old test removed, so a reverted invalidate() would re-trip the assert.
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => repo),
           secureStorageProvider.overrideWith((_) => storage),
@@ -715,6 +720,7 @@ void main() {
       // the cyclic edge the old override removed. A reverted invalidate()
       // would re-trip the CircularDependencyError assert here.
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => repo),
           secureStorageProvider.overrideWith((_) => storage),
@@ -2875,6 +2881,7 @@ void main() {
       ).thenAnswer((_) async => const <MasterService>[]);
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => repo),
           secureStorageProvider.overrideWith((_) => storage),
@@ -3079,6 +3086,7 @@ void main() {
         // each registers its transitive `ref.watch(authProvider)` — the exact
         // reverse edge the old Test 5b/5c stubbed away to dodge the assert.
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),

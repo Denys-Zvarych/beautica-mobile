@@ -40,6 +40,8 @@
 // overflow was recorded.
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
@@ -82,15 +84,26 @@ const _sampleProfile = ClientProfileSummary(
   memberSinceYear: 2026,
 );
 
-final _sampleAppointment = NextAppointment(
+// Long-ish master/service/salon names mimic real data that grows under large
+// text scale — the same reasoning as [_sampleAppointment]'s old NextAppointment
+// fixture, now a full [Booking] since the Home Hub renders the SAME shared
+// `BookingCard` widget «Мої записи» uses (locked decision).
+final DateTime _apptStart = DateTime.now().add(const Duration(days: 2));
+final _sampleAppointment = Booking(
   id: 'appt-1',
-  masterName: 'Марія Іванюк-Петренко',
-  service: 'Манікюр з покриттям гель-лак',
-  dateLabel: '20 червня',
-  timeLabel: '15:00',
-  location: 'Центр, вул. Дорошенка 12, Львів',
-  startsAt: DateTime.now().add(const Duration(days: 2)),
-  masterInitials: 'МІ',
+  masterId: 'master-appt-1',
+  masterFirstName: 'Марія',
+  masterLastName: 'Іванюк-Петренко',
+  masterType: 'SALON_MASTER',
+  salonName: 'Центр краси «Дорошенка»',
+  serviceId: 'svc-appt-1',
+  serviceName: 'Манікюр з покриттям гель-лак',
+  durationMinutes: 60,
+  price: 650,
+  startAt: _apptStart,
+  endAt: _apptStart.add(const Duration(hours: 1)),
+  status: BookingStatus.confirmed,
+  canReview: false,
 );
 
 const _sampleMasters = <FavoriteMasterItem>[

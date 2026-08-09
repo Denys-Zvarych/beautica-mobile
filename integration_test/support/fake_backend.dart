@@ -70,6 +70,7 @@
 
 import 'dart:convert';
 
+import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:dio/dio.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
@@ -111,6 +112,7 @@ final DateTime kFixedNow = DateTime.utc(2026, 6, 14, 12, 0, 0);
 /// day-scoped `from == to` assertions in `master_bookings_flow_test.dart`,
 /// which is a worse failure mode than the bomb it replaces.
 final DateTime _kFixtureDay = () {
+  // instant-ok: deliberately the DEVICE clock — see the doc comment above
   final DateTime now = DateTime.now().toUtc();
   return DateTime.utc(now.year, now.month, now.day, 15);
 }();
@@ -229,6 +231,24 @@ final class FakeBackend {
     : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
+    // PARITY WITH PRODUCTION. `dioProvider` (lib/core/network/dio_provider.dart)
+    // installs ErrorMapperInterceptor on every real Dio; without it here the
+    // harness silently diverged from the app on EVERY non-2xx response.
+    //
+    // The interceptor is what parses a 400's `errors` map into
+    // `ValidationFailure.fieldErrors`. Missing it, a 400 reached the repository
+    // as a bare DioException with `error == null`, so `if (e.error is Failure)`
+    // was false, `_mapDioException` returned `ValidationFailure(fieldErrors:
+    // const {})`, and the per-field map was DISCARDED — screens that render
+    // inline field errors fell through to their generic snackbar instead. That
+    // made a working production path look broken in E2E (see
+    // service_setup_field_error_flow_test.dart).
+    //
+    // Only ErrorMapperInterceptor is installed. AuthInterceptor / RefreshInterceptor
+    // are deliberately omitted: FakeBackend accepts any token and never replies
+    // 401, and RefreshInterceptor would need a live refresh endpoint + retry
+    // queue that no flow exercises.
+    dio.interceptors.add(ErrorMapperInterceptor());
     _wire();
   }
 
@@ -265,6 +285,18 @@ final class FakeBackend {
   /// do not exercise this field see a clean seed. Set it to a non-null string
   /// BEFORE [_wire] if you need the initial profile to carry a title.
   String? masterProfessionalTitle;
+
+  /// Optional address fields on `GET /masters/me` (the AUTHENTICATED master's
+  /// OWN profile, distinct from the PUBLIC `_publicMasterDetailEnvelope()`
+  /// used by the CLIENT-facing journey). All start null so every existing
+  /// flow that hits `GET /masters/me` keeps seeing a clean, location-less
+  /// seed — no location row renders on `MasterProfileScreen` for them. A flow
+  /// exercising Phase 219/220/221 (the split address lines + tap-to-expand
+  /// note) sets these BEFORE login/boot.
+  String? masterCity;
+  String? masterStreet;
+  String? masterBuildingNo;
+  String? masterLocationNote;
 
   // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
   //
@@ -635,6 +667,46 @@ final class FakeBackend {
   String? lastResetPasswordNewPassword;
 
   int getMeCalls = 0; // GET /api/v1/users/me counter
+
+  /// `GET /api/v1/clients/me/passport` call counter (Phase 13.8 wire-up).
+  int getPassportCalls = 0;
+
+  /// Body served by `GET /api/v1/clients/me/passport`. Defaults to the passport
+  /// of a client with NO derived history: empty lists, no budget band,
+  /// `bookingsConsidered: 0`. Replace wholesale in a flow to serve a populated
+  /// one.
+  ///
+  /// `memberSinceYear` IS REQUIRED AND MUST STAY. `PassportMapper` THROWS on a
+  /// payload that omits it (Phase 235 removed the `DateTime.now().year`
+  /// fabrication that used to paper over exactly this), so a body without it
+  /// makes the passport section render its ERROR card rather than any data
+  /// state — a fake-backend defect that would look like a screen bug. It is a
+  /// fixed literal on purpose: deriving it from the host clock would be the
+  /// clock-mixing trap (`kFixedNow` pins the app's clock, the host does not).
+  ///
+  /// `favoriteCities` and `reviewsWritten` are likewise always present: the
+  /// rebuilt page (Phase 238) renders both — the cities on the derived block's
+  /// locality line, the review count in the identity strip's counter column.
+  Map<String, dynamic> passportBody = <String, dynamic>{
+    'favoriteDistricts': <String>[],
+    'favoriteCities': <String>[],
+    'budget': null,
+    'bookingsConsidered': 0,
+    'reviewsWritten': 0,
+    'memberSinceYear': 2021,
+  };
+
+  /// `GET /api/v1/favorites/services` call counter — the BEAUTY WISH LIST feed
+  /// (backend 247, mobile Phase 237).
+  int listServiceFavoritesCalls = 0;
+
+  /// Rows served by `GET /api/v1/favorites/services`. Defaults to EMPTY, which
+  /// drives the wish-list section's empty state. Replace wholesale in a flow.
+  ///
+  /// Each row is a `FavoriteServiceResponse`: `masterServiceId`, `masterId`,
+  /// `serviceName`, `masterFirstName`, `masterLastName`, `durationMinutes`,
+  /// `priceType` (`FIXED` | `RANGE`), `priceMin`, `priceMax`, `priceDisplay`.
+  List<Map<String, dynamic>> favoriteServiceRows = <Map<String, dynamic>>[];
   int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
   Map<String, dynamic>?
   lastPatchMeBody; // body of the most recent PATCH /users/me
@@ -695,6 +767,16 @@ final class FakeBackend {
   /// booking-flow E2E assert the calendar threads `services.first.id` into the
   /// working-days query — the Phase 14.20 wiring under test.
   String? lastMasterAaaWorkingDaysServiceId;
+
+  /// The FULL, ordered `serviceId` list the most recent
+  /// `master-aaa/working-days` request carried (`null` when the param was
+  /// absent = schedule-shape mode). [lastMasterAaaWorkingDaysServiceId] is the
+  /// scalar view of the same read and is kept because existing assertions
+  /// depend on it; this field is what makes the MULTI-service selection
+  /// assertable — the generated client sends `serviceId` as a repeated param,
+  /// so a multi-service booking threads N ids and the scalar view silently
+  /// keeps only the first.
+  List<String>? lastMasterAaaWorkingDaysServiceIds;
 
   /// `GET /api/v1/salons/{salonId}/services/{serviceDefId}/masters` call
   /// count (Phase 23.x bookable-masters rewire) — the salon booking flow's
@@ -792,6 +874,16 @@ final class FakeBackend {
   int getSalonPortfolioCalls = 0;
   String? lastGetSalonPortfolioId;
 
+  /// `salon-xyz`'s `locationNote` on the PUBLIC salon-detail envelope
+  /// (`_publicSalonDetailEnvelope`). Mutable (mirrors [masterLocationNote])
+  /// so a flow can swap in an oversized note BEFORE boot to pin the Phase
+  /// 223 (b) regression — a `locationNote` long enough to have evicted the
+  /// street address off the OLD combined hero line must no longer be able to
+  /// do so now that it renders only on the About tab. Defaults to the
+  /// original short fixture value so every existing assertion against it is
+  /// unaffected.
+  String salonLocationNote = '2 поверх';
+
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
@@ -808,8 +900,51 @@ final class FakeBackend {
   /// in [bulkRejectItemIndex], mirroring the backend's `@Max(480)` per-item
   /// validation. Off by default so every OTHER flow's bulk save (none today)
   /// stays a clean 201.
-  bool bulkRejectDurationField = false;
+  ///
+  /// RE-WIRES ON WRITE — see [createRejectDuplicate] for why a plain field
+  /// cannot work here (`onRoute` freezes the status code at registration time).
+  bool get bulkRejectDurationField => _bulkRejectDurationField;
+  set bulkRejectDurationField(bool value) {
+    _bulkRejectDurationField = value;
+    _wireBulkCreateServices();
+  }
+
+  bool _bulkRejectDurationField = false;
   int bulkRejectItemIndex = 0;
+
+  /// When true, the bulk-setup route replies HTTP **409** with the typed
+  /// `{ data: { code: "DUPLICATE_SERVICE", serviceName: null,
+  /// existingServiceDefId } }` envelope instead of the default 200 — one item in
+  /// the batch names a service the master already offers, so the backend rolled
+  /// the WHOLE batch back (the endpoint is all-or-nothing; nothing was written).
+  ///
+  /// Since `beautica-backend` c5e420f made bulk create ADDITIVE, a 409 on this
+  /// route means exactly this one thing, which is why the repository's
+  /// `_mapBulkCreateException` decodes it straight to [ServiceDuplicateFailure]
+  /// and `ServiceSetupScreen._save` surfaces it as a SNACKBAR while KEEPING the
+  /// master on the screen with their selection intact. `serviceName` is null on
+  /// the bulk envelope (the backend does not name the offender there), so the
+  /// failure renders its plain `serviceErrDuplicate` copy.
+  ///
+  /// RE-WIRES ON WRITE — DO NOT COLLAPSE BACK INTO A PLAIN FIELD. See
+  /// [createRejectDuplicate] for the full explanation: `replyCallback` captures
+  /// its status code at REGISTRATION time, so a plain `bool` read inside [_wire]
+  /// is always still `false` and flipping it later changes only the BODY —
+  /// leaving the status at 200, which the repository reads as a SUCCESS. The
+  /// flow then fails on the missing error copy, pointing at the screen instead
+  /// of at this fake.
+  bool get bulkRejectDuplicate => _bulkRejectDuplicate;
+  set bulkRejectDuplicate(bool value) {
+    _bulkRejectDuplicate = value;
+    _wireBulkCreateServices();
+  }
+
+  bool _bulkRejectDuplicate = false;
+
+  /// The `existingServiceDefId` the bulk duplicate-409 envelope reports. Threaded
+  /// through so a flow can assert the typed field survives the decode; the screen
+  /// renders the localized copy regardless of its value.
+  String bulkDuplicateExistingServiceDefId = 'def-existing-bulk';
 
   /// When true, the single-create route
   /// (`POST /independent-masters/me/services`) replies HTTP 409 with the typed
@@ -819,7 +954,34 @@ final class FakeBackend {
   /// `_mapServiceWriteException` → [ServiceDuplicateFailure] → inline
   /// service-type error on the form (NOT the generic errServer snackbar, and NO
   /// pop). Off by default so every other flow's create stays a clean 201.
-  bool createRejectDuplicate = false;
+  ///
+  /// RE-WIRES ON WRITE — DO NOT COLLAPSE BACK INTO A PLAIN FIELD
+  /// ------------------------------------------------------------
+  /// `DioAdapter.onRoute` invokes its `MockServerCallback` IMMEDIATELY, at
+  /// registration time (`http_mock_adapter/src/mixins/request_handling.dart`,
+  /// `requestHandlerCallback(matcher)`), and `replyCallback(statusCode, data)`
+  /// captures `statusCode` right there — only `data` stays lazy per-request.
+  /// So the original `replyCallback(createRejectDuplicate ? 409 : 201, …)`
+  /// evaluated the ternary inside [_wire] (called from the constructor), where
+  /// the flag is ALWAYS still false. Flipping it afterwards changed the BODY to
+  /// the DUPLICATE_SERVICE envelope but left the status at **201** — so
+  /// `HttpServiceRepository.create` saw a success, `_mapServiceWriteException`
+  /// never ran, and the flow could never observe [ServiceDuplicateFailure]. The
+  /// duplicate E2E was silently un-armed (it failed on the missing inline copy,
+  /// pointing at the screen rather than at this fake).
+  ///
+  /// Writing through a setter re-registers the route with the status the flag
+  /// now implies. `Recording.mockResponse` scans ALL matchers and keeps the
+  /// LAST one that matches, and `RequestMatcher` has no `==` override (identity
+  /// equality → `indexOf` returns the real index), so the freshly-appended
+  /// registration deterministically wins over the constructor's.
+  bool get createRejectDuplicate => _createRejectDuplicate;
+  set createRejectDuplicate(bool value) {
+    _createRejectDuplicate = value;
+    _wireCreateService();
+  }
+
+  bool _createRejectDuplicate = false;
 
   /// The `serviceName` the duplicate-409 envelope reports (the clashing service's
   /// display name). Threaded through so a flow can assert the typed field survives
@@ -889,6 +1051,21 @@ final class FakeBackend {
   /// cross-category slug was dropped on a category switch.
   List<String>? lastSearchMastersServiceTypeSlugs;
 
+  /// The FULL decoded FLAT query map from the most recent `/search/masters`
+  /// request — every key the backend's `@ModelAttribute` binder would see in
+  /// ONE place (`q`, `sort`, `category`, `location.cityId`,
+  /// `location.districtId`, `minPrice`, `maxPrice`, `minRating`,
+  /// `serviceTypeSlugs`, `page`, `size`). The individual `lastSearchMasters*`
+  /// fields above each capture a single facet in isolation, which is enough to
+  /// prove a facet reached the wire AT ALL, but NOT that several facets
+  /// travelled TOGETHER on the SAME request — two flows could each set one
+  /// field on two different calls and a test comparing them would be
+  /// comparing across requests, not within one. This field exists so a single
+  /// assertion block can pull `q` + `location.cityId` + `category` +
+  /// `maxPrice` off ONE map and prove simultaneity (the "search term resets my
+  /// other filters" regression class).
+  Map<String, dynamic>? lastSearchMastersQueryMap;
+
   /// `GET /api/v1/search/salons` call count + the last `page` requested.
   int searchSalonsCalls = 0;
   int? lastSearchSalonsPage;
@@ -906,6 +1083,11 @@ final class FakeBackend {
   /// request. See [lastSearchMastersServiceTypeSlugs].
   List<String>? lastSearchSalonsServiceTypeSlugs;
 
+  /// The FULL decoded FLAT query map from the most recent `/search/salons`
+  /// request. See [lastSearchMastersQueryMap] — the salon-endpoint twin, used
+  /// to prove the SAME set of facets travelled together on this endpoint too.
+  Map<String, dynamic>? lastSearchSalonsQueryMap;
+
   // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
   /// `POST /api/v1/favorites` (add) call count + the most recent body.
   int addFavoriteCalls = 0;
@@ -914,6 +1096,29 @@ final class FakeBackend {
   /// `DELETE /api/v1/favorites` (remove) call count + the most recent query.
   int removeFavoriteCalls = 0;
   Map<String, dynamic>? lastRemoveFavoriteQuery;
+
+  /// `DELETE /api/v1/favorites` failure override. `null` (default) keeps the
+  /// idempotent 204. Set via [forceRemoveFavoriteFailure] — never assign
+  /// directly, since a status change needs the route RE-REGISTERED (see that
+  /// method's doc).
+  int? _removeFavoriteFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent) `DELETE /api/v1/favorites`
+  /// answer [statusCode] instead of the default 204 — e.g. to simulate a
+  /// FAILED un-favourite. Call again with `null` to restore the default.
+  ///
+  /// A re-registration hook, not a mutable field the route reads lazily:
+  /// `http_mock_adapter`'s `replyCallback` bakes its status code in as a
+  /// fixed `int` argument AT REGISTRATION time (never a per-request
+  /// callback), so changing the status requires calling `_adapter.onRoute`
+  /// again for the same path — which wins because [Recording.mockResponse]
+  /// resolves to the LAST matching entry in `history`, not the first.
+  /// Mirrors `_wireCreateService`'s identical `_createRejectDuplicate` +
+  /// re-registration precedent elsewhere in this file.
+  void forceRemoveFavoriteFailure(int? statusCode) {
+    _removeFavoriteFailureStatusCode = statusCode;
+    _wireRemoveFavorite();
+  }
 
   // ── Override telemetry (Phase 15.8) ───────────────────────────────────────
   int putOverrideCalls = 0;
@@ -984,8 +1189,11 @@ final class FakeBackend {
           'lastName': 'Бондар',
           'cityLabel': 'Київ',
           'districtLabel': 'Печерський',
-          'avgRating': 4.9,
-          'reviewCount': 24,
+          // Same master, same aggregate as the public detail / summary — a
+          // search card that disagreed with the profile it opens would be the
+          // same harness infidelity, just moved one endpoint over.
+          'avgRating': kPublicMasterAvgRatingBeforeReview,
+          'reviewCount': kPublicMasterReviewCountBeforeReview,
           'avatarUrl': null,
           'minEffectivePrice': 450,
         },
@@ -1082,6 +1290,13 @@ final class FakeBackend {
     // set so flows that do not exercise this field see a clean seed.
     if (masterProfessionalTitle != null)
       'professionalTitle': masterProfessionalTitle,
+    // Address fields (Phase 219/220/221) — same "omit when null" shape as
+    // professionalTitle above, so flows that never set these keep seeing the
+    // pre-existing location-less seed (no location row on MasterProfileScreen).
+    if (masterCity != null) 'city': masterCity,
+    if (masterStreet != null) 'street': masterStreet,
+    if (masterBuildingNo != null) 'buildingNo': masterBuildingNo,
+    if (masterLocationNote != null) 'locationNote': masterLocationNote,
     'avgRating': 4.8,
     'reviewCount': 10,
     'masterType': 'INDEPENDENT_MASTER',
@@ -1093,21 +1308,27 @@ final class FakeBackend {
   /// fixture seeds), so a CLIENT pushing `/masters/master-aaa` resolves a real
   /// profile: «Софія Бондар», INDEPENDENT_MASTER, an Instagram handle (so the
   /// validated contact tile renders + launches), and a rating/reviews block.
-  static Map<String, dynamic> _publicMasterDetailEnvelope() =>
-      _ok(<String, dynamic>{
-        'masterId': 'master-aaa',
-        'firstName': 'Софія',
-        'lastName': 'Бондар',
-        'city': 'Київ',
-        'street': 'вул. Хрещатик',
-        'buildingNo': '12',
-        'locationNote': '2 поверх',
-        'bio': 'Майстриня манікюру з 6-річним досвідом.',
-        'instagram': '@sofia_nails',
-        'avgRating': 4.9,
-        'reviewCount': 24,
-        'masterType': 'INDEPENDENT_MASTER',
-      });
+  ///
+  /// INSTANCE (not static) because the rating block MOVES once the client's
+  /// `POST /reviews` lands — see [publicMasterReviewLanded].
+  Map<String, dynamic> _publicMasterDetailEnvelope() => _ok(<String, dynamic>{
+    'masterId': 'master-aaa',
+    'firstName': 'Софія',
+    'lastName': 'Бондар',
+    'city': 'Київ',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'locationNote': '2 поверх',
+    'bio': 'Майстриня манікюру з 6-річним досвідом.',
+    'instagram': '@sofia_nails',
+    'avgRating': publicMasterReviewLanded
+        ? kPublicMasterAvgRatingAfterReview
+        : kPublicMasterAvgRatingBeforeReview,
+    'reviewCount': publicMasterReviewLanded
+        ? kPublicMasterReviewCountAfterReview
+        : kPublicMasterReviewCountBeforeReview,
+    'masterType': 'INDEPENDENT_MASTER',
+  });
 
   /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
   /// list so the profile's services-count stat tile renders «2». Shapes match
@@ -1178,6 +1399,36 @@ final class FakeBackend {
   /// rendered services-count stat without hard-coding the literal in two places.
   static int get publicMasterServicesCount => _publicMasterServices.length;
 
+  /// `FavoriteServiceResponse` display fields for master-aaa's two public
+  /// services, keyed by `masterServiceId` — mirrors [_publicMasterServices]
+  /// verbatim. Used by the `POST /api/v1/favorites` (SERVICE) handler below to
+  /// make an add genuinely visible on the next `GET /favorites/services`.
+  static const Map<String, Map<String, dynamic>>
+  _masterAaaFavoriteServiceFields = <String, Map<String, dynamic>>{
+    'pub-assign-1': <String, dynamic>{
+      'masterId': 'master-aaa',
+      'serviceName': 'Манікюр з покриттям',
+      'masterFirstName': 'Софія',
+      'masterLastName': 'Бондар',
+      'durationMinutes': 90,
+      'priceType': 'FIXED',
+      'priceMin': 500,
+      'priceMax': null,
+      'priceDisplay': '500 ₴',
+    },
+    'pub-assign-2': <String, dynamic>{
+      'masterId': 'master-aaa',
+      'serviceName': 'Дизайн нігтів',
+      'masterFirstName': 'Софія',
+      'masterLastName': 'Бондар',
+      'durationMinutes': 60,
+      'priceType': 'RANGE',
+      'priceMin': 300,
+      'priceMax': 600,
+      'priceDisplay': 'від 300 до 600 ₴',
+    },
+  };
+
   /// Builds one `BookableMasterResponse`-shaped envelope entry (Phase 23.x
   /// `GET /salons/{salonId}/services/{serviceDefId}/masters`) for [masterId]
   /// on [serviceDefId]. `masterServiceId` deliberately follows the SAME
@@ -1212,8 +1463,17 @@ final class FakeBackend {
   /// true` (the wire contract carries no availability flag — see
   /// `BookingSlotMapper`), which is exactly what the flow needs: at least one
   /// tappable chip on the time screen.
-  static Map<String, dynamic> _availableSlotsEnvelope() {
-    final DateTime day = DateTime.now();
+  ///
+  /// The day these slots are dated on is [serverNow] (default [kFixedNow]) —
+  /// the clock the app under test is on — not the device clock. The route
+  /// match ignores query params, so the DATE never affected which request
+  /// this answered; what it did affect is what the confirm screen then
+  /// renders, which was the HOST's calendar day while the calendar the user
+  /// just tapped was drawn from the injected one. Same two-clock rule as
+  /// [_workingDaysEnvelope]; no longer `static` because it now reads
+  /// instance state.
+  Map<String, dynamic> _availableSlotsEnvelope() {
+    final DateTime day = serverNow;
     DateTime at(int hour, int minute) =>
         DateTime(day.year, day.month, day.day, hour, minute);
     Map<String, dynamic> slot(DateTime start, DateTime end) =>
@@ -1250,7 +1510,19 @@ final class FakeBackend {
   /// the request carried a [serviceId] (the availability-aware mode the Phase
   /// 14.20 fix depends on).
   Map<String, dynamic> _workingDaysEnvelope({String? serviceId}) {
-    final DateTime now = DateTime.now();
+    // ANCHORED TO [serverNow] (which defaults to [kFixedNow]), NOT the device
+    // clock. The window this builds decides which calendar cells the app
+    // renders as TAPPABLE, and the app's calendar is drawn from the INJECTED
+    // clock — so a host-anchored window is only correct while the two clocks
+    // happen to sit within five months of each other. That was a live time
+    // bomb: with `kFixedNow` at 2026-06-14, a suite run any time after
+    // ~2026-11-30 would have produced a window that no longer covers the
+    // month the calendar is showing, marking EVERY visible day non-working,
+    // stripping every cell's `GestureDetector`, and silently re-creating the
+    // exact no-op-tap failure the 2026-08-04 fix removed — with no code
+    // change to blame it on. Anchoring to the same clock the app is on makes
+    // the coverage a property of the fixture rather than of the run date.
+    final DateTime now = serverNow;
     final DateTime from = DateTime(now.year, now.month - 5, 1);
     final DateTime to = DateTime(now.year, now.month + 6, 0);
     final DateTime? nonWorking = forceNonWorkingDate;
@@ -1306,26 +1578,33 @@ final class FakeBackend {
   /// mapper-level unit-test counterpart and
   /// `public_salon_profile_flow_test.dart` for the assertion that reads the
   /// rendered address text.
-  static Map<String, dynamic> _publicSalonDetailEnvelope() =>
-      _ok(<String, dynamic>{
-        'id': 'salon-xyz',
-        'name': 'Студія Краси «Камелія»',
-        'description':
-            'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
-            'та стрижки — довірливий сервіс з 2018 року.',
-        'region': 'Київська',
-        'cityId': 'city-uuid-kyiv',
-        'street': 'вул. Хрещатик',
-        'buildingNo': '12',
-        'locationNote': '2 поверх',
-        'instagramUrl': '@kamelia_salon',
-        'avatarUrl': null,
-        'coverImageUrl': null,
-        // Matches the review-summary aggregate below ((5+4+3)/3 = 4.0) so the
-        // hero card's ★ rating and the "Відгуки" tab's headline average agree.
-        'avgRating': 4.0,
-        'reviewCount': 3,
-      });
+  Map<String, dynamic> _publicSalonDetailEnvelope() => _ok(<String, dynamic>{
+    'id': 'salon-xyz',
+    'name': 'Студія Краси «Камелія»',
+    'description':
+        'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
+        'та стрижки — довірливий сервіс з 2018 року.',
+    'region': 'Київська',
+    'cityId': 'city-uuid-kyiv',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'locationNote': salonLocationNote,
+    'instagramUrl': '@kamelia_salon',
+    'avatarUrl': null,
+    'coverImageUrl': null,
+    // ONE reconciled number per field, shared with the review-summary envelope
+    // below and derivable from the rows [_salonReviewsFor] actually returns.
+    // This used to read `reviewCount: 3` against the summary's `4` — the exact
+    // shape of defanging that made the master-side flow toothless (detail said
+    // 24, summary said 2), so no assertion could tell a stale cache from a
+    // refetch. See [kSalonAvgRatingBeforeReview].
+    'avgRating': salonReviewLanded
+        ? kSalonAvgRatingAfterReview
+        : kSalonAvgRatingBeforeReview,
+    'reviewCount': salonReviewLanded
+        ? kSalonReviewCountAfterReview
+        : kSalonReviewCountBeforeReview,
+  });
 
   /// PUBLIC masters rail for `salon-xyz` — EIGHT masters, deliberately over
   /// [kSalonMastersInitialCount] (6, see `public_salon_profile_screen.dart`),
@@ -1354,8 +1633,10 @@ final class FakeBackend {
           'firstName': 'Софія',
           'lastName': 'Бондар',
           'avatarUrl': null,
-          'avgRating': 4.9,
-          'reviewCount': 24,
+          // Same master as the public detail / summary / search card — the
+          // rail card opens THAT profile, so the numbers must match.
+          'avgRating': kPublicMasterAvgRatingBeforeReview,
+          'reviewCount': kPublicMasterReviewCountBeforeReview,
           'masterType': 'SALON_MASTER',
         },
         <String, dynamic>{
@@ -1518,18 +1799,53 @@ final class FakeBackend {
   /// assertion in `public_salon_profile_flow_test.dart` is unaffected by the
   /// 4th review added for the empty-string serviceName branch below). Shape
   /// matches `SalonReviewSummaryResponse` → `RatingBucket`.
-  static Map<String, dynamic> _salonReviewSummaryEnvelope() =>
-      _ok(<String, dynamic>{
-        'avgRating': 4.0,
-        'reviewCount': 4,
-        'ratingDistribution': <Map<String, dynamic>>[
-          <String, dynamic>{'rating': 5, 'count': 1},
-          <String, dynamic>{'rating': 4, 'count': 2},
-          <String, dynamic>{'rating': 3, 'count': 1},
-          <String, dynamic>{'rating': 2, 'count': 0},
-          <String, dynamic>{'rating': 1, 'count': 0},
-        ],
-      });
+  ///
+  /// After [salonReviewLanded] flips, the client's own 5★ joins the aggregate:
+  /// five reviews, (5+4+3+4+5)/5 = 4.2 EXACTLY, and the 5★ bucket goes 1 → 2.
+  /// Both moves are arithmetically derivable from the rows [_salonReviewsFor]
+  /// returns, and 4.2 is exact in one decimal — no rounding-boundary ambiguity
+  /// (which is why the seeded 5th review is a 5★ and not, say, a 4★: that
+  /// would land on 4.0 and move nothing at all).
+  Map<String, dynamic> _salonReviewSummaryEnvelope() => _ok(<String, dynamic>{
+    'avgRating': salonReviewLanded
+        ? kSalonAvgRatingAfterReview
+        : kSalonAvgRatingBeforeReview,
+    'reviewCount': salonReviewLanded
+        ? kSalonReviewCountAfterReview
+        : kSalonReviewCountBeforeReview,
+    'ratingDistribution': <Map<String, dynamic>>[
+      <String, dynamic>{'rating': 5, 'count': salonReviewLanded ? 2 : 1},
+      <String, dynamic>{'rating': 4, 'count': 2},
+      <String, dynamic>{'rating': 3, 'count': 1},
+      <String, dynamic>{'rating': 2, 'count': 0},
+      <String, dynamic>{'rating': 1, 'count': 0},
+    ],
+  });
+
+  /// The salon's review rows as the server would serve them RIGHT NOW: the four
+  /// seeded rows, plus the client's own review once [salonReviewLanded] flips.
+  ///
+  /// Appended to EVERY sort bucket — the fake does not re-implement the
+  /// backend's ordering (see [_salonReviews]), and the per-sort invalidation
+  /// loop is proven by the CALL COUNTER plus the row's presence in a second,
+  /// separately-warmed bucket rather than by its position in the list.
+  List<Map<String, dynamic>> _salonReviewsFor() => <Map<String, dynamic>>[
+    ..._salonReviews,
+    if (salonReviewLanded)
+      <String, dynamic>{
+        'id': kSalonClientReviewId,
+        'masterId': 'master-aaa',
+        'masterFirstName': 'Софія',
+        'masterLastName': 'Бондар',
+        'clientDisplayName': 'Олена К.',
+        'serviceName': 'Манікюр з покриттям',
+        'rating': 5,
+        'comment': 'Дуже задоволена, дякую!',
+        // M15 — anchored to the harness's INJECTED clock, the same one the app
+        // renders this row against. Never the host clock.
+        'createdAt': kFixedNow.toUtc().toIso8601String(),
+      },
+  ];
 
   /// PUBLIC reviews list for `salon-xyz` — four reviews split across both
   /// seeded masters. The fake ignores the `sort` query value and always
@@ -1704,13 +2020,24 @@ final class FakeBackend {
       ];
 
   /// Matches [_publicMasterReviews] (one 5★, one 4★) and the seeded
-  /// `master-aaa` public-detail `avgRating: 4.9`.
-  static Map<String, dynamic> _publicMasterReviewSummaryEnvelope() =>
+  /// `master-aaa` public-detail `avgRating`.
+  ///
+  /// INSTANCE (not static): once the client's `POST /reviews` lands the
+  /// aggregate moves and the 5★ bucket gains the new review — see
+  /// [publicMasterReviewLanded].
+  Map<String, dynamic> _publicMasterReviewSummaryEnvelope() =>
       _ok(<String, dynamic>{
-        'avgRating': 4.9,
-        'reviewCount': 2,
+        'avgRating': publicMasterReviewLanded
+            ? kPublicMasterAvgRatingAfterReview
+            : kPublicMasterAvgRatingBeforeReview,
+        'reviewCount': publicMasterReviewLanded
+            ? kPublicMasterReviewCountAfterReview
+            : kPublicMasterReviewCountBeforeReview,
         'ratingDistribution': <Map<String, dynamic>>[
-          <String, dynamic>{'rating': 5, 'count': 1},
+          <String, dynamic>{
+            'rating': 5,
+            'count': publicMasterReviewLanded ? 2 : 1,
+          },
           <String, dynamic>{'rating': 4, 'count': 1},
           <String, dynamic>{'rating': 3, 'count': 0},
           <String, dynamic>{'rating': 2, 'count': 0},
@@ -1721,9 +2048,27 @@ final class FakeBackend {
   /// Returns [_publicMasterReviews] server-ordered by the `sort` wire value —
   /// mirrors [_masterReviewsFor]'s reordering so a future sort test on the
   /// public reviews screen has the same real-reorder guarantee.
-  static List<Map<String, dynamic>> _publicMasterReviewsFor(String? sort) {
+  /// The review row the CLIENT's `POST /reviews` adds to `master-aaa`'s public
+  /// list. `createdAt` is just BEFORE the harness's injected `kFixedNow`
+  /// (2026-06-14 12:00 UTC), so it is genuinely the NEWEST row without being a
+  /// future timestamp — the clock the app renders it against is the same
+  /// injected one (M15: fixture clock and app clock must not disagree).
+  static const Map<String, dynamic> _clientPublicReview = <String, dynamic>{
+    'id': kClientReviewId,
+    'clientDisplayName': 'Олена К.',
+    'rating': 5,
+    'comment': 'Дуже задоволена, дякую!',
+    'createdAt': '2026-06-14T11:00:00Z',
+    'serviceName': 'Манікюр з покриттям',
+  };
+
+  /// INSTANCE (not static): includes [_clientPublicReview] once the client's
+  /// review has landed — see [publicMasterReviewLanded]. The new row is added
+  /// BEFORE sorting, so it lands in the right place in every sort bucket.
+  List<Map<String, dynamic>> _publicMasterReviewsFor(String? sort) {
     final List<Map<String, dynamic>> list = <Map<String, dynamic>>[
       ..._publicMasterReviews,
+      if (publicMasterReviewLanded) _clientPublicReview,
     ];
     switch (sort) {
       case 'OLDEST':
@@ -1826,6 +2171,101 @@ final class FakeBackend {
   String? lastReviewComment;
   String? lastReviewBookingId;
 
+  /// True once a `POST /reviews` has landed — the review the CLIENT just wrote
+  /// is now part of `master-aaa`'s PUBLIC review data.
+  ///
+  /// Exists for the `client_review_refreshes_master_surfaces_flow` regression:
+  /// the three master public surfaces are independent `keepAlive` caches with a
+  /// 5-minute TTL, so an E2E can only tell "refetched" from "served stale" if
+  /// the SERVER's answer actually MOVES after the write. Flipping this changes
+  /// three fixtures at once, exactly as the real backend would:
+  ///   • `_publicMasterDetailEnvelope` → [kPublicMasterAvgRatingAfterReview] /
+  ///     [kPublicMasterDetailReviewCountAfterReview] (the profile stat tiles);
+  ///   • `_publicMasterReviewSummaryEnvelope` → the same average and
+  ///     [kPublicMasterSummaryCountAfterReview] (the aggregate card);
+  ///   • `_publicMasterReviewsFor` → appends [kClientReviewId] to every sort
+  ///     bucket (the review the client just wrote).
+  ///
+  /// Starts `false`, so every pre-existing flow sees the original fixtures
+  /// unchanged; only a flow that BOTH posts a review AND then reads the public
+  /// master surfaces is affected.
+  bool publicMasterReviewLanded = false;
+
+  /// The SALON-side twin of [publicMasterReviewLanded] (phase 233). Flipped by
+  /// the same `POST /reviews`, because a review of a salon-employed master
+  /// moves `salons.avg_rating` / `review_count` too — `ReviewEventListener`
+  /// recalculates BOTH aggregates before the 201 returns.
+  ///
+  /// Exists for the `client_review_refreshes_salon_surfaces_flow` regression,
+  /// for exactly the reason its master twin does: the three salon surfaces are
+  /// independent `keepAlive` caches behind a 5-minute TTL, so an E2E can only
+  /// tell "refetched" from "served stale" if the SERVER's answer genuinely
+  /// MOVES after the write. Flipping this changes three fixtures at once:
+  ///   • `_publicSalonDetailEnvelope` → the hero card's ★ rating / count;
+  ///   • `_salonReviewSummaryEnvelope` → the same average, plus the 5★ bucket;
+  ///   • `_salonReviewsFor` → appends [kSalonClientReviewId] to every bucket.
+  ///
+  /// Starts `false`, so every pre-existing salon flow sees the original
+  /// fixtures unchanged.
+  bool salonReviewLanded = false;
+
+  /// `salon-xyz`'s review aggregate — ONE number per field, shared by the
+  /// public DETAIL and the review SUMMARY endpoints alike.
+  ///
+  /// These used to disagree (detail `reviewCount: 3` vs summary `4`) — the
+  /// same defanging that made the master fixture toothless before it was
+  /// reconciled. The seeded truth is FOUR: [_salonReviews] has four rows and
+  /// the summary's own distribution (one 5★, two 4★, one 3★) sums to four, and
+  /// (5+4+4+3)/4 = 4.0 exactly.
+  ///
+  /// The base is deliberately SMALL. One more 5★ across a large base cannot
+  /// shift a 1-decimal average (the master fixture's old 24-review base put
+  /// 123/25 = 4.92 → still «4.9»), and an assertion that cannot move cannot
+  /// distinguish a refetch from a `keepAlive` cache hit. Across four it does:
+  /// (5+4+4+3+5)/5 = 4.2 EXACTLY — a full 0.2 move, no rounding boundary.
+  static const double kSalonAvgRatingBeforeReview = 4.0;
+  static const double kSalonAvgRatingAfterReview = 4.2;
+  static const int kSalonReviewCountBeforeReview = 4;
+  static const int kSalonReviewCountAfterReview = 5;
+
+  /// Id of the review row the client's `POST /reviews` adds to `salon-xyz`'s
+  /// public list. Distinct from the seeded `salon-review-*` rows so
+  /// `find.byKey(Key('salon-review-$kSalonClientReviewId'))` is unambiguous
+  /// proof the list was re-fetched rather than served from the keepAlive cache.
+  static const String kSalonClientReviewId = 'salon-r-new';
+
+  /// `master-aaa`'s review aggregate — ONE number per field, shared by EVERY
+  /// endpoint that reports it.
+  ///
+  /// These used to disagree: the public DETAIL said `reviewCount: 24` while the
+  /// review SUMMARY for the same master said `2`, and the search card / salon
+  /// roster said `24` again. A count-consistency regression between two of
+  /// those payloads was therefore invisible — the fixture already disagreed by
+  /// design, so no assertion could tell a bug from the baseline.
+  ///
+  /// The reconciled base is the SEEDED TRUTH, not the larger number: the
+  /// summary's own `ratingDistribution` (one 5★ + one 4★) and
+  /// [_publicMasterReviews] (two rows) both say TWO reviews, and the average is
+  /// exactly (5+4)/2. Reconciling upward to 24 would have required inventing a
+  /// 24-wide distribution AND would have made the post-review assertions
+  /// toothless: one more 5★ review cannot move a 1-decimal average across 24
+  /// existing ones (123/25 = 4.92 → still «4.9»), so the E2E could no longer
+  /// tell a genuine re-fetch from a stale `keepAlive` cache by value.
+  ///
+  /// After the client's 5★ lands: three reviews, (5+5+4)/3 = 4.67 → «4.7».
+  /// Both fields move, and both moves are arithmetically derivable from the
+  /// review rows the list endpoint actually returns.
+  static const double kPublicMasterAvgRatingBeforeReview = 4.5;
+  static const double kPublicMasterAvgRatingAfterReview = 4.7;
+  static const int kPublicMasterReviewCountBeforeReview = 2;
+  static const int kPublicMasterReviewCountAfterReview = 3;
+
+  /// Id of the review row the client's `POST /reviews` adds to `master-aaa`'s
+  /// public list. Distinct from the seeded `pub-r*` rows so
+  /// `find.byKey(Key('master-review-$kClientReviewId'))` is unambiguous proof
+  /// that the list was re-fetched rather than served from the keepAlive cache.
+  static const String kClientReviewId = 'pub-r-new';
+
   /// Server-computed `providerCanReviewClient` for the seeded booking (track
   /// 7.x Wave B). Gates `BookingDetailScreen`'s own «Залишити відгук про
   /// клієнта» CTA (see `_DetailBody._providerActions`) exactly like
@@ -1852,6 +2292,16 @@ final class FakeBackend {
   double? myRatingAvgRating;
   int myRatingReviewCount = 0;
   int getMyRatingCalls = 0;
+
+  /// Wire `{rating, count}` buckets for the rated-state distribution table
+  /// (QA follow-up — the two-column `RatingSummaryCard` breakdown). Null
+  /// means the route omits `ratingDistribution` entirely (the repository's
+  /// null-list branch — all-zero distribution). Deliberately scrambled wire
+  /// order by default (matches `_masterReviewSummaryEnvelope`'s sibling
+  /// fixture): a flow asserting the per-star counts render must prove the
+  /// REAL `GET /users/me/rating` HTTP round-trip folds this correctly, not
+  /// just a synthetic ClientRating built in a widget test.
+  List<Map<String, dynamic>>? myRatingDistribution;
 
   /// The client's free-text cancellation note, captured on cancel (may be null
   /// — a silent self-cancellation).
@@ -1904,6 +2354,25 @@ final class FakeBackend {
   /// pre-contract one.
   num bookingPrice = 650;
   num? bookingPriceMax;
+
+  /// Phase 240 — the master's public rating, as carried BY THE BOOKING.
+  ///
+  /// Both default to `null`, which is the PRE-240 wire shape (a backend that
+  /// simply omits the fields), so every pre-existing flow keeps seeing exactly
+  /// the payload it saw before and its assertions are untouched. A flow that
+  /// exercises the rating surfaces sets them before boot.
+  ///
+  /// They are deliberately SEPARATE knobs rather than one: the whole point of
+  /// `BookingDisplayX.masterDisplayRating` is that the average and the count
+  /// disagree in three distinct ways (null average, stale `0.0` average,
+  /// known-zero count), and a single knob could not seed those apart.
+  ///
+  /// `null` here is NOT the same as `0`. A null COUNT means "unknown" (a
+  /// pre-240 backend), which must not suppress a genuine average; a `0` count
+  /// is a positive assertion of "no reviews". Keep them independently
+  /// settable so a flow can seed either.
+  num? bookingMasterAvgRating;
+  int? bookingMasterReviewCount;
 
   /// `PATCH /bookings/{id}/cancel` call count + the last comment sent.
   int cancelBookingCalls = 0;
@@ -1980,6 +2449,41 @@ final class FakeBackend {
     }
   }
 
+  /// Track 30.x (PER-ITEM reschedule) — `booking-2`'s OWN start/end window,
+  /// INDEPENDENT of `booking-1`'s [bookingStartsAt]/[bookingEndsAt], mirroring
+  /// how [siblingBookingStatus] is independent of [bookingStatus]. Defaults to
+  /// the SAME instant as `booking-1` (both seeded as if the visit were still
+  /// contiguous) with the sibling's own 60-minute duration
+  /// (`durationMinutesAtBooking: 60` in [_seededSiblingBookingJson]) — until
+  /// [rescheduleChild] moves one of them, at which point the two diverge. This
+  /// is the "did the sibling's window survive untouched" surface the per-item
+  /// reschedule regression needs: moving `booking-1` must leave THIS pair
+  /// byte-for-byte unchanged (track 30.x's locked "no cascade, no
+  /// gap-closing" invariant) — the retired whole-visit reschedule would have
+  /// moved every child's window at once.
+  String siblingBookingStartsAt = _futureInstant(const Duration(days: 7));
+  String siblingBookingEndsAt = _futureInstant(
+    const Duration(days: 7, minutes: 60),
+  );
+
+  /// Moves ONLY the tapped child's own start/end window, keyed on [bookingId]
+  /// — mirrors [declineChild]'s per-child field routing. `booking-1` moves
+  /// [bookingStartsAt]/[bookingEndsAt], `booking-2` moves its OWN
+  /// [siblingBookingStartsAt]/[siblingBookingEndsAt]. Because the per-item
+  /// reschedule fix passes THIS child's own id (never the whole visit),
+  /// rescheduling `booking-1` here leaves `booking-2`'s window untouched — the
+  /// old whole-visit `rescheduleAppointment` would have moved every child's
+  /// window in lockstep.
+  void rescheduleChild(String bookingId, DateTime newStart, DateTime newEnd) {
+    if (bookingId == 'booking-2') {
+      siblingBookingStartsAt = newStart.toIso8601String();
+      siblingBookingEndsAt = newEnd.toIso8601String();
+    } else {
+      bookingStartsAt = newStart.toIso8601String();
+      bookingEndsAt = newEnd.toIso8601String();
+    }
+  }
+
   /// `GET /bookings/booking-1` (detail) + `GET /bookings/me` (list) call
   /// counts. A reschedule invalidates BOTH `bookingDetailProvider(id)` and
   /// `myBookingsProvider(upcoming)`, so a test asserts these counters climb
@@ -1991,6 +2495,17 @@ final class FakeBackend {
 
   /// `GET /bookings/me/booked-days` call count (Phase 7.6 day rail).
   int bookedDaysCalls = 0;
+
+  /// The raw `from`/`to` query params of the MOST RECENT
+  /// `GET /bookings/me/booked-days` call, as Dio actually sent them.
+  ///
+  /// mobile-qa (2026-08-02, backlog :226 audit) — the fixed reply below never
+  /// inspects the request window (it always echoes [bookingStartsAt]'s own
+  /// day), so without this capture nothing at the E2E tier could tell a
+  /// Kyiv-anchored `from`/`to` apart from a device/UTC-day one — the exact
+  /// gap `kyiv_day_boundary_flow_test.dart` closes for the ±180-day window
+  /// `bookedDaysProvider` (`booked_days_notifier.dart`) sends.
+  Map<String, dynamic>? lastBookedDaysQuery;
 
   /// The FULL raw query map (page/size/sort/status, as Dio actually sent it —
   /// ints stay ints, the repeated `status` stays a `List<String>`) of the
@@ -2011,6 +2526,26 @@ final class FakeBackend {
   /// the top of the shared route callback, before any dispatch.
   Map<String, dynamic>? lastMyBookingsQuery;
 
+  /// The seeded booking's provider affiliation (phase 232). Defaults to the
+  /// INDEPENDENT_MASTER shape every pre-existing flow already asserts against:
+  /// no salon name, no salon id.
+  ///
+  /// ⚠️ [bookingSalonId] and [bookingSalonName] are SEPARATE knobs on purpose —
+  /// seeding one without the other is a legitimate (if unusual) wire shape, and
+  /// `booking_mapper_test` pins that neither is derived from the other. A flow
+  /// that wants a realistic salon booking seeds all three fields together:
+  /// ```dart
+  /// final fb = FakeBackend()
+  ///   ..bookingMasterType = 'SALON_MASTER'
+  ///   ..bookingSalonId = 'salon-xyz'
+  ///   ..bookingSalonName = 'Студія Краси «Камелія»';
+  /// ```
+  /// `salon-xyz` is the id the public-salon fixtures above already serve, so
+  /// the review fan-out lands on a salon this fake can actually render.
+  String bookingMasterType = 'INDEPENDENT_MASTER';
+  String? bookingSalonName;
+  String? bookingSalonId;
+
   /// The enriched `BookingDetailResponse` body for the seeded booking, built
   /// from the CURRENT mutable status/note so a post-cancel re-fetch reflects
   /// the new state. Wire keys mirror the DTO the [BookingMapper] reads.
@@ -2020,8 +2555,15 @@ final class FakeBackend {
     'masterFirstName': 'Софія',
     'masterLastName': 'Бондар',
     'masterAvatarUrl': null,
-    'masterType': 'INDEPENDENT_MASTER',
-    'salonName': null,
+    'masterType': bookingMasterType,
+    'salonName': bookingSalonName,
+    // Phase 232. Emitted UNCONDITIONALLY (not behind an `if`, unlike the
+    // Phase-240 rating pair below) because `null` is this field's real
+    // steady-state value: the default seeded booking is an INDEPENDENT_MASTER
+    // booking, and the mapper must map that null cleanly rather than treat it
+    // as a missing field. A flow that needs the salon half seeds all three of
+    // [bookingSalonId] / [bookingSalonName] / [bookingMasterType].
+    'salonId': bookingSalonId,
     // Phase 7.2 — the counterparty as the PROVIDER sees it. Seeded from the
     // same [clientFirstName]/[clientLastName] the `/users/me` handler serves,
     // so the master's booking detail shows the client whose session the client
@@ -2054,6 +2596,14 @@ final class FakeBackend {
     'providerComment': null,
     'clientCancellationNote': bookingClientCancellationNote,
     'masterProfessionalTitle': 'Майстриня манікюру',
+    // Phase 240. Emitted ONLY when seeded, so the default payload keeps the
+    // PRE-240 shape (fields absent entirely) and every pre-existing flow's
+    // assertions are untouched. An absent `masterReviewCount` is exactly the
+    // "unknown count" case `masterDisplayRating` must not treat as zero.
+    if (bookingMasterAvgRating != null)
+      'masterAvgRating': bookingMasterAvgRating,
+    if (bookingMasterReviewCount != null)
+      'masterReviewCount': bookingMasterReviewCount,
     'locationNote': null,
     'appointmentId': bookingAppointmentId,
   };
@@ -2086,8 +2636,8 @@ final class FakeBackend {
     'durationMinutesAtBooking': 60,
     'priceAtBooking': 400,
     'priceMaxAtBooking': null,
-    'startsAt': bookingStartsAt,
-    'endsAt': bookingEndsAt,
+    'startsAt': siblingBookingStartsAt,
+    'endsAt': siblingBookingEndsAt,
     'status': siblingBookingStatus,
     'canReview': false,
     'providerCanReviewClient': false,
@@ -2158,6 +2708,86 @@ final class FakeBackend {
   // NOT a per-call hand-picked response.
   List<Map<String, dynamic>>? _bookingsDataset;
 
+  /// Phase 227 (mobile-qa) rollout-safety-valve negative control. Whether
+  /// this fake backend understands the `partition` query param (backend
+  /// Phase 28.2). Defaults `true` — a modern, partition-aware backend.
+  ///
+  /// Setting this to `false` models an OLD backend that has not deployed
+  /// Phase 28.2 yet: mirroring Spring's REAL behaviour of silently DROPPING
+  /// an unrecognised query parameter (never a 400), [_slicedBookingsPageEnvelope]
+  /// then never reads `partition` at all and falls straight through to
+  /// `status`-only filtering — regardless of what the request actually
+  /// carries. Composed with what the CALLER sends, this reproduces both
+  /// halves of the Phase 227 rollout safety valve:
+  ///   - caller sends BOTH `partition`+`status` (the real
+  ///     `MyBookingsNotifier`) → degrades SAFELY to exactly the pre-227
+  ///     `status`-only filter (today's shipped behaviour, elapsed CONFIRMED
+  ///     rows still stuck in Майбутні — a known, harmless regression to the
+  ///     old bug, not new wrong data).
+  ///   - caller sends ONLY `partition`, no `status` → this fake (mirroring
+  ///     Spring) applies NO filter at all → the entire unfiltered dataset
+  ///     comes back. This is the negative control:
+  ///     `client_my_bookings_partition_flow_test.dart` drives this second
+  ///     case directly (bypassing the notifier, which never omits `status`)
+  ///     to make legible exactly what the valve protects against.
+  bool backendSupportsPartition = true;
+
+  /// The instant [_slicedBookingsPageEnvelope] treats as "now" when computing
+  /// [_partitionOf] — i.e. the fake's model of the BACKEND's own clock.
+  /// Defaults to [kFixedNow], the SAME instant the harness overrides
+  /// `clockProvider` to for the app under test (`e2e_boot_policy.dart`). In
+  /// production the backend's clock and the app's clock are the same clock;
+  /// in the harness the app believes "now" is `kFixedNow`, so the fake's
+  /// server-side partition classification must agree, or fixtures anchored
+  /// to `kFixedNow` (the documented [_bookingsDataset] seeding convention —
+  /// see `client_my_bookings_pagination_sort_flow_test.dart`) drift into the
+  /// wrong partition every day the real wall clock moves further past
+  /// `kFixedNow`. A bare `DateTime.now().toUtc()` here was exactly that bug:
+  /// harmless while filtering was status-only (pre-227), but Phase 227's
+  /// `partition`-wins-outright precedence rule newly exposes every
+  /// `kFixedNow`-anchored fixture to real-clock classification.
+  ///
+  /// This is DELIBERATELY a different clock than [_kFixtureDay] /
+  /// `BookingDisplayX.isPast` (both real-clock, by design — see the module
+  /// doc comment above [kFixedNow]): those model a presentation-only,
+  /// UI-side "has this slot passed" signal that reads the DEVICE clock on
+  /// purpose, never the injected one. The two clocks would only disagree on
+  /// a row whose `endsAt` falls between `kFixedNow` and the real wall clock,
+  /// and the two flows that combine partition classification with an
+  /// `isPast`-gated detail screen (`client_my_bookings_partition_flow_test`,
+  /// `client_elapsed_booking_readonly_flow_test`) deliberately anchor those
+  /// specific rows at 2020/2035 — far enough from both clocks that this
+  /// never arises. A test that genuinely needs a different "server now" may
+  /// override this field directly; nothing in the suite currently does.
+  DateTime serverNow = kFixedNow;
+
+  /// The backend Phase 28.1/28.2 time-based partition membership of one
+  /// [_bookingsDataset] row, mirroring `BookingSpecifications#partition`'s
+  /// predicate (see `docs/backend-phases/phase-217-28.2-...md`) exactly:
+  ///   - `CANCELLED`/`DECLINED` → `CANCELLED`.
+  ///   - `CONFIRMED` with `endsAt` ON OR AFTER [now] → `UPCOMING`.
+  ///   - `CONFIRMED` with `endsAt` BEFORE [now], or `COMPLETED`/
+  ///     `NOT_COMPLETED` (elapsed by definition) → `PAST`.
+  ///   - any other status (defensive — `UNKNOWN` has no real occurrence in
+  ///     this dataset) matches NO partition, mirroring the backend never
+  ///     classifying an unrecognised status into any of the three.
+  static String? _partitionOf(Map<String, dynamic> row, DateTime now) {
+    final String status = row['status'] as String;
+    switch (status) {
+      case 'CANCELLED':
+      case 'DECLINED':
+        return 'CANCELLED';
+      case 'COMPLETED':
+      case 'NOT_COMPLETED':
+        return 'PAST';
+      case 'CONFIRMED':
+        final DateTime endsAt = DateTime.parse(row['endsAt'] as String);
+        return endsAt.isBefore(now) ? 'PAST' : 'UPCOMING';
+      default:
+        return null;
+    }
+  }
+
   /// Builds one dataset row in the same wire shape [_seededBookingJson] uses,
   /// parameterized by [id]/[status]/[startsAt] so a test can seed a large,
   /// scrambled-insertion-order table. [duration] defaults to a realistic
@@ -2221,6 +2851,68 @@ final class FakeBackend {
     return <String>[raw.toString()];
   }
 
+  /// Reads a multi-valued query param that the GENERATED api client sends via
+  /// [encodeCollectionQueryParameter] — i.e. as a Dio [ListParam], not as a
+  /// bare `List` and not as a scalar.
+  ///
+  /// This is the third shape this file has had to learn (see
+  /// [_bookingStatusesFrom]'s doc comment for the first two, and the
+  /// `TypeError`-inside-the-route-callback failure mode it describes — it is
+  /// IDENTICAL here). Since the `d42c7cf1` OpenAPI regen, `serviceId` on
+  /// `/masters/{id}/working-days` and `/masters/{id}/slots` is declared
+  /// list-valued, so `master_controller_api.dart` wraps it in
+  /// `ListParam<Object?>{value: [...], format: ListFormat.multi}`. Reading it
+  /// as `query['serviceId'] as String?` threw inside the callback, the request
+  /// failed, and `workingDaysProvider` went `AsyncError` — surfacing as
+  /// `_WorkingDaysErrorBody` instead of the calendar grid rather than as an
+  /// obviously-broken fake.
+  ///
+  /// Accepts all four shapes so the helper survives the next regen too:
+  /// [ListParam] → its `value`; raw `List` → itself; scalar → one-element
+  /// list; absent/null → null (no constraint).
+  static List<String>? _multiQueryParam(
+    Map<String, dynamic> query,
+    String key,
+  ) {
+    final Object? raw = query[key];
+    if (raw == null) return null;
+    if (raw is ListParam) {
+      return raw.value.map((Object? e) => e.toString()).toList(growable: false);
+    }
+    if (raw is List) {
+      return raw.map((Object? e) => e.toString()).toList(growable: false);
+    }
+    return <String>[raw.toString()];
+  }
+
+  /// The FIRST value of a query param that this fake treats as scalar, read
+  /// through the shape-tolerant [_multiQueryParam] rather than by casting.
+  ///
+  /// Use this for EVERY scalar query-param read instead of
+  /// `query['key'] as String?`. The direct cast is banned by
+  /// `scripts/forbid_raw_query_param_cast.sh` because it is a latent
+  /// `TypeError`-inside-the-route-callback bomb: a param that is scalar today
+  /// becomes a Dio [ListParam] the moment an OpenAPI regen re-declares it
+  /// list-valued, and the throw surfaces as an ERROR BODY in the widget tree
+  /// (or a silently-empty list), never as an obviously-broken fake. That exact
+  /// bug has landed three times in this file — `status`, then `serviceId` on
+  /// working-days, then `serviceId` on slots.
+  ///
+  /// Returns null when the param is absent or present-but-empty.
+  static String? _scalarQueryParam(Map<String, dynamic> query, String key) {
+    final List<String>? values = _multiQueryParam(query, key);
+    if (values == null || values.isEmpty) return null;
+    return values.first;
+  }
+
+  /// The single `serviceId` a request carried, for the (overwhelmingly common)
+  /// single-service case — `null` when the param is absent entirely. Callers
+  /// that care about the MULTI-service selection read [_multiQueryParam]
+  /// directly; this is the scalar convenience view that the pre-existing
+  /// `lastMaster…ServiceId` telemetry fields are typed for.
+  static String? _serviceIdFrom(Map<String, dynamic> query) =>
+      _scalarQueryParam(query, 'serviceId');
+
   /// Defensive int query-param read — mirrors `_pageFromRequest` elsewhere in
   /// this file: DioAdapter sometimes hands back the original Dart `int` dio
   /// was called with, sometimes a stringified value, depending on the
@@ -2242,19 +2934,35 @@ final class FakeBackend {
   /// `[page*size, page*size+size)`. [lastMyBookingsQuery] is recorded by the
   /// caller (the shared `/bookings/me` route callback), not here — see that
   /// field's doc comment for why it must stay unconditional.
+  ///
+  /// Phase 227 (mobile-qa): also implements the backend 28.2 PRECEDENCE rule
+  /// — when a `partition` param is present AND [backendSupportsPartition],
+  /// it wins OUTRIGHT and `status` is not even consulted (mirrors
+  /// `BookingService#getMyBookings`'s `statuses = partition != null ? null :
+  /// …` — see phase-217's doc). When [backendSupportsPartition] is `false`,
+  /// `partition` is never read at all (the old-backend model), so filtering
+  /// falls through to `status` exactly as it did pre-227 — including the
+  /// degenerate case where `status` is ALSO absent, which yields NO filter
+  /// at all. That degenerate case is deliberate: it is the fake half of the
+  /// Phase 227 rollout-safety-valve negative control.
   Map<String, dynamic> _slicedBookingsPageEnvelope(Map<String, dynamic> query) {
     final List<Map<String, dynamic>> dataset = _bookingsDataset!;
+    final String? partition = backendSupportsPartition
+        ? _scalarQueryParam(query, 'partition')
+        : null;
     final List<String>? statuses = _bookingStatusesFrom(query);
-    final String sort = (query['sort'] as String?) ?? 'startsAt,desc';
+    final String sort = _scalarQueryParam(query, 'sort') ?? 'startsAt,desc';
     final bool ascending = sort.endsWith(',asc');
     final int page = _intQueryParam(query, 'page', 0);
     final int size = _intQueryParam(query, 'size', 20);
+    final DateTime now = serverNow;
 
     final List<Map<String, dynamic>> filtered =
         dataset
             .where(
-              (Map<String, dynamic> b) =>
-                  statuses == null || statuses.contains(b['status']),
+              (Map<String, dynamic> b) => partition != null
+                  ? _partitionOf(b, now) == partition
+                  : (statuses == null || statuses.contains(b['status'])),
             )
             .toList(growable: false)
           ..sort((Map<String, dynamic> a, Map<String, dynamic> b) {
@@ -2291,6 +2999,208 @@ final class FakeBackend {
   }
 
   // ── Route wiring ───────────────────────────────────────────────────────────
+
+  // ── Status-flag routes (re-wired on every flag write) ─────────────────────
+  //
+  // `DioAdapter.onRoute` runs its `MockServerCallback` IMMEDIATELY (see
+  // `http_mock_adapter/src/mixins/request_handling.dart` → `onRoute`, which
+  // ends in `requestHandlerCallback(matcher)`), and `MockServer.replyCallback`
+  // captures `statusCode` at that moment — only the DATA callback is invoked
+  // per-request. Any route whose STATUS depends on a mutable [FakeBackend]
+  // flag therefore CANNOT be registered once from [_wire]: the flag is still
+  // at its default when the constructor runs, so the status is frozen there
+  // forever while the body silently switches to the error envelope. That is a
+  // fake that answers `201 {success:false, …}` / `200 {success:false, …}` — a
+  // shape no real backend ever emits and no repository error path can see, so
+  // the E2E asserting the error surface fails pointing at the SCREEN.
+  //
+  // These methods exist so the flag setters can re-register the route with the
+  // status the flag now implies. Re-registration wins because
+  // `Recording.mockResponse` keeps the LAST matcher that matches the request.
+  //
+  // RULE: never inline one of these back into [_wire], and never add a new
+  // `server.reply*(<flag> ? … : …, …)` directly in [_wire] — give it a
+  // `_wireX()` + re-wiring setter like these two.
+
+  /// (Re-)registers `POST /api/v1/independent-masters/me/services`.
+  /// See [createRejectDuplicate].
+  void _wireCreateService() {
+    _adapter.onRoute(
+      '/api/v1/independent-masters/me/services',
+      (server) =>
+          server.replyCallback(_createRejectDuplicate ? 409 : 201, (req) {
+            createServiceCalls++;
+            if (_createRejectDuplicate) {
+              return <String, dynamic>{
+                'success': false,
+                'data': <String, dynamic>{
+                  'code': 'DUPLICATE_SERVICE',
+                  'serviceName': createDuplicateServiceName,
+                  'existingServiceDefId': 'def-existing',
+                },
+                'message': 'This service already exists',
+              };
+            }
+            final body = _decodeBody(req.data);
+            final defId = 'svc-$_nextServiceSeq';
+            final assignId = 'assign-$_nextServiceSeq';
+            final name = body['name'] as String? ?? 'New Service';
+            final priceType = body['priceType'] as String? ?? 'FIXED';
+            final newService = <String, dynamic>{
+              'id': assignId,
+              'masterId': 'user-master-1',
+              'isActive': true,
+              'priceType': priceType,
+              'priceMin': body['price'] ?? body['priceMin'] ?? 0,
+              'priceMax': body['priceMax'],
+              'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
+              'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
+              'serviceDefinition': <String, dynamic>{
+                'id': defId,
+                'name': name,
+                'description': null,
+                'category': body['categoryName'] ?? 'NAILS',
+                'baseDurationMinutes': body['durationMinutes'] ?? 60,
+                'bufferMinutesAfter': 0,
+                'isActive': true,
+                'priceType': priceType,
+                'priceMin': body['price'] ?? body['priceMin'] ?? 0,
+                'priceMax': body['priceMax'],
+                'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
+                'photoUrl': null,
+              },
+            };
+            _nextServiceSeq++;
+            _services.add(newService);
+            lastCreatedService = newService;
+            return _ok(newService);
+          }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `DELETE /api/v1/favorites?targetType&targetId`.
+  /// See [forceRemoveFavoriteFailure].
+  void _wireRemoveFavorite() {
+    final int? failStatus = _removeFavoriteFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/favorites',
+      (server) => server.replyCallback(failStatus ?? 204, (req) {
+        removeFavoriteCalls++;
+        lastRemoveFavoriteQuery = Map<String, dynamic>.from(
+          req.queryParameters,
+        );
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to remove favorite',
+          };
+        }
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete),
+    );
+  }
+
+  /// (Re-)registers `POST /api/v1/independent-masters/me/services/bulk`.
+  /// See [bulkRejectDurationField] and [bulkRejectDuplicate].
+  void _wireBulkCreateServices() {
+    // POST /api/v1/independent-masters/me/services/bulk — the ONE "add services"
+    // write (setup AND append, since beautica-backend c5e420f made it additive).
+    // A DISTINCT path from the single-create route above (exact-string match, so
+    // no collision).
+    //
+    // Three mutually exclusive outcomes, in the order the status ternary below
+    // resolves them:
+    //   • [bulkRejectDuplicate]     → 409 typed DUPLICATE_SERVICE envelope
+    //                                 (whole batch rolled back; nothing written).
+    //   • [bulkRejectDurationField] → 400 per-field envelope keyed on
+    //                                 `items[<bulkRejectItemIndex>].durationMinutes`
+    //                                 — the shape ErrorMapperInterceptor maps to
+    //                                 ValidationFailure.fieldErrors, driving the
+    //                                 screen's inline per-row error.
+    //   • neither (default)         → 200 echoing one created service per item.
+    // The duplicate wins when both are armed, matching the backend: the
+    // uniqueness conflict aborts the transaction before per-field validation
+    // feedback would matter. Arming both is a test-authoring mistake either way.
+    //
+    // The call counter + `lastBulkItems` capture run BEFORE the branch on every
+    // outcome, so a flow can always prove the POST genuinely reached the network
+    // (vs. being blocked client-side) even on the rejection paths.
+    _adapter.onRoute(
+      '/api/v1/independent-masters/me/services/bulk',
+      (server) => server.replyCallback(
+        _bulkRejectDuplicate ? 409 : (_bulkRejectDurationField ? 400 : 200),
+        (req) {
+          bulkCreateCalls++;
+          final body = _decodeBody(req.data);
+          final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+          lastBulkItems = items;
+          if (_bulkRejectDuplicate) {
+            // Shape decoded by `HttpServiceRepository._isDuplicateService` /
+            // `._extractDuplicateService`: the code lives at `data.code`, and
+            // `serviceName` is explicitly null on the bulk envelope.
+            return <String, dynamic>{
+              'success': false,
+              'data': <String, dynamic>{
+                'code': 'DUPLICATE_SERVICE',
+                'serviceName': null,
+                'existingServiceDefId': bulkDuplicateExistingServiceDefId,
+              },
+              'message': 'One of these services is already in your menu',
+            };
+          }
+          if (_bulkRejectDurationField) {
+            return <String, dynamic>{
+              'success': false,
+              'message': 'Validation failed',
+              'errors': <String, dynamic>{
+                'items[$bulkRejectItemIndex].durationMinutes':
+                    'Duration must be at most 480 minutes (8 hours)',
+              },
+            };
+          }
+          // Success: echo a created service per submitted item so the envelope
+          // shape matches ApiResponse<List<MasterServiceResponse>>.
+          final created = <Map<String, dynamic>>[];
+          for (final item in items) {
+            final map = item is Map<String, dynamic>
+                ? item
+                : <String, dynamic>{};
+            final defId = 'svc-bulk-$_nextServiceSeq';
+            created.add(<String, dynamic>{
+              'id': 'assign-bulk-$_nextServiceSeq',
+              'masterId': 'user-master-1',
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+              'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+              'serviceDefinition': <String, dynamic>{
+                'id': defId,
+                'name': 'Bulk service $_nextServiceSeq',
+                'description': null,
+                'category': 'NAILS',
+                'baseDurationMinutes': map['durationMinutes'] ?? 60,
+                'bufferMinutesAfter': 0,
+                'isActive': true,
+                'priceType': map['priceType'] ?? 'FIXED',
+                'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+                'priceMax': map['priceMax'],
+                'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+                'photoUrl': null,
+              },
+            });
+            _nextServiceSeq++;
+          }
+          return _okList(created);
+        },
+      ),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
 
   void _wire() {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
@@ -2458,7 +3368,26 @@ final class FakeBackend {
         return _ok(<String, dynamic>{
           'avgRating': myRatingAvgRating,
           'reviewCount': myRatingReviewCount,
+          if (myRatingDistribution != null)
+            'ratingDistribution': myRatingDistribution,
         });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/clients/me/passport — CLIENT's derived BEAUTY PASSPORT
+    // (backend 19.5). Wired now that HttpPassportRepository calls the real
+    // endpoint: without this route the mock router 404s and the passport tab
+    // renders its ERROR state instead of the empty variant the flow asserts.
+    //
+    // Defaults to the EMPTY passport (bookingsConsidered 0, no lists, no
+    // budget) — the state a freshly-seeded fake client is in. Mutate
+    // [passportBody] from a flow to serve a populated passport instead.
+    _adapter.onRoute(
+      '/api/v1/clients/me/passport',
+      (server) => server.replyCallback(200, (_) {
+        getPassportCalls++;
+        return _ok(passportBody);
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -2546,7 +3475,10 @@ final class FakeBackend {
       '/api/v1/masters/$masterRowId/reviews',
       (server) => server.replyCallback(200, (req) {
         getMasterReviewsCalls++;
-        lastGetMasterReviewsSort = req.queryParameters['sort'] as String?;
+        lastGetMasterReviewsSort = _scalarQueryParam(
+          req.queryParameters,
+          'sort',
+        );
         final List<Map<String, dynamic>> rows = _masterReviewsFor(
           lastGetMasterReviewsSort,
         );
@@ -2637,7 +3569,10 @@ final class FakeBackend {
       '/api/v1/masters/master-aaa/reviews',
       (server) => server.replyCallback(200, (req) {
         getPublicMasterReviewsCalls++;
-        lastGetPublicMasterReviewsSort = req.queryParameters['sort'] as String?;
+        lastGetPublicMasterReviewsSort = _scalarQueryParam(
+          req.queryParameters,
+          'sort',
+        );
         final List<Map<String, dynamic>> rows = _publicMasterReviewsFor(
           lastGetPublicMasterReviewsSort,
         );
@@ -2733,7 +3668,14 @@ final class FakeBackend {
         // Phase 14.20: the fixed booking calendar threads the chosen service's
         // id into this query (availability-aware mode). Record it, and answer
         // in the same mode the request asked for.
-        final String? serviceId = req.queryParameters['serviceId'] as String?;
+        final List<String>? serviceIds = _multiQueryParam(
+          req.queryParameters,
+          'serviceId',
+        );
+        final String? serviceId = (serviceIds == null || serviceIds.isEmpty)
+            ? null
+            : serviceIds.first;
+        lastMasterAaaWorkingDaysServiceIds = serviceIds;
         lastMasterAaaWorkingDaysServiceId = serviceId;
         return _workingDaysEnvelope(serviceId: serviceId);
       }),
@@ -2766,8 +3708,7 @@ final class FakeBackend {
       '/api/v1/masters/master-ccc/slots',
       (server) => server.replyCallback(200, (req) {
         getMasterSlotsCalls++;
-        lastMasterCccSlotsServiceId =
-            req.queryParameters['serviceId'] as String?;
+        lastMasterCccSlotsServiceId = _serviceIdFrom(req.queryParameters);
         return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
@@ -2784,8 +3725,7 @@ final class FakeBackend {
       '/api/v1/masters/master-ddd/slots',
       (server) => server.replyCallback(200, (req) {
         getMasterSlotsCalls++;
-        lastMasterDddSlotsServiceId =
-            req.queryParameters['serviceId'] as String?;
+        lastMasterDddSlotsServiceId = _serviceIdFrom(req.queryParameters);
         return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
@@ -2862,12 +3802,16 @@ final class FakeBackend {
       '/api/v1/salons/salon-xyz/reviews',
       (server) => server.replyCallback(200, (req) {
         getSalonReviewsCalls++;
-        lastGetSalonReviewsSort = req.queryParameters['sort'] as String?;
+        lastGetSalonReviewsSort = _scalarQueryParam(
+          req.queryParameters,
+          'sort',
+        );
+        final List<Map<String, dynamic>> rows = _salonReviewsFor();
         return _searchEnvelope(
-          _salonReviews,
+          rows,
           page: 0,
           totalPages: 1,
-          totalElements: _salonReviews.length,
+          totalElements: rows.length,
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -2924,126 +3868,9 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // POST /api/v1/independent-masters/me/services
-    // Default: 201 echoing the created service. When [createRejectDuplicate] is
-    // set, replies HTTP 409 with the typed DUPLICATE_SERVICE envelope so the
-    // repository maps it to ServiceDuplicateFailure and the form flags the
-    // service-type field inline (never a pop / generic errServer snackbar).
-    _adapter.onRoute(
-      '/api/v1/independent-masters/me/services',
-      (server) =>
-          server.replyCallback(createRejectDuplicate ? 409 : 201, (req) {
-            createServiceCalls++;
-            if (createRejectDuplicate) {
-              return <String, dynamic>{
-                'success': false,
-                'data': <String, dynamic>{
-                  'code': 'DUPLICATE_SERVICE',
-                  'serviceName': createDuplicateServiceName,
-                  'existingServiceDefId': 'def-existing',
-                },
-                'message': 'This service already exists',
-              };
-            }
-            final body = _decodeBody(req.data);
-            final defId = 'svc-$_nextServiceSeq';
-            final assignId = 'assign-$_nextServiceSeq';
-            final name = body['name'] as String? ?? 'New Service';
-            final priceType = body['priceType'] as String? ?? 'FIXED';
-            final newService = <String, dynamic>{
-              'id': assignId,
-              'masterId': 'user-master-1',
-              'isActive': true,
-              'priceType': priceType,
-              'priceMin': body['price'] ?? body['priceMin'] ?? 0,
-              'priceMax': body['priceMax'],
-              'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
-              'effectiveDurationMinutes': body['durationMinutes'] ?? 60,
-              'serviceDefinition': <String, dynamic>{
-                'id': defId,
-                'name': name,
-                'description': null,
-                'category': body['categoryName'] ?? 'NAILS',
-                'baseDurationMinutes': body['durationMinutes'] ?? 60,
-                'bufferMinutesAfter': 0,
-                'isActive': true,
-                'priceType': priceType,
-                'priceMin': body['price'] ?? body['priceMin'] ?? 0,
-                'priceMax': body['priceMax'],
-                'priceDisplay': '${body['price'] ?? body['priceMin'] ?? 0} ₴',
-                'photoUrl': null,
-              },
-            };
-            _nextServiceSeq++;
-            _services.add(newService);
-            lastCreatedService = newService;
-            return _ok(newService);
-          }),
-      request: const Request(method: RequestMethods.post, data: Matchers.any),
-    );
+    _wireCreateService();
 
-    // POST /api/v1/independent-masters/me/services/bulk — first-time bulk setup.
-    // A DISTINCT path from the single-create route above (exact-string match, so
-    // no collision). Default: 201 echoing one created service per submitted item.
-    // When [bulkRejectDurationField] is set, replies 400 with the backend's
-    // per-field envelope keyed on `items[<bulkRejectItemIndex>].durationMinutes`
-    // — the shape ErrorMapperInterceptor maps to ValidationFailure.fieldErrors,
-    // driving the screen's inline per-row error (NOT the generic snackbar).
-    _adapter.onRoute(
-      '/api/v1/independent-masters/me/services/bulk',
-      (server) => server.replyCallback(bulkRejectDurationField ? 400 : 200, (
-        req,
-      ) {
-        bulkCreateCalls++;
-        final body = _decodeBody(req.data);
-        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
-        lastBulkItems = items;
-        if (bulkRejectDurationField) {
-          return <String, dynamic>{
-            'success': false,
-            'message': 'Validation failed',
-            'errors': <String, dynamic>{
-              'items[$bulkRejectItemIndex].durationMinutes':
-                  'Duration must be at most 480 minutes (8 hours)',
-            },
-          };
-        }
-        // Success: echo a created service per submitted item so the envelope
-        // shape matches ApiResponse<List<MasterServiceResponse>>.
-        final created = <Map<String, dynamic>>[];
-        for (final item in items) {
-          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
-          final defId = 'svc-bulk-$_nextServiceSeq';
-          created.add(<String, dynamic>{
-            'id': 'assign-bulk-$_nextServiceSeq',
-            'masterId': 'user-master-1',
-            'isActive': true,
-            'priceType': map['priceType'] ?? 'FIXED',
-            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
-            'priceMax': map['priceMax'],
-            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
-            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
-            'serviceDefinition': <String, dynamic>{
-              'id': defId,
-              'name': 'Bulk service $_nextServiceSeq',
-              'description': null,
-              'category': 'NAILS',
-              'baseDurationMinutes': map['durationMinutes'] ?? 60,
-              'bufferMinutesAfter': 0,
-              'isActive': true,
-              'priceType': map['priceType'] ?? 'FIXED',
-              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
-              'priceMax': map['priceMax'],
-              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
-              'photoUrl': null,
-            },
-          });
-          _nextServiceSeq++;
-        }
-        return _okList(created);
-      }),
-      request: const Request(method: RequestMethods.post, data: Matchers.any),
-    );
+    _wireBulkCreateServices();
 
     // GET /api/v1/independent-masters/me/services/:id
     // Wired for the two pre-seeded services (keyed by serviceDefId in the path).
@@ -3405,7 +4232,7 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         getServiceTypesCalls++;
         final String category =
-            (req.queryParameters['categoryName'] as String?) ?? '';
+            _scalarQueryParam(req.queryParameters, 'categoryName') ?? '';
         lastServiceTypesCategory = category;
         return _okList(_serviceTypesFor(category));
       }),
@@ -3441,6 +4268,10 @@ final class FakeBackend {
         lastSearchMastersCityId = reqJson['location.cityId'] as String?;
         lastSearchMastersDistrictId = reqJson['location.districtId'] as String?;
         lastSearchMastersServiceTypeSlugs = _slugsFrom(reqJson);
+        // Snapshot the WHOLE flat map so a test can prove several facets
+        // (q + location.cityId + category + minPrice/maxPrice) arrived on
+        // this SAME request — see [lastSearchMastersQueryMap].
+        lastSearchMastersQueryMap = Map<String, dynamic>.from(reqJson);
         if (page <= 0) {
           return _searchEnvelope(
             _withMatchedNames(
@@ -3480,6 +4311,8 @@ final class FakeBackend {
         lastSearchSalonsCityId = reqJson['location.cityId'] as String?;
         lastSearchSalonsDistrictId = reqJson['location.districtId'] as String?;
         lastSearchSalonsServiceTypeSlugs = _slugsFrom(reqJson);
+        // Snapshot the WHOLE flat map — see [lastSearchSalonsQueryMap].
+        lastSearchSalonsQueryMap = Map<String, dynamic>.from(reqJson);
         // Salons have a single page: page 0 carries the row, any later page is
         // empty (the notifier only re-requests salons while salonHasMore).
         if (page <= 0) {
@@ -3505,14 +4338,67 @@ final class FakeBackend {
 
     // ── Favorites (Phase 13.4) ────────────────────────────────────────────────
     //
+    // GET /api/v1/favorites/services — the CLIENT's BEAUTY WISH LIST feed
+    // (backend 247). Registered BEFORE `/api/v1/favorites` deliberately:
+    // DioAdapter matches on the PATH, so the longer path must get first
+    // refusal or the bare `/favorites` handlers would swallow it.
+    //
+    // Without this route the mock router 404s and the passport page's wish-list
+    // section renders its ERROR card — which draws a `cloud_off` glyph and
+    // silently changes what every other assertion on that page measures.
+    _adapter.onRoute(
+      '/api/v1/favorites/services',
+      (server) => server.replyCallback(200, (_) {
+        listServiceFavoritesCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': favoriteServiceRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': favoriteServiceRows.length,
+            'totalPages': favoriteServiceRows.isEmpty ? 0 : 1,
+          },
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // POST /api/v1/favorites — add (idempotent 200). Returns a FavoriteResponse
     // envelope so the generated addFavorite() deserializes cleanly.
+    //
+    // Phase 240 (mobile-qa, service_favourite_flow_test.dart): a SERVICE add
+    // also appends the corresponding row to [favoriteServiceRows], so a
+    // following `GET /favorites/services` genuinely reflects it — mirroring
+    // the real backend's persistence. The app itself never bridges
+    // `favoriteToggleProvider` (the heart) to `wishlistProvider` (the list) —
+    // see `service_selector_sheet.dart`'s prime-from-wishlist comment — so
+    // this is the ONLY source of truth the fake can offer for "does the just-
+    // favourited service show up on the wish list". Looked up from
+    // [_masterAaaFavoriteServiceFields] (master-aaa is the only master this
+    // fake fully catalogues); an unknown id is a no-op, same as before this
+    // change.
     _adapter.onRoute(
       '/api/v1/favorites',
       (server) => server.replyCallback(200, (req) {
         addFavoriteCalls++;
         final body = _decodeBody(req.data);
         lastAddFavoriteBody = body;
+        if (body['targetType'] == 'SERVICE') {
+          final String targetId = (body['targetId'] as String?) ?? '';
+          final Map<String, dynamic>? fields =
+              _masterAaaFavoriteServiceFields[targetId];
+          if (fields != null &&
+              !favoriteServiceRows.any(
+                (Map<String, dynamic> r) => r['masterServiceId'] == targetId,
+              )) {
+            favoriteServiceRows = <Map<String, dynamic>>[
+              ...favoriteServiceRows,
+              <String, dynamic>{'masterServiceId': targetId, ...fields},
+            ];
+          }
+        }
         return _ok(<String, dynamic>{
           'id': 'fav-1',
           'targetType': body['targetType'] ?? 'MASTER',
@@ -3523,18 +4409,9 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
-    // DELETE /api/v1/favorites?targetType&targetId — remove (idempotent 204).
-    _adapter.onRoute(
-      '/api/v1/favorites',
-      (server) => server.replyCallback(204, (req) {
-        removeFavoriteCalls++;
-        lastRemoveFavoriteQuery = Map<String, dynamic>.from(
-          req.queryParameters,
-        );
-        return null;
-      }),
-      request: const Request(method: RequestMethods.delete),
-    );
+    // DELETE /api/v1/favorites?targetType&targetId — remove (idempotent 204
+    // by default; see [forceRemoveFavoriteFailure] for the failure variant).
+    _wireRemoveFavorite();
 
     // GET /api/v1/bookings/me/booked-days?from=&to= — the dot set behind the
     // master's «Мої записи» day rail (backend Phase 26.5). Registered BEFORE
@@ -3548,8 +4425,9 @@ final class FakeBackend {
     // at the widget tier.
     _adapter.onRoute(
       '/api/v1/bookings/me/booked-days',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         bookedDaysCalls++;
+        lastBookedDaysQuery = Map<String, dynamic>.from(req.queryParameters);
         return <String, dynamic>{
           'success': true,
           'message': 'ok',
@@ -3709,6 +4587,22 @@ final class FakeBackend {
         lastReviewRating = body['rating'] as int?;
         lastReviewComment = body['comment'] as String?;
         bookingCanReview = false;
+        // The written review is now part of master-aaa's PUBLIC review data:
+        // the profile's rating/count, the summary aggregate and the review list
+        // all move. Without this the E2E could not tell a real re-fetch from a
+        // keepAlive cache hit — both would render identical numbers.
+        publicMasterReviewLanded = true;
+        // …and, when the booking was made at a salon, of that SALON's public
+        // review data too: the backend recalculates `salons.avg_rating` /
+        // `review_count` in the same listener, before the 201 returns. Same
+        // rationale as the line above — without this the salon E2E could not
+        // tell a real re-fetch from a keepAlive cache hit.
+        //
+        // Gated on the seeded booking actually having a salon, so an
+        // INDEPENDENT_MASTER flow never silently moves salon numbers it has no
+        // business moving (and the negative half of the widget suite keeps a
+        // truthful server to mirror).
+        if (bookingSalonId != null) salonReviewLanded = true;
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),

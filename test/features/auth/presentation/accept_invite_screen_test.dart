@@ -45,6 +45,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const String _kToken = 'test-invite-token';
 
@@ -101,6 +102,7 @@ Future<FakeAuthRepository> _pumpValid(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
         secureStorageProvider.overrideWithValue(storage),
@@ -128,6 +130,7 @@ Future<void> _pumpLoading(WidgetTester tester) async {
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
         secureStorageProvider.overrideWithValue(storage),
@@ -154,6 +157,7 @@ Future<void> _pumpError(WidgetTester tester) async {
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
         secureStorageProvider.overrideWithValue(storage),
@@ -717,10 +721,15 @@ void main() {
       },
     );
 
-    // ── 9. Empty fieldErrors + serverMessage → banner fallback ───────────────
+    // ── 9. Empty fieldErrors + serverMessage → LOCALIZED banner, never raw ───
+    // mobile-security, 2026-08: the inline banner must never render the raw
+    // backend serverMessage — it's untrusted/untranslated text on a
+    // `Semantics(liveRegion: true)` surface. When no field can be attributed,
+    // the banner now ALWAYS shows the localized errValidation copy, even if
+    // the backend supplied a serverMessage.
     testWidgets(
-      '9. ValidationFailure with empty fieldErrors falls back to serverMessage '
-      'in the inline banner',
+      '9. ValidationFailure with empty fieldErrors shows the localized '
+      'errValidation banner, never the raw serverMessage',
       (WidgetTester tester) async {
         const serverMsg = 'Запрошення недійсне';
         final repo = await _pumpValid(
@@ -755,12 +764,13 @@ void main() {
 
         expect(repo.acceptInviteCalls.length, 1);
 
-        // The banner shows the serverMessage, not the generic errValidation.
+        // The banner shows the localized errValidation copy, NOT the raw
+        // backend serverMessage.
         final l10n = AppLocalizations.of(
           tester.element(find.byType(AcceptInviteScreen)),
         );
-        expect(find.text(serverMsg), findsOneWidget);
-        expect(find.text(l10n.errValidation), findsNothing);
+        expect(find.text(l10n.errValidation), findsOneWidget);
+        expect(find.text(serverMsg), findsNothing);
       },
     );
 
@@ -1037,6 +1047,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWithValue(storage),

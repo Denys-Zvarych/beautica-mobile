@@ -9,7 +9,7 @@
 // notifier records a back-edge that closes a dependency cycle. Riverpod's
 // CircularDependencyError assert (kDebugMode ONLY) then throws, escapes the
 // state transition, and the settings-hub catch-block surfaces the
-// `l10n.logoutFailed` SnackBar ("Вихід не вдався. Спробуйте ще раз.") to the
+// `l10n.logoutFailed` VelvetSnack ("Вихід не вдався. Спробуйте ще раз.") to the
 // user — logout appearing to fail even though the local token wipe ran.
 //
 // That assert fires ONLY in debug builds. Unit/widget tests that override
@@ -44,7 +44,7 @@
 // FLOW: login as INDEPENDENT_MASTER → land on /master/profile → open the
 // settings hub (btn-menu-master → /master/menu) → tap the logout row →
 // confirm the dialog → assert the app lands on /login AND the logoutFailed
-// SnackBar is NOT shown AND the server revocation endpoint was hit once.
+// VelvetSnack is NOT shown AND the server revocation endpoint was hit once.
 //
 // KEY-BASED NAVIGATION POLICY (enforced, see app_harness.dart): all taps use
 // find.byKey(); Ukrainian strings appear ONLY in absence-assertions.
@@ -67,12 +67,12 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   // Locale-pinned UK strings used ONLY for absence assertions (the harness
-  // pins the app to uk_UA). We must NOT see the logout-failure SnackBar.
+  // pins the app to uk_UA). We must NOT see the logout-failure VelvetSnack.
   final AppLocalizationsUk l10n = AppLocalizationsUk();
 
   testWidgets(
     'INDEPENDENT_MASTER logout from settings hub lands on /login without the '
-    'logoutFailed SnackBar (regression: cyclic masterProfile→auth invalidation)',
+    'logoutFailed VelvetSnack (regression: cyclic masterProfile→auth invalidation)',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -136,14 +136,14 @@ void main() {
         reason: 'the login form must be rendered after logout',
       );
 
-      // 2) The failure SnackBar must NOT be shown. This is the direct symptom
+      // 2) The failure VelvetSnack must NOT be shown. This is the direct symptom
       //    the cyclic-invalidation bug produced for the user.
       expect(
         find.text(l10n.logoutFailed),
         findsNothing,
         reason:
             'logout must succeed end-to-end — the "${l10n.logoutFailed}" '
-            'SnackBar means logout() threw (the cyclic-invalidation regression)',
+            'VelvetSnack means logout() threw (the cyclic-invalidation regression)',
       );
 
       // 3) The server-side revocation endpoint was hit exactly once (best-effort

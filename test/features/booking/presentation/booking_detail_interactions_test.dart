@@ -17,9 +17,10 @@
 //   • the note show-more / show-less toggle → expands and collapses.
 //
 // Finders are key-first; all copy is asserted through l10n, never a raw
-// Cyrillic literal (CI no-raw-string gate). Fixed `pump(Duration)` waits are
-// banned — the SnackBar assertion uses the bounded [PumpUntil.pumpUntilFound]
-// helper instead.
+// Cyrillic literal (CI no-raw-string gate). None of the flows below trigger a
+// VelvetSnack (every path here is the happy path) — `booking_detail_screen_
+// test.dart` / `reschedule_navigation_test.dart` own the failure-snack
+// coverage, using `test/helpers/velvet_snack_matchers.dart`.
 
 import 'dart:async';
 
@@ -119,7 +120,7 @@ List<Object> _overrides(Booking booking, _MockBookingRepository repo) =>
     ];
 
 /// Non-navigating host — a plain `MaterialApp home:` via [PumpApp.pumpApp].
-/// Suffices for reschedule (SnackBar), calendar (no-op) and the note toggle.
+/// Suffices for reschedule, calendar (no-op) and the note toggle.
 Future<_MockBookingRepository> _pumpDetail(
   WidgetTester tester,
   Booking booking,
@@ -403,7 +404,7 @@ void main() {
         expect(args['startDate'], booking.startAt.millisecondsSinceEpoch);
         expect(args['endDate'], booking.endAt.millisecondsSinceEpoch);
 
-        // Success path: no error SnackBar.
+        // Success path: no error VelvetSnack.
         expect(find.text(l10n.bookingAddToCalendarError), findsNothing);
       },
     );

@@ -66,6 +66,8 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../domain/schedule_model.dart';
 import 'overrides_notifier.dart';
@@ -249,40 +251,36 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   // ── Persistence ──────────────────────────────────────────────────────────
   Future<void> _save() async {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
     // SUBMIT-TIME PAST-DATE GUARD (M6): the sheet opens only for today/future
     // days, but a midnight rollover WHILE it is open can turn [date] past
     // between open and Save. Re-validate against a FRESH today and block the PUT
     // for a now-past date — a past `start` would otherwise 400 at the backend.
+    //
+    // Kyiv-anchored (backlog :226): the backend's past-date rejection is a
+    // Kyiv civil-day check, so "today" here must follow Kyiv's calendar, not
+    // the device's — see `shared/time/kyiv_day.dart`. `widget.date` is left
+    // alone: it is already a date token handed down by the caller (the day
+    // pencil in `master_schedule_screen.dart`), not a raw instant, so it only
+    // needs the local-midnight normalisation `DateTime(y, m, d)` already
+    // gives it — running it through [kyivDayOf] a second time would be the
+    // exact "date token treated as an instant" bug the helper's doc warns
+    // against.
+    // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
     final DateTime now = widget.clock?.call() ?? DateTime.now();
-    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime today = kyivDayOf(now);
     final DateTime targetDate = DateTime(
       widget.date.year,
       widget.date.month,
       widget.date.day,
     );
     if (targetDate.isBefore(today)) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            backgroundColor: BrandColors.error,
-            content: Text(l10n.schedulePastDayBlocked),
-          ),
-        );
+      showErrorSnack(context, l10n.schedulePastDayBlocked);
       return;
     }
 
     if (_hasErrors) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            backgroundColor: BrandColors.error,
-            content: Text(l10n.scheduleOverrideErrorsBanner),
-          ),
-        );
+      showErrorSnack(context, l10n.scheduleOverrideErrorsBanner);
       return;
     }
 
@@ -328,19 +326,13 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     }
 
     try {
-      final bool persisted = await _saveWithConflictCheck(
-        override,
-        l10n,
-        messenger,
-      );
+      final bool persisted = await _saveWithConflictCheck(override, l10n);
       if (!persisted || !mounted) return;
       // Resolve the sheet's future with the edited date so the host moves the
       // selected day onto it and re-reads the now-fresh override (rather than a
       // retained stale snapshot) the instant the sheet closes.
       dismissOverlay<DateTime>(context, widget.date);
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(l10n.savedSnackbar)));
+      showSuccessSnack(context, l10n.savedSnackbar);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -384,7 +376,6 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   Future<bool> _saveWithConflictCheck(
     ScheduleOverride override,
     AppLocalizations l10n,
-    ScaffoldMessengerState messenger,
   ) async {
     final OverridesNotifier notifier = ref.read(
       overridesProvider(widget.range).notifier,
@@ -473,7 +464,10 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
       if (error is ConflictFailure && attempt < _kMaxConflictCheckAttempts) {
         continue;
       }
-      _showError(messenger, error, l10n);
+      showErrorSnack(
+        context,
+        error is Failure ? error.userMessage(context) : l10n.errUnknown,
+      );
       return false;
     }
   }
@@ -482,7 +476,6 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   /// Always allowed (OQ-1) — never gated on bookings.
   Future<void> _clear() async {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     if (kDebugMode) {
       log(
         'clear override ${widget.date.toIso8601String()}',
@@ -503,38 +496,20 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         overridesProvider(widget.range),
       );
       if (result.hasError) {
-        _showError(messenger, result.error, l10n);
+        final Object? error = result.error;
+        showErrorSnack(
+          context,
+          error is Failure ? error.userMessage(context) : l10n.errUnknown,
+        );
         return;
       }
       // Same as [_save]: resolve with the cleared date so the host focuses it
       // and re-reads the reverted (template) day immediately.
       dismissOverlay<DateTime>(context, widget.date);
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text(l10n.scheduleOverrideClearedSnack)),
-        );
+      showSuccessSnack(context, l10n.scheduleOverrideClearedSnack);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  /// Shows the failure snackbar for a swallowed-into-state override mutation.
-  /// [error] is the provider's [AsyncValue.error]: a typed [Failure] when the
-  /// repository mapped it, otherwise the generic unknown-error copy.
-  void _showError(
-    ScaffoldMessengerState messenger,
-    Object? error,
-    AppLocalizations l10n,
-  ) {
-    final String message = error is Failure
-        ? error.userMessage(context)
-        : l10n.errUnknown;
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(backgroundColor: BrandColors.error, content: Text(message)),
-      );
   }
 
   // ── Build ────────────────────────────────────────────────────────────────--

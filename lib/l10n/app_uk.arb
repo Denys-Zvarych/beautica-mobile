@@ -1705,6 +1705,14 @@
   "@categoryRequestCodeHelper": {
     "description": "Helper caption under the code/slug field explaining it is auto-generated from the name and editable."
   },
+  "categoryRequestNameInvalid": "Перевірте назву категорії",
+  "@categoryRequestNameInvalid": {
+    "description": "Fallback inline error on the category-name field when the backend rejected it but its own message is absent, blank, or too long to render as a field hint. Distinct from categoryRequestNameError, which is the client-side 'you left it empty' case."
+  },
+  "serviceTypeSuggestNameInvalid": "Перевірте назву послуги",
+  "@serviceTypeSuggestNameInvalid": {
+    "description": "Fallback inline error on the service-type name field when the backend rejected it but its own message is absent, blank, or too long to render as a field hint. Distinct from serviceTypeSuggestNameError, which is the client-side 'you left it empty' case."
+  },
   "categoryRequestNameError": "Введіть назву категорії",
   "@categoryRequestNameError": {
     "description": "Validation error shown when the display-name field is empty in the suggest-a-category dialog."
@@ -1898,7 +1906,7 @@
 
   "validationFieldErrorLine": "{field}: {message}",
   "@validationFieldErrorLine": {
-    "description": "One line of a server-side field-validation banner: a localized field name followed by the server-supplied message. Used when a ValidationFailure carries fieldErrors and the failing field is not rendered on the current screen (e.g. post-OTP save surfaces register step 2/3 field errors).",
+    "description": "One line of a server-side field-validation banner: a localized field name followed by a message. Used when a ValidationFailure carries fieldErrors and the failing field is not rendered on the current screen (e.g. post-OTP save surfaces register step 2/3 field errors). The message is ALWAYS `fieldErrorGeneric` now, never the raw backend value — this banner routes to a live-narrated generic surface (VelvetSnack / AuthBanner), not a per-field inline slot, so untranslated/technical server text must not reach it (mobile-security finding, 2026-08).",
     "placeholders": {
       "field": {
         "type": "String",
@@ -1906,9 +1914,13 @@
       },
       "message": {
         "type": "String",
-        "example": "не може перевищувати 255 символів"
+        "example": "Перевірте значення"
       }
     }
+  },
+  "fieldErrorGeneric": "Перевірте значення",
+  "@fieldErrorGeneric": {
+    "description": "Fixed per-field notice used by buildFieldErrorBanner() in place of the backend's raw fieldErrors message — that raw text is never shown on a generic/live-narrated surface, only the field name plus this notice."
   },
   "fieldNameFirstName": "Ім'я",
   "@fieldNameFirstName": {
@@ -1945,6 +1957,10 @@
   "fieldNameEmail": "Електронна пошта",
   "@fieldNameEmail": {
     "description": "Field name used in server-error validation banners for the email field."
+  },
+  "fieldNameUnknown": "Поле",
+  "@fieldNameUnknown": {
+    "description": "Fallback field name used in server-error validation banners when the backend's raw field key (JSON path in the errors map) fails the render-safety check in serverFieldNameOr — too long or carrying a control/bidi character. localizedFieldName() must never emit an unguarded raw key into a live-narrated (Semantics liveRegion) surface (mobile-security, 2026-08)."
   },
 
   "workingHoursTitle": "Робочі години",
@@ -2454,6 +2470,13 @@
       "seconds": { "type": "int" }
     }
   },
+  "scheduleOverrideSpanPartialFailure": "{count, plural, one{Не вдалося зберегти {count} дату. Спробуйте ще раз.} few{Не вдалося зберегти {count} дати. Спробуйте ще раз.} many{Не вдалося зберегти {count} дат. Спробуйте ще раз.} other{Не вдалося зберегти {count} дат. Спробуйте ще раз.}}",
+  "@scheduleOverrideSpanPartialFailure": {
+    "description": "Error message for OverrideSpanPartialFailure — a multi-day override span (OverridesNotifier.putSpan) expanded into one PUT per date, and one or more of those per-date writes failed. [count] is the number of dates that failed; the exact dates are kept on the failure object for a future retry/detail affordance, never shown as raw text here.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "applyScheduleTitle": "Період дії графіка",
   "@applyScheduleTitle": {
     "description": "Title of the apply-schedule sheet where the master sets the weekly template's validity window (Phase 15.5)."
@@ -2545,17 +2568,32 @@
   "@serviceSetupClose": {
     "description": "Semantic label for the close button on the service-setup screen."
   },
-  "serviceSetupMissingNoteLead": "Не знайшли потрібну послугу? ",
-  "@serviceSetupMissingNoteLead": {
-    "description": "Bold lead-in of the helper note at the top of the service-setup screen."
+  "serviceSetupTitleAppend": "Додати послуги",
+  "@serviceSetupTitleAppend": {
+    "description": "App-bar title of the service-setup screen when the master already has services (APPEND mode)."
   },
-  "serviceSetupMissingNoteBody": "Нічого страшного — додайте те, що пропонуєте зараз, а решту зможете запросити пізніше на сторінці ",
-  "@serviceSetupMissingNoteBody": {
-    "description": "Body of the helper note explaining missing service-types can be requested later."
+  "serviceSetupMissingCategoryLead": "Немає потрібної категорії?",
+  "@serviceSetupMissingCategoryLead": {
+    "description": "Lead-in of the tappable request-a-category strip above the category chips."
   },
-  "serviceSetupMissingNoteServicesWord": "«Послуги»",
-  "@serviceSetupMissingNoteServicesWord": {
-    "description": "The emphasised «Послуги» (Services) page name inside the helper note."
+  "serviceSetupRequestCategoryAction": "Запропонувати категорію",
+  "@serviceSetupRequestCategoryAction": {
+    "description": "Action phrase of the request-a-category strip; also its semantic label. Opens the category-request dialog."
+  },
+  "serviceSetupMissingTypePrompt": "Немає потрібної послуги в «{category}»? Запропонувати",
+  "@serviceSetupMissingTypePrompt": {
+    "description": "Tappable prompt closing an expanded category's service-type rows. Opens the service-type suggestion dialog for that category.",
+    "placeholders": {
+      "category": { "type": "String" }
+    }
+  },
+  "serviceSetupAllAlreadyAdded": "Ви вже пропонуєте всі послуги цієї категорії.",
+  "@serviceSetupAllAlreadyAdded": {
+    "description": "Shown under an expanded category when every service type in it is already in the master's menu."
+  },
+  "serviceSetupRetry": "Повторити",
+  "@serviceSetupRetry": {
+    "description": "Retry action on the snackbar shown when a bulk save fails transiently (HTTP 503)."
   },
   "serviceSetupSectionCategories": "ОБЕРІТЬ КАТЕГОРІЇ",
   "@serviceSetupSectionCategories": {
@@ -2573,9 +2611,9 @@
       "total": { "type": "int" }
     }
   },
-  "serviceSetupRowExcluded": "Не пропонується",
-  "@serviceSetupRowExcluded": {
-    "description": "Sub-label shown on a service-type row card when its include toggle is OFF."
+  "serviceSetupRowAlreadyAdded": "Вже додано",
+  "@serviceSetupRowAlreadyAdded": {
+    "description": "Sub-label and semantic label on a service-type row the master already offers. The row is inert: it cannot be selected and is never submitted."
   },
   "serviceSetupRowMissingPrice": "Вкажіть тривалість і ціну",
   "@serviceSetupRowMissingPrice": {
@@ -2628,17 +2666,47 @@
       "count": { "type": "int" }
     }
   },
+  "serviceSetupCtaAdd": "{count, plural, =0{Оберіть послуги} one{Додати {count} послугу} few{Додати {count} послуги} many{Додати {count} послуг} other{Додати {count} послуг}}",
+  "@serviceSetupCtaAdd": {
+    "description": "Footer CTA label in APPEND mode (the master already has services), counting the services the save would add.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "serviceSetupSuccess": "Послуги створено",
   "@serviceSetupSuccess": {
-    "description": "Snackbar shown after the first-time bulk service setup succeeds."
+    "description": "Snackbar shown after a bulk service save succeeds."
   },
   "serviceErrDuplicate": "Ця послуга вже є у вашому переліку.",
   "@serviceErrDuplicate": {
     "description": "Error shown when a service-catalog create/update/bulk write returns 409 DUPLICATE_SERVICE because the service is already in the master's menu."
   },
-  "serviceSetupErrAlreadyHasServices": "У вас вже є послуги",
-  "@serviceSetupErrAlreadyHasServices": {
-    "description": "Error shown when the bulk-setup endpoint returns 409 because the master already has services."
+  "serviceSetupErrBusy": "Не вдалося зберегти — спробуйте ще раз. Послуги не збережено.",
+  "@serviceSetupErrBusy": {
+    "description": "Error shown when the bulk-setup endpoint returns 503 (per-master lock held past the backend's 3s ceiling). Transient and safe to retry; the batch is all-or-nothing so the copy states explicitly that nothing was saved."
+  },
+  "serviceErrRateLimited": "Забагато спроб збереження. Зачекайте {seconds} с і спробуйте ще раз.",
+  "@serviceErrRateLimited": {
+    "description": "Error shown when a service-catalogue write returns 429 and the server sent a usable Retry-After header. Names the wait so the master knows the limit clears on its own; the snackbar deliberately carries NO retry action, because an action here would promise an immediate success the limiter cannot give.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "serviceErrRateLimitedNoWait": "Забагато спроб збереження. Зачекайте трохи й спробуйте ще раз.",
+  "@serviceErrRateLimitedNoWait": {
+    "description": "Error shown when a service-catalogue write returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as serviceErrRateLimited minus the countdown."
+  },
+  "serviceSetupErrDuplicateAfterRetry": "Ці послуги вже є у вашому переліку. Попередня спроба могла зберегтися — перевірте список послуг.",
+  "@serviceSetupErrDuplicateAfterRetry": {
+    "description": "Shown when a 409 DUPLICATE_SERVICE arrives on a save that was itself a retry after a 503. The earlier attempt's outcome is genuinely unknown client-side (an edge-proxy 503 can follow a committed write), so the copy asserts neither 'saved' nor 'not saved' and points the master at their services list to check."
+  },
+  "serviceSetupRowAlreadyInMenu": "Уже у вашому переліку",
+  "@serviceSetupRowAlreadyInMenu": {
+    "description": "Row-level flag on a service-type card after a 409 duplicate: the refreshed catalogue shows the master already offers this type, so it was turned off. Distinct from serviceSetupRowAlreadyAdded, which is the calm at-load state rather than a just-changed one."
+  },
+  "serviceSetupPriceInvalid": "Перевірте ціну",
+  "@serviceSetupPriceInvalid": {
+    "description": "Fallback inline price-field error used when the backend's own message is absent, blank, or unreasonably long. Untrusted server strings never reach a UI label unbounded."
   },
   "settingsHubMenuButton": "Налаштування",
   "@settingsHubMenuButton": {
@@ -2691,6 +2759,14 @@
   "masterLocationSubheading": "Вкажіть Ваше розташування, щоб клієнтам було зручно Вас знайти у пошуку",
   "@masterLocationSubheading": {
     "description": "Subheading on the independent master location edit page, explaining that the location is used for client search."
+  },
+  "expandableNoteShowMore": "більше",
+  "@expandableNoteShowMore": {
+    "description": "Expand toggle shown under a clamped (maxLines: 3) note (e.g. a master or salon location note) when it overflows its line budget."
+  },
+  "expandableNoteShowLess": "згорнути",
+  "@expandableNoteShowLess": {
+    "description": "Collapse toggle shown under an expanded note (e.g. a master or salon location note)."
   },
   "accountTitle": "Акаунт",
   "@accountTitle": {
@@ -2997,6 +3073,10 @@
   "@homeHubFindMaster": {
     "description": "CTA button in the next appointment empty state."
   },
+  "homeHubNextAppointmentDetailsLink": "Деталі запису",
+  "@homeHubNextAppointmentDetailsLink": {
+    "description": "Link below the populated next-appointment card that opens the booking's «Деталі запису» screen."
+  },
   "homeHubRescheduleAppointment": "Перенести",
   "@homeHubRescheduleAppointment": {
     "description": "Button label to reschedule the next appointment."
@@ -3075,10 +3155,6 @@
   "@myRatingEmpty": {
     "description": "Empty state message on the My Rating screen when no rating has been assigned yet."
   },
-  "myRatingExplanation": "Ваш рейтинг формується на основі оцінок майстрів і салонів після завершених процедур.",
-  "@myRatingExplanation": {
-    "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
-  },
   "myRatingReviewCount": "{count, plural, =0{0 відгуків} =1{1 відгук} few{{count} відгуки} many{{count} відгуків} other{{count} відгуків}}",
   "@myRatingReviewCount": {
     "description": "Review-count line under the client's average rating on the My Rating screen (track 7.x Wave B, GET /users/me/rating).",
@@ -3089,25 +3165,21 @@
       }
     }
   },
-  "passportColumnProcedures": "Улюблені процедури",
-  "@passportColumnProcedures": {
-    "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
+  "passportLocalitiesLabel": "Улюблені райони та міста",
+  "@passportLocalitiesLabel": {
+    "description": "Eyebrow of the passport derived block's locality field — the auto-derived districts and cities the client books in most. One label over both lines: they are one fact, read at two zoom levels."
   },
-  "passportColumnDistricts": "Улюблені райони",
-  "@passportColumnDistricts": {
-    "description": "Eyebrow label of the BEAUTY PASSPORT card's second column (auto-derived top-3 most-visited districts)."
+  "passportAverageSpendLabel": "Середній чек",
+  "@passportAverageSpendLabel": {
+    "description": "Eyebrow of the passport derived block's spend field. An AVERAGE, not a ceiling — the retired card said «до 1 200 ₴», this says «≈ 750 ₴». The «≈» marker is drawn beside the price pill by the widget, never baked into this copy."
   },
-  "passportColumnBudget": "Бюджет",
-  "@passportColumnBudget": {
-    "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
-  },
-  "passportBudgetCeiling": "до {max} ₴",
-  "@passportBudgetCeiling": {
-    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
+  "passportBudgetAverage": "{avg} ₴",
+  "@passportBudgetAverage": {
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the client's derived AVERAGE spend, in UAH. A pure money string: the «≈» marker is drawn beside the pill by the widget, not baked into the copy.",
     "placeholders": {
-      "max": {
+      "avg": {
         "type": "int",
-        "example": "800"
+        "example": "750"
       }
     }
   },
@@ -3134,17 +3206,63 @@
       }
     }
   },
-  "passportEmptyTitle": "Твій паспорт ще порожній",
-  "@passportEmptyTitle": {
-    "description": "Heading of the empty BEAUTY PASSPORT state, shown when the client has no completed bookings yet."
+  "passportErrorTitle": "Не вдалося завантажити паспорт",
+  "@passportErrorTitle": {
+    "description": "Heading of the BEAUTY PASSPORT error state, shown when GET /clients/me/passport fails. Deliberately distinct from the empty state so a network/server failure is never mistaken for 'no history yet'."
   },
-  "passportEmptyBody": "Запишись на першу процедуру — і Beautica почне збирати твої улюблені послуги, райони та бюджет.",
-  "@passportEmptyBody": {
-    "description": "Body copy of the empty BEAUTY PASSPORT state inviting the client to book their first service."
+  "passportErrorBody": "Перевір з'єднання та спробуй ще раз.",
+  "@passportErrorBody": {
+    "description": "Body copy of the BEAUTY PASSPORT error state, accompanying the retry button (retryLabel)."
   },
-  "passportEmptyCta": "Знайти майстра",
-  "@passportEmptyCta": {
-    "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
+  "wishlistSectionLede": "Збережені з профілів майстрів — записуйся в один дотик.",
+  "@wishlistSectionLede": {
+    "description": "Lede under the BEAUTY WISH LIST section header, on both the passport page and the full-list page. The section NAME itself is the locked English brand literal «Beauty wish list» and is never translated; only this line is."
+  },
+  "wishlistShowAll": "Показати всі ({count})",
+  "@wishlistShowAll": {
+    "description": "Outline overflow button under the passport page's two-card wish-list line — opens the full «Усі збережені» page. Deliberately does NOT say «улюблені»: after the rename that would name a different noun than the section header above it.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "wishlistPageTitle": "Усі збережені",
+  "@wishlistPageTitle": {
+    "description": "Back-bar title of the full wish-list page. Names the page's SCOPE in Ukrainian so the English brand literal «Beauty wish list» is carried exactly once per screen — by the section header below it."
+  },
+  "wishlistBackSemantics": "Назад",
+  "@wishlistBackSemantics": {
+    "description": "Semantics label of the back button on the full wish-list page."
+  },
+  "wishlistBookCta": "Записатись",
+  "@wishlistBookCta": {
+    "description": "Filled CTA on every wish-list entry (compact card and full-width row) — starts a booking for that exact master + service."
+  },
+  "wishlistRemoveSemantics": "Прибрати з бажаних",
+  "@wishlistRemoveSemantics": {
+    "description": "Semantics label of the filled heart on a wish-list entry. Tapping it un-favourites the service. Worded for the wish list specifically rather than reusing favoriteRemoveLabel («Прибрати з обраного»), which names the «Обране» masters tab — a different collection."
+  },
+  "wishlistMasterFallbackName": "Майстер",
+  "@wishlistMasterFallbackName": {
+    "description": "Shown in place of the master's name on a wish-list entry when the wire carried neither name part. The mapper leaves that field empty on purpose and lets presentation choose the copy."
+  },
+  "wishlistEmptyMessage": "Постав сердечко на послузі в профілі майстра — вона збережеться сюди, і наступний запис займе один дотик.",
+  "@wishlistEmptyMessage": {
+    "description": "Empty state of the BEAUTY WISH LIST, on both surfaces. An empty screen is an invitation to act: it names exactly where the heart lives and what happens when it is tapped."
+  },
+  "wishlistEmptyCta": "Знайти майстра",
+  "@wishlistEmptyCta": {
+    "description": "Call-to-action on the empty wish-list state — opens discovery search."
+  },
+  "wishlistErrorTitle": "Не вдалося завантажити улюблені послуги",
+  "@wishlistErrorTitle": {
+    "description": "Heading of the wish-list load-failure state. Deliberately distinct from the empty state: a failed fetch is a fault the client can retry, an empty list is an invitation. The two are independent of the derived block's own states."
+  },
+  "wishlistErrorBody": "Перевір з'єднання та спробуй ще раз.",
+  "@wishlistErrorBody": {
+    "description": "Body copy of the wish-list error state, accompanying the retry button (retryLabel). Same wording as passportErrorBody but a separate key — the two surfaces fail independently and either may be reworded without dragging the other with it."
   },
   "searchTitle": "Пошук",
   "@searchTitle": {
@@ -3153,6 +3271,14 @@
   "searchFieldHint": "Пошук майстра або послуги",
   "@searchFieldHint": {
     "description": "Placeholder text in the free-text search field on the Пошук screen."
+  },
+  "searchQueryMinLengthHint": "Введіть щонайменше 3 символи",
+  "@searchQueryMinLengthHint": {
+    "description": "The backend's own envelope message for a below-minimum `q`. Copy must match the backend's envelope message exactly — do NOT reword it to match the client-side error line (that is searchQueryMinLengthError). Retained for surfaces that echo the server message verbatim."
+  },
+  "searchQueryMinLengthError": "Введіть щонайменше 3 символи для пошуку",
+  "@searchQueryMinLengthError": {
+    "description": "Blocking ERROR line (red, with an error icon) shown under the free-text search field while the typed term is 1–2 characters long. In that state the applied query is cleared, the results area is blocked and «Показати майстрів» is disabled — so this is an error voice, not a hint. Client-side copy: it is free to differ from the backend's envelope message (searchQueryMinLengthHint)."
   },
   "searchCityLabel": "Місто",
   "@searchCityLabel": {
@@ -3418,6 +3544,14 @@
   "favoriteRemoveLabel": "Прибрати з обраного",
   "@favoriteRemoveLabel": {
     "description": "Accessibility label for the favourite heart when the item IS favourited (tapping removes it)."
+  },
+  "favoriteServiceAddLabel": "Додати в бажані",
+  "@favoriteServiceAddLabel": {
+    "description": "Accessibility label for the favourite heart on a booking-flow service row (Phase 240) when the service is NOT yet in the wish list (tapping adds it). Distinct wording from favoriteAddLabel («Додати в обране»), which names the «Обране» masters/salons tab — a different collection from the beauty wish list."
+  },
+  "favoriteServiceRemoveLabel": "Прибрати з бажаних",
+  "@favoriteServiceRemoveLabel": {
+    "description": "Accessibility label for the favourite heart on a booking-flow service row (Phase 240) when the service IS already in the wish list (tapping removes it). Matches wishlistRemoveSemantics's wording for consistency — both name the same «бажані» wish-list collection."
   },
   "searchSortButtonLabel": "Сортування",
   "@searchSortButtonLabel": {
@@ -4298,14 +4432,6 @@
   "@bookingRescheduleUnavailable": {
     "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
   },
-  "appointmentRescheduleUnavailable": "Цей візит не можна перенести.",
-  "@appointmentRescheduleUnavailable": {
-    "description": "Track 27.x/MO-6 — snackbar shown when startAppointmentReschedule short-circuits: the visit is no longer CONFIRMED, or one of its services is no longer in the master's catalogue."
-  },
-  "appointmentRescheduleWholeVisitNotice": "Увесь візит переноситься одразу — усі послуги залишаться в тому самому порядку й з тією самою тривалістю.",
-  "@appointmentRescheduleWholeVisitNotice": {
-    "description": "Track 27.x/MO-6 — info banner on the booking confirm screen when the flow is a whole-visit reschedule (PATCH /appointments/{id}/reschedule), making explicit that every service listed below moves together."
-  },
   "salonProfileBackLabel": "Назад",
   "@salonProfileBackLabel": {
     "description": "Accessibility label for the back control floating over the salon profile cover photo."
@@ -5019,5 +5145,45 @@
   "masterBookingsAddComingSoon": "Створення запису вручну з'явиться найближчим часом",
   "@masterBookingsAddComingSoon": {
     "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
+  },
+  "statTileNoDataSemantics": "{caption}: немає даних",
+  "@statTileNoDataSemantics": {
+    "description": "Accessibility label for a profile StatTile whose value is the em-dash zero/unresolved placeholder. The dash is meaningless read aloud ('— Послуги'), so screen readers get this spoken form instead. VISUAL output is unaffected — the tile still renders the em-dash.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "example": "Послуги"
+      }
+    }
+  },
+  "statTileLoadFailedSemantics": "{caption}: не вдалося завантажити",
+  "@statTileLoadFailedSemantics": {
+    "description": "Accessibility label for a profile StatTile whose value is the '?' failed-load glyph (ServicesStatTile.hasError). Kept distinct from statTileNoDataSemantics so a suppressed response is never announced as an empty catalogue. VISUAL output is unaffected — the tile still renders '?'.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "example": "Послуги"
+      }
+    }
+  },
+  "velvetSnackPrefixSuccess": "Готово",
+  "@velvetSnackPrefixSuccess": {
+    "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the success variant, so the register survives when colour and glyph do not."
+  },
+  "velvetSnackPrefixError": "Помилка",
+  "@velvetSnackPrefixError": {
+    "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the error variant."
+  },
+  "velvetSnackPrefixInfo": "Інформація",
+  "@velvetSnackPrefixInfo": {
+    "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the info variant."
+  },
+  "velvetSnackPrefixWarning": "Увага",
+  "@velvetSnackPrefixWarning": {
+    "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the warning variant."
+  },
+  "velvetSnackDismissSemantic": "Закрити сповіщення",
+  "@velvetSnackDismissSemantic": {
+    "description": "VelvetSnack (shared/feedback) — semantic label for the optional explicit dismiss (close) affordance."
   }
 }

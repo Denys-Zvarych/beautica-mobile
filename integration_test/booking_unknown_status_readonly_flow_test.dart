@@ -115,7 +115,14 @@ void main() {
       // The pre-7.1 throw was swallowed by the mapper's `on Failure { continue; }`
       // and the booking disappeared. Reaching a rendered detail screen at all is
       // the assertion.
-      AppHarness.expectLocation(router, RouteNames.bookingDetail('booking-1'));
+      // `/bookings/:bookingId` is a child GoRoute INSIDE the client shell's
+      // bookings branch, reached via `context.push` — so `matches.last` stays a
+      // ShellRouteMatch and plain `expectLocation` reads the stale branch root
+      // `/bookings`. Only the drill-down resolver sees the pushed leaf.
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.bookingDetail('booking-1'),
+      );
       expect(
         find.byType(BookingDetailScreen),
         findsOneWidget,

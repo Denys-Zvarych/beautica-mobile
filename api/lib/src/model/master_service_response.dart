@@ -28,6 +28,7 @@ part 'master_service_response.g.dart';
 /// * [serviceTypeId] - Chosen service type id; null when no service type was selected.
 /// * [serviceTypeNameUk] - Ukrainian display name of the chosen service type; null when none was selected.
 /// * [serviceTypeSlug] - Stable slug of the chosen platform service type (matches the search filter's service-type key); null when none was selected.
+/// * [isFavorite] - true/false only for an authenticated CLIENT caller; null for anonymous/non-CLIENT callers and always null inside the masterServices cache — decorated per-request, after the cache read.
 @BuiltValue()
 abstract class MasterServiceResponse
     implements Built<MasterServiceResponse, MasterServiceResponseBuilder> {
@@ -79,6 +80,10 @@ abstract class MasterServiceResponse
   /// Stable slug of the chosen platform service type (matches the search filter's service-type key); null when none was selected.
   @BuiltValueField(wireName: r'serviceTypeSlug')
   String? get serviceTypeSlug;
+
+  /// true/false only for an authenticated CLIENT caller; null for anonymous/non-CLIENT callers and always null inside the masterServices cache — decorated per-request, after the cache read.
+  @BuiltValueField(wireName: r'isFavorite')
+  bool? get isFavorite;
 
   MasterServiceResponse._();
 
@@ -214,6 +219,13 @@ class _$MasterServiceResponseSerializer
         specifiedType: const FullType.nullable(String),
       );
     }
+    if (object.isFavorite != null) {
+      yield r'isFavorite';
+      yield serializers.serialize(
+        object.isFavorite,
+        specifiedType: const FullType.nullable(bool),
+      );
+    }
   }
 
   @override
@@ -346,6 +358,14 @@ class _$MasterServiceResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.serviceTypeSlug = valueDes;
+          break;
+        case r'isFavorite':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.isFavorite = valueDes;
           break;
         default:
           unhandled.add(key);

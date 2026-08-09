@@ -79,6 +79,16 @@ abstract final class RouteNames {
   static const String clientBookings = '/bookings';
   static const String clientPassport = '/passport';
 
+  /// Phase 239 — «Усі збережені», the full BEAUTY WISH LIST. Nested under
+  /// [clientPassport] so it pushes onto the passport branch's OWN navigator:
+  /// swipe-back then returns to the still-scrolled passport page instead of
+  /// unwinding to a branch root.
+  ///
+  /// ⚠ Reached with `context.push`, never `context.go`. A pushed leaf collapses
+  /// to the PARENT path in `GoRouterState.fullPath`, so a `go`-based navigation
+  /// test would false-pass against `/passport`.
+  static const String clientWishlist = '$clientPassport/wishlist';
+
   /// Phase 14.3 — «Деталі запису», nested under [clientBookings] so it
   /// pushes onto that branch's own navigator (swipe-back returns to the
   /// still-scrolled list). Reached by tapping any `BookingCard`.
@@ -92,36 +102,6 @@ abstract final class RouteNames {
   /// gate in [authRedirect].
   static String bookingReview(String bookingId) =>
       '$clientBookings/${Uri.encodeComponent(bookingId)}/review';
-
-  /// MO-5 — «Деталі запису» for a multi-service VISIT, formerly nested under
-  /// [clientBookings]. Distinct `visit/` segment so it never collides with the
-  /// single-booking [bookingDetail]'s `:bookingId` param.
-  ///
-  /// MO-8 [mobile-security MEDIUM, fixed] — the `GoRoute` this path used to
-  /// resolve to is NO LONGER REGISTERED in [app_router] (see
-  /// `app_router.dart`'s MO-8 comment in the `/bookings` branch). MO-7 already
-  /// removed `VisitCard`, `VisitDetailScreen`'s only UI entry point, but the
-  /// route stayed live and — because `MainActivity` is `exported="true"` with
-  /// `flutter_deeplinking_enabled="true"` — remained reachable from a
-  /// co-installed app via an explicit, component-targeted intent, straight to
-  /// `VisitDetailScreen`'s whole-visit cancel. The constant is retained ONLY
-  /// because `VisitDetailScreen`/`AppointmentReviewScreen` (kept, not deleted —
-  /// see their file headers) and their widget tests still build this path for
-  /// their own self-contained test routers; `test/routing/
-  /// navigation_links_test.dart`'s NL-R01 asserts it stays unregistered in the
-  /// PRODUCTION router (`deliberatelyUnregistered`). Do not wire a GoRoute back
-  /// onto it without also resolving the open product question these files'
-  /// headers describe.
-  static String appointmentDetail(String appointmentId) =>
-      '$clientBookings/visit/${Uri.encodeComponent(appointmentId)}';
-
-  /// MO-5 — the VISIT review path, nested under [appointmentDetail]. The visit
-  /// detail's «Залишити відгук» CTA still builds this path (never routed
-  /// anywhere in production — see [appointmentDetail]'s MO-8 doc); a visit is
-  /// reviewed once as a whole (`POST /appointments/{id}/review`), never the
-  /// per-booking review of a child.
-  static String appointmentReview(String appointmentId) =>
-      '$clientBookings/visit/${Uri.encodeComponent(appointmentId)}/review';
 
   /// Phase 13.3 — discovery results. Reached from the Пошук filters screen's
   /// «Показати майстрів» CTA via `context.push(..., extra: SearchFilters)`. A
@@ -318,12 +298,18 @@ abstract final class RouteNames {
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';
-  static const String serviceCreate = '/services/create';
   static String serviceEdit(String id) => '/services/$id/edit';
 
-  /// First-time service setup (INDEPENDENT_MASTER). The empty-state, one-pass
-  /// menu builder reached from the services-list empty state when the master
-  /// has zero services. Saves via `POST /independent-masters/me/services/bulk`.
+  /// Service setup (INDEPENDENT_MASTER) — the ONE "add services" surface.
+  ///
+  /// The multi-select menu builder, reached from BOTH the services-list empty
+  /// state and the «Додати послугу» FAB on a populated list. Saves via
+  /// `POST /independent-masters/me/services/bulk`, which the backend made
+  /// additive (`beautica-backend` c5e420f) — so it appends to an existing
+  /// catalogue just as well as it seeds an empty one.
+  ///
+  /// The former single-create form (`/services/create`) was removed when the
+  /// two flows were collapsed onto this screen; do not reintroduce it.
   static const String serviceSetup = '/services/setup';
 
   // Phase 6.2 — legacy working-hours editor path. The route is NO LONGER

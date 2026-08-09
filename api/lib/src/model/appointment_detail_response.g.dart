@@ -213,8 +213,6 @@ class _$AppointmentDetailResponse extends AppointmentDetailResponse {
   @override
   final BuiltList<AppointmentItemResponse>? items;
   @override
-  final bool? canReview;
-  @override
   final String? providerComment;
   @override
   final String? clientCancellationNote;
@@ -251,7 +249,6 @@ class _$AppointmentDetailResponse extends AppointmentDetailResponse {
       this.clientComment,
       this.createdAt,
       this.items,
-      this.canReview,
       this.providerComment,
       this.clientCancellationNote,
       this.cityLabel,
@@ -290,7 +287,6 @@ class _$AppointmentDetailResponse extends AppointmentDetailResponse {
         clientComment == other.clientComment &&
         createdAt == other.createdAt &&
         items == other.items &&
-        canReview == other.canReview &&
         providerComment == other.providerComment &&
         clientCancellationNote == other.clientCancellationNote &&
         cityLabel == other.cityLabel &&
@@ -320,7 +316,6 @@ class _$AppointmentDetailResponse extends AppointmentDetailResponse {
     _$hash = $jc(_$hash, clientComment.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
     _$hash = $jc(_$hash, items.hashCode);
-    _$hash = $jc(_$hash, canReview.hashCode);
     _$hash = $jc(_$hash, providerComment.hashCode);
     _$hash = $jc(_$hash, clientCancellationNote.hashCode);
     _$hash = $jc(_$hash, cityLabel.hashCode);
@@ -352,7 +347,6 @@ class _$AppointmentDetailResponse extends AppointmentDetailResponse {
           ..add('clientComment', clientComment)
           ..add('createdAt', createdAt)
           ..add('items', items)
-          ..add('canReview', canReview)
           ..add('providerComment', providerComment)
           ..add('clientCancellationNote', clientCancellationNote)
           ..add('cityLabel', cityLabel)
@@ -448,10 +442,6 @@ class AppointmentDetailResponseBuilder
   set items(ListBuilder<AppointmentItemResponse>? items) =>
       _$this._items = items;
 
-  bool? _canReview;
-  bool? get canReview => _$this._canReview;
-  set canReview(bool? canReview) => _$this._canReview = canReview;
-
   String? _providerComment;
   String? get providerComment => _$this._providerComment;
   set providerComment(String? providerComment) =>
@@ -507,7 +497,6 @@ class AppointmentDetailResponseBuilder
       _clientComment = $v.clientComment;
       _createdAt = $v.createdAt;
       _items = $v.items?.toBuilder();
-      _canReview = $v.canReview;
       _providerComment = $v.providerComment;
       _clientCancellationNote = $v.clientCancellationNote;
       _cityLabel = $v.cityLabel;
@@ -555,7 +544,6 @@ class AppointmentDetailResponseBuilder
             clientComment: clientComment,
             createdAt: createdAt,
             items: _items?.build(),
-            canReview: canReview,
             providerComment: providerComment,
             clientCancellationNote: clientCancellationNote,
             cityLabel: cityLabel,

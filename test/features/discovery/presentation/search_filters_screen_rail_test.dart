@@ -51,6 +51,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const _testUser = User(
   id: 'u-client-1',
@@ -140,6 +141,7 @@ Future<void> _pumpScreen(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: overrides.cast(),
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -400,6 +402,7 @@ void main() {
       ).thenAnswer((_) async => _nailsServices);
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [categoryServiceRepositoryProvider.overrideWithValue(repo)],
       );
       addTearDown(container.dispose);
@@ -424,6 +427,7 @@ void main() {
         ).thenAnswer((_) async => _hairServices);
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [
             categoryServiceRepositoryProvider.overrideWithValue(repo),
           ],
@@ -452,6 +456,7 @@ void main() {
       ).thenAnswer((_) async => _nailsServices);
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [categoryServiceRepositoryProvider.overrideWithValue(repo)],
       );
       addTearDown(container.dispose);

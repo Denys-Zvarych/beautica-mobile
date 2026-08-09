@@ -41,6 +41,26 @@ abstract class Booking with _$Booking {
     /// master's booking.
     String? salonName,
 
+    /// The salon this booking was made AT, as snapshotted on the booking row
+    /// (`bookings.salon_id`).
+    ///
+    /// Null for an `INDEPENDENT_MASTER` booking. Exists to key salon-side cache
+    /// invalidation after a review (`invalidateSalonReviewSurfaces` in
+    /// `features/review/presentation/review_surface_invalidation.dart`) — and
+    /// for nothing else. It is the id whose `avgRating` / `reviewCount` the
+    /// backend just moved: `ReviewService#createReview` stamps the review with
+    /// the BOOKING's salon, and `ReviewEventListener` recalculates THAT salon.
+    ///
+    /// ⚠️ NOT interchangeable with [salonName], even though backend phase 242
+    /// made both resolve from this same booking snapshot (before 242 [salonName]
+    /// came from the master's LIVE salon and the two could disagree after a
+    /// rotation). They stay separate fields carrying separate meanings: one is a
+    /// cache key, the other is display text, and an older backend still on the
+    /// pre-242 contract can send one without the other. `atSalon` stays
+    /// `salonName != null` — do not re-express it on this field, and do not
+    /// derive either field from the other at the mapping boundary.
+    String? salonId,
+
     // ── The COUNTERPARTY as the PROVIDER sees it (Phase 7.2) ──────────────
     //
     // Added for the provider-view «Деталі запису». A client viewer never reads
@@ -126,9 +146,13 @@ abstract class Booking with _$Booking {
     required DateTime endAt,
     required BookingStatus status,
 
-    /// `true` only when [status] is [BookingStatus.completed] AND the client
-    /// has not already left a review for this booking. Server-computed —
-    /// the client must not re-derive this from [status] alone.
+    /// `true` when the client has not already left a review for this
+    /// booking AND either [status] is [BookingStatus.completed], OR
+    /// [status] is [BookingStatus.confirmed] with [endAt] already elapsed
+    /// (an appointment the provider never marked COMPLETED — there is no
+    /// auto-complete job, so it stays CONFIRMED forever otherwise).
+    /// Server-computed — the client must not re-derive this from [status]
+    /// alone.
     required bool canReview,
 
     /// The client's free-text note written at booking time
@@ -161,6 +185,33 @@ abstract class Booking with _$Booking {
     /// generic-role fallback for where a placeholder DOES belong).
     String? masterProfessionalTitle,
 
+    /// The master's public average rating (1.0–5.0), as served by
+    /// `GET /bookings/{id}` and `GET /bookings/me` (Phase 240).
+    ///
+    /// **`null` means "no reviews yet" — NEVER render it as `0.0`.** The
+    /// backend stores `0.00` for an unreviewed master (`masters.avg_rating` is
+    /// `NOT NULL DEFAULT 0.00`) and deliberately normalises that storage
+    /// artefact to `null` on the wire, precisely so a brand-new master is not
+    /// shown a damning zero stars. Coalescing this to `0` client-side would
+    /// re-introduce exactly the bug the backend just removed.
+    ///
+    /// This is the same denormalised column `GET /masters/{id}` serves, and the
+    /// backend evicts the master-detail cache when a review lands, so the value
+    /// here agrees exactly with the profile screen rather than eventually.
+    ///
+    /// Render the no-rating treatment when null — see [masterReviewCount] for
+    /// the count that accompanies it, and `MasterStrip` for the established
+    /// presentation.
+    double? masterAvgRating,
+
+    /// How many reviews [masterAvgRating] is computed from.
+    ///
+    /// `0` is a TRUE fact about an unreviewed master (unlike a `0.0` average),
+    /// so it is meaningful and safe to render. Kept nullable to distinguish
+    /// "unknown" (field absent — e.g. a pre-Phase-240 backend) from a genuine
+    /// zero; treat `null` as unknown, not as zero.
+    int? masterReviewCount,
+
     /// The provider's free-text arrival hint («3-й поверх, код на дверях
     /// 1234»), resolved server-side by the same salon-vs-independent rule as
     /// [street]/[buildingNo]. Never part of the composed address — see
@@ -191,5 +242,15 @@ abstract class Booking with _$Booking {
     /// regardless of this value, so a stale/duplicate submit still surfaces
     /// as a 409 rather than being trusted client-side.
     @Default(false) bool providerCanReviewClient,
+
+    /// `true` only when [status] is still [BookingStatus.confirmed] AND
+    /// [endAt] has already elapsed — server-derived, read-time-only (backend
+    /// Phase 29.1/29.2). Flags the bookings a provider still needs to close
+    /// via complete/not-complete/decline; no scheduled job ever transitions
+    /// these automatically. Defaulted to `false` at the mapping boundary
+    /// ([BookingMapper.fromDto]) so an older backend that omits this field
+    /// entirely (pre-29.2) cannot crash the mapper — nothing reads this field
+    /// yet (phases 227/229 do).
+    @Default(false) bool awaitingClosure,
   }) = _Booking;
 }

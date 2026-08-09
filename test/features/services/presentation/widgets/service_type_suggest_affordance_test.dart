@@ -4,11 +4,11 @@
 // The footer chip (Key 'chip-service-type-suggest') is the escape hatch from the
 // service-type menu into ServiceTypeSuggestionDialog. This file drives the real
 // rendered picker (through ServiceForm, exactly like service_type_chips_test.dart)
-// rather than the dialog in isolation, because the affordance + success-SnackBar
+// rather than the dialog in isolation, because the affordance + success-VelvetSnack
 // wiring is the user-facing surface:
 //   - tapping the footer chip closes the menu and opens the dialog;
-//   - a successful suggestion raises the serviceTypeSuggestSuccess SnackBar on
-//     the form's messenger (NOT the dialog's transient context);
+//   - a successful suggestion raises the serviceTypeSuggestSuccess VelvetSnack on
+//     the form's own root context (NOT the dialog's transient context);
 //   - a suggestion does NOT appear in the picker option list (it is queued for
 //     review, never optimistically inserted).
 //
@@ -23,12 +23,15 @@ import 'package:beautica_mobile/features/services/presentation/service_types_pro
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../../helpers/velvet_snack_matchers.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -64,6 +67,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
           approvedCategoriesProvider.overrideWith((ref) async => _categories),
@@ -162,15 +166,14 @@ void main() {
       ).called(1);
       expect(find.byType(ServiceTypeSuggestionDialog), findsNothing);
 
-      // Success SnackBar on the form's messenger.
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(SnackBar),
-          matching: find.text(l10n.serviceTypeSuggestSuccess),
-        ),
-        findsOneWidget,
+      // Success VelvetSnack on the form's own root context.
+      expectVelvetSnack(
+        l10n.serviceTypeSuggestSuccess,
+        variant: VelvetSnackVariant.success,
       );
+      // Drain the snack before the next interaction — a still-mounted snack is
+      // bottom-anchored and can intercept the menu-opening tap below.
+      await pumpPastVelvetSnack(tester);
 
       // Re-open the menu → the suggested name is NOT an option (queued for
       // review, never optimistically inserted). The original option remains.

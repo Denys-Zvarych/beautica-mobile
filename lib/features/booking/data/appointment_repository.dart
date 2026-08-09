@@ -1,34 +1,40 @@
 // MO-1 — AppointmentRepository: interface + HTTP implementation for the
 // multi-service single-visit write/read path.
 //
-//   POST   /api/v1/appointments                          → create visit
-//   GET    /api/v1/appointments/{appointmentId}           → enriched detail
-//   PATCH  /api/v1/appointments/{appointmentId}/reschedule → CLIENT or PROVIDER reschedule (dual-actor)
-//   PATCH  /api/v1/appointments/{appointmentId}/cancel     → CLIENT cancel
-//   PATCH  /api/v1/appointments/{appointmentId}/complete   → PROVIDER complete
-//   PATCH  /api/v1/appointments/{appointmentId}/decline    → PROVIDER decline
-//   POST   /api/v1/appointments/{appointmentId}/review     → leave review
+//   POST   /api/v1/appointments                                          → create visit
+//   GET    /api/v1/appointments/{appointmentId}                          → enriched detail
+//   PATCH  /api/v1/appointments/{appointmentId}/services/{bookingId}/reschedule
+//                                                                          → CLIENT or PROVIDER per-item reschedule (dual-actor)
+//   PATCH  /api/v1/appointments/{appointmentId}/cancel                    → CLIENT cancel
+//   PATCH  /api/v1/appointments/{appointmentId}/complete                  → PROVIDER complete
+//   PATCH  /api/v1/appointments/{appointmentId}/decline                   → PROVIDER decline
 //
-// SCOPE (MO-1, extended track 27.x/MO-6): the CLIENT surface plus three
-// whole-visit transitions — [rescheduleAppointment] (dual-actor: the visit's
-// own CLIENT or an assigned PROVIDER may call it; today only the
-// PROVIDER/master footer invokes it in-app, see `_onReschedule` below) and
-// [completeAppointment]/[declineAppointment] (PROVIDER-only). The backend
+// SCOPE (MO-1, extended track 27.x/MO-6, cut over to per-item track 30.x):
+// the CLIENT surface plus [completeAppointment]/[declineAppointment]
+// (PROVIDER-only, whole-visit lockstep) and [rescheduleAppointmentItem]
+// (dual-actor: the visit's own CLIENT or an assigned PROVIDER may call it —
+// see `_onReschedule` in `booking_detail_screen.dart`). The backend
 // `assertNotAppointmentChild` guard 409s EVERY per-booking whole-visit
 // transition once `booking.appointment != null` — a multi-service visit's
-// individual service bookings must be rescheduled/completed/declined in
-// lockstep, through these endpoints, never
-// `BookingRepository.rescheduleBooking`/`completeBooking`/`declineBooking`.
-// `booking_detail_screen.dart` routes here whenever the booking it is
-// showing carries a non-null `Booking.appointmentId` (each service of a
-// visit still opens its OWN single-booking detail screen — see that file's
-// `_onReschedule`/`_confirmComplete`/`_confirmDecline`).
+// individual service bookings must be completed/declined in lockstep,
+// through the whole-visit endpoints, never
+// `BookingRepository.completeBooking`/`declineBooking`. Reschedule is the
+// ONE transition that is NOT whole-visit lockstep: the mobile app used to
+// call a whole-visit `PATCH /appointments/{id}/reschedule` here (removed —
+// the backend endpoint itself is untouched, only this client's use of it),
+// but now moves exactly ONE service via [rescheduleAppointmentItem], leaving
+// siblings' windows byte-for-byte unchanged (locked product decision — no
+// re-layout, no cascade, no gap-closing; the visit may legally become
+// non-contiguous). `booking_detail_screen.dart` routes here whenever the
+// booking it is showing carries a non-null `Booking.appointmentId` (each
+// service of a visit still opens its OWN single-booking detail screen — see
+// that file's `_onReschedule`/`_confirmComplete`/`_confirmDecline`).
 //
 // Kept provider-free OTHERWISE (mirrors `booking_repository.dart`'s CLIENT-only
 // shape apart from its own track-27.x provider additions) — see
 // `booking_providers.dart` for the Riverpod wiring. Tests construct
 // [HttpAppointmentRepository] directly with a mocktail
-// [AppointmentControllerApi] + [ReviewControllerApi].
+// [AppointmentControllerApi].
 //
 // Error / idempotency contract is transcribed 1:1 from
 // `HttpBookingRepository`:
@@ -123,30 +129,47 @@ abstract interface class AppointmentRepository {
   /// clock authoritative).
   Future<void> completeAppointment(String id);
 
-  /// Moves the WHOLE visit to [newStartAt] (track 27.x/MO-6) — the
-  /// whole-visit counterpart to `BookingRepository.rescheduleBooking`.
-  /// Dual-actor on the backend (the visit's own CLIENT or an assigned
-  /// PROVIDER — see `AppointmentController.rescheduleAppointment` /
-  /// `AppointmentTransitionService.resolveVisitForClientReschedule`); today
-  /// only the PROVIDER/master footer invokes this repository method in-app
-  /// (`booking_detail_screen.dart`'s `_onReschedule`).
+  /// Moves ONE service (`bookingId`) of a multi-service visit
+  /// (`appointmentId`) to [newStartAt] (track 30.x), leaving the visit's
+  /// OTHER services' windows byte-for-byte unchanged — the per-item
+  /// counterpart of `BookingRepository.rescheduleBooking`, and the direct
+  /// replacement for the retired whole-visit
+  /// `rescheduleAppointment(id, newStartAt)` (the backend's own
+  /// `PATCH /appointments/{id}/reschedule` is untouched; only this client's
+  /// call to it was removed). Dual-actor on the backend (the visit's own
+  /// CLIENT or an assigned PROVIDER — see
+  /// `AppointmentController.rescheduleAppointmentItem`); either footer of
+  /// `booking_detail_screen.dart`'s `_onReschedule` invokes this whenever the
+  /// shown booking carries a non-null `Booking.appointmentId`.
   ///
-  /// Wraps `PATCH /appointments/{appointmentId}/reschedule`
-  /// (`AppointmentRescheduleRequest.newStartsAt`). The backend moves EVERY
-  /// service in the visit in lockstep to one new contiguous block starting at
-  /// [newStartAt] — every item keeps its frozen duration and running order;
-  /// there is no partial-visit reschedule. Returns the re-fetched (enriched)
+  /// Wraps
+  /// `PATCH /appointments/{appointmentId}/services/{bookingId}/reschedule`
+  /// (`AppointmentItemRescheduleRequest.newStartsAt`). Contiguity is
+  /// DELIBERATELY relaxed — no follower re-layout, no cascade, no
+  /// gap-closing; the ONE invariant that still holds is no-overlap with a
+  /// CONFIRMED sibling of the same visit. Returns the re-fetched (enriched)
   /// [Appointment] — no follow-up GET needed.
   ///
-  /// Throws [BookingAlreadyElapsedFailure] on a 409 whose body is the
-  /// `BOOKING_ALREADY_ELAPSED` envelope (the visit's window is already past the
-  /// SERVER clock), [ConflictFailure] on any other 409 (the requested slot is
-  /// taken, or the visit is no longer in a reschedulable state — a server-side
-  /// race), and whatever [Failure] the shared error-mapper interceptor already
-  /// attached for a plain 400 (the backend's 15-minute–180-day window guard) —
-  /// see [_mapAppointmentRescheduleException], transcribed from
+  /// Throws [NotFoundFailure] on HTTP 404 (`bookingId` is not a child of
+  /// `appointmentId`), [BookingAlreadyElapsedFailure] on a 409 whose body is
+  /// the `BOOKING_ALREADY_ELAPSED` envelope (the CLIENT is moving an
+  /// already-elapsed item), and [ConflictFailure] on any OTHER 409 — the
+  /// backend cannot distinguish, on the wire, a sibling-overlap / "master
+  /// busy" conflict from the visit-or-item "changed concurrently — please
+  /// retry" guard: both are plain `BusinessException(CONFLICT, …)` instances
+  /// that serialize to the SAME bare `data: null` envelope (see
+  /// `AppointmentTransitionService.rescheduleAppointmentItem`'s Javadoc), so
+  /// both collapse to the one generic "this time is no longer available"
+  /// [ConflictFailure] here — there is no `data.code` to branch on. A plain
+  /// 400 (the backend's 15-minute–180-day window guard) defers to whatever
+  /// [Failure] the shared error-mapper interceptor already attached — see
+  /// [_mapAppointmentItemRescheduleException], transcribed from
   /// `HttpBookingRepository._mapBookingWriteException`.
-  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt);
+  Future<Appointment> rescheduleAppointmentItem(
+    String appointmentId,
+    String bookingId,
+    DateTime newStartAt,
+  );
 
   /// Declines a visit on behalf of the authenticated PROVIDER (track 27.x /
   /// MO-6) — the whole-visit counterpart to `BookingRepository.declineBooking`.
@@ -190,21 +213,6 @@ abstract interface class AppointmentRepository {
     String bookingId, {
     String? comment,
   });
-
-  /// Leaves a review for a COMPLETED visit on behalf of the authenticated
-  /// client.
-  ///
-  /// Wraps `POST /appointments/{appointmentId}/review`. [rating] is 1–5;
-  /// [comment] is optional free text (an empty/blank string is sent as null).
-  /// The backend enforces COMPLETED + ownership + not-already-reviewed — the
-  /// client must not re-derive those beyond the `Appointment.canReview` gate.
-  /// Throws [ReviewAlreadyExistsFailure] on HTTP 409 and [ReviewNotAllowedFailure]
-  /// on 403 / other 4xx.
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
-    String? comment,
-  });
 }
 
 /// HTTP implementation of [AppointmentRepository].
@@ -212,10 +220,9 @@ abstract interface class AppointmentRepository {
 /// Inject via [appointmentRepositoryProvider] — never construct directly
 /// outside tests.
 final class HttpAppointmentRepository implements AppointmentRepository {
-  HttpAppointmentRepository(this._appointmentApi, this._reviewApi);
+  HttpAppointmentRepository(this._appointmentApi);
 
   final AppointmentControllerApi _appointmentApi;
-  final ReviewControllerApi _reviewApi;
 
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) async {
@@ -283,14 +290,16 @@ final class HttpAppointmentRepository implements AppointmentRepository {
   }
 
   @override
-  Future<Appointment> rescheduleAppointment(
-    String id,
+  Future<Appointment> rescheduleAppointmentItem(
+    String appointmentId,
+    String bookingId,
     DateTime newStartAt,
   ) async {
     try {
-      final res = await _appointmentApi.rescheduleAppointment(
-        appointmentId: id,
-        appointmentRescheduleRequest: AppointmentRescheduleRequest(
+      final res = await _appointmentApi.rescheduleAppointmentItem(
+        appointmentId: appointmentId,
+        bookingId: bookingId,
+        appointmentItemRescheduleRequest: AppointmentItemRescheduleRequest(
           (b) => b..newStartsAt = newStartAt,
         ),
       );
@@ -298,7 +307,7 @@ final class HttpAppointmentRepository implements AppointmentRepository {
       if (dto == null) {
         if (kDebugMode) {
           log(
-            'rescheduleAppointment: response data is null',
+            'rescheduleAppointmentItem: response data is null',
             name: _tag,
             level: 1000,
           );
@@ -311,13 +320,14 @@ final class HttpAppointmentRepository implements AppointmentRepository {
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
-          'rescheduleAppointment failed: ${e.type} ${e.response?.statusCode}',
+          'rescheduleAppointmentItem failed: '
+          '${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,
         );
       }
-      throw _mapAppointmentRescheduleException(e);
+      throw _mapAppointmentItemRescheduleException(e);
     }
   }
 
@@ -454,40 +464,6 @@ final class HttpAppointmentRepository implements AppointmentRepository {
     }
   }
 
-  @override
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
-    String? comment,
-  }) async {
-    final String? trimmed = comment?.trim();
-    final String? effectiveComment = (trimmed == null || trimmed.isEmpty)
-        ? null
-        : trimmed;
-    try {
-      await _reviewApi.createAppointmentReview(
-        appointmentId: id,
-        createAppointmentReviewRequest: CreateAppointmentReviewRequest(
-          (b) => b
-            ..rating = rating
-            ..comment = effectiveComment,
-        ),
-      );
-    } on Failure {
-      rethrow;
-    } on DioException catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'createAppointmentReview failed: ${e.type} ${e.response?.statusCode}',
-          name: _tag,
-          level: 900,
-          stackTrace: st,
-        );
-      }
-      throw _mapReviewException(e);
-    }
-  }
-
   /// Builds the generated wire `CreateAppointmentRequest` DTO from the domain
   /// [CreateAppointmentRequest]. The `idempotencyKey` is sent BOTH as the
   /// `Idempotency-Key` request header AND on the body — same rationale as
@@ -526,21 +502,47 @@ final class HttpAppointmentRepository implements AppointmentRepository {
     return _mapDioException(e);
   }
 
-  /// Maps a [DioException] from `PATCH /appointments/{id}/reschedule` to a
-  /// typed [Failure] — transcribed from
-  /// `HttpBookingRepository._mapBookingWriteException` so a whole-visit
-  /// reschedule surfaces the SAME failures as the single-booking one:
+  /// Maps a [DioException] from
+  /// `PATCH /appointments/{id}/services/{bookingId}/reschedule` to a typed
+  /// [Failure] — transcribed from
+  /// `HttpBookingRepository._mapBookingWriteException` so a per-item visit
+  /// reschedule surfaces the SAME failure SHAPES as the single-booking one:
   ///   - 409 `BOOKING_ALREADY_ELAPSED` → [BookingAlreadyElapsedFailure] (the
-  ///     visit's window is already past the SERVER clock).
-  ///   - any other 409 → [ConflictFailure] ("this time is no longer
-  ///     available" — the requested slot was taken, or the visit is no longer
-  ///     reschedulable, between fetching availability and submitting).
+  ///     CLIENT is moving an already-elapsed item).
+  ///   - 409 `CLIENT_BOOKING_CONFLICT` → [ClientBookingConflictFailure] (see
+  ///     [_extractClientBookingConflict]). The OpenAPI spec documents this
+  ///     endpoint's 409 explicitly: "Header/item not CONFIRMED, elapsed,
+  ///     sibling overlap, or slot unavailable (including
+  ///     CLIENT_BOOKING_CONFLICT)" — and the backend's
+  ///     `AppointmentTransitionService.rescheduleAppointmentItem` calls
+  ///     `assertNoClientConflictExcludingBooking`, which throws
+  ///     `ClientBookingConflictException` (the SAME coded envelope
+  ///     `POST /appointments` emits) whenever moving this item would overlap
+  ///     the owning client's own OTHER booking. This is not create-path-only:
+  ///     moving an existing item to a new time is exactly the operation that
+  ///     can create a fresh overlap with the client's unrelated bookings.
+  ///     `clientOnlyGuard` currently makes the PROVIDER's own «Перенести»
+  ///     entry point a dead end (see `routing/app_router.dart`), so the
+  ///     CLIENT is the only actor that can complete this flow today — the
+  ///     exact case that benefits from the richer failure.
+  ///   - any OTHER 409 → [ConflictFailure] ("this time is no longer
+  ///     available"). This covers the sibling-overlap / master-busy checks
+  ///     AND the "changed concurrently — please retry" guard (the header or
+  ///     the target item was mutated between this request's load and its
+  ///     write-time recheck) — the backend raises the latter as a plain
+  ///     `BusinessException(CONFLICT, …)`, wire-identical (`data: null`) to a
+  ///     sibling-overlap 409, so there is no `data.code` to distinguish them;
+  ///     both read to the user as an ordinary "slot unavailable".
+  ///   - a 404 (`bookingId` is not a child of `appointmentId`) has no
+  ///     dedicated branch here — it defers to the shared
+  ///     `ErrorMapperInterceptor`'s [NotFoundFailure], via `e.error is
+  ///     Failure` below.
   ///   - a plain 400 (the backend's 15-minute–180-day window guard) has no
-  ///     dedicated type here — it defers to whatever [Failure] the shared
-  ///     `ErrorMapperInterceptor` already attached (a [ValidationFailure]
-  ///     carrying the server's window message), via `e.error is Failure`
-  ///     below.
-  Failure _mapAppointmentRescheduleException(DioException e) {
+  ///     dedicated type here either — it defers to whatever [Failure] the
+  ///     shared `ErrorMapperInterceptor` already attached (a
+  ///     [ValidationFailure] carrying the server's window message), via the
+  ///     same `e.error is Failure` check.
+  Failure _mapAppointmentItemRescheduleException(DioException e) {
     final statusCode = e.response?.statusCode;
     if (statusCode == 409) {
       if (_isBookingAlreadyElapsed(e)) {
@@ -574,20 +576,6 @@ final class HttpAppointmentRepository implements AppointmentRepository {
     required Failure Function(DioException e) onConflict,
   }) {
     if (e.response?.statusCode == 409) return onConflict(e);
-    return _mapDioException(e);
-  }
-
-  /// Maps a [DioException] from `POST /appointments/{id}/review` — transcribed
-  /// from `HttpBookingRepository._mapReviewException`:
-  ///   - 409 → [ReviewAlreadyExistsFailure]
-  ///   - 403 / 400 / 422 → [ReviewNotAllowedFailure]
-  ///   - otherwise → [_mapDioException]
-  Failure _mapReviewException(DioException e) {
-    final int? statusCode = e.response?.statusCode;
-    if (statusCode == 409) return ReviewAlreadyExistsFailure(cause: e);
-    if (statusCode == 403 || statusCode == 400 || statusCode == 422) {
-      return ReviewNotAllowedFailure(cause: e);
-    }
     return _mapDioException(e);
   }
 

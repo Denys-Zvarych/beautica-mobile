@@ -22,8 +22,16 @@ Every golden covers: **{320, 360, 414} dp × {textScale 1.0, 1.3}**
 | `services_form_golden_test.dart` | ServiceForm (CREATE + EDIT) | 12 |
 | `calendar_working_hours_golden_test.dart` | WorkingHoursScreen (LOADED + LOADING) | 12 |
 | `master_profile_golden_test.dart` | MasterProfileScreen (DATA) | 6 |
+| `error_state_golden_test.dart` | shared ErrorState (4 failure variants + no-retry) + ResultsError (2 variants) | 7 |
+| `velvet_snack_golden_test.dart` | VelvetSnack (4 variants + action+close combo), single 360dp width | 5 |
+| `passport_golden_test.dart` | PassportScreen (DATA + NO HISTORY) — identity strip, derived block, wish-list line/empty card | 12 |
 
-**Total: 66 goldens**
+**Total: 90 goldens**
+
+> `passport_golden_test.dart`'s baselines are a DRIFT GUARD, not acceptance. They encode a
+> known divergence from the approved preview in `PassportIdentityStrip`'s blush gradient
+> (axis, stop count and highlight colour) — see that file's header. Re-bless once the design
+> owner settles it.
 
 Masters live in `test/golden/goldens/` and are committed to git.
 
@@ -67,7 +75,7 @@ Golden diffs from failed CI runs are downloadable from the workflow's artifact t
 Screens that render dates inject a **fixed clock** via `clockProvider.overrideWithValue(...)`.
 Currently, none of the goldened screens render date-dependent UI (working hours is a weekly
 template, not a specific date). If a date-rendering screen is added to this suite,
-override the clock to `DateTime(2026, 6, 13)` (Phase 17.4 anchor date) to prevent drift.
+override the clock to `DateTime.utc(2026, 6, 13)` (Phase 17.4 anchor date) to prevent drift.
 
 ## Existing schedule goldens
 

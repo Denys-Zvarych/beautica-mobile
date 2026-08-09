@@ -6,7 +6,8 @@
 //
 // State: a single [SupportController] drives idle → sending → success | error.
 // The screen swaps the form for the success card on success and surfaces a
-// failure as a localized SnackBar + an inline reset to the editable state.
+// failure as a localized error VelvetSnack + an inline reset to the editable
+// state.
 //
 // Layout is a plain Column (no entrance animation — the staggered reveal lives
 // in settings_hub_screen.dart). Per-keystroke rebuilds are scoped: MessageArea
@@ -40,6 +41,7 @@ import 'package:beautica_mobile/features/support/presentation/widgets/support_su
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -218,9 +220,7 @@ class _ContactSupportScreenState extends ConsumerState<ContactSupportScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showErrorSnack(context, message);
   }
 
   Future<void> _send() async {
@@ -253,7 +253,7 @@ class _ContactSupportScreenState extends ConsumerState<ContactSupportScreen> {
     final l10n = AppLocalizations.of(context);
     final state = ref.watch(supportControllerProvider);
 
-    // Surface a submission failure as a SnackBar, then reset to editable.
+    // Surface a submission failure as an error snack, then reset to editable.
     ref.listen<SupportSubmitState>(supportControllerProvider, (prev, next) {
       if (next is SupportSubmitError) {
         _showSnack(next.failure.userMessage(context));

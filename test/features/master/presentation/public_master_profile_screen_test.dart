@@ -16,6 +16,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -30,6 +32,7 @@ import 'package:beautica_mobile/features/master/presentation/public_master_profi
 import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/service_category_cards.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/services_stat_tile.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -237,6 +240,454 @@ void main() {
       );
       expect(servicesValue.data, '${_stubServices.length}');
     });
+  });
+
+  // ── Location lines (Phase 219/220 A + C) ──────────────────────────────────
+  //
+  // Mirrors the own-profile screen's location-line coverage: an explicit
+  // `maxLines` budget on every address/note site (219 A) and locality (city)
+  // + street/building split onto independent lines (220 C).
+  group('location lines — split address + long note', () {
+    const Master masterWithFullAddress = Master(
+      id: _kMasterId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      city: 'Київ',
+      street: 'вул. Хрещатик',
+      buildingNo: '22',
+      locationNote: 'кв. 3, 2 поверх',
+      avgRating: 4.8,
+      reviewCount: 47,
+      type: MasterType.independentMaster,
+    );
+
+    /// Phase 224 — a city + street + building whose COLLAPSED form is too wide
+    /// for the identity card's right-hand column at a narrow-phone width, so
+    /// the block must fall back to the Phase 220 two-row split. Keeps
+    /// split-path coverage alive on this screen now that the short fixture
+    /// above takes the collapsed path.
+    const Master masterWithLongAddress = Master(
+      id: _kMasterId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      city: "Кам'янець-Подільський",
+      street: 'вул. Академіка Володимира Філатова',
+      buildingNo: '145-Б',
+      avgRating: 4.8,
+      reviewCount: 47,
+      type: MasterType.independentMaster,
+    );
+
+    // WHY THIS CASE PASSES AN EXPLICIT `width`
+    // -----------------------------------------
+    // Surface width is THE INPUT the collapse decision consumes:
+    // `MasterAddressBlock` measures the combined string against the width its
+    // column actually gets. Relying on `pumpApp`'s implicit 800dp default meant
+    // a change to that default would flip this case onto the SPLIT path, where
+    // it would keep passing while asserting the opposite of what it asserts
+    // here. The split-path case below already states its width (320); this one
+    // now does too, on the other side of the same crossover.
+    //
+    // 400dp is measured, not guessed — the identity card's fixed chrome leaves
+    // the address column `surface - 200`, and "Київ, вул. Хрещатик, 22" needs
+    // ~148dp including the pin and its gap, so the crossover sits near a 348dp
+    // surface. 400dp clears it by ~35 % while staying a realistic modern-phone
+    // width, so the collapse is proven where it has to work.
+    const double collapsingWidth = 400;
+
+    testWidgets(
+      'collapses city + street + building onto ONE line when it fits, and '
+      'still renders the note beneath it (Phase 224)',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides(
+            (ref) => (masterWithFullAddress, _stubServices),
+          ),
+          width: collapsingWidth,
+        );
+        await tester.pumpAndSettle();
+
+        final Finder combinedAddress = find.byKey(
+          const Key('public-master-profile-address-combined-text'),
+        );
+        expect(combinedAddress, findsOneWidget);
+        expect(
+          tester.widget<Text>(combinedAddress).data,
+          'Київ, вул. Хрещатик, 22',
+        );
+        // The split rows must NOT also render — the two paths are exclusive.
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-address-text')),
+          findsNothing,
+        );
+        // The pre-220 street-first order must never come back.
+        // i18n-finder-ok: same fixture data as above, negated
+        expect(find.text('вул. Хрещатик, 22, Київ'), findsNothing);
+        // i18n-finder-ok: master.locationNote is fixture data, not UI copy
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'falls back to the Phase 220 two-row split when the collapsed address '
+      'cannot fit on one line at a narrow width',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides(
+            (ref) => (masterWithLongAddress, _stubServices),
+          ),
+          width: 320,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-address-combined-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsOneWidget,
+        );
+        // i18n-finder-ok: master.city is fixture data, not localised UI copy
+        expect(find.text("Кам'янець-Подільський"), findsOneWidget);
+        final Finder streetLine = find.byKey(
+          const Key('public-master-profile-address-text'),
+        );
+        expect(streetLine, findsOneWidget);
+        // Phase 219 (A) regression guard — an explicit 2-line budget, not
+        // ellipsis-without-maxLines.
+        final Text street = tester.widget<Text>(streetLine);
+        expect(street.data, 'вул. Академіка Володимира Філатова, 145-Б');
+        expect(street.maxLines, 2);
+        expect(street.overflow, TextOverflow.ellipsis);
+      },
+    );
+
+    testWidgets(
+      'promotes the street line to the address-text key when there is no '
+      'locality',
+      (tester) async {
+        const Master streetOnly = Master(
+          id: _kMasterId,
+          firstName: 'Олена',
+          lastName: 'Ковальчук',
+          street: 'вул. Хрещатик',
+          avgRating: 4.8,
+          reviewCount: 47,
+          type: MasterType.independentMaster,
+        );
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (streetOnly, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-address-text')),
+          findsOneWidget,
+        );
+        // i18n-finder-ok: master.street is fixture data, not localised UI copy
+        expect(find.text('вул. Хрещатик'), findsOneWidget);
+      },
+    );
+
+    // ── mobile-qa gap-fill: buildingNo ALONE (no city, no street) ───────────
+    //
+    // Mirrors the same edge-matrix gap closed on the own-profile screen
+    // (master_profile_screen_test.dart, group "location line — edge-matrix
+    // gap-fill") — a building number must never render as its own line, even
+    // on the read-only public profile. The exhaustive pure-function matrix
+    // lives in test/shared/formatters/address_lines_test.dart; this pins the wiring on THIS
+    // screen's production Row/Text tree too.
+    testWidgets(
+      'buildingNo ALONE (no city, no street): the whole location row is '
+      'hidden on the public profile too',
+      (tester) async {
+        const Master buildingOnly = Master(
+          id: _kMasterId,
+          firstName: 'Олена',
+          lastName: 'Ковальчук',
+          buildingNo: '22',
+          avgRating: 4.8,
+          reviewCount: 47,
+          type: MasterType.independentMaster,
+        );
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (buildingOnly, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-address-text')),
+          findsNothing,
+        );
+        expect(find.text('22'), findsNothing);
+      },
+    );
+
+    // ── Phase 221 audit fix (mobile-security MEDIUM) — bidi/zero-width strip
+    testWidgets(
+      'a locationNote containing a RLO (U+202E) override renders with the '
+      'control character stripped, not the raw payload',
+      (tester) async {
+        // U+202E = Right-to-Left Override. Backend validation on
+        // `locationNote` is `@Size(max = 1000)` only — no character-class
+        // check — so a hostile master could push this into a client-facing
+        // note. Built via `String.fromCharCode` (rather than a literal
+        // character in this source file) so the test file itself never
+        // embeds the raw control byte it exists to strip.
+        final String rlo = String.fromCharCode(0x202E);
+        final String rawNote = 'кв. 3$rlo, 2 поверх';
+        const String sanitizedNote = 'кв. 3, 2 поверх';
+        final Master noteMaster = masterWithFullAddress.copyWith(
+          locationNote: rawNote,
+        );
+
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (noteMaster, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(sanitizedNote),
+          findsOneWidget,
+          reason: 'the rendered Text must carry the SANITIZED string',
+        );
+        expect(
+          find.text(rawNote),
+          findsNothing,
+          reason:
+              'the raw string (with the RLO control char) must never '
+              'reach the Text widget',
+        );
+      },
+    );
+
+    testWidgets('a long note clamps to 3 lines instead of collapsing to 1', (
+      tester,
+    ) async {
+      const String longNote =
+          'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+          'плутайте з сусіднім під\'їздом, там кодовий замок не працює. '
+          'Тримайтеся правої стіни, минаєте дитячий майданчик, підіймаєтесь '
+          'трьома сходинками до скляних дверей із синьою наклейкою. '
+          'Домофон код 45В, дзвоніть двічі коротко. Якщо домофон не '
+          'відповідає — телефонуйте адміністратору, номер вказано на '
+          'вивісці біля дверей. Кабінет на другому поверсі, одразу '
+          'ліворуч від сходів, третій номер за рахунком.';
+      final Master longNoteMaster = masterWithFullAddress.copyWith(
+        locationNote: longNote,
+      );
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (longNoteMaster, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder noteFinder = find.text(longNote);
+      expect(noteFinder, findsOneWidget);
+
+      final Size actual = tester.getSize(noteFinder);
+      final TextPainter oneLine = TextPainter(
+        text: TextSpan(text: longNote, style: VelvetText.feedbackMutedNote),
+        maxLines: 1,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: actual.width);
+      final double oneLineHeight = oneLine.size.height;
+      oneLine.dispose();
+
+      final TextPainter fullWrap = TextPainter(
+        text: TextSpan(text: longNote, style: VelvetText.feedbackMutedNote),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: actual.width);
+      final double fullWrapHeight = fullWrap.size.height;
+      fullWrap.dispose();
+
+      // Sanity: the fixture needs more than 3 lines at the measured width.
+      expect(fullWrapHeight, greaterThan(oneLineHeight * 3));
+      // The fix: clamped well short of the full height, but taller than 1
+      // line — proving it wraps up to its 3-line budget instead of
+      // collapsing.
+      expect(actual.height, greaterThan(oneLineHeight * 1.5));
+      expect(actual.height, lessThan(fullWrapHeight));
+    });
+
+    // `pumpApp`'s `textScaleFactor` knob + the suite-wide overflow guard turn
+    // any RenderFlex overflow at this stress scale into a hard test failure
+    // via tearDown — no explicit overflow assertion needed.
+    testWidgets(
+      'full address + long note produces no overflow at textScaler 2.0 on a '
+      'narrow (320dp) surface',
+      (tester) async {
+        const String longNote =
+            'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+            'плутайте з сусіднім під\'їздом, там кодовий замок не працює. '
+            'Тримайтеся правої стіни, минаєте дитячий майданчик, підіймаєтесь '
+            'трьома сходинками до скляних дверей із синьою наклейкою. '
+            'Домофон код 45В, дзвоніть двічі коротко.';
+        final Master longNoteMaster = masterWithFullAddress.copyWith(
+          locationNote: longNote,
+        );
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (longNoteMaster, _stubServices)),
+          width: 320,
+          textScaleFactor: 2.0,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-locality-text')),
+          findsOneWidget,
+        );
+      },
+    );
+  });
+
+  // ── mobile-qa gap-fill: Phase 222's tap-to-expand affordance was UNTESTED
+  // on this screen — the "location lines" group above only pins the 3-line
+  // CLAMP (a leftover from the pre-222 direct-TextPainter test, never updated
+  // for the `ExpandableNote` swap), never the toggle itself. The owner-side
+  // `MasterProfileScreen` has had this exact coverage since Phase 221 B
+  // (`master_profile_screen_test.dart`, group "location note — tap-to-expand
+  // toggle") — this mirrors it here so the read-only public profile's
+  // affordance is provably wired too, not just assumed identical.
+  group('location note — tap-to-expand toggle (Phase 222)', () {
+    const Master masterShortNote = Master(
+      id: _kMasterId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      city: 'Київ',
+      street: 'вул. Хрещатик',
+      buildingNo: '22',
+      locationNote: 'кв. 3, 2 поверх',
+      avgRating: 4.8,
+      reviewCount: 47,
+      type: MasterType.independentMaster,
+    );
+
+    const String kLongLocationNote =
+        'Вхід у двір з боку вулиці Хрещатик, повз кав\'ярню на розі — не '
+        'плутайте з сусіднім під\'їздом, там кодовий замок не працює. '
+        'Тримайтеся правої стіни, минаєте дитячий майданчик, підіймаєтесь '
+        'трьома сходинками до скляних дверей із синьою наклейкою. Домофон '
+        'код 45В, дзвоніть двічі коротко. Якщо домофон не відповідає — '
+        'телефонуйте адміністратору, номер вказано на вивісці біля дверей. '
+        'Кабінет на другому поверсі, одразу ліворуч від сходів, третій '
+        'номер за рахунком.';
+    const Master masterLongNote = Master(
+      id: _kMasterId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      city: 'Київ',
+      street: 'вул. Хрещатик',
+      buildingNo: '22',
+      locationNote: kLongLocationNote,
+      avgRating: 4.8,
+      reviewCount: 47,
+      type: MasterType.independentMaster,
+    );
+
+    testWidgets(
+      'a SHORT note (fits within maxLines: 3) shows NO toggle affordance',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (masterShortNote, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        // i18n-finder-ok: master.locationNote fixture data, not UI copy.
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+        expect(
+          find.byKey(const Key('expandable-note-toggle')),
+          findsNothing,
+          reason:
+              'an inert toggle on a note that already fits is a small lie '
+              '— it must not render at all',
+        );
+      },
+    );
+
+    testWidgets(
+      'a LONG note (overflows maxLines: 3) shows the «більше» toggle, '
+      'collapsed by default',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (masterLongNote, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        expect(toggle, findsOneWidget);
+        final l10n = AppLocalizations.of(tester.element(toggle));
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'tapping «більше» expands the note to its FULL text and flips the '
+      'toggle to «згорнути»; tapping again re-collapses it',
+      (tester) async {
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => (masterLongNote, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        expect(toggle, findsOneWidget);
+        final l10n = AppLocalizations.of(tester.element(toggle));
+
+        final Size collapsedSize = tester.getSize(find.text(kLongLocationNote));
+
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowMore), findsNothing);
+        final Size expandedSize = tester.getSize(find.text(kLongLocationNote));
+        expect(
+          expandedSize.height,
+          greaterThan(collapsedSize.height),
+          reason:
+              'expanding must grow the note to its full untruncated '
+              'height',
+        );
+
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+        expect(find.text(l10n.expandableNoteShowLess), findsNothing);
+        final Size reCollapsedSize = tester.getSize(
+          find.text(kLongLocationNote),
+        );
+        expect(
+          reCollapsedSize.height,
+          moreOrLessEquals(collapsedSize.height, epsilon: 0.5),
+        );
+      },
+    );
   });
 
   group('error state', () {
@@ -749,15 +1200,15 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Booking-shelf empty state — the pinned camel-wash shelf renders the
-  // «Послуги та ціни» section label above the «Записатись до майстра» CTA once
-  // the master resolves. The «Оберіть послугу» empty prompt was removed from
-  // THIS screen (it still renders on the service-selector sheet reached after
-  // tapping the CTA).
+  // Booking-shelf empty state — the pinned camel-wash shelf renders ONLY the
+  // «Записатись до майстра» CTA once the master resolves. Both the «Послуги та
+  // ціни» section label and the «Оберіть послугу» empty prompt were removed
+  // from THIS screen (the label still renders on the salon booking shelf; the
+  // prompt on the service-selector sheet reached after tapping the CTA).
   // ──────────────────────────────────────────────────────────────────────────
   group('booking shelf empty state', () {
-    testWidgets('renders the «Послуги та ціни» label and the CTA once data '
-        'resolves, without the empty prompt', (tester) async {
+    testWidgets('renders the CTA alone once data resolves, without the section '
+        'label or the empty prompt', (tester) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -771,9 +1222,11 @@ void main() {
 
       final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
-      // Section label is a content assertion resolved via l10n (never raw
-      // literals — M2/M11), so an l10n rename moves it in lockstep.
-      expect(find.text(l10n.publicMasterBookingSectionLabel), findsOneWidget);
+      // The section label was removed from this shelf — the CTA stands alone.
+      // Resolved via l10n (never raw literals — M2/M11) so an l10n rename moves
+      // it in lockstep. The ARB key itself stays: the salon booking shelf
+      // (`selected_services_shelf.dart`) still renders it.
+      expect(find.text(l10n.publicMasterBookingSectionLabel), findsNothing);
 
       // The empty prompt no longer renders on THIS screen — it moved
       // exclusively to the service-selector sheet reached after tapping the
@@ -784,6 +1237,49 @@ void main() {
       expect(find.byKey(const Key('public-master-book-cta')), findsOneWidget);
       expect(find.text(l10n.publicMasterBookingCta), findsOneWidget);
     });
+
+    // Structural pin for the label deletion. `findsNothing` on a localized
+    // string is a WEAK pin on its own: it also passes vacuously if the whole
+    // shelf stopped rendering, if the l10n lookup silently changed, or if the
+    // label came back as something other than a `Text` (an icon+label Row, a
+    // RichText). So assert the shelf's ACTUAL composition — the Column that
+    // survived the deletion must hold exactly one child, the CTA.
+    testWidgets(
+      'the shelf column holds the CTA as its only child, stretched to the '
+      'full shelf width',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => _stubData),
+        );
+        await tester.pumpAndSettle();
+
+        const Key ctaKey = Key('public-master-book-cta');
+        final Finder cta = find.byKey(ctaKey);
+
+        // Closest Column ancestor of the CTA == the shelf's own Column.
+        final Column shelfColumn = tester.widget<Column>(
+          find.ancestor(of: cta, matching: find.byType(Column)).first,
+        );
+
+        // Single-child: any accidental re-add of the section label — or of ANY
+        // sibling widget — fails here even if it is not a `Text`.
+        expect(shelfColumn.children, hasLength(1));
+        expect(shelfColumn.children.single.key, ctaKey);
+
+        // `crossAxisAlignment: stretch` is load-bearing now that the Column has
+        // one child: it is the only thing giving the CTA the full shelf width.
+        // Asserted on the RENDERED width (800 view − 2 × VelvetSpacing.lg of
+        // horizontal shelf padding) rather than on the enum, so a refactor that
+        // drops the Column for a narrower layout fails too.
+        expect(tester.getSize(cta).width, 800 - 2 * VelvetSpacing.lg);
+      },
+    );
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1255,11 +1751,39 @@ void main() {
         );
         expect(find.byType(ServiceCategoryCard), findsNothing);
 
-        // The services stat tile still shows 0, not a hidden/blank value.
+        // The services stat tile still renders, showing the em-dash empty
+        // state (not a bare '0', not a hidden/blank value) — matching the
+        // sibling rating/reviews tiles on the same row.
         final Text servicesValue = tester.widget<Text>(
           find.byKey(const Key('public-master-profile-services-value')),
         );
-        expect(servicesValue.data, '0');
+        expect(servicesValue.data, '—');
+
+        // CONSOLIDATION GUARD — this value must come from the SHARED
+        // [ServicesStatTile], the twin of the assertion in
+        // master_profile_screen_test.dart ('F.'). The two profiles used to
+        // hand-roll this tile independently; that is exactly how their empty
+        // states drifted apart in the first place. Pinning the widget TYPE at
+        // both call sites turns a re-divergence — someone inlining a bare
+        // StatTile again to tweak one screen — into a failing test rather
+        // than two silently different empty states.
+        final Finder tile = find.byType(ServicesStatTile);
+        expect(
+          tile,
+          findsOneWidget,
+          reason:
+              'the public profile must build the shared tile so the empty/'
+              'error rule stays single-sourced with the own profile',
+        );
+        expect(
+          find.descendant(
+            of: tile,
+            matching: find.byKey(
+              const Key('public-master-profile-services-value'),
+            ),
+          ),
+          findsOneWidget,
+        );
       },
     );
 

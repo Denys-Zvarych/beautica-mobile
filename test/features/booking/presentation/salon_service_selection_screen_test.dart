@@ -21,16 +21,19 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/favorite_heart_button.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 const String _kSalonId = 'salon-1';
 
@@ -261,6 +264,43 @@ void main() {
       await tester.pumpAndSettle();
       // i18n-finder-ok: fixture service name (test data), not app UI copy.
       expect(find.text('Класичний манікюр'), findsNothing);
+    });
+  });
+
+  // ===========================================================================
+  // Phase 240 — THE TRAP this phase exists to guard against. This screen's
+  // rows are the SALON's catalogue mapped into `MasterService`/`CatalogueRow`
+  // shape, but the row id is a salon-catalogue-service id, NOT a real
+  // `master_services` id (no master is even chosen until a later step). A
+  // favourite heart here would toggle a favorite against an id the backend
+  // has never heard of. Guarded STRUCTURALLY — this screen simply never
+  // passes `showFavoriteHeart: true` to `CatalogueCategorySection`, whose
+  // default is `false` — not by convention alone.
+  // ===========================================================================
+  group('favourite heart (Phase 240 trap guard)', () {
+    testWidgets('never renders a favourite heart, even with rows on screen', (
+      tester,
+    ) async {
+      await tester.pumpRoutedApp(
+        _routerFor(),
+        overrides: [
+          salonServiceCatalogProvider(
+            _kSalonId,
+          ).overrideWith((ref) async => _stubCatalog),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // The first category is expanded by default — its rows are on
+      // screen, so a heart WOULD be visible here if one could ever render.
+      // i18n-finder-ok: fixture service name (test data), not app UI copy.
+      expect(find.text('Класичний манікюр'), findsOneWidget);
+
+      expect(find.byType(FavoriteHeartButton), findsNothing);
+      expect(
+        find.byKey(const Key('booking_service_heart_svc-a1')),
+        findsNothing,
+      );
     });
   });
 
@@ -538,7 +578,7 @@ void main() {
   group('visit-selection cap + dedupe (MO-4)', () {
     testWidgets(
       'caps the selection at maxServicesPerVisit (10) — the 11th add is refused '
-      'with the friendly cap SnackBar, and «Далі» carries exactly 10 ids',
+      'with the friendly cap VelvetSnack, and «Далі» carries exactly 10 ids',
       (tester) async {
         tester.view.physicalSize = const Size(800, 8000);
         tester.view.devicePixelRatio = 1.0;
@@ -568,11 +608,15 @@ void main() {
         final l10n = AppLocalizations.of(
           tester.element(find.byType(SalonServiceSelectionScreen)),
         );
-        expect(
-          find.text(l10n.bookingMaxServicesReached(maxServicesPerVisit)),
-          findsOneWidget,
-          reason: 'the 11th add must surface the friendly cap message',
+        expectVelvetSnack(
+          l10n.bookingMaxServicesReached(maxServicesPerVisit),
+          variant: VelvetSnackVariant.warning,
         );
+        // Drains the dwell Timer AND removes the OverlayEntry — a still-
+        // mounted snack is bottom-anchored and hit-test-intercepts the
+        // «Далі» tap right below (the pinned `BookingSummaryBar` sits at the
+        // very bottom of this pushed, nav-bar-less screen).
+        await pumpPastVelvetSnack(tester);
 
         await tester.tap(find.byKey(const Key('booking-summary-cta')));
         await tester.pumpAndSettle();

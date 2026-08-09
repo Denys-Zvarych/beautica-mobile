@@ -34,6 +34,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
@@ -85,11 +86,57 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   );
 
   /// "Today" resolved LIVE from the injected clock (or the device date in
-  /// production), date-only — recomputed on every read so the past-day gate
-  /// ([_isPast]) and the add-hours affordance follow a midnight rollover instead
-  /// of freezing the mount-time date. The initial calendar anchors ([_selected],
+  /// production), Kyiv-anchored (backlog :226 — see `shared/time/kyiv_day
+  /// .dart`) — recomputed on every read so the past-day gate ([_isPast]) and
+  /// the add-hours affordance follow a Kyiv midnight rollover instead of
+  /// freezing the mount-time date. The initial calendar anchors ([_selected],
   /// [_visibleMonth], [_weekStart]) intentionally capture this once on mount.
-  DateTime get _today => _dateOnly(widget._clock?.call() ?? DateTime.now());
+  ///
+  /// [kyivDayOf], not the local [_dateOnly] helper: this is the one call site
+  /// that derives "today" from a raw clock instant, so it is the one that
+  /// must go through Kyiv. [_dateOnly] itself stays — its OTHER callers
+  /// ([_mondayOf], [_isPast]) normalise values that are already date tokens
+  /// (calendar cell dates), where a second Kyiv conversion would be a bug,
+  /// not a fix (see `shared/time/kyiv_day.dart`'s ILLEGAL list).
+  ///
+  /// NOT read directly by [_isPast] any more — see [_todayCache].
+  // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
+  DateTime get _today => kyivDayOf(widget._clock?.call() ?? DateTime.now());
+
+  /// Cached mirror of [_today] (mobile-perf LOW, 2026-08-02 audit) — [_isPast]
+  /// reads THIS, never the getter directly.
+  ///
+  /// Without this, [_isPast] recomputed [_today] (a `kyivDayOf` tz call) on
+  /// EVERY read, and the week strip gives each of its 7 cells its OWN
+  /// `ValueListenableBuilder` on [_selected] (HIGH-1, so a tap repaints only
+  /// the affected pills) — so a single day tap re-ran the full computation 7
+  /// times over, once per cell, all for the identical answer.
+  ///
+  /// WHY CACHING IS SAFE HERE (the getter's own rollover contract, preserved):
+  /// every read of [_todayCache] happens inside a widget rebuild that was
+  /// itself preceded by a refresh of this field — [build] refreshes it at the
+  /// top (covering a full rebuild from ANY cause: month/week step, a provider
+  /// update, app resume, ...), and [_setSelected] refreshes it immediately
+  /// before every mutation of [_selected] (covering a tap-only rebuild, which
+  /// reruns each cell's `ValueListenableBuilder` WITHOUT re-running [build]).
+  /// Between them, every path that can rebuild anything reading
+  /// [_todayCache] refreshes it first — so a midnight rollover is still
+  /// visible on the very next tap or rebuild, exactly as with the bare
+  /// getter; this only removes the SAME-instant redundant recomputation
+  /// within one such event, never the freshness across events.
+  late DateTime _todayCache = _today;
+
+  void _refreshTodayCache() => _todayCache = _today;
+
+  /// The only mutator of [_selected] — refreshes [_todayCache] immediately
+  /// before notifying, so every listener rebuild it triggers (including the
+  /// week strip's 7 independent per-cell `ValueListenableBuilder`s) sees an
+  /// up-to-date cache without each recomputing it separately. See
+  /// [_todayCache]'s doc comment.
+  void _setSelected(DateTime d) {
+    _refreshTodayCache();
+    _selected.value = d;
+  }
 
   /// Selected date as a notifier (HIGH-1): day selection updates this WITHOUT a
   /// `setState`, so only the listeners — the two affected week-strip pills and
@@ -116,7 +163,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       _dateOnly(d).subtract(Duration(days: d.weekday - 1));
 
   /// True when [d] falls strictly before today (today itself stays selectable).
-  bool _isPast(DateTime d) => _dateOnly(d).isBefore(_today);
+  bool _isPast(DateTime d) => _dateOnly(d).isBefore(_todayCache);
 
   bool _sameDate(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -165,7 +212,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   // ── Navigation ─────────────────────────────────────────────────────────────
   // Day selection mutates the notifier only (no setState): the static calendar
   // chrome stays put; just the strip highlight + selected-day view rebuild.
-  void _selectDate(DateTime d) => _selected.value = d;
+  void _selectDate(DateTime d) => _setSelected(d);
 
   void _stepMonth(int delta) {
     // Capture the weekday offset of the current selection within the OLD week
@@ -182,7 +229,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // result is guaranteed inside `_range` (which covers the new `_weekStart`),
     // so `_DayIndex.lookup` resolves real data instead of the NO_SCHEDULE
     // fallback.
-    _selected.value = _dateOnly(_weekStart.add(Duration(days: offset)));
+    _setSelected(_dateOnly(_weekStart.add(Duration(days: offset))));
   }
 
   /// Offset (0..6) of the current selection from the CURRENT `_weekStart`,
@@ -214,11 +261,11 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // result is guaranteed inside `_range` (which covers the new `_weekStart`),
     // so `_DayIndex.lookup` resolves real data instead of the NO_SCHEDULE
     // fallback.
-    _selected.value = _dateOnly(_weekStart.add(Duration(days: offset)));
+    _setSelected(_dateOnly(_weekStart.add(Duration(days: offset))));
   }
 
   void _goToday() {
-    _selected.value = _today;
+    _setSelected(_today);
     setState(() {
       _visibleMonth = DateTime(_today.year, _today.month);
       _weekStart = _mondayOf(_today);
@@ -280,7 +327,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
 
     // (a) Move the selected day onto the changed date so the selected-day panel
     // focuses it. Notifier-only (no setState) — preserves the HIGH-1 scope.
-    _selected.value = _dateOnly(changed);
+    _setSelected(_dateOnly(changed));
 
     // (b) Show the saved changes immediately. The override save reloaded
     // `overridesProvider(editedRange)`, which (via the reactive `ref.watch`
@@ -361,6 +408,11 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    // Refreshes [_todayCache] for every rebuild reason OTHER than a
+    // [_selected] mutation (those are covered by [_setSelected] itself) — see
+    // [_todayCache]'s doc comment for why the two together preserve the
+    // getter's rollover contract.
+    _refreshTodayCache();
     final l10n = AppLocalizations.of(context);
     final editable = ref.watch(scheduleEditableProvider);
     final asyncDays = ref.watch(effectiveScheduleProvider(_range));

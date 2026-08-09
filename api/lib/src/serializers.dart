@@ -55,6 +55,7 @@ import 'package:beautica_api/src/model/api_response_page_response_booking_detail
 import 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_master_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_salon_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_favorite_service_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_search_result.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_my_review_response.dart';
@@ -74,6 +75,7 @@ import 'package:beautica_api/src/model/api_response_salon_review_summary_respons
 import 'package:beautica_api/src/model/api_response_salon_service_catalog_response.dart';
 import 'package:beautica_api/src/model/api_response_schedule_override_response.dart';
 import 'package:beautica_api/src/model/api_response_service_definition_response.dart';
+import 'package:beautica_api/src/model/api_response_unclosed_count_response.dart';
 import 'package:beautica_api/src/model/api_response_user_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_user_rating_response.dart';
 import 'package:beautica_api/src/model/api_response_verify_password_reset_otp_response.dart';
@@ -81,6 +83,7 @@ import 'package:beautica_api/src/model/api_response_void.dart';
 import 'package:beautica_api/src/model/api_response_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/appointment_cancel_request.dart';
 import 'package:beautica_api/src/model/appointment_detail_response.dart';
+import 'package:beautica_api/src/model/appointment_item_reschedule_request.dart';
 import 'package:beautica_api/src/model/appointment_item_response.dart';
 import 'package:beautica_api/src/model/appointment_provider_note_request.dart';
 import 'package:beautica_api/src/model/appointment_reschedule_request.dart';
@@ -107,7 +110,6 @@ import 'package:beautica_api/src/model/client_review_response.dart';
 import 'package:beautica_api/src/model/contact_support_request.dart';
 import 'package:beautica_api/src/model/contact_support_response.dart';
 import 'package:beautica_api/src/model/create_appointment_request.dart';
-import 'package:beautica_api/src/model/create_appointment_review_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
 import 'package:beautica_api/src/model/create_category_request_request.dart';
 import 'package:beautica_api/src/model/create_client_review_request.dart';
@@ -121,6 +123,7 @@ import 'package:beautica_api/src/model/effective_day_response.dart';
 import 'package:beautica_api/src/model/favorite_master_response.dart';
 import 'package:beautica_api/src/model/favorite_response.dart';
 import 'package:beautica_api/src/model/favorite_salon_response.dart';
+import 'package:beautica_api/src/model/favorite_service_response.dart';
 import 'package:beautica_api/src/model/forgot_password_request.dart';
 import 'package:beautica_api/src/model/guest_booking_request.dart';
 import 'package:beautica_api/src/model/guest_booking_response.dart';
@@ -152,6 +155,7 @@ import 'package:beautica_api/src/model/page_response_booking_detail_response.dar
 import 'package:beautica_api/src/model/page_response_booking_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_master_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_salon_response.dart';
+import 'package:beautica_api/src/model/page_response_favorite_service_response.dart';
 import 'package:beautica_api/src/model/page_response_master_search_result.dart';
 import 'package:beautica_api/src/model/page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/page_response_my_review_response.dart';
@@ -200,6 +204,7 @@ import 'package:beautica_api/src/model/sort_object.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
 import 'package:beautica_api/src/model/timeline_item_response.dart';
+import 'package:beautica_api/src/model/unclosed_count_response.dart';
 import 'package:beautica_api/src/model/unregister_device_token_request.dart';
 import 'package:beautica_api/src/model/update_profile_request.dart';
 import 'package:beautica_api/src/model/update_salon_request.dart';
@@ -263,6 +268,7 @@ part 'serializers.g.dart';
   ApiResponsePageResponseBookingResponse,
   ApiResponsePageResponseFavoriteMasterResponse,
   ApiResponsePageResponseFavoriteSalonResponse,
+  ApiResponsePageResponseFavoriteServiceResponse,
   ApiResponsePageResponseMasterSearchResult,
   ApiResponsePageResponseMasterSummaryResponse,
   ApiResponsePageResponseMyReviewResponse,
@@ -282,6 +288,7 @@ part 'serializers.g.dart';
   ApiResponseSalonServiceCatalogResponse,
   ApiResponseScheduleOverrideResponse,
   ApiResponseServiceDefinitionResponse,
+  ApiResponseUnclosedCountResponse,
   ApiResponseUserProfileResponse,
   ApiResponseUserRatingResponse,
   ApiResponseVerifyPasswordResetOtpResponse,
@@ -289,6 +296,7 @@ part 'serializers.g.dart';
   ApiResponseWeeklyScheduleResponse,
   AppointmentCancelRequest,
   AppointmentDetailResponse,
+  AppointmentItemRescheduleRequest,
   AppointmentItemResponse,
   AppointmentProviderNoteRequest,
   AppointmentRescheduleRequest,
@@ -315,7 +323,6 @@ part 'serializers.g.dart';
   ContactSupportRequest,
   ContactSupportResponse,
   CreateAppointmentRequest,
-  CreateAppointmentReviewRequest,
   CreateBookingRequest,
   CreateCategoryRequestRequest,
   CreateClientReviewRequest,
@@ -329,6 +336,7 @@ part 'serializers.g.dart';
   FavoriteMasterResponse,
   FavoriteResponse,
   FavoriteSalonResponse,
+  FavoriteServiceResponse,
   ForgotPasswordRequest,
   GuestBookingRequest,
   GuestBookingResponse,
@@ -360,6 +368,7 @@ part 'serializers.g.dart';
   PageResponseBookingResponse,
   PageResponseFavoriteMasterResponse,
   PageResponseFavoriteSalonResponse,
+  PageResponseFavoriteServiceResponse,
   PageResponseMasterSearchResult,
   PageResponseMasterSummaryResponse,
   PageResponseMyReviewResponse,
@@ -408,6 +417,7 @@ part 'serializers.g.dart';
   StatusUpdateRequest,
   SuggestServiceTypeRequest,
   TimelineItemResponse,
+  UnclosedCountResponse,
   UnregisterDeviceTokenRequest,
   UpdateProfileRequest,
   UpdateSalonRequest,

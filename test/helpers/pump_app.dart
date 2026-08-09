@@ -15,6 +15,15 @@
 // so narrow-phone / large-font overflows are reproduced. The overflow guard is
 // installed here too, so any RenderFlex overflow at the stress size fails the
 // test automatically (no manual assertion needed).
+//
+// mobile-qa (My Rating stretch-card regression) — `height` knob:
+//   await tester.pumpApp(MyWidget(), height: 2400);
+// pumps the widget under an exaggeratedly TALL viewport so an
+// Expanded/tight-constraint layout bug that stretches an opaque card to fill
+// the remaining height becomes an unmissable `tester.getSize(...)` outlier
+// instead of silently fitting inside the default 600dp test surface. Combine
+// with `width` when both dimensions need control; `width` alone still implies
+// height 2400 (unchanged legacy behaviour) for existing call sites.
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -23,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// Extension on [WidgetTester] that wraps [widget] in a minimal
 /// [ProviderScope] + [MaterialApp] with l10n configured for tests.
@@ -33,12 +43,30 @@ extension PumpApp on WidgetTester {
     List<Object> overrides = const [],
     Locale locale = const Locale('uk'),
     double? width,
+    double? height,
     double? textScaleFactor,
-    // Optional Riverpod failed-build retry policy for the ProviderScope. Default
-    // null = Riverpod's default exponential-backoff retry (unchanged behaviour).
-    // Pass `(_, _) => null` to DISABLE retry so an AsyncError stays put through
-    // pumpAndSettle (and leaves no pending backoff Timer at test end).
-    Duration? Function(int retryCount, Object error)? retry,
+    // Riverpod failed-build retry policy for the ProviderScope.
+    //
+    // Defaults to [beauticaProviderRetry] — THE SAME predicate `main.dart`
+    // installs on the production root scope — so a test resolves error paths
+    // identically to the app. It used to default to `null`, which meant
+    // `ProviderContainer.defaultRetry`: Riverpod's blanket 10-attempt / ~38 s
+    // backoff, applied to every `Failure` because a `Failure` is neither an
+    // `Error` nor a `ProviderException`. That is PRECISELY the behaviour
+    // production removed, so the whole widget suite was validating a policy
+    // the app no longer has — a transient fake-backend error got retried away
+    // in test and surfaced to a real user in production. Same boot-order skew
+    // `core/network/beautica_serializers.dart` refuses to accept for
+    // serializers, same remedy: make the value explicit at construction rather
+    // than dependent on who booted.
+    //
+    // Pass `(_, _) => null` to disable retry ENTIRELY — stricter than
+    // production, and still legitimate for a test asserting an exact failed-
+    // fetch call count or a NetworkFailure/5xx error surface, where even the
+    // production policy's genuine retry would inflate the count or park the
+    // element in AsyncLoading through pumpAndSettle.
+    Duration? Function(int retryCount, Object error)? retry =
+        beauticaProviderRetry,
   }) async {
     installOverflowGuard();
     // Stress width: constrain the whole surface to [width] logical px (default
@@ -46,9 +74,12 @@ extension PumpApp on WidgetTester {
     // narrow-phone width without wrapping the widget in a SingleChildScrollView
     // (which would conflict with a Scaffold `home`). The tall default height
     // (2400) keeps a column from reporting a *vertical* overflow that would mask
-    // the horizontal one under test. Reset in a tearDown.
-    if (width != null) {
-      view.physicalSize = Size(width, 2400);
+    // the horizontal one under test. `height` is a separate knob (default 2400
+    // when only `width` is given, unchanged legacy behaviour) for tests that
+    // want an exaggeratedly tall viewport WITHOUT also constraining width — see
+    // the stretched-card regression note above. Reset in a tearDown.
+    if (width != null || height != null) {
+      view.physicalSize = Size(width ?? 800, height ?? 2400);
       view.devicePixelRatio = 1.0;
       addTearDown(view.resetPhysicalSize);
       addTearDown(view.resetDevicePixelRatio);
@@ -76,11 +107,14 @@ extension PumpApp on WidgetTester {
     GoRouter router, {
     List<Object> overrides = const [],
     Locale locale = const Locale('uk'),
-    // Same knob as [pumpApp]'s `retry` — default null keeps Riverpod's
-    // default exponential-backoff retry. Pass `(_, _) => null` when a test
-    // asserts an EXACT failed-fetch call count (a retry firing mid-`await
-    // pumpAndSettle` would otherwise inflate the count non-deterministically).
-    Duration? Function(int retryCount, Object error)? retry,
+    // Same knob as [pumpApp]'s `retry`, same default — [beauticaProviderRetry],
+    // the production predicate (see [pumpApp] for why the old `null` default
+    // was a false-green). Pass `(_, _) => null` when a test asserts an EXACT
+    // failed-fetch call count (even the production policy retries a
+    // NetworkFailure/5xx, which would inflate the count non-deterministically
+    // mid-`await pumpAndSettle`).
+    Duration? Function(int retryCount, Object error)? retry =
+        beauticaProviderRetry,
   }) async {
     installOverflowGuard();
     await pumpWidget(
@@ -127,8 +161,11 @@ extension PumpUntil on WidgetTester {
   }
 
   /// Inverse of [pumpUntilFound] — pumps until [finder] matches nothing (e.g.
-  /// waiting out a SnackBar's own auto-dismiss timer instead of guessing its
-  /// duration).
+  /// waiting out a snack's own auto-dismiss timer instead of guessing its
+  /// duration). For a [VelvetSnack] specifically, prefer
+  /// `pumpPastVelvetSnack` (`test/helpers/velvet_snack_matchers.dart`) — it
+  /// pumps the exact lifecycle duration rather than polling, and drains the
+  /// dwell `Timer` the leak check requires.
   Future<void> pumpUntilGone(
     Finder finder, {
     Duration timeout = const Duration(seconds: 10),
@@ -175,11 +212,59 @@ extension PumpUntil on WidgetTester {
 /// `expect(callCount, 0)` whether the cell correctly has no handler or the
 /// tap was silently swallowed by scroll clipping, which is exactly the
 /// false-pass this helper exists to prevent for the enabled-cell case.
+/// Since 2026-08-04 that separation is ENFORCED, not merely documented: this
+/// helper `fail()`s outright when the resolved cell has no `GestureDetector`
+/// descendant (see the inline comment on the check for the defect it caught).
 extension TapCalendarDay on WidgetTester {
   Future<void> tapCalendarDay(int day) async {
     final Finder finder = find.byKey(Key('booking-calendar-day-$day'));
     await ensureVisible(finder);
     await pumpAndSettle();
+
+    // HANDLER PRESENCE CHECK — the blind spot `warnIfMissed` cannot cover.
+    //
+    // `MonthCalendar._DayCell` renders an UNAVAILABLE day (past, outside the
+    // range, or reported non-working) as a bare `Semantics` with NO
+    // `GestureDetector` child at all — `_classify` sets `onTap: null` and the
+    // `info.onTap == null` branch returns the label-only subtree
+    // (`month_calendar.dart`). Tapping it is not a miss: the hit test lands
+    // cleanly on the `SingleChildScrollView` behind the cell, so
+    // `WidgetController.hitTestWarningShouldBeFatal` — which
+    // `integration_test/support/e2e_boot_policy.dart` DOES arm for the E2E
+    // tier — stays silent. The tap simply does nothing.
+    //
+    // That is exactly how the 2026-08-04 defect stayed green: an E2E read the
+    // HOST clock (`DateTime.now()`) to choose the day while the app ran on the
+    // injected clock pinned to `kFixedNow` (2026-06-14), so on any real-world
+    // day-of-month below 14 it tapped a PAST cell. No slots fetch fired and
+    // the only symptom was a downstream `expect(fake.getMasterSlotsCalls, …)`
+    // reading 0 — a failure that names the fetch, not the cause, and that is
+    // invisible for the other ~13 days of the month.
+    //
+    // Asserting the handler is present BEFORE tapping converts that into an
+    // immediate, self-explaining failure at the point of breakage. It is one
+    // extra descendant lookup on an already-resolved finder, so it stays
+    // always-on rather than being gated behind a debug flag.
+    if (find
+        .descendant(of: finder, matching: find.byType(GestureDetector))
+        .evaluate()
+        .isEmpty) {
+      fail(
+        'calendar cell $day is not tappable — check the app\'s injected '
+        'clock, not DateTime.now(). MonthCalendar renders an unavailable day '
+        '(past / out of range / non-working) with NO GestureDetector, so this '
+        'tap would land on the scroll view behind the cell and silently '
+        'no-op. The usual cause is a test that picked the day from the HOST '
+        'clock while the app under test runs on the injected clock '
+        '(kFixedNow); derive the day with kyivToday(() => kFixedNow) instead. '
+        'The other causes are a working-days fixture that does not cover the '
+        'app\'s current month, and a genuinely disabled day. If you MEANT to '
+        'prove the cell is inert, do not use this helper — call '
+        'tester.tap(finder, warnIfMissed: false) directly, as this helper\'s '
+        'own doc comment requires.',
+      );
+    }
+
     await tap(finder);
   }
 }

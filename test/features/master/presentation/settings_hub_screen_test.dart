@@ -16,7 +16,7 @@
 //     leaves secure storage empty (M5 — migrated from the Account-page test
 //     after logout was removed from the Account page);
 //   • the double-tap guard prevents a second concurrent logout (migrated);
-//   • a failing logout surfaces the l10n.logoutFailed SnackBar (migrated).
+//   • a failing logout surfaces the l10n.logoutFailed VelvetSnack (migrated).
 //
 // Logout now lives ONLY on the hub — the Account page no longer triggers it, so
 // the full logout flow coverage was migrated here to avoid any net loss.
@@ -33,6 +33,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -40,6 +41,7 @@ import 'package:go_router/go_router.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 /// AuthNotifier whose logout() never resolves — lets a test confirm the dialog
 /// without the tree tearing down before assertions run. Tracks invocation.
@@ -57,8 +59,8 @@ class _TrackingAuthNotifier extends AuthNotifier {
 }
 
 /// AuthNotifier whose logout() throws a non-Failure exception — the only way the
-/// failure SnackBar in runLogoutFlow is reachable (AuthNotifier.logout swallows
-/// Failure internally).
+/// failure VelvetSnack in runLogoutFlow is reachable (AuthNotifier.logout
+/// swallows Failure internally).
 class _ThrowingLogoutAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async => const AuthSession.unauthenticated();
@@ -352,8 +354,8 @@ void main() {
     );
 
     // Migrated from the Account-page test (A6): a logout failure surfaces the
-    // l10n.logoutFailed SnackBar.
-    testWidgets('logout failure shows the l10n.logoutFailed SnackBar', (
+    // l10n.logoutFailed error VelvetSnack.
+    testWidgets('logout failure shows the l10n.logoutFailed VelvetSnack', (
       tester,
     ) async {
       final router = _hubRouter();
@@ -375,7 +377,10 @@ void main() {
       await tester.pumpAndSettle();
 
       final l10n = lookupAppLocalizations(const Locale('uk'));
-      expect(find.text(l10n.logoutFailed), findsOneWidget);
+      expectVelvetSnack(l10n.logoutFailed, variant: VelvetSnackVariant.error);
+
+      // Drain the dwell Timer so it does not leak past the test.
+      await pumpPastVelvetSnack(tester);
     });
   });
 

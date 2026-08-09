@@ -297,7 +297,6 @@ void main() {
     //   POST  /api/v1/appointments                 (create — clientComment)
     //   GET   /api/v1/appointments/{id}            (detail — full enrichment)
     //   PATCH /api/v1/appointments/{id}/cancel     (clientCancellationNote)
-    //   POST  /api/v1/appointments/{id}/review     (free-text comment)
     // They MUST be classified PII so LoggingInterceptor redacts request AND
     // response bodies (the error-path logger logs response bodies otherwise).
     // Mirrors the `/api/v1/bookings` (exact) + `/api/v1/bookings/` (prefix)
@@ -314,7 +313,7 @@ void main() {
       );
     });
 
-    test('appointment sub-routes ({id}/cancel/review) are PII routes', () {
+    test('appointment sub-routes ({id}/cancel) are PII routes', () {
       expect(
         isPiiPath('/api/v1/appointments/appt-123'),
         isTrue,
@@ -327,11 +326,6 @@ void main() {
         isTrue,
         reason:
             'PATCH .../cancel carries the free-text clientCancellationNote.',
-      );
-      expect(
-        isPiiPath('/api/v1/appointments/appt-123/review'),
-        isTrue,
-        reason: 'POST .../review carries the free-text review comment.',
       );
     });
 
@@ -409,6 +403,38 @@ void main() {
         out,
         isNot(contains('secretLinkToken123')),
         reason: 'the verify-email link token must never reach the log',
+      );
+    });
+
+    // ── mobile-security MEDIUM fix — favourites PII paths ────────────────────
+    //
+    // `GET /api/v1/favorites/services` and `POST`/`DELETE /api/v1/favorites`
+    // echo the client's wish list (service names, master first/last names,
+    // prices) — booking-intent PII. This is the exact class already fixed for
+    // `/api/v1/clients/me` (the sibling passport endpoint) one phase earlier;
+    // the favourites endpoints shipped without the same treatment. Without
+    // these entries `LoggingInterceptor.onError` would log
+    // `err.response?.data` verbatim on any 4xx/5xx in a debug build. This is
+    // the tripwire guarding the fix — if either entry is ever removed from
+    // [kPiiPaths] / [kPiiPathPrefixes], these fail loudly.
+    test('bare /api/v1/favorites is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/favorites'),
+        isTrue,
+        reason:
+            'POST/DELETE /favorites echoes the saved service/master '
+            'identifiers — its body must be redacted in debug logs.',
+      );
+    });
+
+    test('GET /api/v1/favorites/services is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/favorites/services'),
+        isTrue,
+        reason:
+            'GET /favorites/services returns the client\'s wish list — '
+            'service names, master names, prices — and must be redacted, '
+            'exactly like GET /clients/me/passport.',
       );
     });
   });

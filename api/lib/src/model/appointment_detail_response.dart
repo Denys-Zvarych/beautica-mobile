@@ -21,7 +21,7 @@ part 'appointment_detail_response.g.dart';
 /// * [masterProfessionalTitle] - The master's professional title/headline. Nullable — a master may never have set one.
 /// * [masterAvatarUrl]
 /// * [masterType]
-/// * [salonName] - The salon name, or null for an independent master.
+/// * [salonName] - The name of the salon THIS VISIT was booked at (the visit's own salon snapshot), or null when the visit was with an independent master. Not the master's current affiliation — a master who has since moved salons does not rewrite a past visit's premises.
 /// * [startsAt]
 /// * [endsAt]
 /// * [totalDurationMinutes]
@@ -30,14 +30,13 @@ part 'appointment_detail_response.g.dart';
 /// * [clientComment] - The client's booking-creation note for the whole visit.
 /// * [createdAt]
 /// * [items]
-/// * [canReview] - True iff this visit is COMPLETED, has a registered client, and the client has not yet reviewed it — the CLIENT's one-review-per-visit CTA gate (BE-6). The COMPLETED + no-existing-review predicate, computed by the service, mirrors BookingDetailResponse.canReview lifted to the visit. A visit review is left via POST /appointments/{id}/review.
 /// * [providerComment] - Written by the provider on the visit /decline or /not-complete. Shown to the CLIENT on both DECLINED and NOT_COMPLETED visits — intentional, by the locked \"all notes visible for all sides\" decision, NOT a privacy leak. Do not suppress for any audience. Same field/rule as BookingDetailResponse.providerComment, lifted to the visit header.
 /// * [clientCancellationNote] - Written by the CLIENT on the visit /cancel — the symmetric counterpart of providerComment, shown to the provider. Only ever non-null on a CANCELLED visit. Same field/rule as BookingDetailResponse.clientCancellationNote.
 /// * [cityLabel] - Discovery city label (Ukrainian). Resolved by the service through the same district-primary DiscoveryLocationResolver seam as BookingDetailResponse — salon locality when salon-employed, else the master's own user row.
 /// * [districtLabel] - Discovery district label (Ukrainian). Same resolution as cityLabel.
-/// * [street] - Arrival street — the salon's when salon-employed, else the master's own. Same salon-vs-independent rule as BookingDetailResponse.street; a salon-employed master's PERSONAL street never leaks onto a salon visit.
+/// * [street] - Arrival street — the BOOKED salon's when the visit was made at a salon, else the master's own. Same salon-vs-independent rule as BookingDetailResponse.street, resolved against the visit's own salon snapshot: a salon-employed master's PERSONAL street never leaks onto a salon visit, AND a master who has since moved salons cannot cause this visit to display the address of premises it was never booked at.
 /// * [buildingNo] - Arrival building number.
-/// * [locationNote] - Provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\"). Same salon-vs-independent resolution as street/buildingNo — a salon booking surfaces the salon's own note, never the master's personal one.
+/// * [locationNote] - Provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\"). Same salon-vs-independent resolution as street/buildingNo, against the salon THIS VISIT was booked at — never the master's personal note, and never a salon the master merely works at today.
 @BuiltValue()
 abstract class AppointmentDetailResponse
     implements
@@ -69,7 +68,7 @@ abstract class AppointmentDetailResponse
   AppointmentDetailResponseMasterTypeEnum? get masterType;
   // enum masterTypeEnum {  CLIENT,  SALON_OWNER,  SALON_ADMIN,  SALON_MASTER,  INDEPENDENT_MASTER,  };
 
-  /// The salon name, or null for an independent master.
+  /// The name of the salon THIS VISIT was booked at (the visit's own salon snapshot), or null when the visit was with an independent master. Not the master's current affiliation — a master who has since moved salons does not rewrite a past visit's premises.
   @BuiltValueField(wireName: r'salonName')
   String? get salonName;
 
@@ -99,10 +98,6 @@ abstract class AppointmentDetailResponse
   @BuiltValueField(wireName: r'items')
   BuiltList<AppointmentItemResponse>? get items;
 
-  /// True iff this visit is COMPLETED, has a registered client, and the client has not yet reviewed it — the CLIENT's one-review-per-visit CTA gate (BE-6). The COMPLETED + no-existing-review predicate, computed by the service, mirrors BookingDetailResponse.canReview lifted to the visit. A visit review is left via POST /appointments/{id}/review.
-  @BuiltValueField(wireName: r'canReview')
-  bool? get canReview;
-
   /// Written by the provider on the visit /decline or /not-complete. Shown to the CLIENT on both DECLINED and NOT_COMPLETED visits — intentional, by the locked \"all notes visible for all sides\" decision, NOT a privacy leak. Do not suppress for any audience. Same field/rule as BookingDetailResponse.providerComment, lifted to the visit header.
   @BuiltValueField(wireName: r'providerComment')
   String? get providerComment;
@@ -119,7 +114,7 @@ abstract class AppointmentDetailResponse
   @BuiltValueField(wireName: r'districtLabel')
   String? get districtLabel;
 
-  /// Arrival street — the salon's when salon-employed, else the master's own. Same salon-vs-independent rule as BookingDetailResponse.street; a salon-employed master's PERSONAL street never leaks onto a salon visit.
+  /// Arrival street — the BOOKED salon's when the visit was made at a salon, else the master's own. Same salon-vs-independent rule as BookingDetailResponse.street, resolved against the visit's own salon snapshot: a salon-employed master's PERSONAL street never leaks onto a salon visit, AND a master who has since moved salons cannot cause this visit to display the address of premises it was never booked at.
   @BuiltValueField(wireName: r'street')
   String? get street;
 
@@ -127,7 +122,7 @@ abstract class AppointmentDetailResponse
   @BuiltValueField(wireName: r'buildingNo')
   String? get buildingNo;
 
-  /// Provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\"). Same salon-vs-independent resolution as street/buildingNo — a salon booking surfaces the salon's own note, never the master's personal one.
+  /// Provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\"). Same salon-vs-independent resolution as street/buildingNo, against the salon THIS VISIT was booked at — never the master's personal note, and never a salon the master merely works at today.
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
 
@@ -279,13 +274,6 @@ class _$AppointmentDetailResponseSerializer
         object.items,
         specifiedType:
             const FullType(BuiltList, [FullType(AppointmentItemResponse)]),
-      );
-    }
-    if (object.canReview != null) {
-      yield r'canReview';
-      yield serializers.serialize(
-        object.canReview,
-        specifiedType: const FullType(bool),
       );
     }
     if (object.providerComment != null) {
@@ -486,13 +474,6 @@ class _$AppointmentDetailResponseSerializer
                 const FullType(BuiltList, [FullType(AppointmentItemResponse)]),
           ) as BuiltList<AppointmentItemResponse>;
           result.items.replace(valueDes);
-          break;
-        case r'canReview':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.canReview = valueDes;
           break;
         case r'providerComment':
           final valueDes = serializers.deserialize(

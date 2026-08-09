@@ -26,6 +26,8 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+import '../../domain/booking.dart';
+import '../../domain/booking_display_x.dart';
 import '../../domain/salon_master_schedule.dart';
 import 'master_strip_shell.dart';
 
@@ -54,9 +56,9 @@ String masterRoleLabel(MasterType type, AppLocalizations l10n) {
 /// default to `false` so a call site can opt into the name-only card.
 ///
 /// A `null` [avgRating] renders the [noRatingLabel] em-dash — the salon
-/// roster's convention for "no reviews yet" (`SalonMasterSummary.avgRating` is
-/// null exactly then). The independent flow's [Master.avgRating] is
-/// non-nullable, so [MasterStrip.fromMaster] never takes that branch.
+/// roster's convention for "no reviews yet". Every factory below funnels its
+/// source's "unrated" shape onto that single null, so no call site can render
+/// a damning `0.0` for a master nobody has reviewed yet.
 class MasterStrip extends StatelessWidget {
   const MasterStrip({
     super.key,
@@ -70,9 +72,16 @@ class MasterStrip extends StatelessWidget {
     this.showRating = false,
     this.avatarGradient,
     this.avatarBordered = false,
+    this.onTap,
   });
 
   /// Builds the strip from the independent flow's [Master] domain entity.
+  ///
+  /// Feeds [MasterRatingX.displayRating], not the raw `avgRating`: since the
+  /// rating became nullable the raw field can still arrive as a stale `0.0`
+  /// from a pre-Phase-240 payload, and `displayRating` folds that, a genuine
+  /// null and a `reviewCount == 0` onto one null so the star and the readout
+  /// cannot disagree (same getter `PublicMasterProfileScreen` renders).
   MasterStrip.fromMaster(
     Master master, {
     super.key,
@@ -81,10 +90,11 @@ class MasterStrip extends StatelessWidget {
     this.showRating = false,
     this.avatarGradient,
     this.avatarBordered = false,
+    this.onTap,
   }) : name = '${master.firstName} ${master.lastName}'.trim(),
        type = master.type,
        professionalTitle = master.professionalTitle,
-       avgRating = master.avgRating,
+       avgRating = master.displayRating,
        reviewCount = master.reviewCount;
 
   /// Builds the strip from the salon flow's per-master [SalonMasterSchedule]
@@ -97,11 +107,51 @@ class MasterStrip extends StatelessWidget {
     this.showRating = false,
     this.avatarGradient,
     this.avatarBordered = false,
+    this.onTap,
   }) : name = '${schedule.firstName} ${schedule.lastName}'.trim(),
        type = schedule.type,
        professionalTitle = schedule.professionalTitle,
-       avgRating = schedule.avgRating,
+       avgRating = (schedule.reviewCount > 0) ? schedule.avgRating : null,
        reviewCount = schedule.reviewCount;
+
+  /// Builds the strip from a placed [Booking] — «Деталі запису» and «Залишити
+  /// відгук», the two screens that show the master AFTER the booking exists.
+  ///
+  /// Replaces the former `MasterStripFromBooking` adapter that lived in
+  /// `booking_detail_screen.dart`: the rating fields the adapter was missing
+  /// now ride on the booking itself (`masterAvgRating`/`masterReviewCount`,
+  /// backend Phase 240), so this belongs beside its two sibling factories
+  /// rather than as a fourth widget.
+  ///
+  /// A booking carries no live [MasterType] on the wire, so the sub-line's
+  /// generic fallback is derived from `atSalon` instead — the same
+  /// salon-vs-independent split [masterRoleLabel] makes.
+  ///
+  /// [showRating] defaults to `true` here: both call sites want it, and the
+  /// whole point of the factory is that a booking finally carries the rating.
+  MasterStrip.fromBooking(
+    Booking booking, {
+    super.key,
+    this.showLabel = true,
+    this.showRole = true,
+    this.showRating = true,
+    this.avatarGradient,
+    this.avatarBordered = false,
+    this.onTap,
+  }) : name = booking.masterName,
+       type = booking.atSalon
+           ? MasterType.salonMaster
+           : MasterType.independentMaster,
+       professionalTitle = booking.masterProfessionalTitle,
+       // An unreviewed master must read «—», never «0.0». Routed through
+       // `BookingDisplayX.masterDisplayRating` — the booking-side twin of
+       // `MasterRatingX.displayRating` that `fromMaster` above uses — so this
+       // factory folds ALL THREE "no rating yet" shapes, not just a known-zero
+       // review count. Guarding on the count alone let `masterAvgRating: 0.0`
+       // with an ABSENT count render «0.0», the exact artefact this surface
+       // exists to remove.
+       avgRating = booking.masterDisplayRating,
+       reviewCount = booking.masterReviewCount ?? 0;
 
   /// Master display name (already joined — "Олена Ковальчук").
   final String name;
@@ -137,6 +187,29 @@ class MasterStrip extends StatelessWidget {
   /// Adds the salon flow's translucent-white avatar ring.
   final bool avatarBordered;
 
+  /// Makes the card tappable; `null` leaves it inert.
+  ///
+  /// ## Tappability policy (locked)
+  ///
+  /// The strip is mounted on nine screens and the answer is NOT the same on
+  /// all of them, because the tap always means "leave this screen and go read
+  /// the master's reviews":
+  ///
+  ///  * **INERT** on the three in-flight wizard steps — service selection,
+  ///    date, time. A stray tap mid-wizard would yank the client out of a
+  ///    half-made booking; the cost of an accidental tap there is losing
+  ///    work, and the strip sits directly above the content the client is
+  ///    reaching for.
+  ///  * **TAPPABLE** on confirm, «Деталі запису» and «Залишити відгук» —
+  ///    terminal or review-shaped screens where leaving costs nothing and a
+  ///    back-swipe restores the state exactly.
+  ///  * The salon master PICKER passes its own selection callback instead:
+  ///    there the tap CHOOSES the master, it does not navigate away.
+  ///
+  /// Booking details is also the only route to a master's reviews for a
+  /// `NOT_COMPLETED` booking, whose action footer is deliberately empty.
+  final VoidCallback? onTap;
+
   /// Shown in place of the rating when the master has no reviews yet. Public
   /// so a call site that must build its own semantics label for a row wrapping
   /// this card (`SalonMasterSelectionScreen`) reads the same placeholder.
@@ -168,6 +241,7 @@ class MasterStrip extends StatelessWidget {
 
     return MasterStripShell(
       semanticsLabel: semanticsLabel,
+      onTap: onTap,
       name: name,
       topLabel: showLabel ? l10n.bookingMasterStripLabel : null,
       avatarGradient: avatarGradient,
@@ -181,27 +255,54 @@ class MasterStrip extends StatelessWidget {
             )
           : null,
       trailing: showRating
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                const Icon(
-                  Icons.star_rounded,
-                  size: 16,
-                  color: BrandColors.accent,
-                ),
-                const SizedBox(width: 2),
-                Text(ratingLabel, style: VelvetText.bodyStrong14),
-                if (reviewCount > 0) ...<Widget>[
-                  const SizedBox(width: 3),
-                  Text(
-                    '($reviewCount)',
-                    style: VelvetText.bookFeedbackMuted115,
-                  ),
-                ],
-              ],
-            )
+          ? MasterRatingReadout(avgRating: rating, reviewCount: reviewCount)
           : null,
+    );
+  }
+}
+
+/// The camel-★ rating readout — `★ 4.8 (12)`, or `★ —` when the master has no
+/// reviews yet.
+///
+/// Extracted from [MasterStrip]'s trailing slot so the leave-review screen's
+/// [MasterFeedbackCard], which cannot use the strip itself (it carries an
+/// extra visit-context line the strip has no slot for), renders the byte-same
+/// composition rather than a near-miss copy. This is the ONE place the app
+/// decides what a rating looks like inside a booking-flow identity card.
+class MasterRatingReadout extends StatelessWidget {
+  const MasterRatingReadout({
+    super.key,
+    required this.avgRating,
+    required this.reviewCount,
+  });
+
+  /// `null` renders [MasterStrip.noRatingLabel] — never a `0.0`.
+  final double? avgRating;
+
+  /// Rendered as the muted `(n)` suffix, suppressed entirely at zero: «(0)»
+  /// beside an em-dash would be noise, and the em-dash already says it.
+  final int reviewCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final double? rating = avgRating;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        const Icon(Icons.star_rounded, size: 16, color: BrandColors.accent),
+        const SizedBox(width: 2),
+        Text(
+          rating == null
+              ? MasterStrip.noRatingLabel
+              : rating.toStringAsFixed(1),
+          style: VelvetText.bodyStrong14,
+        ),
+        if (reviewCount > 0) ...<Widget>[
+          const SizedBox(width: 3),
+          Text('($reviewCount)', style: VelvetText.bookFeedbackMuted115),
+        ],
+      ],
     );
   }
 }

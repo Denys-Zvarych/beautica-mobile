@@ -32,12 +32,15 @@ import 'package:beautica_mobile/features/services/presentation/service_types_pro
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'widgets/select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes + Mocks
@@ -212,6 +215,7 @@ Future<void> _pumpEdit(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: _overrides(
         repo,
         includeMasterProfile: masterProfileStates != null,
@@ -255,6 +259,7 @@ Future<void> _pumpEditLoading(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: _overrides(repo).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -291,6 +296,7 @@ Future<_PopObserver> _pumpEditInNavigator(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: _overrides(repo).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -472,8 +478,13 @@ void main() {
             'ref.invalidate()',
       );
 
-      // Gap 8: a success SnackBar must be shown after a valid save.
-      expect(find.byType(SnackBar), findsOneWidget);
+      // Gap 8: a success VelvetSnack must be shown after a valid save.
+      final l10n = _l10n(tester);
+      expectVelvetSnack(
+        l10n.serviceUpdatedSuccess,
+        variant: VelvetSnackVariant.success,
+      );
+      await pumpPastVelvetSnack(tester);
     },
   );
 
@@ -493,6 +504,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: _overrides(repo).cast(),
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -940,6 +952,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             serviceRepositoryProvider.overrideWithValue(repo),
             // approvedCategoriesProvider fetches directly now — override it here
@@ -1168,9 +1181,9 @@ void main() {
       // deactivate was attempted once.
       verify(() => repo.deactivate(_stubService.serviceDefId)).called(1);
 
-      // A failure snackbar with the mapped ServerFailure copy is shown.
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.errServer), findsOneWidget);
+      // A failure VelvetSnack with the mapped ServerFailure copy is shown.
+      expectVelvetSnack(l10n.errServer, variant: VelvetSnackVariant.error);
+      await pumpPastVelvetSnack(tester);
 
       // The screen stays mounted — a failed delete must not pop the route.
       // (The observer counts the dialog's own dismiss pop; the durable signal
@@ -1207,8 +1220,8 @@ void main() {
       expect(find.byType(ServiceEditScreen), findsNothing);
       expect(find.byKey(const Key('open-edit')), findsOneWidget);
 
-      // The delete success path shows NO snackbar (distinct from the save path).
-      expect(find.byType(SnackBar), findsNothing);
+      // The delete success path shows NO snack (distinct from the save path).
+      expect(find.byType(VelvetSnack), findsNothing);
     },
   );
 

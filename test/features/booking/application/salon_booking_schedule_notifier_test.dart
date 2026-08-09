@@ -7,6 +7,7 @@ import 'package:beautica_mobile/features/booking/application/salon_booking_sched
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 BookingSlot _slot(int hour) => BookingSlot(
   startAt: DateTime(2026, 7, 20, hour),
@@ -18,7 +19,7 @@ void main() {
   late ProviderContainer container;
 
   setUp(() {
-    container = ProviderContainer();
+    container = ProviderContainer(retry: beauticaProviderRetry);
     addTearDown(container.dispose);
   });
 

@@ -4,7 +4,7 @@
 // -------------------------------------------------
 // `logout_flow_test.dart` already proves the logout journey END-TO-END for an
 // INDEPENDENT_MASTER (login → /master/profile → /master/menu hub → confirm →
-// /login, no logoutFailed SnackBar, server revocation hit). NONE of the suite,
+// /login, no logoutFailed VelvetSnack, server revocation hit). NONE of the suite,
 // however, drove logout from the CLIENT settings hub at /client/menu — the
 // burger-menu surface the client app actually ships. The CLIENT path differs in
 // every coordinate that matters: a different burger key (btn-menu-client), a
@@ -31,7 +31,7 @@
 //   4. CONFIRM path: open the logout row → tap btn-logout-confirm → the app
 //      redirects to /login, the server revocation endpoint was hit, the
 //      refresh token is GONE from secure storage (M5), and the logoutFailed
-//      SnackBar is NOT shown.
+//      VelvetSnack is NOT shown.
 //
 // NATIVE TIER: NONE NEEDED. Pure in-app Flutter widgets + HTTP + secure-storage
 // (faked). No OS permission / deep-link / FCM / biometric / WebView surface, so
@@ -66,7 +66,7 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   // Locale-pinned UK strings used ONLY for the absence assertion (the harness
-  // pins the app to uk_UA). We must NOT see the logout-failure SnackBar.
+  // pins the app to uk_UA). We must NOT see the logout-failure VelvetSnack.
   final AppLocalizationsUk l10n = AppLocalizationsUk();
 
   /// Logs in as CLIENT, lands on /client/home, opens the burger, and settles on
@@ -175,7 +175,7 @@ void main() {
 
   testWidgets(
     'CLIENT logout CONFIRM → POST /auth/logout fires, secure storage is wiped '
-    '(M5), the app redirects to /login and no logoutFailed SnackBar shows',
+    '(M5), the app redirects to /login and no logoutFailed VelvetSnack shows',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final storage = FakeSecureStorage();
@@ -229,12 +229,12 @@ void main() {
         reason: 'logout() must wipe the refresh token from secure storage (M5)',
       );
 
-      // 4) The failure SnackBar must NOT be shown — logout succeeded.
+      // 4) The failure VelvetSnack must NOT be shown — logout succeeded.
       expect(
         find.text(l10n.logoutFailed),
         findsNothing,
         reason:
-            'a clean logout must not surface the "${l10n.logoutFailed}" SnackBar',
+            'a clean logout must not surface the "${l10n.logoutFailed}" VelvetSnack',
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),

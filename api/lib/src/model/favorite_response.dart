@@ -24,7 +24,7 @@ abstract class FavoriteResponse
 
   @BuiltValueField(wireName: r'targetType')
   FavoriteResponseTargetTypeEnum? get targetType;
-  // enum targetTypeEnum {  MASTER,  SALON,  };
+  // enum targetTypeEnum {  MASTER,  SALON,  SERVICE,  };
 
   @BuiltValueField(wireName: r'targetId')
   String? get targetId;
@@ -175,6 +175,9 @@ class FavoriteResponseTargetTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SALON')
   static const FavoriteResponseTargetTypeEnum SALON =
       _$favoriteResponseTargetTypeEnum_SALON;
+  @BuiltValueEnumConst(wireName: r'SERVICE')
+  static const FavoriteResponseTargetTypeEnum SERVICE =
+      _$favoriteResponseTargetTypeEnum_SERVICE;
 
   static Serializer<FavoriteResponseTargetTypeEnum> get serializer =>
       _$favoriteResponseTargetTypeEnumSerializer;

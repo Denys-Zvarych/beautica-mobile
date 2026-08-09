@@ -69,6 +69,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+
+import '../../../helpers/clock_instant.dart';
 
 class _MockScheduleRepository extends Mock implements ScheduleRepository {}
 
@@ -108,7 +111,17 @@ final DateTime _date = DateTime(2026, 6, 21);
 /// Fixed "today" injected into the sheet so its submit-time past-date guard is
 /// run-day independent (keeps these tests wall-clock free). Anchored on [_date]
 /// so the override target is today, never past.
-DateTime _testToday() => _date;
+///
+/// Returns a genuine INSTANT ([asClockInstant] — noon UTC on [_date]'s
+/// calendar day, test/helpers/clock_instant.dart), NOT [_date] itself — the
+/// sheet runs the injected clock through `kyivDayOf` (Kyiv-anchored "today"
+/// derivation, backlog :226), and a bare local `DateTime(y, m, d)` is
+/// host-zone-dependent: under e.g. TZ=Asia/Tokyo, host-local midnight on the
+/// 21st is already 2026-06-20T15:00Z = 18:00 Kyiv the 20th — a day early,
+/// which would wrongly make [_date] look "past" at submit time. [_date]
+/// itself stays a plain date token — it is also used directly as
+/// `date:`/target-date fixtures throughout this file.
+DateTime _testToday() => asClockInstant(_date);
 
 WorkInterval _interval(int sh, int sm, int eh, int em) => WorkInterval(
   start: TimeOfDay(hour: sh, minute: sm),
@@ -137,6 +150,7 @@ Future<void> _pumpSheet(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[
         scheduleRepositoryProvider.overrideWithValue(repo),
       ].cast(),
@@ -894,6 +908,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1161,6 +1176,7 @@ void main() {
         ).thenAnswer((_) async => _oneConflict());
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1215,6 +1231,7 @@ void main() {
         ).thenAnswer((_) async => _oneConflict());
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1284,7 +1301,17 @@ void main() {
       int dayFetches = 0;
       int upcomingFetches = 0;
       int cancelledFetches = 0;
-      when(
+      // Phase 227: `getMyBookings` now also carries `partition` on every
+      // call. This ONE stub deliberately serves THREE distinct call shapes —
+      // the day fetch (`bookingsDayProvider`, which never passes `partition`
+      // and so sends the default `null`) and BOTH `myBookingsProvider` tabs
+      // (`BookingPartition.upcoming` / `.cancelled`) — distinguished below via
+      // `inv.namedArguments`, not via the stub's argument matchers. Pinning
+      // `partition` to an exact per-tab value here would leave the day-fetch
+      // shape (`partition: null`) unmatched, so `any(named: 'partition')` is
+      // used intentionally — mirrors the same generic-stub pattern in
+      // `my_bookings_notifier_test.dart` (e.g. line 214).
+      final dynamicMyBookingsStub = when(
         () => bookingRepo.getMyBookings(
           statuses: any(named: 'statuses'),
           page: any(named: 'page'),
@@ -1293,9 +1320,11 @@ void main() {
           serviceIds: any(named: 'serviceIds'),
           from: any(named: 'from'),
           to: any(named: 'to'),
+          partition: any(named: 'partition'),
           cancelToken: any(named: 'cancelToken'),
         ),
-      ).thenAnswer((Invocation inv) async {
+      );
+      dynamicMyBookingsStub.thenAnswer((Invocation inv) async {
         final DateTime? from = inv.namedArguments[#from] as DateTime?;
         final Iterable<BookingStatus> statuses =
             inv.namedArguments[#statuses] as Iterable<BookingStatus>;
@@ -1315,6 +1344,7 @@ void main() {
       });
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: <Object>[
           scheduleRepositoryProvider.overrideWithValue(scheduleRepo),
           bookingRepositoryProvider.overrideWithValue(bookingRepo),
@@ -1442,6 +1472,7 @@ void main() {
         ).thenThrow(const ServerFailure(statusCode: 500));
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1500,6 +1531,7 @@ void main() {
         ).thenThrow(const ServerFailure(statusCode: 500));
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
           ].cast(),
@@ -1570,10 +1602,14 @@ void main() {
       (tester) async {
         final repo = _happyRepo();
         // Live clock starts on the target date (today) and is advanced to the
-        // next day AFTER the sheet is open but BEFORE Save.
-        DateTime now = _date;
+        // next day AFTER the sheet is open but BEFORE Save. Anchored via
+        // [asClockInstant], not [_date] itself — see [_testToday]'s doc
+        // comment for why a bare local `DateTime`/date token here would drift
+        // a Kyiv day under e.g. TZ=Asia/Tokyo.
+        DateTime now = asClockInstant(_date);
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: <Object>[
               scheduleRepositoryProvider.overrideWithValue(repo),
             ].cast(),
@@ -1609,8 +1645,10 @@ void main() {
         await tester.pumpAndSettle();
 
         // ── Cross midnight while the sheet is open: today is now _date + 1, so
-        // the target [date] has fallen into the past. ──
-        now = _date.add(const Duration(days: 1));
+        // the target [date] has fallen into the past. `now` is a noon-UTC
+        // instant, so advancing it by exactly 24h lands on noon UTC the next
+        // calendar day on any host — still a safe `kyivDayOf` round-trip. ──
+        now = now.add(const Duration(days: 1));
 
         // Save — the submit-time guard must block the PUT.
         await tester.ensureVisible(find.byKey(const Key('override-save')));
@@ -1658,6 +1696,104 @@ void main() {
 
         verify(() => repo.putOverride(any())).called(1);
         expect(find.text(l10n.schedulePastDayBlocked), findsNothing);
+      },
+    );
+  });
+
+  // ── mobile-qa (2026-08-02, backlog :226) — Kyiv-anchored past-date guard ────
+  //
+  // WHY THIS TEST EXISTS
+  // ---------------------
+  // The submit-time guard above (M6) proves the guard reacts to a LIVE clock,
+  // but its fixture never disagrees with a host-local/UTC-day reading of that
+  // clock — `_testToday()` and the target `_date` are always the same
+  // calendar day under every TZ, so a regression from `kyivDayOf(now)` back to
+  // a bare `DateTime(now.year, now.month, now.day)` (the pre-fix bug this file
+  // migrated away from) would pass M6 unchanged. This test pins the ONE
+  // instant where the two derivations disagree: 2026-08-01T22:30Z is still
+  // "the 1st" in UTC but already "the 2nd" in Kyiv (EEST, +3) — the exact
+  // fixture `kyiv_day_test.dart` uses for `kyivDayOf` itself.
+  //
+  // Verified RED by mutation: reverting `_todayKyiv` (sic — the sheet's
+  // `_DayHoursSheetState`'s inlined `today` local) to
+  // `DateTime(now.year, now.month, now.day)` makes this test PASS the wrong
+  // way (target treated as NOT past, `putOverride` called) — see the mobile-qa
+  // audit for the actual run.
+  group('DayHoursSheet — Kyiv-anchored past-date guard disagrees with a bare '
+      'UTC-day reading (mobile-qa, 2026-08-02, backlog :226)', () {
+    testWidgets(
+      'a target date that is still "today" in UTC but already YESTERDAY in '
+      'Kyiv is blocked as past — a host/UTC-day guard would wrongly allow it',
+      (tester) async {
+        final repo = _happyRepo();
+        // The clock instant: 2026-08-01T22:30Z. UTC calendar day = Aug 1;
+        // Kyiv calendar day = Aug 2 (EEST, +3 → 01:30 local, already rolled
+        // over). See kyiv_day_test.dart's identical fixture.
+        final DateTime clockInstant = DateTime.utc(2026, 8, 1, 22, 30);
+        // The target being edited is Aug 1 — "today" under a buggy UTC/host
+        // reading of [clockInstant], but YESTERDAY under the correct Kyiv one.
+        final DateTime targetDate = DateTime(2026, 8, 1);
+        final ScheduleRange range = ScheduleRange(
+          from: DateTime(2026, 8, 1),
+          to: DateTime(2026, 8, 31),
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: <Object>[
+              scheduleRepositoryProvider.overrideWithValue(repo),
+            ].cast(),
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+              home: Scaffold(
+                body: Builder(
+                  builder: (BuildContext context) => Center(
+                    child: ElevatedButton(
+                      key: const Key('open-sheet'),
+                      onPressed: () => DayHoursSheet.show(
+                        context,
+                        date: targetDate,
+                        weekdayFull: 'Субота',
+                        dateLabel: '1 серпня',
+                        range: range,
+                        initialIntervals: _currentIntervals(),
+                        hasExistingOverride: false,
+                        initialDayOff: false,
+                        clock: () => clockInstant,
+                      ),
+                      child: const Text('open'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.byKey(const Key('open-sheet')));
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(DayHoursSheet)),
+        );
+        // The KYIV-anchored guard must block: Aug 1 is already past once
+        // "today" is correctly resolved as Aug 2 in Kyiv.
+        expect(
+          find.text(l10n.schedulePastDayBlocked),
+          findsOneWidget,
+          reason:
+              'the target date is past in Kyiv (today=Aug 2) even though it '
+              "is still the SAME calendar day in UTC — a host/UTC-day guard "
+              'would miss this and let the put through',
+        );
+        verifyNever(() => repo.putOverride(any()));
       },
     );
   });
@@ -2165,6 +2301,7 @@ Future<void> _pumpSheetWithSink(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[
         scheduleRepositoryProvider.overrideWithValue(repo),
       ].cast(),

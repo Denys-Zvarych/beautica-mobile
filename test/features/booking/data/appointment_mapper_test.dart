@@ -56,7 +56,6 @@ AppointmentDetailResponse _buildDetail({
   int totalDurationMinutes = 90,
   num totalPrice = 800,
   num? totalPriceMax,
-  bool canReview = false,
   String? salonName,
   AppointmentDetailResponseMasterTypeEnum masterType =
       AppointmentDetailResponseMasterTypeEnum.INDEPENDENT_MASTER,
@@ -69,7 +68,6 @@ AppointmentDetailResponse _buildDetail({
     ..totalDurationMinutes = totalDurationMinutes
     ..totalPrice = totalPrice
     ..totalPriceMax = totalPriceMax
-    ..canReview = canReview
     ..salonName = salonName
     ..masterType = masterType
     ..startsAt = startsAt ?? DateTime.utc(2020, 7, 10, 10)
@@ -98,7 +96,6 @@ AppointmentDetailResponse _detailMissingWindow({required bool omitStart}) {
     ..masterType = AppointmentDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
     ..totalDurationMinutes = 90
     ..totalPrice = 800
-    ..canReview = false
     ..items = ListBuilder<AppointmentItemResponse>(<AppointmentItemResponse>[
       _buildItem(),
     ]);
@@ -233,7 +230,6 @@ void main() {
                 ..endsAt = DateTime.utc(2020, 7, 10, 11, 30)
                 ..totalDurationMinutes = 90
                 ..totalPrice = 800
-                ..canReview = false
                 ..clientComment = 'Прошу подзвонити'
                 ..providerComment = 'Клієнт не прийшов'
                 ..clientCancellationNote = 'Захворіла'
@@ -327,16 +323,34 @@ void main() {
       );
     });
 
-    test('missing status → ServerFailure(null)', () {
-      expect(
-        () => AppointmentMapper.fromDto(_buildDetail(status: null)),
-        throwsA(isA<ServerFailure>()),
-      );
+    // CONTRACT REVERSED (deliberately). This used to assert `missing status →
+    // ServerFailure(null)`. It now degrades to [BookingStatus.unknown]
+    // instead, and the change is the whole point rather than a relaxation:
+    //
+    // `AppointmentDetailResponseStatusEnum` is a built_value `EnumClass` with
+    // no unknown member, so its serializer THREW on any wire value this build
+    // predates — one layer BELOW this mapper, which made the keep-and-deny
+    // `BookingStatus.fromWire` fallback right above unreachable dead code on
+    // the real network path. `UnknownEnumTolerancePlugin` now strips such a
+    // value so the field arrives ABSENT; the mapper must therefore read absent
+    // as `unknown`, or the wire-level graceful degrade would be converted
+    // straight back into a hard `ServerFailure` — strictly worse than the
+    // throw it replaced, and the plugin would be pure cost.
+    //
+    // Proven end to end from raw JSON in
+    // `appointment_unknown_status_wire_test.dart`.
+    test('missing status → BookingStatus.unknown, NOT ServerFailure', () {
+      final appt = AppointmentMapper.fromDto(_buildDetail(status: null));
+      expect(appt.status, BookingStatus.unknown);
+      // Keep-and-deny: the visit survives intact, it just grants nothing.
+      expect(appt.id, isNotEmpty);
+      expect(appt.items, isNotEmpty);
     });
 
-    // The `startsAt`/`endsAt` legs of the required-field guard. The `id` and
-    // `status` legs are covered above; these two were the only documented
-    // throw-conditions left unasserted, and the gap was not theoretical —
+    // The `startsAt`/`endsAt` legs of the required-field guard. The `id` leg
+    // is covered above (and `status` is deliberately no longer one of them);
+    // these two were the only documented throw-conditions left unasserted, and
+    // the gap was not theoretical —
     // relaxing BOTH guards to a silent `?? DateTime.utc(1970)` fallback kept
     // the entire booking suite green (verified by mutation). A visit would
     // then render an epoch window instead of surfacing the broken contract.

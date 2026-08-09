@@ -24,9 +24,16 @@
 //
 // | status | `headerTrailing` | pinned `actions` |
 // |---|---|---|
-// | CONFIRMED | 📅 icon | «Перенести» + «Скасувати запис» |
-// | COMPLETED / CANCELLED / DECLINED | — | «Записатись знову» |
+// | CONFIRMED, not yet elapsed | 📅 icon | «Перенести» + «Скасувати запис» |
+// | CONFIRMED, elapsed (never closed) | 📅 icon | «Залишити відгук» (if `canReview`) + «Записатись знову» |
+// | COMPLETED | — | «Залишити відгук» (if `canReview`) + «Записатись знову» |
+// | CANCELLED / DECLINED | — | «Записатись знову» |
 // | NOT_COMPLETED | — | (none) |
+//
+// The review CTA is gated on `Booking.canReview` alone (server-computed —
+// see its doc), not on `status`: an elapsed CONFIRMED booking the provider
+// never closed is exactly as reviewable as a COMPLETED one once the backend
+// says so. See `_DetailBody._actions`.
 //
 // The table above is the CLIENT footer. A PROVIDER viewer (track 27.x Wave
 // A) gets an entirely different set — «Перенести» + «Скасувати»
@@ -69,22 +76,20 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
 import '../application/booking_viewer_role.dart';
 import '../application/bookings_day_notifier.dart';
-import '../application/my_bookings_notifier.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
 import '../domain/booking_status.dart';
-import '../domain/booking_tab.dart';
 import 'widgets/booking_counterparty_header.dart';
 import 'widgets/booking_notes.dart';
 import 'widgets/booking_recap.dart';
@@ -94,7 +99,7 @@ import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/cancel_booking_dialog.dart';
 import 'widgets/complete_booking_dialog.dart';
-import 'widgets/master_strip.dart';
+import 'booking_cancel_navigation.dart';
 import 'reschedule_navigation.dart';
 
 /// «Деталі запису» for the booking identified by [bookingId].
@@ -126,46 +131,16 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   }
 
   /// «Скасувати запис» opens the confirmation — it never cancels anything
-  /// itself. The dialog resolves to the client's note (possibly empty) on
-  /// confirm, and to `null` on every way of backing out.
-  Future<void> _confirmCancel(BuildContext context, Booking booking) async {
-    final String? note = await showCancelBookingDialog(context, booking);
-    if (note == null || !mounted) return; // backed out — nothing happened.
-
-    try {
-      await ref
-          .read(bookingRepositoryProvider)
-          .cancelBooking(booking.id, reason: note.isEmpty ? null : note);
-    } on BookingAlreadyElapsedFailure catch (failure) {
-      // The slot elapsed against the SERVER clock between this (possibly stale)
-      // screen opening and the confirm tap — or the device clock was rolled
-      // back and the server refused to honour it. Surface the clean localized
-      // message AND refetch the booking so it re-renders read-only (Reschedule
-      // + Cancel drop away, «Записатись знову» takes their place) — never a
-      // raw 409.
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
-      ref.invalidate(bookingDetailProvider(booking.id));
-      return;
-    } catch (_) {
-      if (!context.mounted) return;
-      final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
-      return;
-    }
-    if (!mounted) return;
-
-    // Refetch this booking's fresh status and re-partition the two affected
-    // tabs (it just left Майбутні and entered Скасовані) — the merged
-    // per-status pagination in `MyBookingsNotifier` means a plain invalidate
-    // of each tab cleanly re-fetches page 0 for every status it covers.
-    ref.invalidate(bookingDetailProvider(booking.id));
-    ref.invalidate(myBookingsProvider(BookingTab.upcoming));
-    ref.invalidate(myBookingsProvider(BookingTab.cancelled));
+  /// itself. Delegates entirely to the shared [startBookingCancel] (Phase
+  /// 225), the SAME flow the Home Hub «Найближчий запис» card's «Скасувати»
+  /// now uses, so the dialog → repository call → 409-specific handling →
+  /// cache-refresh logic lives in exactly one place.
+  Future<void> _confirmCancel(BuildContext context, Booking booking) {
+    return startBookingCancel(
+      context: context,
+      ref: ref,
+      bookingId: booking.id,
+    );
   }
 
   /// Track 27.x Wave A — the PROVIDER's «Скасувати» opens the decline
@@ -217,17 +192,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       // surface the clean localized message AND refetch so the footer
       // re-renders from the server's authoritative state, never a raw 409.
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      showErrorSnack(context, failure.userMessage(context));
       ref.invalidate(bookingDetailProvider(booking.id));
       return;
     } catch (_) {
       if (!context.mounted) return;
       final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
+      showErrorSnack(context, l10n.errUnknown);
       return;
     }
     if (!mounted) return;
@@ -282,17 +253,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       // server refused to honour it. Same resolution as the decline 409:
       // localized message + refetch so the footer re-renders correctly.
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      showErrorSnack(context, failure.userMessage(context));
       ref.invalidate(bookingDetailProvider(booking.id));
       return;
     } catch (_) {
       if (!context.mounted) return;
       final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(l10n.errUnknown)));
+      showErrorSnack(context, l10n.errUnknown);
       return;
     }
     if (!mounted) return;
@@ -302,29 +269,24 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     ref.invalidate(bookingsDayProvider);
   }
 
-  /// Track 27.x/MO-6: when [Booking.appointmentId] is non-null this booking is
-  /// one service of a multi-service VISIT — the reschedule routes to
-  /// [startAppointmentReschedule] instead, moving every service in lockstep via
-  /// `PATCH /appointments/{id}/reschedule`. A plain single-service booking
-  /// (`appointmentId == null`) is UNCHANGED — same [startBookingReschedule]
-  /// call as before. Confirmed-only either way — the CTA below is gated to
-  /// match.
+  /// Track 30.x (superseding track 27.x/MO-6's whole-visit flow): when
+  /// [Booking.appointmentId] is non-null this booking is one service of a
+  /// multi-service VISIT — [startBookingReschedule] is still the ONE call
+  /// site; it re-fetches the booking itself and reads `appointmentId` off
+  /// that SAME fresh copy (mobile-security LOW fix — it no longer takes the
+  /// visit id as a separate parameter from this screen's own, possibly
+  /// stale, `booking`), so the confirm-step submit routes to the per-item
+  /// `PATCH /appointments/{id}/services/{bookingId}/reschedule` (moving ONLY
+  /// this service — siblings' windows stay byte-for-byte unchanged) instead
+  /// of the whole-visit endpoint the mobile app used to call here. A plain
+  /// single-service booking (`appointmentId == null`) resolves the same way
+  /// — UNCHANGED, still the per-booking `PATCH /bookings/{id}/reschedule`.
+  /// Confirmed-only either way — the CTA below is gated to match.
   void _onReschedule(BuildContext context, Booking booking) {
-    final String? appointmentId = booking.appointmentId;
-    if (appointmentId != null) {
-      unawaited(
-        startAppointmentReschedule(
-          context: context,
-          ref: ref,
-          appointmentId: appointmentId,
-          bookingId: booking.id,
-        ),
-      );
-      return;
-    }
     // Reuse the create-booking slot picker, seeded to reschedule THIS booking
     // (the confirm-step submit swaps POST → PATCH /reschedule on the non-null
-    // rescheduleBookingId).
+    // rescheduleBookingId, and further swaps to the per-item endpoint when
+    // the freshly-fetched booking's `appointmentId` is also non-null).
     unawaited(
       startBookingReschedule(context: context, ref: ref, bookingId: booking.id),
     );
@@ -640,13 +602,46 @@ class _DetailBody extends StatelessWidget {
     if (viewer.isProvider) {
       return _providerActions(l10n);
     }
+    // The review CTA is gated on `booking.canReview` ALONE — hoisted above
+    // the status switch below, never folded into a `case` branch. Per
+    // `Booking.canReview`'s doc, this flag is server-computed and already
+    // covers every precondition (owner, not already reviewed, COMPLETED OR
+    // an elapsed-but-never-closed CONFIRMED booking); re-deriving any part of
+    // that from `status` here would drift the moment the server's rule
+    // changes again. This is what makes an elapsed CONFIRMED booking (aged
+    // into Минулі by time, never marked COMPLETED by the provider) reviewable
+    // without a dedicated status branch.
+    final List<Widget> statusActions = _statusActions(l10n);
+    if (!booking.canReview) {
+      return statusActions;
+    }
+    return <Widget>[
+      NeumorphicButton(
+        key: const Key('booking-detail-leave-review'),
+        label: l10n.bookingDetailReviewCta,
+        icon: Icons.rate_review_rounded,
+        onPressed: onLeaveReview,
+      ),
+      const SizedBox(height: VelvetSpacing.xs),
+      ...statusActions,
+    ];
+  }
+
+  /// Every action EXCEPT the review CTA — that one is hoisted out to
+  /// [_actions] (see its doc) so it can render regardless of [booking.status].
+  /// This table is unchanged from before that hoist: reschedule/cancel for an
+  /// unstarted CONFIRMED booking, «Записатись знову» for every other status
+  /// that offers anything, nothing for NOT_COMPLETED.
+  List<Widget> _statusActions(AppLocalizations l10n) {
     switch (booking.status) {
       case BookingStatus.confirmed:
         // An ELAPSED CONFIRMED booking is READ-ONLY: its slot is already in the
         // past, so Reschedule + Cancel no longer apply (the backend 409s both
         // with BOOKING_ALREADY_ELAPSED — the server clock is authoritative).
         // Route it into the SAME «Записатись знову» affordance the terminal
-        // states use, rather than showing actions that can only fail.
+        // states use, rather than showing actions that can only fail. (If
+        // `booking.canReview` is also true here, [_actions] prepends the
+        // review CTA in front of whatever this branch returns.)
         if (booking.isPast) {
           return _rebookActions(l10n);
         }
@@ -672,28 +667,9 @@ class _DetailBody extends StatelessWidget {
           ),
         ];
 
-      // A just-completed booking's most relevant next action is leaving a
-      // review — the primary CTA while the server still says it's reviewable
-      // (COMPLETED + owner + not already reviewed, via `canReview`). Rebooking
-      // stays available below it. Once reviewed (`canReview` false) only the
-      // rebook CTA remains — matching the CANCELLED / DECLINED states.
+      // Rebooking is always offered here; when `booking.canReview` is also
+      // true, [_actions] prepends «Залишити відгук» in front of this.
       case BookingStatus.completed:
-        if (booking.canReview) {
-          return <Widget>[
-            NeumorphicButton(
-              key: const Key('booking-detail-leave-review'),
-              label: l10n.bookingDetailReviewCta,
-              icon: Icons.rate_review_rounded,
-              onPressed: onLeaveReview,
-            ),
-            const SizedBox(height: VelvetSpacing.xs),
-            NeumorphicButton(
-              label: l10n.bookingDetailRebookCta,
-              icon: Icons.refresh_rounded,
-              onPressed: onRebook,
-            ),
-          ];
-        }
         return _rebookActions(l10n);
 
       // A kept appointment is the strongest rebook signal there is; a
@@ -723,13 +699,13 @@ class _DetailBody extends StatelessWidget {
   /// device clock can still hit a 409, handled by `onDecline`/`onComplete`'s
   /// callers (see `_confirmDecline`/`_confirmComplete` in the screen state).
   ///
-  ///   * CONFIRMED, not yet started — «Перенести» (a plain single-service
-  ///     booking reuses the SAME `startBookingReschedule` flow the client uses
-  ///     — Phase 27.2 widened `PATCH …/reschedule` to providers on the
-  ///     identical endpoint/shape; an appointment-child booking instead routes
-  ///     to `startAppointmentReschedule`, moving the whole visit via
-  ///     `PATCH /appointments/{id}/reschedule` — track 27.x/MO-6) + «Скасувати»
-  ///     (decline).
+  ///   * CONFIRMED, not yet started — «Перенести» (the SAME
+  ///     `startBookingReschedule` flow the client uses either way — Phase
+  ///     27.2 widened `PATCH …/reschedule` to providers on the identical
+  ///     endpoint/shape; an appointment-child booking passes its
+  ///     `appointmentId` through too, so the confirm-step submit swaps to the
+  ///     per-item `PATCH /appointments/{id}/services/{bookingId}/reschedule`
+  ///     — track 30.x, moving ONLY this service) + «Скасувати» (decline).
   ///   * CONFIRMED, [Booking.hasStarted] — «Завершити» AND «Скасувати»
   ///     (decline). Reschedule alone is hidden — it would 409 server-side
   ///     once the appointment has begun (see `hasStarted`'s doc for why this
@@ -747,12 +723,13 @@ class _DetailBody extends StatelessWidget {
   ///   * Every other terminal status (CANCELLED / DECLINED / NOT_COMPLETED /
   ///     unknown) — read-only, no actions.
   ///
-  /// Track 27.x/MO-6 — a booking that is part of a multi-service VISIT
+  /// Track 27.x/MO-6 (reschedule cut over to per-item by track 30.x) — a
+  /// booking that is part of a multi-service VISIT
   /// (`Booking.appointmentId != null`) now ALSO offers «Перенести»: the
-  /// backend exposes `PATCH /appointments/{id}/reschedule`, so `_onReschedule`
-  /// routes it to [startAppointmentReschedule] (whole-visit lockstep) instead
-  /// of the per-booking flow the visit-child 409 guard would otherwise block.
-  /// «Скасувати» (decline) routes to
+  /// backend exposes a per-item reschedule, so `_onReschedule` passes the
+  /// visit id through [startBookingReschedule], moving ONLY this service
+  /// (never the whole visit) instead of the per-booking flow the visit-child
+  /// 409 guard would otherwise block. «Скасувати» (decline) routes to
   /// `AppointmentRepository.declineAppointmentService` (the per-service visit
   /// endpoint), declining ONLY this tapped service and leaving the visit's
   /// siblings CONFIRMED — NOT the whole-visit `declineAppointment` (see
@@ -833,42 +810,16 @@ class _DetailBody extends StatelessWidget {
     NeumorphicButton(
       label: l10n.bookingDetailRebookCta,
       icon: Icons.refresh_rounded,
-      onPressed: onRebook,
+      // Same guard as the counterparty strip's: `booking_mapper.dart:119`
+      // maps `masterId: dto.masterId ?? ''`, and `_onRebook` pushes
+      // `/masters/<id>`. An empty id makes `/masters/` — which cannot match
+      // `/masters/:masterId` (go_router compiles the param to `[^/]+`) — and
+      // `app_router.dart` declares no `errorBuilder`, so the tap would dump
+      // the client on go_router's default "page not found". Disabled is the
+      // honest affordance: we don't know which master to rebook with.
+      onPressed: booking.masterId.isEmpty ? null : onRebook,
     ),
   ];
-}
-
-/// Adapts [MasterStrip] to the enriched [Booking] fields — mirrors
-/// `MasterStrip.fromMaster`/`.fromSchedule`'s pattern, but a `Booking` has
-/// no [MasterType] on the wire the strip's constructor set expects, so this
-/// composes the base [MasterStrip] constructor directly instead of adding a
-/// fourth factory to a widget three other flows already share.
-class MasterStripFromBooking extends StatelessWidget {
-  const MasterStripFromBooking({super.key, required this.booking});
-
-  final Booking booking;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isDead =
-        booking.status == BookingStatus.cancelled ||
-        booking.status == BookingStatus.declined;
-    return Opacity(
-      opacity: isDead ? 0.7 : 1,
-      child: MasterStrip(
-        name: booking.masterName,
-        // A booking record carries no live `MasterType` — the strip's
-        // fallback role label is resolved directly from `atSalon` instead
-        // (mirrors `masterRoleLabel`'s two salon-vs-independent strings).
-        type: booking.atSalon
-            ? MasterType.salonMaster
-            : MasterType.independentMaster,
-        professionalTitle: booking.masterProfessionalTitle,
-        showRole: true,
-        showRating: false,
-      ),
-    );
-  }
 }
 
 /// The un-animated back affordance — see `BookingSuccessScaffold.leading`'s

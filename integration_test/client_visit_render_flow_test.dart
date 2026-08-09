@@ -42,13 +42,13 @@
 //
 // The whole-visit REVIEW journey this file used to also cover (tap a
 // `VisitCard` → `VisitDetailScreen` → `AppointmentReviewScreen` →
-// `createAppointmentReview`) has no UI entry point left after this change —
-// `VisitCard` was its only tap target in the list. That journey is NOT
-// deleted: `VisitDetailScreen`/`AppointmentReviewScreen` and their own
-// widget-tier tests (`visit_detail_screen_test.dart`,
-// `appointment_review_screen_test.dart`, both pump the screens directly, no
-// dependency on the list) still cover it in isolation. Whether that journey
-// needs a new entry point is a product decision outside this ticket's scope.
+// `createAppointmentReview`) is GONE, not merely unreachable: the backend
+// deleted `POST /appointments/{id}/review` and `Appointment.canReview` under
+// the locked "1 booking = 1 feedback" decision, so `VisitDetailScreen` /
+// `AppointmentReviewScreen` / `appointment_leave_review_notifier.dart` /
+// `appointment_detail_notifier.dart` were deleted outright along with their
+// own widget-tier tests. Every review now flows through the per-booking
+// `LeaveReviewScreen` (`POST /reviews` with a `bookingId`) instead.
 //
 // KEY POLICY (AppHarness): all TAPS are key-/type-based; Ukrainian text appears
 // in CONTENT ASSERTIONS only.
@@ -87,8 +87,11 @@ class _SpyAppointmentRepository implements AppointmentRepository {
   Future<Appointment> getAppointment(String id) => throw UnimplementedError();
 
   @override
-  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
+  Future<Appointment> rescheduleAppointmentItem(
+    String appointmentId,
+    String bookingId,
+    DateTime newStartAt,
+  ) => throw UnimplementedError();
 
   @override
   Future<void> completeAppointment(String id) => throw UnimplementedError();
@@ -101,13 +104,6 @@ class _SpyAppointmentRepository implements AppointmentRepository {
   Future<void> declineAppointmentService(
     String appointmentId,
     String bookingId, {
-    String? comment,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
     String? comment,
   }) => throw UnimplementedError();
 
@@ -165,9 +161,17 @@ void main() {
     final fb = FakeBackend()..currentRole = UserRole.client;
     final spyAppt = _SpyAppointmentRepository();
 
+    // These rows must read as UPCOMING, and `BookingDisplayX.isPast`
+    // compares `endAt` against the DEVICE clock on purpose (`instant-ok`
+    // annotated in `lib/features/booking/domain/booking_display_x.dart`),
+    // never the injected one — the same rationale documented on
+    // `FakeBackend._kFixtureDay`. Anchoring these to `kFixedNow` would make
+    // them render as PAST once the real wall clock passes 2026-06-14.
+    // instant-ok: fixture must track the same DEVICE clock BookingDisplayX reads
     final DateTime visitStart = DateTime.now().add(
       const Duration(days: 1, hours: 10),
     );
+    // instant-ok: same DEVICE-clock rationale as `visitStart` directly above
     final DateTime legacyStart = DateTime.now().add(
       const Duration(days: 2, hours: 10),
     );

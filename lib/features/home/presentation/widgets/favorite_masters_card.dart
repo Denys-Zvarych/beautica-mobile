@@ -73,15 +73,25 @@ class FavoriteMastersCard extends ConsumerWidget {
         ),
         const SizedBox(height: VelvetSpacing.md),
         if (masters.isEmpty)
-          HubFlatCard(
-            key: const Key('favorite_masters_empty'),
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.lg,
-            ),
-            child: HubEmptyState(
-              icon: Icons.favorite_border_rounded,
-              message: l10n.homeHubFavoriteMastersEmpty,
+          // Width is pinned to the full content width on purpose. The outer
+          // Column uses CrossAxisAlignment.start, which hands its children
+          // LOOSE width constraints, so an unpinned HubFlatCard would shrink to
+          // its widest child — the message Text. This card only *looks*
+          // full-width today because `homeHubFavoriteMastersEmpty` happens to be
+          // long enough to fill the row; shortening the copy would silently
+          // narrow it (that is exactly how the BEAUTY TIMELINE card regressed).
+          SizedBox(
+            width: double.infinity,
+            child: HubFlatCard(
+              key: const Key('favorite_masters_empty'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: VelvetSpacing.md,
+                vertical: VelvetSpacing.lg,
+              ),
+              child: HubEmptyState(
+                icon: Icons.favorite_border_rounded,
+                message: l10n.homeHubFavoriteMastersEmpty,
+              ),
             ),
           )
         else

@@ -36,6 +36,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,7 +88,7 @@ Widget _buildApp({
 
 /// Creates a fresh [ProviderContainer] with the draft pre-seeded for [role].
 ProviderContainer _containerWithRole(UserRole role) {
-  final container = ProviderContainer();
+  final container = ProviderContainer(retry: beauticaProviderRetry);
   container.read(registerDraftProvider.notifier).start(role);
   return container;
 }

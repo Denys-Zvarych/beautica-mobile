@@ -31,6 +31,7 @@
 // fires.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
@@ -41,6 +42,8 @@ import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // /users/me source stub
@@ -124,18 +127,32 @@ typedef _Harness = ({
 /// Holds [clientProfileProvider] alive with a no-op [ProviderContainer.listen]
 /// subscription so the container is not torn down while the provider's future
 /// is still loading.
+///
+/// [clock] pins the injected `clockProvider` instant. It defaults to
+/// [_kDefaultClockInstant] rather than being left un-overridden so that every
+/// test in this file runs on ONE clock — `clientProfile` derives
+/// `memberSinceYear` from that seam, and a provider reading the host clock
+/// while the fixtures are fixed is precisely the incoherence Rule 4 of
+/// `scripts/forbid_host_local_instant_anchor.sh` exists to catch. Always
+/// anchor an override with `DateTime.utc(...)` or an explicit
+/// `tz.TZDateTime(...)`, never a bare local `DateTime(...)` (see that script's
+/// header).
 _Harness _harnessForUser(
   User user, {
   List<City> cities = const <City>[],
   List<CityDistrict> districts = const <CityDistrict>[],
+  DateTime? clock,
 }) {
   final repo = _FakeLocationRepository(cities, districts: districts);
+  final DateTime pinnedNow = clock ?? _kDefaultClockInstant;
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       clientEditProfileProvider.overrideWith(
         () => _StubClientEditProfile(user),
       ),
       locationRepositoryProvider.overrideWith((_) => repo),
+      clockProvider.overrideWithValue(() => pinnedNow),
     ],
   );
   addTearDown(container.dispose);
@@ -155,7 +172,20 @@ _Harness _harnessForUser(
 ProviderContainer _containerForUser(
   User user, {
   List<City> cities = const <City>[],
-}) => _harnessForUser(user, cities: cities).container;
+  DateTime? clock,
+}) => _harnessForUser(user, cities: cities, clock: clock).container;
+
+/// The instant every test in this file pins `clockProvider` to unless it asks
+/// for another one.
+///
+/// Anchored with `DateTime.utc(...)` so the instant it names is a property of
+/// the FIXTURE and not of whichever `TZ` the host process runs under — the dev
+/// VM's own zone IS Europe/Kyiv, so a bare local `DateTime(...)` here would be
+/// indistinguishable from a correct anchor locally while meaning something
+/// different on CI. Noon UTC sits nowhere near a day boundary, so it round-trips
+/// to the same Kyiv day from any realistic device zone; the boundary cases that
+/// need otherwise pass their own `clock`.
+final DateTime _kDefaultClockInstant = DateTime.utc(2026, 6, 14, 12);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -392,6 +422,10 @@ void main() {
           locationRepositoryProvider.overrideWith(
             (_) => _FakeLocationRepository(const <City>[]),
           ),
+          // Same pinned clock as every other container in this file — the
+          // provider reads the seam before its first `await`, so it is read
+          // even on the path that throws.
+          clockProvider.overrideWithValue(() => _kDefaultClockInstant),
         ],
       );
       addTearDown(container.dispose);
@@ -509,5 +543,108 @@ void main() {
         );
       },
     );
+  });
+
+  // ── memberSinceYear is Kyiv-anchored, not device-anchored ─────────────────
+  //
+  // `clientProfile.memberSinceYear` used to be a raw `DateTime.now().year` —
+  // a CALENDAR-FIELD read straight off the device clock, bypassing the
+  // injected seam entirely (`lib/features/home/application/home_hub_notifier
+  // .dart`). It now derives from `kyivToday(ref.watch(clockProvider))`.
+  //
+  // RED-AGAINST-ABSENCE, TWICE OVER. Both fixtures below pin a year that is
+  // neither the real current year nor the device-zone year of the injected
+  // instant, so:
+  //   • the OLD implementation fails outright — it ignores the injected clock
+  //     and reports whatever year the machine running the suite is in;
+  //   • a naive "fixed" version that read the calendar fields off the injected
+  //     instant WITHOUT the Kyiv conversion also fails — that is the device
+  //     year, asserted explicitly below to be different.
+  // Only the Kyiv-anchored derivation satisfies both.
+  //
+  // HOST-ZONE INDEPENDENT BY CONSTRUCTION. Each instant is anchored with
+  // `DateTime.utc(...)` or an explicit `tz.TZDateTime(...)` location, so the
+  // divergence each case exercises is a property of the FIXTURE. Verified
+  // green under TZ=Europe/Kyiv (the dev VM, where this class of bug hides),
+  // TZ=UTC, and TZ=Pacific/Honolulu (UTC−10 — the zone that actually exposed
+  // this class earlier in this chain; Kyiv/UTC/Tokyo all agreed).
+  group('clientProfile memberSinceYear (Kyiv-anchored)', () {
+    test('device behind Kyiv across New Year ⇒ year is the KYIV year, not the '
+        'device year', () async {
+      // 2024-12-31 22:30 UTC is 2025-01-01 00:30 in Kyiv (EET, UTC+2 in
+      // winter). The Kyiv YEAR is therefore 2025 while the injected instant's
+      // own device-zone year is still 2024 — and both differ from the real
+      // year the suite is executing in, so neither the old device-clock read
+      // nor an unconverted read of the injected instant can pass this.
+      final DateTime deviceNow = DateTime.utc(2024, 12, 31, 22, 30);
+
+      final container = _containerForUser(_userWithCity, clock: deviceNow);
+
+      final summary = await container.read(clientProfileProvider.future);
+
+      expect(
+        summary.memberSinceYear,
+        2025,
+        reason:
+            'memberSinceYear must be the Europe/Kyiv calendar year the '
+            'injected instant falls in — Kyiv had already rolled over to 2025 '
+            'at 2024-12-31 22:30 UTC.',
+      );
+      expect(
+        deviceNow.year,
+        2024,
+        reason:
+            'the injected instant sits BEHIND Kyiv, so reading its calendar '
+            'year directly (no Kyiv conversion) would report 2024 — this '
+            'pins that the two genuinely disagree, so the assertion above is '
+            'not vacuous.',
+      );
+    });
+
+    test('device ahead of Kyiv across New Year ⇒ year is the KYIV year, not '
+        'the device year', () async {
+      // The mirror direction, anchored to the IANA `Asia/Tokyo` location
+      // (UTC+9, no DST) rather than the host process's own TZ. Tokyo
+      // 2025-01-01 06:00 is 2024-12-31 21:00 UTC, which is 2024-12-31 23:00 in
+      // Kyiv — the device has rolled into 2025 while Kyiv is still in 2024.
+      final DateTime deviceNow = tz.TZDateTime(
+        tz.getLocation('Asia/Tokyo'),
+        2025,
+        1,
+        1,
+        6,
+        0,
+      );
+
+      final container = _containerForUser(_userWithCity, clock: deviceNow);
+
+      final summary = await container.read(clientProfileProvider.future);
+
+      expect(
+        summary.memberSinceYear,
+        2024,
+        reason:
+            'memberSinceYear must follow Kyiv, which is still in 2024 when a '
+            'UTC+9 device has already rolled over to 2025.',
+      );
+      expect(
+        deviceNow.year,
+        2025,
+        reason:
+            'the injected instant sits AHEAD of Kyiv, so reading its calendar '
+            'year directly would report 2025 — the two genuinely disagree.',
+      );
+    });
+
+    test('non-boundary instant ⇒ year matches on every zone', () async {
+      // Noon UTC mid-year: Kyiv, UTC and every realistic device zone agree, so
+      // this is the control case — it pins that the seam does not perturb the
+      // ordinary path.
+      final container = _containerForUser(_userWithCity);
+
+      final summary = await container.read(clientProfileProvider.future);
+
+      expect(summary.memberSinceYear, 2026);
+    });
   });
 }

@@ -1,7 +1,18 @@
 // Phase 13.7 — CLIENT Головна (Home Hub) screen.
 //
 // Post-login landing: bottom-nav tab index 0 for CLIENT role.
-// Acquires ScreenProtectionManager in initState (PII: name, phone, city).
+// Acquires ScreenProtectionManager in initState (PII: name, phone, city —
+// plus, since the BookingCard cutover, the next appointment's master photo
+// (`masterAvatarUrl`), master name, master professional title, salon name, a
+// category icon, service name, price (CONFIRMED/COMPLETED only, gated by
+// `BookingDisplayX.showsPrice`), status badge, and start time; see
+// `docs/mobile-phases/phase-225-home-hub-next-appointment-wiring.md`). Net
+// delta from the earlier bespoke card this replaced: the raw street address
+// is GONE (BookingCard renders no street/buildingNo/cityLabel/districtLabel,
+// no client* field, and no note field) — master photo, professional title,
+// price, and status are NEW. Protection is screen-wide (FLAG_SECURE /
+// app-switcher blur covers the entire screen, not per-card), so this is a
+// documentation-accuracy fix, not a functional gap either way.
 //
 // Layout (scrollable ListView of cards, staggered reveal):
 //   1. Top bar: beautica wordmark | bell | burger
@@ -21,7 +32,6 @@
 //   • "BEAUTY TIMELINE" in BeautyTimelineSection
 // Those are intentionally untranslated per the locked product decision.
 
-import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -32,12 +42,12 @@ import 'package:go_router/go_router.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
+import '../../../core/widgets/staggered_reveal.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
-import '../../../shared/calendar/add_to_calendar.dart';
-import '../../booking/application/booking_reschedule_in_flight_notifier.dart';
-import '../../booking/presentation/reschedule_navigation.dart';
+import '../../booking/domain/booking.dart';
+import '../../booking/presentation/widgets/booking_card.dart';
 import '../../rating/application/my_rating_notifier.dart';
 import '../../rating/domain/client_rating.dart';
 import '../application/home_hub_notifier.dart';
@@ -46,7 +56,7 @@ import 'widgets/beauty_timeline_section.dart';
 import 'widgets/favorite_masters_card.dart';
 import 'widgets/home_profile_card.dart';
 import 'widgets/hub_widgets.dart';
-import 'widgets/next_appointment_card.dart';
+import 'widgets/next_appointment_empty_state.dart';
 import 'widgets/passport_preview_card.dart';
 import 'widgets/quick_links_card.dart';
 
@@ -71,9 +81,13 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
   @override
   void initState() {
     super.initState();
-    // CRITICAL-4: Home Hub shows name / phone / city — acquire screen
-    // protection so FLAG_SECURE / iOS app-switcher blur is active while
-    // this screen is mounted.
+    // CRITICAL-4: Home Hub shows name / phone / city, and (since the
+    // BookingCard cutover) the next appointment's master photo / master name
+    // / professional title / salon name / service name / price / status —
+    // acquire screen protection so FLAG_SECURE / iOS app-switcher blur is
+    // active while this screen is mounted. (No street address, no client*
+    // field, no note field — see the file header for the full field-set
+    // delta against the retired bespoke card.)
     //
     // Accessing _protection here (not ref.read directly) forces the lazy
     // initializer to run now, while ref is valid. dispose() then only
@@ -110,7 +124,15 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
     // The top bar (wordmark · bell · burger) is hosted by ClientShell — this
     // screen is just the branch body. The shell owns the single SafeArea(top)
     // too, so the body must NOT re-wrap one.
-    return _HomeHubBody(l10n: l10n);
+    //
+    // Stable branch key: the real HomeHubScreen replaced the placeholder for
+    // the index-0 client-shell branch (Phase 13.7). Carry the same
+    // `client-branch-home` key the placeholder exposed so the client-shell E2E
+    // flows' branch-0 assertions (and the edge-swipe-back flow) keep a stable,
+    // locale-independent target — mirrors `passport_screen.dart`'s
+    // `client-branch-passport`. Every branch screen that supersedes a
+    // placeholder MUST carry the placeholder's key forward.
+    return _HomeHubBody(key: const Key('client-branch-home'), l10n: l10n);
   }
 }
 
@@ -119,7 +141,7 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
 // ---------------------------------------------------------------------------
 
 class _HomeHubBody extends ConsumerWidget {
-  const _HomeHubBody({required this.l10n});
+  const _HomeHubBody({required this.l10n, super.key});
 
   final AppLocalizations l10n;
 
@@ -131,17 +153,21 @@ class _HomeHubBody extends ConsumerWidget {
     // (_ProfileSection / _StatPillsRow), so a profile edit rebuilds only those
     // leaves — not this whole body — and the rating pill uses a `.select` slice
     // so it only rebuilds when the rating itself changes.
-    final nextApptAsync = ref.watch(nextAppointmentProvider);
+    //
+    // nextAppointmentProvider (+ the reschedule/cancel in-flight flags) is
+    // likewise NOT watched here (Phase 225 fix pass, mobile-perf MEDIUM) — it
+    // is invalidated from 5 call sites (create/cancel/reschedule), and
+    // watching it at this level re-ran the WHOLE body — including the
+    // Favourites/Timeline `.when()` branches — on every one of those
+    // invalidations even though neither section changed. `_NextAppointmentSection`
+    // below watches it internally, exactly like `_ProfileSection` already does
+    // for `clientProfileProvider`.
     final favoritesAsync = ref.watch(favoriteMastersProvider);
     final timelineAsync = ref.watch(beautyTimelineProvider);
-    // Drives the «Перенести» spinner while the shared reschedule navigation
-    // loads its seeding GETs — `_HomeHubBody` is stateless, so a provider flag
-    // (not local State) is the right mechanism.
-    final bool rescheduleLoading = ref.watch(bookingRescheduleInFlightProvider);
 
     return RepaintBoundary(
-      child: _StaggeredReveal(
-        builder: (BuildContext context, _RevealFn reveal) {
+      child: StaggeredReveal(
+        builder: (BuildContext context, RevealFn reveal) {
           return ListView(
             // Top inset matches the gap the on-screen bar used to leave above
             // the profile block: the shell-owned ClientTopBar sits directly
@@ -187,59 +213,7 @@ class _HomeHubBody extends ConsumerWidget {
               reveal(
                 start: 0.23,
                 end: 0.64,
-                child: nextApptAsync.when(
-                  data: (NextAppointment? appt) => NextAppointmentCard(
-                    appointment: appt,
-                    rescheduleLoading: rescheduleLoading,
-                    onReschedule: () {
-                      // Route into the SAME reschedule flow the «Деталі запису»
-                      // screen uses — the card only has the booking id, so the
-                      // shared helper loads the rest (master + booked service)
-                      // before seeding the slot picker.
-                      if (appt != null) {
-                        unawaited(
-                          startBookingReschedule(
-                            context: context,
-                            ref: ref,
-                            bookingId: appt.id,
-                          ),
-                        );
-                      }
-                    },
-                    onCancel: () {
-                      // TODO(14.5): route to cancel screen
-                      if (kDebugMode) {
-                        log(
-                          'cancel tapped — placeholder',
-                          name: 'feature.home',
-                          level: 700,
-                        );
-                      }
-                    },
-                    // Both variants share ONE code path: add_2_calendar opens
-                    // the OS default-calendar sheet, so the OS — not the app —
-                    // picks Google vs Apple vs any other calendar app.
-                    onAddToGoogleCalendar: () {
-                      if (appt != null) {
-                        unawaited(
-                          _addNextAppointmentToCalendar(context, l10n, appt),
-                        );
-                      }
-                    },
-                    onAddToAppleCalendar: () {
-                      if (appt != null) {
-                        unawaited(
-                          _addNextAppointmentToCalendar(context, l10n, appt),
-                        );
-                      }
-                    },
-                  ),
-                  loading: () => const _SectionSkeleton(),
-                  error: (Object e, _) => _CardErrorState(
-                    message: l10n.homeHubNextApptLoadError,
-                    onRetry: () => ref.invalidate(nextAppointmentProvider),
-                  ),
-                ),
+                child: const _NextAppointmentSection(),
               ),
               const SizedBox(height: VelvetSpacing.lg),
 
@@ -296,40 +270,102 @@ class _HomeHubBody extends ConsumerWidget {
   }
 }
 
-/// Adds the home-hub next appointment to the OS calendar via the shared
-/// [addBookingToCalendar] path (opens the platform default-calendar sheet).
-///
-/// NOTE: the `NextAppointment` payload (backend 19.3) exposes only `startsAt` —
-/// no duration/end — so the event is seeded with a 1-hour default block. When
-/// that DTO surfaces `durationMinutes`/`endAt`, pass the real end here.
-Future<void> _addNextAppointmentToCalendar(
-  BuildContext context,
-  AppLocalizations l10n,
-  NextAppointment appt,
-) {
-  // Structured facts only — NO free-text notes reach the calendar (the
-  // `NextAppointment` DTO carries none anyway). The limited DTO exposes just
-  // service, master, the pre-formatted date/time strings the card renders, and
-  // a location — no duration/end (hence the 1-hour default block above), no
-  // price, no definite status. Omit the fields it lacks rather than emit empty
-  // labels; the builder skips any null/blank value.
-  final String? location = appt.location.isEmpty ? null : appt.location;
-  final String? description = buildCalendarDescription(
-    l10n: l10n,
-    service: appt.service,
-    provider: appt.masterName,
-    providerRole: CalendarProviderRole.master,
-    dateTime: '${appt.dateLabel}, ${appt.timeLabel}',
-    address: location,
-  );
-  return addBookingToCalendar(
-    context: context,
-    title: l10n.bookingCalendarEventTitle(appt.service, appt.masterName),
-    location: location,
-    start: appt.startsAt,
-    end: appt.startsAt.add(const Duration(hours: 1)),
-    description: description,
-  );
+// ---------------------------------------------------------------------------
+// Next appointment block — leaf consumer so an invalidation of
+// nextAppointmentProvider (fired from 5 mutation call sites — create,
+// reschedule, and cancel) rebuilds only this card, not the whole
+// _HomeHubBody (mirrors _ProfileSection below; Phase 225 fix pass,
+// mobile-perf MEDIUM).
+//
+// USER-LOCKED DECISION — the populated state renders the SAME shared
+// `BookingCard` widget «Мої записи» uses (`booking_card.dart`), unchanged and
+// unparameterised: "the card has ONE affordance: open me" (see its library
+// doc). Reschedule / cancel / add-to-calendar all now live on «Деталі
+// запису» (`booking_detail_screen.dart`), reached by tapping the card OR the
+// small details link below it — there is no in-card action column here any
+// more, and this section therefore no longer watches the reschedule/cancel
+// in-flight flags (those only drive the detail screen's own buttons).
+//
+// Param-less + const, matching _ProfileSection's pattern (resolves l10n via
+// AppLocalizations.of(context) internally) rather than taking `l10n` as a
+// ctor param.
+//
+// Riverpod offstage-pause note: this extraction moves WHERE the watch lives
+// (from _HomeHubBody down into this leaf) but not WHAT subtree it lives in —
+// both are still inside the same StatefulShellBranch offstage/onstage
+// boundary as before, so the existing "ref.invalidate on an autoDispose
+// provider with only paused listeners defers its rebuild; the refetch lands on
+// resume" behaviour is unchanged. (Corrected 2026-08-06: this said "disposes
+// it". It does not at riverpod 3.1.0 — `hasNonWeakListeners` counts PAUSED
+// subscriptions, so `_performDispose` skips it; `scheduler.dart:167`,
+// `element.dart:407`. Only the mechanism was wrong, never the observable.)
+// ---------------------------------------------------------------------------
+
+class _NextAppointmentSection extends ConsumerWidget {
+  const _NextAppointmentSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final AsyncValue<Booking?> nextApptAsync = ref.watch(
+      nextAppointmentProvider,
+    );
+
+    return nextApptAsync.when(
+      data: (Booking? booking) {
+        if (booking == null) {
+          return const NextAppointmentEmptyState();
+        }
+        return Column(
+          key: const Key('next_appointment_populated'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            HubSectionTitle(
+              title: l10n.homeHubNextAppointmentTitle,
+              trailing: CountdownChip(target: booking.startAt),
+            ),
+            const SizedBox(height: VelvetSpacing.md),
+            // RepaintBoundary — matches the sibling call site
+            // (`my_bookings_screen.dart`'s `ListView.separated` row). This
+            // list item (the whole `_NextAppointmentSection`) gets exactly
+            // ONE auto-`RepaintBoundary` from the parent `ListView`'s default
+            // delegate, so without this the card's `_CardChrome` `CustomPaint`
+            // (gradient shader + dashed tear-line) shares a raster boundary
+            // with the `CountdownChip` above, which re-ticks every 30s
+            // (`hub_widgets.dart`'s `Timer.periodic`) and would otherwise
+            // force the card to re-rasterize on every tick.
+            RepaintBoundary(
+              child: BookingCard(
+                key: ValueKey<String>('next-appointment-booking-${booking.id}'),
+                booking: booking,
+                onOpenDetails: () =>
+                    context.push(RouteNames.bookingDetail(booking.id)),
+              ),
+            ),
+            const SizedBox(height: VelvetSpacing.sm),
+            // The card carries no buttons (see its library doc) — this small
+            // link below it is the only additional affordance, so users
+            // understand the card opens «Деталі запису» when tapped. Styled
+            // with the SAME muted "see all" link primitive the sibling rails
+            // use, deliberately never a heavy CTA competing with the card.
+            Align(
+              alignment: Alignment.centerRight,
+              child: HubSeeAllLink(
+                key: const Key('next_appointment_details_link'),
+                label: l10n.homeHubNextAppointmentDetailsLink,
+                onTap: () => context.push(RouteNames.bookingDetail(booking.id)),
+              ),
+            ),
+          ],
+        );
+      },
+      loading: () => const _SectionSkeleton(),
+      error: (Object e, _) => _CardErrorState(
+        message: l10n.homeHubNextApptLoadError,
+        onRetry: () => ref.invalidate(nextAppointmentProvider),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -566,89 +602,4 @@ class _CardErrorState extends StatelessWidget {
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Staggered reveal (ported from branch_placeholders.dart, same as preview's
-// StaggeredReveal, but ticker-gated for the StatefulShellRoute IndexedStack)
-// ---------------------------------------------------------------------------
-
-typedef _RevealFn =
-    Widget Function({
-      required double start,
-      required double end,
-      required Widget child,
-    });
-
-class _StaggeredReveal extends StatefulWidget {
-  const _StaggeredReveal({required this.builder});
-
-  final Widget Function(BuildContext context, _RevealFn reveal) builder;
-
-  @override
-  State<_StaggeredReveal> createState() => _StaggeredRevealState();
-}
-
-class _StaggeredRevealState extends State<_StaggeredReveal>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  bool _started = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_started && TickerMode.valuesOf(context).enabled) {
-      _started = true;
-      // Post-frame so initial paint is not lost at 0.0 opacity.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final bool animationsDisabled =
-            MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-        if (animationsDisabled) {
-          _controller.value = 1.0;
-        } else {
-          _controller.forward();
-        }
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Widget _reveal({
-    required double start,
-    required double end,
-    required Widget child,
-  }) {
-    final Animation<double> curved = CurvedAnimation(
-      parent: _controller,
-      curve: Interval(start, end, curve: Curves.easeOutCubic),
-    );
-    return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.35),
-          end: Offset.zero,
-        ).animate(curved),
-        child: child,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.builder(context, _reveal);
 }

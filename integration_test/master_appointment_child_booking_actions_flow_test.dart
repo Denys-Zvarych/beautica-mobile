@@ -137,8 +137,11 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<Appointment> getAppointment(String id) => throw UnimplementedError();
 
   @override
-  Future<Appointment> rescheduleAppointment(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
+  Future<Appointment> rescheduleAppointmentItem(
+    String appointmentId,
+    String bookingId,
+    DateTime newStartAt,
+  ) => throw UnimplementedError();
 
   @override
   Future<void> cancelAppointment(String id, {String? note}) =>
@@ -147,13 +150,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) =>
       throw UnimplementedError();
-
-  @override
-  Future<void> createAppointmentReview(
-    String id, {
-    required int rating,
-    String? comment,
-  }) => throw UnimplementedError();
 }
 
 void main() {
@@ -277,6 +273,14 @@ void main() {
       // `master_booking_provider_actions_flow_test.dart`) — started well in
       // the past, ends well in the future, so `hasStarted` is
       // deterministically true regardless of how long this test takes.
+      // `BookingDisplayX.hasStarted`/`.isPast` compare against the DEVICE
+      // clock on purpose (both `instant-ok` annotated in
+      // `lib/features/booking/domain/booking_display_x.dart`) — a
+      // presentation-only "has this slot passed" signal, deliberately NOT
+      // the injected `clockProvider` instant. A `kFixedNow`-anchored window
+      // would classify as long-elapsed, not underway. See the two-clock
+      // model documented on `FakeBackend.serverNow`.
+      // instant-ok: fixture tracks the DEVICE clock BookingDisplayX reads
       final DateTime start = DateTime.now().toUtc().subtract(
         const Duration(hours: 1),
       );
@@ -344,6 +348,14 @@ void main() {
 
       // Same wide, wall-clock-safe "underway/elapsed" window as the complete
       // test above.
+      // `BookingDisplayX.hasStarted`/`.isPast` compare against the DEVICE
+      // clock on purpose (both `instant-ok` annotated in
+      // `lib/features/booking/domain/booking_display_x.dart`) — a
+      // presentation-only "has this slot passed" signal, deliberately NOT
+      // the injected `clockProvider` instant. A `kFixedNow`-anchored window
+      // would classify as long-elapsed, not underway. See the two-clock
+      // model documented on `FakeBackend.serverNow`.
+      // instant-ok: fixture tracks the DEVICE clock BookingDisplayX reads
       final DateTime start = DateTime.now().toUtc().subtract(
         const Duration(hours: 1),
       );

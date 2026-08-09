@@ -80,8 +80,19 @@ abstract class Master with _$Master {
     /// URL of the master's profile avatar.
     String? avatarUrl,
 
-    /// Average review rating (0.0–5.0 scale).
-    required double avgRating,
+    /// Average review rating (1.0–5.0 scale), or `null` when the master has no
+    /// reviews yet.
+    ///
+    /// **`null` is the no-reviews state — NEVER coalesce it to `0.0`.** The
+    /// backend stores `0.00` for an unreviewed master (`masters.avg_rating` is
+    /// `NOT NULL DEFAULT 0.00`) and, since Phase 240, normalises that storage
+    /// artefact to `null` on every endpoint that serves a master, precisely so
+    /// a brand-new master is not shown a damning zero stars. Defaulting it back
+    /// to `0` here would re-introduce the exact bug the backend removed.
+    ///
+    /// Render the no-rating treatment when null — `MasterStrip` shows the
+    /// `—` placeholder, the discovery cards show «Без відгуків».
+    double? avgRating,
 
     /// Total number of reviews received.
     required int reviewCount,
@@ -115,4 +126,31 @@ abstract class Master with _$Master {
     /// all 7 days.
     @Default(<WorkingHours>[]) List<WorkingHours> workingHours,
   }) = _Master;
+}
+
+/// Rating presentation helpers for [Master].
+extension MasterRatingX on Master {
+  /// The average rating to display, or `null` when there is no rating to show
+  /// and the caller must render the no-rating treatment (`—` / «Без відгуків»).
+  ///
+  /// Collapses THREE distinct "no rating yet" shapes onto a single `null` so no
+  /// call site has to remember all of them:
+  ///
+  ///  * [avgRating] is `null` — the Phase 240 wire contract for an unreviewed
+  ///    master, and the canonical signal going forward.
+  ///  * [avgRating] is `0.0` — the pre-240 wire shape, and still what a stale
+  ///    backend or an older cached response sends. Rendering it would print a
+  ///    damning «0.0» on a brand-new master, which is the exact bug Phase 240
+  ///    set out to remove; a real average is always ≥ 1.0, so a zero here is a
+  ///    storage artefact and never a genuine score.
+  ///  * [reviewCount] is `0` — no reviews can produce no average, whatever the
+  ///    rating field happens to carry.
+  ///
+  /// Mirrors the guard `MasterResultCard._RatingRow` already applies on the
+  /// discovery cards, so every surface agrees on what "unrated" looks like.
+  double? get displayRating {
+    final double? avg = avgRating;
+    if (avg == null || avg <= 0 || reviewCount <= 0) return null;
+    return avg;
+  }
 }

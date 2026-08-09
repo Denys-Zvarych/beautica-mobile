@@ -9,8 +9,8 @@
 //
 // Also covers: pristine→dirty Save enable, required-field validation, the
 // save-success path (updateMyProfile called → masterProfileProvider invalidated
-// → saved SnackBar → navigate to profile when canPop is false), and the
-// network-failure SnackBar.
+// → saved VelvetSnack → navigate to profile when canPop is false), and the
+// network-failure VelvetSnack.
 //
 // Finders use widget Keys (M2). Layer: Widget.
 
@@ -28,6 +28,7 @@ import 'package:beautica_mobile/features/master/presentation/personal_info_edit_
 import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +36,8 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
 
@@ -299,46 +302,50 @@ void main() {
     },
   );
 
-  testWidgets('save success invalidates the profile, shows the saved SnackBar '
-      'and navigates to the profile when canPop is false', (tester) async {
-    when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+  testWidgets(
+    'save success invalidates the profile, shows the saved VelvetSnack '
+    'and navigates to the profile when canPop is false',
+    (tester) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
 
-    final states = <AsyncValue<Object?>>[];
+      final states = <AsyncValue<Object?>>[];
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: _overrides(repo).cast(),
-        child: _InvalidationWatcher(
-          states: states,
-          child: MaterialApp.router(
-            routerConfig: _buildRouter(),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: _overrides(repo).cast(),
+          child: _InvalidationWatcher(
+            states: states,
+            child: MaterialApp.router(
+              routerConfig: _buildRouter(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
+      );
+      await tester.pump();
+      await tester.pump();
 
-    final before = states.length;
+      final before = states.length;
 
-    await tester.enterText(_field('field-firstName'), 'Оксана');
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('btn-save-personal')));
-    await tester.pumpAndSettle();
+      await tester.enterText(_field('field-firstName'), 'Оксана');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pumpAndSettle();
 
-    verify(() => repo.updateMyProfile(any())).called(1);
-    // Navigated to the profile sentinel (canPop was false at the root).
-    expect(find.byKey(const Key('stub-profile')), findsOneWidget);
-    // Provider invalidation produced at least one extra emission.
-    expect(
-      states.length,
-      greaterThan(before),
-      reason: 'masterProfileProvider must be invalidated after a save',
-    );
-  });
+      verify(() => repo.updateMyProfile(any())).called(1);
+      // Navigated to the profile sentinel (canPop was false at the root).
+      expect(find.byKey(const Key('stub-profile')), findsOneWidget);
+      // Provider invalidation produced at least one extra emission.
+      expect(
+        states.length,
+        greaterThan(before),
+        reason: 'masterProfileProvider must be invalidated after a save',
+      );
+    },
+  );
 
   testWidgets('empty firstName blocks save and shows the validation summary', (
     tester,
@@ -351,14 +358,18 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('btn-save-personal')));
-    await tester.pump();
+    await pumpVelvetSnackIn(tester);
 
-    expect(
-      find.byKey(const Key('snackbar-validation-summary')),
-      findsOneWidget,
-      reason: 'an empty required firstName must block save',
+    final l10n = AppLocalizations.of(
+      tester.element(find.byKey(const Key('field-firstName'))),
+    );
+    expectVelvetSnack(
+      l10n.editValidationSummary,
+      variant: VelvetSnackVariant.error,
     );
     verifyNever(() => repo.updateMyProfile(any()));
+
+    await pumpPastVelvetSnack(tester); // drain the dwell Timer
   });
 
   // ── Name no-digit validation (Step 2.7 Rule 3 regression) ────────────────
@@ -620,10 +631,20 @@ void main() {
     },
   );
 
-  testWidgets('network failure shows an error SnackBar and re-enables Save', (
+  testWidgets('network failure shows an error VelvetSnack and re-enables Save', (
     tester,
   ) async {
-    when(() => repo.updateMyProfile(any())).thenThrow(const NetworkFailure());
+    // ASYNCHRONOUS throw — how a Dio-backed repository actually fails. No retry
+    // curve is reachable here (this is an imperative save handler, and
+    // Riverpod's retry predicate governs failed provider *builds* only), so the
+    // conversion costs nothing in run time. It buys fidelity: a synchronous
+    // throw would still be caught by the handler's `try`/`await`, so the old
+    // stub would have kept passing if the save were ever refactored onto a
+    // non-awaited future chain — the exact shape that drops the error on the
+    // floor and leaves Save stuck disabled.
+    when(
+      () => repo.updateMyProfile(any()),
+    ).thenAnswer((_) async => throw const NetworkFailure());
 
     await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
     await tester.pump();
@@ -634,7 +655,13 @@ void main() {
     await tester.tap(find.byKey(const Key('btn-save-personal')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(SnackBar), findsOneWidget);
+    // The localized NetworkFailure message (errNetwork) renders in a
+    // root-overlay VelvetSnack — NOT a SnackBar/ScaffoldMessenger
+    // descendant (see test/helpers/velvet_snack_matchers.dart header).
+    final l10n = AppLocalizations.of(
+      tester.element(find.byKey(const Key('field-firstName'))),
+    );
+    expectVelvetSnack(l10n.errNetwork, variant: VelvetSnackVariant.error);
     // Still on the edit screen (no navigation on failure).
     expect(find.byKey(const Key('field-firstName')), findsOneWidget);
     expect(
@@ -644,6 +671,7 @@ void main() {
       isNotNull,
       reason: '_saving must clear after a failure so Save is interactive again',
     );
+    // pumpAndSettle above already drained the dwell Timer.
   });
 }
 

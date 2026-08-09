@@ -242,6 +242,14 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? appointmentId;
   @override
   final String? clientAvatarUrl;
+  @override
+  final bool? awaitingClosure;
+  @override
+  final num? masterAvgRating;
+  @override
+  final int? masterReviewCount;
+  @override
+  final String? salonId;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -280,7 +288,11 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.canReview,
       this.providerCanReviewClient,
       this.appointmentId,
-      this.clientAvatarUrl})
+      this.clientAvatarUrl,
+      this.awaitingClosure,
+      this.masterAvgRating,
+      this.masterReviewCount,
+      this.salonId})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -327,7 +339,11 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         canReview == other.canReview &&
         providerCanReviewClient == other.providerCanReviewClient &&
         appointmentId == other.appointmentId &&
-        clientAvatarUrl == other.clientAvatarUrl;
+        clientAvatarUrl == other.clientAvatarUrl &&
+        awaitingClosure == other.awaitingClosure &&
+        masterAvgRating == other.masterAvgRating &&
+        masterReviewCount == other.masterReviewCount &&
+        salonId == other.salonId;
   }
 
   @override
@@ -366,6 +382,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, providerCanReviewClient.hashCode);
     _$hash = $jc(_$hash, appointmentId.hashCode);
     _$hash = $jc(_$hash, clientAvatarUrl.hashCode);
+    _$hash = $jc(_$hash, awaitingClosure.hashCode);
+    _$hash = $jc(_$hash, masterAvgRating.hashCode);
+    _$hash = $jc(_$hash, masterReviewCount.hashCode);
+    _$hash = $jc(_$hash, salonId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -405,7 +425,11 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('canReview', canReview)
           ..add('providerCanReviewClient', providerCanReviewClient)
           ..add('appointmentId', appointmentId)
-          ..add('clientAvatarUrl', clientAvatarUrl))
+          ..add('clientAvatarUrl', clientAvatarUrl)
+          ..add('awaitingClosure', awaitingClosure)
+          ..add('masterAvgRating', masterAvgRating)
+          ..add('masterReviewCount', masterReviewCount)
+          ..add('salonId', salonId))
         .toString();
   }
 }
@@ -565,6 +589,25 @@ class BookingDetailResponseBuilder
   set clientAvatarUrl(String? clientAvatarUrl) =>
       _$this._clientAvatarUrl = clientAvatarUrl;
 
+  bool? _awaitingClosure;
+  bool? get awaitingClosure => _$this._awaitingClosure;
+  set awaitingClosure(bool? awaitingClosure) =>
+      _$this._awaitingClosure = awaitingClosure;
+
+  num? _masterAvgRating;
+  num? get masterAvgRating => _$this._masterAvgRating;
+  set masterAvgRating(num? masterAvgRating) =>
+      _$this._masterAvgRating = masterAvgRating;
+
+  int? _masterReviewCount;
+  int? get masterReviewCount => _$this._masterReviewCount;
+  set masterReviewCount(int? masterReviewCount) =>
+      _$this._masterReviewCount = masterReviewCount;
+
+  String? _salonId;
+  String? get salonId => _$this._salonId;
+  set salonId(String? salonId) => _$this._salonId = salonId;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -605,6 +648,10 @@ class BookingDetailResponseBuilder
       _providerCanReviewClient = $v.providerCanReviewClient;
       _appointmentId = $v.appointmentId;
       _clientAvatarUrl = $v.clientAvatarUrl;
+      _awaitingClosure = $v.awaitingClosure;
+      _masterAvgRating = $v.masterAvgRating;
+      _masterReviewCount = $v.masterReviewCount;
+      _salonId = $v.salonId;
       _$v = null;
     }
     return this;
@@ -659,6 +706,10 @@ class BookingDetailResponseBuilder
           providerCanReviewClient: providerCanReviewClient,
           appointmentId: appointmentId,
           clientAvatarUrl: clientAvatarUrl,
+          awaitingClosure: awaitingClosure,
+          masterAvgRating: masterAvgRating,
+          masterReviewCount: masterReviewCount,
+          salonId: salonId,
         );
     replace(_$result);
     return _$result;

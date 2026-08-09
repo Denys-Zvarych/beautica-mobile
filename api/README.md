@@ -66,6 +66,7 @@ All URIs are relative to *http://localhost:8080*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointment**](doc/AppointmentControllerApi.md#cancelappointment) | **PATCH** /api/v1/appointments/{appointmentId}/cancel | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointmentItem**](doc/AppointmentControllerApi.md#cancelappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/cancel | Cancel one service line of a visit
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**completeAppointment**](doc/AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**createAppointment**](doc/AppointmentControllerApi.md#createappointment) | **POST** /api/v1/appointments | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointment**](doc/AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
@@ -73,6 +74,7 @@ Class | Method | HTTP request | Description
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**getAppointment**](doc/AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**notCompleteAppointment**](doc/AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointment**](doc/AppointmentControllerApi.md#rescheduleappointment) | **PATCH** /api/v1/appointments/{appointmentId}/reschedule | 
+[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointmentItem**](doc/AppointmentControllerApi.md#rescheduleappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/reschedule | Reschedule one service line of a visit
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**acceptInvite**](doc/AuthControllerApi.md#acceptinvite) | **POST** /api/v1/auth/invite/accept | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**forgotPassword**](doc/AuthControllerApi.md#forgotpassword) | **POST** /api/v1/auth/forgot-password | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**login**](doc/AuthControllerApi.md#login) | **POST** /api/v1/auth/login | 
@@ -91,6 +93,7 @@ Class | Method | HTTP request | Description
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**declineBooking**](doc/BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getBooking**](doc/BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**getUnclosedCount**](doc/BookingControllerApi.md#getunclosedcount) | **GET** /api/v1/bookings/me/unclosed-count | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookedDays**](doc/BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
@@ -106,6 +109,7 @@ Class | Method | HTTP request | Description
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**addFavorite**](doc/FavoriteControllerApi.md#addfavorite) | **POST** /api/v1/favorites | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listMasterFavorites**](doc/FavoriteControllerApi.md#listmasterfavorites) | **GET** /api/v1/favorites/masters | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listSalonFavorites**](doc/FavoriteControllerApi.md#listsalonfavorites) | **GET** /api/v1/favorites/salons | 
+[*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listServiceFavorites**](doc/FavoriteControllerApi.md#listservicefavorites) | **GET** /api/v1/favorites/services | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**removeFavorite**](doc/FavoriteControllerApi.md#removefavorite) | **DELETE** /api/v1/favorites | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateLocality**](doc/IndependentMasterControllerApi.md#updatelocality) | **PATCH** /api/v1/independent-masters/me | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateProfile**](doc/IndependentMasterControllerApi.md#updateprofile) | **PATCH** /api/v1/independent-masters/me/profile | 
@@ -146,7 +150,6 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancel**](doc/PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancelInfo**](doc/PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**info**](doc/PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
-[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createAppointmentReview**](doc/ReviewControllerApi.md#createappointmentreview) | **POST** /api/v1/appointments/{appointmentId}/review | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -174,8 +177,8 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addIndependentMasterService**](doc/ServiceControllerApi.md#addindependentmasterservice) | **POST** /api/v1/independent-masters/me/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addServiceToSalon**](doc/ServiceControllerApi.md#addservicetosalon) | **POST** /api/v1/salons/{salonId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**assignServiceToMaster**](doc/ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**bulkCreateMasterServices**](doc/ServiceControllerApi.md#bulkcreatemasterservices) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services/bulk | Bulk-create a salon master&#39;s services (first-time setup)
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**bulkCreateMyServices**](doc/ServiceControllerApi.md#bulkcreatemyservices) | **POST** /api/v1/independent-masters/me/services/bulk | Bulk-create my services (first-time setup)
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**bulkCreateMasterServices**](doc/ServiceControllerApi.md#bulkcreatemasterservices) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services/bulk | Bulk-create a salon master&#39;s services
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**bulkCreateMyServices**](doc/ServiceControllerApi.md#bulkcreatemyservices) | **POST** /api/v1/independent-masters/me/services/bulk | Bulk-create my services
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMyServices**](doc/ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
@@ -232,6 +235,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePageResponseBookingResponse](doc/ApiResponsePageResponseBookingResponse.md)
  - [ApiResponsePageResponseFavoriteMasterResponse](doc/ApiResponsePageResponseFavoriteMasterResponse.md)
  - [ApiResponsePageResponseFavoriteSalonResponse](doc/ApiResponsePageResponseFavoriteSalonResponse.md)
+ - [ApiResponsePageResponseFavoriteServiceResponse](doc/ApiResponsePageResponseFavoriteServiceResponse.md)
  - [ApiResponsePageResponseMasterSearchResult](doc/ApiResponsePageResponseMasterSearchResult.md)
  - [ApiResponsePageResponseMasterSummaryResponse](doc/ApiResponsePageResponseMasterSummaryResponse.md)
  - [ApiResponsePageResponseMyReviewResponse](doc/ApiResponsePageResponseMyReviewResponse.md)
@@ -251,6 +255,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseSalonServiceCatalogResponse](doc/ApiResponseSalonServiceCatalogResponse.md)
  - [ApiResponseScheduleOverrideResponse](doc/ApiResponseScheduleOverrideResponse.md)
  - [ApiResponseServiceDefinitionResponse](doc/ApiResponseServiceDefinitionResponse.md)
+ - [ApiResponseUnclosedCountResponse](doc/ApiResponseUnclosedCountResponse.md)
  - [ApiResponseUserProfileResponse](doc/ApiResponseUserProfileResponse.md)
  - [ApiResponseUserRatingResponse](doc/ApiResponseUserRatingResponse.md)
  - [ApiResponseVerifyPasswordResetOtpResponse](doc/ApiResponseVerifyPasswordResetOtpResponse.md)
@@ -258,6 +263,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseWeeklyScheduleResponse](doc/ApiResponseWeeklyScheduleResponse.md)
  - [AppointmentCancelRequest](doc/AppointmentCancelRequest.md)
  - [AppointmentDetailResponse](doc/AppointmentDetailResponse.md)
+ - [AppointmentItemRescheduleRequest](doc/AppointmentItemRescheduleRequest.md)
  - [AppointmentItemResponse](doc/AppointmentItemResponse.md)
  - [AppointmentProviderNoteRequest](doc/AppointmentProviderNoteRequest.md)
  - [AppointmentRescheduleRequest](doc/AppointmentRescheduleRequest.md)
@@ -284,7 +290,6 @@ Class | Method | HTTP request | Description
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
  - [ContactSupportResponse](doc/ContactSupportResponse.md)
  - [CreateAppointmentRequest](doc/CreateAppointmentRequest.md)
- - [CreateAppointmentReviewRequest](doc/CreateAppointmentReviewRequest.md)
  - [CreateBookingRequest](doc/CreateBookingRequest.md)
  - [CreateCategoryRequestRequest](doc/CreateCategoryRequestRequest.md)
  - [CreateClientReviewRequest](doc/CreateClientReviewRequest.md)
@@ -298,6 +303,7 @@ Class | Method | HTTP request | Description
  - [FavoriteMasterResponse](doc/FavoriteMasterResponse.md)
  - [FavoriteResponse](doc/FavoriteResponse.md)
  - [FavoriteSalonResponse](doc/FavoriteSalonResponse.md)
+ - [FavoriteServiceResponse](doc/FavoriteServiceResponse.md)
  - [ForgotPasswordRequest](doc/ForgotPasswordRequest.md)
  - [GuestBookingRequest](doc/GuestBookingRequest.md)
  - [GuestBookingResponse](doc/GuestBookingResponse.md)
@@ -329,6 +335,7 @@ Class | Method | HTTP request | Description
  - [PageResponseBookingResponse](doc/PageResponseBookingResponse.md)
  - [PageResponseFavoriteMasterResponse](doc/PageResponseFavoriteMasterResponse.md)
  - [PageResponseFavoriteSalonResponse](doc/PageResponseFavoriteSalonResponse.md)
+ - [PageResponseFavoriteServiceResponse](doc/PageResponseFavoriteServiceResponse.md)
  - [PageResponseMasterSearchResult](doc/PageResponseMasterSearchResult.md)
  - [PageResponseMasterSummaryResponse](doc/PageResponseMasterSummaryResponse.md)
  - [PageResponseMyReviewResponse](doc/PageResponseMyReviewResponse.md)
@@ -377,6 +384,7 @@ Class | Method | HTTP request | Description
  - [StatusUpdateRequest](doc/StatusUpdateRequest.md)
  - [SuggestServiceTypeRequest](doc/SuggestServiceTypeRequest.md)
  - [TimelineItemResponse](doc/TimelineItemResponse.md)
+ - [UnclosedCountResponse](doc/UnclosedCountResponse.md)
  - [UnregisterDeviceTokenRequest](doc/UnregisterDeviceTokenRequest.md)
  - [UpdateProfileRequest](doc/UpdateProfileRequest.md)
  - [UpdateSalonRequest](doc/UpdateSalonRequest.md)

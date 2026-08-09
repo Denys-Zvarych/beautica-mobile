@@ -13,9 +13,9 @@
 //     AUTHENTICATED master, not [widget.masterId], so it has no meaning for a
 //     client browsing someone else's profile and is stripped here;
 //   • contacts = Instagram only (no phone/dialer tile);
-//   • a pinned camel-wash booking shelf («Послуги та ціни») rendering the empty
-//     state — the «Записатись до майстра» CTA opens the Phase 14.1 booking
-//     flow (placeholder route until 14.1 ships).
+//   • a pinned camel-wash booking shelf holding a single «Записатись до
+//     майстра» CTA (no section label) — it opens the Phase 14.1 booking flow
+//     (placeholder route until 14.1 ships).
 //
 // Data comes from [publicMasterProfileProvider] (a family keyed on masterId)
 // which loads the master + active services in parallel. All three AsyncValue
@@ -46,14 +46,19 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import 'widgets/master_address_block.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
+import 'widgets/services_stat_tile.dart';
 
 /// CLIENT-facing read-only profile of the master identified by [masterId].
 class PublicMasterProfileScreen extends ConsumerStatefulWidget {
@@ -291,16 +296,38 @@ class _PublicProfileBody extends StatelessWidget {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String displayName = '${master.firstName} ${master.lastName}'.trim();
     final String roleLabel = _roleLabel(master.type, l10n);
-    final String? locationLine = _buildLocationLine(master);
+    final String? localityLine = buildLocalityLine(master.city);
+    final String? streetLine = buildStreetLine(
+      master.street,
+      master.buildingNo,
+    );
+    // Phase 224 — the COLLAPSED one-line form of the same address. Which of
+    // the two renderings ships is `MasterAddressBlock`'s measured decision.
+    final String? combinedAddressLine = buildCombinedAddressLine(
+      master.city,
+      master.street,
+      master.buildingNo,
+    );
+    // Phase 222 — sanitization now happens INSIDE `ExpandableNote` (it
+    // must run on the exact same string the widget measures for overflow AND
+    // renders — see that widget's class doc). Pre-sanitizing here too would
+    // be a redundant no-op pass (sanitize is idempotent) that only obscures
+    // which layer owns the invariant; kept single-sourced in the widget.
     final String? noteText = (master.locationNote?.isNotEmpty ?? false)
         ? master.locationNote
         : null;
     final bool hasReviews = master.reviewCount > 0;
     // Instagram + portfolio are an INDEPENDENT_MASTER-only affordance — a
-    // salon-affiliated master's public profile hides both, mirroring the
-    // backend's `MasterDetailResponse.fromPublic` address-masking rule for the
-    // same `MasterType` distinction. Purely a display decision: the payload
-    // still carries the raw fields for every type.
+    // salon-affiliated master's public profile hides both. This is a
+    // client-side-only decision for THIS pair specifically: the backend's
+    // `MasterDetailResponse.fromPublic` never masks `instagram` (it — like
+    // `bio` — is returned unmasked for every `MasterType`). The backend DOES
+    // null out `street` / `buildingNo` / `locationNote` / `cityId` /
+    // `oblastId` / `districtId` for `SALON_MASTER` / `SALON_OWNER` — only
+    // `INDEPENDENT_MASTER` receives those on this public path — so for the
+    // ADDRESS fields (not instagram/bio) this screen's `isIndependent` gate
+    // is redundant with, not a substitute for, an already-enforced backend
+    // rule.
     final bool isIndependent = master.type == MasterType.independentMaster;
     final String? instagram =
         (isIndependent && (master.instagram?.isNotEmpty ?? false))
@@ -349,37 +376,38 @@ class _PublicProfileBody extends StatelessWidget {
                             : roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
-                      if (locationLine != null) ...<Widget>[
+                      // Equivalent to the old `localityLine != null ||
+                      // streetLine != null` gate (see the own-profile screen
+                      // for why), and it promotes the local to non-nullable.
+                      if (combinedAddressLine != null) ...<Widget>[
                         const SizedBox(height: VelvetSpacing.xs),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const Icon(
-                              Icons.location_on_outlined,
-                              size: 13,
-                              color: BrandColors.muted,
-                            ),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                locationLine,
-                                key: const Key(
-                                  'public-master-profile-address-text',
-                                ),
-                                style: VelvetText.feedbackMutedXs,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
+                        // Phase 220 (C) + Phase 224 — same address block as
+                        // the own-profile screen: locality (city) first, then
+                        // street + building, collapsed onto ONE row when the
+                        // whole string fits, then the note. Composition lives
+                        // in `shared/formatters/address_lines.dart`, the
+                        // measure-and-choose in
+                        // `widgets/master_address_block.dart`.
+                        MasterAddressBlock(
+                          keyPrefix: 'public-master-profile',
+                          icon: const Icon(
+                            Icons.location_on_outlined,
+                            size: MasterAddressBlock.iconSize,
+                            color: BrandColors.muted,
+                          ),
+                          localityLine: localityLine,
+                          streetLine: streetLine,
+                          combinedLine: combinedAddressLine,
                         ),
                         if (noteText != null) ...<Widget>[
                           const SizedBox(height: 2),
                           Padding(
                             padding: const EdgeInsets.only(left: 16),
-                            child: Text(
-                              noteText,
-                              style: VelvetText.feedbackMutedNote,
-                              overflow: TextOverflow.ellipsis,
+                            child: ExpandableNote(
+                              key: const Key(
+                                'public-master-profile-location-note',
+                              ),
+                              text: noteText,
                             ),
                           ),
                         ],
@@ -423,14 +451,17 @@ class _PublicProfileBody extends StatelessWidget {
                         context.push(RouteNames.masterPublicReviews(masterId)),
                     child: StatTile(
                       icon: Icons.star_rounded,
+                      // `displayRating` folds all three "no rating yet" shapes
+                      // (null average, a stale 0.0, zero reviews) onto null, so
+                      // the star and the readout cannot disagree. [hasReviews]
+                      // still governs the count tile below, where 0 is a true,
+                      // renderable fact. See `MasterRatingX.displayRating`.
                       iconWidget: RatingStar(
-                        rating: hasReviews ? master.avgRating : null,
+                        rating: master.displayRating,
                         size: 18,
                         showLabel: false,
                       ),
-                      value: hasReviews
-                          ? master.avgRating.toStringAsFixed(1)
-                          : '—',
+                      value: master.displayRating?.toStringAsFixed(1) ?? '—',
                       caption: l10n.masterRatingLabel,
                       valueKey: const Key('public-master-profile-rating-value'),
                     ),
@@ -438,10 +469,8 @@ class _PublicProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.design_services_outlined,
-                    value: services.length.toString(),
-                    caption: l10n.masterServicesLabel,
+                  child: ServicesStatTile(
+                    count: services.length,
                     valueKey: const Key('public-master-profile-services-value'),
                   ),
                 ),
@@ -625,7 +654,7 @@ class _PublicProfileBody extends StatelessWidget {
   /// Opens the master's Instagram in the Instagram app or a browser, sanitising
   /// [rawValue] through [canonicalInstagramUri] (STRICT https + host/charset
   /// allow-list) before launch — an unvalidated string is never handed to
-  /// [launchUrl]. On a null result / launch failure a localized SnackBar shows.
+  /// [launchUrl]. On a null result / launch failure a localized VelvetSnack shows.
   static Future<void> _openInstagram(
     BuildContext context,
     String? rawValue,
@@ -652,11 +681,16 @@ class _PublicProfileBody extends StatelessWidget {
     if (!launched) _showInstagramError(context);
   }
 
+  /// This route is registered TOP-LEVEL, outside the CLIENT `StatefulShellRoute`
+  /// (app_router.dart) — pushed full-screen OVER `ClientShell`, which replaces
+  /// it entirely (the shared `ClientBottomNav` is not part of this route's
+  /// tree at all). The screen's own bottom slot is `_BookingShelf`, a local
+  /// per-screen CTA, not the shared nav bar the `bottomNavClearance*` constants
+  /// exist to clear — so no `bottomInset` is needed here.
   static void _showInstagramError(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(AppLocalizations.of(context).masterInstagramOpenError),
-      ),
+    showErrorSnack(
+      context,
+      AppLocalizations.of(context).masterInstagramOpenError,
     );
   }
 
@@ -670,40 +704,6 @@ class _PublicProfileBody extends StatelessWidget {
         return l10n.masterRoleSalonOwner;
     }
   }
-
-  /// Composes the identity-card address line (street + buildingNo + city), or
-  /// `null` when nothing is available so the caller hides the row.
-  static String? _buildLocationLine(Master master) {
-    final String? street = (master.street?.isNotEmpty ?? false)
-        ? master.street
-        : null;
-    final String? building = (master.buildingNo?.isNotEmpty ?? false)
-        ? master.buildingNo
-        : null;
-    final String? city = (master.city?.isNotEmpty ?? false)
-        ? master.city
-        : null;
-
-    if (street == null && city == null) return null;
-
-    final StringBuffer buf = StringBuffer();
-    if (street != null) {
-      buf.write(street);
-      if (building != null) {
-        buf
-          ..write(', ')
-          ..write(building);
-      }
-      if (city != null) {
-        buf
-          ..write(', ')
-          ..write(city);
-      }
-    } else {
-      buf.write(city);
-    }
-    return buf.toString();
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -713,7 +713,7 @@ class _PublicProfileBody extends StatelessWidget {
 /// A 48×48 raised neumorphic heart that flips the favourite flag for this
 /// master via [favoriteToggleProvider] (targetType = MASTER). The icon pops on
 /// toggle; the button depresses on press. On a failed toggle the notifier
-/// reverts the optimistic flag and a localized SnackBar is shown.
+/// reverts the optimistic flag and a localized VelvetSnack is shown.
 class _FavoriteToggleButton extends ConsumerStatefulWidget {
   const _FavoriteToggleButton({required this.masterId});
 
@@ -735,10 +735,10 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
     final Failure? failure = await ref
         .read(favoriteToggleProvider.notifier)
         .toggle(_target);
+    // See `_showInstagramError`'s doc above — this top-level route sits over
+    // `ClientShell`, not inside it, so no `bottomInset` is needed here either.
     if (failure != null && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+      showErrorSnack(context, failure.userMessage(context));
     }
   }
 
@@ -796,11 +796,11 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
 }
 
 // ---------------------------------------------------------------------------
-// _BookingShelf — pinned camel-wash «Послуги та ціни» booking shelf (empty state)
+// _BookingShelf — pinned camel-wash booking shelf (CTA only)
 // ---------------------------------------------------------------------------
 
-/// The pinned bottom booking shelf. On the profile it renders the EMPTY state:
-/// a section label above a camel «Записатись до майстра» CTA. Tapping the CTA
+/// The pinned bottom booking shelf. On the profile it holds a single child: the
+/// camel «Записатись до майстра» CTA — no section label. Tapping the CTA
 /// opens the Phase 14.1 booking flow ([RouteNames.bookingNew]) carrying the
 /// target master id in `extra`. Actual service selection lives in 14.1.
 class _BookingShelf extends StatelessWidget {
@@ -848,14 +848,6 @@ class _BookingShelf extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
-                child: Text(
-                  l10n.publicMasterBookingSectionLabel,
-                  style: VelvetText.sectionLabel(),
-                ),
-              ),
-              const SizedBox(height: VelvetSpacing.md),
               NeumorphicButton(
                 key: const Key('public-master-book-cta'),
                 label: l10n.publicMasterBookingCta,

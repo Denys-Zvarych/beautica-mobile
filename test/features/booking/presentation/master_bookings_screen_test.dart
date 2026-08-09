@@ -12,7 +12,7 @@
 //     dozens), and sends `from == to`;
 //   • the initial day is KYIV "today", not host "today" — asserted against
 //     the exact same derivation the production code uses
-//     (`dateOnly(toBeauticaTime(DateTime.now()))`);
+//     (`kyivToday(DateTime.now)`);
 //   • filter-empty and true-empty are different screens, and only one offers
 //     an escape hatch. `BookingsDayQuery.hasFilters` excludes the DAY (it is
 //     navigation, not a filter) — so narrowing to an empty DAY with no
@@ -49,6 +49,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/my_booking
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
@@ -58,6 +59,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // Fixture identities injected BY these tests — NOT app copy, and
 // locale-invariant by construction (a person's name is not translated). This
@@ -68,7 +70,30 @@ const String _otherClientLast = 'Мороз';
 
 /// Kyiv "today", derived through the EXACT SAME production function the
 /// screen uses — never a literal. See the file header (LOW #334).
-DateTime get _kyivToday => dateOnly(toBeauticaTime(DateTime.now()));
+DateTime get _kyivToday => kyivToday(DateTime.now);
+
+/// A genuine INSTANT at [hourUtc] on the SAME Kyiv calendar day [_kyivToday]
+/// names.
+///
+/// [_kyivToday] is a DATE TOKEN — a host-local midnight `DateTime` whose
+/// `.year`/`.month`/`.day` carry the Kyiv day (see
+/// `lib/shared/time/kyiv_day.dart`'s header). `.toUtc()` on such a token is on
+/// that header's ILLEGAL list: it reinterprets host-local midnight as if it
+/// were already an instant, so `_kyivToday.toUtc().add(...)` — what these
+/// fixtures used to do — yields a different Kyiv day depending on the host's
+/// own `TZ`. From a WESTERN host (e.g. UTC-10) midnight local is 10:00Z, so
+/// `+12h` lands at 22:00Z, already the NEXT Kyiv day, and every "today"
+/// assertion below would then be asserting against a day the screen never
+/// renders.
+///
+/// Reading only the token's calendar fields and rebuilding with `DateTime.utc`
+/// is host-independent. Kyiv is UTC+2/+3, so any [hourUtc] in roughly 0..20
+/// stays inside the same Kyiv civil day; the call sites use 8..13, which is
+/// exactly the band CI (`TZ=UTC`) already exercised before this fix.
+DateTime _kyivTodayAtUtc(int hourUtc) {
+  final DateTime day = _kyivToday;
+  return DateTime.utc(day.year, day.month, day.day, hourUtc);
+}
 
 /// A LATE-EVENING UTC instant whose Kyiv calendar day is the NEXT day — the
 /// pinned "now" the Kyiv-vs-naive landing-query guard runs against.
@@ -102,8 +127,7 @@ Booking _booking({
   BookingStatus status = BookingStatus.confirmed,
   DateTime? startAt,
 }) {
-  final DateTime start =
-      startAt ?? _kyivToday.toUtc().add(const Duration(hours: 12));
+  final DateTime start = startAt ?? _kyivTodayAtUtc(12);
   return Booking(
     id: id,
     masterId: 'm1',
@@ -152,9 +176,12 @@ Future<void> _pump(
   // (`bookings_discovery_view.dart`'s `initState`). `null` leaves the real
   // wall clock in place, which is what every pre-existing test here wants.
   DateTime Function()? clock,
-  // Pass `(_, _) => null` to DISABLE Riverpod's exponential-backoff retry, so
-  // an AsyncError settles and a fetch count stays exact.
-  Duration? Function(int retryCount, Object error)? retry,
+  // Defaults to the PRODUCTION predicate [beauticaProviderRetry] so error
+  // paths resolve as they do in the shipped app. Pass `(_, _) => null` to
+  // DISABLE retry entirely, so an AsyncError settles and a fetch count stays
+  // exact.
+  Duration? Function(int retryCount, Object error)? retry =
+      beauticaProviderRetry,
 }) async {
   await tester.pumpRoutedApp(
     GoRouter(
@@ -1376,10 +1403,7 @@ void main() {
         ).thenAnswer(
           (_) async => _page(<Booking>[
             for (int i = 0; i < 6; i++)
-              _booking(
-                id: 'b$i',
-                startAt: _kyivToday.toUtc().add(Duration(hours: 8 + i)),
-              ),
+              _booking(id: 'b$i', startAt: _kyivTodayAtUtc(8 + i)),
           ]),
         );
 

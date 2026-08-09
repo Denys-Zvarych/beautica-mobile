@@ -25,7 +25,9 @@
 // query keys, not one nested blob). [getMyBookings] therefore bypasses
 // `listMyBookings` and issues a raw GET through the shared authenticated
 // [Dio] with flat query params, deserializing the response with the SAME
-// [standardSerializers] the generated client uses.
+// [beauticaSerializers] the generated client is built on in
+// `booking_providers.dart` — the tolerant instance, so an unrecognised booking
+// status degrades identically on the list and the detail path.
 //
 // NAMING COLLISION: the domain `CreateBookingRequest`
 // (`features/booking/domain/create_booking_request.dart`) and the generated
@@ -43,6 +45,7 @@ import 'package:beautica_api/beautica_api.dart'
     as wire
     show CreateBookingRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/beautica_serializers.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:built_value/serializer.dart';
@@ -50,6 +53,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/booking.dart';
+import '../domain/booking_partition.dart';
 import '../domain/booking_sort.dart';
 import '../domain/booking_status.dart';
 import '../domain/create_booking_request.dart';
@@ -129,6 +133,20 @@ abstract interface class BookingRepository {
   /// `SlotRepository.getMasterSlots`/`getWorkingDays`. Disposing a Riverpod
   /// element stops the RESULT from landing but does not, by itself, abort the
   /// underlying Dio request; this makes that possible.
+  ///
+  /// [partition] is the Phase 28.2/29.3 time-based partition — sent as its
+  /// [BookingPartition.wireValue] (`UPCOMING`/`PAST`/`CANCELLED`/
+  /// `AWAITING_CLOSURE`), omitted entirely when null (the backend then falls
+  /// back to the pre-Phase-28 `status`-only filtering, its own
+  /// additive-rollout safety valve; when [partition] IS sent, the backend
+  /// ignores [statuses] server-side, but this method still sends both — the
+  /// caller decides which filtering mode it wants by which param(s) it
+  /// populates). Typed as [BookingPartition] rather than a raw `String?`
+  /// (mobile-security LOW, audit-fix cycle 1) precisely because an unknown
+  /// wire value degrades silently server-side — see [BookingPartition]'s doc.
+  /// **No caller passes this in Phase 226** — added here so its wire wiring
+  /// and the behaviour change that consumes it (Phase 227) land as separate,
+  /// independently reviewable diffs.
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,
     required int page,
@@ -137,6 +155,7 @@ abstract interface class BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    BookingPartition? partition,
     CancelToken? cancelToken,
   });
 
@@ -304,6 +323,7 @@ final class HttpBookingRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    BookingPartition? partition,
     CancelToken? cancelToken,
   }) async {
     // Canonicalised ONCE, here at the serialisation boundary. See the comment
@@ -377,22 +397,29 @@ final class HttpBookingRepository implements BookingRepository {
           // device east of UTC. See `shared/formatters/api_date.dart`.
           if (from != null) 'from': toApiDate(from),
           if (to != null) 'to': toApiDate(to),
+          // Phase 227: `MyBookingsNotifier` now passes [partition] from BOTH
+          // `_fetchFirstPage` and `loadMore`. Serialised through
+          // [BookingPartition.wireValue] — the sole hand-written string this
+          // repository is allowed to emit for it — and omitted entirely when
+          // null, not sent as `partition=null`/`''`: `partition?.wireValue`
+          // evaluates to null right along with `partition` itself, so the
+          // null-aware map element below still drops the key entirely.
+          //
+          // ⚠ `partition` and the legacy `status` above are sent TOGETHER on
+          // every request — this is deliberate, not leftover dead weight.
+          // Spring silently DROPS unknown query params instead of 400ing, so
+          // a client sending only `partition` against a backend that hasn't
+          // shipped Phase 28.2 would send effectively no filter and get back
+          // the caller's entire unfiltered booking history. Sending both
+          // degrades safely to status-only filtering on a stale backend.
+          // `status` is slated for removal once the backend floor is
+          // confirmed to have 28.2 — not yet. See [getMyBookings]'s doc for
+          // the byte-identical back-compat contract this preserves.
+          'partition': ?partition?.wireValue,
         },
         cancelToken: cancelToken,
       );
-      final decoded =
-          _deserialize<ApiResponsePageResponseBookingDetailResponse>(
-            response.data,
-            const FullType(ApiResponsePageResponseBookingDetailResponse),
-          );
-      final pageDto = decoded?.data;
-      final content = pageDto?.data ?? const <BookingDetailResponse>[];
-      return PageResponse<Booking>(
-        items: BookingMapper.fromDtoList(content),
-        page: pageDto?.page ?? page,
-        totalPages: pageDto?.totalPages ?? 0,
-        totalElements: pageDto?.totalElements ?? 0,
-      );
+      return _decodeBookingsPage(response.data, requestedPage: page);
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {
@@ -673,9 +700,9 @@ final class HttpBookingRepository implements BookingRepository {
   /// The status-code checks run BEFORE deferring to any [Failure] the
   /// [ErrorMapperInterceptor] may have attached (it maps a generic 409/403 to
   /// [ServerFailure] with no review-specific copy), mirroring the
-  /// `MasterAlreadyHasServicesFailure` precedent. All other statuses defer to
-  /// the shared [_mapDioException] (which honours any attached [Failure] and
-  /// otherwise maps by transport type).
+  /// re-map-by-status-code precedent in `services/data/service_repository.dart`.
+  /// All other statuses defer to the shared [_mapDioException] (which honours
+  /// any attached [Failure] and otherwise maps by transport type).
   Failure _mapReviewException(DioException e) {
     final int? statusCode = e.response?.statusCode;
     if (statusCode == 409) return ReviewAlreadyExistsFailure(cause: e);
@@ -704,9 +731,104 @@ final class HttpBookingRepository implements BookingRepository {
     );
   }
 
-  /// Deserializes a raw JSON [data] map via the SAME [standardSerializers]
-  /// the generated client uses. Returns `null` when [data] is null (an empty
-  /// body).
+  /// Decodes the `GET /bookings/me` envelope ROW BY ROW.
+  ///
+  /// This used to be one `_deserialize<ApiResponsePageResponseBookingDetail
+  /// Response>` call over the whole envelope, which made the page ATOMIC: any
+  /// single unparseable row threw, the throw propagated as a [Failure], and
+  /// «Мої записи» rendered EMPTY — the one outcome
+  /// [BookingMapper.fromDtoList]'s `on Failure { continue; }` loop exists to
+  /// prevent. That loop was unreachable, because the failure happened one
+  /// layer below it, during envelope deserialization.
+  ///
+  /// Deserializing each row on its own restores the intended contract: a
+  /// malformed row is skipped and logged, every sibling row still renders, and
+  /// the page counters still come off the envelope. Row COUNT is deliberately
+  /// NOT recomputed from the surviving rows — `totalElements`/`totalPages` are
+  /// the SERVER's pagination cursor state and must stay authoritative, or a
+  /// dropped row would shorten the list AND convince the pager it had reached
+  /// the end.
+  ///
+  /// ROW tolerance is NOT envelope tolerance. The row loop's leniency stops at
+  /// the row boundary: an absent or wrong-shaped `data` / `data.data` throws
+  /// [UnknownFailure], exactly as the old whole-envelope decode did. Degrading
+  /// a malformed envelope to `PageResponse(items: [], totalPages: 0,
+  /// totalElements: 0)` would render byte-identically to the legitimate "you
+  /// have no bookings yet" empty state — no error copy, no retry affordance,
+  /// no way for the user to tell a broken response from an empty account. That
+  /// is strictly worse than the atomic failure this method was written to
+  /// avoid, and it would also contradict the sibling [getBookingById], which
+  /// still throws on a null envelope.
+  ///
+  /// An envelope that is well-formed but carries ZERO rows (`data.data: []`)
+  /// is a legitimate empty page and returns normally.
+  PageResponse<Booking> _decodeBookingsPage(
+    Map<String, dynamic>? body, {
+    required int requestedPage,
+  }) {
+    final Object? pageJson = body?['data'];
+    if (pageJson is! Map<String, dynamic>) {
+      throw _malformedBookingsEnvelope('data', pageJson);
+    }
+    final Map<String, dynamic> pageMap = pageJson;
+    final Object? rowsJson = pageMap['data'];
+    if (rowsJson is! List) {
+      throw _malformedBookingsEnvelope('data.data', rowsJson);
+    }
+
+    final List<BookingDetailResponse> rows = <BookingDetailResponse>[];
+    for (final Object? rowJson in rowsJson) {
+      if (rowJson is! Map<String, dynamic>) continue;
+      try {
+        final BookingDetailResponse? dto = _deserialize<BookingDetailResponse>(
+          rowJson,
+          const FullType(BookingDetailResponse),
+        );
+        if (dto != null) rows.add(dto);
+      } on Failure {
+        // Already logged by [_deserialize]. One broken row must not blank
+        // the page — that is this method's entire reason to exist.
+        continue;
+      }
+    }
+
+    return PageResponse<Booking>(
+      items: BookingMapper.fromDtoList(rows),
+      page: _intOr(pageMap['page'], requestedPage),
+      totalPages: _intOr(pageMap['totalPages'], 0),
+      totalElements: _intOr(pageMap['totalElements'], 0),
+    );
+  }
+
+  /// Builds (and logs) the [UnknownFailure] for a `GET /bookings/me` envelope
+  /// whose [field] is absent or of the wrong JSON type.
+  ///
+  /// Only the RUNTIME TYPE of the offending value is logged, never its
+  /// contents — a bookings envelope carries client names and other PII, and
+  /// this log line survives into any attached crash reporter.
+  Failure _malformedBookingsEnvelope(String field, Object? value) {
+    if (kDebugMode) {
+      log(
+        'getMyBookings envelope malformed: "$field" is ${value.runtimeType}, '
+        'expected ${field == 'data' ? 'a JSON object' : 'a JSON array'}',
+        name: _tag,
+        level: 1000,
+      );
+    }
+    return const UnknownFailure();
+  }
+
+  /// Defensive int read off a raw JSON envelope — the transport hands back a
+  /// Dart `int` or a stringified number depending on the path.
+  static int _intOr(Object? raw, int fallback) => switch (raw) {
+    final int value => value,
+    final String value => int.tryParse(value) ?? fallback,
+    _ => fallback,
+  };
+
+  /// Deserializes a raw JSON [data] map via the SAME [beauticaSerializers]
+  /// `bookingApiProvider` builds the generated client on. Returns `null` when
+  /// [data] is null (an empty body).
   ///
   /// Unlike the generated API client's own methods (e.g. [BookingControllerApi
   /// .getBooking]), which wrap their internal `_serializers.deserialize` call
@@ -725,7 +847,7 @@ final class HttpBookingRepository implements BookingRepository {
   T? _deserialize<T>(Object? data, FullType type) {
     if (data == null) return null;
     try {
-      return standardSerializers.deserialize(data, specifiedType: type) as T?;
+      return beauticaSerializers.deserialize(data, specifiedType: type) as T?;
     } on Failure {
       rethrow;
     } catch (e, st) {
@@ -760,7 +882,7 @@ final class HttpBookingRepository implements BookingRepository {
   /// [ErrorMapperInterceptor] may have attached — it maps a generic 409 to
   /// [ServerFailure] (no slot-conflict copy) and has no booking-specific 429
   /// case at all (an unmatched 429 would otherwise surface as [UnknownFailure])
-  /// — mirroring the `MasterAlreadyHasServicesFailure` /
+  /// — mirroring the `ServiceDuplicateFailure` /
   /// `CategoryRequestThrottledFailure` precedents in
   /// `services/data/service_repository.dart`.
   ///
