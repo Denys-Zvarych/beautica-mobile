@@ -348,6 +348,28 @@ void main() {
       expect(find.text('Класичний манікюр'), findsNWidgets(2));
       // i18n-finder-ok: fixture price display (test data), not app UI copy.
       expect(find.text('300 ₴'), findsWidgets);
+      // ...AND the catalogue tile's own price still shows it. This used to
+      // be covered by the assertion above too (an exact `find.text('300 ₴')`
+      // matched the tile's OWN price Text plus 2 summary-shelf occurrences,
+      // findsWidgets never surfacing the count), until the 2026-08-10
+      // price-relocation fix moved the tile's price onto its own meta line
+      // (see `service_catalogue_accordion.dart`'s `_metaLine` — a `Wrap` of
+      // independent `Text` widgets as of the round-2 fix; it was briefly a
+      // merged `Text.rich` in between) — a scoped, tile-specific matcher is
+      // needed regardless of which of those two render the tile uses, since
+      // an unscoped `find.text`/`findsWidgets` can't distinguish the tile's
+      // own price from the summary shelf's (mobile-qa finding: a
+      // PRE-EXISTING loose matcher masked a real drop in what this test
+      // verifies). Scoped `find.textContaining` restores the tile-specific
+      // check the same way `service_catalogue_accordion_test.dart` was
+      // already fixed.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('salon_booking_service_tile_svc-a1')),
+          matching: find.textContaining('300 ₴'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets(
@@ -499,6 +521,18 @@ void main() {
         // svc-b1 (800 ₴), not the stale sum of both.
         // i18n-finder-ok: fixture price display (test data), not app UI copy.
         expect(find.text('800 ₴'), findsWidgets);
+        // ...and svc-b1's OWN catalogue tile still shows its price too — see
+        // the identical note on the selection test above for why this
+        // scoped check was added (the tile's price merged into a
+        // `Text.rich` meta line the unscoped exact `find.text` above can no
+        // longer see).
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon_booking_service_tile_svc-b1')),
+            matching: find.textContaining('800 ₴'),
+          ),
+          findsOneWidget,
+        );
         // ...the removed service's name disappears from the SHELF
         // specifically — it still renders in the catalogue above (that tile
         // is never removed from the list, only deselected), so the finder

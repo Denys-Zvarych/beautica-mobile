@@ -581,10 +581,130 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
 
   // Hoisted so `build()` — which re-runs on every `_pressed` setState, i.e.
   // twice per tap — does not allocate a fresh TextStyle each time.
-  static final TextStyle _priceStyle = VelvetText.bodyStrong().copyWith(
+  //
+  // Phase [meta-line price relocation]: the price used to sit in the top row
+  // at `VelvetText.bodyStrong()` weight (visually a peer of the service
+  // name). It now lives on the meta line ahead of the duration, so it takes
+  // the duration's own style (`VelvetText.feedbackMutedSm` — same family,
+  // weight, size as the clock-icon label right next to it, per the user's
+  // explicit "font as on time" ask) and keeps ONLY an accent recolour via
+  // `.copyWith(color:)` so the figure stays legible against the plain
+  // duration text beside it.
+  static final TextStyle _priceStyle = VelvetText.feedbackMutedSm.copyWith(
     color: BrandColors.accentDeep,
-    fontWeight: FontWeight.w800,
   );
+
+  // perf/security audit, ROUND 2 (2026-08-10), on the `Text.rich` meta line
+  // the round-1 fix (see below, kept for history) landed:
+  //   - finding 1 (MEDIUM, mobile-security, empirically reproduced): a
+  //     single `maxLines: 1` paragraph gives the WHOLE line one shared
+  //     truncation budget. Duration sits LAST in span order, so under real
+  //     pressure (240dp width, textScale 1.6, a long RANGE price) it isn't
+  //     partially clipped — `getBoxesForSelection` for the duration
+  //     substring returns `[]`: the duration paints ZERO glyphs. A client
+  //     is shown a price and an ellipsis with no duration at all for a
+  //     service they are about to book.
+  //   - finding 2 (LOW, mobile-perf): any `WidgetSpan` in a paragraph forces
+  //     `RenderParagraph`'s two-pass inline-placeholder layout (measure
+  //     placeholder intrinsics, then re-run line-breaking) — strictly more
+  //     work than a plain `Icon` sibling, paid on every tile the
+  //     `ListView.builder` recycles during scroll, not just on tap. The old
+  //     `Row` never paid this.
+  // Fixed by replacing the merged `Text.rich` with a `Wrap` holding two
+  // independent children — [price] and an [icon, duration] group. In the
+  // normal (unconstrained) case both fit on one run and `Wrap.spacing`
+  // supplies the "visual separation" the design calls for, so the ` · `
+  // glyph is dropped entirely rather than kept and suppressed — this also
+  // permanently closes round 1's finding 2 (the bare-separator semantics
+  // announcement) instead of merely working around it, since there is no
+  // longer a separator TEXT NODE of any kind to announce. Under pressure,
+  // the icon+duration group drops to its OWN run instead of sharing a line
+  // budget with price: whichever child doesn't fit the current run starts a
+  // fresh one and is then the ONLY thing on it, so it gets the run's full
+  // width. The price `Text` is a DIRECT `Wrap` child, so `Wrap` itself
+  // constrains it to the run's available width and its own `maxLines: 1`/
+  // `ellipsis` engages as a per-figure safety valve (a price that alone
+  // still overflows the tile's full width ellipsises independently instead
+  // of throwing). The duration `Text` sits one level deeper, inside the
+  // icon-pairing `Row`; without a `Flexible` wrapper that inner `Row` would
+  // hand it UNBOUNDED width (a `Row(mainAxisSize: min)` with no
+  // `Expanded`/`Flexible` child reports its unconstrained natural size, not
+  // the `Wrap` run's constraint) and `maxLines`/`ellipsis` would never have
+  // a finite width to truncate against — so the duration `Text` is wrapped
+  // in `Flexible` to receive the same bounded-width treatment as price. No
+  // figure can be squeezed to zero by the OTHER figure the way a shared
+  // paragraph budget allowed — see
+  // `service_catalogue_accordion_overflow_test.dart`'s
+  // `'duration still paints when the price is long and pressure is high'`
+  // and `'pathologically long duration ellipsises instead of overflowing'`.
+  // No `WidgetSpan` anywhere, so `RenderParagraph`'s placeholder pass never
+  // runs for this line — one plain `Icon` render object, same as the old
+  // `Row`.
+  //
+  // Round-1 rationale (kept for history — the ONE-`Text.rich` fix that
+  // introduced the two findings above): the meta line used to be a
+  // `Row(mainAxisSize: min)` with NO `Expanded`/`Flexible` child and no
+  // `maxLines`/`overflow` on either `Text` — a wide RANGE price or long
+  // duration at a high textScaleFactor could throw a genuine `RenderFlex`
+  // overflow (mobile-perf, mobile-security both flagged it independently).
+  // Folding price + separator + duration into one bounded text box traded
+  // that RenderFlex-overflow crash for TextPainter truncation and dropped
+  // the separator's own semantics fragment — at the cost of the two
+  // problems fixed above. Rejected this round: going back to that bare
+  // `Row` verbatim — it is the ORIGINAL bug (an unweighted `Row` can starve
+  // either figure to nothing depending on which happens to be longer);
+  // `Flexible` on both `Text`s in a `Row` was considered too (both shrink
+  // together, neither vanishes) but `Wrap` was preferred because dropping a
+  // whole figure to its own line at extreme widths keeps it at FULL
+  // available width rather than a shrunk share of a shared line, and it
+  // removes the separator glyph's semantics question outright instead of
+  // requiring an `ExcludeSemantics` wrapper to re-suppress it.
+  Widget _metaLine(CatalogueRow row) {
+    return Wrap(
+      // Test-support key — see the sibling note on the name `Text` above;
+      // lets the overflow-guard regression test locate this line
+      // independently of the name.
+      key: Key('catalogue-service-meta-${row.id}'),
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: VelvetSpacing.xs,
+      runSpacing: 2,
+      children: <Widget>[
+        Text(
+          row.priceLabel,
+          style: _priceStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.only(right: 3),
+              child: Icon(
+                Icons.schedule_outlined,
+                size: 12,
+                color: BrandColors.muted,
+              ),
+            ),
+            // `Flexible` (not a bare `Text`) is load-bearing here: a
+            // `Row(mainAxisSize: min)` with no flex child hands its `Text`
+            // UNBOUNDED width, so `maxLines: 1`/`ellipsis` below never gets
+            // a finite width to truncate against and a pathological
+            // duration throws `RenderFlex overflowed` instead of
+            // ellipsising — see the class-level comment above `_metaLine`.
+            Flexible(
+              child: Text(
+                row.durationLabel,
+                style: VelvetText.feedbackMutedSm,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -633,31 +753,24 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
                     children: <Widget>[
                       Text(
                         row.name,
+                        // Test-support key (same precedent as
+                        // `booking_card.dart`'s `ValueKey('service-$id')`) —
+                        // lets the overflow-guard regression test measure
+                        // this Text's laid-out width directly, to prove the
+                        // favourite heart's trailing slot costs the name
+                        // ONLY its own footprint now that price no longer
+                        // shares this row (see
+                        // `service_catalogue_accordion_overflow_test.dart`).
+                        key: Key('catalogue-service-name-${row.id}'),
                         style: VelvetText.bodyStrong(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 3),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          const Icon(
-                            Icons.schedule_outlined,
-                            size: 12,
-                            color: BrandColors.muted,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            row.durationLabel,
-                            style: VelvetText.feedbackMutedSm,
-                          ),
-                        ],
-                      ),
+                      _metaLine(row),
                     ],
                   ),
                 ),
-                const SizedBox(width: VelvetSpacing.sm),
-                Text(row.priceLabel, style: _priceStyle),
                 if (widget.showFavoriteHeart) ...<Widget>[
                   const SizedBox(width: VelvetSpacing.xs),
                   FavoriteHeartButton(

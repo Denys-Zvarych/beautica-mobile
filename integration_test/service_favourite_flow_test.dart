@@ -101,6 +101,50 @@ void main() {
       await tester.tap(find.byKey(_kNailsCategory));
       await tester.pumpAndSettle();
 
+      // ── Rule 3b content check for the 2026-08-10 price-relocation fix ──────
+      // `service_catalogue_accordion_overflow_test.dart` (widget tier) proves
+      // this same tile survives the narrow-width / high-textScale STRESS
+      // matrix without overflowing or starving the name. This flow renders
+      // the identical tile against a REAL fixture, at the real sheet's
+      // default surface — so it is the right place to prove the CONTENT is
+      // right (name + price + duration all present, heart alongside them),
+      // not to re-run the layout stress a fixed-size E2E surface can't
+      // reproduce anyway.
+      expect(
+        find.byKey(const Key('catalogue-service-name-pub-assign-1')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('catalogue-service-name-pub-assign-1')),
+            )
+            .data,
+        _serviceName,
+      );
+      // The meta line's key now sits on a `Wrap` (2026-08-10 round-2 fix —
+      // price and duration are two independent `Text` descendants, not one
+      // merged `Text.rich`), so the content check finds each figure as its
+      // own descendant instead of flattening a single `Text.textSpan`.
+      final Finder metaLine = find.byKey(
+        const Key('catalogue-service-meta-pub-assign-1'),
+      );
+      expect(
+        find.descendant(of: metaLine, matching: find.textContaining('500 ₴')),
+        findsOneWidget,
+        reason: "pub-assign-1's FIXED priceDisplay must render on the tile",
+      );
+      expect(
+        find.descendant(
+          of: metaLine,
+          matching: find.textContaining('1 год 30 хв'),
+        ),
+        findsOneWidget,
+        reason:
+            "pub-assign-1's 90-minute effectiveDurationMinutes must format "
+            'to "1 год 30 хв" and render on the tile',
+      );
+
       // ── Before: outline heart, no POST yet ─────────────────────────────
       final Finder heart = find.byKey(_kHeartPubAssign1);
       expect(heart, findsOneWidget);
