@@ -466,6 +466,43 @@ class _HubFilledButtonState extends State<HubFilledButton> {
 
   static final TextStyle _style = VelvetText.cta135;
 
+  // The locked VelvetTouch CTA fill — camel→mocha, same two colours as
+  // `ARCHITECTURE-mobile.md` § 9's "CTA button (neumorphic gradient)" row.
+  // A flat `BrandColors.accent` fill paired with the cream label
+  // (`VelvetText.cta135`'s own colour) reads as LOW-CONTRAST — accent is a
+  // light camel close in luminance to the cream text, so the button looked
+  // disabled rather than like the primary action it is. The gradient's mocha
+  // end restores the contrast the architecture doc's own accessibility table
+  // assumes ("white on accentDeep — ~6:1, AA").
+  //
+  // Direction is VERTICAL (top→bottom), not the diagonal top-left→bottom-
+  // right a first pass used. `cta135` is Comfortaa 11sp/w700 — ordinary text
+  // under WCAG (nowhere near the 14pt-bold "large text" floor), so its
+  // threshold is 4.5:1, not 3:1. A diagonal's `latte`-end corner sits under
+  // exactly the label's leading edge for a natural-width button (no slack
+  // between text and padding), so the region nearest that corner is the
+  // region most likely to sit under a glyph. A vertical gradient decouples
+  // contrast from the label's HORIZONTAL position entirely — every label,
+  // whatever its width, sees the same vertical slice — so one measurement
+  // covers every caller for good. `stops` biases the midline so no point in
+  // the label's bounding box (vertically centred, `cta135` at this size
+  // painting roughly y=13..25 inside the 38 dp box) sits closer to `latte`
+  // than the gradient's OWN midpoint would: measured worst case under the
+  // label is ~5.64:1 (both current labels, «Записатись» and «Обрати
+  // майстра» — see `hub_filled_button_contrast_test.dart`), vs. the
+  // unbiased vertical's ~5.09:1 and the old diagonal's ~4.6-4.7:1, all of
+  // which already clear 4.5:1 but with far less margin against font-metric
+  // drift (a fallback glyph, a Comfortaa update) than this leaves.
+  static const BoxDecoration _decoration = BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      stops: <double>[0.0, 0.6],
+      colors: <Color>[BrandColors.accentLatte, BrandColors.accentDeep],
+    ),
+    borderRadius: BorderRadius.all(Radius.circular(_kCompactButtonRadius)),
+  );
+
   @override
   Widget build(BuildContext context) {
     final bool loading = widget.loading;
@@ -487,13 +524,24 @@ class _HubFilledButtonState extends State<HubFilledButton> {
           duration: const Duration(milliseconds: 110),
           child: Container(
             height: _kCompactButtonHeight,
+            // Real breathing room around the label rather than the edge-to-edge
+            // fit the caller's own oversized width used to fake: a caller that
+            // sizes exactly to this button's natural width (any label longer
+            // than «Записатись») now gets padding instead of a near-zero-margin
+            // FittedBox squeeze. `VelvetSpacing.md` — no new magic number.
+            padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.md),
             alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: BrandColors.accent,
-              borderRadius: BorderRadius.circular(_kCompactButtonRadius),
-            ),
+            decoration: _decoration,
             // Overflow-hardening: scale the label down instead of clipping when
-            // the button is squeezed (narrow widths + large font scale).
+            // the button is squeezed (narrow widths + large font scale). This
+            // only engages when a caller gives this `Container` a BOUNDED max
+            // width — `Alignment.center` makes it an `Align`, which fills to
+            // its incoming max the instant that max is bounded (see
+            // `wishlist_row.dart`'s `_kActionWidthCeiling` for the call site
+            // that now supplies one, and why it uses `IntrinsicWidth` rather
+            // than handing the bound straight to this `Container` — a bare
+            // bound here would inflate every label, including ones already
+            // under the floor, to the ceiling).
             child: loading
                 ? const SizedBox(
                     height: 16,

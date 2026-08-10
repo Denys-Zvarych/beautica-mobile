@@ -6,6 +6,7 @@
 // asserted off the rendered decoration rather than off a screenshot.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -85,7 +86,17 @@ void main() {
 
       final BoxDecoration d = _decorationOf(tester, HubFilledButton);
       expect(d.border, isNull);
-      expect(d.color, BrandColors.accent);
+      // The filled button wears the locked camel→mocha CTA gradient, not a
+      // flat fill — see `hub_widgets.dart`'s `_decoration` for why a flat
+      // `BrandColors.accent` fill read as disabled.
+      expect(d.color, isNull);
+      final Gradient? gradient = d.gradient;
+      expect(gradient, isA<LinearGradient>());
+      final LinearGradient linear = gradient! as LinearGradient;
+      expect(linear.colors, <Color>[
+        BrandColors.accentLatte,
+        BrandColors.accentDeep,
+      ]);
     });
 
     testWidgets('both share one footprint — same height and radius', (
@@ -120,6 +131,69 @@ void main() {
             .topLeft,
       );
     });
+  });
+
+  group('should_insetLabelFromEdges_when_hubFilledButton', () {
+    // mobile-qa (2026-08-10): pins the SECOND half of the original bug report
+    // — «Обрати майстра» "spanned the whole button" — which nothing in this
+    // suite asserted directly before now. `hub_filled_button_contrast_test
+    // .dart` measures the gradient colour under the label's rendered rect but
+    // never checks that the rect is INSET from the button's own edges; the
+    // wishlist overflow suite only pins an exact total button WIDTH for one
+    // WishlistRow fixture, which is a width check, not a margin check, and
+    // says nothing about `WishlistCompactCard` (the passport surface the
+    // report was actually about) since that consumer passes no width bound at
+    // all. `HubFilledButton`'s padding is shared by every consumer, so one
+    // direct assertion here — inside `IntrinsicWidth` so `FittedBox` is not
+    // scaling anything down — covers all of them without duplicating a
+    // per-consumer copy.
+    //
+    // MUTATION PROOF: with `hub_widgets.dart`'s `padding: const EdgeInsets
+    // .symmetric(horizontal: VelvetSpacing.md)` reverted to `EdgeInsets.zero`,
+    // both margins below measure ~0 and this test fails; restoring the
+    // padding makes it pass again.
+    for (final String label in <String>[
+      'Записатись', // i18n-const-ok: mirrors wishlistBookCta verbatim.
+      'Обрати майстра', // i18n-const-ok: mirrors wishlistChooseMasterCta.
+    ]) {
+      testWidgets(
+        'label «$label» keeps VelvetSpacing.md of breathing room on both '
+        'sides, not edge-to-edge',
+        (tester) async {
+          await tester.pumpApp(
+            Center(
+              child: IntrinsicWidth(
+                child: HubFilledButton(label: label, onTap: () {}),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          final Rect buttonRect = tester.getRect(find.byType(HubFilledButton));
+          final Rect labelRect = tester.getRect(find.text(label));
+
+          final double leftMargin = labelRect.left - buttonRect.left;
+          final double rightMargin = buttonRect.right - labelRect.right;
+
+          expect(
+            leftMargin,
+            moreOrLessEquals(VelvetSpacing.md, epsilon: 0.5),
+            reason:
+                'left margin was $leftMargin — the label must sit '
+                'VelvetSpacing.md (${VelvetSpacing.md}dp) in from the '
+                "button's edge, not flush against it",
+          );
+          expect(
+            rightMargin,
+            moreOrLessEquals(VelvetSpacing.md, epsilon: 0.5),
+            reason:
+                'right margin was $rightMargin — the label must sit '
+                'VelvetSpacing.md (${VelvetSpacing.md}dp) in from the '
+                "button's edge, not flush against it",
+          );
+        },
+      );
+    }
   });
 
   testWidgets('danger swaps the foreground to error red', (
