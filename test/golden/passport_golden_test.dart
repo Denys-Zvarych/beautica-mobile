@@ -73,6 +73,8 @@
 // red run green is not. If one of these twelve moves without `lib/` moving,
 // that is drift and the answer is to read the diff, not to regenerate.
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
@@ -81,7 +83,10 @@ import 'package:beautica_mobile/features/passport/domain/passport.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
 import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
 import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 
+import '../helpers/fake_media_cache.dart';
 import '../helpers/fakes/fake_wishlist_repository.dart';
 import 'helpers/golden_pump.dart';
 
@@ -191,6 +196,99 @@ final List<WishlistService> _fiveFavourites = <WishlistService>[
   ),
 ];
 
+// ---------------------------------------------------------------------------
+// Phase F — SALON-sourced fixtures.
+//
+// `_fiveFavourites` above is entirely MASTER-arm — every entry relies on the
+// `@Default(WishlistSourceType.master)` and none of them exercise the render
+// path Phase F actually added: the storefront glyph, the salon name
+// attribution line, a remote salon avatar, and `priceLabel`'s VERBATIM
+// pass-through for a SALON row (see `wishlist_service.dart`'s header — a
+// SALON row skips the en-dash reformat entirely, unlike a MASTER row's RANGE).
+// Before this addition, `grep WishlistSourceType` on this file had zero hits
+// — Phase F's entire new visual surface had no golden coverage at all.
+// ---------------------------------------------------------------------------
+
+WishlistService _salonWish(
+  String id, {
+  required String serviceName,
+  required String salonName,
+  required int durationMinutes,
+  required String priceDisplay,
+  String? salonAvatarUrl,
+}) => WishlistService(
+  sourceType: WishlistSourceType.salon,
+  salonId: 'salon-$id',
+  salonName: salonName,
+  salonAvatarUrl: salonAvatarUrl,
+  serviceDefId: id,
+  serviceName: serviceName,
+  durationMinutes: durationMinutes,
+  priceDisplay: priceDisplay,
+);
+
+/// The fixture host golden-allowlisted for the resolvable-avatar scenario —
+/// mirrors `master_booking_card_client_avatar_test.dart`'s pattern.
+const String _kSalonAvatarHost = 'cdn.example.com';
+const String _kSalonAvatarUrl = 'https://$_kSalonAvatarHost/avatars/salon.png';
+
+/// ONE salon favourite with a resolvable https avatar on the allow-listed
+/// host — decoded via [FakeMediaCacheManager]/[mediaLoaded] (see the dedicated
+/// `goldenTest` below), so the disc genuinely renders the loaded-photo branch
+/// of `HubAvatar`, not its fallback.
+final List<WishlistService> _oneSalonFavouriteWithAvatar = <WishlistService>[
+  _salonWish(
+    'svc-avatar',
+    serviceName: 'Ламінування вій',
+    salonName: 'Салон краси «Оксамит»',
+    durationMinutes: 60,
+    priceDisplay: 'від 600 до 900 ₴',
+    salonAvatarUrl: _kSalonAvatarUrl,
+  ),
+];
+
+/// ONE salon favourite with NO avatar URL — the disc must fall back to the
+/// gradient + storefront glyph, never to initials (a brand name's initials
+/// read poorly — see `wishlist_entry_labels.dart`'s `avatarFallbackIcon`).
+final List<WishlistService> _oneSalonFavouriteNoAvatar = <WishlistService>[
+  _salonWish(
+    'svc-fallback',
+    serviceName: 'Корекція брів хною',
+    salonName: 'Студія «Візаж»',
+    durationMinutes: 45,
+    priceDisplay: '350 ₴',
+  ),
+];
+
+/// ONE master row + ONE salon row — the real-world case: a client's wish
+/// list mixes both origins, and the two row TYPES must look consistent
+/// (matching card geometry, hairline, button) while still being visibly
+/// distinguishable (glyph + attribution text). The salon row here carries an
+/// EQUAL-BOUNDS range («від 500 до 500 ₴») specifically so this baseline can
+/// also catch a collapse regression by eye: if a SALON row were ever routed
+/// back through the MASTER arm's `formatBookingPrice`, the pill would read
+/// «500 ₴» instead of the backend's own long form — a visible, not just an
+/// asserted, divergence. `wishlist_service_test.dart`'s
+/// `should_renderVerbatim_when_sourceTypeIsSalon` group pins this
+/// byte-for-byte; this baseline is what makes a silent revert visible on
+/// the one surface a client actually looks at.
+final List<WishlistService> _mixedMasterAndSalon = <WishlistService>[
+  _wish(
+    'mix-m1',
+    serviceName: 'Манікюр з покриттям гель-лак',
+    masterName: 'Ірина Бондаренко',
+    durationMinutes: 90,
+    priceDisplay: '600 ₴',
+  ),
+  _salonWish(
+    'mix-s1',
+    serviceName: 'Ламінування брів',
+    salonName: 'Салон краси «Оксамит»',
+    durationMinutes: 45,
+    priceDisplay: 'від 500 до 500 ₴',
+  ),
+];
+
 /// The native FLAG_SECURE plugin must never fire under `flutter test` —
 /// [PassportScreen.initState] acquires screen protection on mount.
 class _NoOpScreenProtection extends ScreenProtectionManager {
@@ -260,4 +358,95 @@ void main() {
       );
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Phase F — SALON-sourced golden scenarios.
+  //
+  // ONE representative cell each (360dp, text-1.0x) rather than the full
+  // {320,360,414}×{1.0,1.3} matrix above: these three exist to close the
+  // "zero salon coverage" gap on the RENDER PATH (glyph, name, avatar,
+  // verbatim price), not to re-run the wrap/overflow matrix the MASTER-arm
+  // cells already cover byte-for-byte identically for either arm (the compact
+  // card's layout code does not branch on sourceType at all — only
+  // `displayTitle`/`attributionIcon`/`avatarImageUrl`/`priceLabel` do, and
+  // those are unit-pinned in `wishlist_service_test.dart` /
+  // `wishlist_entry_labels_test.dart` against every width-independent edge
+  // case). A representative cell is what lets a human actually eyeball three
+  // new baselines instead of rubber-stamping 36.
+  // ---------------------------------------------------------------------------
+  group('passport DATA salon-avatar 360dp text-1x', () {
+    // The loaded-photo branch of `HubAvatar`/`RemoteImage` needs the same
+    // seam every other media test in this suite uses — `flutter test` has no
+    // real network and `beauticaImageCacheManager` needs path_provider +
+    // sqflite, neither available here. Scoped to just THIS group so the
+    // override cannot leak into the MASTER-only cells above.
+    setUp(() {
+      MediaConfig.debugAllowedHosts = <String>{_kSalonAvatarHost};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+    });
+
+    tearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+      imageCache.clear();
+      imageCache.clearLiveImages();
+    });
+
+    goldenTest(
+      'a SALON row with a resolvable avatar renders the loaded photo, not '
+      'the fallback disc',
+      fileName: 'passport_salon_avatar_360_1x',
+      constraints: BoxConstraints.tight(const Size(360, kGoldenHeight)),
+      textScaleFactor: 1.0,
+      pumpWidget: (WidgetTester tester, Widget alchemistWidget) async {
+        // Image decoding is genuinely async (`instantiateImageCodec`) — it
+        // does not advance under `pump`/`pumpAndSettle` alone (see
+        // `master_booking_card_client_avatar_test.dart`'s identical note).
+        await goldenPumpWidget(
+          overrides: _overrides(
+            passport: _populatedPassport,
+            wishlist: _oneSalonFavouriteWithAvatar,
+          ),
+          width: 360,
+        )(tester, alchemistWidget);
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        });
+        await tester.pumpAndSettle();
+      },
+      builder: () => const PassportScreen(),
+    );
+  });
+
+  goldenTest(
+    'passport DATA salon-fallback 360dp text-1x — a SALON row with no '
+    'avatar renders the gradient + storefront glyph',
+    fileName: 'passport_salon_fallback_360_1x',
+    constraints: BoxConstraints.tight(const Size(360, kGoldenHeight)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(
+      overrides: _overrides(
+        passport: _populatedPassport,
+        wishlist: _oneSalonFavouriteNoAvatar,
+      ),
+      width: 360,
+    ),
+    builder: () => const PassportScreen(),
+  );
+
+  goldenTest(
+    'passport DATA salon-mixed 360dp text-1x — a MASTER row and a SALON row '
+    'share the two-card line and read as one consistent system',
+    fileName: 'passport_salon_mixed_360_1x',
+    constraints: BoxConstraints.tight(const Size(360, kGoldenHeight)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(
+      overrides: _overrides(
+        passport: _populatedPassport,
+        wishlist: _mixedMasterAndSalon,
+      ),
+      width: 360,
+    ),
+    builder: () => const PassportScreen(),
+  );
 }

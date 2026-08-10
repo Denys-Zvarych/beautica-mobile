@@ -107,6 +107,19 @@ WishlistService _entry(String id) => WishlistService(
   priceDisplay: '600 ₴',
 );
 
+/// A SALON-sourced entry (Phase G) — `favoriteTargetId` resolves to
+/// [serviceDefId] for this arm (`WishlistService.favoriteTargetId`), which is
+/// what the `wishlist_card_book_<id>` / `wishlist_row_book_<id>` keys embed.
+WishlistService _salonEntry(String id) => WishlistService(
+  sourceType: WishlistSourceType.salon,
+  salonId: 's-$id',
+  salonName: 'Салон $id',
+  serviceDefId: 'svc-$id',
+  serviceName: 'Послуга $id',
+  durationMinutes: 60,
+  priceDisplay: '600 ₴',
+);
+
 /// Two entries so the passport section's `take(2)` compact-card line renders
 /// both, and the full list has the same two.
 List<WishlistService> _wishlist() => <WishlistService>[
@@ -126,9 +139,12 @@ class _FixedAuthNotifier extends AuthNotifier {
 // Harness
 // ---------------------------------------------------------------------------
 
-/// Captures every `extra` a push to [RouteNames.bookingNew] carried, in order.
+/// Captures every `extra` a push to [RouteNames.bookingNew] carried (MASTER
+/// arm), and every full location (path + query) a push to `/salons/:salonId`
+/// carried (SALON arm), both in order.
 class _BookingNewCapture {
   final List<Object?> pushes = <Object?>[];
+  final List<String> salonPushes = <String>[];
 }
 
 class _Harness {
@@ -139,9 +155,12 @@ class _Harness {
   final GoRouter router;
   final _BookingNewCapture capture;
 
-  static Future<_Harness> boot(WidgetTester tester) async {
+  static Future<_Harness> boot(
+    WidgetTester tester, {
+    List<WishlistService>? entries,
+  }) async {
     final FakeWishlistRepository wishlistRepo = FakeWishlistRepository(
-      services: _wishlist(),
+      services: entries ?? _wishlist(),
     );
     final _BookingNewCapture capture = _BookingNewCapture();
 
@@ -182,6 +201,20 @@ class _Harness {
             capture.pushes.add(state.extra);
             return const Scaffold(
               key: Key('stub-booking-new-screen'),
+              body: SizedBox.shrink(),
+            );
+          },
+        ),
+        // SALON-arm destination (Phase G) — records the FULL location
+        // (path + query), since that is what actually carries the
+        // `serviceId`/`tab` seed; `extra` is deliberately never used for this
+        // arm (see `RouteNames.salonPublicProfile` / `wishlist_rebook.dart`).
+        GoRoute(
+          path: '/salons/:salonId',
+          builder: (context, state) {
+            capture.salonPushes.add(state.uri.toString());
+            return const Scaffold(
+              key: Key('stub-salon-profile-screen'),
               body: SizedBox.shrink(),
             );
           },
@@ -307,6 +340,95 @@ void main() {
         expect(fromRow.preselectedServiceId, fromCard.preselectedServiceId);
         expect(fromCard.masterId, 'm-b');
         expect(fromCard.preselectedServiceId, 'b');
+        h.container.dispose();
+      },
+    );
+  });
+
+  // ===========================================================================
+  // Phase G correction — a SALON row's «Обрати майстра» pushes the salon's
+  // OWN profile, filtered to the favourited service, via context.push — NOT
+  // RouteNames.salonBookingServices (Phase F's shipped-then-reversed cut).
+  // ===========================================================================
+  group('should_pushFilteredSalonProfile_when_salonRowBooked', () {
+    testWidgets(
+      'a SALON-sourced entry pushes RouteNames.salonPublicProfile with the '
+      'favourited serviceDefId as a query param, via context.push',
+      (tester) async {
+        final _Harness h = await _Harness.boot(
+          tester,
+          entries: <WishlistService>[_salonEntry('x')],
+        );
+
+        final Finder book = find.byKey(const Key('wishlist_card_book_svc-x'));
+        expect(book, findsOneWidget);
+        await tester.tap(book);
+        await tester.pumpAndSettle();
+
+        // Landed on the stub — a genuine navigation, not a no-op callback.
+        expect(
+          find.byKey(const Key('stub-salon-profile-screen')),
+          findsOneWidget,
+        );
+        // context.push, never context.go — same structural check as the
+        // MASTER-arm test above; see the file header for why a naive
+        // location read cannot distinguish the two at this router's top
+        // level.
+        expect(
+          h.topIsImperativePush,
+          isTrue,
+          reason:
+              'the salon-arm destination must also be reached via '
+              'context.push, matching the MASTER arm',
+        );
+
+        expect(h.capture.salonPushes, hasLength(1));
+        expect(
+          h.capture.salonPushes.single,
+          RouteNames.salonPublicProfile('s-x', serviceId: 'svc-x'),
+          reason:
+              'must carry the favourited serviceDefId as the QUERY param '
+              'RouteNames.salonPublicProfile builds — never '
+              'RouteNames.salonBookingServices (the reversed Phase F cut)',
+        );
+        h.container.dispose();
+      },
+    );
+
+    testWidgets(
+      'the passport compact card and the full-list row push the IDENTICAL '
+      'location for the same SALON entry — one shared handler',
+      (tester) async {
+        final _Harness h = await _Harness.boot(
+          tester,
+          entries: <WishlistService>[_salonEntry('y')],
+        );
+
+        // 1. Compact card, from the passport page.
+        await tester.tap(find.byKey(const Key('wishlist_card_book_svc-y')));
+        await tester.pumpAndSettle();
+        expect(h.capture.salonPushes, hasLength(1));
+        final String fromCard = h.capture.salonPushes.single;
+
+        h.router.pop();
+        await tester.pumpAndSettle();
+        unawaited(h.router.push(RouteNames.clientWishlist));
+        await tester.pumpAndSettle();
+
+        // 2. Full row, from the SAME entry on WishlistScreen.
+        final Finder row = find.byKey(const Key('wishlist_row_book_svc-y'));
+        expect(row, findsOneWidget);
+        await tester.tap(row);
+        await tester.pumpAndSettle();
+
+        expect(h.capture.salonPushes, hasLength(2));
+        final String fromRow = h.capture.salonPushes.last;
+
+        expect(fromRow, fromCard);
+        expect(
+          fromCard,
+          RouteNames.salonPublicProfile('s-y', serviceId: 'svc-y'),
+        );
         h.container.dispose();
       },
     );

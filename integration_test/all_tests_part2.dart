@@ -29,6 +29,7 @@ import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
@@ -48,6 +49,8 @@ import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
+import 'wishlist_salon_service_redirect_flow_test.dart'
+    as wishlist_salon_service_redirect;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -106,6 +109,14 @@ void main() {
   // asserted mid-flight, restore at the ORIGINAL index (not appended), and
   // the failure snack. Closes the last known Beauty Passport track gap.
   group('wishlist_remove_failure_flow', wishlist_remove_failure.main);
+  // Phase G — a SALON-sourced favourite redirects to the salon's own
+  // profile, Майстри tab, filtered to the favourited service (never the
+  // salon booking flow — Phase F's reversed cut). Registered beside the
+  // other wishlist flows because it shares their fixtures and harness.
+  group(
+    'wishlist_salon_service_redirect_flow',
+    wishlist_salon_service_redirect.main,
+  );
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);
   group('register_flow', register.main);
@@ -114,6 +125,10 @@ void main() {
     register_locality_persistence.main,
   );
   group('salon_booking_flow', salon_booking.main);
+  // Phase F — a real heart tap on the salon catalogue POSTs a SALON_SERVICE
+  // favorite that the Beauty Passport genuinely reads back as a SALON row.
+  // The MASTER-arm sibling of `service_favourite_flow`, registered beside it.
+  group('salon_service_favourite_flow', salon_service_favourite.main);
   group('salon_service_filter_flow', salon_service_filter.main);
   group('schedule_edit_flow', schedule_edit.main);
   group('schedule_first_create_flow', schedule_first_create.main);

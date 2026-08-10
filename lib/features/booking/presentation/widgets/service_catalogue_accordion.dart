@@ -26,18 +26,25 @@
 // per screen (different ICU sentences entirely) and stay screen-owned via
 // [CategoryHeaderSemanticsBuilder].
 //
-// Phase 240 — per-row favourite heart, MASTER FLOW ONLY. Added `showFavoriteHeart`
-// to [CatalogueCategorySection], following the EXACT precedent `showCountBadges`
-// already set for a per-flow trailing-slot difference: `ServiceSelectorSheet`
-// (independent-master flow) turns it on because its [CatalogueRow.id] IS a real
-// `master_services` row id; `SalonServiceSelectionScreen` leaves it `false`
-// (the default) because its rows are the SALON's catalogue mapped into the same
-// shape, whose id is a salon-catalogue-service id — not a real `master_services`
-// id, and no master is even chosen until a later step. Favouriting there would
-// send an id the backend has never heard of as a favorite target. This is a
-// STRUCTURAL guard, not a convention to remember: the salon screen simply never
-// passes `showFavoriteHeart: true`, so it can never render a heart no matter
-// what its call site does.
+// Phase 240 — per-row favourite heart, MASTER FLOW ONLY (at the time). Added
+// `showFavoriteHeart` to [CatalogueCategorySection], following the EXACT
+// precedent `showCountBadges` already set for a per-flow trailing-slot
+// difference: `ServiceSelectorSheet` (independent-master flow) turned it on
+// because its [CatalogueRow.id] IS a real `master_services` row id;
+// `SalonServiceSelectionScreen` left it `false` (the default) because its rows
+// were the SALON's catalogue mapped into the same shape, whose id is a
+// salon-catalogue-service id — not a real `master_services` id, and favouriting
+// with the wrong target type would send an id/type pair the backend had never
+// heard of.
+//
+// Phase E — the backend now supports a distinct `SALON_SERVICE` favorite
+// target type keyed to `service_definitions.id` (which the salon flow's row
+// id already IS, per `salon_mapper.dart`), so the salon flow can now turn the
+// heart on too. Added `favoriteTargetType` (defaulting to
+// `FavoriteTargetType.service`, the master flow's existing behaviour) to both
+// [CatalogueServiceTile] and [CatalogueCategorySection] so each flow's rows
+// favourite against the correct target type; `showFavoriteHeart` still gates
+// whether the heart renders at all.
 //
 // This pulls in [FavoriteHeartButton] from `features/discovery/presentation/
 // widgets/` — a cross-feature PRESENTATION import, which the repo's usual rule
@@ -171,6 +178,7 @@ class CatalogueCategorySection extends StatefulWidget {
     this.headerKey,
     this.showCountBadges = true,
     this.showFavoriteHeart = false,
+    this.favoriteTargetType = FavoriteTargetType.service,
     this.favoriteServiceIds = const <String>{},
     this.onFavoriteError,
   });
@@ -205,9 +213,16 @@ class CatalogueCategorySection extends StatefulWidget {
   final bool showCountBadges;
 
   /// Whether each row in this category renders a [FavoriteHeartButton] in its
-  /// trailing slot. OPT-IN per flow, mirroring [showCountBadges] exactly —
-  /// see the file header for why the salon flow must never turn this on.
+  /// trailing slot. OPT-IN per flow, mirroring [showCountBadges]. Ignored
+  /// (never renders) unless true.
   final bool showFavoriteHeart;
+
+  /// The [FavoriteTarget.type] each row's heart favourites against. Defaults
+  /// to [FavoriteTargetType.service] (the independent-master flow's row id —
+  /// a `master_services` assignment id). The salon flow passes
+  /// [FavoriteTargetType.salonService] — see the file header. Ignored when
+  /// [showFavoriteHeart] is false.
+  final FavoriteTargetType favoriteTargetType;
 
   /// Row ids ([CatalogueRow.id]) already in the wish list, used to prime each
   /// row's heart to its filled state on first build. Ignored when
@@ -315,6 +330,7 @@ class _CatalogueCategorySectionState extends State<CatalogueCategorySection> {
                           selected: _selectedInGroup.contains(row.id),
                           onToggle: () => widget.onToggleService(row.id),
                           showFavoriteHeart: widget.showFavoriteHeart,
+                          favoriteTargetType: widget.favoriteTargetType,
                           isFavorite: widget.favoriteServiceIds.contains(
                             row.id,
                           ),
@@ -551,6 +567,7 @@ class CatalogueServiceTile extends StatefulWidget {
     required this.selected,
     required this.onToggle,
     this.showFavoriteHeart = false,
+    this.favoriteTargetType = FavoriteTargetType.service,
     this.isFavorite = false,
     this.onFavoriteError,
   });
@@ -559,10 +576,15 @@ class CatalogueServiceTile extends StatefulWidget {
   final bool selected;
   final VoidCallback onToggle;
 
-  /// Renders a [FavoriteHeartButton] targeting `(SERVICE, row.id)` in the
-  /// row's trailing slot when true. Master flow only — see
+  /// Renders a [FavoriteHeartButton] targeting `(favoriteTargetType, row.id)`
+  /// in the row's trailing slot when true — see
   /// [CatalogueCategorySection.showFavoriteHeart].
   final bool showFavoriteHeart;
+
+  /// The [FavoriteTarget.type] this row's heart favourites against. See
+  /// [CatalogueCategorySection.favoriteTargetType]. Ignored when
+  /// [showFavoriteHeart] is false.
+  final FavoriteTargetType favoriteTargetType;
 
   /// Primes the heart's initial filled/outline state. Ignored when
   /// [showFavoriteHeart] is false.
@@ -776,7 +798,7 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
                   FavoriteHeartButton(
                     key: Key('booking_service_heart_${row.id}'),
                     target: FavoriteTarget(
-                      type: FavoriteTargetType.service,
+                      type: widget.favoriteTargetType,
                       id: row.id,
                     ),
                     initialIsFavorite: widget.isFavorite,

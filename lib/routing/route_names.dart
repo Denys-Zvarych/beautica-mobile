@@ -128,8 +128,27 @@ abstract final class RouteNames {
 
   /// Phase 13.6 — public salon profile, opened from a salon result card tap.
   /// Same lifecycle note as [masterPublicProfile].
-  static String salonPublicProfile(String salonId) =>
-      '/salons/${Uri.encodeComponent(salonId)}';
+  ///
+  /// Phase G — [serviceId] optionally deep-links straight to the "Майстри"
+  /// tab, pre-filtered to masters who perform that service (the salon-arm
+  /// wish-list favourite's tap/CTA target — `WishlistRebookHost.rebook`).
+  /// Appends `?serviceId=<id>&tab=masters` as QUERY params, never `extra`:
+  /// `extra` does not survive a real deep link or state restoration, and this
+  /// is the SAME route constant, only parameterised — not a second route.
+  /// Omitting [serviceId] reproduces the exact bare path every existing call
+  /// site already relies on (`RouteNames.salonPublicProfile('abc') ==
+  /// '/salons/abc'` stays pinned by `salon_profile_swipe_back_test.dart`).
+  static String salonPublicProfile(String salonId, {String? serviceId}) {
+    final String path = '/salons/${Uri.encodeComponent(salonId)}';
+    if (serviceId == null) return path;
+    final String query = Uri(
+      queryParameters: <String, String>{
+        'serviceId': serviceId,
+        'tab': 'masters',
+      },
+    ).query;
+    return '$path?$query';
+  }
 
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the

@@ -13,6 +13,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/media/beautica_image.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -44,6 +45,8 @@ class HubAvatar extends StatelessWidget {
     required this.initials,
     this.size = 64,
     this.fontSize,
+    this.imageUrl,
+    this.fallbackIcon,
   });
 
   final String initials;
@@ -53,6 +56,21 @@ class HubAvatar extends StatelessWidget {
   /// predate this widget's size-based rule. Leave it null everywhere else: null
   /// is what selects the scale [size] actually calls for.
   final double? fontSize;
+
+  /// An optional network photo. Null (the default, and every call site that
+  /// predates this parameter) renders the gradient disc exactly as before —
+  /// this is an ADDITIVE, opt-in path, not a replacement of the initials disc.
+  /// When set, routes through [RemoteImage]; [isAllowedMediaUrl] failing (a
+  /// null/non-https/non-allowed URL, or a decode error) falls through to the
+  /// SAME gradient disc, drawing [fallbackIcon] if set, else [initials].
+  final String? imageUrl;
+
+  /// Drawn INSIDE the gradient disc instead of [initials] whenever the disc
+  /// falls back — either because [imageUrl] is null, or because it failed to
+  /// resolve. Null (the default) keeps the initials text. A brand name's
+  /// initials read poorly, so a caller with a logo-carrying source (a salon)
+  /// should pass its established glyph here rather than relying on text.
+  final IconData? fallbackIcon;
 
   /// At or above this diameter the disc is a page-level portrait, below it an
   /// in-card mark. The preview's `_portraitThreshold`, verbatim: it separates
@@ -89,21 +107,54 @@ class HubAvatar extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  /// [fallbackIcon]'s size as a fraction of the disc — the same proportion
+  /// [ResultThumbnail]'s 32 dp-of-72 dp placeholder glyph uses.
+  static const double _kIconSizeRatio = 32 / 72;
+
+  static const BoxDecoration _discDecoration = BoxDecoration(
+    shape: BoxShape.circle,
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: _gradientColors,
+      stops: <double>[0.0, 0.55, 1.0],
+    ),
+  );
+
+  /// The gradient disc's content: [fallbackIcon] when the caller supplied
+  /// one, else [initials] — the ORIGINAL, only content this widget ever drew
+  /// before [imageUrl] existed.
+  Widget _discContent() {
+    final IconData? icon = fallbackIcon;
+    if (icon == null) return Text(initials, style: _textStyle);
+    return Icon(icon, size: size * _kIconSizeRatio, color: BrandColors.white);
+  }
+
+  Widget _disc() {
     return Container(
       height: size,
       width: size,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: _gradientColors,
-          stops: <double>[0.0, 0.55, 1.0],
-        ),
-      ),
-      child: Center(child: Text(initials, style: _textStyle)),
+      decoration: _discDecoration,
+      child: Center(child: _discContent()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String? url = imageUrl;
+    // Null is the ORIGINAL, still by-far-the-most-common path — every
+    // call site that predates this parameter, and every MASTER-row wish-list
+    // avatar today. It renders the exact disc this widget always has, with
+    // no RemoteImage wrapper in the tree at all — zero behavioural or golden
+    // change for any caller that does not pass imageUrl.
+    if (url == null) return _disc();
+    return RemoteImage(
+      url: url,
+      width: size,
+      height: size,
+      shape: RemoteImageShape.circle,
+      excludeFromSemantics: true,
+      fallback: _disc(),
     );
   }
 }

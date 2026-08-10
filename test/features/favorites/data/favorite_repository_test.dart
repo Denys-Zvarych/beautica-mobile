@@ -115,6 +115,26 @@ void main() {
         AddFavoriteRequestTargetTypeEnum.SALON,
       );
     });
+
+    // Phase E — the salon booking flow's service-selection step favourites
+    // against `service_definitions.id` (owner_type = SALON), a DIFFERENT id
+    // space than `service` (master_services). Pinned separately so a
+    // `salonService` arm that collapsed onto SERVICE (a plausible copy-paste
+    // of the case above) would send the id under the wrong target type and
+    // still pass every other test in this file.
+    test('sends the SALON_SERVICE wire enum when targetType is '
+        'salonService', () async {
+      await repository.add(
+        const FavoriteTarget(
+          type: FavoriteTargetType.salonService,
+          id: 'service-def-1',
+        ),
+      );
+
+      final AddFavoriteRequest sent = capturedAddRequest();
+      expect(sent.targetType, AddFavoriteRequestTargetTypeEnum.SALON_SERVICE);
+      expect(sent.targetId, 'service-def-1');
+    });
   });
 
   group('HttpFavoriteRepository.remove — wire enum translation', () {
@@ -158,10 +178,32 @@ void main() {
         ).called(1);
       },
     );
+
+    test('sends the SALON_SERVICE wire enum when removing a salonService '
+        'favorite', () async {
+      await repository.remove(
+        const FavoriteTarget(
+          type: FavoriteTargetType.salonService,
+          id: 'service-def-1',
+        ),
+      );
+
+      // `remove` sends the enum's NAME as a query param — pinning the exact
+      // string proves `.name` on the generated enum constant round-trips to
+      // 'SALON_SERVICE' rather than some `.name`-derived mangling (e.g. a
+      // hypothetical camelCase-to-upper transform would have produced
+      // 'SALONSERVICE').
+      verify(
+        () => api.removeFavorite(
+          targetType: 'SALON_SERVICE',
+          targetId: 'service-def-1',
+        ),
+      ).called(1);
+    });
   });
 
   group('FavoriteTargetType — enum surface', () {
-    test('declares exactly master, salon and service', () {
+    test('declares exactly master, salon, service and salonService', () {
       // Guards the domain enum against silently gaining a member that
       // `_wireType` cannot translate. The switch there is exhaustive with no
       // default, so a new member is a COMPILE error — this test documents the
@@ -171,6 +213,7 @@ void main() {
         FavoriteTargetType.master,
         FavoriteTargetType.salon,
         FavoriteTargetType.service,
+        FavoriteTargetType.salonService,
       ]);
     });
   });

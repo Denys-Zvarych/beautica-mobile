@@ -3338,6 +3338,174 @@ void main() {
     );
   });
 
+  group('Phase G — deep-link service filter seed (initialServiceId)', () {
+    // svc-1 is _stubCatalog's own service ("Манікюр з покриттям") — reused
+    // rather than a bespoke fixture so the resolved chip-name assertion below
+    // is pinned against the SAME literal the "salon-service → masters
+    // filter" group already asserts for the tap-driven path.
+    const List<SalonMasterSummary> deepLinkMasters = <SalonMasterSummary>[
+      SalonMasterSummary(
+        masterId: 'master-1',
+        firstName: 'Олена',
+        lastName: 'Ковальчук',
+        avgRating: 4.9,
+        reviewCount: 12,
+        type: MasterType.salonMaster,
+      ),
+      SalonMasterSummary(
+        masterId: 'master-2',
+        firstName: 'Богдан',
+        lastName: 'Мороз',
+        avgRating: 4.7,
+        reviewCount: 4,
+        type: MasterType.salonMaster,
+      ),
+    ];
+
+    Object coverageOverride(Map<String, Map<String, String>> map) =>
+        salonMasterServiceCoverageProvider(
+          const SalonBookingMasterSelectionArgs(
+            salonId: _kSalonId,
+            selectedServiceIds: <String>['svc-1'],
+          ),
+        ).overrideWith((ref) async => map);
+
+    testWidgets(
+      'a resolvable initialServiceId lands directly on the Майстри tab, '
+      'pre-filtered, with the chip naming the RESOLVED service — no tap '
+      'needed',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(
+            salonId: _kSalonId,
+            initialServiceId: 'svc-1',
+          ),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => deepLinkMasters),
+            coverage: coverageOverride(const <String, Map<String, String>>{
+              'master-1': <String, String>{'svc-1': 'assign-1'},
+            }),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Landed on the Майстри tab WITHOUT ever tapping a tab — the "Про
+        // салон" body never rendered.
+        expect(
+          find.byKey(const Key('salon-masters-filter-chip')),
+          findsOneWidget,
+          reason:
+              'a resolvable deep-link id must seed BOTH the tab index and '
+              'the filter with no user interaction at all',
+        );
+        // i18n-finder-ok: service name is fixture data, not UI copy.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon-masters-filter-chip')),
+            matching: find.textContaining('Манікюр з покриттям'),
+          ),
+          findsOneWidget,
+          reason:
+              'the chip must show the NAME resolved from the catalogue, '
+              'never the raw id or a blank label',
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-2')),
+          findsNothing,
+          reason: 'master-2 does not perform svc-1 — must stay filtered out',
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('an unresolvable initialServiceId (stale favourite / withdrawn '
+        'service) still lands on the Майстри tab but UNFILTERED — no chip, no '
+        'crash, full roster', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(
+          salonId: _kSalonId,
+          initialServiceId: 'svc-does-not-exist',
+        ),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(masters: () async => deepLinkMasters),
+          // Deliberately NO coverage override: an unresolved id must never
+          // reach `salonMasterServiceCoverageProvider` at all — if it did,
+          // `_FakeSalonRepository.getBookableMasters` throws loudly (see
+          // its own doc comment) and this test would fail via the
+          // exception check below, not silently pass.
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-masters-filter-chip')),
+        findsNothing,
+        reason:
+            'an id absent from the catalogue must clear (stay cleared) '
+            'the filter rather than show a chip with a raw id',
+      );
+      expect(
+        find.byKey(const Key('salon-master-card-master-1')),
+        findsOneWidget,
+        reason: 'the FULL, unfiltered roster renders',
+      );
+      expect(
+        find.byKey(const Key('salon-master-card-master-2')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'the seed is ONE-SHOT: a filter the client clears themselves stays '
+      'cleared across an unrelated rebuild',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(
+            salonId: _kSalonId,
+            initialServiceId: 'svc-1',
+          ),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => deepLinkMasters),
+            coverage: coverageOverride(const <String, Map<String, String>>{
+              'master-1': <String, String>{'svc-1': 'assign-1'},
+            }),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-masters-filter-chip')),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const Key('salon-masters-filter-clear')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-masters-filter-chip')),
+          findsNothing,
+        );
+
+        // An unrelated rebuild (a favourite-heart toggle rebuilds the whole
+        // tree via provider invalidation elsewhere in the app; here a simple
+        // resize stands in for "something else caused this State to
+        // rebuild") must NOT resurrect the deep-link filter — the seed
+        // already fired once in initState/build and disarmed itself.
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-masters-filter-chip')),
+          findsNothing,
+        );
+      },
+    );
+  });
+
   // ── mobile-build-verifier regression: hero card overlap-band hit test ────
   //
   // Phase 224's `_CoverAndHero` used to pin the hero card's overlap into the

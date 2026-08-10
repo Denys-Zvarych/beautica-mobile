@@ -103,10 +103,15 @@ class WishlistCompactCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              HubAvatar(initials: item.masterInitials(l10n), size: _kAvatar),
+              HubAvatar(
+                initials: item.avatarInitials(l10n),
+                size: _kAvatar,
+                imageUrl: item.avatarImageUrl,
+                fallbackIcon: item.avatarFallbackIcon,
+              ),
               const Spacer(),
               WishlistHeartButton(
-                buttonKey: Key('wishlist_card_heart_${item.masterServiceId}'),
+                buttonKey: Key('wishlist_card_heart_${item.favoriteTargetId}'),
                 onTap: onUnfavourite,
               ),
             ],
@@ -116,10 +121,12 @@ class WishlistCompactCard extends StatelessWidget {
           // Both UNBOUNDED — no `maxLines`, no `TextOverflow`. See the header.
           Text(item.serviceName, style: VelvetText.svcCardName),
           const SizedBox(height: AppSpacing.xxs),
-          Text(
-            item.displayMasterName(l10n),
-            style: VelvetText.bookingCardSubtle,
-          ),
+          // NO icon on this line — width is the binding constraint here (see
+          // the file header), and the avatar already carries the salon
+          // signal for a SALON row. [displayTitle] resolves to the master's
+          // name or the salon's name; never [displayMasterName] directly,
+          // which would assert on a SALON row.
+          Text(item.displayTitle(l10n), style: VelvetText.bookingCardSubtle),
           const SizedBox(height: AppSpacing.sm),
           // ── Duration + price, in the master booking card's treatments ──────
           // A [Wrap], so the pill drops to a SECOND RUN rather than colliding
@@ -148,8 +155,8 @@ class WishlistCompactCard extends StatelessWidget {
           const Spacer(),
           const SizedBox(height: AppSpacing.xs),
           HubFilledButton(
-            key: Key('wishlist_card_book_${item.masterServiceId}'),
-            label: l10n.wishlistBookCta,
+            key: Key('wishlist_card_book_${item.favoriteTargetId}'),
+            label: item.bookCtaLabel(l10n),
             onTap: onBook,
           ),
         ],

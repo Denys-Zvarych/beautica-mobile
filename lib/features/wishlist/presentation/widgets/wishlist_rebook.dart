@@ -18,6 +18,38 @@
 // rebook is indistinguishable at the API from any other booking entry point,
 // so nothing here talks to the network directly.
 //
+// ## Phase G — SALON rows go to the salon's masters tab, FILTERED to the
+// favourited service — the SAME destination a row tap and its CTA always
+// shared, corrected to the actual product decision
+//
+// A MASTER row's «Записатись» has always pushed straight to the slot picker
+// because BOTH ids the booking flow needs (`masterId` AND a
+// `preselectedServiceId`) are already known. A SALON row has neither — the
+// client favourited a catalogue entry with no master chosen yet.
+//
+// Phase F's shipped cut sent a SALON row to
+// `RouteNames.salonBookingServices` (the salon booking flow's own multi-select
+// catalogue Step 1) as a "simplification", reasoning that the flow has no
+// slot to pre-seed a single service into. That is NOT what the product
+// decided: the «Записатись»-equivalent CTA on a SALON row does exactly what
+// TAPPING the row does — open the salon's own profile with its "Майстри" tab
+// pre-filtered to "the salon's masters who can perform this service", via
+// `RouteNames.salonPublicProfile(salonId, serviceId: serviceDefId)`
+// (`PublicSalonProfileScreen`'s Phase G deep-link seed — see that file's
+// `initialServiceId`/`_applyDeepLinkFilter`). One destination, reached by ONE
+// call site below, for both the tap and the CTA — there is no second,
+// divergent path to keep in sync.
+//
+// `serviceDefId` is exactly the id `salonServiceFilterProvider` keys its
+// selection on (`SalonCatalogService.id` — the same `service_definitions.id`
+// namespace, per `wishlist_service.dart`'s header) — no id translation needed
+// at this call site. If the catalogue no longer carries that id (the service
+// was withdrawn since the client favourited it), the destination screen
+// itself clears the filter and renders the plain, unfiltered masters tab
+// rather than a broken chip — see `_applyDeepLinkFilter`'s doc. That
+// resolution is the DESTINATION's job, not this navigator's: [rebook] never
+// pre-flight-checks the id before pushing (see below).
+//
 // ## No pre-flight validation
 //
 // [rebook] pushes immediately. It does NOT re-check that [WishlistService]'s
@@ -60,19 +92,44 @@ import '../../domain/wishlist_service.dart';
 /// [State]. Mix into a `ConsumerState` and wire both `onBook` callbacks
 /// (compact card + full row) to [rebook].
 mixin WishlistRebookHost<T extends ConsumerStatefulWidget> on ConsumerState<T> {
-  /// Opens the existing booking flow pre-seeded with [item]'s
-  /// `(masterId, masterServiceId)`, then refreshes the wish list once the
-  /// flow returns. See the file header for why there is no pre-flight check
-  /// and why the refresh is deliberately unconditional and deferred to AFTER
-  /// the push resolves.
+  /// For a MASTER row, opens the existing booking flow pre-seeded with
+  /// [item]'s `(masterId, masterServiceId)`. For a SALON row, opens that
+  /// salon's own profile with its "Майстри" tab pre-filtered to the
+  /// favourited service — see the file header's Phase G section. Either way,
+  /// refreshes the wish list once the flow returns; see the file header for
+  /// why there is no pre-flight check and why the refresh is deliberately
+  /// unconditional and deferred to AFTER the push resolves.
   Future<void> rebook(WishlistService item) async {
-    await context.push(
-      RouteNames.bookingNew,
-      extra: BookingEntryArgs(
-        masterId: item.masterId,
-        preselectedServiceId: item.masterServiceId,
-      ),
-    );
+    switch (item.sourceType) {
+      case WishlistSourceType.master:
+        final String? masterId = item.masterId;
+        final String? masterServiceId = item.masterServiceId;
+        assert(
+          masterId != null && masterServiceId != null,
+          'a MASTER wishlist row is missing masterId/masterServiceId — the '
+          "mapper's per-arm null-guard should have refused to build this row",
+        );
+        if (masterId == null || masterServiceId == null) return;
+        await context.push(
+          RouteNames.bookingNew,
+          extra: BookingEntryArgs(
+            masterId: masterId,
+            preselectedServiceId: masterServiceId,
+          ),
+        );
+      case WishlistSourceType.salon:
+        final String? salonId = item.salonId;
+        final String? serviceDefId = item.serviceDefId;
+        assert(
+          salonId != null && serviceDefId != null,
+          'a SALON wishlist row is missing salonId/serviceDefId — the '
+          "mapper's per-arm null-guard should have refused to build this row",
+        );
+        if (salonId == null || serviceDefId == null) return;
+        await context.push(
+          RouteNames.salonPublicProfile(salonId, serviceId: serviceDefId),
+        );
+    }
     if (!mounted) return;
     ref.invalidate(wishlistProvider);
   }

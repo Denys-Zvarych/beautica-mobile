@@ -36,6 +36,7 @@
 import 'package:beautica_mobile/core/theme/app_spacing.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/price_tag.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
 import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/features/wishlist/presentation/widgets/wishlist_row.dart';
 import 'package:flutter/material.dart';
@@ -100,6 +101,24 @@ WishlistService _entry({
   isRangePrice: isRangePrice,
   priceMin: priceMin,
   priceMax: priceMax,
+);
+
+/// Phase F — a SALON-sourced entry: no master chosen, no `masterServiceId` /
+/// `masterId` at all.
+WishlistService _salonEntry({
+  String serviceName = 'Ламінування вій',
+  String? salonName = 'Салон краси «Оксамит»',
+  String? salonAvatarUrl,
+  String priceDisplay = 'від 600 до 900 ₴',
+}) => WishlistService(
+  sourceType: WishlistSourceType.salon,
+  salonId: 'salon-1',
+  salonName: salonName,
+  salonAvatarUrl: salonAvatarUrl,
+  serviceDefId: 'def-1',
+  serviceName: serviceName,
+  durationMinutes: 60,
+  priceDisplay: priceDisplay,
 );
 
 // ---------------------------------------------------------------------------
@@ -581,6 +600,114 @@ void main() {
       ).map((Text t) => t.data ?? '');
       expect(rendered.any((String s) => s.isNotEmpty), isTrue);
       expect(find.byType(PriceTag), findsOneWidget);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 4.5 — mobile-perf finding: the attribution glyph was a plain (non-const)
+  // `Icon(item.attributionIcon, ...)` because the glyph varies by
+  // `sourceType` — one `Icon` allocation per row per build. The fix branches
+  // into two `const Icon` literals (one per arm) so each stays const; this
+  // pins the MASTER arm specifically. The SALON arm's glyph is already pinned
+  // by `should_renderSalonAttribution_when_sourceTypeIsSalon` below (which
+  // predates this fix) — pinning ONLY the arm that test doesn't cover, so
+  // this is not a duplicate of it.
+  // -------------------------------------------------------------------------
+  group('should_renderMasterAttribution_when_sourceTypeIsMaster', () {
+    testWidgets('the attribution glyph is the person, not the storefront', (
+      tester,
+    ) async {
+      await _pumpRow(tester, _entry());
+
+      expect(find.byIcon(Icons.person_outline_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.storefront_rounded), findsNothing);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 5 — Phase F: a SALON-sourced row renders the salon, not a master
+  // -------------------------------------------------------------------------
+  group('should_renderSalonAttribution_when_sourceTypeIsSalon', () {
+    testWidgets('the attribution glyph is the storefront, not the person', (
+      tester,
+    ) async {
+      await _pumpRow(tester, _salonEntry());
+
+      // TWO storefronts on a SALON row: the attribution line's glyph AND the
+      // avatar disc's fallback glyph (no salonAvatarUrl in this fixture) both
+      // draw `Icons.storefront_rounded` — that duplication is the intended
+      // design, not a bug (see `avatarFallbackIcon`'s doc comment).
+      expect(find.byIcon(Icons.storefront_rounded), findsNWidgets(2));
+      expect(find.byIcon(Icons.person_outline_rounded), findsNothing);
+    });
+
+    testWidgets('the attribution line shows the SALON name', (tester) async {
+      await _pumpRow(tester, _salonEntry(salonName: 'Салон краси «Оксамит»'));
+
+      // i18n-finder-ok: test-authored fixture data, not localised UI copy.
+      expect(find.text('Салон краси «Оксамит»'), findsOneWidget);
+    });
+
+    testWidgets('a null salonName falls back to localised copy, not a crash', (
+      tester,
+    ) async {
+      // Mirrors the MASTER arm's `masterName`-empty fallback policy — see
+      // `wishlist_entry_labels.dart`.
+      await _pumpRow(tester, _salonEntry(salonName: null));
+
+      final Iterable<String> rendered = _texts(
+        tester,
+      ).map((Text t) => t.data ?? '');
+      expect(rendered.any((String s) => s.isNotEmpty), isTrue);
+    });
+
+    testWidgets(
+      'the avatar disc falls back to the storefront glyph, not initials',
+      (tester) async {
+        // No salonAvatarUrl in this fixture, so HubAvatar's RemoteImage path
+        // is never entered — it renders the gradient disc directly with
+        // fallbackIcon, exactly as a failed/absent photo would.
+        await _pumpRow(tester, _salonEntry());
+
+        final HubAvatar avatar = tester.widget<HubAvatar>(
+          find.byType(HubAvatar),
+        );
+        expect(avatar.fallbackIcon, Icons.storefront_rounded);
+        expect(
+          avatar.initials,
+          isEmpty,
+          reason:
+              "a brand name's initials read poorly — the glyph is the "
+              'signal, and avatarInitials() is empty for a SALON row so the '
+              'disc never falls through to text',
+        );
+      },
+    );
+
+    testWidgets('the price renders priceDisplay VERBATIM, RANGE included', (
+      tester,
+    ) async {
+      // The whole point of Phase F's price decision: a SALON row's RANGE band
+      // must NOT be re-derived into the app's own en-dash form — it must
+      // agree, byte-for-byte, with the salon catalogue tile the client
+      // favourited it from.
+      await _pumpRow(tester, _salonEntry(priceDisplay: 'від 600 до 900 ₴'));
+
+      // i18n-finder-ok: locale-invariant backend wire string, not UI copy.
+      expect(find.text('від 600 до 900 ₴'), findsOneWidget);
+      expect(find.text('600–900 ₴'), findsNothing);
+    });
+
+    testWidgets('the heart and the CTA are keyed on serviceDefId', (
+      tester,
+    ) async {
+      // `favoriteTargetId` for a SALON row is `serviceDefId`, NOT
+      // `masterServiceId` (null on this arm) — a key built off the latter
+      // would collide every salon row onto the same literal "null" string.
+      await _pumpRow(tester, _salonEntry());
+
+      expect(find.byKey(const Key('wishlist_row_heart_def-1')), findsOneWidget);
+      expect(find.byKey(const Key('wishlist_row_book_def-1')), findsOneWidget);
     });
   });
 }

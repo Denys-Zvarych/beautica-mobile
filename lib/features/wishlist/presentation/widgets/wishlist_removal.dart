@@ -95,30 +95,31 @@ mixin WishlistRemovalHost<T extends ConsumerStatefulWidget>
   /// of jumping a beat after it.
   int visibleCount(int total) => total - _removing.length;
 
-  /// Plays the exit animation for [masterServiceId], then un-favourites it.
+  /// Plays the exit animation for the entry keyed by [targetId]
+  /// ([WishlistService.favoriteTargetId]), then un-favourites it.
   ///
   /// A second tap on an entry already leaving is a no-op — the notifier would
   /// also ignore it, but returning here avoids starting a second animation
   /// against the same flag.
-  Future<void> requestRemoval(String masterServiceId) async {
-    if (_removing.contains(masterServiceId)) return;
-    setState(() => _removing.add(masterServiceId));
+  Future<void> requestRemoval(String targetId) async {
+    if (_removing.contains(targetId)) return;
+    setState(() => _removing.add(targetId));
 
     await ref.read(wishlistRemovalDelayProvider)();
     if (!mounted) return;
 
     final Failure? failure = await ref
         .read(wishlistProvider.notifier)
-        .removeService(masterServiceId);
+        .removeService(targetId);
     if (!mounted) return;
 
     // Cleared on BOTH paths — see the file header.
-    setState(() => _removing.remove(masterServiceId));
+    setState(() => _removing.remove(targetId));
 
     if (failure == null) return;
     if (kDebugMode) {
       log(
-        'un-favourite failed for $masterServiceId — entry restored',
+        'un-favourite failed for $targetId — entry restored',
         name: _tag,
         level: 900,
       );

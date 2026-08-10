@@ -103,7 +103,12 @@ class WishlistRow extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              HubAvatar(initials: item.masterInitials(l10n), size: _kAvatar),
+              HubAvatar(
+                initials: item.avatarInitials(l10n),
+                size: _kAvatar,
+                imageUrl: item.avatarImageUrl,
+                fallbackIcon: item.avatarFallbackIcon,
+              ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
@@ -116,16 +121,22 @@ class WishlistRow extends StatelessWidget {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        const Icon(
-                          Icons.person_outline_rounded,
-                          size: _kMetaGlyph,
-                          color: BrandColors.accent,
-                        ),
+                        item.sourceType == WishlistSourceType.salon
+                            ? const Icon(
+                                Icons.storefront_rounded,
+                                size: _kMetaGlyph,
+                                color: BrandColors.accent,
+                              )
+                            : const Icon(
+                                Icons.person_outline_rounded,
+                                size: _kMetaGlyph,
+                                color: BrandColors.accent,
+                              ),
                         const SizedBox(width: AppSpacing.xxs),
                         // Also unbounded — «Анастасія Мельниченко» renders whole.
                         Expanded(
                           child: Text(
-                            item.displayMasterName(l10n),
+                            item.displayTitle(l10n),
                             style: VelvetText.body14Text,
                           ),
                         ),
@@ -136,7 +147,7 @@ class WishlistRow extends StatelessWidget {
               ),
               const SizedBox(width: VelvetSpacing.xs),
               WishlistHeartButton(
-                buttonKey: Key('wishlist_row_heart_${item.masterServiceId}'),
+                buttonKey: Key('wishlist_row_heart_${item.favoriteTargetId}'),
                 onTap: onUnfavourite,
               ),
             ],
@@ -165,8 +176,8 @@ class WishlistRow extends StatelessWidget {
               SizedBox(
                 width: _kActionWidth,
                 child: HubFilledButton(
-                  key: Key('wishlist_row_book_${item.masterServiceId}'),
-                  label: l10n.wishlistBookCta,
+                  key: Key('wishlist_row_book_${item.favoriteTargetId}'),
+                  label: item.bookCtaLabel(l10n),
                   onTap: onBook,
                 ),
               ),

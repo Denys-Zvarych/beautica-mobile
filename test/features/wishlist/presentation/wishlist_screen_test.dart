@@ -490,6 +490,67 @@ void main() {
       );
     });
 
+    testWidgets(
+      'two DISTINCT SALON rows render distinct keys, and removing one '
+      'targets ONLY that one — never a masterServiceId-keyed collision',
+      (tester) async {
+        // `favoriteTargetId` is `serviceDefId` for a SALON row, and
+        // `masterServiceId` is null on BOTH — a key (or a removal lookup)
+        // built off the latter would collide every salon row onto the same
+        // `ValueKey<String>('null')` (see `wishlist_screen.dart`'s own
+        // `_buildList` doc comment for the exact regression this guards).
+        // Two salon rows sharing nothing but their arm is the fixture shape
+        // that collision would actually manifest on.
+        WishlistService salonRow(String id, String salonName) =>
+            WishlistService(
+              sourceType: WishlistSourceType.salon,
+              salonId: 'salon-$id',
+              salonName: salonName,
+              serviceDefId: id,
+              serviceName: 'Послуга $id',
+              durationMinutes: 60,
+              priceDisplay: '600 ₴',
+            );
+
+        final _Harness h = _Harness(
+          services: <WishlistService>[
+            salonRow('salon-x', 'Салон Х'),
+            salonRow('salon-y', 'Салон Y'),
+          ],
+        );
+        await h.pump(tester);
+
+        // Both rows render, each addressable by its OWN, distinct key.
+        expect(find.byType(WishlistRow), findsNWidgets(2));
+        expect(_row('salon-x'), findsOneWidget);
+        expect(_row('salon-y'), findsOneWidget);
+
+        await tester.tap(_row('salon-x'));
+        await _pumpUntil(tester, () => h.favorites.removeCalls.isNotEmpty);
+
+        // ONLY salon-x left — salon-y survives untouched.
+        expect(_row('salon-x'), findsNothing);
+        expect(_row('salon-y'), findsOneWidget);
+        expect(
+          tester
+              .widgetList<WishlistRow>(find.byType(WishlistRow))
+              .map((WishlistRow r) => r.item.favoriteTargetId)
+              .toList(),
+          <String>['salon-y'],
+        );
+        // The wire call carried salon-x's OWN id, against the SALON-arm
+        // target type — never `.service` (scoped to a master's own service
+        // assignment) and never the other row's id.
+        expect(
+          h.favorites.removeCalls.single,
+          const FavoriteTarget(
+            type: FavoriteTargetType.salonService,
+            id: 'salon-x',
+          ),
+        );
+      },
+    );
+
     testWidgets('the removal does NOT re-fetch the list', (tester) async {
       // THE OFFSTAGE-PAUSE TRAP. This page covers the passport page; an
       // `invalidate` here would dispose the provider rather than reload it and

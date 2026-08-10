@@ -3238,7 +3238,11 @@
   },
   "wishlistBookCta": "Записатись",
   "@wishlistBookCta": {
-    "description": "Filled CTA on every wish-list entry (compact card and full-width row) — starts a booking for that exact master + service."
+    "description": "Filled CTA on a MASTER-sourced wish-list entry (compact card and full-width row) — starts a booking for that exact master + service. A SALON-sourced entry uses wishlistChooseMasterCta instead — see WishlistEntryLabels.bookCtaLabel."
+  },
+  "wishlistChooseMasterCta": "Обрати майстра",
+  "@wishlistChooseMasterCta": {
+    "description": "Filled CTA on a SALON-sourced wish-list entry (compact card and full-width row), Phase G. Tapping it does not book anything by itself — it opens that salon's profile with its masters tab filtered to the masters who perform the favourited service, same as tapping the entry itself."
   },
   "wishlistRemoveSemantics": "Прибрати з бажаних",
   "@wishlistRemoveSemantics": {
@@ -3247,6 +3251,10 @@
   "wishlistMasterFallbackName": "Майстер",
   "@wishlistMasterFallbackName": {
     "description": "Shown in place of the master's name on a wish-list entry when the wire carried neither name part. The mapper leaves that field empty on purpose and lets presentation choose the copy."
+  },
+  "wishlistSalonFallbackName": "Салон",
+  "@wishlistSalonFallbackName": {
+    "description": "Shown in place of the salon's name on a SALON-sourced wish-list entry (Phase F) when the wire carried no salonName. Mirrors wishlistMasterFallbackName's policy for the salon arm."
   },
   "wishlistEmptyMessage": "Постав сердечко на послузі в профілі майстра — вона збережеться сюди, і наступний запис займе один дотик.",
   "@wishlistEmptyMessage": {

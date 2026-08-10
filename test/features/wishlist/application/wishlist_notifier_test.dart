@@ -95,7 +95,7 @@ Future<ProviderContainer> _makeContainer({
 
 List<String> _ids(ProviderContainer c) =>
     (c.read(wishlistProvider).value ?? const <WishlistService>[])
-        .map((WishlistService s) => s.masterServiceId)
+        .map((WishlistService s) => s.favoriteTargetId)
         .toList();
 
 void main() {
@@ -359,6 +359,122 @@ void main() {
     );
   });
 
+  // ---------------------------------------------------------------------------
+  // Phase F — SALON-arm removal. Every fixture and assertion above this point
+  // is MASTER-arm only (`_svc`/`_three`), so none of it can catch a
+  // regression in the SALON row's own removal path: the target-type dispatch
+  // (`FavoriteTargetType.salonService`, never `.service`) and the
+  // `favoriteTargetId` re-key (`serviceDefId`, not the null `masterServiceId`
+  // every salon row shares) that `wishlist_notifier.dart` and
+  // `wishlist_section.dart` both added specifically so multiple salon rows
+  // cannot collide onto one `ValueKey<String>('null')`.
+  // ---------------------------------------------------------------------------
+  WishlistService salonSvc(String id, {String salonName = 'Салон краси'}) =>
+      WishlistService(
+        sourceType: WishlistSourceType.salon,
+        salonId: 'salon-$id',
+        salonName: salonName,
+        serviceDefId: id,
+        serviceName: 'Послуга $id',
+        durationMinutes: 60,
+        priceDisplay: '600 ₴',
+      );
+
+  group('should_removeSalonEntry_when_unfavourited', () {
+    test(
+      'it calls REMOVE with FavoriteTargetType.salonService, never .service',
+      () async {
+        // `.service` is scoped to a MASTER's own service assignment — sending
+        // a SALON row's `service_definitions.id` through it would ask the
+        // backend to remove a `master_services` row that does not exist.
+        final FakeFavoriteRepository favoriteRepo = FakeFavoriteRepository();
+        final ProviderContainer c = await _makeContainer(
+          wishlistRepo: FakeWishlistRepository(
+            services: <WishlistService>[salonSvc('sx')],
+          ),
+          favoriteRepo: favoriteRepo,
+        );
+        await c.read(wishlistProvider.future);
+
+        await c.read(wishlistProvider.notifier).removeService('sx');
+
+        expect(favoriteRepo.addCalls, isEmpty);
+        expect(favoriteRepo.removeCalls, hasLength(1));
+        expect(
+          favoriteRepo.removeCalls.single,
+          const FavoriteTarget(type: FavoriteTargetType.salonService, id: 'sx'),
+        );
+      },
+    );
+
+    test('two DISTINCT salon rows keyed by favoriteTargetId — removing one '
+        'leaves the other, keyed and targeted correctly', () async {
+      // Before the favoriteTargetId re-key, a key (or a removal lookup)
+      // built off `masterServiceId` would read null on EVERY salon row —
+      // this is the fixture shape that collision would actually manifest
+      // on: two rows that share nothing but both being SALON-sourced.
+      final FakeFavoriteRepository favoriteRepo = FakeFavoriteRepository();
+      final ProviderContainer c = await _makeContainer(
+        wishlistRepo: FakeWishlistRepository(
+          services: <WishlistService>[
+            salonSvc('salon-a', salonName: 'Салон А'),
+            salonSvc('salon-b', salonName: 'Салон Б'),
+          ],
+        ),
+        favoriteRepo: favoriteRepo,
+      );
+      await c.read(wishlistProvider.future);
+      expect(_ids(c), <String>['salon-a', 'salon-b']);
+
+      await c.read(wishlistProvider.notifier).removeService('salon-a');
+
+      // ONLY salon-a left the list.
+      expect(_ids(c), <String>['salon-b']);
+      // ONLY salon-a's id was ever sent to the wire, never salon-b's and
+      // never the shared `null` a masterServiceId-keyed lookup would have
+      // produced for either row.
+      expect(favoriteRepo.removeCalls, hasLength(1));
+      expect(
+        favoriteRepo.removeCalls.single,
+        const FavoriteTarget(
+          type: FavoriteTargetType.salonService,
+          id: 'salon-a',
+        ),
+      );
+    });
+
+    test(
+      'a failed salon removal restores it at its original index, whole',
+      () async {
+        final FakeFavoriteRepository favoriteRepo = FakeFavoriteRepository()
+          ..removeResult = const NetworkFailure();
+        final ProviderContainer c = await _makeContainer(
+          wishlistRepo: FakeWishlistRepository(
+            services: <WishlistService>[
+              salonSvc('salon-a', salonName: 'Салон А'),
+              salonSvc('salon-b', salonName: 'Салон Б'),
+            ],
+          ),
+          favoriteRepo: favoriteRepo,
+        );
+        await c.read(wishlistProvider.future);
+
+        final Failure? failure = await c
+            .read(wishlistProvider.notifier)
+            .removeService('salon-a');
+
+        expect(failure, isA<NetworkFailure>());
+        expect(_ids(c), <String>['salon-a', 'salon-b']);
+        final WishlistService restored = c
+            .read(wishlistProvider)
+            .value!
+            .firstWhere((WishlistService s) => s.favoriteTargetId == 'salon-a');
+        expect(restored.sourceType, WishlistSourceType.salon);
+        expect(restored.salonName, 'Салон А');
+      },
+    );
+  });
+
   group('the two surfaces share one provider', () {
     test('a removal is visible to every reader at once', () async {
       // Two independent reads of the SAME provider — what the passport page's
@@ -377,7 +493,7 @@ void main() {
           ) {
             observed.add(
               (next.value ?? const <WishlistService>[])
-                  .map((WishlistService s) => s.masterServiceId)
+                  .map((WishlistService s) => s.favoriteTargetId)
                   .toList(),
             );
           });

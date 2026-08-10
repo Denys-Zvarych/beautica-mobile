@@ -148,4 +148,20 @@ void main() {
   test('RouteNames.salonPublicProfile matches the tested path shape', () {
     expect(RouteNames.salonPublicProfile('abc'), '/salons/abc');
   });
+
+  test('RouteNames.salonPublicProfile(serviceId:) appends the deep-link query '
+      'params (Phase G) — bare-id call sites stay unaffected', () {
+    expect(
+      RouteNames.salonPublicProfile('abc', serviceId: 'svc-1'),
+      '/salons/abc?serviceId=svc-1&tab=masters',
+    );
+    // Encoding runs on BOTH the path segment (Uri.encodeComponent — a
+    // space becomes %20) and the query value (Uri.queryParameters — a
+    // space becomes + per that constructor's own encoding, not %20). A
+    // favourite's ids are backend UUIDs today, but nothing pins that.
+    expect(
+      RouteNames.salonPublicProfile('a b', serviceId: 'c d'),
+      '/salons/a%20b?serviceId=c+d&tab=masters',
+    );
+  });
 }

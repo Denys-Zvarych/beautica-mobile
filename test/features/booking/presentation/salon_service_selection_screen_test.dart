@@ -12,6 +12,18 @@
 // catalogue accordion with `ServiceSelectorSheet`'s into
 // `widgets/service_catalogue_accordion.dart` — see that screen's file header
 // for the refactor note). There is no replacement affordance to cover here.
+//
+// Phase E — the "favourite heart (Phase 240 trap guard)" group below used to
+// assert NO heart ever rendered on this screen (the row id was a
+// salon-catalogue-service id, not a real `master_services` id, so there was no
+// safe target type to favourite against). The backend now exposes a distinct
+// `SALON_SERVICE` favorite target type keyed to exactly this row's id
+// (`service_definitions.id`), so that guard is INVERTED here to assert the
+// heart renders, primes from `SalonCatalogService.isFavorite`, and toggles
+// against `FavoriteTargetType.salonService` — never `.service` (the
+// independent-master flow's target type, which would 400 against a salon
+// catalogue id the backend has never associated with a master-service
+// assignment).
 
 import 'dart:async';
 
@@ -22,6 +34,8 @@ import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart'
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/favorite_heart_button.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -32,6 +46,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fakes/fake_favorite_repository.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -268,40 +283,105 @@ void main() {
   });
 
   // ===========================================================================
-  // Phase 240 — THE TRAP this phase exists to guard against. This screen's
-  // rows are the SALON's catalogue mapped into `MasterService`/`CatalogueRow`
-  // shape, but the row id is a salon-catalogue-service id, NOT a real
-  // `master_services` id (no master is even chosen until a later step). A
-  // favourite heart here would toggle a favorite against an id the backend
-  // has never heard of. Guarded STRUCTURALLY — this screen simply never
-  // passes `showFavoriteHeart: true` to `CatalogueCategorySection`, whose
-  // default is `false` — not by convention alone.
+  // Phase E — the salon flow's heart is ON. `SalonCatalogService.id` IS
+  // `service_definitions.id` (see `salon_mapper.dart`), which the backend's
+  // new `SALON_SERVICE` favorite target type is keyed to directly — so this
+  // screen's rows can now safely favourite, PROVIDED the target type is
+  // `FavoriteTargetType.salonService`, never the independent-master flow's
+  // `.service` (that would send an id the backend has never associated with a
+  // master-service assignment).
   // ===========================================================================
-  group('favourite heart (Phase 240 trap guard)', () {
-    testWidgets('never renders a favourite heart, even with rows on screen', (
-      tester,
-    ) async {
+  group('favourite heart (Phase E — salon target type)', () {
+    testWidgets('renders a favourite heart on every row, primed from '
+        'SalonCatalogService.isFavorite', (tester) async {
       await tester.pumpRoutedApp(
         _routerFor(),
         overrides: [
-          salonServiceCatalogProvider(
-            _kSalonId,
-          ).overrideWith((ref) async => _stubCatalog),
+          salonServiceCatalogProvider(_kSalonId).overrideWith(
+            (ref) async => <SalonServiceCategoryEntry>[
+              _stubCatalog[0].copyWith(
+                services: <SalonCatalogService>[
+                  _svcA1.copyWith(isFavorite: true),
+                  _svcA2,
+                ],
+              ),
+              _stubCatalog[1],
+            ],
+          ),
         ],
       );
       await tester.pumpAndSettle();
 
-      // The first category is expanded by default — its rows are on
-      // screen, so a heart WOULD be visible here if one could ever render.
+      // The first category is expanded by default — its rows are on screen.
       // i18n-finder-ok: fixture service name (test data), not app UI copy.
       expect(find.text('Класичний манікюр'), findsOneWidget);
 
-      expect(find.byType(FavoriteHeartButton), findsNothing);
+      expect(find.byType(FavoriteHeartButton), findsNWidgets(2));
+
+      final Finder svcA1Heart = find.byKey(
+        const Key('booking_service_heart_svc-a1'),
+      );
+      final Finder svcA2Heart = find.byKey(
+        const Key('booking_service_heart_svc-a2'),
+      );
+      expect(svcA1Heart, findsOneWidget);
+      expect(svcA2Heart, findsOneWidget);
+
+      // svc-a1 is fetched with isFavorite:true — primes filled, not
+      // outline-then-flip.
       expect(
-        find.byKey(const Key('booking_service_heart_svc-a1')),
-        findsNothing,
+        find.descendant(
+          of: svcA1Heart,
+          matching: find.byIcon(Icons.favorite_rounded),
+        ),
+        findsOneWidget,
+      );
+      // svc-a2 is fetched with isFavorite:false (the fixture default) —
+      // primes outline.
+      expect(
+        find.descendant(
+          of: svcA2Heart,
+          matching: find.byIcon(Icons.favorite_border_rounded),
+        ),
+        findsOneWidget,
       );
     });
+
+    testWidgets(
+      'tapping a row heart favourites against FavoriteTargetType.salonService',
+      (tester) async {
+        final FakeFavoriteRepository repo = FakeFavoriteRepository();
+
+        await tester.pumpRoutedApp(
+          _routerFor(),
+          overrides: [
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => _stubCatalog),
+            favoriteRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('booking_service_heart_svc-a1')));
+        await tester.pump();
+        await tester.pump();
+
+        expect(
+          repo.addCalls,
+          <FavoriteTarget>[
+            const FavoriteTarget(
+              type: FavoriteTargetType.salonService,
+              id: 'svc-a1',
+            ),
+          ],
+          reason:
+              'the salon flow must favourite against salonService — the '
+              'independent-master flow\'s `.service` target type keys to a '
+              'master_services assignment id, not this salon-catalogue id',
+        );
+      },
+    );
   });
 
   group('multi-select + summary', () {

@@ -251,16 +251,18 @@ class _WishlistScreenState extends ConsumerState<WishlistScreen>
           // Keyed on the entry so the AnimatedSize state follows the ROW it
           // belongs to as the list re-flows. Without it, removing the first
           // entry would hand its half-collapsed animation state to whatever
-          // slid up into slot 0.
-          key: ValueKey<String>(item.masterServiceId),
-          removing: removingIds.contains(item.masterServiceId),
+          // slid up into slot 0. `favoriteTargetId` (not `masterServiceId`,
+          // which is null on a SALON row) so this is unique and non-null on
+          // EITHER arm.
+          key: ValueKey<String>(item.favoriteTargetId),
+          removing: removingIds.contains(item.favoriteTargetId),
           child: WishlistRow(
             item: item,
             // Phase 241 — WishlistRebookHost, shared verbatim with
             // PassportScreen so the two «Записатись» CTAs can never diverge
             // (see wishlist_rebook.dart).
             onBook: () => rebook(item),
-            onUnfavourite: () => requestRemoval(item.masterServiceId),
+            onUnfavourite: () => requestRemoval(item.favoriteTargetId),
           ),
         );
       },
