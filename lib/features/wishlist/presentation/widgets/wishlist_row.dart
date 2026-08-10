@@ -20,9 +20,11 @@
 //
 // It keeps its leading avatar AND its person glyph, and that is coherent
 // scaling rather than drift:
-//   * its name column is 202 dp at 360 dp and 162 dp at 320 dp — wide enough
+//   * its name column is 186 dp at 360 dp and 146 dp at 320 dp — wide enough
 //     that «Анастасія Мельниченко» (~120 dp) renders on ONE line at both, so
-//     removing the avatar would buy nothing;
+//     removing the avatar would buy nothing. (Was 202/162 before
+//     `WishlistHeartButton`'s tap-target fix widened its invisible hit box
+//     from 32dp to 48dp — see that file's doc comment.)
 //   * the person glyph does the attribution job EXPLICITLY. The compact card
 //     cannot afford it — glyph + gap costs 18 dp against a 126 dp text column;
 //   * the two surfaces are deliberately different densities and their tokens

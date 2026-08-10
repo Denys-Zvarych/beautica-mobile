@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // `wishlist_row.dart`'s header makes two MEASURED claims and forbids one fix:
 //
-//   1. the name column is 202 dp at 360 dp and 162 dp at 320 dp — wide enough
+//   1. the name column is 186 dp at 360 dp and 146 dp at 320 dp — wide enough
 //      that «Анастасія Мельниченко» renders on ONE line at both, which is the
 //      whole reason the row keeps its leading avatar;
 //   2. the duration/price pair sits in a `Wrap`, so a wide band drops to a
@@ -25,7 +25,7 @@
 // room it never has in production and would inflate the name column to 250 dp —
 // enough to make a one-line assertion pass for the wrong reason. [_pumpRow]
 // reproduces the real inset, and `_kNameColumn360` below re-derives the
-// header's own 202 dp from the constants so a token change that quietly
+// header's own 186 dp from the constants so a token change that quietly
 // narrows the column shows up as a failing arithmetic pin rather than as a
 // wrapped name nobody notices.
 //
@@ -55,8 +55,8 @@ const String _kLongMasterName = 'Анастасія Мельниченко';
 /// The page's horizontal inset, both sides (`wishlist_screen.dart`'s ListView).
 const double _kPageInset = VelvetSpacing.lg;
 
-/// The name column's width at a 360 dp device — the header's own 202 dp,
-/// re-derived from the constants the layout is actually built from:
+/// The name column's width at a 360 dp device, re-derived from the constants
+/// the layout is actually built from:
 ///
 ///   360  device
 ///   −48  page inset (24 each side)          → 312 card
@@ -64,11 +64,17 @@ const double _kPageInset = VelvetSpacing.lg;
 ///   −38  avatar                             (`WishlistRow._kAvatar`)
 ///   −12  avatar → text gap                  (`AppSpacing.sm`)
 ///   −4   text → heart gap                   (`VelvetSpacing.xs`)
-///   −32  heart target             (`WishlistHeartButton.target`)
-///   =202
+///   −48  heart TAP TARGET, not the painted heart — a mobile-security a11y
+///        fix grew `WishlistHeartButton`'s hit box from its 32dp painted
+///        `target` to a 48dp square (`wishlist_heart_button.dart`'s
+///        `_kMinTapExtent`), and that invisible margin costs this column
+///        real width same as the painted icon used to.
+///   =186
 ///
 /// This is what the SERVICE name (the column's direct child) is laid out in.
-const double _kNameColumn360 = 202;
+/// (Was 202 before the heart's tap-target fix; the header comment above and
+/// the two `162`/`146` narrow-width figures below moved with it.)
+const double _kNameColumn360 = 186;
 
 /// The MASTER name gets 18 dp less than [_kNameColumn360]: it sits after the
 /// inline person glyph (`WishlistRow._kMetaGlyph`, 14) and its
@@ -225,7 +231,7 @@ void main() {
       expect(
         service.constraints.maxWidth,
         closeTo(_kNameColumn360, 0.5),
-        reason: 'the header\'s 202 dp claim is about THIS column',
+        reason: 'the header\'s 186 dp claim is about THIS column',
       );
 
       // i18n-finder-ok: fixture master name — see above.
@@ -245,7 +251,7 @@ void main() {
     testWidgets('it still fits at the narrowest supported width (320 dp)', (
       tester,
     ) async {
-      // The header's second measurement: 162 dp of service-name column at
+      // The header's second measurement: 146 dp of service-name column at
       // 320 dp, still enough for a real name on one line.
       await _pumpRow(tester, _entry(), width: 320);
 
