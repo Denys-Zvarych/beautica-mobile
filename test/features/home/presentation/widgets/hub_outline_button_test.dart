@@ -120,9 +120,39 @@ void main() {
         width: 320,
       );
 
+      // mobile-security (HIGH, tap-target fix): both buttons now carry the
+      // IDENTICAL invisible `Padding` that grows their interactive area to
+      // the shared 48dp accessibility floor (`_kMinTapExtent`/`_kTapPad` in
+      // `hub_widgets.dart`), so the OUTER rects — not just the painted
+      // pills — share a height again, restoring the original invariant this
+      // test existed to pin: a one-pixel difference between the two reads
+      // as a mistake, not as hierarchy.
       expect(
         tester.getSize(find.byType(HubOutlineButton)).height,
         tester.getSize(find.byType(HubFilledButton)).height,
+      );
+      // The PAINTED pill each one draws must also still match.
+      expect(
+        tester
+            .getSize(
+              find
+                  .descendant(
+                    of: find.byType(HubOutlineButton),
+                    matching: find.byType(Container),
+                  )
+                  .first,
+            )
+            .height,
+        tester
+            .getSize(
+              find
+                  .descendant(
+                    of: find.byType(HubFilledButton),
+                    matching: find.byType(Container),
+                  )
+                  .first,
+            )
+            .height,
       );
       expect(
         (_decorationOf(tester, HubOutlineButton).borderRadius! as BorderRadius)

@@ -137,6 +137,29 @@ LinearGradient _renderedGradient(WidgetTester tester) {
   return decoration.gradient! as LinearGradient;
 }
 
+/// The rendered rect of the pill `HubFilledButton` actually PAINTS the
+/// gradient across — i.e. the same `Container` `_renderedGradient` reads,
+/// not `find.byType(HubFilledButton)`'s own rect.
+///
+/// mobile-security (HIGH, tap-target fix): those two used to coincide
+/// exactly, because every widget between `HubFilledButton` and its
+/// `Container` was a size-transparent proxy. The tap-target fix wraps the
+/// `Container` in a `Padding` that grows the OUTER rect to the 48dp
+/// accessibility floor while the `Container` itself stays the painted
+/// 38dp pill — so `buttonRect` must be re-derived from the `Container`
+/// directly, or every offset and `size` this file feeds into
+/// `_gradientColorAt` (which samples relative to the gradient's own local
+/// paint box) would be measured against the wrong box and the sampled
+/// colours would no longer match what actually renders.
+Rect _paintedPillRect(WidgetTester tester) {
+  return tester.getRect(
+    find.descendant(
+      of: find.byType(HubFilledButton),
+      matching: find.byType(Container),
+    ),
+  );
+}
+
 /// The gradient's own unbiased midpoint colour (t = 0.5 with NO stop bias),
 /// derived from the SAME two colours the rendered gradient actually uses —
 /// the floor the fix promises no part of the label ever sits below.
@@ -166,7 +189,7 @@ void main() {
           await tester.pumpAndSettle();
 
           final LinearGradient renderedGradient = _renderedGradient(tester);
-          final Rect buttonRect = tester.getRect(find.byType(HubFilledButton));
+          final Rect buttonRect = _paintedPillRect(tester);
           final Rect labelRect = tester.getRect(find.text(label));
           final Rect localLabelRect = labelRect.shift(-buttonRect.topLeft);
           final Size buttonSize = buttonRect.size;
@@ -218,7 +241,7 @@ void main() {
           await tester.pumpAndSettle();
 
           final LinearGradient renderedGradient = _renderedGradient(tester);
-          final Rect buttonRect = tester.getRect(find.byType(HubFilledButton));
+          final Rect buttonRect = _paintedPillRect(tester);
           final Rect labelRect = tester.getRect(find.text(label));
           final Rect localLabelRect = labelRect.shift(-buttonRect.topLeft);
           final Size buttonSize = buttonRect.size;
