@@ -15,6 +15,9 @@ const AddFavoriteRequestTargetTypeEnum
 const AddFavoriteRequestTargetTypeEnum
     _$addFavoriteRequestTargetTypeEnum_SERVICE =
     const AddFavoriteRequestTargetTypeEnum._('SERVICE');
+const AddFavoriteRequestTargetTypeEnum
+    _$addFavoriteRequestTargetTypeEnum_SALON_SERVICE =
+    const AddFavoriteRequestTargetTypeEnum._('SALON_SERVICE');
 
 AddFavoriteRequestTargetTypeEnum _$addFavoriteRequestTargetTypeEnumValueOf(
     String name) {
@@ -25,6 +28,8 @@ AddFavoriteRequestTargetTypeEnum _$addFavoriteRequestTargetTypeEnumValueOf(
       return _$addFavoriteRequestTargetTypeEnum_SALON;
     case 'SERVICE':
       return _$addFavoriteRequestTargetTypeEnum_SERVICE;
+    case 'SALON_SERVICE':
+      return _$addFavoriteRequestTargetTypeEnum_SALON_SERVICE;
     default:
       throw ArgumentError(name);
   }
@@ -36,6 +41,7 @@ final BuiltSet<AddFavoriteRequestTargetTypeEnum>
   _$addFavoriteRequestTargetTypeEnum_MASTER,
   _$addFavoriteRequestTargetTypeEnum_SALON,
   _$addFavoriteRequestTargetTypeEnum_SERVICE,
+  _$addFavoriteRequestTargetTypeEnum_SALON_SERVICE,
 ]);
 
 Serializer<AddFavoriteRequestTargetTypeEnum>
@@ -48,11 +54,13 @@ class _$AddFavoriteRequestTargetTypeEnumSerializer
     'MASTER': 'MASTER',
     'SALON': 'SALON',
     'SERVICE': 'SERVICE',
+    'SALON_SERVICE': 'SALON_SERVICE',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'MASTER': 'MASTER',
     'SALON': 'SALON',
     'SERVICE': 'SERVICE',
+    'SALON_SERVICE': 'SALON_SERVICE',
   };
 
   @override
