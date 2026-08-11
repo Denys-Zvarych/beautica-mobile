@@ -315,41 +315,100 @@ void main() {
   // -------------------------------------------------------------------------
   // Phase 13.5 navigation — the card body is a button that navigates to
   // RouteNames.masterPublicProfile (/masters/:id, registered in Phase 13.5).
-  // It is wrapped in Semantics(button: true, label: name) so screen readers
-  // announce it as a tappable element carrying the master's name.
+  // It is wrapped in Semantics(button: true) so screen readers announce it as
+  // a tappable element, with the master's name supplied by the merged
+  // descendant Text — NOT by an explicit `label:` on the annotation.
+  //
+  // These assertions were re-pointed from the Semantics WIDGET PROPERTY to
+  // the compiled SemanticsNode when the heart moved into a Stack overlay. The
+  // intent is unchanged and still fully satisfiable — «the card is announced
+  // as a button carrying the master's name» — but the widget property is no
+  // longer where that lives, so asserting on it would now be testing the
+  // wrong thing. Two reasons the node is the correct level:
+  //
+  //   1. The annotation no longer sets `label:` at all (see the card's own
+  //      comment). The name reaches the user via the merged descendant Text.
+  //      A widget-property assertion cannot see that.
+  //   2. Even the `button` flag is only USEFUL if it lands on the node that
+  //      also carries the tap action. Wrapping the OVERLAY in Semantics put
+  //      the card's gesture and the heart's into one merge group, which
+  //      Flutter resolves by refusing to merge either — leaving the
+  //      annotation with `isButton` and NO action while the tappable node had
+  //      no role. `semantics.properties.button` was `true` throughout that
+  //      regression and never noticed. The node-level `containsSemantics`
+  //      check below asserts both on the SAME node, so it does.
   // -------------------------------------------------------------------------
   group('MasterResultCard navigation (Phase 13.5)', () {
     testWidgets(
-      'card body is a button: Semantics carries the name label AND the button '
-      'flag',
+      'the card is announced as ONE node carrying both the tap action and the '
+      'button flag, labelled with the master name',
       (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
         await _pump(tester, _master());
 
         // The fixture's display name (firstName + lastName) — the card's own
         // data label, not a localised UI string.
         const String name = 'Олена Коваль';
 
-        final Finder cardSemantics = find.ancestor(
-          of: find.byType(NeumorphicCard),
-          matching: find.byWidgetPredicate(
-            (Widget w) => w is Semantics && w.properties.label == name,
-          ),
-        );
-        expect(
-          cardSemantics,
-          findsOneWidget,
-          reason:
-              'the card body wraps NeumorphicCard in Semantics(label: name)',
+        final SemanticsNode node = tester.getSemantics(
+          find.byType(NeumorphicCard),
         );
 
-        final Semantics semantics = tester.widget<Semantics>(cardSemantics);
         expect(
-          semantics.properties.button,
-          isTrue,
+          node,
+          isSemantics(isButton: true, hasTapAction: true),
           reason:
-              'the card body navigates to /masters/:id on tap (Phase 13.5), so '
-              'it must be announced as a button carrying the master name.',
+              'the card body navigates to /masters/:id on tap (Phase 13.5), '
+              'so the SAME node must carry both the button role and the tap '
+              'action — a role on an action-less node is the merge-group '
+              'regression this assertion exists to catch',
         );
+
+        expect(
+          node.getSemanticsData().label,
+          contains(name),
+          reason: 'the card must be announced with the master name',
+        );
+
+        handle.dispose();
+      },
+    );
+
+    testWidgets(
+      'the announced label carries the master name EXACTLY ONCE — no stutter',
+      (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await _pump(tester, _master());
+
+        const String name = 'Олена Коваль';
+        final String label = tester
+            .getSemantics(find.byType(NeumorphicCard))
+            .getSemanticsData()
+            .label;
+
+        // A plain `contains` passes against «Олена Коваль, Олена Коваль,
+        // Печерський, Київ …» and catches nothing — which is exactly what
+        // shipped once. The card annotation used to set `label: name` ON TOP
+        // of the name `Text` it wraps. That duplicate was PRE-EXISTING and
+        // audible: a semantics dump of this file at `HEAD` shows the
+        // committed tree already merged and already stuttered. (An earlier
+        // revision of this note claimed the heart's gesture had split the
+        // merge group on `main` and kept the duplicate silent — that was
+        // measured on the intermediate overlay draft, not on `main`.) The
+        // annotation dropped its `label:` and lets the content speak.
+        //
+        // MUTATION PROOF: restoring `label: name` on the card's Semantics
+        // makes this count 2 and this assertion RED; removing it again
+        // returns it to 1 and GREEN.
+        expect(
+          name.allMatches(label).length,
+          1,
+          reason:
+              'the master name must be announced once, not stuttered — got '
+              '${name.allMatches(label).length} occurrences in "$label"',
+        );
+
+        handle.dispose();
       },
     );
   });

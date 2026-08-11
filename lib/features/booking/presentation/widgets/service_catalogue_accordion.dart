@@ -324,17 +324,48 @@ class _CatalogueCategorySectionState extends State<CatalogueCategorySection> {
                     for (final CatalogueRow row in group.rows)
                       Padding(
                         padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                        child: CatalogueServiceTile(
-                          key: widget.tileKeyForId(row.id),
-                          row: row,
-                          selected: _selectedInGroup.contains(row.id),
-                          onToggle: () => widget.onToggleService(row.id),
-                          showFavoriteHeart: widget.showFavoriteHeart,
-                          favoriteTargetType: widget.favoriteTargetType,
-                          isFavorite: widget.favoriteServiceIds.contains(
-                            row.id,
+                        // Isolates each row's PRESS/SELECT animations from its
+                        // siblings. `CatalogueServiceTile`'s outermost widget
+                        // is an `AnimatedScale` (0.985 on press) wrapping an
+                        // `AnimatedContainer` (200ms decoration on select);
+                        // without a boundary here their `markNeedsPaint` walks
+                        // straight past this `Column` and up to the enclosing
+                        // `SliverList`'s per-SECTION boundary (see the layer
+                        // -cost note below, which states the same fact),
+                        // repainting every sibling row's blurred
+                        // `extrudedSmall` shadow.
+                        //
+                        // MEASURED with `debugOnProfilePaint`, 3 rows, one row
+                        // pressed, 14 frames:
+                        //   without: siblings 13/14 frames, 1443 nodes painted
+                        //   with:    siblings  0/14 frames,  351 nodes painted
+                        //
+                        // NOT for the favourite heart — that was the finding as
+                        // originally filed, and it is already false: the heart's
+                        // own `RepaintBoundary` (in the `Stack` overlay below)
+                        // stops its 150ms `AnimatedScale` three hops above the
+                        // button, so no tile repaints at all. Measured 0/14 for
+                        // every row, animating one included. This boundary would
+                        // have bought nothing for that case; it earns its layer
+                        // on the press/select path instead.
+                        //
+                        // Layer cost is bounded: sections already sit in a
+                        // `SliverList.separated`, which wraps each SECTION in
+                        // its own `RepaintBoundary`, so this adds one layer per
+                        // ROW of an expanded category — a handful, not a list.
+                        child: RepaintBoundary(
+                          child: CatalogueServiceTile(
+                            key: widget.tileKeyForId(row.id),
+                            row: row,
+                            selected: _selectedInGroup.contains(row.id),
+                            onToggle: () => widget.onToggleService(row.id),
+                            showFavoriteHeart: widget.showFavoriteHeart,
+                            favoriteTargetType: widget.favoriteTargetType,
+                            isFavorite: widget.favoriteServiceIds.contains(
+                              row.id,
+                            ),
+                            onFavoriteError: widget.onFavoriteError,
                           ),
-                          onFavoriteError: widget.onFavoriteError,
                         ),
                       ),
                   ],
@@ -560,6 +591,93 @@ class CatalogueCheckControl extends StatelessWidget {
   }
 }
 
+// Phase [heart 48dp overlay] — `CatalogueServiceTile`'s favourite heart
+// needs a genuine 48×48 tap target (Android floor / iOS 44pt) WITHOUT
+// shrinking the name/meta `Expanded` column, which growing the heart
+// INLINE in the `Row` cannot avoid (it is the Row's last child — see
+// `favorite_heart_button.dart`'s own file header for the full cost
+// accounting). The fix: the `Row` keeps a plain placeholder sized to the
+// heart's OLD inline footprint (so the `Expanded` column's width is
+// byte-identical to before), and the real, tappable heart is rendered by a
+// `Stack` overlay ON TOP of the tile, positioned over that placeholder's
+// slot — see `_CatalogueServiceTileState.build`.
+//
+// `_kHeartSlotWidth` restates the heart's HISTORICAL inline footprint
+// (painted icon + its LEFT-ONLY `VelvetSpacing.xs` pad) as a formula over
+// already-named tokens, not a bare literal — this is the width value the
+// `Row`'s placeholder must reserve, regardless of what tap-target size the
+// overlay itself now uses.
+//
+// Mirrors `FavoriteHeartOverlay.slotWidth`
+// (`features/discovery/presentation/widgets/favorite_heart_overlay.dart`) —
+// that is the shared source for this formula; restated rather than imported
+// so this booking-flow file does not pull a discovery *widget* in just for a
+// constant (it already imports `favorite_heart_button.dart` for the button
+// and [FavoriteHeartButton.iconSize], which is enough).
+//
+// The baseline is the COMMITTED tree, deliberately. An abandoned draft
+// widened this heart's inline pad to a symmetric `xs` (32dp footprint) and
+// this slot followed it — silently costing the `Expanded` name column 4dp.
+// Its sibling result cards had a golden suite that caught the equivalent
+// loss; this tile did not, so the regression here was invisible. See
+// `favorite_heart_button.dart`'s file header.
+const double _kHeartSlotWidth = FavoriteHeartButton.iconSize + VelvetSpacing.xs;
+
+// The Android 48dp / iOS 44pt tap-target floor (WCAG 2.5.5 / Material /
+// HIG) — restated locally rather than imported from
+// `favorite_heart_button.dart`'s own private `_kFullMinTapExtent`, same
+// "public spec number, not the widget's own constant" rationale that
+// constant's neighbouring test files already use.
+const double _kHeartHitExtent = 48;
+
+// The tile's own `AnimatedContainer` horizontal padding (see
+// `_CatalogueServiceTileState.build`'s `padding:` below) — named here too
+// so the overlay's centering formula below reads as a derivation, not a
+// coincidence.
+const double _kTileHorizontalPad = VelvetSpacing.sm + 4;
+
+// How far the overlay's 48dp box's RIGHT edge sits from the Stack's own
+// right edge, so the box's CENTER lands exactly where the heart's ICON used
+// to paint inline.
+//
+// The anchor is the ICON's historical centre, NOT the centre of the
+// [_kHeartSlotWidth] placeholder that replaced it — those are 2dp apart and
+// conflating them is a bug this file already shipped once. The heart's
+// committed `Padding` was `EdgeInsets.only(left: xs)`, LEFT-ONLY, and as the
+// `Row`'s last child its right edge was pinned to the row's right bound: the
+// icon painted FLUSH RIGHT inside its 28dp footprint with all 4dp of slack on
+// the left. Centering the box on the slot instead drags the painted heart 2dp
+// left of where it shipped — geometrically invisible (every rect assertion
+// still passes), caught on the sibling result cards only as an 88-pixel
+// golden diff. This tile has no golden, so the derivation below is its only
+// guard; see `favorite_heart_overlay.dart`'s `build` for the same reasoning.
+//
+//   icon centre, measured from the tile's right edge
+//     = _kTileHorizontalPad + FavoriteHeartButton.iconSize / 2
+//   box centre must equal that, and the box is `_kHeartHitExtent` wide, so
+//   its right edge sits `_kHeartHitExtent / 2` closer to the tile's edge
+//   than its own centre:
+//
+// This currently evaluates to 12 + 12 - 24 = EXACTLY 0.0 — the box is flush
+// with the tile's trailing edge, which is correct here (and is why the tap-
+// target test pins the right edge geometrically instead of probing 2dp
+// outside it: there is no room left on that side). But it is one dp of slack
+// away from going NEGATIVE: any future shrink of [_kTileHorizontalPad] yields
+// a negative const that `Padding` rejects only in debug. [_kMinTileHorizontalPad]
+// names that floor and `_CatalogueServiceTileState.build` asserts it.
+const double _kHeartOverlayRightInset =
+    _kTileHorizontalPad +
+    FavoriteHeartButton.iconSize / 2 -
+    _kHeartHitExtent / 2;
+
+// The smallest [_kTileHorizontalPad] the overlay technique above supports —
+// the value at which [_kHeartOverlayRightInset] reaches exactly zero.
+// = (48 - 24) / 2 = 12dp, which is precisely what the tile pads today.
+// Mirrors `FavoriteHeartOverlay.minContainerPad`, restated locally for the
+// same reason `_kHeartHitExtent` is.
+const double _kMinTileHorizontalPad =
+    (_kHeartHitExtent - FavoriteHeartButton.iconSize) / 2;
+
 class CatalogueServiceTile extends StatefulWidget {
   const CatalogueServiceTile({
     super.key,
@@ -734,14 +852,50 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
     final CatalogueRow row = widget.row;
     final bool sel = widget.selected;
 
-    return Semantics(
+    // Row selection + the tile's own visuals — UNCHANGED shape from before
+    // this fix, except the favourite heart's trailing slot is now a plain,
+    // inert placeholder (see `_kHeartSlotWidth`'s doc comment above) rather
+    // than the `FavoriteHeartButton` itself. This keeps the Expanded name/
+    // meta column's width byte-identical to the pre-overlay tree.
+    //
+    // The `Semantics` annotation lives HERE, wrapping the tile's own
+    // `GestureDetector`, and NOT around the `Stack` below. Above the `Stack`
+    // it would take this gesture and the heart's into one merge group, which
+    // Flutter resolves by refusing to merge either — leaving this annotation
+    // with `isButton`/`hasCheckedState` but no `tap` action, and the node
+    // that IS tappable with no role and no checked state. Verified by
+    // semantics dump against the `showFavoriteHeart: false` control, which
+    // renders the single correct node. See `favorite_heart_overlay.dart`'s
+    // "SEMANTICS CONTRACT" header section.
+    //
+    // It carries `button` + `checked` and NOTHING ELSE — deliberately no
+    // `label:`. This annotation merges its descendants, which already
+    // announce every field, so an explicit label repeated the whole tile:
+    // «Стрижка жіноча, 1 год 30 хв, 850 ₴ / Стрижка жіноча / 850 ₴ / 1 год
+    // 30 хв» (verified by semantics dump, both here and at `HEAD` — this is
+    // a PRE-EXISTING defect, not one this change introduced; it is
+    // byte-identical with `showFavoriteHeart: false`). Let the content
+    // supply the label — the standard Flutter pattern, and the same fix the
+    // two result cards took. Guarded by
+    // `catalogue_service_tile_favorite_heart_tap_target_test.dart`'s
+    // single-occurrence assertion.
+    //
+    // ANNOUNCEMENT ORDER — deliberately source order: name → PRICE →
+    // duration, where the dropped label read name → duration → price. The
+    // two are not reconcilable without either (a) reordering `_metaLine`'s
+    // `Wrap` children, which would move the price BEHIND the duration
+    // visually — the exact opposite of the locked design decision recorded
+    // above `_priceStyle` («price ahead of the duration», the user's own
+    // "font as on time" ask) and a guaranteed golden diff; or (b) bolting
+    // `OrdinalSortKey`s onto the column's children purely to re-sequence a
+    // merged label. Neither is worth it: the merged announcement is
+    // complete and unambiguous either way, and every field is still stated
+    // exactly once. `bookingServiceTileSemantics` itself stays — it is still
+    // the label source for `booking_recap.dart` and
+    // `selected_services_shelf.dart`, which do NOT merge a descendant tree.
+    final Widget tileBody = Semantics(
       button: true,
       checked: sel,
-      label: l10n.bookingServiceTileSemantics(
-        row.name,
-        row.durationLabel,
-        row.priceLabel,
-      ),
       child: GestureDetector(
         onTapDown: (_) => setState(() => _pressed = true),
         onTapCancel: () => setState(() => _pressed = false),
@@ -749,69 +903,172 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
           setState(() => _pressed = false);
           widget.onToggle();
         },
-        child: AnimatedScale(
-          scale: _pressed ? 0.985 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              color: sel ? const Color(0xFFEDE4D5) : BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.field),
-              boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.sm + 4,
-              vertical: VelvetSpacing.sm + 2,
-            ),
-            child: Row(
-              children: <Widget>[
-                CatalogueCheckControl(selected: sel),
-                const SizedBox(width: VelvetSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
-                        row.name,
-                        // Test-support key (same precedent as
-                        // `booking_card.dart`'s `ValueKey('service-$id')`) —
-                        // lets the overflow-guard regression test measure
-                        // this Text's laid-out width directly, to prove the
-                        // favourite heart's trailing slot costs the name
-                        // ONLY its own footprint now that price no longer
-                        // shares this row (see
-                        // `service_catalogue_accordion_overflow_test.dart`).
-                        key: Key('catalogue-service-name-${row.id}'),
-                        style: VelvetText.bodyStrong(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 3),
-                      _metaLine(row),
-                    ],
-                  ),
-                ),
-                if (widget.showFavoriteHeart) ...<Widget>[
-                  const SizedBox(width: VelvetSpacing.xs),
-                  FavoriteHeartButton(
-                    key: Key('booking_service_heart_${row.id}'),
-                    target: FavoriteTarget(
-                      type: widget.favoriteTargetType,
-                      id: row.id,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            color: sel ? const Color(0xFFEDE4D5) : BrandColors.base,
+            borderRadius: BorderRadius.circular(VelvetRadii.field),
+            boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: _kTileHorizontalPad,
+            vertical: VelvetSpacing.sm + 2,
+          ),
+          child: Row(
+            children: <Widget>[
+              CatalogueCheckControl(selected: sel),
+              const SizedBox(width: VelvetSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      row.name,
+                      // Test-support key (same precedent as
+                      // `booking_card.dart`'s `ValueKey('service-$id')`) —
+                      // lets the overflow-guard regression test measure
+                      // this Text's laid-out width directly, to prove the
+                      // favourite heart's trailing slot costs the name
+                      // ONLY its own footprint now that price no longer
+                      // shares this row (see
+                      // `service_catalogue_accordion_overflow_test.dart`).
+                      key: Key('catalogue-service-name-${row.id}'),
+                      style: VelvetText.bodyStrong(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    initialIsFavorite: widget.isFavorite,
-                    semanticAddLabel: l10n.favoriteServiceAddLabel,
-                    semanticRemoveLabel: l10n.favoriteServiceRemoveLabel,
-                    onError: widget.onFavoriteError,
-                  ),
-                ],
+                    const SizedBox(height: 3),
+                    _metaLine(row),
+                  ],
+                ),
+              ),
+              if (widget.showFavoriteHeart) ...<Widget>[
+                const SizedBox(width: VelvetSpacing.xs),
+                // Inert placeholder — reserves the heart's OLD inline
+                // footprint so the `Expanded` column above is unaffected.
+                // The real, tappable heart is the `Stack` overlay below,
+                // NOT this box (it paints nothing and has no gesture).
+                const SizedBox(width: _kHeartSlotWidth),
               ],
-            ),
+            ],
           ),
         ),
       ),
+    );
+
+    // `Stack`, not the `Row` above, is where the heart actually lives now —
+    // see `_kHeartSlotWidth`'s doc comment. `tileBody` paints FIRST (so its
+    // own `GestureDetector` stays the row-selection tap target everywhere)
+    // and the heart paints LAST (on top), so it wins hit-tests inside its own
+    // 48×48 box. `clipBehavior: Clip.none` because that box is deliberately
+    // wider than the placeholder slot it centers on and spills into the
+    // tile's own padding — a clipped hit area would silently defeat this fix
+    // (see `catalogue_service_tile_favorite_heart_tap_target_test.dart`).
+    //
+    // NOTE the `Stack` carries NO `Semantics` — `tileBody` already does. See
+    // that annotation above, and `favorite_heart_overlay.dart`'s "SEMANTICS
+    // CONTRACT" header section, for why an annotation here instead strands
+    // the tile's own `tap` action.
+    //
+    // The message is BRANCHED on which clause actually tripped. It used to
+    // state both causes unconditionally ("... is negative. ... is below the
+    // minimum ..."), so whichever half did not fire read as a false claim
+    // about the live constants — half-wrong every single time it fired.
+    assert(
+      !widget.showFavoriteHeart ||
+          (_kHeartOverlayRightInset >= 0 &&
+              _kTileHorizontalPad >= _kMinTileHorizontalPad),
+      _kHeartOverlayRightInset < 0
+          ? '_kHeartOverlayRightInset is $_kHeartOverlayRightInset — '
+                'negative. Padding rejects a negative inset in debug only, '
+                'and it would anyway mean the 48dp hit box cannot sit inside '
+                'the tile without overhanging its outer edge. Deliberately '
+                'an assert rather than a math.max(0, ...) clamp: a clamp '
+                'would quietly mis-place the heart instead of naming the '
+                'unsupported geometry.'
+          : '_kTileHorizontalPad is $_kTileHorizontalPad, below the minimum '
+                'of $_kMinTileHorizontalPad. A pad that small cannot fit the '
+                '48dp hit box inside the tile without overhanging its outer '
+                'edge. Deliberately an assert rather than a math.max(0, ...) '
+                'clamp: a clamp would quietly mis-place the heart instead of '
+                'naming the unsupported padding.',
+    );
+
+    final Widget pressTarget = widget.showFavoriteHeart
+        ? Stack(
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              tileBody,
+              Positioned.fill(
+                child: Align(
+                  // Direction-aware: the `Row` above reverses under RTL, so
+                  // the placeholder slot moves to the visual left. A
+                  // hard-coded `Alignment.centerRight` would leave the heart
+                  // pinned to the visual right, on the opposite side of the
+                  // tile from the slot it is meant to cover. Latent today
+                  // (`uk` + `en` are both LTR) and cheap to keep correct.
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(
+                      end: _kHeartOverlayRightInset,
+                    ),
+                    // The heart runs a 150ms `AnimatedScale` on every toggle.
+                    // Without this boundary that animation dirties the shared
+                    // layer and repaints the whole tile beneath it — its
+                    // `AnimatedContainer` decoration, blurred `extrudedSmall`
+                    // shadow and both text runs — once per frame for the whole
+                    // animation.
+                    //
+                    // It sits BELOW the `Align`/`Padding`, directly around the
+                    // button, deliberately. Above them it was laid out under
+                    // `Positioned.fill`'s TIGHT constraints and expanded to
+                    // the whole tile — a tile-sized isolated layer for a 48×48
+                    // payload. Isolation is identical either way (a
+                    // `markNeedsPaint` from the button walks to the FIRST
+                    // repaint-boundary ancestor and stops; `Align` and
+                    // `Padding` are not boundaries, so that ancestor is this
+                    // node in both placements) — the layer is just exactly
+                    // sized now. Verified by walking `debugNeedsPaint` up from
+                    // the button after a toggle: true on this boundary, false
+                    // on every ancestor above it.
+                    child: RepaintBoundary(
+                      child: FavoriteHeartButton(
+                        key: Key('booking_service_heart_${row.id}'),
+                        target: FavoriteTarget(
+                          type: widget.favoriteTargetType,
+                          id: row.id,
+                        ),
+                        initialIsFavorite: widget.isFavorite,
+                        semanticAddLabel: l10n.favoriteServiceAddLabel,
+                        semanticRemoveLabel: l10n.favoriteServiceRemoveLabel,
+                        onError: widget.onFavoriteError,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          )
+        : tileBody;
+
+    // The press animation wraps the `Stack` — body AND heart — rather than
+    // sitting inside `tileBody`. Moving the heart into a `Stack` sibling had
+    // left it OUTSIDE this `AnimatedScale`, so pressing the row visibly
+    // shrank the tile to 0.985 while the heart stayed put: a cosmetic drift
+    // from the pre-overlay look, in which the heart was an inline `Row` child
+    // and scaled with everything else. Hoisting the scale restores that.
+    // Safe for the overlay's hit box: a `Transform` does not affect LAYOUT at
+    // all (so the 218.0/250.0dp name-column pins and the box's derived right
+    // inset are untouched), and it only alters hit-test coordinates while
+    // `_pressed` is true — i.e. while a finger is already down on the tile
+    // body, never at rest, which is the only state the heart's 48×48 probes
+    // measure.
+    return AnimatedScale(
+      scale: _pressed ? 0.985 : 1,
+      duration: const Duration(milliseconds: 110),
+      child: pressTarget,
     );
   }
 }

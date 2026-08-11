@@ -48,11 +48,18 @@
 //     text and duration/price `Wrap` carry no gesture of their own).
 //
 // Neither row has a sibling `GestureDetector`/`InkWell` for the expanded box
-// to encroach on. Contrast this with `FavoriteHeartButton`
-// (`features/discovery/presentation/widgets/favorite_heart_button.dart`),
-// which shares this exact defect but sits inside a booking tile whose
-// entire row IS the tap target — deliberately left unfixed there; see that
-// file's own doc comment.
+// to encroach on, which is what makes this widget's INLINE `Padding` fix
+// affordable. Contrast `FavoriteHeartButton`
+// (`features/discovery/presentation/widgets/favorite_heart_button.dart`):
+// all three of its callers (`salon_result_card.dart`,
+// `master_result_card.dart`, and `CatalogueServiceTile` in the booking flow)
+// sit as the LAST child of a Row whose `Expanded` sibling would pay
+// dp-for-dp for any inline growth, so none of them can take this widget's
+// approach. They reach the SAME full 48×48 by a different mechanism — a
+// `Stack` overlay outside the row's normal flow, floating over an inert
+// placeholder sized to the heart's historical inline footprint. See that
+// button's own file header for the full derivation, including why the
+// intermediate "grow it inline a little" variant was reverted.
 
 import 'package:flutter/material.dart';
 
