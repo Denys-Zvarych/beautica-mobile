@@ -72,6 +72,7 @@ import 'dart:convert';
 
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:dio/dio.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 
@@ -1506,9 +1507,9 @@ final class FakeBackend {
   /// [_workingDaysEnvelope]; no longer `static` because it now reads
   /// instance state.
   Map<String, dynamic> _availableSlotsEnvelope() {
-    final DateTime day = serverNow;
-    DateTime at(int hour, int minute) =>
-        DateTime(day.year, day.month, day.day, hour, minute);
+    final DateTime day = kyivDayOf(serverNow);
+    DateTime at(int hourUtc, int minute) =>
+        DateTime.utc(day.year, day.month, day.day, hourUtc, minute);
     Map<String, dynamic> slot(DateTime start, DateTime end) =>
         <String, dynamic>{
           'startsAt': start.toIso8601String(),
@@ -1520,11 +1521,35 @@ final class FakeBackend {
           '${day.month.toString().padLeft(2, '0')}-'
           '${day.day.toString().padLeft(2, '0')}',
       'slots': <Map<String, dynamic>>[
-        slot(at(10, 0), at(10, 30)),
-        slot(at(14, 0), at(14, 30)),
+        for (final (int hourUtc, int minute) in availableSlotUtcStarts)
+          slot(at(hourUtc, minute), at(hourUtc, minute + 30)),
       ],
     });
   }
+
+  /// The `(hourUtc, minute)` starts [_availableSlotsEnvelope] emits, on the
+  /// KYIV day of [serverNow]. Each slot runs 30 minutes.
+  ///
+  /// WHY UTC, AND WHY THIS DEFAULT
+  /// ------------------------------
+  /// These used to be built with a bare local `DateTime(...)`, so the instant
+  /// on the wire moved with the HOST `TZ`: on the Kyiv dev VM `at(10, 0)` was
+  /// 07:00Z (chip reads 10:00 Kyiv); on a `TZ=UTC` runner the same line
+  /// produced 10:00Z (chip reads 13:00 Kyiv). Same fixture, two different
+  /// rendered times — and the app under test runs on the INJECTED clock, not
+  /// the host's, so this was the fake-backend spelling of the two-clock trap
+  /// `_workingDaysEnvelope` already documents just below.
+  ///
+  /// The default `07:00Z / 11:00Z` reproduces the dev VM's previous behaviour
+  /// EXACTLY (10:00 and 14:00 Kyiv, June being EEST/+3) — now as a property of
+  /// the fixture rather than of the runner. Every E2E that consumes these picks
+  /// `SlotChip … .first`, so neither the count nor the times are load-bearing
+  /// anywhere; a flow that cares sets this field explicitly.
+  ///
+  /// The real backend emits each slot at its KYIV wall-clock with an offset
+  /// (`…T13:00:00+03:00`) and the generated client normalises to UTC, so a UTC
+  /// instant here is the same value the app would hold in production.
+  List<(int, int)> availableSlotUtcStarts = const <(int, int)>[(7, 0), (11, 0)];
 
   /// PUBLIC working-days envelope for `master-aaa` — answers
   /// `GET /api/v1/masters/master-aaa/working-days?from=&to=` (Phase 14.14

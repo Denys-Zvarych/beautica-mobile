@@ -9,9 +9,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
+/// A slot starting at [hour] UTC.
+///
+/// DO NOT COPY THE OLD FORM OF THIS HELPER (bare local `DateTime(2026, 7, 20,
+/// hour)`, fixed 2026-08-11). On the Kyiv dev VM a host-local instant's
+/// `.hour` coincidentally equals its Kyiv wall-clock hour, so such a fixture
+/// cannot discriminate code that reads the raw `.hour` from code that converts
+/// to the market zone first — which is precisely how the Ранок/День/Вечір
+/// heading bug shipped (see `slot_bucket_heading_tz_test.dart`). Slot instants
+/// are canonical UTC on the wire; write them that way.
+///
+/// This notifier treats the slot as an OPAQUE value (it stores and compares it,
+/// never reads `.hour` and never renders it), so the change is
+/// assertion-neutral here — it exists so the next fixture copied from this file
+/// is a real instant. The `selectDate` arguments below deliberately stay bare
+/// local `DateTime`s: those are Kyiv DATE TOKENS (see `shared/time/
+/// kyiv_day.dart`), not instants, and `.utc` on a date token is meaningless.
 BookingSlot _slot(int hour) => BookingSlot(
-  startAt: DateTime(2026, 7, 20, hour),
-  endAt: DateTime(2026, 7, 20, hour + 1),
+  // An opaque identity fixture — nothing here reads `isPast` or any wall
+  // clock, so the date can never become "stale".
+  // future-date-ok: opaque identity fixture, no wall-clock read.
+  startAt: DateTime.utc(2026, 7, 20, hour),
+  // future-date-ok: same as startAt above.
+  endAt: DateTime.utc(2026, 7, 20, hour + 1),
   available: true,
 );
 

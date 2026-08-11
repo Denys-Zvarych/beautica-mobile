@@ -104,15 +104,36 @@ class _FakeSlotRepository implements SlotRepository {
   }
 }
 
+/// Two bookable slots on [date], expressed as UTC INSTANTS — the shape the
+/// wire actually delivers.
+///
+/// DO NOT COPY THE OLD FORM OF THIS HELPER. It built these with a bare local
+/// `DateTime(date.year, date.month, date.day, 10)`, which made it a
+/// FIXTURE TRAP for the whole slot-picker surface (fixed 2026-08-11):
+///
+///   • `.hour` on a host-local instant happens to equal the Kyiv wall-clock
+///     hour on the Kyiv dev VM, so any bug that reads the raw `.hour` where it
+///     should read the Kyiv hour is INVISIBLE to such a fixture — locally.
+///     That is exactly how the Ранок/День/Вечір heading bug shipped: headings
+///     bucketed on `startAt.hour` (UTC) while the chip beside them rendered
+///     `formatSlotTime` (Kyiv), and every fixture in this file agreed with
+///     both. See `slot_bucket_heading_tz_test.dart` for the tests that pin it.
+///   • The instant itself moved with the host `TZ`, so what this file pinned
+///     differed between the dev VM (Europe/Kyiv) and CI (UTC).
+///
+/// Nothing in THIS file asserts a rendered chip LABEL — it asserts chip `Key`s
+/// (raw UTC ISO, identity only) and the `startAt` threaded onto the confirm
+/// args — so the switch to `.utc` is assertion-neutral here. It exists so the
+/// next fixture copied from this file is a real instant.
 List<BookingSlot> _twoSlots(DateTime date) => <BookingSlot>[
   BookingSlot(
-    startAt: DateTime(date.year, date.month, date.day, 10),
-    endAt: DateTime(date.year, date.month, date.day, 13, 30),
+    startAt: DateTime.utc(date.year, date.month, date.day, 10),
+    endAt: DateTime.utc(date.year, date.month, date.day, 13, 30),
     available: true,
   ),
   BookingSlot(
-    startAt: DateTime(date.year, date.month, date.day, 14),
-    endAt: DateTime(date.year, date.month, date.day, 17, 30),
+    startAt: DateTime.utc(date.year, date.month, date.day, 14),
+    endAt: DateTime.utc(date.year, date.month, date.day, 17, 30),
     available: true,
   ),
 ];
@@ -196,7 +217,7 @@ void main() {
         'assign-m2-svc2',
       ]);
 
-      final DateTime slotStart = DateTime(
+      final DateTime slotStart = DateTime.utc(
         today.year,
         today.month,
         today.day,
@@ -236,7 +257,7 @@ void main() {
     await tester.tapCalendarDay(today.day);
     await tester.pumpAndSettle();
 
-    final DateTime slotA = DateTime(today.year, today.month, today.day, 10);
+    final DateTime slotA = DateTime.utc(today.year, today.month, today.day, 10);
     await tester.tap(
       find.byKey(Key('salon-slot-chip-${slotA.toIso8601String()}')),
     );
@@ -248,7 +269,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Re-pick another slot and confirm again → fresh key.
-    final DateTime slotB = DateTime(today.year, today.month, today.day, 14);
+    final DateTime slotB = DateTime.utc(today.year, today.month, today.day, 14);
     await tester.tap(
       find.byKey(Key('salon-slot-chip-${slotB.toIso8601String()}')),
     );

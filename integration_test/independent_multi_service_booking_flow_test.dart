@@ -437,6 +437,34 @@ void main() {
     'services, and the single chosen-window line appears after a slot is picked',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
+
+      // AN AWKWARD WORKING WINDOW — 13:00-15:00 Kyiv, i.e. 10:00Z / 10:30Z /
+      // 11:00Z on the June (EEST, +3) day `kFixedNow` sits on.
+      //
+      // This is the exact shape of the HIGH bug that shipped: the group
+      // headings (Ранок / День / Вечір) were bucketed on `startAt.hour` — the
+      // RAW UTC hour — while the chip beside them rendered `formatSlotTime`,
+      // the Kyiv wall-clock. Every one of these three slots therefore rendered
+      // a correct `13:00` / `13:30` / `14:00` label filed under «Ранок».
+      //
+      // The default fixture (07:00Z / 11:00Z → 10:00 and 14:00 Kyiv) cannot
+      // see it: its raw UTC hours (7, 11) land in the same buckets the Kyiv
+      // hours do, near enough that the flow still looks sane. A window whose
+      // UTC hour and Kyiv hour fall on OPPOSITE sides of the 12:00 cut point is
+      // what makes the incoherence observable end-to-end.
+      //
+      // The widget tier pins the same contract exhaustively (both boundaries,
+      // both seasons, both pickers) in
+      // `test/features/booking/presentation/slot_bucket_heading_tz_test.dart`;
+      // this flow proves it survives the REAL provider→repository→Dio wiring
+      // and the real `Iso8601DateTimeSerializer` `.toUtc()` normalisation,
+      // which no widget test exercises.
+      fb.availableSlotUtcStarts = const <(int, int)>[
+        (10, 0),
+        (10, 30),
+        (11, 0),
+      ];
+
       final GoRouter router = await AppHarness.boot(tester, fb);
 
       await AppHarness.loginAs(tester, fb, UserRole.client);
@@ -529,6 +557,44 @@ void main() {
 
       AppHarness.expectShellLocation(router, RouteNames.bookingSlotsTime);
       expect(find.byType(SlotTimeScreen), findsOneWidget);
+
+      // ── THE HEADING/LABEL COHERENCE PIN (Step 2.7 Rule 3b) ──────────────
+      //
+      // Round-trip check across the REAL wire: the fixture put 10:00Z /
+      // 10:30Z / 11:00Z on the adapter, the generated client normalised them
+      // to UTC, and the picker must render them at the KYIV wall-clock AND
+      // file them under the heading that matches that same wall-clock.
+      final AppLocalizations timeL10n = AppLocalizations.of(
+        tester.element(find.byType(SlotTimeScreen)),
+      );
+
+      final List<String> chipLabels = tester
+          .widgetList<SlotChip>(find.byType(SlotChip))
+          .map((SlotChip c) => c.time)
+          .toList(growable: false);
+      expect(
+        chipLabels,
+        <String>['13:00', '13:30', '14:00'],
+        reason:
+            'the seeded 10:00Z/10:30Z/11:00Z window must render at the Kyiv '
+            'wall-clock. If this reads 10:00/10:30/11:00 the display zone '
+            'regressed to raw UTC; if it shifted by an hour, kFixedNow moved '
+            'out of EEST and this fixture needs re-deriving.',
+      );
+
+      final List<String> groupLabels = tester
+          .widgetList<SlotGroup>(find.byType(SlotGroup))
+          .map((SlotGroup g) => g.label)
+          .toList(growable: false);
+      expect(
+        groupLabels,
+        <String>[timeL10n.bookingAfternoonLabel],
+        reason:
+            'a 13:00-15:00 KYIV window is entirely afternoon. Bucketing on the '
+            'raw UTC hour (10, 10, 11) files the whole day under «Ранок» — the '
+            'shipped bug — and renders the MORNING heading above chips '
+            'labelled 13:00.',
+      );
 
       // Pick the first available slot → the single chosen-window line appears.
       final Finder availableChip = find
