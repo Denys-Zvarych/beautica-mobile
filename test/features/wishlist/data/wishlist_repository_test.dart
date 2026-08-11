@@ -183,24 +183,49 @@ void main() {
       },
     );
 
+    test('a malformed row is DROPPED, not propagated — the landmine this phase '
+        'fixes', () async {
+      // Phase F: `WishlistMapper.fromDtoList` now catches a per-row mapper
+      // failure and drops just that row (see its own doc for the decision).
+      // Before that fix, a single row missing its ids threw out of the
+      // mapper, propagated through `List.map`, and blanked the WHOLE
+      // page — this test used to pin exactly that (a thrown ServerFailure
+      // for one bad row among the response). It now pins the opposite: one
+      // bad row costs one entry, not the page.
+      when(
+        () => apiMock.listServiceFavorites(pageable: any(named: 'pageable')),
+      ).thenAnswer(
+        (_) async => _ok(<api.FavoriteServiceResponse>[
+          api.FavoriteServiceResponse(
+            (api.FavoriteServiceResponseBuilder b) => b..serviceName = 'X',
+          ),
+        ]),
+      );
+
+      expect(await repo.getMyWishlist(), isEmpty);
+    });
+
     test(
-      'a mapper failure propagates as-is, not re-wrapped by the Dio catch',
+      'a malformed row does NOT cost its good neighbours on the same page',
       () async {
-        // A row missing its ids throws ServerFailure from the mapper. The
-        // repository's `on Failure { rethrow }` arm must let it through
-        // untouched; without it the `on DioException` arm would never see it and
-        // the failure would escape as a raw mapper throw.
         when(
           () => apiMock.listServiceFavorites(pageable: any(named: 'pageable')),
         ).thenAnswer(
           (_) async => _ok(<api.FavoriteServiceResponse>[
+            _row(id: 'a'),
+            // Missing masterServiceId/masterId — the malformed row.
             api.FavoriteServiceResponse(
               (api.FavoriteServiceResponseBuilder b) => b..serviceName = 'X',
             ),
+            _row(id: 'b'),
           ]),
         );
 
-        await expectLater(repo.getMyWishlist(), throwsA(isA<ServerFailure>()));
+        final List<WishlistService> out = await repo.getMyWishlist();
+        expect(
+          out.map((WishlistService s) => s.favoriteTargetId).toList(),
+          <String>['a', 'b'],
+        );
       },
     );
   });

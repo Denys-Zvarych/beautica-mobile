@@ -196,8 +196,11 @@ class _WishlistSectionState extends ConsumerState<WishlistSection>
                   // fades, then the line re-flows and the next favourite
                   // promotes into the freed slot.
                   child: AnimatedOpacity(
-                    key: ValueKey<String>(shown[i].masterServiceId),
-                    opacity: removingIds.contains(shown[i].masterServiceId)
+                    // `favoriteTargetId`, not `masterServiceId` — the latter
+                    // is null on a SALON row, which would collide every
+                    // salon entry onto the same `ValueKey<String>('null')`.
+                    key: ValueKey<String>(shown[i].favoriteTargetId),
+                    opacity: removingIds.contains(shown[i].favoriteTargetId)
                         ? 0
                         : 1,
                     duration: WishlistRemovable.duration,
@@ -206,7 +209,7 @@ class _WishlistSectionState extends ConsumerState<WishlistSection>
                       item: shown[i],
                       onBook: () => widget.onBook(shown[i]),
                       onUnfavourite: () =>
-                          requestRemoval(shown[i].masterServiceId),
+                          requestRemoval(shown[i].favoriteTargetId),
                     ),
                   ),
                 ),

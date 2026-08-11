@@ -71,6 +71,16 @@ abstract class SalonCatalogService with _$SalonCatalogService {
 
     /// Typed RANGE ceiling in UAH; null for FIXED mode or legacy data.
     double? priceMax,
+
+    /// Whether the signed-in CLIENT has favourited this SALON catalogue
+    /// service (`FavoriteTargetType.salonService`, keyed to
+    /// `service_definitions.id`). Mirrors [ServiceDefinitionResponse.isFavorite]
+    /// — the wire value is a nullable true/false/null tri-state (null =
+    /// anonymous/non-CLIENT caller), collapsed to a plain bool at map time
+    /// (`dto.isFavorite ?? false`), same as `MasterService.isFavorite`. Always
+    /// `false` for a legacy/never-refreshed cache entry that predates this
+    /// field.
+    @Default(false) bool isFavorite,
   }) = _SalonCatalogService;
 }
 

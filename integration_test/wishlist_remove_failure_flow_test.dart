@@ -185,12 +185,12 @@ Future<void> _openWishlistPage(
   expect(find.byType(WishlistScreen), findsOneWidget);
 }
 
-/// The ordered list of `masterServiceId`s currently rendered as full-width
+/// The ordered list of `favoriteTargetId`s currently rendered as full-width
 /// rows — read off the WIDGETS themselves (not text/position math), so this
 /// is a direct assertion of `wishlistProvider`'s own list order.
 List<String> _rowOrder(WidgetTester tester) => tester
     .widgetList<WishlistRow>(find.byType(WishlistRow))
-    .map((WishlistRow w) => w.item.masterServiceId)
+    .map((WishlistRow w) => w.item.favoriteTargetId)
     .toList();
 
 void main() {

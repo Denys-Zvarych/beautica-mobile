@@ -1,10 +1,10 @@
 // Phase 13.4 — Favorite target value object.
 //
-// Pure-Dart description of what a favorite points at: a master, a salon or a
-// master's service, plus its id. The data layer translates
-// [FavoriteTargetType] into the generated `AddFavoriteRequestTargetTypeEnum`
-// wire value (MASTER | SALON | SERVICE) — the generated enum never escapes the
-// data layer.
+// Pure-Dart description of what a favorite points at: a master, a salon, a
+// master's service, or (Phase E) a salon's catalogue service, plus its id.
+// The data layer translates [FavoriteTargetType] into the generated
+// `AddFavoriteRequestTargetTypeEnum` wire value (MASTER | SALON | SERVICE |
+// SALON_SERVICE) — the generated enum never escapes the data layer.
 //
 // Pure Dart: no Flutter, no generated-API imports.
 
@@ -21,6 +21,12 @@ enum FavoriteTargetType {
   /// A single service offered by a master (the beauty wish list). The id is the
   /// `masterServiceId`, not the catalogue service-type id.
   service,
+
+  /// A single service in a SALON's public catalogue (the salon booking
+  /// flow's service-selection step). The id is `service_definitions.id` where
+  /// `owner_type = 'SALON'` — NOT a `master_services` id, and distinct from
+  /// [service] (which keys to a master's own service assignment).
+  salonService,
 }
 
 /// An immutable (type, id) pair identifying a favorite target.

@@ -266,6 +266,120 @@ void main() {
       expect(s.favoriteTargetId, s.masterServiceId);
       expect(s.favoriteTargetId, isNot(s.masterId));
     });
+
+    test('is the serviceDefId on a SALON row, never salonId', () {
+      const WishlistService s = WishlistService(
+        sourceType: WishlistSourceType.salon,
+        salonId: 'salon-1',
+        serviceDefId: 'def-1',
+        serviceName: 'Ламінування вій',
+        durationMinutes: 60,
+        priceDisplay: '800 ₴',
+      );
+      expect(s.favoriteTargetId, 'def-1');
+      expect(s.favoriteTargetId, isNot(s.salonId));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase F — the SALON arm's priceLabel: verbatim on EVERY shape, unlike the
+  // MASTER arm's RANGE reformat above.
+  // ---------------------------------------------------------------------------
+  group('should_renderVerbatim_when_sourceTypeIsSalon', () {
+    WishlistService salonEntry({
+      String priceDisplay = 'від 600 до 900 ₴',
+      bool isRangePrice = false,
+      double? priceMin,
+      double? priceMax,
+    }) => WishlistService(
+      sourceType: WishlistSourceType.salon,
+      salonId: 'salon-1',
+      serviceDefId: 'def-1',
+      serviceName: 'Ламінування вій',
+      durationMinutes: 60,
+      priceDisplay: priceDisplay,
+      isRangePrice: isRangePrice,
+      priceMin: priceMin,
+      priceMax: priceMax,
+    );
+
+    test('a RANGE-shaped salon row does NOT get the en-dash reformat', () {
+      // The MASTER-row behaviour this file pins above — the whole reason a
+      // SALON row needs its own group: it must NOT inherit it.
+      final WishlistService s = salonEntry(
+        priceDisplay: 'від 600 до 900 ₴',
+        isRangePrice: true,
+        priceMin: 600,
+        priceMax: 900,
+      );
+      expect(s.priceLabel, 'від 600 до 900 ₴');
+      expect(
+        s.priceLabel,
+        isNot(contains('–')),
+        reason:
+            'a SALON row must agree byte-for-byte with the catalogue tile it '
+            'was favourited from, which prints the backend long form',
+      );
+    });
+
+    test(
+      'even a floor/ceiling pair that WOULD collapse on a MASTER row is ignored',
+      () {
+        // Proves priceLabel short-circuits on sourceType BEFORE it ever looks
+        // at isRangePrice/priceMin/priceMax — a garbage floor here must not
+        // produce the MASTER arm's «—» placeholder.
+        final WishlistService s = salonEntry(
+          priceDisplay: 'Ціна за запитом',
+          isRangePrice: true,
+          priceMin: double.infinity,
+          priceMax: 900,
+        );
+        expect(s.priceLabel, 'Ціна за запитом');
+      },
+    );
+
+    test(
+      'a FIXED-shaped salon row renders verbatim too (no behaviour change)',
+      () {
+        final WishlistService s = salonEntry(priceDisplay: '800 ₴');
+        expect(s.priceLabel, '800 ₴');
+      },
+    );
+
+    test('an EQUAL-BOUNDS salon row is NOT collapsed to the single figure — '
+        'this is the specific case a MASTER-row-style reformat would break', () {
+      // The measured reason a SALON row cannot share the MASTER arm's
+      // reformat (see the file header's "Why a SALON row skips the RANGE
+      // reformat entirely"): the backend renders an equal-bounds band
+      // (`price_max == base_price`) as «від 600 до 600 ₴», but THIS APP'S
+      // OWN `formatBookingPrice` collapses `min == max` to the bare floor
+      // («600 ₴» — see `should_collapseToFloor_when_ceilingCarriesNoInformation`
+      // above). Every OTHER salon-arm case in this group uses DIFFERING
+      // bounds (600/900), which would also fail if routed through
+      // `formatBookingPrice` (producing «600–900 ₴» instead of the long
+      // form) — but a differing-bounds fixture cannot distinguish "still
+      // verbatim" from "collapsed the same way a MASTER row's degenerate
+      // band collapses", because collapse-to-floor and the equal-bounds
+      // wire string share nothing to compare against by accident. THIS
+      // fixture is the one where a regression that quietly routed salon
+      // rows through the MASTER reformat would produce a DIFFERENT,
+      // silently-wrong number rather than merely a differently-shaped one.
+      final WishlistService s = salonEntry(
+        priceDisplay: 'від 600 до 600 ₴',
+        isRangePrice: true,
+        priceMin: 600,
+        priceMax: 600,
+      );
+      expect(s.priceLabel, 'від 600 до 600 ₴');
+      expect(
+        s.priceLabel,
+        isNot('600 ₴'),
+        reason:
+            'formatBookingPrice(600, 600) collapses to the bare floor — if '
+            'priceLabel ever routed a salon row through it, THIS is the '
+            'string it would silently produce instead',
+      );
+    });
   });
 
   group('the new price fields participate in value equality', () {

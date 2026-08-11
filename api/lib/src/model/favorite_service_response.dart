@@ -12,25 +12,38 @@ part 'favorite_service_response.g.dart';
 /// FavoriteServiceResponse
 ///
 /// Properties:
+/// * [sourceType] - Which favourite arm this row came from — MASTER (a chosen master's assignment) or SALON (a salon-catalogue service, no master chosen yet).
 /// * [masterServiceId]
 /// * [masterId]
+/// * [serviceDefId]
 /// * [serviceName]
 /// * [masterFirstName]
 /// * [masterLastName]
-/// * [masterAvatarUrl] - users.avatar_url of the performing master; null when unset.
+/// * [masterAvatarUrl] - users.avatar_url of the performing master; null when unset or for a SALON row.
 /// * [durationMinutes]
 /// * [priceType]
 /// * [priceMin]
 /// * [priceMax] - RANGE ceiling; null for FIXED.
 /// * [priceDisplay] - Pre-formatted band, e.g. \"600 ₴\" or \"від 600 до 900 ₴\"; null only for a legacy definition with no price.
+/// * [salonId] - salons.id — null for a MASTER row.
+/// * [salonName] - salons.name — null for a MASTER row.
+/// * [salonAvatarUrl] - salons.avatar_url — null for a MASTER row.
 @BuiltValue()
 abstract class FavoriteServiceResponse
     implements Built<FavoriteServiceResponse, FavoriteServiceResponseBuilder> {
+  /// Which favourite arm this row came from — MASTER (a chosen master's assignment) or SALON (a salon-catalogue service, no master chosen yet).
+  @BuiltValueField(wireName: r'sourceType')
+  FavoriteServiceResponseSourceTypeEnum? get sourceType;
+  // enum sourceTypeEnum {  MASTER,  SALON,  };
+
   @BuiltValueField(wireName: r'masterServiceId')
   String? get masterServiceId;
 
   @BuiltValueField(wireName: r'masterId')
   String? get masterId;
+
+  @BuiltValueField(wireName: r'serviceDefId')
+  String? get serviceDefId;
 
   @BuiltValueField(wireName: r'serviceName')
   String? get serviceName;
@@ -41,7 +54,7 @@ abstract class FavoriteServiceResponse
   @BuiltValueField(wireName: r'masterLastName')
   String? get masterLastName;
 
-  /// users.avatar_url of the performing master; null when unset.
+  /// users.avatar_url of the performing master; null when unset or for a SALON row.
   @BuiltValueField(wireName: r'masterAvatarUrl')
   String? get masterAvatarUrl;
 
@@ -62,6 +75,18 @@ abstract class FavoriteServiceResponse
   /// Pre-formatted band, e.g. \"600 ₴\" or \"від 600 до 900 ₴\"; null only for a legacy definition with no price.
   @BuiltValueField(wireName: r'priceDisplay')
   String? get priceDisplay;
+
+  /// salons.id — null for a MASTER row.
+  @BuiltValueField(wireName: r'salonId')
+  String? get salonId;
+
+  /// salons.name — null for a MASTER row.
+  @BuiltValueField(wireName: r'salonName')
+  String? get salonName;
+
+  /// salons.avatar_url — null for a MASTER row.
+  @BuiltValueField(wireName: r'salonAvatarUrl')
+  String? get salonAvatarUrl;
 
   FavoriteServiceResponse._();
 
@@ -93,17 +118,31 @@ class _$FavoriteServiceResponseSerializer
     FavoriteServiceResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.sourceType != null) {
+      yield r'sourceType';
+      yield serializers.serialize(
+        object.sourceType,
+        specifiedType: const FullType(FavoriteServiceResponseSourceTypeEnum),
+      );
+    }
     if (object.masterServiceId != null) {
       yield r'masterServiceId';
       yield serializers.serialize(
         object.masterServiceId,
-        specifiedType: const FullType(String),
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.masterId != null) {
       yield r'masterId';
       yield serializers.serialize(
         object.masterId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.serviceDefId != null) {
+      yield r'serviceDefId';
+      yield serializers.serialize(
+        object.serviceDefId,
         specifiedType: const FullType(String),
       );
     }
@@ -170,6 +209,27 @@ class _$FavoriteServiceResponseSerializer
         specifiedType: const FullType.nullable(String),
       );
     }
+    if (object.salonId != null) {
+      yield r'salonId';
+      yield serializers.serialize(
+        object.salonId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.salonName != null) {
+      yield r'salonName';
+      yield serializers.serialize(
+        object.salonName,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.salonAvatarUrl != null) {
+      yield r'salonAvatarUrl';
+      yield serializers.serialize(
+        object.salonAvatarUrl,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -195,19 +255,36 @@ class _$FavoriteServiceResponseSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'sourceType':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType(FavoriteServiceResponseSourceTypeEnum),
+          ) as FavoriteServiceResponseSourceTypeEnum;
+          result.sourceType = valueDes;
+          break;
         case r'masterServiceId':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.masterServiceId = valueDes;
           break;
         case r'masterId':
           final valueDes = serializers.deserialize(
             value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.masterId = valueDes;
+          break;
+        case r'serviceDefId':
+          final valueDes = serializers.deserialize(
+            value,
             specifiedType: const FullType(String),
           ) as String;
-          result.masterId = valueDes;
+          result.serviceDefId = valueDes;
           break;
         case r'serviceName':
           final valueDes = serializers.deserialize(
@@ -277,6 +354,30 @@ class _$FavoriteServiceResponseSerializer
           if (valueDes == null) continue;
           result.priceDisplay = valueDes;
           break;
+        case r'salonId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.salonId = valueDes;
+          break;
+        case r'salonName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.salonName = valueDes;
+          break;
+        case r'salonAvatarUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.salonAvatarUrl = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -304,6 +405,28 @@ class _$FavoriteServiceResponseSerializer
     );
     return result.build();
   }
+}
+
+class FavoriteServiceResponseSourceTypeEnum extends EnumClass {
+  /// Which favourite arm this row came from — MASTER (a chosen master's assignment) or SALON (a salon-catalogue service, no master chosen yet).
+  @BuiltValueEnumConst(wireName: r'MASTER')
+  static const FavoriteServiceResponseSourceTypeEnum MASTER =
+      _$favoriteServiceResponseSourceTypeEnum_MASTER;
+
+  /// Which favourite arm this row came from — MASTER (a chosen master's assignment) or SALON (a salon-catalogue service, no master chosen yet).
+  @BuiltValueEnumConst(wireName: r'SALON')
+  static const FavoriteServiceResponseSourceTypeEnum SALON =
+      _$favoriteServiceResponseSourceTypeEnum_SALON;
+
+  static Serializer<FavoriteServiceResponseSourceTypeEnum> get serializer =>
+      _$favoriteServiceResponseSourceTypeEnumSerializer;
+
+  const FavoriteServiceResponseSourceTypeEnum._(String name) : super(name);
+
+  static BuiltSet<FavoriteServiceResponseSourceTypeEnum> get values =>
+      _$favoriteServiceResponseSourceTypeEnumValues;
+  static FavoriteServiceResponseSourceTypeEnum valueOf(String name) =>
+      _$favoriteServiceResponseSourceTypeEnumValueOf(name);
 }
 
 class FavoriteServiceResponsePriceTypeEnum extends EnumClass {

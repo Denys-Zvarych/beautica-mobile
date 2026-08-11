@@ -98,19 +98,21 @@ class Wishlist extends _$Wishlist {
     return ref.watch(wishlistRepositoryProvider).getMyWishlist();
   }
 
-  /// Optimistically removes [masterServiceId] from the list and un-favourites
-  /// it on the wire, restoring it at its original index if the call fails.
+  /// Optimistically removes the entry keyed by [targetId]
+  /// ([WishlistService.favoriteTargetId] — `masterServiceId` for a MASTER
+  /// row, `serviceDefId` for a SALON row) from the list and un-favourites it
+  /// on the wire, restoring it at its original index if the call fails.
   ///
   /// Returns `null` on success, or the [Failure] so the calling screen can
   /// surface a snackbar. Returns `null` (a no-op) when the list is not loaded
   /// or the id is not in it — a double-tap on a row already animating out must
   /// not fire a second request.
-  Future<Failure?> removeService(String masterServiceId) async {
+  Future<Failure?> removeService(String targetId) async {
     final List<WishlistService>? current = state.value;
     if (current == null) return null;
 
     final int index = current.indexWhere(
-      (WishlistService s) => s.masterServiceId == masterServiceId,
+      (WishlistService s) => s.favoriteTargetId == targetId,
     );
     if (index < 0) return null;
     final WishlistService removed = current[index];
@@ -124,8 +126,15 @@ class Wishlist extends _$Wishlist {
       ]),
     );
 
+    // The target TYPE follows the row's own arm — a SALON row un-favourites
+    // through `SALON_SERVICE`, never `SERVICE` (that wire value is scoped to
+    // a master's own service assignment; sending a SALON row's
+    // `service_definitions.id` through it would ask the backend to remove a
+    // `master_services` row that does not exist).
     final FavoriteTarget target = FavoriteTarget(
-      type: FavoriteTargetType.service,
+      type: removed.sourceType == WishlistSourceType.salon
+          ? FavoriteTargetType.salonService
+          : FavoriteTargetType.service,
       id: removed.favoriteTargetId,
     );
 
@@ -162,9 +171,7 @@ class Wishlist extends _$Wishlist {
     //    being inserted back into may be shorter than the one it came from.
     final List<WishlistService> latest =
         state.value ?? const <WishlistService>[];
-    if (latest.any(
-      (WishlistService s) => s.masterServiceId == masterServiceId,
-    )) {
+    if (latest.any((WishlistService s) => s.favoriteTargetId == targetId)) {
       // Already back (a concurrent refetch beat us to it) — leave it alone.
       return failure;
     }

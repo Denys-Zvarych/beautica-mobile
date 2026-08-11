@@ -99,6 +99,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   final num? priceMax;
   @override
   final String? priceDisplay;
+  @override
+  final bool? isFavorite;
 
   factory _$ServiceDefinitionResponse(
           [void Function(ServiceDefinitionResponseBuilder)? updates]) =>
@@ -119,7 +121,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
       this.priceType,
       this.priceMin,
       this.priceMax,
-      this.priceDisplay})
+      this.priceDisplay,
+      this.isFavorite})
       : super._();
   @override
   ServiceDefinitionResponse rebuild(
@@ -148,7 +151,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
         priceType == other.priceType &&
         priceMin == other.priceMin &&
         priceMax == other.priceMax &&
-        priceDisplay == other.priceDisplay;
+        priceDisplay == other.priceDisplay &&
+        isFavorite == other.isFavorite;
   }
 
   @override
@@ -169,6 +173,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
     _$hash = $jc(_$hash, priceMin.hashCode);
     _$hash = $jc(_$hash, priceMax.hashCode);
     _$hash = $jc(_$hash, priceDisplay.hashCode);
+    _$hash = $jc(_$hash, isFavorite.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -190,7 +195,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
           ..add('priceType', priceType)
           ..add('priceMin', priceMin)
           ..add('priceMax', priceMax)
-          ..add('priceDisplay', priceDisplay))
+          ..add('priceDisplay', priceDisplay)
+          ..add('isFavorite', isFavorite))
         .toString();
   }
 }
@@ -266,6 +272,10 @@ class ServiceDefinitionResponseBuilder
   String? get priceDisplay => _$this._priceDisplay;
   set priceDisplay(String? priceDisplay) => _$this._priceDisplay = priceDisplay;
 
+  bool? _isFavorite;
+  bool? get isFavorite => _$this._isFavorite;
+  set isFavorite(bool? isFavorite) => _$this._isFavorite = isFavorite;
+
   ServiceDefinitionResponseBuilder() {
     ServiceDefinitionResponse._defaults(this);
   }
@@ -288,6 +298,7 @@ class ServiceDefinitionResponseBuilder
       _priceMin = $v.priceMin;
       _priceMax = $v.priceMax;
       _priceDisplay = $v.priceDisplay;
+      _isFavorite = $v.isFavorite;
       _$v = null;
     }
     return this;
@@ -324,6 +335,7 @@ class ServiceDefinitionResponseBuilder
           priceMin: priceMin,
           priceMax: priceMax,
           priceDisplay: priceDisplay,
+          isFavorite: isFavorite,
         );
     replace(_$result);
     return _$result;

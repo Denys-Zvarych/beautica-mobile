@@ -1429,6 +1429,39 @@ final class FakeBackend {
     },
   };
 
+  /// `FavoriteServiceResponse` SALON-arm display fields for `salon-xyz`'s
+  /// public catalogue services, keyed by `serviceDefId` — mirrors
+  /// [_salonServiceCategories] verbatim. Used by the `POST /api/v1/favorites`
+  /// (SALON_SERVICE) handler below, the SALON-arm counterpart of
+  /// [_masterAaaFavoriteServiceFields]: without it a heart tapped on the
+  /// salon's own service-selection screen would POST successfully but the
+  /// Beauty Passport read-back would never show the row, which is exactly the
+  /// gap `salon_service_favourite_flow_test.dart` (mobile-qa) closes.
+  static const Map<String, Map<String, dynamic>> _salonServiceFavoriteFields =
+      <String, Map<String, dynamic>>{
+        'salon-svc-shared': <String, dynamic>{
+          'salonName': 'Студія Краси «Камелія»',
+          'salonAvatarUrl': null,
+          'serviceName': 'Манікюр класичний',
+          'durationMinutes': 60,
+          'priceDisplay': '400 ₴',
+        },
+        'salon-svc-namefallback': <String, dynamic>{
+          'salonName': 'Студія Краси «Камелія»',
+          'salonAvatarUrl': null,
+          'serviceName': 'Манікюр класичний VIP',
+          'durationMinutes': 75,
+          'priceDisplay': '550 ₴',
+        },
+        'salon-svc-exclusive': <String, dynamic>{
+          'salonName': 'Студія Краси «Камелія»',
+          'salonAvatarUrl': null,
+          'serviceName': 'Корекція брів',
+          'durationMinutes': 45,
+          'priceDisplay': '300 ₴',
+        },
+      };
+
   /// Builds one `BookableMasterResponse`-shaped envelope entry (Phase 23.x
   /// `GET /salons/{salonId}/services/{serviceDefId}/masters`) for [masterId]
   /// on [serviceDefId]. `masterServiceId` deliberately follows the SAME
@@ -3643,6 +3676,21 @@ final class FakeBackend {
       }),
       request: const Request(method: RequestMethods.get),
     );
+    // `salon-svc-namefallback` is a REAL catalogue entry (see
+    // `_salonServiceCategories` above) that no roster master performs —
+    // an EMPTY 200, not an unregistered route, so the salon-service deep-link
+    // seed's "empty-roster" path (Phase G,
+    // `wishlist_salon_service_redirect_flow_test.dart`) can be exercised
+    // without conflating it with a genuine network-error state.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/services/salon-svc-namefallback/masters',
+      (server) => server.replyCallback(200, (_) {
+        getBookableMastersCalls++;
+        requestedBookableMastersServiceDefIds.add('salon-svc-namefallback');
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
 
     // GET /api/v1/masters/master-aaa/slots?date=&serviceId= — Phase 14.1 slot
     // picker (SlotRepository.getMasterSlots). Query params are not part of
@@ -4379,6 +4427,17 @@ final class FakeBackend {
     // [_masterAaaFavoriteServiceFields] (master-aaa is the only master this
     // fake fully catalogues); an unknown id is a no-op, same as before this
     // change.
+    //
+    // Phase F (mobile-qa, salon_service_favourite_flow_test.dart): a
+    // SALON_SERVICE add mirrors the same persistence, keyed by `serviceDefId`
+    // against [_salonServiceFavoriteFields] and stamped `sourceType: 'SALON'`
+    // — the exact wire shape `WishlistMapper._fromSalonDto` requires
+    // (`salonId`/`serviceDefId` present, no master fields at all). Before this
+    // handler existed, tapping a heart on the salon service-selection screen
+    // POSTed successfully but the Beauty Passport read-back could never show
+    // it — the redirect flow test worked around that gap by seeding
+    // `favoriteServiceRows` directly; this closes the gap so the favouriting
+    // half of the journey is exercised for real too.
     _adapter.onRoute(
       '/api/v1/favorites',
       (server) => server.replyCallback(200, (req) {
@@ -4396,6 +4455,24 @@ final class FakeBackend {
             favoriteServiceRows = <Map<String, dynamic>>[
               ...favoriteServiceRows,
               <String, dynamic>{'masterServiceId': targetId, ...fields},
+            ];
+          }
+        } else if (body['targetType'] == 'SALON_SERVICE') {
+          final String targetId = (body['targetId'] as String?) ?? '';
+          final Map<String, dynamic>? fields =
+              _salonServiceFavoriteFields[targetId];
+          if (fields != null &&
+              !favoriteServiceRows.any(
+                (Map<String, dynamic> r) => r['serviceDefId'] == targetId,
+              )) {
+            favoriteServiceRows = <Map<String, dynamic>>[
+              ...favoriteServiceRows,
+              <String, dynamic>{
+                'sourceType': 'SALON',
+                'salonId': 'salon-xyz',
+                'serviceDefId': targetId,
+                ...fields,
+              },
             ];
           }
         }

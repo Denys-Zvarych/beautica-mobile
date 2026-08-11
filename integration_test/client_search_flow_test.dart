@@ -628,6 +628,153 @@ void main() {
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   // ──────────────────────────────────────────────────────────────────────────
+  // mobile-security MEDIUM (heart tap-target) — E2E: the 48×48 heart overlay
+  // and the card's own navigate-on-tap gesture do not steal each other's taps.
+  //
+  // WHY THIS FLOW EXISTS
+  // --------------------
+  // The fix moved `FavoriteHeartButton` OUT of each result card's `Row` and
+  // into a `Stack` overlay (`FavoriteHeartOverlay`) that paints LAST, so it
+  // wins hit-tests inside its own 48×48 box and the card body wins everywhere
+  // else. Both halves of that are behaviour a `Stack` can silently break: a
+  // z-order slip makes the heart untappable, and an over-expanded box makes
+  // the card untappable.
+  //
+  // The widget tier now pins the geometry precisely
+  // (`test/features/discovery/presentation/widgets/{master,salon}_result_card_
+  // favorite_heart_tap_target_test.dart`), but it pumps ONE card in isolation.
+  // It cannot prove the same holds in the real screen — inside
+  // `SearchResultsScreen`'s scrolling `ListView.separated`, on a card built
+  // from a live `/search/masters` payload, with the real `favoriteToggle` →
+  // `FavoriteRepository` → `POST /favorites` chain and the real go_router
+  // push behind the card body. Step 2.7 Rule 3b: a screen + navigation +
+  // provider→repository + API-contract change needs a fake-backed flow.
+  //
+  // `public_master_profile_flow_test.dart` reaches that profile by
+  // `router.push(...)` directly (its own comment says driving real cards was
+  // "non-deterministic"), so until now NO flow proved a real card TAP opens
+  // the profile at all. This one does — and proves the heart does not hijack
+  // it.
+  //
+  // MUTATION PROOF (run 2026-08-11; overlay restored byte-for-byte after,
+  // 12/12 green again): inverting `FavoriteHeartOverlay.build()`'s `Stack`
+  // z-order — painting the heart FIRST and `body` LAST, so the card's own
+  // `GestureDetector` covers the heart — took this flow RED at half one
+  // (`AppHarness.pumpUntilFound timed out after 0:00:10 waiting for … POST
+  // /favorites to land`), i.e. the heart became untappable in the real
+  // screen. The pre-existing "results render real cards" flow above went RED
+  // with it. Green run: `+12`, mutated run: `+10 -2`. The two widget-tier
+  // files' geometry pins do NOT catch this — the box measures 48×48 in both
+  // trees; only a real hit test through the composed screen does.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets('CLIENT tapping the heart on a result card favourites WITHOUT '
+      'navigating, and tapping the card body still opens the master profile', (
+    tester,
+  ) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // ── Reach the live results screen (browse-all, no filters) ──────────────
+    await tester.tap(find.byKey(const Key('client-nav-search-center')));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    // Not `pumpAndSettle()` — FakeBackend seeds `totalPages: 2`, so the
+    // trailing indeterminate `_LoadMoreSpinner` never lets the tree quiesce
+    // (see [AppHarness.pumpUntilFound]).
+    await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('results_list')),
+    );
+    AppHarness.expectNestedPushLocation(router, RouteNames.clientSearchResults);
+
+    // ── HALF ONE — the heart favourites and does NOT navigate ──────────────
+    expect(fb.addFavoriteCalls, 0);
+    // Gate on hit-testability, not mere presence: /search/results rides in on
+    // a 500 ms Cupertino slide, and mid-slide the heart's centre can sit past
+    // the right edge of the 800x600 flutter-tester view — `tap()` would then
+    // hit nothing and the wait below could never succeed.
+    final Finder heart = find.byKey(const Key('favorite_master_master-aaa'));
+    await AppHarness.pumpUntilFound(tester, heart.hitTestable());
+    await tester.tap(heart);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fb.addFavoriteCalls >= 1,
+      description: 'POST /favorites to land',
+    );
+
+    expect(
+      fb.addFavoriteCalls,
+      1,
+      reason: 'the heart must reach the favourites API exactly once',
+    );
+    expect(fb.lastAddFavoriteBody?['targetType'], 'MASTER');
+    expect(fb.lastAddFavoriteBody?['targetId'], 'master-aaa');
+
+    // …and the CARD's own gesture must NOT have fired underneath it. This is
+    // the half a z-order/hit-test regression breaks: the overlay paints last
+    // precisely so the card's `GestureDetector` never sees a tap inside the
+    // heart's box.
+    expect(
+      find.byKey(const Key('public-master-profile-name')),
+      findsNothing,
+      reason: 'favouriting must not also open the public master profile',
+    );
+    expect(
+      find.byKey(const Key('client-search-results')),
+      findsOneWidget,
+      reason: 'the client must still be standing on the results screen',
+    );
+    AppHarness.expectNestedPushLocation(router, RouteNames.clientSearchResults);
+    expect(
+      fb.getPublicMasterCalls,
+      0,
+      reason:
+          'no profile fetch may have fired — the strongest evidence the card '
+          'gesture stayed silent, independent of what is currently rendered',
+    );
+
+    // ── HALF TWO — the card BODY still navigates ───────────────────────────
+    // The name `Text` is inside the `Expanded` column, far outside the
+    // heart's 48×48 box (which sits 4dp in from the card's trailing edge).
+    // The card is now the ONLY thing between this tap and the profile: a
+    // regression that over-expands the heart's box, or that drops the card's
+    // gesture while wiring the overlay, strands the user here.
+    final Finder cardName = find.byKey(const Key('master_card_name')).first;
+    await AppHarness.pumpUntilFound(tester, cardName.hitTestable());
+    await tester.tap(cardName);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('public-master-profile-name')),
+    );
+
+    AppHarness.expectNestedPushLocation(
+      router,
+      RouteNames.masterPublicProfile('master-aaa'),
+    );
+    expect(
+      fb.getPublicMasterCalls,
+      greaterThanOrEqualTo(1),
+      reason:
+          'the card tap must resolve the profile via public GET /masters/{id}',
+    );
+    expect(fb.lastGetPublicMasterId, 'master-aaa');
+    // The body tap must NOT have also toggled the favourite (the mirror
+    // hijack: a card gesture swallowing taps meant for the heart would show
+    // up as an extra POST here, and an overlay that leaked its own gesture
+    // across the card would show up as a second one).
+    expect(
+      fb.addFavoriteCalls,
+      1,
+      reason: 'tapping the card body must not fire the favourite again',
+    );
+
+    expect(fb.getMasterCalls, 0);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Phase 19.x — E2E: free-text query + sort selection reach the wire.
   //
   // Types a name/service query on the Пошук screen, submits to the results

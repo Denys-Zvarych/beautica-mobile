@@ -27,6 +27,7 @@ part 'service_definition_response.g.dart';
 /// * [priceMin]
 /// * [priceMax]
 /// * [priceDisplay]
+/// * [isFavorite] - true/false only for an authenticated CLIENT caller on GET /salons/{salonId}/services; null everywhere else (anonymous/non-CLIENT callers, every provider-side service-management response, and always null inside the salon-service-catalog cache) — decorated per-request, after the cache read.
 @BuiltValue()
 abstract class ServiceDefinitionResponse
     implements
@@ -79,6 +80,10 @@ abstract class ServiceDefinitionResponse
 
   @BuiltValueField(wireName: r'priceDisplay')
   String? get priceDisplay;
+
+  /// true/false only for an authenticated CLIENT caller on GET /salons/{salonId}/services; null everywhere else (anonymous/non-CLIENT callers, every provider-side service-management response, and always null inside the salon-service-catalog cache) — decorated per-request, after the cache read.
+  @BuiltValueField(wireName: r'isFavorite')
+  bool? get isFavorite;
 
   ServiceDefinitionResponse._();
 
@@ -215,6 +220,13 @@ class _$ServiceDefinitionResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.isFavorite != null) {
+      yield r'isFavorite';
+      yield serializers.serialize(
+        object.isFavorite,
+        specifiedType: const FullType.nullable(bool),
+      );
+    }
   }
 
   @override
@@ -348,6 +360,14 @@ class _$ServiceDefinitionResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.priceDisplay = valueDes;
+          break;
+        case r'isFavorite':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.isFavorite = valueDes;
           break;
         default:
           unhandled.add(key);

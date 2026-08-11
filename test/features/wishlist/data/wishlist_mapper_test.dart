@@ -19,6 +19,8 @@
 // collapsing ceilings) is pinned in `../domain/wishlist_service_test.dart`;
 // what is under test HERE is the wiring from the DTO onto those three fields.
 
+import 'dart:io';
+
 import 'package:beautica_api/beautica_api.dart' as api;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/wishlist/data/wishlist_mapper.dart';
@@ -54,6 +56,30 @@ api.FavoriteServiceResponse _dto({
       ..priceType = priceType
       ..priceMin = priceMin
       ..priceMax = priceMax,
+  );
+}
+
+/// Phase F — a SALON-arm wire row: `sourceType: SALON`, salon ids set, master
+/// ids ALL absent (exactly the shape the backend contract promises).
+api.FavoriteServiceResponse _salonDto({
+  String? salonId = 'salon-1',
+  String? salonName = 'Салон краси «Оксамит»',
+  String? salonAvatarUrl = 'https://cdn.example/salon.png',
+  String? serviceDefId = 'def-1',
+  String? serviceName = 'Ламінування вій',
+  int? durationMinutes = 60,
+  String? priceDisplay = 'від 600 до 900 ₴',
+}) {
+  return api.FavoriteServiceResponse(
+    (api.FavoriteServiceResponseBuilder b) => b
+      ..sourceType = api.FavoriteServiceResponseSourceTypeEnum.SALON
+      ..salonId = salonId
+      ..salonName = salonName
+      ..salonAvatarUrl = salonAvatarUrl
+      ..serviceDefId = serviceDefId
+      ..serviceName = serviceName
+      ..durationMinutes = durationMinutes
+      ..priceDisplay = priceDisplay,
   );
 }
 
@@ -412,4 +438,321 @@ void main() {
       );
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase F — the SALON arm.
+  // ---------------------------------------------------------------------------
+  group('should_mapSalonArm_when_sourceTypeIsSalon', () {
+    test('every salon field lands on the domain model', () {
+      final WishlistService s = WishlistMapper.fromDto(_salonDto());
+
+      expect(s.sourceType, WishlistSourceType.salon);
+      expect(s.salonId, 'salon-1');
+      expect(s.salonName, 'Салон краси «Оксамит»');
+      expect(s.salonAvatarUrl, 'https://cdn.example/salon.png');
+      expect(s.serviceDefId, 'def-1');
+      expect(s.serviceName, 'Ламінування вій');
+      expect(s.durationMinutes, 60);
+      expect(
+        s.favoriteTargetId,
+        'def-1',
+        reason:
+            'a SALON row un-favourites by serviceDefId, never masterServiceId',
+      );
+    });
+
+    test('the master fields are ALL null on a SALON row', () {
+      final WishlistService s = WishlistMapper.fromDto(_salonDto());
+
+      expect(s.masterServiceId, isNull);
+      expect(s.masterId, isNull);
+      expect(s.masterName, isNull);
+      expect(s.masterAvatarUrl, isNull);
+    });
+
+    test(
+      'priceDisplay renders VERBATIM even for a RANGE band, unlike a MASTER row',
+      () {
+        // The Phase 239 MASTER-arm reformat (`priceLabel` → en-dash band via
+        // `formatBookingPrice`) must NOT apply here — a SALON row's price
+        // must agree byte-for-byte with the catalogue tile it was favourited
+        // from, and the backend's own long form is what that tile shows.
+        final WishlistService s = WishlistMapper.fromDto(
+          _salonDto(priceDisplay: 'від 600 до 900 ₴'),
+        );
+        expect(s.priceLabel, 'від 600 до 900 ₴');
+        expect(s.priceLabel, isNot(contains('–')));
+      },
+    );
+
+    test('a FIXED-shaped salon price also renders verbatim', () {
+      final WishlistService s = WishlistMapper.fromDto(
+        _salonDto(priceDisplay: '800 ₴'),
+      );
+      expect(s.priceLabel, '800 ₴');
+    });
+
+    test('a null salonName is carried through as null, not fabricated', () {
+      // Mirrors the MASTER arm's masterName policy: the mapper does not
+      // invent a placeholder, presentation owns that fallback.
+      final WishlistService s = WishlistMapper.fromDto(
+        _salonDto(salonName: null),
+      );
+      expect(s.salonName, isNull);
+    });
+
+    test('an absent sourceType is read as MASTER, never SALON', () {
+      // Every row shipped before Phase F carried no `sourceType` at all —
+      // this is what keeps them reading as the arm they always were.
+      final WishlistService s = WishlistMapper.fromDto(_dto());
+      expect(s.sourceType, WishlistSourceType.master);
+    });
+  });
+
+  group('absent-value policy — SALON arm', () {
+    test('a missing salonId throws ServerFailure', () {
+      expect(
+        () => WishlistMapper.fromDto(_salonDto(salonId: null)),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+
+    test('a missing serviceDefId throws ServerFailure', () {
+      expect(
+        () => WishlistMapper.fromDto(_salonDto(serviceDefId: null)),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase F — the landmine fix: `fromDtoList` drops the ONE bad row instead of
+  // failing the whole page. `fromDto` (called directly, above) still throws —
+  // this is the difference between the two call sites, and it is the whole
+  // point of the split.
+  // ---------------------------------------------------------------------------
+  group('should_dropOneRow_when_fromDtoListHitsAMalformedRow', () {
+    test('a malformed MASTER row is dropped; the other rows survive', () {
+      final List<WishlistService> out = WishlistMapper.fromDtoList(
+        <api.FavoriteServiceResponse>[
+          _dto(masterServiceId: 'a'),
+          _dto(masterServiceId: null), // malformed — missing masterServiceId
+          _dto(masterServiceId: 'c'),
+        ],
+      );
+      expect(
+        out.map((WishlistService s) => s.favoriteTargetId).toList(),
+        <String>['a', 'c'],
+      );
+    });
+
+    test('a malformed SALON row is dropped; the other rows survive', () {
+      final List<WishlistService> out = WishlistMapper.fromDtoList(
+        <api.FavoriteServiceResponse>[
+          _salonDto(serviceDefId: 'x'),
+          _salonDto(salonId: null), // malformed — missing salonId
+          _salonDto(serviceDefId: 'z'),
+        ],
+      );
+      expect(
+        out.map((WishlistService s) => s.favoriteTargetId).toList(),
+        <String>['x', 'z'],
+      );
+    });
+
+    test('a MIXED page survives a bad row of EITHER arm', () {
+      // The exact shape of the regression this phase fixes: before it, ONE
+      // salon row missing its ids threw out of `fromDto`, propagated through
+      // `List.map`, and blanked the entire Beauty Passport wish-list section
+      // — including every good MASTER row on the same page.
+      final List<WishlistService> out = WishlistMapper.fromDtoList(
+        <api.FavoriteServiceResponse>[
+          _dto(masterServiceId: 'm1'),
+          _salonDto(salonId: null), // malformed SALON row
+          _salonDto(serviceDefId: 's1'),
+          _dto(masterServiceId: null), // malformed MASTER row
+          _dto(masterServiceId: 'm2'),
+        ],
+      );
+      expect(
+        out.map((WishlistService s) => s.favoriteTargetId).toList(),
+        <String>['m1', 's1', 'm2'],
+      );
+    });
+
+    test(
+      'an all-malformed page maps to an empty list, not a thrown Failure',
+      () {
+        final List<WishlistService> out = WishlistMapper.fromDtoList(
+          <api.FavoriteServiceResponse>[
+            _dto(masterServiceId: null),
+            _salonDto(salonId: null),
+          ],
+        );
+        expect(out, isEmpty);
+      },
+    );
+
+    test('fromDto called DIRECTLY still throws — only the list drops', () {
+      // Pins the split itself: a single-row caller (this test, and any future
+      // one) must still see the contract break rather than a silent empty
+      // model.
+      expect(
+        () => WishlistMapper.fromDto(_dto(masterServiceId: null)),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // mobile-security finding — a dropped row must be observable in a RELEASE
+  // build, not just in debug.
+  //
+  // WHY THIS IS PARTLY A STRUCTURAL (SOURCE-SCAN) GUARD, NOT A RUNTIME ASSERT
+  // ---------------------------------------------------------------------------
+  // `dart:developer`'s `log()` posts a VM-service/Timeline event with no
+  // supported test-time interception hook (unlike `debugPrint`, it does not
+  // go through `Zone.current.print`), and `kDebugMode` is a compile-time
+  // constant that is always `true` under `flutter test` — there is no way to
+  // toggle "release mode" from inside a test to observe the gate actually
+  // opening. So the *runtime emission itself* is not directly assertable
+  // here; what IS assertable, and what the fix is actually about, is that the
+  // source no longer wraps the drop-path logging in a `kDebugMode` check.
+  // This mirrors the existing structural-guard precedent for a same-shaped
+  // problem: `test/features/booking/impeller_circle_shadow_guard_test.dart`
+  // (a render artifact Skia/goldens cannot reproduce, so the guard reads raw
+  // source instead).
+  //
+  // The BEHAVIOURAL half (a malformed row is dropped, survivors intact) is
+  // already pinned by `should_dropOneRow_when_fromDtoListHitsAMalformedRow`
+  // above — not repeated here.
+  group('mobile-security — dropped-row logging must survive in release', () {
+    late String code;
+
+    setUpAll(() {
+      // Package-root-relative — `flutter test`'s cwd is `beautica-mobile/`.
+      final File file = File('lib/features/wishlist/data/wishlist_mapper.dart');
+      expect(
+        file.existsSync(),
+        isTrue,
+        reason: 'Guarded source not found at the expected path.',
+      );
+      // Comments stripped BEFORE the `kDebugMode` check below — the doc
+      // comments explaining this very fix legitimately name `kDebugMode` in
+      // prose (e.g. "never gated on kDebugMode"), and a raw substring search
+      // over the whole file would flag its own explanation.
+      code = _stripLineAndBlockComments(file.readAsStringSync());
+    });
+
+    test('the mapper never references kDebugMode — the drop-path log(...) '
+        'calls must be unconditional', () {
+      expect(
+        code.contains('kDebugMode'),
+        isFalse,
+        reason:
+            'A `kDebugMode` gate around the drop-path log(...) means a '
+            'malformed row silently vanishes with zero telemetry in a '
+            'release build — exactly the mobile-security finding this '
+            'guards against. Log unconditionally instead (see '
+            '`salon_mapper.dart`\'s drop-logging precedent).',
+      );
+    });
+
+    test('the guard is not vacuous — the file still declares the two '
+        'drop-path log(...) calls it protects', () {
+      // Proves the absence above means "fixed", not "the logging was
+      // deleted entirely" or "the file moved".
+      expect(code.contains("'fromDto(MASTER): missing "), isTrue);
+      expect(code.contains("'fromDto(SALON): missing "), isTrue);
+    });
+
+    test('neither drop-path log(...) CALL interpolates a row value — only the '
+        'arm and the missing FIELD NAME', () {
+      // Scoped to the log(...) call arguments specifically (not the whole
+      // file — `dto.serviceName` etc. legitimately appear elsewhere in the
+      // mapper, e.g. building the returned WishlistService). No PII: the
+      // message may say WHICH field is missing ("masterServiceId",
+      // "salonId", …) as a literal string, but must never interpolate a
+      // value the row actually carried (an id, a service name, a salon
+      // name).
+      final List<String> logCalls = _logCallArgs(code);
+      expect(
+        logCalls.length,
+        2,
+        reason:
+            'expected exactly the MASTER-arm and SALON-arm drop-path '
+            'log(...) calls — if this count changed, update this guard '
+            'deliberately rather than let it silently widen or narrow.',
+      );
+      for (final String call in logCalls) {
+        expect(
+          call.contains('dto.'),
+          isFalse,
+          reason:
+              'a drop-path log(...) call must never interpolate a raw '
+              'DTO field (row id / service name / salon name) — only the '
+              'arm and the missing field NAME as a literal. '
+              'Offending call: $call',
+        );
+      }
+    });
+  });
+}
+
+/// Strips `//` line comments and `/* */` block comments, leaving string
+/// literals untouched (unlike the fuller stripper in
+/// `impeller_circle_shadow_guard_test.dart`, this guard's checks need to
+/// inspect the CONTENTS of the log message string literals, not just code).
+String _stripLineAndBlockComments(String src) {
+  final StringBuffer buf = StringBuffer();
+  int i = 0;
+  final int n = src.length;
+  while (i < n) {
+    final String c = src[i];
+    final String next = i + 1 < n ? src[i + 1] : '';
+    if (c == '/' && next == '/') {
+      while (i < n && src[i] != '\n') {
+        i++;
+      }
+      continue;
+    }
+    if (c == '/' && next == '*') {
+      i += 2;
+      while (i < n && !(src[i] == '*' && i + 1 < n && src[i + 1] == '/')) {
+        i++;
+      }
+      i += 2;
+      buf.write(' ');
+      continue;
+    }
+    buf.write(c);
+    i++;
+  }
+  return buf.toString();
+}
+
+/// Balanced-parenthesis argument substring of every `log(...)` call in
+/// [source]. Mirrors the `_boxDecorationArgs`/`_ctorArgs` precedent in
+/// `impeller_circle_shadow_guard_test.dart` — a generic depth-counted
+/// extractor so nested parens (string interpolation, ternaries) don't break
+/// the match.
+List<String> _logCallArgs(String source) {
+  final List<String> out = <String>[];
+  final RegExp ctor = RegExp(r'\blog\s*\(');
+  for (final RegExpMatch m in ctor.allMatches(source)) {
+    int depth = 1;
+    int j = m.end;
+    final int start = j;
+    while (j < source.length && depth > 0) {
+      final String ch = source[j];
+      if (ch == '(') {
+        depth++;
+      } else if (ch == ')') {
+        depth--;
+      }
+      j++;
+    }
+    out.add(source.substring(start, j - 1));
+  }
+  return out;
 }

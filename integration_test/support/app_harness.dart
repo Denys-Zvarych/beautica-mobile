@@ -230,6 +230,58 @@ abstract final class AppHarness {
     await tester.pump();
   }
 
+  // ── Scroll-into-view + hit-testable tap (existence-vs-readiness guard) ─────
+
+  /// Taps [finder] only after it is genuinely interactable — not merely
+  /// present in the tree.
+  ///
+  /// `findsOneWidget` proves EXISTENCE. It says nothing about READINESS: a
+  /// row can be fully mounted below the fold of a `SingleChildScrollView`
+  /// (clipped by its implicit `ClipRect`, `clipBehavior: Clip.hardEdge`) or
+  /// sitting under a still-animating route transition, and a plain
+  /// `tester.tap(finder)` on it silently hits whatever IS hit-testable at
+  /// that point (an Overlay, the previous screen) instead of throwing —
+  /// the tap "succeeds" and the assertion that depends on it fails several
+  /// lines later, far from the real cause.
+  ///
+  /// This is the `login_submit` idiom (see [loginAs]) and the salon-card /
+  /// results-list idiom (see `public_salon_profile_flow_test.dart`) promoted
+  /// to a shared helper: scroll the target on-screen first (best-effort —
+  /// `ensureVisible` throws when there is no `Scrollable` ancestor or the
+  /// target is already fully visible, both of which are fine to ignore),
+  /// settle the scroll animation, THEN wait for [finder] to become
+  /// [Finder.hitTestable] before tapping it.
+  ///
+  /// Existence is asserted by the caller BEFORE calling this (so a genuinely
+  /// missing widget fails as "0 widgets found" at the call site, not as an
+  /// opaque `ensureVisible` "Found 0 widgets" thrown from inside here).
+  ///
+  /// Only [tester.ensureVisible] itself is inside the try. Per
+  /// `Scrollable.ensureVisible`'s framework source, "no Scrollable ancestor"
+  /// and "already fully visible" are BOTH no-ops (empty `futures`) — neither
+  /// throws — so this catch exists solely for the rarer case of a target
+  /// that isn't laid out yet (mid route-transition). [settle] is
+  /// DELIBERATELY OUTSIDE the try: if the scroll triggers a genuine hang
+  /// elsewhere in the app, [settle]'s bounded `pumpAndSettle` must surface
+  /// that `FlutterError` to the caller, not have it swallowed here only to
+  /// resurface as a confusing failure several lines downstream (or not at
+  /// all, if [finder] happens to already be hit-testable despite the hang).
+  static Future<void> tapVisible(
+    WidgetTester tester,
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    try {
+      await tester.ensureVisible(finder);
+    } catch (_) {
+      // Not yet laid out (mid-transition) — nothing to do; pumpUntilFound
+      // below still gates on genuine hit-testable readiness.
+    }
+    await settle(tester);
+    await pumpUntilFound(tester, finder.hitTestable(), timeout: timeout);
+    await tester.tap(finder);
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.

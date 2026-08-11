@@ -74,6 +74,16 @@ class PublicSalonProfileScreen extends ConsumerStatefulWidget {
   const PublicSalonProfileScreen({super.key, required this.salonId});
 
   /// Backend Salon-row UUID of the profile being viewed.
+  ///
+  /// The only parameter this screen takes. An earlier cut also accepted an
+  /// `initialServiceId`/`initialMastersTab` pair, seeded from
+  /// `?serviceId=…&tab=masters` query params, that landed the profile on a
+  /// pre-filtered "Майстри" tab for the salon-arm wish-list CTA. That CTA now
+  /// opens the salon booking flow's step-2 master picker directly, so the
+  /// parameters, their route parsing and the one-shot seed were deleted as
+  /// redundant. The service→masters filter this screen still applies when the
+  /// client TAPS a service in the "Послуги" tab is unaffected — see
+  /// [salonServiceFilterProvider].
   final String salonId;
 
   @override
@@ -173,6 +183,7 @@ class _PublicSalonProfileScreenState
     final SalonServiceSelection? serviceFilter = ref.watch(
       salonServiceFilterProvider(widget.salonId),
     );
+
     final double topInset = MediaQuery.of(context).padding.top;
 
     return Scaffold(

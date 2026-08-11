@@ -3238,7 +3238,11 @@
   },
   "wishlistBookCta": "Book",
   "@wishlistBookCta": {
-    "description": "Filled CTA on every wish-list entry (compact card and full-width row) — starts a booking for that exact master + service."
+    "description": "Filled CTA on a MASTER-sourced wish-list entry (compact card and full-width row) — starts a booking for that exact master + service. A SALON-sourced entry uses wishlistChooseMasterCta instead — see WishlistEntryLabels.bookCtaLabel."
+  },
+  "wishlistChooseMasterCta": "Choose a master",
+  "@wishlistChooseMasterCta": {
+    "description": "Filled CTA on a SALON-sourced wish-list entry (compact card and full-width row) — the entry's only navigation, since the row itself has no tap. It does not book anything by itself: it opens the salon booking flow's step-2 master picker with the favourited service as the whole selection, so the client sees only that salon's masters who perform it and picks one, then continues to date/time."
   },
   "wishlistRemoveSemantics": "Remove from wish list",
   "@wishlistRemoveSemantics": {
@@ -3247,6 +3251,10 @@
   "wishlistMasterFallbackName": "Master",
   "@wishlistMasterFallbackName": {
     "description": "Shown in place of the master's name on a wish-list entry when the wire carried neither name part. The mapper leaves that field empty on purpose and lets presentation choose the copy."
+  },
+  "wishlistSalonFallbackName": "Salon",
+  "@wishlistSalonFallbackName": {
+    "description": "Shown in place of the salon's name on a SALON-sourced wish-list entry (Phase F) when the wire carried no salonName. Mirrors wishlistMasterFallbackName's policy for the salon arm."
   },
   "wishlistEmptyMessage": "Tap the heart on a service in a master's profile — it lands here, and your next booking takes one tap.",
   "@wishlistEmptyMessage": {

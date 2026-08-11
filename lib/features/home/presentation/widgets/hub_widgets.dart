@@ -13,6 +13,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/media/beautica_image.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -44,6 +45,8 @@ class HubAvatar extends StatelessWidget {
     required this.initials,
     this.size = 64,
     this.fontSize,
+    this.imageUrl,
+    this.fallbackIcon,
   });
 
   final String initials;
@@ -53,6 +56,21 @@ class HubAvatar extends StatelessWidget {
   /// predate this widget's size-based rule. Leave it null everywhere else: null
   /// is what selects the scale [size] actually calls for.
   final double? fontSize;
+
+  /// An optional network photo. Null (the default, and every call site that
+  /// predates this parameter) renders the gradient disc exactly as before —
+  /// this is an ADDITIVE, opt-in path, not a replacement of the initials disc.
+  /// When set, routes through [RemoteImage]; [isAllowedMediaUrl] failing (a
+  /// null/non-https/non-allowed URL, or a decode error) falls through to the
+  /// SAME gradient disc, drawing [fallbackIcon] if set, else [initials].
+  final String? imageUrl;
+
+  /// Drawn INSIDE the gradient disc instead of [initials] whenever the disc
+  /// falls back — either because [imageUrl] is null, or because it failed to
+  /// resolve. Null (the default) keeps the initials text. A brand name's
+  /// initials read poorly, so a caller with a logo-carrying source (a salon)
+  /// should pass its established glyph here rather than relying on text.
+  final IconData? fallbackIcon;
 
   /// At or above this diameter the disc is a page-level portrait, below it an
   /// in-card mark. The preview's `_portraitThreshold`, verbatim: it separates
@@ -89,21 +107,54 @@ class HubAvatar extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  /// [fallbackIcon]'s size as a fraction of the disc — the same proportion
+  /// [ResultThumbnail]'s 32 dp-of-72 dp placeholder glyph uses.
+  static const double _kIconSizeRatio = 32 / 72;
+
+  static const BoxDecoration _discDecoration = BoxDecoration(
+    shape: BoxShape.circle,
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: _gradientColors,
+      stops: <double>[0.0, 0.55, 1.0],
+    ),
+  );
+
+  /// The gradient disc's content: [fallbackIcon] when the caller supplied
+  /// one, else [initials] — the ORIGINAL, only content this widget ever drew
+  /// before [imageUrl] existed.
+  Widget _discContent() {
+    final IconData? icon = fallbackIcon;
+    if (icon == null) return Text(initials, style: _textStyle);
+    return Icon(icon, size: size * _kIconSizeRatio, color: BrandColors.white);
+  }
+
+  Widget _disc() {
     return Container(
       height: size,
       width: size,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: _gradientColors,
-          stops: <double>[0.0, 0.55, 1.0],
-        ),
-      ),
-      child: Center(child: Text(initials, style: _textStyle)),
+      decoration: _discDecoration,
+      child: Center(child: _discContent()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String? url = imageUrl;
+    // Null is the ORIGINAL, still by-far-the-most-common path — every
+    // call site that predates this parameter, and every MASTER-row wish-list
+    // avatar today. It renders the exact disc this widget always has, with
+    // no RemoteImage wrapper in the tree at all — zero behavioural or golden
+    // change for any caller that does not pass imageUrl.
+    if (url == null) return _disc();
+    return RemoteImage(
+      url: url,
+      width: size,
+      height: size,
+      shape: RemoteImageShape.circle,
+      excludeFromSemantics: true,
+      fallback: _disc(),
     );
   }
 }
@@ -385,6 +436,21 @@ class _CountdownChipState extends State<CountdownChip> {
 const double _kCompactButtonHeight = 38;
 const double _kCompactButtonRadius = 12;
 
+// mobile-security finding (HIGH, PRE-EXISTING): `_kCompactButtonHeight`
+// (38dp) was EACH of these buttons' ENTIRE tap target, not just its painted
+// height — below both the Android 48dp and iOS 44pt tap-target floor
+// (WCAG 2.5.5 / Material / HIG). Hoisted here (rather than living inside
+// `_HubFilledButtonState` alone) so `_HubOutlineButtonState` shares the
+// IDENTICAL floor and pad — the two buttons stack directly on top of each
+// other in the wish-list section, and a second, independently-derived
+// constant could silently drift from this one.
+//
+// The fix grows the INVISIBLE interactive area, not the visible pill — see
+// `_HubFilledButtonState.build`'s doc comment for why `Padding`, and not
+// `ConstrainedBox`/`Align`, is what actually achieves that split.
+const double _kMinTapExtent = 48;
+const double _kTapPad = (_kMinTapExtent - _kCompactButtonHeight) / 2;
+
 // ---------------------------------------------------------------------------
 // HubFilledButton
 // ---------------------------------------------------------------------------
@@ -415,6 +481,88 @@ class _HubFilledButtonState extends State<HubFilledButton> {
 
   static final TextStyle _style = VelvetText.cta135;
 
+  // mobile-security finding (HIGH, PRE-EXISTING): `_kCompactButtonHeight`
+  // (38dp) was this button's ENTIRE tap target, not just its painted
+  // height — below both the Android 48dp and iOS 44pt tap-target floor
+  // (WCAG 2.5.5 / Material / HIG). `_kMinTapExtent`/`_kTapPad` (module-level,
+  // shared with `_HubOutlineButtonState`) use the larger of the two so both
+  // platforms clear it.
+  //
+  // The fix grows the INVISIBLE interactive area, not the visible pill:
+  // VelvetTouch's compact pill is a deliberate density choice (see this
+  // geometry's own doc comment above `_kCompactButtonHeight`), and inflating
+  // the painted button to 48dp across all six call sites would be a design
+  // change nobody asked for, not an accessibility fix.
+  //
+  // `Padding`, not `ConstrainedBox`/`Align`, is what actually achieves that
+  // split, and the other two were tried and rejected:
+  //   * a `ConstrainedBox(minHeight: 48)` wrapped directly around the
+  //     pill's `Container` does NOT just pad around it — `Container(height:
+  //     _kCompactButtonHeight)` is an internal TIGHT constraint, and
+  //     `BoxConstraints.enforce` clamps a tight value that falls BELOW an
+  //     outer floor UP to that floor. A minHeight:48 here reaches inside and
+  //     re-renders the pill itself at 48dp — the exact "grow the visible
+  //     button" outcome this fix avoids.
+  //   * `Align`/`Center` was the next instinct (it's how `IconButton`'s own
+  //     tap-target padding works) but this button's `Container` already
+  //     has `alignment: Alignment.center` internally, and `RenderPositionedBox`
+  //     FILLS to any finite loose max on an unconstrained axis (only an
+  //     infinite max makes it shrink-wrap) — `wishlist_row.dart`'s own
+  //     `IntrinsicWidth` doc comment is fighting this exact behaviour today
+  //     to keep the button from inflating to its ceiling. Adding a second
+  //     `Align` in the chain would just move that fight, not avoid it.
+  //   * `Padding` has neither failure mode: `RenderPadding` deflates the
+  //     constraints it hands its child (never raises a floor) and adds a
+  //     FIXED inset to whatever size comes back, so the pill still lands on
+  //     its own tight 38dp with zero distortion, in every real caller —
+  //     loose Column contexts, `CrossAxisAlignment.stretch` full-width
+  //     retries, and the `IntrinsicWidth`-wrapped `wishlist_row.dart` arm
+  //     alike.
+  //
+  // Height only, deliberately: every real label (`2 × VelvetSpacing.md`
+  // padding plus a Comfortaa 11sp/w700 word) already renders comfortably
+  // over 48dp wide, so widening the invisible margin on the width axis too
+  // would be pure ceremony with no caller it actually protects — see
+  // `hub_filled_button_tap_target_test.dart` for the hit-tested proof on
+  // both axes as they ship today.
+
+  // The locked VelvetTouch CTA fill — camel→mocha, same two colours as
+  // `ARCHITECTURE-mobile.md` § 9's "CTA button (neumorphic gradient)" row.
+  // A flat `BrandColors.accent` fill paired with the cream label
+  // (`VelvetText.cta135`'s own colour) reads as LOW-CONTRAST — accent is a
+  // light camel close in luminance to the cream text, so the button looked
+  // disabled rather than like the primary action it is. The gradient's mocha
+  // end restores the contrast the architecture doc's own accessibility table
+  // assumes ("white on accentDeep — ~6:1, AA").
+  //
+  // Direction is VERTICAL (top→bottom), not the diagonal top-left→bottom-
+  // right a first pass used. `cta135` is Comfortaa 11sp/w700 — ordinary text
+  // under WCAG (nowhere near the 14pt-bold "large text" floor), so its
+  // threshold is 4.5:1, not 3:1. A diagonal's `latte`-end corner sits under
+  // exactly the label's leading edge for a natural-width button (no slack
+  // between text and padding), so the region nearest that corner is the
+  // region most likely to sit under a glyph. A vertical gradient decouples
+  // contrast from the label's HORIZONTAL position entirely — every label,
+  // whatever its width, sees the same vertical slice — so one measurement
+  // covers every caller for good. `stops` biases the midline so no point in
+  // the label's bounding box (vertically centred, `cta135` at this size
+  // painting roughly y=13..25 inside the 38 dp box) sits closer to `latte`
+  // than the gradient's OWN midpoint would: measured worst case under the
+  // label is ~5.64:1 (both current labels, «Записатись» and «Обрати
+  // майстра» — see `hub_filled_button_contrast_test.dart`), vs. the
+  // unbiased vertical's ~5.09:1 and the old diagonal's ~4.6-4.7:1, all of
+  // which already clear 4.5:1 but with far less margin against font-metric
+  // drift (a fallback glyph, a Comfortaa update) than this leaves.
+  static const BoxDecoration _decoration = BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      stops: <double>[0.0, 0.6],
+      colors: <Color>[BrandColors.accentLatte, BrandColors.accentDeep],
+    ),
+    borderRadius: BorderRadius.all(Radius.circular(_kCompactButtonRadius)),
+  );
+
   @override
   Widget build(BuildContext context) {
     final bool loading = widget.loading;
@@ -431,36 +579,54 @@ class _HubFilledButtonState extends State<HubFilledButton> {
                 setState(() => _pressed = false);
                 widget.onTap();
               },
-        child: AnimatedScale(
-          scale: _pressed ? 0.96 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: Container(
-            height: _kCompactButtonHeight,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: BrandColors.accent,
-              borderRadius: BorderRadius.circular(_kCompactButtonRadius),
+        // Opaque so the invisible `_kTapPad` margin `Padding` adds below is
+        // actually hittable — the default `deferToChild` only registers a
+        // hit where a descendant paints, and nothing paints out there.
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: _kTapPad),
+          child: AnimatedScale(
+            scale: _pressed ? 0.96 : 1,
+            duration: const Duration(milliseconds: 110),
+            child: Container(
+              height: _kCompactButtonHeight,
+              // Real breathing room around the label rather than the edge-to-edge
+              // fit the caller's own oversized width used to fake: a caller that
+              // sizes exactly to this button's natural width (any label longer
+              // than «Записатись») now gets padding instead of a near-zero-margin
+              // FittedBox squeeze. `VelvetSpacing.md` — no new magic number.
+              padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.md),
+              alignment: Alignment.center,
+              decoration: _decoration,
+              // Overflow-hardening: scale the label down instead of clipping when
+              // the button is squeezed (narrow widths + large font scale). This
+              // only engages when a caller gives this `Container` a BOUNDED max
+              // width — `Alignment.center` makes it an `Align`, which fills to
+              // its incoming max the instant that max is bounded (see
+              // `wishlist_row.dart`'s `_kActionWidthCeiling` for the call site
+              // that now supplies one, and why it uses `IntrinsicWidth` rather
+              // than handing the bound straight to this `Container` — a bare
+              // bound here would inflate every label, including ones already
+              // under the floor, to the ceiling).
+              child: loading
+                  ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: BrandColors.white,
+                      ),
+                    )
+                  : FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        widget.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _style,
+                      ),
+                    ),
             ),
-            // Overflow-hardening: scale the label down instead of clipping when
-            // the button is squeezed (narrow widths + large font scale).
-            child: loading
-                ? const SizedBox(
-                    height: 16,
-                    width: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: BrandColors.white,
-                    ),
-                  )
-                : FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      widget.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: _style,
-                    ),
-                  ),
           ),
         ),
       ),
@@ -551,23 +717,35 @@ class _HubOutlineButtonState extends State<HubOutlineButton> {
           setState(() => _pressed = false);
           widget.onTap();
         },
-        child: AnimatedScale(
-          scale: _pressed ? 0.96 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: Container(
-            height: _kCompactButtonHeight,
-            alignment: Alignment.center,
-            decoration: _decoration(fg),
-            // Overflow-hardening, identical to [HubFilledButton]: scale the
-            // label down instead of clipping when the button is squeezed
-            // (narrow widths + large font scale).
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                widget.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _labelStyle(fg),
+        // mobile-security finding (HIGH, PRE-EXISTING): same defect as
+        // `HubFilledButton` — `_kCompactButtonHeight` (38dp) was this
+        // button's ENTIRE tap target. Identical fix: the painted pill stays
+        // 38dp; `Padding(vertical: _kTapPad)` below grows only the invisible
+        // interactive area to the shared `_kMinTapExtent` (48dp) floor.
+        // `HitTestBehavior.opaque` is required for the same reason it is on
+        // `HubFilledButton` — the default `deferToChild` never registers a
+        // hit over the bare `Padding`, only where a descendant paints.
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: _kTapPad),
+          child: AnimatedScale(
+            scale: _pressed ? 0.96 : 1,
+            duration: const Duration(milliseconds: 110),
+            child: Container(
+              height: _kCompactButtonHeight,
+              alignment: Alignment.center,
+              decoration: _decoration(fg),
+              // Overflow-hardening, identical to [HubFilledButton]: scale the
+              // label down instead of clipping when the button is squeezed
+              // (narrow widths + large font scale).
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _labelStyle(fg),
+                ),
               ),
             ),
           ),

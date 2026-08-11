@@ -8,10 +8,10 @@ import 'package:beautica_api/api.dart';
 ## Properties
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
+**unpaged** | **bool** |  | [optional] 
 **paged** | **bool** |  | [optional] 
 **pageNumber** | **int** |  | [optional] 
 **pageSize** | **int** |  | [optional] 
-**unpaged** | **bool** |  | [optional] 
 **offset** | **int** |  | [optional] 
 **sort** | [**SortObject**](SortObject.md) |  | [optional] 
 

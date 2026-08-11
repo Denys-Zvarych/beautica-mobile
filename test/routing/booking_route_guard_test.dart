@@ -241,6 +241,23 @@ const _masterSession = AsyncData<AuthSession>(
   AuthSession.authenticated(user: _masterUser, accessToken: 'token'),
 );
 
+/// A SALON_OWNER — the OTHER `roleHomePath` branch (`_ => RouteNames.home`,
+/// i.e. `/`), distinct from INDEPENDENT_MASTER's `/master/profile`. Used by
+/// the `/booking/salon/masters` guard-order group below so that group asserts
+/// against a role whose landing is NOT the one every other non-CLIENT test in
+/// this file already uses — a redirect that collapsed every role to a single
+/// destination could not hide behind a one-role fixture.
+const _salonOwnerUser = User(
+  id: 'so1',
+  email: 'owner@example.com',
+  role: UserRole.salonOwner,
+  firstName: 'Salon',
+  lastName: 'Owner',
+);
+const _salonOwnerSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _salonOwnerUser, accessToken: 'token'),
+);
+
 /// [AuthNotifier] stub that immediately settles to a fixed [AsyncValue] —
 /// mirrors `app_router_no_leaked_timer_test.dart`'s `_FixedAuthNotifier`.
 class _FixedAuthNotifier extends AuthNotifier {
@@ -876,6 +893,79 @@ void main() {
 
           expect(locationOf(router), equals(RouteNames.clientHome));
           expect(find.byType(SalonTimeScreen), findsNothing);
+        },
+      );
+    });
+
+    // =====================================================================
+    // `/booking/salon/masters` — a SALON-role bounce, for the wish-list entry
+    // =====================================================================
+    //
+    // This route became a PRODUCTION entry point in its own right when the
+    // salon-arm Beauty Passport favourite's «Обрати майстра» stopped opening
+    // the salon profile deep-linked to a filtered "Майстри" tab (deleted, see
+    // `salon_profile_no_deep_link_seed_test.dart`) and started pushing here
+    // with a `SalonBookingMasterSelectionArgs` instead. It is now reachable
+    // from two unrelated call sites, so its guard carries more weight than
+    // when step 1 was its only caller.
+    //
+    // Already covered elsewhere in this file, deliberately NOT duplicated:
+    //   * CLIENT + valid args is admitted            ("CLIENT may reach…")
+    //   * INDEPENDENT_MASTER + valid args is bounced ("…bounced off every…")
+    //   * CLIENT + missing / wrong-typed extra → /home ("malformed extra…")
+    //
+    // ── A GUARD THAT WAS WRITTEN, PROVEN VACUOUS, AND REMOVED ────────────
+    // The obvious remaining gap looks like the ORDER of the two checks in
+    // this route's `redirect:` — role gate first, extra gate second. Swap
+    // them and a non-CLIENT arriving with a malformed extra would seemingly
+    // be handed `RouteNames.clientHome`, the CLIENT home shell: a role leak.
+    //
+    // Three tests were written for that (INDEPENDENT_MASTER + missing extra,
+    // INDEPENDENT_MASTER + wrong-typed extra, SALON_OWNER + missing extra)
+    // and all three stayed GREEN when the two `if`s were actually swapped in
+    // `app_router.dart`. The reason is that the leak cannot happen: the
+    // GLOBAL `authRedirect` prefix gate (`auth_redirect.dart`'s
+    // `clientBranchPrefixes` block) re-evaluates the redirect chain and
+    // bounces any non-CLIENT off `RouteNames.clientHome` to
+    // `roleHomePath(role)` anyway. Either ordering therefore resolves to the
+    // SAME location, so no assertion on the resolved location can distinguish
+    // them — those three tests could never fail and were removed rather than
+    // left as green decoration.
+    //
+    // What DOES survive a mutation is the one below: delete `clientOnlyGuard`
+    // from this route and a SALON_OWNER carrying valid args is ADMITTED to
+    // `/booking/salon/masters` (verified: `Expected: '/' Actual:
+    // '/booking/salon/masters'`) — the global gate does not cover `/booking/*`
+    // at all, so this route's own role check is the only thing standing there.
+    group('/booking/salon/masters role gate (salon roles)', () {
+      // SALON_OWNER exercises `roleHomePath`'s OTHER branch (`_ =>
+      // RouteNames.home`). Every other non-CLIENT assertion in this file uses
+      // INDEPENDENT_MASTER, whose landing (`/master/profile`) is a different
+      // path — so a regression that hard-coded ONE non-CLIENT destination
+      // would pass everywhere else and fail only here.
+      testWidgets(
+        'a SALON_OWNER with VALID args is bounced to its role home (/), not '
+        'admitted into the salon booking flow',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _salonOwnerSession);
+
+          router.go(
+            RouteNames.salonBookingMasters,
+            extra: _validSalonMasterArgs(),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals(RouteNames.home),
+            reason:
+                'roleHomePath(salonOwner) is RouteNames.home — a valid extra '
+                'must not buy a non-CLIENT role into the salon booking flow, '
+                'and /booking/* is NOT covered by the global authRedirect '
+                'prefix gate, so this route\'s own clientOnlyGuard is the '
+                'only thing enforcing it',
+          );
+          expect(find.byType(SalonMasterSelectionScreen), findsNothing);
         },
       );
     });
