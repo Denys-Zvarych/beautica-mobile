@@ -43,6 +43,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_entry_args.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
@@ -140,11 +141,11 @@ class _FixedAuthNotifier extends AuthNotifier {
 // ---------------------------------------------------------------------------
 
 /// Captures every `extra` a push to [RouteNames.bookingNew] carried (MASTER
-/// arm), and every full location (path + query) a push to `/salons/:salonId`
-/// carried (SALON arm), both in order.
+/// arm), and every `extra` a push to [RouteNames.salonBookingMasters] carried
+/// (SALON arm), both in order.
 class _BookingNewCapture {
   final List<Object?> pushes = <Object?>[];
-  final List<String> salonPushes = <String>[];
+  final List<Object?> salonPushes = <Object?>[];
 }
 
 class _Harness {
@@ -205,16 +206,20 @@ class _Harness {
             );
           },
         ),
-        // SALON-arm destination (Phase G) — records the FULL location
-        // (path + query), since that is what actually carries the
-        // `serviceId`/`tab` seed; `extra` is deliberately never used for this
-        // arm (see `RouteNames.salonPublicProfile` / `wishlist_rebook.dart`).
+        // SALON-arm destination — the salon booking flow's step-2 master
+        // picker. Records the `extra`, which is where the
+        // [SalonBookingMasterSelectionArgs] payload travels (the flow's own
+        // step 1 hands step 2 the identical shape; see
+        // `wishlist_rebook.dart`'s SALON section). Stubbed for the same
+        // reason `bookingNew` is: this file's concern is "did the right push
+        // happen", not whether step 2 renders — `salon_master_selection_
+        // screen_test.dart` covers that.
         GoRoute(
-          path: '/salons/:salonId',
+          path: RouteNames.salonBookingMasters,
           builder: (context, state) {
-            capture.salonPushes.add(state.uri.toString());
+            capture.salonPushes.add(state.extra);
             return const Scaffold(
-              key: Key('stub-salon-profile-screen'),
+              key: Key('stub-salon-booking-masters-screen'),
               body: SizedBox.shrink(),
             );
           },
@@ -346,14 +351,18 @@ void main() {
   });
 
   // ===========================================================================
-  // Phase G correction — a SALON row's «Обрати майстра» pushes the salon's
-  // OWN profile, filtered to the favourited service, via context.push — NOT
-  // RouteNames.salonBookingServices (Phase F's shipped-then-reversed cut).
+  // A SALON row's «Обрати майстра» re-enters the salon booking flow at its
+  // step-2 master picker, with the favourited service as the whole selection —
+  // NOT the deleted `salonPublicProfile(serviceId:)` deep link (a second,
+  // parallel filtered-masters UI) and NOT `RouteNames.salonBookingServices`
+  // (Phase F's shipped-then-reversed cut, which made the client re-pick the
+  // service they had already favourited).
   // ===========================================================================
-  group('should_pushFilteredSalonProfile_when_salonRowBooked', () {
+  group('should_pushSalonBookingMasters_when_salonRowBooked', () {
     testWidgets(
-      'a SALON-sourced entry pushes RouteNames.salonPublicProfile with the '
-      'favourited serviceDefId as a query param, via context.push',
+      'a SALON-sourced entry pushes RouteNames.salonBookingMasters with a '
+      'SalonBookingMasterSelectionArgs carrying the favourited serviceDefId, '
+      'via context.push',
       (tester) async {
         final _Harness h = await _Harness.boot(
           tester,
@@ -367,13 +376,14 @@ void main() {
 
         // Landed on the stub — a genuine navigation, not a no-op callback.
         expect(
-          find.byKey(const Key('stub-salon-profile-screen')),
+          find.byKey(const Key('stub-salon-booking-masters-screen')),
           findsOneWidget,
         );
         // context.push, never context.go — same structural check as the
         // MASTER-arm test above; see the file header for why a naive
         // location read cannot distinguish the two at this router's top
-        // level.
+        // level. It is also what makes back from step 2 return to the wish
+        // list rather than walk into a step 1 that never rendered.
         expect(
           h.topIsImperativePush,
           isTrue,
@@ -385,11 +395,15 @@ void main() {
         expect(h.capture.salonPushes, hasLength(1));
         expect(
           h.capture.salonPushes.single,
-          RouteNames.salonPublicProfile('s-x', serviceId: 'svc-x'),
+          const SalonBookingMasterSelectionArgs(
+            salonId: 's-x',
+            selectedServiceIds: <String>['svc-x'],
+          ),
           reason:
-              'must carry the favourited serviceDefId as the QUERY param '
-              'RouteNames.salonPublicProfile builds — never '
-              'RouteNames.salonBookingServices (the reversed Phase F cut)',
+              'must carry the salon id + the favourited serviceDefId as the '
+              'step-2 payload — the SAME shape the flow\'s own step 1 hands '
+              'to step 2. A bare push with no/!SalonBookingMasterSelectionArgs '
+              'extra is bounced to clientHome by the route guard.',
         );
         h.container.dispose();
       },
@@ -397,7 +411,7 @@ void main() {
 
     testWidgets(
       'the passport compact card and the full-list row push the IDENTICAL '
-      'location for the same SALON entry — one shared handler',
+      'args for the same SALON entry — one shared handler',
       (tester) async {
         final _Harness h = await _Harness.boot(
           tester,
@@ -408,7 +422,7 @@ void main() {
         await tester.tap(find.byKey(const Key('wishlist_card_book_svc-y')));
         await tester.pumpAndSettle();
         expect(h.capture.salonPushes, hasLength(1));
-        final String fromCard = h.capture.salonPushes.single;
+        final Object? fromCard = h.capture.salonPushes.single;
 
         h.router.pop();
         await tester.pumpAndSettle();
@@ -422,12 +436,18 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(h.capture.salonPushes, hasLength(2));
-        final String fromRow = h.capture.salonPushes.last;
+        final Object? fromRow = h.capture.salonPushes.last;
 
+        // freezed value equality — two independently-constructed payloads
+        // with the same ids compare equal, so this really does prove the two
+        // surfaces agree rather than merely both being non-null.
         expect(fromRow, fromCard);
         expect(
           fromCard,
-          RouteNames.salonPublicProfile('s-y', serviceId: 'svc-y'),
+          const SalonBookingMasterSelectionArgs(
+            salonId: 's-y',
+            selectedServiceIds: <String>['svc-y'],
+          ),
         );
         h.container.dispose();
       },

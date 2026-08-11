@@ -3242,7 +3242,7 @@
   },
   "wishlistChooseMasterCta": "Обрати майстра",
   "@wishlistChooseMasterCta": {
-    "description": "Filled CTA on a SALON-sourced wish-list entry (compact card and full-width row), Phase G. Tapping it does not book anything by itself — it opens that salon's profile with its masters tab filtered to the masters who perform the favourited service, same as tapping the entry itself."
+    "description": "Filled CTA on a SALON-sourced wish-list entry (compact card and full-width row) — the entry's only navigation, since the row itself has no tap. It does not book anything by itself: it opens the salon booking flow's step-2 master picker with the favourited service as the whole selection, so the client sees only that salon's masters who perform it and picks one, then continues to date/time."
   },
   "wishlistRemoveSemantics": "Прибрати з бажаних",
   "@wishlistRemoveSemantics": {

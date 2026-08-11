@@ -196,6 +196,48 @@ void main() {
     expect(find.byKey(const Key('booking-summary-cta')), findsNothing);
   });
 
+  // ── catalogue-consistency regression (mobile-security INFO) ──────────────
+  //
+  // Step 1 can only forward ids it read out of the salon catalogue, so the
+  // selection always resolves there. The wish-list «Обрати майстра» CTA
+  // (`wishlist_rebook.dart`, salon arm) deep-enters this step with a
+  // serviceDefId from the FAVOURITES api instead — an independent read. If
+  // that id is bookable (coverage endpoint returns a master for it) but absent
+  // from `GET /salons/{id}/services`, `selected` resolves to NOTHING while
+  // `covering` is non-empty: «Далі» would be enabled and would push a visit
+  // carrying zero services. The screen must fall into its existing
+  // no-covering-master empty state instead.
+  testWidgets(
+    'a selected id missing from the catalogue shows the empty state and no '
+    'enabled «Далі» (favourites deep-entry)',
+    (tester) async {
+      await _pumpTall(tester);
+      // 'svc-ghost' is NOT in `_stubCatalog` — but IS covered by m2, exactly
+      // the server-side skew the guard exists for.
+      final args = _args(ids: const <String>['svc-ghost']);
+      final coverage = <String, Map<String, String>>{
+        'm2': <String, String>{'svc-ghost': 'assign-m2-ghost'},
+      };
+      await tester.pumpRoutedApp(
+        _routerFor(args),
+        overrides: _overrides(args: args, coverage: coverage),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-master-selection-no-covering-master')),
+        findsOneWidget,
+      );
+      // No master row, and no confirm bar at all — the bar is omitted (not
+      // merely disabled) whenever nothing covers the selection.
+      expect(
+        find.byKey(const Key('salon_booking_master_row_m2')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('booking-summary-cta')), findsNothing);
+    },
+  );
+
   testWidgets(
     'single-service selection lists every master doing that service',
     (tester) async {

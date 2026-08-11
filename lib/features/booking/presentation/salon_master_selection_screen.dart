@@ -200,14 +200,40 @@ class _SalonMasterSelectionScreenState
           if (servicesById[id] case final SalonCatalogService s) s,
       ];
 
+      // CATALOGUE-CONSISTENCY GUARD (mobile-security INFO) — every selected id
+      // must resolve against THIS salon's catalogue, else the whole step is
+      // treated as "no covering master".
+      //
+      // Not redundant, do not delete: unreachable from step 1, where
+      // `SalonServiceSelectionScreen` can only forward ids it just read out of
+      // this same catalogue and the lengths therefore always match. It became
+      // reachable when the wish-list «Обрати майстра» CTA
+      // (`features/wishlist/.../wishlist_rebook.dart`, salon arm) started
+      // deep-entering this step with a `serviceDefId` sourced from the
+      // FAVOURITES api instead — a third read, independent of both reads here.
+      //
+      // `selected` (catalogue) and `covering` (coverage endpoint) are resolved
+      // from separate requests, so a service that is bookable but absent from
+      // `GET /salons/{id}/services` would otherwise list a covering master and
+      // enable «Далі» while `selected` is EMPTY — pushing a visit with zero
+      // services that the server can only reject. Falling into the existing
+      // empty state states the problem before the round trip.
+      final bool everySelectedIdInCatalog =
+          selected.length == widget.args.selectedServiceIds.length;
+
       // The coverage INTERSECTION: masters whose coverage map contains EVERY
       // selected service id — i.e. they perform the whole visit. Roster order
       // is preserved.
-      final List<SalonMasterSummary> covering = <SalonMasterSummary>[
-        for (final SalonMasterSummary m in masters)
-          if (_coversAll(coverage[m.masterId], widget.args.selectedServiceIds))
-            m,
-      ];
+      final List<SalonMasterSummary> covering = everySelectedIdInCatalog
+          ? <SalonMasterSummary>[
+              for (final SalonMasterSummary m in masters)
+                if (_coversAll(
+                  coverage[m.masterId],
+                  widget.args.selectedServiceIds,
+                ))
+                  m,
+            ]
+          : const <SalonMasterSummary>[];
 
       final List<MasterService> shelfServices = <MasterService>[
         for (final SalonCatalogService s in selected) salonServiceForShelf(s),

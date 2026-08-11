@@ -149,19 +149,33 @@ void main() {
     expect(RouteNames.salonPublicProfile('abc'), '/salons/abc');
   });
 
-  test('RouteNames.salonPublicProfile(serviceId:) appends the deep-link query '
-      'params (Phase G) — bare-id call sites stay unaffected', () {
-    expect(
-      RouteNames.salonPublicProfile('abc', serviceId: 'svc-1'),
-      '/salons/abc?serviceId=svc-1&tab=masters',
-    );
-    // Encoding runs on BOTH the path segment (Uri.encodeComponent — a
-    // space becomes %20) and the query value (Uri.queryParameters — a
-    // space becomes + per that constructor's own encoding, not %20). A
-    // favourite's ids are backend UUIDs today, but nothing pins that.
-    expect(
-      RouteNames.salonPublicProfile('a b', serviceId: 'c d'),
-      '/salons/a%20b?serviceId=c+d&tab=masters',
-    );
-  });
+  test(
+    'RouteNames.salonPublicProfile builds a BARE path — no query params',
+    () {
+      // The `serviceId:` overload that appended `?serviceId=…&tab=masters` was
+      // deleted along with the screen-side deep-link seed it fed: the salon-arm
+      // wish-list CTA (its only producer) now opens the salon booking flow's
+      // step-2 master picker instead. The path-segment encoding this route has
+      // always done stays pinned — ids are backend UUIDs today, but nothing
+      // pins that.
+      //
+      // ⚠️ SCOPE — READ BEFORE RELYING ON THIS AS A DELETION GUARD.
+      // The `contains('?')` assertion below does NOT catch the deep link
+      // coming back, and must not be described as if it does. Mutation-
+      // verified: with `RouteNames.salonPublicProfile(String, {String?
+      // serviceId})` restored verbatim from before the deletion, BOTH
+      // assertions here stay GREEN — the no-arg call still returns a bare
+      // path, exactly as it did while the overload existed. What this pins is
+      // only "the DEFAULT call shape emits no query", which was already true
+      // before the change.
+      //
+      // The behavioural guard — that a URL carrying `?serviceId=…&tab=masters`
+      // is INERT, and that entry auto-selects no tab and no service filter —
+      // lives in `salon_profile_no_deep_link_seed_test.dart`, which drives the
+      // real `/salons/:salonId` builder closure and IS shown red under that
+      // same restore.
+      expect(RouteNames.salonPublicProfile('a b'), '/salons/a%20b');
+      expect(RouteNames.salonPublicProfile('abc').contains('?'), isFalse);
+    },
+  );
 }

@@ -622,13 +622,6 @@ GoRouter appRouter(Ref ref) {
         redirect: clientOnlyGuard,
         builder: (context, state) => PublicSalonProfileScreen(
           salonId: state.pathParameters['salonId'] ?? '',
-          // Phase G — optional deep-link seed straight to the "Майстри" tab,
-          // pre-filtered to one service. QUERY params (never `extra`: `extra`
-          // does not survive a deep link or state restoration) — see
-          // `RouteNames.salonPublicProfile` and `wishlist_rebook.dart`'s
-          // salon-arm CTA/tap, the one production call site that sets them.
-          initialServiceId: state.uri.queryParameters['serviceId'],
-          initialMastersTab: state.uri.queryParameters['tab'] == 'masters',
         ),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public

@@ -129,26 +129,17 @@ abstract final class RouteNames {
   /// Phase 13.6 — public salon profile, opened from a salon result card tap.
   /// Same lifecycle note as [masterPublicProfile].
   ///
-  /// Phase G — [serviceId] optionally deep-links straight to the "Майстри"
-  /// tab, pre-filtered to masters who perform that service (the salon-arm
-  /// wish-list favourite's tap/CTA target — `WishlistRebookHost.rebook`).
-  /// Appends `?serviceId=<id>&tab=masters` as QUERY params, never `extra`:
-  /// `extra` does not survive a real deep link or state restoration, and this
-  /// is the SAME route constant, only parameterised — not a second route.
-  /// Omitting [serviceId] reproduces the exact bare path every existing call
-  /// site already relies on (`RouteNames.salonPublicProfile('abc') ==
-  /// '/salons/abc'` stays pinned by `salon_profile_swipe_back_test.dart`).
-  static String salonPublicProfile(String salonId, {String? serviceId}) {
-    final String path = '/salons/${Uri.encodeComponent(salonId)}';
-    if (serviceId == null) return path;
-    final String query = Uri(
-      queryParameters: <String, String>{
-        'serviceId': serviceId,
-        'tab': 'masters',
-      },
-    ).query;
-    return '$path?$query';
-  }
+  /// Bare path only. An earlier cut accepted an optional `serviceId` that
+  /// appended `?serviceId=<id>&tab=masters`, deep-linking the profile's
+  /// "Майстри" tab pre-filtered to one service for the salon-arm wish-list
+  /// CTA. That CTA now re-enters the salon booking flow's step-2 master picker
+  /// ([salonBookingMasters]) instead — a screen that already IS "the salon's
+  /// masters who perform the selected service(s)" — so the parameter, its
+  /// query assembly and the screen-side seed were all deleted as redundant.
+  /// The in-profile service→masters filter reachable by TAPPING a service in
+  /// the "Послуги" tab is a separate, unaffected feature.
+  static String salonPublicProfile(String salonId) =>
+      '/salons/${Uri.encodeComponent(salonId)}';
 
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the

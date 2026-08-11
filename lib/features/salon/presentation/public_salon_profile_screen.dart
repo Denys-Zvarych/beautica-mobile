@@ -71,31 +71,20 @@ import 'widgets/salon_services_accordion.dart';
 
 /// CLIENT-facing read-only profile of the salon identified by [salonId].
 class PublicSalonProfileScreen extends ConsumerStatefulWidget {
-  const PublicSalonProfileScreen({
-    super.key,
-    required this.salonId,
-    this.initialServiceId,
-    this.initialMastersTab = false,
-  });
+  const PublicSalonProfileScreen({super.key, required this.salonId});
 
   /// Backend Salon-row UUID of the profile being viewed.
+  ///
+  /// The only parameter this screen takes. An earlier cut also accepted an
+  /// `initialServiceId`/`initialMastersTab` pair, seeded from
+  /// `?serviceId=…&tab=masters` query params, that landed the profile on a
+  /// pre-filtered "Майстри" tab for the salon-arm wish-list CTA. That CTA now
+  /// opens the salon booking flow's step-2 master picker directly, so the
+  /// parameters, their route parsing and the one-shot seed were deleted as
+  /// redundant. The service→masters filter this screen still applies when the
+  /// client TAPS a service in the "Послуги" tab is unaffected — see
+  /// [salonServiceFilterProvider].
   final String salonId;
-
-  /// Phase G — a catalog service id (`SalonCatalogService.id`, the SAME
-  /// namespace as `WishlistService.serviceDefId`) to pre-select as the
-  /// "Майстри" tab's active filter, straight from a deep link. Resolved
-  /// against [salonServiceCatalogProvider] ONCE — see
-  /// [_PublicSalonProfileScreenState._filterSeeded] — never re-applied once
-  /// seeded, so it can never fight a filter change the client makes
-  /// themselves afterwards. Null on every plain profile visit (a salon result
-  /// card tap, a master-arm rebook, …) — the pre-Phase-G case, unaffected.
-  final String? initialServiceId;
-
-  /// Phase G — jump straight to the "Майстри" tab (index 1) rather than the
-  /// default "Про салон". Set independently of [initialServiceId] so a future
-  /// deep link can land on the masters tab with no filter; in practice the
-  /// one shipped caller (the salon-arm wish-list CTA/tap) always sets both.
-  final bool initialMastersTab;
 
   @override
   ConsumerState<PublicSalonProfileScreen> createState() =>
@@ -123,30 +112,12 @@ class _PublicSalonProfileScreenState
   /// Active section tab (0 = Про салон).
   int _tab = 0;
 
-  /// Phase G — one-shot guard for [widget.initialServiceId]. Starts `true`
-  /// (nothing to seed) whenever there is no deep-link id at all — the
-  /// pre-Phase-G case, which never watches [salonServiceCatalogProvider] as a
-  /// result. Flips to `true` the FIRST time the catalogue settles (data or
-  /// error) once a seed IS pending, so a later catalogue refetch — the
-  /// client's own retry, or `_ServicesTab` opening independently — can never
-  /// re-seed and fight a filter the client has since changed themselves. See
-  /// `build()`'s seeding block and [_applyDeepLinkFilter].
-  bool _filterSeeded = false;
-
   static const double _coverHeight = 232;
   static const double _heroProtrusion = 116;
 
   @override
   void initState() {
     super.initState();
-    // Phase G — one-shot seed of the initial tab. A plain field assignment,
-    // never touched again after this: the LATER filter-name resolution (which
-    // needs the catalogue to load first) is a separate, deferred step — see
-    // the [_filterSeeded] doc and `build()`.
-    _tab = (widget.initialMastersTab || widget.initialServiceId != null)
-        ? 1
-        : 0;
-    _filterSeeded = widget.initialServiceId == null;
     // SEC: this screen renders the salon's address (PII) — guard against
     // screenshots / app-switcher snapshots while it is mounted. Mirrors the
     // INTENTIONAL PRODUCT DECISION on PublicMasterProfileScreen — do not
@@ -200,54 +171,6 @@ class _PublicSalonProfileScreenState
     }
   }
 
-  /// Phase G — resolves [targetServiceId] against the just-loaded [categories]
-  /// and applies (or gives up on) the deep-link filter. The ONLY call site is
-  /// `build()`'s seeding block, always deferred a microtask past the build
-  /// that discovered the catalogue had settled.
-  ///
-  /// Match found → seeds the SAME `(id, name)` shape [_ServicesTab]'s own tap
-  /// handler uses, so the chip and the coverage fan-out behave identically
-  /// whether the filter came from a tap or a deep link.
-  ///
-  /// No match (a stale favourite whose service was withdrawn, or the
-  /// catalogue itself failed to load) → clears the filter — a no-op today,
-  /// since it is still null, but explicit and safe against any future re-entry
-  /// — so the masters tab renders its ordinary UNFILTERED grid rather than a
-  /// chip labelled with a raw id or an empty string. Logged, never surfaced to
-  /// the client: an unresolvable deep link is not a crash or a dead end, it is
-  /// the same profile the client would have reached from a plain salon-card
-  /// tap.
-  void _applyDeepLinkFilter(
-    String targetServiceId,
-    List<SalonServiceCategoryEntry> categories,
-  ) {
-    if (!mounted) return;
-    SalonCatalogService? match;
-    for (final SalonServiceCategoryEntry category in categories) {
-      for (final SalonCatalogService candidate in category.services) {
-        if (candidate.id == targetServiceId) {
-          match = candidate;
-          break;
-        }
-      }
-      if (match != null) break;
-    }
-    final SalonServiceFilter notifier = ref.read(
-      salonServiceFilterProvider(widget.salonId).notifier,
-    );
-    if (match case final SalonCatalogService found) {
-      notifier.select((id: found.id, name: found.name));
-      return;
-    }
-    notifier.clear();
-    log(
-      'Deep-link serviceId "$targetServiceId" not found in salon '
-      '${widget.salonId}\'s catalogue (stale favourite or withdrawn '
-      'service) — showing the unfiltered masters tab',
-      name: 'salon.profile',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final AsyncValue<PublicSalonProfileData> async = ref.watch(
@@ -260,30 +183,6 @@ class _PublicSalonProfileScreenState
     final SalonServiceSelection? serviceFilter = ref.watch(
       salonServiceFilterProvider(widget.salonId),
     );
-
-    // Phase G — one-shot deep-link filter seed. Only watches the catalogue at
-    // all while a seed is still pending (never on a plain profile visit, and
-    // never again once seeded), and disarms itself the FIRST time the
-    // catalogue settles (data OR error) so it can never re-fire and fight a
-    // filter change the client makes themselves. The actual mutation is
-    // deferred a microtask: [salonServiceFilterProvider] is watched by THIS
-    // widget two lines above, so calling its notifier synchronously from
-    // inside this very build would be the classic "modified a provider while
-    // the widget tree was building" trap (mirrors
-    // `search_filters_screen.dart`'s `prefillFromProfileIfNeeded` deferral).
-    if (!_filterSeeded) {
-      final AsyncValue<List<SalonServiceCategoryEntry>> catalogAsync = ref
-          .watch(salonServiceCatalogProvider(widget.salonId));
-      if (catalogAsync.hasValue || catalogAsync.hasError) {
-        _filterSeeded = true;
-        final String targetServiceId = widget.initialServiceId!;
-        final List<SalonServiceCategoryEntry> categories =
-            catalogAsync.value ?? const <SalonServiceCategoryEntry>[];
-        Future<void>.microtask(
-          () => _applyDeepLinkFilter(targetServiceId, categories),
-        );
-      }
-    }
 
     final double topInset = MediaQuery.of(context).padding.top;
 
