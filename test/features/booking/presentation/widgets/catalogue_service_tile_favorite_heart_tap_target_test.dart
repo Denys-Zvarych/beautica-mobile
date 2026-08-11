@@ -650,6 +650,205 @@ void main() {
     );
   });
 
+  // ---------------------------------------------------------------------
+  // THE TILE IS TAPPABLE BY ITS OWN KEY.
+  //
+  // THE BUG (introduced by `21c4e5c4`, the heart-48dp tap-target change, and
+  // merged to `dev` via PR #47): hoisting `AnimatedScale` out of the tile's
+  // `GestureDetector` up to the widget's ROOT made the tile's own render
+  // object a `RenderTransform`. `RenderTransform.hitTest` deliberately returns
+  // `hitTestChildren(...)` WITHOUT adding a `BoxHitTestEntry` for ITSELF, and
+  // `WidgetController._getElementPoint` requires exactly that entry in
+  // `HitTestResult.path` before it will tap. So
+  // `tester.tap(find.byKey(tileKeyForId(row.id)))` — the finder BOTH booking
+  // screens' tests use — could not hit the tile at all. Fixed by wrapping the
+  // return in a bare `SizedBox` (a `RenderConstrainedBox`, which inherits the
+  // default `RenderBox.hitTest` and self-registers once a child is hit); see
+  // that widget's "The `SizedBox` is LOAD-BEARING" comment.
+  //
+  // WHY THIS PIN MUST ARM THE FLAG ITSELF — the detection asymmetry IS the
+  // problem. `WidgetController.hitTestWarningShouldBeFatal` defaults to FALSE.
+  // The E2E tier arms it (`integration_test/support/e2e_boot_policy.dart:125`)
+  // and went hard-red immediately. The widget tier does NOT, so ~30 taps
+  // across `service_selector_sheet_test.dart` (`:355`, `:614`, `:736`) and
+  // `salon_service_selection_screen_test.dart` merely PRINTED a warning and
+  // kept passing — 48 warning lines, zero failures, for the entire time this
+  // was broken. A pin written without the flag would reproduce that exact
+  // false-pass and prove nothing.
+  //
+  // The flag is ALSO armed suite-wide now, in `test/flutter_test_config.dart`
+  // step (5b) — measured first: the whole `test/` suite is 6209/0 with it on
+  // and needs no allow-list. This group keeps its OWN `setUp` anyway, and that
+  // is not redundant: this file is the pin for THIS defect and must bite on its
+  // own terms, not on a distant config file staying armed. If step (5b) is ever
+  // relaxed or narrowed, every other tap in the tier quietly degrades back to a
+  // warning — and this group does not.
+  //
+  // BOTH KEY PREFIXES are pinned even though they resolve to the SAME widget:
+  // `salon_service_selection_screen.dart:576` and
+  // `service_selector_sheet.dart:577` hand different `tileKeyForId` builders to
+  // the shared `CatalogueCategorySection`/`CatalogueServiceTile`. That shared-
+  // widget fact is exactly what a future refactor could break on one side only,
+  // and the prefixes are restated here as literals (not imported — both
+  // builders are private to their screens) on this file's existing
+  // "restate the spec, don't import the implementation" convention.
+  //
+  // BOTH `showFavoriteHeart` VALUES are pinned because they build DIFFERENT
+  // subtrees under the same root — `true` inserts a `Stack`, `false` returns
+  // `tileBody` directly — and only the shared root was at fault. The salon flow
+  // ships `false` today; the master flow ships `true`.
+  //
+  // MUTATION PROOF (run during this change, reverted byte-for-byte after):
+  // deleting the `SizedBox` wrapper from
+  // `service_catalogue_accordion.dart`'s `build` (returning the `AnimatedScale`
+  // directly, i.e. the shipped-broken tree) turns all four cases RED with
+  //   "Finder specifies a widget that would not receive pointer events ...
+  //    A different widget CatalogueServiceTile-[<'booking_service_tile_tap-
+  //    target-row'>] would receive the pointer events"
+  // Restoring the wrapper returns all four to GREEN. The flag is what makes
+  // that a failure rather than a console line.
+  // ---------------------------------------------------------------------
+  group('the tile is tappable by its own key', () {
+    late bool previousFatalFlag;
+
+    setUp(() {
+      previousFatalFlag = WidgetController.hitTestWarningShouldBeFatal;
+      // Restores, for THIS group only, the guard the widget tier never had.
+      // Without it `tester.tap` below prints a warning and silently taps
+      // nothing — the tap "succeeds", `onToggle` never fires, and the
+      // assertion fails with a confusing count instead of naming the cause.
+      // With it, an unhittable root fails AT THE TAP, quoting the render
+      // object that would have received the pointer instead.
+      WidgetController.hitTestWarningShouldBeFatal = true;
+    });
+
+    // Restored rather than left armed: the flag is process-global static
+    // state, and leaking it into whatever file `flutter test` schedules next
+    // under randomized ordering would make an unrelated suite's failure
+    // depend on this file having run first.
+    tearDown(() {
+      WidgetController.hitTestWarningShouldBeFatal = previousFatalFlag;
+    });
+
+    /// Pumps ONE row through the real `CatalogueCategorySection`, which is
+    /// what actually applies `tileKeyForId` to the tile — pumping
+    /// `CatalogueServiceTile` directly and passing a `key:` by hand would
+    /// skip the production wiring these two prefixes come from.
+    Future<void> pumpSection(
+      WidgetTester tester, {
+      required FakeFavoriteRepository repo,
+      required Key Function(String id) tileKeyForId,
+      required VoidCallback onToggle,
+      required bool showFavoriteHeart,
+    }) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: CatalogueCategorySection(
+            category: CatalogueCategoryGroup(
+              key: 'cat',
+              label: 'HAIR',
+              rows: <CatalogueRow>[_row()],
+            ),
+            expanded: true,
+            selectedIdsListenable: ValueNotifier<Set<String>>(<String>{}),
+            onToggleExpand: () {},
+            onToggleService: (_) => onToggle(),
+            headerSemanticsLabel:
+                ({
+                  required String label,
+                  required int count,
+                  required int selectedCount,
+                  required bool expanded,
+                }) => label,
+            tileKeyForId: tileKeyForId,
+            headerVerticalPadding: 12,
+            showFavoriteHeart: showFavoriteHeart,
+          ),
+        ),
+        overrides: overrides(repo),
+        width: _kProbeTileWidth,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    // ('<literal prefix>', 'which screen supplies it')
+    const List<(String, String)> keyPrefixes = <(String, String)>[
+      ('booking_service_tile_', 'service_selector_sheet.dart:577'),
+      (
+        'salon_booking_service_tile_',
+        'salon_service_selection_screen.dart:576',
+      ),
+    ];
+
+    for (final (String prefix, String origin) in keyPrefixes) {
+      for (final bool withHeart in const <bool>[true, false]) {
+        testWidgets('a plain tester.tap on Key("$prefix<id>") selects the row '
+            '(showFavoriteHeart: $withHeart) — $origin', (tester) async {
+          final repo = FakeFavoriteRepository();
+          var toggleCount = 0;
+          await pumpSection(
+            tester,
+            repo: repo,
+            tileKeyForId: (String id) => Key('$prefix$id'),
+            onToggle: () => toggleCount++,
+            showFavoriteHeart: withHeart,
+          );
+
+          // `_row()`'s default id — the same value the section maps
+          // through `tileKeyForId` above.
+          final Finder tile = find.byKey(Key('${prefix}tap-target-row'));
+
+          // Sanity: the key really resolves, so a failure below is about
+          // HITTABILITY and not a typo'd finder.
+          expect(
+            tile,
+            findsOneWidget,
+            reason: 'the section must key its tile with the $origin prefix',
+          );
+
+          // No `warnIfMissed: false` and no `tapAt` fallback — a plain
+          // `tester.tap` by key is precisely what was impossible, and with
+          // the fatal flag armed it now throws rather than warns.
+          await tester.tap(tile);
+          await tester.pumpAndSettle();
+
+          expect(
+            toggleCount,
+            1,
+            reason:
+                'tapping the tile by its own key must reach the row '
+                "selection gesture — with `AnimatedScale` at the widget's "
+                'root the tile never appeared in the hit-test path at all',
+          );
+          expect(
+            repo.addCalls,
+            isEmpty,
+            reason:
+                "the tile's centre is nowhere near the heart's 48x48 box at "
+                'the trailing edge — this tap must not have favourited',
+          );
+        });
+      }
+    }
+
+    // Guards the guard: if a future edit drops the `setUp` above (or Flutter
+    // changes the flag's default), every case in this group silently degrades
+    // back into a warning-only smoke test. This states the precondition as an
+    // assertion so that regression is loud.
+    testWidgets('the fatal-hit-test flag really is armed for this group', (
+      tester,
+    ) async {
+      expect(
+        WidgetController.hitTestWarningShouldBeFatal,
+        isTrue,
+        reason:
+            'without this flag a tap on an unhittable widget prints a console '
+            'warning and taps NOTHING — the exact false-pass mode that let '
+            'this bug through ~30 widget-tier taps',
+      );
+    });
+  });
+
   group('onError is still forwarded through the (now full 48x48) hit box', () {
     testWidgets('a failing toggle surfaces the Failure via onError', (
       tester,

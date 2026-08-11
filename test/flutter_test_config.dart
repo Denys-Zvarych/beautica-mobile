@@ -132,6 +132,44 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // (installOverflowGuard), so an overflow at the stress size fails the test.
   installOverflowRecorder();
 
+  // (5b) OFF-SCREEN / UNHITTABLE TAP GUARD — the widget tier's half of the
+  // policy `integration_test/support/e2e_boot_policy.dart:125` already sets for
+  // the E2E tier.
+  //
+  // WHY THIS EXISTS. `WidgetController.hitTestWarningShouldBeFatal` defaults to
+  // FALSE. With it false, `tester.tap(finder)` on a widget whose render object
+  // never appears in the hit-test path prints a WARNING and taps NOTHING:
+  // `onTap` never runs, and the test either passes anyway (if it only asserted
+  // something already true) or fails much later with an assertion that names a
+  // downstream symptom rather than the tap. The E2E tier armed the flag in
+  // 2026-07-31 and left the widget tier — the tier that runs on EVERY push and
+  // carries the overwhelming majority of the taps — unguarded.
+  //
+  // THE DEFECT THAT FORCED IT. `21c4e5c4` (heart 48dp tap target, merged via
+  // PR #47) hoisted `AnimatedScale` to `CatalogueServiceTile`'s ROOT, making the
+  // tile's render object a `RenderTransform` — whose `hitTest` deliberately
+  // returns `hitTestChildren(...)` WITHOUT adding a `BoxHitTestEntry` for
+  // itself, which is exactly the entry `WidgetController._getElementPoint`
+  // requires. E2E went hard-red at once. The widget tier printed 48 warning
+  // lines across ~30 taps in `service_selector_sheet_test.dart` and
+  // `salon_service_selection_screen_test.dart` and reported ZERO failures, for
+  // the entire time the booking catalogue was untappable by key.
+  //
+  // MEASURED BEFORE ARMING (2026-08-11, mobile-qa M16 — a guard must be green
+  // on the real tree with NO allow-list, or it is mis-scoped): the complete
+  // `flutter test test/` suite runs 6209 passing / 3 skipped with this line in
+  // place and ZERO "would not receive pointer events" hits. There is no
+  // exemption list because nothing needs one. Tests that deliberately tap an
+  // INERT widget (proving the absence of a handler) already pass
+  // `warnIfMissed: false`, which bypasses this check by design — see
+  // `test/helpers/pump_app.dart`'s `TapCalendarDay` doc comment for that
+  // separation.
+  //
+  // Set here rather than inside `installOverflowRecorder()` above: that helper
+  // is shared with the E2E tier's `installOverflowGuard()`, and this is a
+  // tier-level policy, not part of the overflow machinery.
+  WidgetController.hitTestWarningShouldBeFatal = true;
+
   // (6) Phase 17.4 — Configure Alchemist suite-wide.
   //
   // Strategy:

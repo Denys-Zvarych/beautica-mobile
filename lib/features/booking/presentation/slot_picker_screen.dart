@@ -51,6 +51,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../application/slot_picker_notifier.dart';
 import '../application/working_days_notifier.dart';
@@ -82,27 +83,66 @@ class SlotDateScreen extends ConsumerStatefulWidget {
 }
 
 class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
-  late final DateTime _today;
-  late final DateTime _firstMonth;
-  late final DateTime _lastMonth;
-  late DateTime _visibleMonth;
-
   /// Booking horizon — 3 months out. Matches the master schedule's own
   /// period-range picker horizon; no backend signal dictates a different cap.
   static const int _horizonMonths = 3;
 
+  /// "Today", Kyiv-anchored — RE-DERIVED on every read, never captured once.
+  ///
+  /// Kyiv-anchored (backlog :226): slot availability is a Kyiv-day concept on
+  /// the backend (`SlotCalculationService`'s `atStartOfDay(TimeZones.KYIV)`),
+  /// so "today" — which gates the calendar's past-day cells and anchors the
+  /// booking horizon below — must be the Kyiv day, not the device's own. See
+  /// `shared/time/kyiv_day.dart`.
+  ///
+  /// Was captured once in `initState`, which froze the past-day gate for the
+  /// life of the screen: a picker left open across Kyiv midnight kept greying
+  /// out the day that had just BECOME today (and kept the day that had just
+  /// become yesterday tappable). Reading it per build instead means every
+  /// repaint — including the one that follows any tap on this screen — sees
+  /// the live Kyiv day. `clockProvider` is a `keepAlive` seam whose value is
+  /// a `DateTime Function()`, so this is `ref.read` (nothing to react to), and
+  /// the derivation is one tz-database lookup.
+  ///
+  /// Read exactly ONCE per build and threaded down as a parameter (never
+  /// re-read per use, and never per calendar cell — see [_availabilityFrom]).
+  /// That is a CORRECTNESS requirement, not a micro-optimisation: six
+  /// independent reads inside one build are not atomic, so a build straddling
+  /// Kyiv midnight could hand [MonthCalendar] a `today` from day N alongside
+  /// an `isAvailable` predicate built from day N+1 — one frame with the wrong
+  /// cell greyed out.
+  DateTime get _today => kyivToday(ref.read(clockProvider));
+
+  DateTime _firstMonth(DateTime today) => DateTime(today.year, today.month, 1);
+
+  DateTime _lastMonth(DateTime today) =>
+      DateTime(today.year, today.month + _horizonMonths, 1);
+
+  /// Backing store for [_visibleMonth] — the month the user has paged to.
+  late DateTime _pagedMonth;
+
+  /// The month grid to render: [_pagedMonth] clamped UP to the live
+  /// [_firstMonth] floor. Because that floor is re-derived from the current
+  /// Kyiv day, a midnight rollover into a new month moves it forward; without
+  /// the clamp the grid would sit on a month that is now entirely in the past,
+  /// with its «prev» arrow already disabled.
+  ///
+  /// The LOWER bound is the only one clamped, deliberately. [_lastMonth] is
+  /// `today + _horizonMonths`, so the very rollover that pushes the floor up
+  /// pushes the ceiling up by the same month — it only ever moves FORWARD, and
+  /// [_pagedMonth] is never written above it in the first place («next» is
+  /// wired to `null` once the visible month reaches it, see [_calendarBody]).
+  /// So nothing can strand [_pagedMonth] over the ceiling and an upper clamp
+  /// would be dead code.
+  DateTime _visibleMonth(DateTime today) {
+    final DateTime first = _firstMonth(today);
+    return _pagedMonth.isBefore(first) ? first : _pagedMonth;
+  }
+
   @override
   void initState() {
     super.initState();
-    // Kyiv-anchored (backlog :226): slot availability is a Kyiv-day concept
-    // on the backend (`SlotCalculationService`'s `atStartOfDay(TimeZones
-    // .KYIV)`), so "today" — which gates the calendar's past-day cells and
-    // anchors the booking horizon below — must be the Kyiv day, not the
-    // device's own. See `shared/time/kyiv_day.dart`.
-    _today = kyivToday(ref.read(clockProvider));
-    _firstMonth = DateTime(_today.year, _today.month, 1);
-    _lastMonth = DateTime(_today.year, _today.month + _horizonMonths, 1);
-    _visibleMonth = _firstMonth;
+    _pagedMonth = _firstMonth(_today);
   }
 
   /// Loading-flash fix (mirrors `MasterScheduleScreen`'s `_lastDays` visual
@@ -133,16 +173,18 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   /// the whole independent-master flow (slot fetch in [_selectDay] + booking
   /// creation in [SlotTimeScreen._confirm] both key off it), so gating the
   /// calendar on the same id keeps all three consistent.
-  WorkingDaysQuery get _workingDaysQuery => WorkingDaysQuery.month(
-    masterId: widget.args.masterId,
-    anyDayInMonth: _visibleMonth,
-    // MO-3: the WHOLE visit's ordered service selection — the backend's
-    // availability-aware `working` flag is then "the summed duration of ALL
-    // these services fits a free range", the SAME computation `getMasterSlots`
-    // runs below, so the calendar day-gate agrees with the time grid. Order is
-    // preserved (it is the back-to-back running order).
-    serviceIds: _serviceIds,
-  );
+  WorkingDaysQuery _workingDaysQuery(DateTime visibleMonth) =>
+      WorkingDaysQuery.month(
+        masterId: widget.args.masterId,
+        anyDayInMonth: visibleMonth,
+        // MO-3: the WHOLE visit's ordered service selection — the backend's
+        // availability-aware `working` flag is then "the summed duration of
+        // ALL these services fits a free range", the SAME computation
+        // `getMasterSlots` runs below, so the calendar day-gate agrees with
+        // the time grid. Order is preserved (it is the back-to-back running
+        // order).
+        serviceIds: _serviceIds,
+      );
 
   /// The visit's ordered service ids — the single availability request and the
   /// eventual `POST /appointments` both key off this exact ordered list.
@@ -160,12 +202,20 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   /// `working: true`. A day absent from the set (should not normally happen
   /// — the query always spans the full visible month) is treated
   /// conservatively as non-working rather than defaulting to tappable.
-  bool Function(DateTime) _availabilityFrom(List<WorkingDay> days) {
+  ///
+  /// [today] is the build's single Kyiv-day read, passed in rather than
+  /// re-derived — the returned closure runs for all ~35-42 day cells of the
+  /// grid, and it must agree with the `today` handed to [MonthCalendar] in the
+  /// same frame (see [_today]).
+  bool Function(DateTime) _availabilityFrom(
+    List<WorkingDay> days,
+    DateTime today,
+  ) {
     final Map<int, bool> workingByDay = <int, bool>{
       for (final WorkingDay w in days) _dayKey(w.date): w.working,
     };
     return (DateTime day) {
-      if (day.isBefore(_today)) return false;
+      if (day.isBefore(today)) return false;
       return workingByDay[_dayKey(day)] ?? false;
     };
   }
@@ -184,14 +234,16 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   }
 
   void _prevMonth() {
+    final DateTime visible = _visibleMonth(_today);
     setState(() {
-      _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month - 1, 1);
+      _pagedMonth = DateTime(visible.year, visible.month - 1, 1);
     });
   }
 
   void _nextMonth() {
+    final DateTime visible = _visibleMonth(_today);
     setState(() {
-      _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 1);
+      _pagedMonth = DateTime(visible.year, visible.month + 1, 1);
     });
   }
 
@@ -211,11 +263,15 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
     final DateTime? selectedDate = ref.watch(
       slotPickerProvider.select((SlotPickerState s) => s.selectedDate),
     );
+    // The build's ONE Kyiv-day read — everything date-derived below hangs off
+    // this single value so the frame is internally consistent (see [_today]).
+    final DateTime today = _today;
+    final DateTime visibleMonth = _visibleMonth(today);
     // Phase 14.14: the per-day working/non-working signal for the currently
-    // visible month, re-derived (and re-watched) whenever `_visibleMonth`
+    // visible month, re-derived (and re-watched) whenever `visibleMonth`
     // changes — see `_workingDaysQuery`.
     final AsyncValue<List<WorkingDay>> workingDaysAsync = ref.watch(
-      workingDaysProvider(_workingDaysQuery),
+      workingDaysProvider(_workingDaysQuery(visibleMonth)),
     );
 
     return Scaffold(
@@ -278,7 +334,13 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
             const CalendarWeekdayBar(),
             const SizedBox(height: VelvetSpacing.xs),
             Expanded(
-              child: _calendarBody(l10n, selectedDate, workingDaysAsync),
+              child: _calendarBody(
+                l10n,
+                selectedDate,
+                workingDaysAsync,
+                today,
+                visibleMonth,
+              ),
             ),
           ],
         ),
@@ -293,15 +355,22 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   /// this screen's single (unbounded-cache) data source — see
   /// `working_days_notifier.dart`'s file header for why the full keepAlive
   /// machinery isn't mirrored too.
+  ///
+  /// [today] and [visibleMonth] are the caller's already-derived values — see
+  /// [_today] for why they are threaded rather than re-read here.
   Widget _calendarBody(
     AppLocalizations l10n,
     DateTime? selectedDate,
     AsyncValue<List<WorkingDay>> workingDaysAsync,
+    DateTime today,
+    DateTime visibleMonth,
   ) {
     if (workingDaysAsync.hasError) {
       return _WorkingDaysErrorBody(
         failure: workingDaysAsync.error!,
-        onRetry: () => ref.invalidate(workingDaysProvider(_workingDaysQuery)),
+        onRetry: () => ref.invalidate(
+          workingDaysProvider(_workingDaysQuery(visibleMonth)),
+        ),
       );
     }
 
@@ -326,13 +395,17 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
       physics: const BouncingScrollPhysics(),
       child: MonthCalendar(
         key: const Key('booking-month-calendar'),
-        visibleMonth: _visibleMonth,
-        today: _today,
+        visibleMonth: visibleMonth,
+        today: today,
         selected: selectedDate,
-        isAvailable: _availabilityFrom(daysToRender),
+        isAvailable: _availabilityFrom(daysToRender, today),
         onSelectDay: _selectDay,
-        onPrevMonth: _visibleMonth.isAfter(_firstMonth) ? _prevMonth : null,
-        onNextMonth: _visibleMonth.isBefore(_lastMonth) ? _nextMonth : null,
+        onPrevMonth: visibleMonth.isAfter(_firstMonth(today))
+            ? _prevMonth
+            : null,
+        onNextMonth: visibleMonth.isBefore(_lastMonth(today))
+            ? _nextMonth
+            : null,
       ),
     );
 
@@ -653,10 +726,25 @@ class _SlotsSectionState extends State<_SlotsSection> {
   // used to redo the O(n) bucketing loop on every rebuild — including the
   // rebuild triggered by simply tapping a time chip (which only ever changes
   // `selectedSlot`, never `slots`). Cache the three buckets and only
-  // recompute when the underlying `slots` list identity changes.
+  // recompute when the underlying `slots` list identity changes. The memo now
+  // also saves an O(n) tz conversion per rebuild (see [_bucketsFor]).
   List<BookingSlot>? _cachedSlots;
   (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>)? _cachedBuckets;
 
+  /// Splits [slots] into morning / afternoon / evening on the KYIV wall-clock
+  /// hour.
+  ///
+  /// `BookingSlot.startAt` is a canonical UTC instant (built_value deserializes
+  /// the ISO-8601 wire value with `.toUtc()`), so `startAt.hour` is the UTC
+  /// hour — uniformly 2-3h behind the Kyiv hour the chip beside the heading
+  /// actually renders (`formatSlotTime` → `toBeauticaTime`). Bucketing on it
+  /// filed a 13:00-15:00 Kyiv working day entirely under «Ранок». This is not
+  /// a device-zone leak — it was wrong on every device, Kyiv ones included —
+  /// so the fix is the market zone, not the host's: `toBeauticaTime(...).hour`,
+  /// the same derivation the visible label goes through.
+  ///
+  /// The chip `Key`s deliberately stay on the raw UTC ISO string (see
+  /// [_group]) — they are identity, not display.
   (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>) _bucketsFor(
     List<BookingSlot> slots,
   ) {
@@ -669,7 +757,7 @@ class _SlotsSectionState extends State<_SlotsSection> {
     final List<BookingSlot> afternoon = <BookingSlot>[];
     final List<BookingSlot> evening = <BookingSlot>[];
     for (final BookingSlot s in slots) {
-      final int hour = s.startAt.hour;
+      final int hour = toBeauticaTime(s.startAt).hour;
       if (hour < 12) {
         morning.add(s);
       } else if (hour < 17) {

@@ -35,8 +35,12 @@ part 'working_days_query.freezed.dart';
 /// disagree with the time grid (the pre-fix bug: a day shown selectable that
 /// then had zero bookable slots). A single-element list is the single-service
 /// path. When [serviceIds] is null the flag is the older SCHEDULE-SHAPE signal
-/// ("master has intervals that day", duration-blind) — the mode the salon
-/// step-3 per-master picker ([MasterSchedulePage]) still keys on today. Because
+/// ("master has intervals that day", duration-blind) — a mode NO live caller
+/// uses any more: both pickers are availability-aware, the independent-master
+/// one (`SlotDateScreen`) passing the visit's ordered service ids and the salon
+/// step-3 one (`MasterSchedulePage`) passing the ordered per-master assignment
+/// ids. The null mode is retained only as the type's default and for the
+/// equality tests that pin the two modes apart. Because
 /// [serviceIds] is a freezed collection field it participates in `==`/`hashCode`
 /// (deep equality), so the two modes — and different service selections —
 /// resolve to DISTINCT `workingDaysProvider` family members and never share a

@@ -325,8 +325,9 @@ class _CatalogueCategorySectionState extends State<CatalogueCategorySection> {
                       Padding(
                         padding: const EdgeInsets.only(top: VelvetSpacing.md),
                         // Isolates each row's PRESS/SELECT animations from its
-                        // siblings. `CatalogueServiceTile`'s outermost widget
-                        // is an `AnimatedScale` (0.985 on press) wrapping an
+                        // siblings. `CatalogueServiceTile` runs an
+                        // `AnimatedScale` (0.985 on press) — just under its
+                        // root proxy `SizedBox` — wrapping an
                         // `AnimatedContainer` (200ms decoration on select);
                         // without a boundary here their `markNeedsPaint` walks
                         // straight past this `Column` and up to the enclosing
@@ -1065,10 +1066,27 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
     // `_pressed` is true — i.e. while a finger is already down on the tile
     // body, never at rest, which is the only state the heart's 48×48 probes
     // measure.
-    return AnimatedScale(
-      scale: _pressed ? 0.985 : 1,
-      duration: const Duration(milliseconds: 110),
-      child: pressTarget,
+    //
+    // The `SizedBox` is LOAD-BEARING — do not "simplify" it away. It is a
+    // zero-dimension proxy (a `BoxConstraints()` that enforces nothing, so
+    // layout is untouched) whose only job is to give this widget a
+    // hit-testable ROOT render object. `RenderTransform.hitTest` deliberately
+    // returns `hitTestChildren(...)` WITHOUT adding a `BoxHitTestEntry` for
+    // itself, so with `AnimatedScale` at the root the tile's own render box
+    // never appears in `BoxHitTestResult.path`. `WidgetController
+    // ._getElementPoint` requires exactly that entry, which made
+    // `tester.tap(find.byKey(tileKeyForId(row.id)))` unhittable at both the
+    // widget and E2E tiers (E2E arms `hitTestWarningShouldBeFatal`).
+    // `RenderConstrainedBox` inherits the default `RenderBox.hitTest`, which
+    // self-registers once a child is hit. NOT a `RepaintBoundary`: that would
+    // add a compositing layer, and the parent already wraps every row in one
+    // (see `CatalogueCategorySection.build`).
+    return SizedBox(
+      child: AnimatedScale(
+        scale: _pressed ? 0.985 : 1,
+        duration: const Duration(milliseconds: 110),
+        child: pressTarget,
+      ),
     );
   }
 }

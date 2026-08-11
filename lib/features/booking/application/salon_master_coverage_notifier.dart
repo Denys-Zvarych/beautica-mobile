@@ -72,6 +72,7 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../salon/data/salon_repository.dart';
@@ -140,14 +141,21 @@ Future<Map<String, Map<String, String>>> salonMasterServiceCoverage(
             serviceDefId: serviceDefId,
           );
         } on Failure catch (e, st) {
-          log(
-            'getBookableMasters($serviceDefId) failed — treating as no '
-            'bookable masters for this service',
-            name: 'booking.salonMasterCoverage',
-            level: 900,
-            error: e,
-            stackTrace: st,
-          );
+          // Debug-only, matching the rest of the feature (`booking_mapper`,
+          // `appointment_repository`). Today's payload is a `Failure` plus a
+          // catalogue `serviceDefId` — no PII — but the gate is what keeps it
+          // that way once a release-mode crash reporter (Phase 8.1) starts
+          // ingesting `log()` output.
+          if (kDebugMode) {
+            log(
+              'getBookableMasters($serviceDefId) failed — treating as no '
+              'bookable masters for this service',
+              name: 'booking.salonMasterCoverage',
+              level: 900,
+              error: e,
+              stackTrace: st,
+            );
+          }
           return const <BookableMasterAssignment>[];
         }
       }),
