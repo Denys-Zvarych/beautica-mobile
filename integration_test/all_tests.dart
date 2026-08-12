@@ -108,6 +108,8 @@ import 'master_appointment_child_booking_actions_flow_test.dart'
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
+import 'master_bookings_declared_time_cards_flow_test.dart'
+    as master_bookings_declared_time_cards;
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
@@ -317,6 +319,14 @@ void main() {
   group(
     'master_bookings_working_hours_window_flow',
     master_bookings_working_hours_window.main,
+  );
+  // Phase 244 follow-up — the declared-time cards: an EXPLICIT_TIMES day
+  // renders DeclaredTimeCards (a booked slot + a free slot), never the grid,
+  // never the gray state (Step 2.7 Rule 3b). Registered beside the
+  // working-hours-window flow, whose composition it shares.
+  group(
+    'master_bookings_declared_time_cards_flow',
+    master_bookings_declared_time_cards.main,
   );
   // Kyiv-day-authority audit (backlog :226, mobile-qa 2026-08-02) — pins the
   // «Мої записи» day-scoped landing fetch AND the booked-days rail window to

@@ -108,6 +108,7 @@ import '../domain/bookings_day_state.dart';
 import 'widgets/bookings_day_rail.dart';
 import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/bookings_timeline_grid.dart';
+import 'widgets/declared_time_cards.dart';
 import 'widgets/master_bookings_states.dart';
 import 'widgets/my_bookings_states.dart';
 import 'widgets/schedule_timeline_window.dart';
@@ -872,7 +873,12 @@ class _Loaded extends StatelessWidget {
         final ScheduleTimelineWindow? window = resolved == null
             ? null
             : scheduleWindowFor(resolved);
-        if (window == null) {
+        // `resolved == null` is checked ALONGSIDE `window == null` purely for
+        // flow-typing (repo style forbids `!`): by construction `window` is
+        // null whenever `resolved` is (see the ternary above), so this OR
+        // never changes which real-world days land here — it only lets the
+        // analyzer promote [resolved] to non-null below, alongside [window].
+        if (window == null || resolved == null) {
           // No `!` (repo style) — the constructor assert on
           // [BookingsDiscoveryView] guarantees [onAddWorkingHours] is set
           // whenever [useScheduleWindow] is `true`, which is the only way
@@ -889,6 +895,30 @@ class _Loaded extends StatelessWidget {
             onAddHours: () => addWorkingHours(day),
           );
         }
+
+        // ═══════════════════════════════════════════════════════════════
+        // EXPLICIT_TIMES days — a UNION list of declared-time cards, never
+        // a filtered grid. See `declared_time_cards.dart`'s header for the
+        // full correctness contract. Gated on [EffectiveDay.isExplicitTimes]
+        // alone — every INTERVAL day falls through to the unchanged
+        // `bookingsInsideScheduleWindow` + `BookingsTimelineGrid` path below.
+        //
+        // `state.items` is handed through UNFILTERED (never
+        // `bookingsInsideScheduleWindow` — that predicate is a GRID concept
+        // and would silently drop a booking whose start does not match any
+        // declared time), so both the header count ([_body]'s `count`) and
+        // the rendered card set come from the exact same list and can never
+        // disagree — the same invariant `visibleBookingsFor` protects for
+        // INTERVAL days, held here by construction instead.
+        if (resolved.isExplicitTimes) {
+          return _body(
+            context,
+            window: window,
+            visibleItems: state.items,
+            declaredTimes: resolved.times,
+          );
+        }
+
         // mobile-security HIGH fix (this session): the ONE filtering
         // computation — see `bookingsInsideScheduleWindow`'s doc. Its result
         // feeds BOTH the header count and the grid's card set below
@@ -933,17 +963,27 @@ class _Loaded extends StatelessWidget {
   ///
   /// [visibleItems] — mobile-security HIGH fix (this session): the master's
   /// own bookings, already filtered to [window] by
-  /// [bookingsInsideScheduleWindow] (see [build]'s `data:` branch). `null`
-  /// for every call site above where no window has resolved (legacy path,
-  /// loading, error) — in which case this uses `state.items`/
-  /// `state.totalElements` exactly as before this feature, so the
-  /// `useScheduleWindow: false` behaviour is provably untouched. Non-null
-  /// drives BOTH the rendered count and [BookingsTimelineGrid]'s
-  /// `bookings` from the SAME list, so they cannot disagree.
+  /// [bookingsInsideScheduleWindow] (see [build]'s `data:` branch) — EXCEPT
+  /// on an EXPLICIT_TIMES day (see [declaredTimes]), where it is [state.
+  /// items] handed through UNFILTERED, since `DeclaredTimeCards` unions
+  /// rather than filters. `null` for every call site above where no window
+  /// has resolved (legacy path, loading, error) — in which case this uses
+  /// `state.items`/`state.totalElements` exactly as before this feature, so
+  /// the `useScheduleWindow: false` behaviour is provably untouched.
+  /// Non-null drives BOTH the rendered count and the timeline body's own
+  /// bookings from the SAME list, so they cannot disagree.
+  ///
+  /// [declaredTimes] — non-null ONLY when [build]'s `data:` branch resolved
+  /// an EXPLICIT_TIMES [EffectiveDay] ([EffectiveDay.times]). When set, this
+  /// renders `DeclaredTimeCards` instead of `BookingsTimelineGrid` — see
+  /// `declared_time_cards.dart`'s header for the full contract. `null` for
+  /// every INTERVAL-day call site, which keeps rendering the grid exactly as
+  /// before this feature.
   Widget _body(
     BuildContext context, {
     required ScheduleTimelineWindow? window,
     List<Booking>? visibleItems,
+    List<TimeOfDay>? declaredTimes,
   }) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final List<Booking> items = visibleItems ?? state.items;
@@ -1029,13 +1069,20 @@ class _Loaded extends StatelessWidget {
               VelvetSpacing.lg,
               VelvetSpacing.xxl,
             ),
-            child: BookingsTimelineGrid(
-              bookings: items,
-              day: day,
-              onBookingTap: onBookingTap,
-              scheduleFirstMinute: window?.firstMinute,
-              scheduleWindowEndMinute: window?.windowEndMinute,
-            ),
+            child: declaredTimes != null
+                ? DeclaredTimeCards(
+                    declaredTimes: declaredTimes,
+                    bookings: items,
+                    day: day,
+                    onTapBooking: onBookingTap,
+                  )
+                : BookingsTimelineGrid(
+                    bookings: items,
+                    day: day,
+                    onBookingTap: onBookingTap,
+                    scheduleFirstMinute: window?.firstMinute,
+                    scheduleWindowEndMinute: window?.windowEndMinute,
+                  ),
           ),
         ),
       ],

@@ -5073,6 +5073,10 @@
       "service": { "type": "String", "example": "Manicure with gel polish" }
     }
   },
+  "masterBookingsDeclaredTimeFree": "Free",
+  "@masterBookingsDeclaredTimeFree": {
+    "description": "Line 2 of a free declared-time card on an EXPLICIT_TIMES day in the master's «Мої записи» timeline (Phase 244 follow-up) — this declared time has no booking on it."
+  },
   "masterBookingsEmptyTitle": "No bookings yet",
   "@masterBookingsEmptyTitle": {
     "description": "True-empty state title on the master's booking list — the master has no bookings at all and no filter is active."
