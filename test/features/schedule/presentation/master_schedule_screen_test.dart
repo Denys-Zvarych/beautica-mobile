@@ -53,6 +53,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 import '../../../helpers/clock_instant.dart';
+import '../../../helpers/pump_app.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Date anchoring helpers — every fake is built relative to the device "today"
@@ -4130,6 +4131,84 @@ void main() {
         );
 
         await _drainKeepAliveTimers(tester);
+      },
+    );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Phase 244 — MasterScheduleScreen.initialDate: the master booking
+  // timeline's "no working hours" CTA routes here with the day it was
+  // showing pre-selected, instead of opening on today.
+  // ───────────────────────────────────────────────────────────────────────
+  group('MasterScheduleScreen — initialDate pre-selection (Phase 244)', () {
+    testWidgets(
+      'initialDate pre-selects that day\'s week-strip cell instead of today',
+      (tester) async {
+        final DateTime target = _dateOnly(
+          _weekStart.add(const Duration(days: 2)),
+        );
+        expect(
+          target,
+          isNot(_today),
+          reason:
+              'fixture guard: the target must differ from "today" or '
+              'the pre-selection cannot be distinguished from the default',
+        );
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+
+        await tester.pumpApp(
+          MasterScheduleScreen(
+            initialDate: target,
+            clock: () => asClockInstant(_today),
+          ),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+            _fakeWorkingHours(),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          _selectedStripDayNumber(tester),
+          target.day,
+          reason: 'initialDate must pre-select that day, not today',
+        );
+      },
+    );
+
+    testWidgets(
+      'initialDate: null (every pre-existing call site) opens on today, unchanged',
+      (tester) async {
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+
+        await tester.pumpApp(
+          MasterScheduleScreen(clock: () => asClockInstant(_today)),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+            _fakeWorkingHours(),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(_selectedStripDayNumber(tester), _today.day);
       },
     );
   });

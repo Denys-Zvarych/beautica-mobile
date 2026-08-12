@@ -97,6 +97,9 @@ import '../application/booked_days_notifier.dart';
 import '../application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 
 import '../domain/booking.dart';
 import '../domain/booking_status.dart';
@@ -107,6 +110,7 @@ import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/bookings_timeline_grid.dart';
 import 'widgets/master_bookings_states.dart';
 import 'widgets/my_bookings_states.dart';
+import 'widgets/schedule_timeline_window.dart';
 
 /// The shared «Записи» discovery composition: header, count toolbar, day
 /// rail, timeline body, and the four async states. Parameterised over scope
@@ -117,9 +121,16 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     required this.title,
     this.onBack,
     this.showMasterFilter = false,
+    this.useScheduleWindow = false,
+    this.onAddWorkingHours,
     required this.onBookingTap,
     super.key,
-  });
+  }) : assert(
+         !useScheduleWindow || onAddWorkingHours != null,
+         'onAddWorkingHours is required whenever useScheduleWindow is true '
+         '— the "no working hours" empty state always needs somewhere to '
+         'route its CTA.',
+       );
 
   /// The scope AND the seed filters — see the file header for exactly which
   /// half of this is actually used as a seed (statuses/serviceIds) versus
@@ -137,6 +148,33 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// file header; do not build `_MasterFilterSheet` behind this flag in this
   /// phase.
   final bool showMasterFilter;
+
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// WORKING-HOURS WINDOW (the master's own booking timeline only)
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// Whether the timeline's vertical bounds come from the master's WORKING
+  /// HOURS for the selected day (via `effectiveScheduleProvider`) instead of
+  /// from the day's bookings, and whether a day with NO working hours
+  /// replaces the timeline with [MasterBookingsNoWorkingHoursState].
+  ///
+  /// `false` (the default, and every OTHER call site — the reuse-seam test
+  /// included) keeps this view's ORIGINAL behaviour byte-for-byte: the
+  /// booking-derived window `BookingsTimelineGrid` has always used, and no
+  /// dependency on `effectiveScheduleProvider` at all (the provider is never
+  /// even watched). Set `true` ONLY by `MasterBookingsScreen` — a single
+  /// independent master's own list is the one scope where "which hours does
+  /// THIS person work" is unambiguous; a future salon-wide consumer (the
+  /// `showMasterFilter` reuse seam) would need its own per-teammate answer to
+  /// that question before ever setting this `true`, so it stays `false` there
+  /// until that is built. See `_Loaded` for the branching this drives.
+  final bool useScheduleWindow;
+
+  /// Required whenever [useScheduleWindow] is `true` (see the constructor
+  /// assert) — the "no working hours" empty state's CTA fires this with the
+  /// selected day so the HOST can route to the schedule editor with that date
+  /// pre-selected. Navigation stays the host's concern, same as
+  /// [onBookingTap]/[onBack] — no `context.go`/`context.push` in this file.
+  final ValueChanged<DateTime>? onAddWorkingHours;
 
   /// Fires with the tapped booking. Navigation is the HOST's concern — no
   /// `Navigator`/`context.push` anywhere in this widget.
@@ -195,6 +233,61 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
   // throws on a post-dispose `ref` read).
   late final ScreenProtectionManager _screenProtection;
+
+  /// Memoises [bookingsInsideScheduleWindow]'s result across rebuilds where
+  /// the inputs haven't actually changed — mobile-perf MEDIUM fix (this
+  /// session). `_Loaded` is a `StatelessWidget` (deliberately, see its class
+  /// doc) and calls this via [_visibleBookingsFor] instead of the free
+  /// function directly, so a rebuild triggered by `effectiveScheduleProvider`
+  /// re-fetching with an UNCHANGED resolved window (see
+  /// `effective_schedule_notifier.dart:78`) reuses the SAME list instance
+  /// instead of reallocating one — which is what lets
+  /// [BookingsTimelineGrid]'s `identical(widget.bookings,
+  /// oldWidget.bookings)` gate (`didUpdateWidget`) short-circuit again.
+  ///
+  /// Single-slot, not a per-day map: a day switch is a genuine cache miss
+  /// anyway ([BookingsDayState.items] changes identity as soon as
+  /// `bookingsDayProvider` re-fetches for the new day), so there is nothing
+  /// to gain from keeping more than the last result.
+  List<Booking>? _cachedVisibleSource;
+  DateTime? _cachedVisibleDay;
+  int? _cachedVisibleFirstMinute;
+  int? _cachedVisibleWindowEndMinute;
+  bool? _cachedVisibleIsExplicitTimes;
+  List<Booking> _cachedVisibleResult = const <Booking>[];
+
+  /// See [_cachedVisibleSource]'s doc. Compares [items] by IDENTITY (a list
+  /// [BookingsDayState] only ever hands out fresh on a genuine re-fetch) and
+  /// [window] by its three VALUE fields — [ScheduleTimelineWindow] has no
+  /// `==` override and a fresh instance is constructed on every schedule
+  /// resolve regardless of whether the working hours actually changed (see
+  /// `_Loaded.build`'s `data:` branch), so comparing by reference would
+  /// never hit.
+  List<Booking> _visibleBookingsFor(
+    List<Booking> items,
+    DateTime day,
+    ScheduleTimelineWindow window,
+  ) {
+    if (identical(_cachedVisibleSource, items) &&
+        _cachedVisibleDay == day &&
+        _cachedVisibleFirstMinute == window.firstMinute &&
+        _cachedVisibleWindowEndMinute == window.windowEndMinute &&
+        _cachedVisibleIsExplicitTimes == window.isExplicitTimes) {
+      return _cachedVisibleResult;
+    }
+    final List<Booking> visible = bookingsInsideScheduleWindow(
+      items,
+      day,
+      window,
+    );
+    _cachedVisibleSource = items;
+    _cachedVisibleDay = day;
+    _cachedVisibleFirstMinute = window.firstMinute;
+    _cachedVisibleWindowEndMinute = window.windowEndMinute;
+    _cachedVisibleIsExplicitTimes = window.isExplicitTimes;
+    _cachedVisibleResult = visible;
+    return visible;
+  }
 
   @override
   void initState() {
@@ -586,6 +679,26 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                   final AsyncValue<BookingsDayState> async = ref.watch(
                     bookingsDayProvider(_liveQuery),
                   );
+
+                  // mobile-perf MEDIUM fix (this session): watched HERE,
+                  // ALONGSIDE `bookingsDayProvider` rather than from inside
+                  // `_Loaded` (which only ever mounts once `async` resolves
+                  // to `data:`) — so the two fetches fire in PARALLEL on
+                  // every day change instead of the schedule round trip
+                  // waiting on the bookings one to finish first. `null` when
+                  // `useScheduleWindow` is `false`: the provider is still
+                  // NEVER watched for any other caller — the doc'd invariant
+                  // on `BookingsDiscoveryView.useScheduleWindow` is
+                  // unchanged, just enforced one level up.
+                  final AsyncValue<List<EffectiveDay>>? scheduleAsync =
+                      widget.useScheduleWindow
+                      ? ref.watch(
+                          effectiveScheduleProvider(
+                            ScheduleRange(from: _day, to: _day),
+                          ),
+                        )
+                      : null;
+
                   return async.when(
                     // Bare, unscrolled `Column`s inside a scroll view — the
                     // shipped client screen hosts its own loading/error states
@@ -623,8 +736,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                       state: state,
                       hasFilters: _liveQuery.hasFilters,
                       day: _day,
+                      useScheduleWindow: widget.useScheduleWindow,
+                      scheduleAsync: scheduleAsync,
+                      visibleBookingsFor: _visibleBookingsFor,
                       onClearFilters: _clearAllFilters,
                       onBookingTap: widget.onBookingTap,
+                      onAddWorkingHours: widget.onAddWorkingHours,
                     ),
                   );
                 },
@@ -658,33 +775,193 @@ class _ServiceCatalogueWarmer extends ConsumerWidget {
 }
 
 /// The loaded body — the count line, the truncation notice (if any), then the
-/// timeline or one of the two empties.
+/// timeline or one of three empties.
+///
+/// [StatelessWidget] again (mobile-perf MEDIUM fix, this session): this used
+/// to be a [ConsumerWidget] purely to `ref.watch(effectiveScheduleProvider
+/// (...))` itself — which meant that watch could only ever start once the
+/// OUTER `Consumer`'s `bookingsDayProvider` had already resolved to `data:`
+/// (this widget is constructed nowhere else), serialising two independent
+/// network round trips that have nothing to do with each other. The outer
+/// `Consumer` now watches both providers side by side and hands the schedule
+/// fetch's [AsyncValue] in as [scheduleAsync] instead — see that `Consumer`'s
+/// builder. When [useScheduleWindow] is `false`, [scheduleAsync] is `null`
+/// and the provider was never watched at all, exactly as before.
 class _Loaded extends StatelessWidget {
   const _Loaded({
     required this.state,
     required this.hasFilters,
     required this.day,
+    required this.useScheduleWindow,
+    required this.scheduleAsync,
+    required this.visibleBookingsFor,
     required this.onClearFilters,
     required this.onBookingTap,
-  });
+    required this.onAddWorkingHours,
+  }) : assert(
+         !useScheduleWindow || scheduleAsync != null,
+         'scheduleAsync must be set whenever useScheduleWindow is true — '
+         'the outer Consumer always watches effectiveScheduleProvider in '
+         'that case.',
+       );
 
   final BookingsDayState state;
 
   /// `_liveQuery.hasFilters` — whether a status/service filter is active.
   final bool hasFilters;
   final DateTime day;
+
+  /// `widget.useScheduleWindow` — see that field's doc on
+  /// [BookingsDiscoveryView].
+  final bool useScheduleWindow;
+
+  /// The master's working-hours fetch for [day] — watched by the OUTER
+  /// `Consumer`, in PARALLEL with `bookingsDayProvider`, so the two round
+  /// trips race instead of serialising (see the class doc). `null` iff
+  /// [useScheduleWindow] is `false` (constructor assert); non-null and
+  /// dispatched on via `.when()` otherwise, exactly as this widget used to
+  /// dispatch on its own `ref.watch` result.
+  final AsyncValue<List<EffectiveDay>>? scheduleAsync;
+
+  /// `_BookingsDiscoveryViewState._visibleBookingsFor` — mobile-perf MEDIUM
+  /// fix (this session). `_Loaded` is a [StatelessWidget] and has nowhere of
+  /// its own to remember the last filtered list across a rebuild, so the
+  /// memo lives in the `State` above and is handed in as a callback instead
+  /// — keeps this widget itself unchanged (still a pure function of its
+  /// constructor args), it just no longer calls
+  /// [bookingsInsideScheduleWindow] directly. See that method's doc for why
+  /// the cache lives there rather than here.
+  final List<Booking> Function(
+    List<Booking> items,
+    DateTime day,
+    ScheduleTimelineWindow window,
+  )
+  visibleBookingsFor;
+
   final VoidCallback onClearFilters;
   final ValueChanged<Booking> onBookingTap;
 
+  /// `widget.onAddWorkingHours` — non-null whenever [useScheduleWindow] is
+  /// `true` (the constructor assert on [BookingsDiscoveryView] guarantees
+  /// it), unused otherwise.
+  final ValueChanged<DateTime>? onAddWorkingHours;
+
   @override
   Widget build(BuildContext context) {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    final List<Booking> items = state.items;
+    if (!useScheduleWindow) {
+      return _body(context, window: null);
+    }
 
-    // `state.isEmpty` (the day has nothing at all) necessarily makes `items`
-    // empty too, and a status/service filter that matches nothing on this
-    // day also lands here. Which COPY renders is entirely `hasFilters`' job
-    // — see that field's doc.
+    // No `!` (repo style) — the constructor assert above guarantees
+    // non-null whenever `useScheduleWindow` is true, which is the only way
+    // this line runs; the `??` is a documented, release-mode safety net for
+    // that invariant, not an expected path.
+    final AsyncValue<List<EffectiveDay>> schedule =
+        scheduleAsync ?? const AsyncValue<List<EffectiveDay>>.loading();
+
+    return schedule.when(
+      // Never flash the gray state while the schedule is still resolving —
+      // render exactly as `useScheduleWindow: false` would, using the
+      // legacy booking-derived window, until a genuine verdict lands.
+      loading: () => _body(context, window: null),
+      // Same fallback on error — an unreachable schedule endpoint must not
+      // read as "no working hours" to the master.
+      error: (Object _, StackTrace _) => _body(context, window: null),
+      data: (List<EffectiveDay> days) {
+        final EffectiveDay? resolved = _effectiveDayFor(days, day);
+        final ScheduleTimelineWindow? window = resolved == null
+            ? null
+            : scheduleWindowFor(resolved);
+        if (window == null) {
+          // No `!` (repo style) — the constructor assert on
+          // [BookingsDiscoveryView] guarantees [onAddWorkingHours] is set
+          // whenever [useScheduleWindow] is `true`, which is the only way
+          // this branch is ever reached; the `??` fallback is a documented,
+          // release-mode safety net for that invariant, not an expected path.
+          final ValueChanged<DateTime> addWorkingHours =
+              onAddWorkingHours ??
+              (DateTime _) => throw StateError(
+                'onAddWorkingHours must be set when useScheduleWindow is '
+                'true — see BookingsDiscoveryView\'s constructor assert.',
+              );
+          return MasterBookingsNoWorkingHoursState(
+            dayOff: resolved?.source == EffectiveSource.overrideDayOff,
+            onAddHours: () => addWorkingHours(day),
+          );
+        }
+        // mobile-security HIGH fix (this session): the ONE filtering
+        // computation — see `bookingsInsideScheduleWindow`'s doc. Its result
+        // feeds BOTH the header count and the grid's card set below
+        // ([_body]), so the two can never read different numbers.
+        //
+        // `visibleBookingsFor`, NOT `bookingsInsideScheduleWindow` directly
+        // (mobile-perf MEDIUM fix, this session) — see [visibleBookingsFor]'s
+        // doc: this keeps the result's identity stable across a rebuild
+        // where `state.items` and the resolved window haven't changed.
+        final List<Booking> visible = visibleBookingsFor(
+          state.items,
+          day,
+          window,
+        );
+        return _body(context, window: window, visibleItems: visible);
+      },
+    );
+  }
+
+  /// The resolved [EffectiveDay] matching [day] out of [days] (a single-day
+  /// range normally returns exactly one entry, but this scans defensively
+  /// rather than assuming index 0). `null` when the range genuinely does not
+  /// cover [day] — treated exactly like an unresolved/no-hours day by [build]
+  /// (falls through to the "no working hours" state) rather than crashing.
+  static EffectiveDay? _effectiveDayFor(List<EffectiveDay> days, DateTime day) {
+    for (final EffectiveDay d in days) {
+      if (d.date.year == day.year &&
+          d.date.month == day.month &&
+          d.date.day == day.day) {
+        return d;
+      }
+    }
+    return null;
+  }
+
+  /// The count line, the truncation notice, then the timeline or the
+  /// filter-aware empty pair. [window] is `null` for every call site that
+  /// predates this feature (and for `useScheduleWindow: true`'s
+  /// loading/error/fallback branches); non-null only once a real
+  /// working-hours window has resolved, in which case it is threaded through
+  /// to [BookingsTimelineGrid] to bound the grid.
+  ///
+  /// [visibleItems] — mobile-security HIGH fix (this session): the master's
+  /// own bookings, already filtered to [window] by
+  /// [bookingsInsideScheduleWindow] (see [build]'s `data:` branch). `null`
+  /// for every call site above where no window has resolved (legacy path,
+  /// loading, error) — in which case this uses `state.items`/
+  /// `state.totalElements` exactly as before this feature, so the
+  /// `useScheduleWindow: false` behaviour is provably untouched. Non-null
+  /// drives BOTH the rendered count and [BookingsTimelineGrid]'s
+  /// `bookings` from the SAME list, so they cannot disagree.
+  Widget _body(
+    BuildContext context, {
+    required ScheduleTimelineWindow? window,
+    List<Booking>? visibleItems,
+  }) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final List<Booking> items = visibleItems ?? state.items;
+    // `totalElements` is the SERVER's whole-day count (see
+    // `bookings_day_state.dart`'s header) — kept ONLY as the legacy/loading/
+    // error fallback. Once a window has resolved, `visibleItems!.length` is
+    // what actually renders below, so that is what the header must say.
+    final int count = visibleItems?.length ?? state.totalElements;
+
+    // `state.isEmpty` (the day has nothing at all) necessarily makes
+    // `state.items` empty too, and a status/service filter that matches
+    // nothing on this day also lands here — as does a day whose bookings
+    // exist but ALL fall outside the resolved working-hours window. Which
+    // COPY renders is entirely `hasFilters`' job — see that field's doc.
+    // Reachable regardless of [window]: a working day with genuinely zero
+    // (visible) bookings is "no bookings", not "no working hours" (that
+    // verdict is [build]'s job, decided BEFORE this method is ever called —
+    // see the class doc).
     if (items.isEmpty) {
       // The two empties are genuinely different situations — see
       // `master_bookings_states.dart`'s header. `hasFilters` is the whole
@@ -716,10 +993,7 @@ class _Loaded extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  // `totalElements` is the SERVER's whole-day count — see
-                  // `bookings_day_state.dart`'s header; it equals
-                  // `items.length` for a fully-materialised day.
-                  l10n.masterBookingsCount(state.totalElements),
+                  l10n.masterBookingsCount(count),
                   key: const Key('master-bookings-count'),
                   style: VelvetText.label(),
                   maxLines: 1,
@@ -730,7 +1004,10 @@ class _Loaded extends StatelessWidget {
           ),
         ),
         // A genuinely reachable case, not a defensive one — see
-        // `MasterBookingsTruncatedNotice`'s doc.
+        // `MasterBookingsTruncatedNotice`'s doc. Gated on `state.isTruncated`
+        // alone (the server's own ">100 bookings this day" signal), same as
+        // always — [visibleItems] narrows WHICH of those bookings render, it
+        // says nothing about whether the day overflowed the server's page.
         if (state.isTruncated) const MasterBookingsTruncatedNotice(),
         Expanded(
           child: Padding(
@@ -744,6 +1021,8 @@ class _Loaded extends StatelessWidget {
               bookings: items,
               day: day,
               onBookingTap: onBookingTap,
+              scheduleFirstMinute: window?.firstMinute,
+              scheduleWindowEndMinute: window?.windowEndMinute,
             ),
           ),
         ),

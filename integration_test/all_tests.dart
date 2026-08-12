@@ -108,6 +108,8 @@ import 'master_appointment_child_booking_actions_flow_test.dart'
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
+import 'master_bookings_working_hours_window_flow_test.dart'
+    as master_bookings_working_hours_window;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
@@ -308,6 +310,14 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  // Phase 244 — the master booking timeline's working-hours window: a day
+  // with no published hours shows the gray state (CTA → /schedule?date=,
+  // pre-selected); a day with hours + a booking renders the bounded timeline
+  // (Step 2.7 Rule 3b).
+  group(
+    'master_bookings_working_hours_window_flow',
+    master_bookings_working_hours_window.main,
+  );
   // Kyiv-day-authority audit (backlog :226, mobile-qa 2026-08-02) — pins the
   // «Мої записи» day-scoped landing fetch AND the booked-days rail window to
   // the KYIV calendar day, never the UTC/device one, against a real

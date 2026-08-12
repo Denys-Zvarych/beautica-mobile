@@ -333,6 +333,14 @@ abstract final class RouteNames {
 
   // Phase 15.2 — Master schedule («Графік роботи»). The destination of the
   // Календар bottom-nav tile: a calendar-first availability view (read path).
+  //
+  // Optional `?date=yyyy-MM-dd` query param (added alongside the master
+  // bookings screen's "no working hours" empty state): pre-selects that date
+  // instead of today (`MasterScheduleScreen.initialDate`, parsed in
+  // `app_router.dart` via `parseApiDate`). Built ad hoc at its one call site
+  // (`master_bookings_screen.dart`'s `onAddWorkingHours`, mirroring
+  // [services]'s `?expandCategory=` precedent below) rather than a dedicated
+  // helper here — a second call site should promote it to one.
   static const String masterSchedule = '/schedule';
 
   // Phase 15.5 — the weekly-template editor («Робочі дні та години»). The

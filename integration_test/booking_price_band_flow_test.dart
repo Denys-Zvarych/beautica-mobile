@@ -53,8 +53,11 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -75,6 +78,47 @@ const num _kFloor = 300;
 const num _kCeiling = 500;
 const String _kBand = '300–500 ₴';
 const String _kFloorAlone = '300 ₴';
+
+/// Scrolls the timeline grid VERTICALLY until [card] is built — mirrors
+/// `master_bookings_flow_test.dart`'s identically-named helper. The
+/// published working-hours window (seeded below) anchors the grid's top to
+/// 09:00, so the default `booking-1` fixture (18:00 Kyiv) sits well below
+/// the initial vertical-culling band and is not built until scrolled to.
+Future<void> _scrollTimelineTo(WidgetTester tester, Finder card) async {
+  await tester.scrollUntilVisible(
+    card,
+    200,
+    scrollable: find
+        .descendant(
+          of: find.byType(BookingsTimelineGrid),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+    maxScrolls: 60,
+  );
+  await AppHarness.settle(tester);
+}
+
+/// Scrolls the day rail until [day]'s chip is built, taps it, and waits out
+/// the screen's 220 ms day-tap debounce — mirrors
+/// `master_bookings_flow_test.dart`'s identically-named helper.
+Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
+  await tester.scrollUntilVisible(
+    find.byKey(dayChipKey(day)),
+    400,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const Key('master-bookings-day-rail')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+    maxScrolls: 200,
+  );
+  await tester.tap(find.byKey(dayChipKey(day)));
+  // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
+  await tester.pump(const Duration(milliseconds: 300));
+  await AppHarness.settle(tester);
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -214,6 +258,34 @@ void main() {
         ..bookingPriceMax = _kCeiling;
       final GoRouter router = await AppHarness.boot(tester, fb);
 
+      // Phase 244 fixture gap: `FakeBackend`'s `/effective-schedule` route
+      // defaults to empty (every date resolves to NO_SCHEDULE — see
+      // `seedEffectiveSchedule`'s own doc), which now gates the master
+      // timeline behind published working hours. Seed `booking-1`'s OWN day
+      // (`fb.bookingStartsAt`'s date) — NOT the landing day (Kyiv "today"
+      // under the injected clock): `booking-1` is anchored to the REAL
+      // device clock + 7 days, deliberately unrelated to the injected
+      // clock's "today", so the landing render can never contain it
+      // regardless of what hours are published there (Phase 244's
+      // window-based filter measures a booking's start in minutes since the
+      // VIEWED day's own midnight, and a booking dated on a different
+      // calendar day lands far outside any window). The rail is narrowed to
+      // `booking-1`'s real day below, mirroring
+      // `master_bookings_flow_test.dart`'s pattern. 09:00–21:00 comfortably
+      // contains the default `booking-1` fixture (18:00 Kyiv; see
+      // `FakeBackend._kFixtureDay`), and deliberately not 18:00 itself,
+      // which `ScheduleTimelineWindow.includesStart`'s strict upper bound
+      // would exclude.
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+        FakeBackend.seedEffectiveScheduleDay(
+          bookedDay,
+          intervals: const <(String, String)>[('09:00:00', '21:00:00')],
+        ),
+      ]);
+
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
       expect(AppHarness.location(router), startsWith(RouteNames.masterProfile));
 
@@ -224,6 +296,17 @@ void main() {
         startsWith(RouteNames.masterBookings),
       );
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
+
+      // Narrow to `booking-1`'s own day — see the seeding note above.
+      await _selectRailDay(tester, bookedDay);
+
+      // The published window anchors the grid's top to 09:00, so
+      // `booking-1` (18:00 Kyiv) sits well below the initial
+      // vertical-culling band — scroll to it before asserting on it.
+      await _scrollTimelineTo(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+      );
 
       // The card is on screen, served by the real endpoint…
       expect(

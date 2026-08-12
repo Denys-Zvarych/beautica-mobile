@@ -585,6 +585,49 @@ final class FakeBackend {
   /// assert ZERO upserts on a back-without-save and exactly ONE on a Save.
   void seedNoWeeklySchedule() => _weeklySchedule = <Map<String, dynamic>>[];
 
+  /// Phase 244 — `GET …/effective-schedule` is registered ONCE below,
+  /// unconditionally returning an EMPTY list (every date resolves to
+  /// NO_SCHEDULE) unless this is set. `null` (the default, and every
+  /// pre-existing flow's behaviour) preserves that byte-for-byte. Set it to
+  /// seed the master booking timeline's working-hours-window feature: each
+  /// entry is one `EffectiveDayResponse` JSON map — see
+  /// [seedEffectiveScheduleDay] for a convenience builder. Query params
+  /// (`from`/`to`) are ignored, same as every other route in this file — the
+  /// whole seeded list is returned for any range requested.
+  List<Map<String, dynamic>>? _effectiveScheduleOverride;
+
+  /// Seeds `GET …/effective-schedule` to return exactly [days] instead of the
+  /// default empty list.
+  void seedEffectiveSchedule(List<Map<String, dynamic>> days) =>
+      _effectiveScheduleOverride = days;
+
+  /// Builds one `EffectiveDayResponse` JSON entry for [seedEffectiveSchedule]
+  /// — an INTERVAL day (never EXPLICIT_TIMES) with a single working interval
+  /// `[startTime, endTime)` when [intervals] is omitted, or a settled day-off
+  /// (`OVERRIDE_DAY_OFF`, empty intervals) when [dayOff] is `true`.
+  static Map<String, dynamic> seedEffectiveScheduleDay(
+    DateTime date, {
+    bool dayOff = false,
+    List<(String start, String end)> intervals = const <(String, String)>[
+      ('09:00:00', '18:00:00'),
+    ],
+  }) => <String, dynamic>{
+    'date':
+        '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}',
+    'source': dayOff ? 'OVERRIDE_DAY_OFF' : 'TEMPLATE',
+    'intervals': dayOff
+        ? const <dynamic>[]
+        : <Map<String, dynamic>>[
+            for (final (String start, String end) in intervals)
+              <String, dynamic>{'startTime': start, 'endTime': end},
+          ],
+    'times': const <dynamic>[],
+    'windowStart': null,
+    'windowEnd': null,
+  };
+
   /// Reseeds the weekly schedule so MONDAY carries a STORED WORKING WINDOW
   /// (`windowStart`/`windowEnd`, added to the contract 2026-07-27).
   ///
@@ -4250,7 +4293,8 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // GET /api/v1/masters/{masterId}/effective-schedule — empty list.
+    // GET /api/v1/masters/{masterId}/effective-schedule — empty list by
+    // default; [seedEffectiveSchedule] overrides it (Phase 244).
     // Both /me alias and real masterId path are wired.
     // Query parameters (from/to) are not part of the route path — DioAdapter
     // matches on the path only, so one registration covers all from/to combos.
@@ -4260,7 +4304,10 @@ final class FakeBackend {
     ]) {
       _adapter.onRoute(
         path,
-        (server) => server.reply(200, _okList(const <dynamic>[])),
+        (server) => server.replyCallback(
+          200,
+          (_) => _okList(_effectiveScheduleOverride ?? const <dynamic>[]),
+        ),
         request: const Request(method: RequestMethods.get),
       );
     }

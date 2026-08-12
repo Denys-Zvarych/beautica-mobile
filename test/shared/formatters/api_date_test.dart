@@ -104,5 +104,74 @@ void main() {
       expect(() => parseApiDate(''), throwsFormatException);
       expect(() => parseApiDate('2026-07-18T10:00:00Z'), throwsFormatException);
     });
+
+    // Phase 244 — hardening added for the `/schedule?date=` deep-link route,
+    // which hands an attacker-controlled string straight to this function
+    // (`MainActivity` is `exported="true"`). See this function's own doc for
+    // the two failure modes a bare `DateTime(y, m, d)` construction has that
+    // are NOT `FormatException` by default: `ArgumentError` on a
+    // representable-range-exceeding year, and a SILENTLY ABSURD (but
+    // non-throwing) `DateTime` for a year so large `int.tryParse` still
+    // accepts it. Both must surface as `FormatException`, never anything
+    // else, and never as a quietly-wrong date.
+    group('bound hardening (mobile-security)', () {
+      test(
+        'a year within int range but outside DateTime\'s representable range '
+        'throws FormatException, not ArgumentError',
+        () {
+          expect(
+            () => parseApiDate('300000-01-01'),
+            throwsFormatException,
+            reason:
+                'DateTime(300000, 1, 1) throws ArgumentError directly — the '
+                'bound check must reject this BEFORE construction',
+          );
+        },
+      );
+
+      test('an absurdly large year that DateTime would silently accept without '
+          'throwing ANYTHING still throws FormatException', () {
+        expect(
+          () => parseApiDate('9999999999999-01-01'),
+          throwsFormatException,
+        );
+      });
+
+      test('a day that does not exist rolls the month forward silently in '
+          'DateTime — parseApiDate must reject the rollover instead', () {
+        // April has 30 days; DateTime(2026, 4, 31) normalises to May 1.
+        expect(() => parseApiDate('2026-04-31'), throwsFormatException);
+      });
+
+      test(
+        'February 30th (never valid) is rejected via the same rollover check',
+        () {
+          expect(() => parseApiDate('2026-02-30'), throwsFormatException);
+        },
+      );
+
+      test('February 30th on a leap year is STILL rejected — the rollover '
+          'check is date-invalid, not leap-year-unaware', () {
+        expect(() => parseApiDate('2028-02-30'), throwsFormatException);
+      });
+
+      test('the minimum accepted year (0001-01-01) parses cleanly', () {
+        final DateTime d = parseApiDate('0001-01-01');
+        expect(d, DateTime(1, 1, 1));
+      });
+
+      test('the maximum accepted year (9999-12-31) parses cleanly', () {
+        final DateTime d = parseApiDate('9999-12-31');
+        expect(d, DateTime(9999, 12, 31));
+      });
+
+      test('year 0000 is rejected (below the 1..9999 bound)', () {
+        expect(() => parseApiDate('0000-01-01'), throwsFormatException);
+      });
+
+      test('year 10000 is rejected (above the 1..9999 bound)', () {
+        expect(() => parseApiDate('10000-01-01'), throwsFormatException);
+      });
+    });
   });
 }

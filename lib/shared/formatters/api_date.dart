@@ -55,7 +55,22 @@ DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 /// construction and directly comparable to [dateOnly] output.
 ///
 /// Throws [FormatException] on any input that is not exactly three
-/// `-`-separated integers.
+/// `-`-separated integers, OR whose year/month/day fall outside a sane
+/// calendar range (see the bound check below) — every caller in this repo
+/// (`app_router.dart`'s `?date=` route, `booking_repository.dart`'s
+/// `getMyBookedDays`) catches only [FormatException] and expects a malformed
+/// value to land there, never propagate as something else.
+///
+/// NEVER lets `DateTime(y, m, d)` see an out-of-range component. The
+/// `DateTime` constructor is not a safe fallback for validation: a year
+/// outside its internal representable range throws `ArgumentError` (NOT
+/// `FormatException`) and reaches an `on FormatException` catch uncaught;
+/// worse, a year so large `int.tryParse` still accepts it but `DateTime`
+/// does not reject it either — `DateTime(9999999999999, 1, 1)` returns a
+/// real, silently-absurd `DateTime` with no exception at all. Both failure
+/// modes are closed by bound-checking the parsed components BEFORE
+/// construction, here, once — every caller benefits without adding its own
+/// defensive catch.
 DateTime parseApiDate(String s) {
   final List<String> parts = s.split('-');
   if (parts.length != 3) {
@@ -67,5 +82,21 @@ DateTime parseApiDate(String s) {
   if (y == null || m == null || d == null) {
     throw FormatException('Expected yyyy-MM-dd', s);
   }
-  return DateTime(y, m, d);
+  // `0001`-`9999` comfortably covers every real calendar year AND every
+  // value `toApiDate`'s 4-digit zero-padded year can round-trip; the day
+  // bound is deliberately generous (`1..31`, not per-month) because the
+  // rollover check just below rejects an in-range-but-invalid day (e.g. `31`
+  // in April) more precisely than a per-month table would need to.
+  if (y < 1 || y > 9999 || m < 1 || m > 12 || d < 1 || d > 31) {
+    throw FormatException('Expected yyyy-MM-dd', s);
+  }
+  final DateTime result = DateTime(y, m, d);
+  // A day that does not exist in `m` does NOT throw — `DateTime` silently
+  // NORMALISES it into the next month instead (April 31 becomes May 1).
+  // Reject that rather than hand back the wrong date: a rollover always
+  // moves `.month` away from the one that was asked for.
+  if (result.month != m) {
+    throw FormatException('Expected yyyy-MM-dd', s);
+  }
+  return result;
 }

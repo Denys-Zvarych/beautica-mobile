@@ -732,6 +732,7 @@ import 'package:timezone/timezone.dart' as tz;
 import '../../domain/booking.dart';
 import '../../domain/booking_lane_layout.dart';
 import 'master_booking_card.dart';
+import 'schedule_timeline_window.dart';
 import 'timeline_hour_ruler.dart';
 
 /// The master timeline body for ONE Kyiv calendar day: an hour ruler plus a
@@ -770,11 +771,26 @@ class BookingsTimelineGrid extends StatefulWidget {
     required this.bookings,
     required this.day,
     required this.onBookingTap,
+    this.scheduleFirstMinute,
+    this.scheduleWindowEndMinute,
     super.key,
-  });
+  }) : assert(
+         (scheduleFirstMinute == null) == (scheduleWindowEndMinute == null),
+         'scheduleFirstMinute and scheduleWindowEndMinute must be set '
+         'together, or not at all.',
+       );
 
   /// One Kyiv day's bookings, in SERVER order (`startsAt` ASC) — rendered
   /// directly; never mutated or re-sorted here (see [assignLanes]).
+  ///
+  /// mobile-security HIGH fix (this session): when [scheduleFirstMinute]/
+  /// [scheduleWindowEndMinute] are set, this list MUST ALREADY be filtered to
+  /// [ScheduleTimelineWindow.includesStart] — this widget no longer filters
+  /// it itself. The caller (`BookingsDiscoveryView`'s `_Loaded`) calls the
+  /// public [bookingsInsideScheduleWindow] once and uses its result for BOTH
+  /// the header count AND this widget's [bookings], so the two can never
+  /// disagree — see that function's doc. This grid trusts what it is handed;
+  /// it does not re-decide "is this booking in the window" a second time.
   final List<Booking> bookings;
 
   /// The selected Kyiv calendar day, date-only — the anchor
@@ -784,6 +800,45 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// Fires with the tapped booking. No `Navigator`/`context.push` in this
   /// leaf widget — the caller (Phase 7.11) owns navigation.
   final ValueChanged<Booking> onBookingTap;
+
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// SCHEDULE-DERIVED WINDOW (master «Мої записи» working-hours bounds)
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// Both `null` (the default, and every pre-existing call site) keeps the
+  /// ORIGINAL booking-derived window: grid top/bottom come from
+  /// [bookings] alone, exactly as before this feature. Set BOTH together (see
+  /// the constructor assert) to bound the grid by the master's WORKING HOURS
+  /// for [day] instead — `BookingsDiscoveryView`'s `useScheduleWindow: true`
+  /// path (the master's own screen only) computes them from
+  /// `ScheduleTimelineWindow` (`schedule_timeline_window.dart`).
+  ///
+  /// When set:
+  ///   * [_firstMinute] (grid top) becomes [scheduleFirstMinute] directly —
+  ///     never lowered for an early booking (see the next bullet).
+  ///   * [bookings] is assumed ALREADY filtered to this window (see that
+  ///     field's doc) — this widget performs no filtering of its own.
+  ///   * The grid's BOTTOM is `max(scheduleWindowEndMinute, the real end of
+  ///     the latest booking in [bookings])` — the R1 arithmetic already
+  ///     computes that second term (`lastMinuteCandidate`), so a booking that
+  ///     starts inside the window but runs past [scheduleWindowEndMinute]
+  ///     (e.g. 18:30 + 60min against hours ending 19:00) still renders in
+  ///     full, never clipped. This is the ONE widening this feature performs;
+  ///     nothing else about an out-of-window booking widens the grid — and
+  ///     nothing here can even SEE an out-of-window booking any more, since
+  ///     the caller never hands one in.
+  ///
+  /// Minutes since [day]'s Kyiv midnight — the earliest working-hours start.
+  final int? scheduleFirstMinute;
+
+  /// INTERVAL day: the latest interval END. EXPLICIT_TIMES day: the latest
+  /// DECLARED START time itself — there is no "end" in that mode. See
+  /// `ScheduleTimelineWindow.windowEndMinute`'s doc, which this mirrors. Used
+  /// here ONLY to widen the grid's bottom (see [scheduleFirstMinute]'s doc);
+  /// the inclusive-vs-exclusive boundary distinction that number's doc also
+  /// describes matters for FILTERING only, which is entirely the caller's
+  /// job now (see [bookings]'s doc) — this widget has no boundary rule of its
+  /// own left to apply.
+  final int? scheduleWindowEndMinute;
 
   /// One hour of vertical space — MUST match
   /// `TimelineHourRuler._kHourH` so the ruler and the lane hairlines line up.
@@ -884,12 +939,19 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   final ScrollController _scrollController = ScrollController();
 
   // ── The memoised layout model (ADDENDUM 4, extended by ADDENDUM 6) ────
-  // Pure functions of `widget.bookings` + `widget.day`; recomputed ONLY in
-  // [_recomputeLayoutModel], never in [build].
+  // Pure functions of `widget.bookings` + `widget.day` (+ the schedule-window
+  // params, see the class doc); recomputed ONLY in [_recomputeLayoutModel],
+  // never in [build].
   late List<List<_CardGeometry>> _laneGeometry;
   late int _lanesCount;
   late int _firstMinute;
   late int _lastMinute;
+
+  /// Always `widget.bookings` (this widget no longer filters — see that
+  /// field's doc) — held here, alongside [_laneGeometry] and friends, purely
+  /// so [build] reads the exact list [_CardGeometry.bookingIndex] indexes
+  /// into without reaching back through `widget` for it.
+  late List<Booking> _visibleBookings;
 
   // ── The culling window (ADDENDUM 4) ───────────────────────────────────
 
@@ -968,9 +1030,15 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     super.didUpdateWidget(oldWidget);
     // `identical`, not `==`: `List` has reference equality anyway, and the
     // notifier hands out a fresh list on every fetch — so this is exactly
-    // "did the data actually change", with no O(N) comparison.
+    // "did the data actually change", with no O(N) comparison. The schedule
+    // window params are also compared: a master editing today's working
+    // hours while this screen is open changes them WITHOUT necessarily
+    // changing `widget.bookings`'s identity, and missing that would leave
+    // the grid showing yesterday's window.
     if (!identical(widget.bookings, oldWidget.bookings) ||
-        widget.day != oldWidget.day) {
+        widget.day != oldWidget.day ||
+        widget.scheduleFirstMinute != oldWidget.scheduleFirstMinute ||
+        widget.scheduleWindowEndMinute != oldWidget.scheduleWindowEndMinute) {
       _recomputeLayoutModel();
     }
   }
@@ -1013,11 +1081,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   /// the Kyiv-midnight anchor, the grid's minute extent, and (ADDENDUM 6)
   /// every card's per-lane geometry.
   void _recomputeLayoutModel() {
-    final List<Booking> bookings = widget.bookings;
     final DateTime day = widget.day;
-
-    final List<int> lanes = assignLanes(bookings);
-    _lanesCount = laneCount(lanes);
 
     // Hoisted out of [_minutesSinceDayStart] (mobile-perf MEDIUM): that
     // function used to construct this `TZDateTime` on every call, ~3N times
@@ -1028,6 +1092,29 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
       day.month,
       day.day,
     );
+
+    // mobile-security HIGH fix (this session): `widget.bookings` is no
+    // longer filtered here. When a schedule window is set, the caller
+    // (`BookingsDiscoveryView`'s `_Loaded`) has ALREADY filtered it via
+    // [bookingsInsideScheduleWindow] — see [BookingsTimelineGrid.bookings]'s
+    // doc for why re-filtering the same list a second time, even with an
+    // identical predicate, is exactly the duplicated-computation shape that
+    // let the header count and the rendered cards read different numbers.
+    // `bookings`/`startMinutes` below are simply `widget.bookings` and its
+    // per-card Kyiv-minute offsets — unfiltered, always — which is also
+    // byte-for-byte the legacy (`scheduleFirstMinute == null`) behaviour.
+    final List<Booking> bookings = widget.bookings;
+    final List<int> startMinutes = <int>[
+      for (final Booking b in bookings)
+        _minutesSinceDayStart(b.startAt, midnight),
+    ];
+    _visibleBookings = bookings;
+
+    final List<int> lanes = assignLanes(bookings);
+    _lanesCount = laneCount(lanes);
+
+    final int? schedFirst = widget.scheduleFirstMinute;
+    final int? schedWindowEnd = widget.scheduleWindowEndMinute;
 
     // ------------------------------------------------------------------
     // R1 FIX — minutes-since-[day]'s-Kyiv-midnight, never scalar hours.
@@ -1040,24 +1127,29 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // that: even a single, zero-duration-adjacent booking still renders at
     // least one hour of ruler. See the file header's R1 section.
     // ------------------------------------------------------------------
-    // Each booking's start, in minutes since the selected Kyiv midnight —
-    // computed ONCE here (ADDENDUM 6) rather than per card in
-    // `_LaneColumn.build`, which culling turned into a per-re-anchor,
-    // on-a-scrolling-frame cost of ~N timezone-table lookups.
-    final List<int> startMinutes = <int>[
-      for (final Booking b in bookings)
-        _minutesSinceDayStart(b.startAt, midnight),
-    ];
-
-    _firstMinute = startMinutes.isEmpty ? 0 : startMinutes.reduce(math.min);
+    // Grid top: the schedule's working-hours start when set, else (legacy)
+    // the earliest booking's start. `bookings` is already the caller's
+    // in-window set whenever `schedFirst` is set (see [bookings]'s doc), so
+    // there is no separate "surviving" subset to derive here any more.
+    _firstMinute =
+        schedFirst ??
+        (startMinutes.isEmpty ? 0 : startMinutes.reduce(math.min));
     final int lastMinuteCandidate = bookings.isEmpty
         ? _firstMinute + 60
         : <int>[
             for (int i = 0; i < bookings.length; i++)
               startMinutes[i] + bookings[i].durationMinutes,
           ].reduce(math.max);
+    // Grid bottom base: the schedule's working-hours end, WIDENED (never
+    // narrowed) to cover any booking that runs past it — see the class doc's
+    // "the ONE widening this feature performs". Legacy path (schedWindowEnd
+    // null) is unaffected: `lastMinuteCandidate` alone, same as before this
+    // feature.
+    final int lastMinuteBase = schedWindowEnd == null
+        ? lastMinuteCandidate
+        : math.max(schedWindowEnd, lastMinuteCandidate);
     // Floor: the grid is never shorter than one hour, whatever the data says.
-    _lastMinute = math.max(lastMinuteCandidate, _firstMinute + 60);
+    _lastMinute = math.max(lastMinuteBase, _firstMinute + 60);
 
     // R3 FIX — group each booking's ORIGINAL index by its assigned lane.
     // [bookings] is already ascending by `startAt` (the class doc's
@@ -1130,7 +1222,11 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
 
   @override
   Widget build(BuildContext context) {
-    final List<Booking> bookings = widget.bookings;
+    // [_visibleBookings], NOT `widget.bookings` — [_laneGeometry]'s
+    // [_CardGeometry.bookingIndex] indexes into the FILTERED list whenever a
+    // schedule window is set (see that field's doc); reading `widget.bookings`
+    // here directly would index a booking dropped by the filter.
+    final List<Booking> bookings = _visibleBookings;
     final int lanesCount = _lanesCount;
     final int firstMinute = _firstMinute;
     final int firstHour = firstMinute ~/ 60;
@@ -1556,4 +1652,62 @@ double _cardMinHeightFor(int durationMinutes, double hourHeight) {
 int _minutesSinceDayStart(DateTime instant, tz.TZDateTime midnight) {
   final tz.TZDateTime local = toBeauticaTime(instant);
   return local.difference(midnight).inMinutes;
+}
+
+/// Filters [bookings] to those whose Kyiv-day start on [day] falls inside
+/// [window] (per [ScheduleTimelineWindow.includesStart]) — the ONE filtering
+/// computation behind the master's own «Мої записи» working-hours window.
+///
+/// mobile-security HIGH fix (this session): before this function existed,
+/// [BookingsTimelineGrid] filtered its own card set internally while
+/// `BookingsDiscoveryView`'s header count read the server's unfiltered
+/// `totalElements` — two independently-maintained numbers that could (and
+/// did) disagree. `_Loaded` now calls this once per day and uses its result
+/// for BOTH the header count and [BookingsTimelineGrid.bookings], so the
+/// count is always exactly `visible.length`, i.e. exactly what renders.
+/// Public (not `_`-prefixed) specifically so a caller outside this file can
+/// reach it — the same Kyiv-minute conversion ([_minutesSinceDayStart]) this
+/// grid's own layout model uses internally, exposed once rather than
+/// re-implemented at the call site.
+///
+/// mobile-perf MEDIUM fix (this session): returns [bookings] itself —
+/// same instance, not an equal copy — whenever every booking passes the
+/// window (the common case: a working master's own day rarely has a
+/// booking outside its own working hours). A fresh `<Booking>[for … if …]`
+/// here on EVERY call, even when nothing was actually filtered out, handed
+/// [BookingsTimelineGrid] a new list identity on every rebuild and defeated
+/// its `identical(widget.bookings, oldWidget.bookings)` memoisation gate
+/// (`didUpdateWidget`, below) — reopening the exact O(N log N)
+/// `assignLanes` + per-card layout cost ADDENDUM 4/6 fixed. Safe only
+/// because this function's result is read-only everywhere downstream (grid
+/// layout + card render, never mutated) — do not hand this out to a caller
+/// that appends/removes from it.
+List<Booking> bookingsInsideScheduleWindow(
+  List<Booking> bookings,
+  DateTime day,
+  ScheduleTimelineWindow window,
+) {
+  final tz.TZDateTime midnight = tz.TZDateTime(
+    beauticaZone,
+    day.year,
+    day.month,
+    day.day,
+  );
+  List<Booking>? filtered;
+  for (int i = 0; i < bookings.length; i++) {
+    final Booking b = bookings[i];
+    final bool inside = window.includesStart(
+      _minutesSinceDayStart(b.startAt, midnight),
+    );
+    if (filtered == null) {
+      // Nothing excluded yet — defer allocating a copy until we actually
+      // know one is needed.
+      if (!inside) {
+        filtered = bookings.sublist(0, i);
+      }
+    } else if (inside) {
+      filtered.add(b);
+    }
+  }
+  return filtered ?? bookings;
 }

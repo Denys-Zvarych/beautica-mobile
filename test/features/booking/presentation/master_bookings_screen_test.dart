@@ -46,6 +46,10 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_d
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
@@ -1525,6 +1529,105 @@ void main() {
       expect(protection.releases, 1);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 244 — working-hours window: the "no working hours" gray-state CTA
+  // -------------------------------------------------------------------------
+
+  group('working-hours window CTA (Phase 244)', () {
+    testWidgets(
+      'the no-working-hours CTA navigates to /schedule?date=<the day it was '
+      'showing>, and MasterScheduleScreen pre-selects that date',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        String? capturedDateQueryParam;
+        final GoRouter router = GoRouter(
+          initialLocation: '/',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/',
+              builder: (BuildContext context, GoRouterState state) =>
+                  const MasterBookingsScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.masterSchedule,
+              builder: (BuildContext context, GoRouterState state) {
+                capturedDateQueryParam = state.uri.queryParameters['date'];
+                return const Scaffold(
+                  body: SizedBox.shrink(key: _scheduleMarker),
+                );
+              },
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            bookingRepositoryProvider.overrideWithValue(repo),
+            bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+            effectiveScheduleProvider.overrideWith(
+              () => _NoScheduleFake(_kyivToday),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-bookings-no-schedule')),
+          findsOneWidget,
+          reason:
+              'fixture guard: the gray state must be showing before the '
+              'CTA is tapped',
+        );
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-no-schedule-cta')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(_scheduleMarker), findsOneWidget);
+        expect(
+          capturedDateQueryParam,
+          toApiDate(_kyivToday),
+          reason:
+              'the CTA must route to /schedule?date=<the day the gray state '
+              'was showing>, formatted through toApiDate',
+        );
+      },
+    );
+  });
+}
+
+/// A fake `effectiveScheduleProvider` resolving [date] to NO_SCHEDULE for
+/// every requested range — drives the master booking timeline's gray
+/// "no working hours" empty state (Phase 244).
+class _NoScheduleFake extends EffectiveScheduleNotifier {
+  _NoScheduleFake(this._date);
+  final DateTime _date;
+
+  @override
+  Future<List<EffectiveDay>> build(ScheduleRange range) async => <EffectiveDay>[
+    EffectiveDay(
+      date: _date,
+      source: EffectiveSource.noSchedule,
+      intervals: const <WorkInterval>[],
+    ),
+  ];
 }
 
 class _CountingScreenProtection extends ScreenProtectionManager {

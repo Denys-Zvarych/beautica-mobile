@@ -5093,6 +5093,10 @@
   "@masterBookingsClearFilters": {
     "description": "The escape hatch on the master's filter-empty state — clears every filter so the master is never stranded on a blank list."
   },
+  "masterBookingsNoScheduleTitle": "No working hours set for this day",
+  "@masterBookingsNoScheduleTitle": {
+    "description": "Title of MasterBookingsNoWorkingHoursState (dayOff: false) — the selected day has no published working hours at all (NO_SCHEDULE or a working source with empty intervals/times), so the booking timeline is replaced by this state instead of an empty grid."
+  },
   "bookingFilterSheetTitle": "Filters",
   "@bookingFilterSheetTitle": {
     "description": "Title of the filter bottom sheet on the master's «Мої записи» screen."
