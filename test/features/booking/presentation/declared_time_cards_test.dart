@@ -13,6 +13,19 @@
 // hands `DeclaredTimeCards` `state.items` UNFILTERED specifically so this
 // case can never regress into a silent drop — see the "anti-data-loss"
 // group below, mutation-verified.
+//
+// ## THE SWAP (2026-08) — booked entries now render the SHIPPED
+// `MasterBookingCard`
+//
+// A booked entry's `Key` moved from `declared-time-card-<id>` (the retired
+// bespoke card) to `master-booking-card-<id>` — [MasterBookingCard]'s OWN
+// key, the same one every other suite that pumps that card finds it by (see
+// `master_bookings_screen_test.dart`). This file no longer asserts a
+// duration string («45 хв») — the shipped card prints a time RANGE instead —
+// but every other pin below (content renders, taps through, guest fallback,
+// the union/anti-data-loss contract, the id tie-break, uniform heights)
+// carries over unchanged in spirit, re-pointed at the new key and the new
+// card's real text.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -77,13 +90,18 @@ Key _freeKey(int hour, int minute) => Key(
   '${hour.toString().padLeft(2, '0')}${minute.toString().padLeft(2, '0')}',
 );
 
-Key _bookedKey(String id) => Key('declared-time-card-$id');
+/// [MasterBookingCard]'s OWN key — see this file's header "THE SWAP" note.
+/// Found the same way every other suite that pumps that card finds it (e.g.
+/// `master_bookings_screen_test.dart`), rather than a key this file mints
+/// itself.
+Key _bookedKey(String id) => Key('master-booking-card-$id');
 
 Future<void> _pumpCards(
   WidgetTester tester, {
   required List<TimeOfDay> declaredTimes,
   required List<Booking> bookings,
   ValueChanged<Booking>? onTapBooking,
+  double? textScaleFactor,
 }) async {
   await tester.pumpApp(
     DeclaredTimeCards(
@@ -92,6 +110,7 @@ Future<void> _pumpCards(
       day: _day,
       onTapBooking: onTapBooking ?? (Booking _) {},
     ),
+    textScaleFactor: textScaleFactor,
   );
   await tester.pumpAndSettle();
 }
@@ -159,47 +178,49 @@ void main() {
   });
 
   group('booked card — one declared time with a booking on it', () {
-    testWidgets('renders time, client name, and «service · duration»', (
-      tester,
-    ) async {
-      final Booking booking = _booking(
-        id: 'b-11',
-        startAtUtc: _kyivAtUtc(11, 0),
-        durationMinutes: 45,
-        serviceName: 'Манікюр з покриттям',
-      );
+    testWidgets(
+      'renders the shipped MasterBookingCard with THIS booking\'s content — '
+      'client name, service, and a start–end time range (not the retired '
+      'duration line)',
+      (tester) async {
+        final Booking booking = _booking(
+          id: 'b-11',
+          startAtUtc: _kyivAtUtc(11, 0),
+          durationMinutes: 45,
+          serviceName: 'Манікюр з покриттям',
+        );
 
-      await _pumpCards(
-        tester,
-        declaredTimes: const <TimeOfDay>[TimeOfDay(hour: 11, minute: 0)],
-        bookings: <Booking>[booking],
-      );
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[TimeOfDay(hour: 11, minute: 0)],
+          bookings: <Booking>[booking],
+        );
 
-      final Finder card = find.byKey(_bookedKey('b-11'));
-      expect(card, findsOneWidget);
-      expect(find.byKey(_freeKey(11, 0)), findsNothing);
-      expect(
-        find.descendant(of: card, matching: find.text('11:00')),
-        findsOneWidget,
-      );
-      expect(
-        // i18n-finder-ok: 'Марія Іванюк' is the fixture's clientName data.
-        find.descendant(of: card, matching: find.text('Марія Іванюк')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: card,
-          matching: find.textContaining('Манікюр з покриттям'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: card, matching: find.textContaining('45 хв')),
-        findsOneWidget,
-        reason: 'line 3 shows the DURATION, not a start–end range',
-      );
-    });
+        final Finder card = find.byKey(_bookedKey('b-11'));
+        expect(card, findsOneWidget);
+        expect(find.byKey(_freeKey(11, 0)), findsNothing);
+        expect(
+          // i18n-finder-ok: 'Марія Іванюк' is the fixture's clientName data.
+          find.descendant(of: card, matching: find.text('Марія Іванюк')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.textContaining('Манікюр з покриттям'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          // `MasterBookingCard`'s own `formatSlotTimeRange` — start (11:00)
+          // en-dash end (11:00 + 45 min = 11:45). NOT the retired bespoke
+          // card's leading time line, and NOT a duration string — the swap's
+          // whole point (see this file's header).
+          find.descendant(of: card, matching: find.text('11:00–11:45')),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('tapping the booked card fires onTapBooking with THIS '
         'booking', (tester) async {
@@ -220,7 +241,9 @@ void main() {
     });
 
     testWidgets(
-      'guest booking (null clientName) falls back to bookingDetailGuestClient',
+      'guest booking (null clientName, null clientAvatarUrl) falls back to '
+      'bookingDetailGuestClient AND the local glyph — no remote fetch '
+      'attempted',
       (tester) async {
         final Booking guest = _booking(
           id: 'guest-1',
@@ -228,6 +251,8 @@ void main() {
           clientFirstName: null,
           clientLastName: null,
         );
+        // clientAvatarUrl is null by construction — `_booking` never sets it.
+        expect(guest.clientAvatarUrl, isNull);
 
         await _pumpCards(
           tester,
@@ -238,13 +263,237 @@ void main() {
         final AppLocalizations l10n = AppLocalizations.of(
           tester.element(find.byType(DeclaredTimeCards)),
         );
+        final Finder card = find.byKey(_bookedKey('guest-1'));
         expect(
           find.descendant(
-            of: find.byKey(_bookedKey('guest-1')),
+            of: card,
             matching: find.text(l10n.bookingDetailGuestClient),
           ),
           findsOneWidget,
         );
+        // `_ClientAvatarMark` — a null/disallowed url returns the local
+        // `person_outlined` glyph immediately, before ever constructing an
+        // `Image`/`ResizeImage`/`beauticaMediaProvider` — see that widget's
+        // doc. Asserting BOTH the glyph's presence and Image's absence pins
+        // that no-network-attempt contract, not merely "something rendered".
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.byIcon(Icons.person_outlined),
+          ),
+          findsOneWidget,
+          reason: 'no avatar url — falls back to the local glyph',
+        );
+        expect(
+          find.descendant(of: card, matching: find.byType(Image)),
+          findsNothing,
+          reason:
+              'a null clientAvatarUrl must never attempt a remote image '
+              'fetch',
+        );
+      },
+    );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // STATUS RENDERS AND DIFFERENTIATES — the regression this swap exists to
+  // fix. The retired bespoke card never read `Booking.status`, so a
+  // CANCELLED booking rendered identically to a CONFIRMED one here. The
+  // shipped `MasterBookingCard` restores the status badge AND gates the
+  // price pill on `BookingDisplayX.showsPrice` — both asserted below as two
+  // INDEPENDENT differentiators, since either one alone regressing would
+  // silently reopen part of the gap.
+  //
+  // MUTATION-VERIFIED (see the QA report): forcing `declared_time_cards
+  // .dart`'s itemBuilder to pass `entry.booking!.copyWith(status:
+  // BookingStatus.confirmed)` into `MasterBookingCard` — i.e. reintroducing
+  // "the card never reads the booking's real status" — turns this test RED.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('status renders and differentiates', () {
+    testWidgets(
+      'a CONFIRMED and a CANCELLED booking on the same declared-times day '
+      'render visibly different cards — status label AND price presence '
+      'both differ',
+      (tester) async {
+        final Booking confirmed = _booking(
+          id: 'status-confirmed',
+          startAtUtc: _kyivAtUtc(9),
+        );
+        final Booking cancelled = _booking(
+          id: 'status-cancelled',
+          startAtUtc: _kyivAtUtc(11),
+        ).copyWith(status: BookingStatus.cancelled);
+
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 9, minute: 0),
+            TimeOfDay(hour: 11, minute: 0),
+          ],
+          bookings: <Booking>[confirmed, cancelled],
+        );
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(DeclaredTimeCards)),
+        );
+        final Finder confirmedCard = find.byKey(_bookedKey('status-confirmed'));
+        final Finder cancelledCard = find.byKey(_bookedKey('status-cancelled'));
+
+        // Differentiator 1 — the status badge's label text.
+        expect(
+          find.descendant(
+            of: confirmedCard,
+            matching: find.text(l10n.bookingStatusConfirmed),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: cancelledCard,
+            matching: find.text(l10n.bookingStatusCancelled),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: cancelledCard,
+            matching: find.text(l10n.bookingStatusConfirmed),
+          ),
+          findsNothing,
+          reason: 'the two cards must never share a status label',
+        );
+
+        // Differentiator 2 — `BookingDisplayX.showsPrice`: CONFIRMED owes
+        // money, CANCELLED owes nothing.
+        expect(
+          find.descendant(
+            of: confirmedCard,
+            matching: find.textContaining('₴'),
+          ),
+          findsOneWidget,
+          reason: 'a CONFIRMED booking must show its price',
+        );
+        expect(
+          find.descendant(
+            of: cancelledCard,
+            matching: find.textContaining('₴'),
+          ),
+          findsNothing,
+          reason: 'a CANCELLED booking owes nothing — no price pill',
+        );
+      },
+    );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PRICE RENDERS on a declared-times booked card — both the single-price
+  // and the frozen min–max BAND cases (`Booking.priceMax` non-null is a
+  // real, server-frozen snapshot — see `booking.dart`'s "PRICE MAY BE A
+  // FROZEN BAND" section — never re-derived here).
+  // ═══════════════════════════════════════════════════════════════════════
+  group('price renders on a declared-times booked card', () {
+    testWidgets('a single price renders as "500 ₴"', (tester) async {
+      final Booking booking = _booking(
+        id: 'price-single',
+        startAtUtc: _kyivAtUtc(9),
+      );
+
+      await _pumpCards(
+        tester,
+        declaredTimes: const <TimeOfDay>[TimeOfDay(hour: 9, minute: 0)],
+        bookings: <Booking>[booking],
+      );
+
+      expect(
+        find.descendant(
+          of: find.byKey(_bookedKey('price-single')),
+          matching: find.text('500 ₴'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a frozen min–max band (priceMaxAtBooking non-null) renders as '
+        '"300–500 ₴"', (tester) async {
+      final Booking booking = _booking(
+        id: 'price-band',
+        startAtUtc: _kyivAtUtc(9),
+      ).copyWith(price: 300, priceMax: 500);
+
+      await _pumpCards(
+        tester,
+        declaredTimes: const <TimeOfDay>[TimeOfDay(hour: 9, minute: 0)],
+        bookings: <Booking>[booking],
+      );
+
+      expect(
+        find.descendant(
+          of: find.byKey(_bookedKey('price-band')),
+          matching: find.text('300–500 ₴'),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // THE FULL LAYOUT IS ALWAYS SELECTED — `minHeight: 120` must never fall
+  // back to `MasterBookingCard`'s compact/micro variant, for ANY duration.
+  // This is what actually guarantees status/price/avatar are present at
+  // all: `_kEntryMinHeight` alone forcing a tall BOX (proven by the
+  // "uniform card heights" group above) does not by itself prove the FULL
+  // body was selected inside it — see `master_booking_card.dart`'s `build`,
+  // where `minHeight` is a floor, never a ceiling, so a mis-selected
+  // compact/micro body would still stretch to fill 120dp of blank space
+  // and every height-only assertion in this file would stay green.
+  //
+  // MUTATION-VERIFIED (see the QA report): dropping
+  // `declared_time_cards.dart`'s `_kEntryMinHeight` from 120 to 100 (still
+  // inside `[microLayoutMaxHeight, fullLayoutMinHeight)` = compact) turns
+  // this test RED.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('the full layout is always selected, regardless of duration', () {
+    testWidgets(
+      '30/60/90-minute bookings all render the FULL body\'s own divider '
+      'key, never the compact or micro shape',
+      (tester) async {
+        final Booking b30 = _booking(
+          id: 'full30',
+          startAtUtc: _kyivAtUtc(9),
+          durationMinutes: 30,
+        );
+        final Booking b60 = _booking(
+          id: 'full60',
+          startAtUtc: _kyivAtUtc(11),
+          durationMinutes: 60,
+        );
+        final Booking b90 = _booking(
+          id: 'full90',
+          startAtUtc: _kyivAtUtc(13),
+          durationMinutes: 90,
+        );
+
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 9, minute: 0),
+            TimeOfDay(hour: 11, minute: 0),
+            TimeOfDay(hour: 13, minute: 0),
+          ],
+          bookings: <Booking>[b30, b60, b90],
+        );
+
+        for (final String id in <String>['full30', 'full60', 'full90']) {
+          expect(
+            find.byKey(Key('master-booking-card-divider-$id')),
+            findsOneWidget,
+            reason: '$id must render the FULL body, not compact or micro',
+          );
+          expect(
+            find.byKey(Key('master-booking-card-compact-divider-$id')),
+            findsNothing,
+          );
+        }
       },
     );
   });
@@ -420,5 +669,126 @@ void main() {
       );
       expect(h60, h90);
     });
+
+    testWidgets(
+      'a FREE card and a BOOKED card in the SAME list occupy the SAME box '
+      '(height AND width) — a hard product requirement: "need to keep box '
+      'sizes same for empty slot and for booked slot"',
+      (tester) async {
+        final Booking b30 = _booking(
+          id: 'mix30',
+          startAtUtc: _kyivAtUtc(9),
+          durationMinutes: 30,
+        );
+        final Booking b60 = _booking(
+          id: 'mix60',
+          startAtUtc: _kyivAtUtc(13),
+          durationMinutes: 60,
+        );
+
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 9, minute: 0),
+            TimeOfDay(hour: 11, minute: 0), // stays free — no booking here
+            TimeOfDay(hour: 13, minute: 0),
+          ],
+          bookings: <Booking>[b30, b60],
+        );
+
+        final Size sizeFree = tester.getSize(find.byKey(_freeKey(11, 0)));
+        final Size sizeBooked30 = tester.getSize(
+          find.byKey(_bookedKey('mix30')),
+        );
+        final Size sizeBooked60 = tester.getSize(
+          find.byKey(_bookedKey('mix60')),
+        );
+
+        expect(
+          sizeFree.height,
+          sizeBooked30.height,
+          reason:
+              'the free card and a booked (30-minute, full-body) card must '
+              'render the exact same box height — see declared_time_cards'
+              '.dart\'s `_kEntryMinHeight` doc',
+        );
+        expect(sizeFree.height, sizeBooked60.height);
+        expect(
+          sizeFree.width,
+          sizeBooked30.width,
+          reason:
+              'and the same width — both stretch to the list\'s full cross '
+              'axis, so a mismatch here would mean one variant picked up an '
+              'unintended width constraint',
+        );
+        expect(sizeFree.width, sizeBooked60.width);
+      },
+    );
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ABOVE 1.0 TEXT SCALE — the gap `_freeCardMinHeightFor` closes. The
+    // booked card's FULL body genuinely grows past `_kEntryMinHeight`
+    // above scale 1.0 (real `Text` widgets, not an estimate — see
+    // `MasterBookingCard.fullLayoutNaturalHeight`'s doc: "124dp @ 1.15,
+    // 132dp @ 1.3 — re-measured, not assumed"); the free card's own floor
+    // must track that growth instead of staying pinned at 120, or the
+    // "same box" contract above holds only at the one scale most devices
+    // happen to run at.
+    //
+    // MUTATION-VERIFIED (see this session's report): reverting
+    // `_freeCardMinHeightFor` to return the bare `_kEntryMinHeight`
+    // constant unconditionally turns the 1.15 and 1.3 cases in this loop
+    // RED, with the booked card measurably taller than the free one
+    // (124 vs 120, 132 vs 120) — the 1.0 case stays green either way,
+    // which is exactly why a single-scale test cannot catch this gap.
+    // ═══════════════════════════════════════════════════════════════════
+    for (final (double scale, double expectedHeight)
+        in const <(double, double)>[(1.0, 120), (1.15, 124), (1.3, 132)]) {
+      testWidgets('a FREE card and a BOOKED card match at textScaler $scale '
+          '(expected box: ${expectedHeight}dp)', (tester) async {
+        final Booking booking = _booking(
+          id: 'scale-${scale.toStringAsFixed(2)}',
+          startAtUtc: _kyivAtUtc(9),
+        );
+
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 9, minute: 0),
+            TimeOfDay(hour: 11, minute: 0), // stays free — no booking here
+          ],
+          bookings: <Booking>[booking],
+          textScaleFactor: scale,
+        );
+
+        final double heightFree = tester
+            .getSize(find.byKey(_freeKey(11, 0)))
+            .height;
+        final double heightBooked = tester
+            .getSize(
+              find.byKey(_bookedKey('scale-${scale.toStringAsFixed(2)}')),
+            )
+            .height;
+
+        expect(
+          heightBooked,
+          closeTo(expectedHeight, 0.01),
+          reason:
+              'fixture guard — the booked card\'s own real box at scale '
+              '$scale must still measure ${expectedHeight}dp (re-measured, '
+              'see MasterBookingCard.fullLayoutNaturalHeight\'s doc); if '
+              'this fails, the equality assertion below is meaningless '
+              'because the target itself moved.',
+        );
+        expect(
+          heightFree,
+          closeTo(heightBooked, 0.01),
+          reason:
+              'at textScaler $scale the free card must occupy the SAME '
+              'box height as the booked card — see this file\'s '
+              '`_freeCardMinHeightFor` doc',
+        );
+      });
+    }
   });
 }

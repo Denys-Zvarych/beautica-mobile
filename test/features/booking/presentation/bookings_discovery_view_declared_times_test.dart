@@ -10,6 +10,17 @@
 // cannot: the EXPLICIT_TIMES branch selection itself, and the regression
 // guard that an INTERVAL day is completely unaffected by this feature
 // (mirrors that file's own "isolation guarantee" pattern, one level up).
+//
+// SIGNAL (2026-08, the MasterBookingCard swap): this file's booked-slot key
+// assertions moved from `declared-time-card-<id>` to `master-booking-card-
+// <id>` — `DeclaredTimeCards` now renders a booked entry as the shipped
+// `MasterBookingCard` verbatim (`declared_time_cards.dart`'s header), and
+// that card carries its OWN key rather than one this composition test used
+// to be able to assume was minted locally. Flagged rather than silently
+// patched: the brief that drove this swap explicitly expected this file to
+// "survive untouched" and it did not — a real coupling between this file and
+// `declared_time_cards.dart`'s booked-card implementation, worth knowing
+// about the next time that file's card choice changes.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -186,11 +197,11 @@ void main() {
           reason: 'an EXPLICIT_TIMES day must never render the grid',
         );
         expect(
-          find.byKey(const Key('declared-time-card-matched')),
+          find.byKey(const Key('master-booking-card-matched')),
           findsOneWidget,
         );
         expect(
-          find.byKey(const Key('declared-time-card-stray')),
+          find.byKey(const Key('master-booking-card-stray')),
           findsOneWidget,
           reason:
               'the stray booking must render too — proves state.items is '

@@ -21,6 +21,7 @@ import 'package:beautica_mobile/features/booking/presentation/master_bookings_sc
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/declared_time_cards.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
@@ -77,6 +78,58 @@ Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
   await AppHarness.settle(tester);
 }
 
+/// Boots the app as an INDEPENDENT_MASTER, seeds the fixture booking's own
+/// day as an EXPLICIT_TIMES day (booked time + one free time an hour later),
+/// logs in, navigates to «Мої записи», and selects that day. Shared by both
+/// `testWidgets` below — [fb]'s `bookingStatus`/`bookingPrice`/
+/// `bookingPriceMax` must be set by the caller BEFORE this runs (mirrors the
+/// repo-wide pre-boot fixture-mutation convention, e.g.
+/// `client_home_hub_flow_test.dart`'s `..bookingStatus = 'COMPLETED'`).
+///
+/// Returns the booked/free [TimeOfDay]s so the caller can derive the free
+/// card's key without re-deriving the fixture's own Kyiv time twice.
+Future<({TimeOfDay bookedTime, TimeOfDay freeTime})> _bootToDeclaredTimesDay(
+  WidgetTester tester,
+  FakeBackend fb,
+) async {
+  // `_bookingDay` reads `beauticaZone` (via `toBeauticaTime`), only
+  // initialised once `AppHarness.boot` has run — so both the seeding below
+  // and every later reference must come AFTER boot.
+  final GoRouter router = await AppHarness.boot(tester, fb);
+
+  final DateTime bookingDay = _bookingDay(fb);
+  final tz.TZDateTime bookingKyiv = toBeauticaTime(
+    DateTime.parse(fb.bookingStartsAt),
+  );
+  final TimeOfDay bookedTime = TimeOfDay(
+    hour: bookingKyiv.hour,
+    minute: bookingKyiv.minute,
+  );
+  // A second declared time, one hour after the booked one — the fixture
+  // booking (`FakeBackend`'s own doc: ~17:00–19:30 Kyiv in winter,
+  // ~18:00–19:30 in summer) leaves comfortable headroom before midnight.
+  final TimeOfDay freeTime = TimeOfDay(
+    hour: (bookedTime.hour + 1) % 24,
+    minute: bookedTime.minute,
+  );
+
+  fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+    _explicitTimesDay(bookingDay, <TimeOfDay>[bookedTime, freeTime]),
+  ]);
+
+  await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+  // ── «Мої записи» (nav tile 1). ─────────────────────────────────────────
+  await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+  await AppHarness.settle(tester);
+  AppHarness.expectLocation(router, RouteNames.masterBookings);
+  expect(find.byType(MasterBookingsScreen), findsOneWidget);
+
+  await _selectRailDay(tester, bookingDay);
+
+  return (bookedTime: bookedTime, freeTime: freeTime);
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -86,44 +139,18 @@ void main() {
   testWidgets(
     'a day whose working hours are EXPLICIT_TIMES renders DeclaredTimeCards '
     '— a booked slot AND a free slot both visible, never the grid, never the '
-    'gray state',
+    'gray state; the booked slot shows the real card\'s status AND price',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // Defaults: bookingStatus = 'CONFIRMED', bookingPrice = 650,
+      // bookingPriceMax = null — asserted explicitly below rather than left
+      // implicit, so a future change to FakeBackend's defaults cannot
+      // silently defang this test.
+      fb.bookingStatus = 'CONFIRMED';
+      fb.bookingPrice = 650;
 
-      // `_bookingDay` reads `beauticaZone` (via `toBeauticaTime`), only
-      // initialised once `AppHarness.boot` has run — so both the seeding
-      // below and every later reference must come AFTER boot.
-      final GoRouter router = await AppHarness.boot(tester, fb);
-
-      final DateTime bookingDay = _bookingDay(fb);
-      final tz.TZDateTime bookingKyiv = toBeauticaTime(
-        DateTime.parse(fb.bookingStartsAt),
-      );
-      final TimeOfDay bookedTime = TimeOfDay(
-        hour: bookingKyiv.hour,
-        minute: bookingKyiv.minute,
-      );
-      // A second declared time, one hour after the booked one — the fixture
-      // booking (`FakeBackend`'s own doc: ~17:00–19:30 Kyiv in winter,
-      // ~18:00–19:30 in summer) leaves comfortable headroom before midnight.
-      final TimeOfDay freeTime = TimeOfDay(
-        hour: (bookedTime.hour + 1) % 24,
-        minute: bookedTime.minute,
-      );
-
-      fb.seedEffectiveSchedule(<Map<String, dynamic>>[
-        _explicitTimesDay(bookingDay, <TimeOfDay>[bookedTime, freeTime]),
-      ]);
-
-      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-
-      // ── «Мої записи» (nav tile 1). ─────────────────────────────────────
-      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-      await AppHarness.settle(tester);
-      AppHarness.expectLocation(router, RouteNames.masterBookings);
-      expect(find.byType(MasterBookingsScreen), findsOneWidget);
-
-      await _selectRailDay(tester, bookingDay);
+      final ({TimeOfDay bookedTime, TimeOfDay freeTime}) times =
+          await _bootToDeclaredTimesDay(tester, fb);
 
       // ── The gray state and the grid must both be absent. ───────────────
       expect(
@@ -141,19 +168,47 @@ void main() {
       expect(find.byType(DeclaredTimeCards), findsOneWidget);
 
       // ── The booked slot — the fixture booking, reachable on its card. ──
+      // Key moved to `master-booking-card-booking-1` — the shipped
+      // `MasterBookingCard`'s OWN key, not one `declared_time_cards.dart`
+      // mints itself; see that file's header "THE SWAP" note.
+      final Finder bookedCard = find.byKey(
+        const ValueKey<String>('master-booking-card-booking-1'),
+      );
       expect(
-        find.byKey(const ValueKey<String>('declared-time-card-booking-1')),
+        bookedCard,
         findsOneWidget,
         reason:
             'the fixture booking must render on the declared time matching '
             'its own Kyiv start',
       );
 
+      // ── THE SWAP's whole point, proven at the E2E tier: the real card's
+      // status badge and price are visible on a booked declared-time slot —
+      // never asserted here before this QA pass (the widget tier already
+      // pins this in isolation; this proves the real HTTP-fed composition
+      // renders it too). ───────────────────────────────────────────────
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterBookingsScreen)),
+      );
+      expect(
+        find.descendant(
+          of: bookedCard,
+          matching: find.text(l10n.bookingStatusConfirmed),
+        ),
+        findsOneWidget,
+        reason: 'a CONFIRMED fixture booking must show its status label',
+      );
+      expect(
+        find.descendant(of: bookedCard, matching: find.text('650 ₴')),
+        findsOneWidget,
+        reason: 'a CONFIRMED fixture booking must show its price',
+      );
+
       // ── The free slot — the second declared time, with nothing booked. ─
       final Key freeKey = Key(
         'declared-time-card-free-'
-        '${freeTime.hour.toString().padLeft(2, '0')}'
-        '${freeTime.minute.toString().padLeft(2, '0')}',
+        '${times.freeTime.hour.toString().padLeft(2, '0')}'
+        '${times.freeTime.minute.toString().padLeft(2, '0')}',
       );
       expect(
         find.byKey(freeKey),
@@ -161,6 +216,74 @@ void main() {
         reason:
             'the second declared time has no booking — it must render '
             'as a free card',
+      );
+
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a CANCELLED booking on a declared-times day still renders — with a '
+    'DIFFERENT status label than CONFIRMED, and no price — proving the E2E '
+    'composition, not just the isolated widget, carries the booking\'s real '
+    'status through',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // Pre-boot fixture mutation — the repo-wide convention (see
+      // `_bootToDeclaredTimesDay`'s doc) for seeding a booking that is
+      // already in a terminal state when the screen first loads.
+      fb.bookingStatus = 'CANCELLED';
+
+      final ({TimeOfDay bookedTime, TimeOfDay freeTime}) times =
+          await _bootToDeclaredTimesDay(tester, fb);
+
+      // The sibling free declared time is unaffected by `booking-1`'s status
+      // — it must still render as an ordinary free card, not swallowed by
+      // whatever changed on the booked one.
+      final Key freeKey = Key(
+        'declared-time-card-free-'
+        '${times.freeTime.hour.toString().padLeft(2, '0')}'
+        '${times.freeTime.minute.toString().padLeft(2, '0')}',
+      );
+      expect(find.byKey(freeKey), findsOneWidget);
+
+      final Finder bookedCard = find.byKey(
+        const ValueKey<String>('master-booking-card-booking-1'),
+      );
+      expect(
+        bookedCard,
+        findsOneWidget,
+        reason:
+            'a CANCELLED booking is still a real entry on its declared '
+            'time — never dropped, never silently re-rendered as free',
+      );
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterBookingsScreen)),
+      );
+      expect(
+        find.descendant(
+          of: bookedCard,
+          matching: find.text(l10n.bookingStatusCancelled),
+        ),
+        findsOneWidget,
+        reason: 'the CANCELLED status must be visible on the real card',
+      );
+      expect(
+        find.descendant(
+          of: bookedCard,
+          matching: find.text(l10n.bookingStatusConfirmed),
+        ),
+        findsNothing,
+        reason:
+            'THE REGRESSION THIS SWAP FIXES: the retired bespoke card never '
+            'read Booking.status, so a CANCELLED booking rendered '
+            'identically to a CONFIRMED one — this must never be true again',
+      );
+      expect(
+        find.descendant(of: bookedCard, matching: find.textContaining('₴')),
+        findsNothing,
+        reason: 'a CANCELLED booking owes nothing — no price pill',
       );
 
       expect(tester.takeException(), isNull);

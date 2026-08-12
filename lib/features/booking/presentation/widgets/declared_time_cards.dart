@@ -2,31 +2,49 @@
 // EXPLICIT_TIMES working day (the master declared discrete times like
 // `11:00`, `15:00`, `16:30` instead of a continuous working window).
 //
-// Ported from the approved preview
+// Originally ported from the approved preview
 // `docs/signup-designs/MasterTimelineExplicitTimes/lib/widgets/
-// declared_time_cards.dart`, Option E, the **E2** variant the user approved
-// (free card WITHOUT the `+`) — no `_AddAffordance`, no harness duplication
-// (the preview rendered the day TWICE, tagged E1/E2, purely so the two could
-// be compared; a real screen renders one).
+// declared_time_cards.dart`, Option E2 — a bespoke three-line card (time /
+// client / `service · duration`), no price pill, no status badge.
 //
-// ## The shape, transcribed
+// ## THE SWAP (2026-08) — booked entries now render the SHIPPED
+// `MasterBookingCard`, not a bespoke card
 //
-// One CARD per entry, in ascending time order:
-//   * booked  — time (`VelvetText.statValue()`) / client name
-//     (`VelvetText.subheading()`) / `service · duration`
-//     (`VelvetText.masterCardServiceFull`, duration muted).
-//   * free    — time / «Вільно», muted. Same footprint, radius, padding and
-//     border as a booked card; the only difference is LIFT — the booked card
-//     keeps `VelvetShadows.borderedCard`, the free card drops it and stands
-//     on its border alone. NOT a button, no tap target.
+// User decision, verbatim: "use the shipped card for booked slots (1 hour
+// maybe will be the best option i think)". The bespoke three-line card never
+// read [Booking.status], so a CANCELLED/DECLINED/NOT_COMPLETED booking used
+// to render identically to a CONFIRMED one here — a real gap against the
+// INTERVAL-day grid, which always shows a status signal via
+// [MasterBookingCard]. That gap, and the missing price pill and client
+// avatar, are what this swap restores, at the cost of the old three-line
+// text shape: a booked entry now prints a TIME RANGE («11:00–12:30»&nbsp;—
+// [MasterBookingCard]'s own recipe) instead of «Манікюр · 60 хв», and the
+// declared time moves INSIDE the card rather than leading the row as its own
+// line. Both are accepted consequences of the swap, not regressions.
+//
+// [MasterBookingCard] is reused VERBATIM — see [_kEntryMinHeight]'s doc for
+// exactly which constructor argument selects its layout and why. Nothing in
+// this file forks, restyles or re-parameterises that widget.
+//
+// ## THE SHAPE, now
+//
+// One box per entry, in ascending time order, ALL THE SAME FOOTPRINT — see
+// [_kEntryMinHeight]:
+//   * booked — the shipped [MasterBookingCard], unmodified, at
+//     `minHeight: _kEntryMinHeight` (its FULL body: client name, time range,
+//     service, price/price-band, status badge, client avatar mark).
+//   * free — [_FreeTimeCard]: time / «Вільно», muted. Same fill, radius,
+//     border and floor as the booked box; the only difference is LIFT — the
+//     booked card keeps its shadow, the free card drops it and stands on its
+//     border alone. NOT a button, no tap target.
 //
 // NO hour ruler, NO gridlines, NO hour labels — nothing here derives from
-// `BookingsTimelineGrid`'s `_kHourH`. Duration is TEXT (line 3), never
-// geometry: every card floors at [DeclaredTimeCard._kCardMinHeight] (140)
-// regardless of the booking's length, so 30/60/90-minute bookings render
-// identically. This is intentionally NOT `MasterBookingCard` — see the
-// preview README's cost table for what a card here does not carry (no price
-// pill, no status badge — see this file's "STATUS IS NOT SHOWN" section).
+// `BookingsTimelineGrid`'s `_kHourH`, and duration still never drives this
+// list's GEOMETRY: every entry floors at [_kEntryMinHeight] regardless of the
+// booking's length, so 30/60/90-minute bookings render at the same box —
+// pinned by `declared_time_cards_test.dart`'s "uniform card heights" group,
+// which now also asserts a FREE card and a BOOKED card in the same list
+// match, box for box (a hard requirement, not a judgement call).
 //
 // ## THE ENTRY LIST IS A UNION, NEVER A FILTER
 //
@@ -46,22 +64,6 @@
 // `masterBookingsCount`) is derived from the SAME [bookings] list this widget
 // renders every card of — see that file's `_Loaded._body` — so the two can
 // never disagree: free entries are not bookings and are never counted.
-//
-// ## STATUS IS NOT SHOWN — a CANCELLED/DECLINED booking looks identical to a
-// CONFIRMED one here
-//
-// The approved design (E2) carries exactly three lines — time / client /
-// `service · duration` — with no price pill and no `TimelineStatusBadge`,
-// unlike the shipped `MasterBookingCard`. This is what the approved design
-// costs, implemented as approved: a booking's [Booking.status] is not read
-// anywhere in this file, so a CANCELLED, DECLINED or NOT_COMPLETED booking on
-// an EXPLICIT_TIMES day renders on the same bordered-and-lifted card as a
-// CONFIRMED one, with no visual distinction at all. This is a real gap versus
-// the INTERVAL-day grid (`MasterBookingCard` always renders a status signal)
-// and is flagged here as a product decision to make, not silently absorbed —
-// see the phase doc / backlog for the open row. Do NOT re-add the price pill
-// or a status badge to "fix" this without a design update — the preview is
-// the literal source of truth and does not carry either.
 //
 // ## Kyiv time discipline
 //
@@ -95,7 +97,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../../domain/booking.dart';
-import '../../domain/booking_display_x.dart';
+import 'master_booking_card.dart';
 
 /// One resolved row of the declared-times list — a declared time with an
 /// OPTIONAL matched booking, or a booking whose start matched no declared
@@ -250,11 +252,116 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
   return merged;
 }
 
-/// The declared-times day body — a plain scrolling list of [DeclaredTimeCard]
-/// s, one per [_mergeDeclaredAndBookings] entry. Sits inside the same
-/// `Expanded(child: Padding(...))` slot `BookingsDiscoveryView._Loaded._body`
-/// gives `BookingsTimelineGrid` on an INTERVAL day, so it owns its own
-/// scrolling exactly like that widget does.
+/// THE ONE BOX every entry in this list occupies — booked or free. A hard
+/// product requirement, not a judgement call: every card in the column must
+/// read as the same footprint down the page, never a taller booked card next
+/// to a shorter free one.
+///
+/// 120 is not an arbitrary round number:
+///   * It is `bookings_timeline_grid.dart`'s own `_kHourH` (that file's
+///     `static const double _kHourH = 120`) — literally "one hour" at that
+///     grid's dp/hour scale, matching the user's own stated preference for
+///     the booked card's size ("1 hour maybe will be the best option").
+///   * It clears [MasterBookingCard.fullLayoutMinHeight] (118dp — the floor
+///     at or above which that card renders its FULL body rather than compact
+///     or micro; see that constant's own doc) with 2dp to spare. A booked
+///     entry here therefore ALWAYS selects the full body — never falls back
+///     to compact/micro — which is the whole point of picking the "1 hour"
+///     size deliberately rather than any value `>= 118`.
+///   * [MasterBookingCard.occupiedHeightFor] resolves this to exactly
+///     `max(120, 118) == 120` at textScaler 1.0, so the booked card's REAL
+///     rendered box is 120, not merely floored at it with slack above.
+///
+/// [_FreeTimeCard] is floored at this SAME constant (a `BoxConstraints
+/// (minHeight: _kEntryMinHeight)` on its own `Container`, never a fixed
+/// `height:` — same reasoning as [MasterBookingCard.minHeight] being a floor,
+/// not a ceiling: real content past it still grows the box instead of
+/// clipping).
+///
+/// THE SCALE-1.0 CONSTANT both variants share. Above 1.0, [_FreeTimeCard]
+/// does not use this bare number as its floor — it calls
+/// [_freeCardMinHeightFor] instead. See that function's doc for the closed
+/// gap this used to describe.
+const double _kEntryMinHeight = 120;
+
+/// [_FreeTimeCard]'s scale-aware floor — the mechanism that keeps it equal
+/// to a booked [MasterBookingCard] ABOVE textScaler 1.0, not just at 1.0.
+///
+/// THE GAP THIS CLOSES: [MasterBookingCard]'s full body is a fixed stack of
+/// single-line rows, so its REAL rendered box grows past `minHeight: 120` as
+/// the ambient text scale rises — nothing here has to make that happen, it
+/// falls out of the card's own real `Text` widgets scaling like any other
+/// text. [_FreeTimeCard]'s own two-line content, by contrast, never grows
+/// enough on its own to reach a taller floor at any realistic scale, so a
+/// bare `120` constraint on it stopped matching the booked card's real box
+/// above 1.0 — measured 124dp @ 1.15 and 132dp @ 1.3 for the booked card,
+/// pinned by [MasterBookingCard.fullLayoutNaturalHeight]'s own doc ("ONLY AT
+/// 1.0 ... at 1.15 (a 17dp line box) and 1.3 (20dp) ... those two naturals
+/// are unchanged at 124 / 132dp — re-measured, not assumed"). This function
+/// makes [_FreeTimeCard]'s floor track that same growth.
+///
+/// NO SCALE-AWARE API EXISTS ON [MasterBookingCard] TO REUSE HERE.
+/// [MasterBookingCard.fullLayoutNaturalHeight] is a `static const` — it
+/// cannot read a scale — and its own doc says so explicitly: "TEXT SCALE 1.0
+/// ONLY ... any caller predicting a box from this constant MUST gate itself
+/// on `MediaQuery.textScalerOf(context).scale(1) <= 1.0`".
+/// [MasterBookingCard.occupiedHeightFor] is the same: "Valid at textScaler
+/// 1.0 only". Both exist purely to predict the card's box WITHOUT building it
+/// (for `bookings_timeline_grid.dart`'s viewport culling), and neither was
+/// ever extended past 1.0 because nothing needed that until this fix — so
+/// the three measured points below are re-derived here, matching the exact
+/// numbers those two docs already publish, rather than inventing a second,
+/// possibly-drifting copy of the same measurement.
+///
+/// THE THREE MEASURED POINTS (re-measured, never assumed):
+///   * 1.00 -> 120 (the booked card's full body naturally measures 118dp at
+///     1.0 — [MasterBookingCard.fullLayoutNaturalHeight] — under the 120dp
+///     floor, so the floor wins and both variants land on 120)
+///   * 1.15 -> 124
+///   * 1.30 -> 132
+///
+/// THE DERIVATION — piecewise-linear across those three points, each segment
+/// exact at its own endpoints (not merely "close"):
+///   * at or below 1.0 -> flat at [_kEntryMinHeight] (120);
+///   * (1.0, 1.15] -> linear between (1.0, 120) and (1.15, 124);
+///   * (1.15, +inf) -> linear between (1.15, 124) and (1.30, 132),
+///     EXTRAPOLATED past 1.3, never clamped — the booked card keeps growing
+///     past 1.3 too (nothing in [MasterBookingCard]'s full body caps out
+///     there), so clamping this side would silently reopen the exact gap
+///     this function exists to close, right where accessibility text sizes
+///     are largest.
+///
+/// WHY NOT A SHARED INTRINSIC-HEIGHT PASS (option (a), rejected) — this list
+/// already had exactly that shape once and paid for it: `master_booking_card
+/// .dart`'s "THE COMPACT PRICE CAP IS GONE" section describes a
+/// `LayoutBuilder`-driven per-card measurement pulled as a mobile-perf
+/// MEDIUM, because it made the card illegal under `IntrinsicHeight` and cost
+/// a relayout boundary per card. A per-build read of
+/// [MediaQuery.textScalerOf] plus four multiplications is O(1), adds no
+/// relayout boundary, and needs no `IntrinsicHeight` — closing the same gap
+/// at a fraction of the cost.
+double _freeCardMinHeightFor(BuildContext context) {
+  final double scale = MediaQuery.textScalerOf(context).scale(1);
+  if (scale <= 1.0) return _kEntryMinHeight;
+
+  const double kAt115 = 124;
+  if (scale <= 1.15) {
+    // (1.0 -> 120) to (1.15 -> 124).
+    return _kEntryMinHeight +
+        (scale - 1.0) / 0.15 * (kAt115 - _kEntryMinHeight);
+  }
+
+  const double kAt130 = 132;
+  // (1.15 -> 124) to (1.30 -> 132) — extrapolated, not clamped, past 1.30.
+  return kAt115 + (scale - 1.15) / 0.15 * (kAt130 - kAt115);
+}
+
+/// The declared-times day body — a plain scrolling list, one box per
+/// [_mergeDeclaredAndBookings] entry: the shipped [MasterBookingCard] for a
+/// booked entry, [_FreeTimeCard] for a free one — see this file's header.
+/// Sits inside the same `Expanded(child: Padding(...))` slot
+/// `BookingsDiscoveryView._Loaded._body` gives `BookingsTimelineGrid` on an
+/// INTERVAL day, so it owns its own scrolling exactly like that widget does.
 ///
 /// A [StatefulWidget], NOT the `StatelessWidget` this shipped as originally
 /// (mobile-perf MEDIUM fix) — `_Loaded` (the parent) is itself a
@@ -362,64 +469,48 @@ class _DeclaredTimeCardsState extends State<DeclaredTimeCards> {
       itemBuilder: (BuildContext context, int index) {
         final _DeclaredEntry entry = _entries[index];
         final Booking? booking = entry.booking;
-        return booking == null
-            ? DeclaredTimeCard.free(time: entry.time)
-            : DeclaredTimeCard.booked(
-                time: entry.time,
-                booking: booking,
-                onTap: () => widget.onTapBooking(booking),
-              );
+        if (booking == null) {
+          return _FreeTimeCard(time: entry.time);
+        }
+        // The shipped card, VERBATIM — see this file's header. `minHeight:
+        // _kEntryMinHeight` is the ONLY non-default constructor argument;
+        // everything else (decoration, the full/compact/micro switch, the
+        // status badge, the price pill, the client avatar mark) is
+        // [MasterBookingCard]'s own, untouched. `RepaintBoundary` mirrors
+        // `BookingsTimelineGrid`'s own MEDIUM-1 fix for the same card: its
+        // press animation (`AnimatedScale` + `AnimatedContainer`) must not
+        // dirty this whole scrolling list on a single tap.
+        return RepaintBoundary(
+          child: MasterBookingCard(
+            key: ValueKey<String>('declared-master-booking-card-${booking.id}'),
+            booking: booking,
+            onTap: () => widget.onTapBooking(booking),
+            minHeight: _kEntryMinHeight,
+          ),
+        );
       },
     );
   }
 }
 
-/// One declared time. Booked -> time / client / `service · duration`.
-/// Free -> time / «Вільно» — informational only, never a button.
-class DeclaredTimeCard extends StatelessWidget {
-  const DeclaredTimeCard._({required this.time, this.booking, this.onTap});
-
-  /// A declared time that carries a booking.
-  factory DeclaredTimeCard.booked({
-    required TimeOfDay time,
-    required Booking booking,
-    required VoidCallback onTap,
-  }) => DeclaredTimeCard._(time: time, booking: booking, onTap: onTap);
-
-  /// A declared time with nothing on it.
-  factory DeclaredTimeCard.free({required TimeOfDay time}) =>
-      DeclaredTimeCard._(time: time);
+/// One FREE declared time — time / «Вільно», muted, informational only,
+/// never a button. See [_kEntryMinHeight]'s doc for why this is floored at
+/// the exact same height as a booked [MasterBookingCard] rather than at some
+/// independently-tuned number, and [_freeCardMinHeightFor]'s doc for how that
+/// floor tracks the booked card's growth above textScaler 1.0.
+class _FreeTimeCard extends StatelessWidget {
+  const _FreeTimeCard({required this.time});
 
   final TimeOfDay time;
-  final Booking? booking;
-  final VoidCallback? onTap;
 
-  /// The one box every card gets, booked or free, 30 minutes or 90 — a
-  /// FLOOR, not a fixed size, so real content past it (a large text scale)
-  /// grows the card with it. Measured naturals at textScaler 1.0 in the
-  /// approved preview: booked ~122dp, free ~90dp; floored at 140 for a little
-  /// clearance on both. See the preview's `declared_time_cards.dart` for the
-  /// full measurement note.
-  static const double _kCardMinHeight = 140;
+  static const EdgeInsets _kPadding = EdgeInsets.all(VelvetSpacing.lg);
 
-  static const EdgeInsets _kCardPadding = EdgeInsets.all(VelvetSpacing.lg);
-
-  /// The booked card's decoration — `MasterBookingCard`'s own recipe: base
-  /// fill, card radius, the 1.5dp camel border at 0.38, and the
-  /// Impeller-safe non-offset `borderedCard` lift.
-  static final BoxDecoration _bookedDecoration = BoxDecoration(
-    color: BrandColors.base,
-    borderRadius: BorderRadius.circular(VelvetRadii.card),
-    border: Border.all(
-      color: BrandColors.accent.withValues(alpha: 0.38),
-      width: 1.5,
-    ),
-    boxShadow: VelvetShadows.borderedCard,
-  );
-
-  /// The free card's decoration — identical, minus the lift: same footprint,
-  /// same radius, same border, it simply does not rise off the base.
-  static final BoxDecoration _freeDecoration = BoxDecoration(
+  /// Same fill, radius and border as [MasterBookingCard]'s own recipe (that
+  /// card's `_decorationUnpressed` — base fill, `VelvetRadii.card`, a 1.5dp
+  /// camel border at alpha 0.38) so the two variants read as siblings at
+  /// rest, not just at the same height — minus the shadow, which is the one
+  /// deliberate difference: the free card does not rise off the base.
+  static final BoxDecoration _decoration = BoxDecoration(
     color: BrandColors.base,
     borderRadius: BorderRadius.circular(VelvetRadii.card),
     border: Border.all(
@@ -428,113 +519,45 @@ class DeclaredTimeCard extends StatelessWidget {
     ),
   );
 
-  /// Line 1 — the declared time. Shipped `VelvetText.statValue()`, mocha
-  /// rather than espresso so the card's anchor reads as structure rather
-  /// than competing with the client name below it.
+  /// The declared time. Shipped `VelvetText.statValue()`, mocha rather than
+  /// espresso so the card's anchor reads as structure.
   static final TextStyle _timeStyle = VelvetText.statValue().copyWith(
     color: BrandColors.accentDeep,
   );
 
-  /// Line 2 — the client, when booked.
-  static final TextStyle _nameStyle = VelvetText.subheading();
-
-  /// Line 2, free variant — «Вільно» in the same slot, muted.
+  /// «Вільно», muted.
   static final TextStyle _freeStyle = VelvetText.subheading().copyWith(
     color: BrandColors.muted,
   );
 
-  /// Line 3 — the service, the shipped full-layout recipe.
-  static final TextStyle _serviceStyle = VelvetText.masterCardServiceFull;
-
-  /// Line 3 — the duration half, muted so `service · duration` reads as one
-  /// line with a subordinate tail.
-  static final TextStyle _durationStyle = VelvetText.masterCardServiceFull
-      .copyWith(color: BrandColors.muted, fontWeight: FontWeight.w600);
-
   @override
   Widget build(BuildContext context) {
-    final Booking? b = booking;
-    final Widget card = Container(
-      constraints: const BoxConstraints(minHeight: _kCardMinHeight),
-      padding: _kCardPadding,
-      decoration: b == null ? _freeDecoration : _bookedDecoration,
-      child: b == null ? _buildFreeBody(context) : _buildBookedBody(context, b),
-    );
-
-    if (b == null) {
-      final AppLocalizations l10n = AppLocalizations.of(context);
-      return MergeSemantics(
-        child: Semantics(
-          key: Key(
-            'declared-time-card-free-'
-            '${time.hour.toString().padLeft(2, '0')}'
-            '${time.minute.toString().padLeft(2, '0')}',
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return MergeSemantics(
+      child: Semantics(
+        key: Key(
+          'declared-time-card-free-'
+          '${time.hour.toString().padLeft(2, '0')}'
+          '${time.minute.toString().padLeft(2, '0')}',
+        ),
+        label: '${formatTime(time)} — ${l10n.masterBookingsDeclaredTimeFree}',
+        child: Container(
+          constraints: BoxConstraints(
+            minHeight: _freeCardMinHeightFor(context),
           ),
-          label: '${formatTime(time)} — ${l10n.masterBookingsDeclaredTimeFree}',
-          child: card,
+          padding: _kPadding,
+          decoration: _decoration,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(formatTime(time), style: _timeStyle),
+              const SizedBox(height: VelvetSpacing.sm),
+              Text(l10n.masterBookingsDeclaredTimeFree, style: _freeStyle),
+            ],
+          ),
         ),
-      );
-    }
-
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    final String clientName = b.clientName ?? l10n.bookingDetailGuestClient;
-    return Semantics(
-      button: true,
-      label: l10n.masterBookingCardSemantics(clientName, b.serviceName),
-      child: GestureDetector(
-        key: Key('declared-time-card-${b.id}'),
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: card,
       ),
-    );
-  }
-
-  Widget _buildBookedBody(BuildContext context, Booking b) {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    final String clientName = b.clientName ?? l10n.bookingDetailGuestClient;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Text(formatTime(time), style: _timeStyle),
-        const SizedBox(height: VelvetSpacing.sm),
-        Text(
-          clientName,
-          style: _nameStyle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: VelvetSpacing.xs + 2),
-        // «Манікюр · 60 хв» — the service and its DURATION, per the sketch.
-        // NOT the shipped card's start–end RANGE.
-        Row(
-          children: <Widget>[
-            Flexible(
-              child: Text(
-                b.serviceName,
-                style: _serviceStyle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Text(' · ${b.durationLabel}', style: _durationStyle),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFreeBody(BuildContext context) {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Text(formatTime(time), style: _timeStyle),
-        const SizedBox(height: VelvetSpacing.sm),
-        Text(l10n.masterBookingsDeclaredTimeFree, style: _freeStyle),
-      ],
     );
   }
 }
