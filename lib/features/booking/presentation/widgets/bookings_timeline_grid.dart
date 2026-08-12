@@ -1232,6 +1232,27 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     final int firstHour = firstMinute ~/ 60;
     final int lastHour = (_lastMinute / 60.0).ceil();
 
+    // BUG FIX — the gridline/card `Stack`'s own height, explicit and derived
+    // from `firstHour`/`lastHour` exactly like `TimelineHourRuler` computes
+    // its total extent, so the two stay pixel-registered regardless of
+    // `lanesCount`. Previously the `Stack` sized itself from its one
+    // non-`Positioned` child (the lane `Row`, see below), which collapses to
+    // `Size.zero` whenever `lanesCount == 0` — a working day with genuinely
+    // no (visible) bookings. The `Positioned` gridlines were laid out
+    // correctly in that case but had no `Stack` extent to paint inside, so
+    // the whole grid (ruler numbers survived — see `TimelineHourRuler`,
+    // which never depended on lane content — but the gridlines and card area
+    // vanished). This formula is always an upper bound on the tallest card's
+    // real bottom: `_lastMinute` already widens to cover every booking AND
+    // the schedule window (R1 fix above), and `lastHour = ceil(_lastMinute /
+    // 60)` rounds that up to the same hour granularity `_kHourH` uses — so
+    // switching from "guessed from content" to "derived from the same clock
+    // math the ruler uses" never clips an existing card, it only makes the
+    // empty-lane case render. The trailing `+ 1` covers the last gridline's
+    // own 1dp height, which sits exactly at `totalHours * _kHourH`.
+    final double gridStackHeight =
+        (lastHour - firstHour) * BookingsTimelineGrid._kHourH + 1;
+
     // The scroll-derived culling band ([_visibleBottom]) is consumed ONLY
     // inside the [ValueListenableBuilder] wrapping the lane `Row` below, so a
     // scroll re-anchor rebuilds that `Row` alone — never this `build`, the
@@ -1273,14 +1294,36 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                 );
                 return SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: contentW,
-                    // Deliberately NO `height:` — R3 fix. The `Stack` below
-                    // sizes itself to its non-`Positioned` child (the `Row`
-                    // of lane `Column`s), i.e. to the REAL summed height of
-                    // the tallest lane's spacers + actual card sizes, not a
-                    // guessed constant. See the file header's "R3" section.
-                    //
+                  child: ConstrainedBox(
+                    // `minHeight:` — see [gridStackHeight]'s doc above (BUG
+                    // FIX): a FLOOR, not a fixed size. `width` stays tight
+                    // (min == max == `contentW`, same as the `SizedBox` this
+                    // replaced); `height` stays LOOSE above the floor
+                    // (`maxHeight` defaults to infinity), so the `Stack`
+                    // below can still grow taller than [gridStackHeight] when
+                    // real card content needs more room (ADDENDUM 4's
+                    // textScaler-inflated cards do exactly this — a TIGHT
+                    // height here clipped them, "RenderFlex overflowed").
+                    // What the floor fixes is the OTHER end: on a zero-lane
+                    // day the `Row` of lane `Column`s (the `Stack`'s only
+                    // non-`Positioned` child) sizes to `Size.zero`, and
+                    // without a floor the `Stack` collapsed to zero height
+                    // right along with it — the `Positioned` gridlines were
+                    // laid out correctly but had no `Stack` extent to paint
+                    // inside, so the whole grid vanished. The floor is
+                    // derived from the same firstHour/lastHour clock math
+                    // `TimelineHourRuler` already uses for its own extent, so
+                    // the two stay in lockstep. The R3 fix's original goal (a
+                    // real, non-guessed extent, not a magic constant) still
+                    // holds either way — content-driven when there is
+                    // content, clock-derived when there is none.
+                    constraints: BoxConstraints(
+                      minWidth: contentW,
+                      maxWidth: contentW,
+                      minHeight:
+                          gridStackHeight +
+                          TimelineHourRuler.labelCenteringNudge,
+                    ),
                     // The leading `Padding` is the label-clipping fix (see
                     // `TimelineHourRuler.labelCenteringNudge`'s doc): rather
                     // than nudging each ruler label UP (which sent the first

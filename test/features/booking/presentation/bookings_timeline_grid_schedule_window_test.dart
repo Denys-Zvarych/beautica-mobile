@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
@@ -59,6 +60,27 @@ Booking _booking({
 
 Rect _cardRect(WidgetTester tester, String id) =>
     tester.getRect(find.byKey(ValueKey<String>('timeline-card-$id')));
+
+/// EVERY rendered gridline (hour + half-hour `ColoredBox` hairlines) inside
+/// the grid's own `Stack`, sorted ascending by rendered top — mirrors
+/// `bookings_timeline_grid_test.dart`'s identically-named helper. No card
+/// ancestor to exclude in this file's zero-lane fixtures (see the group
+/// below): with `bookings: const <Booking>[]` no `MasterBookingCard` (and
+/// therefore no same-coloured card hairline) is ever built.
+List<Rect> _gridlineLadderAscending(WidgetTester tester) {
+  final Color halfHour = BrandColors.faint.withValues(alpha: 0.4);
+  final Iterable<Element> elements = find
+      .byWidgetPredicate(
+        (Widget w) =>
+            w is ColoredBox &&
+            (w.color == BrandColors.faint || w.color == halfHour),
+      )
+      .evaluate();
+  return elements.map((Element e) {
+    final RenderBox box = e.renderObject! as RenderBox;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
+}
 
 /// A [Booking] `List` wrapper that counts reads of `.length` — the signal
 /// `BookingsTimelineGrid._recomputeLayoutModel` touches on every recompute
@@ -429,4 +451,143 @@ void main() {
       );
     },
   );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ZERO-LANE GRID GEOMETRY — the direct unit-level guard for the
+  // collapsed-height regression (mobile-qa; user-reported via «Мої записи»)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // With `lanesCount == 0` (an empty `bookings` list), the gridline `Stack`'s
+  // ONE non-`Positioned` sizing child — the lane `Row` — emits no children
+  // and sizes to `Size.zero`. Before the fix, the `Stack` (and therefore the
+  // whole grid area — the `Positioned` gridlines had nothing to paint
+  // inside) collapsed to zero height right along with it, even though the
+  // ruler still drew its hour numbers (it sizes itself independently). A
+  // `find.byType(BookingsTimelineGrid)` assertion is satisfied either way —
+  // see this group's own mutation-tested assertion below, which is not.
+  group('zero-lane grid geometry — the collapsed-height regression', () {
+    testWidgets(
+      'an empty bookings list against a resolved 09:00-18:00 window still '
+      'renders a non-collapsed gridline area, tied to that exact span',
+      (WidgetTester tester) async {
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: const <Booking>[],
+            day: _day,
+            onBookingTap: (_) {},
+            scheduleFirstMinute: 540, // 09:00
+            scheduleWindowEndMinute: 1080, // 18:00
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+
+        final List<Rect> ladder = _gridlineLadderAscending(tester);
+        // Derived from the SEEDED window (9h -> 18 half-hour rungs + the
+        // origin rung), independent of whatever the grid actually rendered
+        // — a wrong firstHour/lastHour computation fails HERE, before the
+        // height assertion below even runs.
+        expect(
+          ladder.length,
+          19,
+          reason:
+              'the 09:00-18:00 window must produce exactly 19 gridline '
+              'rungs regardless of lanesCount',
+        );
+        final double rungBand = ladder[1].top - ladder[0].top;
+        expect(rungBand, greaterThan(0));
+        final double expectedGridHeight = (ladder.length - 1) * rungBand + 1;
+
+        // THE CAUSE-2 ASSERTION. On the collapsed-height bug this reads ~0
+        // (the Stack sizes to its empty lane Row) — see the mutation-test
+        // evidence attached to this session's QA report for the exact
+        // before/after.
+        final double gridHeight = tester
+            .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
+            .height;
+        expect(gridHeight, closeTo(expectedGridHeight, 0.5));
+        expect(
+          gridHeight,
+          greaterThan(500),
+          reason:
+              'sanity floor: a 9-hour window at any realistic hour-height '
+              'is well over 500dp — this catches a collapse to ~0 even if '
+              'the ladder-based derivation above were somehow also wrong',
+        );
+
+        // RULER <-> GRIDLINE LOCKSTEP — the fix's whole claim is that the
+        // floor is derived from the SAME firstHour/lastHour clock math the
+        // ruler already uses, so the two stay registered even with zero
+        // lanes. Mirrors the R4 group's exact relationship in the sibling
+        // file (`bookings_timeline_grid_test.dart`).
+        final Rect firstLabel = tester.getRect(
+          find.descendant(
+            of: find.byType(TimelineHourRuler),
+            matching: find.text('09:00'),
+          ),
+        );
+        final Rect lastLabel = tester.getRect(
+          find.descendant(
+            of: find.byType(TimelineHourRuler),
+            matching: find.text('18:00'),
+          ),
+        );
+        expect(
+          ladder.first.top - firstLabel.top,
+          closeTo(TimelineHourRuler.labelCenteringNudge, 0.5),
+        );
+        expect(
+          ladder.last.top - lastLabel.top,
+          closeTo(TimelineHourRuler.labelCenteringNudge, 0.5),
+        );
+      },
+    );
+
+    testWidgets(
+      'a WIDER window (09:00-22:00) against the SAME zero bookings renders '
+      'a proportionally TALLER gridline area — proving the height tracks '
+      'the window, not a fixed floor',
+      (WidgetTester tester) async {
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: const <Booking>[],
+            day: _day,
+            onBookingTap: (_) {},
+            scheduleFirstMinute: 540, // 09:00
+            scheduleWindowEndMinute: 1320, // 22:00
+          ),
+        );
+        await tester.pump();
+
+        final double gridHeight = tester
+            .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
+            .height;
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(
+            bookings: const <Booking>[],
+            day: _day,
+            onBookingTap: (_) {},
+            scheduleFirstMinute: 540, // 09:00
+            scheduleWindowEndMinute: 1080, // 18:00
+          ),
+        );
+        await tester.pump();
+
+        final double narrowerGridHeight = tester
+            .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
+            .height;
+
+        expect(
+          gridHeight,
+          greaterThan(narrowerGridHeight),
+          reason:
+              'a wider seeded window must render a taller zero-lane grid — '
+              'a fixed/hardcoded floor would render the SAME height for '
+              'both',
+        );
+      },
+    );
+  });
 }

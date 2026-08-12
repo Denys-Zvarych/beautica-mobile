@@ -962,7 +962,19 @@ class _Loaded extends StatelessWidget {
     // (visible) bookings is "no bookings", not "no working hours" (that
     // verdict is [build]'s job, decided BEFORE this method is ever called —
     // see the class doc).
-    if (items.isEmpty) {
+    //
+    // BUG FIX (user-reported) — gated on `window == null` now, not on
+    // `items.isEmpty` alone. Once a real working-hours window has resolved,
+    // the master's day HAS hours — an empty result (zero bookings, bookings
+    // that all fall outside the window, or a filter matching nothing) must
+    // still render the hour ruler AND gridlines, just with no cards on them,
+    // so the master can see the shape of their working day even when it's
+    // empty. Locked product decision: no accompanying empty-state text in
+    // that case — just the grid. `window == null` covers every call site
+    // that predates this feature (`useScheduleWindow: false`, and
+    // `useScheduleWindow: true`'s own loading/error fallbacks — see [build]),
+    // which keep the illustrated empty states exactly as before.
+    if (items.isEmpty && window == null) {
       // The two empties are genuinely different situations — see
       // `master_bookings_states.dart`'s header. `hasFilters` is the whole
       // distinction: with no filter active, an empty result means this day is

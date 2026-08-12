@@ -68,6 +68,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
@@ -76,6 +77,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_t
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_bookings_states.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -157,6 +159,30 @@ void _seedWorkingHours(FakeBackend fb, Iterable<DateTime> days) {
         intervals: const <(String, String)>[('09:00:00', '21:00:00')],
       ),
   ]);
+}
+
+/// EVERY rendered gridline (`BookingsTimelineGrid`'s hour + half-hour
+/// `ColoredBox` hairlines), sorted ascending by rendered top — mirrors
+/// `bookings_timeline_grid_test.dart`'s identically-named widget-tier helper.
+///
+/// mobile-qa (this session): `find.byType(BookingsTimelineGrid)` /
+/// `find.byType(TimelineHourRuler)` `findsOneWidget` is satisfied by the
+/// COLLAPSED widget too — the collapsed-height bug leaves both types in the
+/// tree, just at zero height. This helper backs the REAL-geometry assertion
+/// that actually guards it at the integration tier.
+List<Rect> _gridlineLadderAscending(WidgetTester tester) {
+  final Color halfHour = BrandColors.faint.withValues(alpha: 0.4);
+  final Iterable<Element> elements = find
+      .byWidgetPredicate(
+        (Widget w) =>
+            w is ColoredBox &&
+            (w.color == BrandColors.faint || w.color == halfHour),
+      )
+      .evaluate();
+  return elements.map((Element e) {
+    final RenderBox box = e.renderObject! as RenderBox;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
 }
 
 /// Scrolls the day rail until [day]'s chip is actually built, taps it, and
@@ -307,24 +333,38 @@ void main() {
       // of what hours are published for it — the same date fence a real
       // backend's own `from == to` filter already provides, which this fake
       // does not model (see `_slicedBookingsPageEnvelope`'s own doc). So the
-      // landing render is the TRUE EMPTY state here (zero bookings, no
-      // filter active — the published `_kyivToday` window above is what
-      // keeps it from reading as NO_SCHEDULE instead), and the card-content
-      // assertion that used to sit here moved to step 6, right after the
-      // rail narrows to `booking-1`'s own day. This step keeps only what is
-      // actually true of the un-narrowed landing fetch: that it reached the
-      // fake at all, and its own wire shape.
+      // landing render is genuinely empty here (zero bookings, no filter
+      // active), and the card-content assertion that used to sit here moved
+      // to step 6, right after the rail narrows to `booking-1`'s own day.
+      // This step keeps only what is actually true of the un-narrowed
+      // landing fetch: that it reached the fake at all, and its own wire
+      // shape.
+      //
+      // BUG FIX (user-reported): a working day with a resolved schedule
+      // window now ALWAYS renders the grid (hour ruler + gridlines), even
+      // with zero bookings — `MasterBookingsEmptyState`'s illustrated
+      // placeholder is retired for that case (locked product decision: no
+      // accompanying text, just the grid). The published `_kyivToday` window
+      // above is exactly what makes this the grid-no-cards case rather than
+      // NO_SCHEDULE.
       expect(
         fb.getMyBookingsCalls,
         greaterThan(0),
         reason: 'the list must be served by the real endpoint',
       );
       expect(
-        find.byType(MasterBookingsEmptyState),
+        find.byType(BookingsTimelineGrid),
         findsOneWidget,
         reason:
-            "booking-1 is not dated on _kyivToday, so the landing day's own "
-            'true-empty state renders here — see the note above',
+            "booking-1 is not dated on _kyivToday, so the landing day is "
+            'genuinely empty, but its working-hours window is still '
+            'published — the grid must render regardless, per the '
+            'zero-bookings-still-renders-the-grid fix',
+      );
+      expect(find.byType(MasterBookingsEmptyState), findsNothing);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsNothing,
       );
 
       // ── 3b. Phases 7.9–7.11: the day-scoped wire shape — this is the part
@@ -1766,9 +1806,14 @@ void main() {
       // opens «Мої записи»…") for the full explanation of why that booking
       // can never render on the landing day regardless of published hours.
       // This flow never narrows to `booking-1`'s own day at all, so the
-      // landing render is the TRUE EMPTY state throughout — which is fine,
-      // since this test's whole point is that the month switcher does not
-      // touch the selection or re-fetch, not what the day's content is.
+      // landing render is genuinely empty throughout — which is fine, since
+      // this test's whole point is that the month switcher does not touch
+      // the selection or re-fetch, not what the day's content is.
+      //
+      // BUG FIX (user-reported): with hours published for `_kyivToday`, an
+      // empty landing day now renders `BookingsTimelineGrid` (ruler +
+      // gridlines, no cards) rather than `MasterBookingsEmptyState` — see
+      // that class's doc.
       _seedWorkingHours(fb, <DateTime>[_kyivToday]);
 
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
@@ -1780,11 +1825,11 @@ void main() {
         startsWith(RouteNames.masterBookings),
       );
       expect(
-        find.byType(MasterBookingsEmptyState),
+        find.byType(BookingsTimelineGrid),
         findsOneWidget,
         reason:
-            'precondition: the landing day\'s true-empty state, per the note '
-            'above',
+            'precondition: the landing day is empty but its working-hours '
+            'window is resolved, so the grid renders, per the note above',
       );
 
       // The screen opens on Kyiv "today"'s month — where "today" is the
@@ -1833,12 +1878,12 @@ void main() {
             'new fetch would have replaced it with a fresh map',
       );
       expect(
-        find.byType(MasterBookingsEmptyState),
+        find.byType(BookingsTimelineGrid),
         findsOneWidget,
         reason:
             "the originally-selected day's content must still be shown — "
-            'still the same true-empty state, not reset to NO_SCHEDULE or '
-            'anything else',
+            'still the same empty-but-working grid, not reset to '
+            'NO_SCHEDULE or anything else',
       );
     },
   );
@@ -2010,7 +2055,8 @@ void main() {
       // unrelated to `_kyivToday` — see `master_bookings_flow_test.dart`'s
       // first test for the full explanation of why it can never render on
       // the landing day. This flow never narrows to its own day, so the
-      // resolved body below is the TRUE EMPTY state, not the seeded card.
+      // resolved body below is the empty-but-working grid, not the seeded
+      // card.
       _seedWorkingHours(fb, <DateTime>[_kyivToday]);
 
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
@@ -2078,13 +2124,15 @@ void main() {
 
       expect(find.byKey(const Key('master-bookings-skeleton')), findsNothing);
       expect(
-        find.byType(MasterBookingsEmptyState),
+        find.byType(BookingsTimelineGrid),
         findsOneWidget,
         reason:
-            'once the fetch resolves the skeleton must clear and the true '
-            "empty state must render — booking-1 is not this day's own "
-            'booking, see the note above',
+            'once the fetch resolves the skeleton must clear and the '
+            'empty-but-working grid must render — booking-1 is not this '
+            "day's own booking, see the note above; the working-hours "
+            'window keeps this from reading as `MasterBookingsEmptyState`',
       );
+      expect(find.byType(MasterBookingsEmptyState), findsNothing);
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
         findsNothing,
@@ -2092,54 +2140,98 @@ void main() {
     },
   );
 
-  // ── 2026-07-22 — a genuinely empty day: the TRUE empty state ───────────────
+  // ── a genuinely empty WORKING day renders the grid, not an illustration ────
   //
-  // Step 2.7 Rule 3b: `MasterBookingsEmptyState` vs `MasterBookingsNoResultsState`
-  // is a real product distinction (see `master_bookings_states.dart`'s file
-  // header) the widget tier already pins against a mocked, hand-built empty
-  // page. This closes the same gap every other flow in this file closes for
-  // its own surface: proving the distinction survives a REAL, empty
+  // BUG FIX (user-reported, superseding the original "TRUE empty state, not
+  // the filter-empty one" version of this test): `MasterBookingsEmptyState`
+  // vs `MasterBookingsNoResultsState` (see `master_bookings_states.dart`'s
+  // file header) is still a real distinction, but ONLY once no working-hours
+  // window has resolved (`window == null` — legacy/loading/error paths, and
+  // the `useScheduleWindow: false` client screen). Once a window HAS
+  // resolved, a day with zero (visible) bookings — whether that's genuinely
+  // no bookings, a filter matching nothing, or every booking falling outside
+  // the window — must render the hour ruler AND gridlines with no cards on
+  // them, never either illustrated empty state (locked product decision: no
+  // accompanying text). This test proves that against a REAL, empty
   // `GET /bookings/me` page — `seedManyBookingsDataset` with an EMPTY list is
   // the fake's own supported way to serve a real (statuses, sort, page) slice
-  // over NOTHING, so no filter needs to be forced to get here, matching the
-  // "no filter active, nothing to reset" precondition the true-empty copy
-  // requires.
-  testWidgets('a genuinely empty day renders the TRUE empty state, not the '
-      'no-results-from-filter one', (tester) async {
-    final fb = FakeBackend()
-      ..currentRole = UserRole.independentMaster
-      ..seedManyBookingsDataset(const <Map<String, dynamic>>[]);
-    final GoRouter router = await AppHarness.boot(tester, fb);
+  // over NOTHING — with a PUBLISHED working-hours window, which is exactly
+  // the reported bug's reproduction shape.
+  testWidgets(
+    'a genuinely empty WORKING day renders the timeline grid (ruler + '
+    'gridlines, no cards), never an illustrated empty state',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..seedManyBookingsDataset(const <Map<String, dynamic>>[]);
+      final GoRouter router = await AppHarness.boot(tester, fb);
 
-    // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This is the
-    // TRUE-empty-vs-no-working-hours distinction the test exists for: the
-    // landing day must resolve to a PUBLISHED, empty day (this seed), not to
-    // NO_SCHEDULE (`FakeBackend`'s unseeded default) — the latter would
-    // render `MasterBookingsNoWorkingHoursState` instead of the
-    // `MasterBookingsEmptyState` this test asserts, for the wrong reason.
-    _seedWorkingHours(fb, <DateTime>[_kyivToday]);
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. The landing
+      // day must resolve to a PUBLISHED, empty day (this seed), not to
+      // NO_SCHEDULE (`FakeBackend`'s unseeded default) — the latter would
+      // still correctly render `MasterBookingsNoWorkingHoursState` (that
+      // path is unchanged by this fix), which is not what this test is
+      // about.
+      _seedWorkingHours(fb, <DateTime>[_kyivToday]);
 
-    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
-    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-    await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
 
-    expect(find.byType(MasterBookingsScreen), findsOneWidget);
-    expect(AppHarness.location(router), startsWith(RouteNames.masterBookings));
-    expect(
-      find.byType(MasterBookingsEmptyState),
-      findsOneWidget,
-      reason:
-          'no filter is active — an empty day must render the TRUE empty '
-          'state, not the filter-empty one',
-    );
-    expect(find.byKey(const Key('master-bookings-empty')), findsOneWidget);
-    expect(find.byKey(const Key('master-bookings-no-results')), findsNothing);
-    expect(
-      find.byKey(const Key('master-booking-card-booking-1')),
-      findsNothing,
-    );
-  });
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+      expect(
+        find.byType(BookingsTimelineGrid),
+        findsOneWidget,
+        reason:
+            'a working day with zero bookings must still render the '
+            'timeline grid — see the bug-fix note above',
+      );
+      expect(find.byType(TimelineHourRuler), findsOneWidget);
+      expect(find.byType(MasterBookingsEmptyState), findsNothing);
+      expect(find.byKey(const Key('master-bookings-empty')), findsNothing);
+      expect(find.byKey(const Key('master-bookings-no-results')), findsNothing);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsNothing,
+      );
+
+      // mobile-qa (this session) — THE CAUSE-2 GEOMETRY ASSERTION. Every
+      // check above is satisfied by the COLLAPSED grid too: `_kyivToday` has
+      // zero bookings, so `lanesCount == 0`, which is exactly the
+      // precondition for the second (subtler) cause of the reported bug —
+      // the gridline `Stack` collapsing to `Size.zero` while
+      // `BookingsTimelineGrid`/`TimelineHourRuler` remain present in the
+      // tree. `find.byType(...).findsOneWidget` cannot distinguish a
+      // collapsed grid from a real one; only rendered geometry can.
+      final List<Rect> ladder = _gridlineLadderAscending(tester);
+      expect(
+        ladder.length,
+        25,
+        reason:
+            'the seeded 09:00-21:00 window (`_seedWorkingHours`) is 12 '
+            'hours = 24 half-hour rungs + the origin rung',
+      );
+      final double rungBand = ladder[1].top - ladder[0].top;
+      expect(rungBand, greaterThan(0));
+      final double expectedGridHeight = (ladder.length - 1) * rungBand + 1;
+      final double gridHeight = tester
+          .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
+          .height;
+      expect(
+        gridHeight,
+        closeTo(expectedGridHeight, 0.5),
+        reason:
+            'on the collapsed-height bug this reads ~0 (the Stack sizes to '
+            'its empty lane Row) while every find.byType assertion above '
+            'keeps passing regardless',
+      );
+    },
+  );
 
   // ── 2026-07-22 — a failed fetch: the error state, and a working retry ──────
   //
@@ -2185,8 +2277,8 @@ void main() {
       // unrelated to `_kyivToday` — see `master_bookings_flow_test.dart`'s
       // first test for the full explanation of why it can never render on
       // the landing day. This flow never narrows to its own day, so a
-      // successful retry resolves to the TRUE EMPTY state, not the seeded
-      // card.
+      // successful retry resolves to the empty-but-working grid, not the
+      // seeded card.
       _seedWorkingHours(fb, <DateTime>[_kyivToday]);
 
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
@@ -2242,13 +2334,15 @@ void main() {
       );
       expect(find.byKey(const Key('my_bookings_error')), findsNothing);
       expect(
-        find.byType(MasterBookingsEmptyState),
+        find.byType(BookingsTimelineGrid),
         findsOneWidget,
         reason:
             'the retry must have succeeded and rendered the day\'s real '
-            "state — booking-1 is not this day's own booking, see the note "
-            'above',
+            "state — the empty-but-working grid, since booking-1 is not "
+            "this day's own booking (see the note above) but the "
+            'working-hours window is still resolved',
       );
+      expect(find.byType(MasterBookingsEmptyState), findsNothing);
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
         findsNothing,
