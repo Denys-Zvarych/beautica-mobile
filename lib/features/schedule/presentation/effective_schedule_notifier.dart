@@ -7,17 +7,24 @@
 // resolved [EffectiveDay] list for its range via
 // [ScheduleRepository.effectiveSchedule].
 //
-// Bounded-cache keepAlive (NOT unconditional): after a SUCCESSFUL fetch the
-// instance pins itself with `ref.keepAlive()` for [_kRangeCacheTtl] (≈5 min) so
+// Bounded-cache keepAlive (NOT unconditional): after a SUCCESSFUL fetch, OR a
+// build that short-circuits to the last resolved page (see the mobile-perf
+// MEDIUM follow-up below), the instance pins itself with `ref.keepAlive()`
+// for [_kRangeCacheTtl] (≈5 min) — via the shared [_pinForTtl] helper — so
 // paging away and BACK to a recently-viewed window (e.g. July → June → July)
 // serves the cached data instantly — no AsyncLoading, no loading placeholder.
 // A release [Timer] closes the keepAlive link after the TTL, so a year of
 // scrolling does NOT pin twelve months of per-day data forever — inactive
 // windows still release once the timer fires while unwatched. The timer is
-// cancelled on dispose. We pin only on success: a failed/loading fetch is left
-// to dispose normally so the next revisit re-fetches (a retry path). The
-// current/visible month also stays alive simply because the calendar widget
-// keeps watching it.
+// cancelled on dispose. BOTH completing paths must re-pin on every build,
+// because Riverpod releases a build's `keepAlive()` link the moment that
+// build is superseded by the next one — a build that reaches its return
+// without calling [_pinForTtl] finishes with zero active pins (mobile-qa
+// MEDIUM fix 2026-08-12; the short-circuit used to skip this, silently
+// defeating the TTL cache). We pin only on a resolved page (fetched or
+// cached): a failed/loading fetch is left to dispose normally so the next
+// revisit re-fetches (a retry path). The current/visible month also stays
+// alive simply because the calendar widget keeps watching it.
 //
 // Cache coherence (reactive): the effective schedule for a range DEPENDS on the
 // per-date overrides for that SAME range — `build` `ref.watch`es
@@ -136,6 +143,33 @@ class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
   /// [_lastOverridesSeen] / [_lastDays].
   int _buildGen = 0;
 
+  /// Pins this instance alive for [_kRangeCacheTtl] — called from BOTH the
+  /// cache-hit short-circuit and the real-fetch success path in [build] so
+  /// every completed build ends with exactly one live pin.
+  ///
+  /// mobile-qa MEDIUM fix: `ref.keepAlive()`'s link is scoped to the build
+  /// that opened it — Riverpod releases a build's own links the moment that
+  /// build is superseded by a new one (e.g. `overridesRevisionProvider`
+  /// bumping on an unrelated write). Only the real-fetch path used to call
+  /// this, so a rebuild that took the cache-hit short-circuit finished with
+  /// NO active pin at all (the previous build's link already released, and
+  /// no new one opened) — if nothing happened to be watching that instant,
+  /// autoDispose tore it down and silently recreated it on the next read,
+  /// defeating the 5-minute TTL cache this header promises.
+  ///
+  /// Lifecycle per call: opens one [KeepAliveLink], starts one [Timer] that
+  /// closes it after [_kRangeCacheTtl], and registers [Ref.onDispose] to
+  /// cancel that [Timer]. `onDispose` fires (cancelling the Timer) whenever
+  /// THIS build is superseded, so a stale build can never leave a pending
+  /// [Timer] behind; the link itself either closes on TTL expiry or is
+  /// released by Riverpod's own supersession handling — never both, and
+  /// never neither.
+  void _pinForTtl() {
+    final link = ref.keepAlive();
+    final timer = Timer(_kRangeCacheTtl, link.close);
+    ref.onDispose(timer.cancel);
+  }
+
   @override
   Future<List<EffectiveDay>> build(ScheduleRange range) async {
     final int myGen = ++_buildGen;
@@ -188,6 +222,11 @@ class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
     // real fetch below, so this can never suppress a needed refetch.
     final List<EffectiveDay>? cached = _lastDays;
     if (!overridesChanged && !revisionOverlapsRange && cached != null) {
+      // Re-pin: this build superseded the one that opened the previous
+      // link (Riverpod already released that link the moment this build
+      // started), so without this call the instance would be returning to
+      // an unwatched caller with zero active pins — see [_pinForTtl]'s doc.
+      _pinForTtl();
       return cached;
     }
 
@@ -199,14 +238,12 @@ class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
 
     // SUCCESS path only (this line is reached only after both awaits resolved):
     // pin the resolved window for [_kRangeCacheTtl] so a revisit serves cached
-    // data instantly, then release it. Closing the link does not destroy the
-    // instance while it is still watched, and re-running `build` (after a
-    // reactive override change or an explicit invalidate) cancels this timer via
-    // `onDispose` and re-pins with a fresh TTL — so invalidation and the
-    // override save-refresh path are unaffected.
-    final link = ref.keepAlive();
-    final timer = Timer(_kRangeCacheTtl, link.close);
-    ref.onDispose(timer.cancel);
+    // data instantly — see [_pinForTtl]'s doc for the full lifecycle. Closing
+    // the link does not destroy the instance while it is still watched, and
+    // re-running `build` (after a reactive override change or an explicit
+    // invalidate) re-pins with a fresh TTL via this same call — so invalidation
+    // and the override save-refresh path are unaffected.
+    _pinForTtl();
 
     // Guarded for the same reason as `_lastOverridesSeen` above: if a NEWER
     // build already completed and wrote a fresher page while this (now

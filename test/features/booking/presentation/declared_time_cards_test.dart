@@ -216,6 +216,7 @@ void main() {
           // en-dash end (11:00 + 45 min = 11:45). NOT the retired bespoke
           // card's leading time line, and NOT a duration string — the swap's
           // whole point (see this file's header).
+          // i18n-finder-ok: digits + en-dash, locale-invariant time range.
           find.descendant(of: card, matching: find.text('11:00–11:45')),
           findsOneWidget,
         );
@@ -407,6 +408,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(_bookedKey('price-single')),
+          // i18n-finder-ok: digits + ₴, locale-invariant price formatting.
           matching: find.text('500 ₴'),
         ),
         findsOneWidget,
@@ -429,6 +431,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(_bookedKey('price-band')),
+          // i18n-finder-ok: digits + en-dash + ₴, locale-invariant price band.
           matching: find.text('300–500 ₴'),
         ),
         findsOneWidget,

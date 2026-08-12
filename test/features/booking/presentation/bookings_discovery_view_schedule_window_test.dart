@@ -550,6 +550,7 @@ void main() {
       final Rect firstLabel = tester.getRect(
         find.descendant(
           of: find.byType(TimelineHourRuler),
+          // i18n-finder-ok: digits, locale-invariant hour-ruler label.
           matching: find.text('09:00'),
         ),
       );

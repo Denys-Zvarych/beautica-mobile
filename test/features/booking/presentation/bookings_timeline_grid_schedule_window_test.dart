@@ -252,6 +252,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(TimelineHourRuler),
+            // i18n-finder-ok: digits, locale-invariant hour-ruler label.
             matching: find.text('20:00'),
           ),
           findsOneWidget,
@@ -288,6 +289,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(TimelineHourRuler),
+            // i18n-finder-ok: digits, locale-invariant hour-ruler label.
             matching: find.text('20:00'),
           ),
           findsOneWidget,
@@ -297,6 +299,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(TimelineHourRuler),
+            // i18n-finder-ok: digits, locale-invariant hour-ruler label.
             matching: find.text('22:00'),
           ),
           findsOneWidget,
@@ -332,6 +335,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(TimelineHourRuler),
+            // i18n-finder-ok: digits, locale-invariant hour-ruler label.
             matching: find.text('19:00'),
           ),
           findsOneWidget,
@@ -339,6 +343,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(TimelineHourRuler),
+            // i18n-finder-ok: digits, locale-invariant hour-ruler label.
             matching: find.text('20:00'),
           ),
           findsNothing,
@@ -524,12 +529,14 @@ void main() {
         final Rect firstLabel = tester.getRect(
           find.descendant(
             of: find.byType(TimelineHourRuler),
+            // i18n-finder-ok: digits, locale-invariant hour-ruler label.
             matching: find.text('09:00'),
           ),
         );
         final Rect lastLabel = tester.getRect(
           find.descendant(
             of: find.byType(TimelineHourRuler),
+            // i18n-finder-ok: digits, locale-invariant hour-ruler label.
             matching: find.text('18:00'),
           ),
         );

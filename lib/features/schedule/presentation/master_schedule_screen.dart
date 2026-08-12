@@ -870,11 +870,13 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                 children: <Widget>[
                   Text(
                     monthNominative(_visibleMonth.month),
+                    key: const Key('schedule-month-nav-month-text'),
                     textAlign: TextAlign.center,
                     style: VelvetText.monthNavTitle,
                   ),
                   Text(
                     '${_visibleMonth.year}',
+                    key: const Key('schedule-month-nav-year-text'),
                     textAlign: TextAlign.center,
                     style: VelvetText.monthNavTitle,
                   ),
