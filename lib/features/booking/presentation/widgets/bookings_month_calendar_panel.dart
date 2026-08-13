@@ -22,6 +22,37 @@
 // as the approved design locks it: "the expand state is the only thing on
 // the screen not derived from the selection."
 //
+// ## The timeline lives INSIDE this widget's subtree (mobile-perf HIGH
+// follow-up, this session)
+//
+// The host used to keep the booking timeline as its OWN `Stack` sibling,
+// painted UNDER this panel so the panel could grow over it without forcing a
+// relayout — see [kBookingsMonthCalendarPanelCollapsedHeight]'s doc for that
+// design's full history. The user rejected the resulting overlay: the
+// approved design pushes the list DOWN as the calendar opens, it does not
+// draw over it.
+//
+// Displacement was added WITHOUT reintroducing the relayout coupling by
+// moving the composition in here rather than by exposing [_open] to the
+// host. [timeline] is built ONCE by the host (a `RepaintBoundary`-wrapped
+// subtree, same as before) and handed in as a `child:` — this widget lays it
+// out in a `Positioned` box whose geometry (`top`/`left`/`right`/`bottom`)
+// never changes, then repositions it EACH FRAME with `Transform.translate`
+// inside an `AnimatedBuilder` driven by [_open], the same controller that
+// already drives the panel's own visuals. Two widgets sharing one animation
+// this way is not the same as leaking state: nothing here ever calls
+// `setState` on the host, and the host never constructs, reads, or listens
+// to [_open] — it only ever sees the panel's already-composed output. This
+// was chosen over exposing [_open] as a `Listenable` the host drives its OWN
+// `AnimatedBuilder` from (the alternative this fix was scoped to consider)
+// because [_open] does not exist yet at the point the host's `build()`
+// constructs its widget tree — it is created in `initState()`, one frame
+// layer down — so handing it out would need an extra layer of indirection
+// (a notifier-of-a-notifier) for no benefit: the translate only ever needs
+// to happen alongside the panel's OWN per-frame visuals work, which already
+// lives here. See [_BookingsMonthCalendarPanelState.build] for the resulting
+// `Stack`/`Positioned`/`Transform.translate` wiring.
+//
 // Every tap resolves to exactly one of three callbacks the HOST supplies:
 //   * [onSelectRailDay] — a rail-chip tap. The host's EXISTING debounced path
 //     (`_BookingsDiscoveryViewState._selectDay`), unchanged by this widget —
@@ -84,19 +115,22 @@ const double _kTravel = _kExpandedHeight - _kCollapsedHeight;
 /// trading a frame-rate win for a constant, highly visible layout
 /// regression in the state the master actually lives in.
 ///
-/// The fix: the host gives the timeline a FIXED layout slot sized to this
-/// COLLAPSED height (via a `Positioned` in a `Stack`, offset by this
-/// constant) and lets the expanding panel — positioned on top, later in
-/// the `Stack`'s paint order — draw OVER it rather than displace it. The
-/// timeline's box constraints, and therefore its own internal layout, never
-/// change during a drag or settle, regardless of `_open`. This matches the
-/// approved design's own framing of the grid as "a temporary overlay the
-/// master opens, reads and dismisses" — see
-/// `bookings_discovery_view.dart`'s build() for the `Stack`/`Positioned`
-/// wiring and its doc comment for the resulting scroll-position and
-/// tap-routing behaviour, including the one deliberate visual deviation
-/// from the ported preview app (which pushed the list down via `Column` +
-/// `Expanded` instead of overlaying it).
+/// The fix, current shape: [timeline] gets a FIXED layout slot sized to
+/// this COLLAPSED height (a `Positioned` in [_BookingsMonthCalendarPanelState
+/// .build]'s `Stack`, offset by this constant + [VelvetSpacing.sm]) that
+/// NEVER changes size during a drag or settle — its box constraints, and
+/// therefore its own internal layout and scroll position, stay exactly as
+/// stable as if the panel did not exist. Visual displacement — the list
+/// moving down as the calendar opens, per the approved design — is done at
+/// PAINT time instead: the timeline's `child:` is translated down by
+/// `_kTravel * _open.value` with `Transform.translate` inside an
+/// `AnimatedBuilder`, clipped to its own fixed box so the moving content
+/// never paints over the panel above it or the nav bar below. An earlier
+/// revision of this fix instead let the expanding panel draw OVER the
+/// timeline rather than displace it, matching the "temporary overlay" framing
+/// from the design's own porting note — the user rejected that in favour of
+/// genuine displacement, which is what this constant + the `Positioned`/
+/// `Transform.translate` pairing now implements.
 const double kBookingsMonthCalendarPanelCollapsedHeight =
     kMonthCalendarHeaderHeight + // _TopRow's SizedBox
     2 * VelvetSpacing.xs + // _TopRow's Padding, top + bottom
@@ -129,6 +163,7 @@ class BookingsMonthCalendarPanel extends StatefulWidget {
     required this.onSelectRailDay,
     required this.onSelectDay,
     required this.onStepMonth,
+    required this.timeline,
   });
 
   final ScrollController railController;
@@ -164,6 +199,12 @@ class BookingsMonthCalendarPanel extends StatefulWidget {
 
   /// A resolved month step, sign only (`-1` previous, `1` next).
   final ValueChanged<int> onStepMonth;
+
+  /// The booking timeline, built ONCE by the host — see the file header's
+  /// "the timeline lives INSIDE this widget's subtree" section. Passed
+  /// through as an `AnimatedBuilder` `child:`, so it is never rebuilt by a
+  /// drag frame or the open/close settle; only its paint position moves.
+  final Widget timeline;
 
   @override
   State<BookingsMonthCalendarPanel> createState() =>
@@ -280,109 +321,161 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
         '${monthNominative(widget.selectedDay.month)} '
         '${widget.selectedDay.year}';
 
-    return GestureDetector(
-      behavior: HitTestBehavior.deferToChild,
-      onVerticalDragUpdate: _onDragUpdate,
-      onVerticalDragEnd: _onDragEnd,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          _TopRow(
-            label: monthLabel,
-            open: _open,
-            onToggle: _toggle,
-            todayActive: widget.selectedDay == widget.today,
-            onToday: () => widget.onSelectDay(widget.today),
-            l10n: l10n,
-          ),
-          // mobile-perf HIGH fix (finding #1): the two heavy subtrees below
-          // — the 42-cell [MonthCalendar] grid and [BookingsDayRail] — used
-          // to be constructed INSIDE this builder closure, so every drag
-          // frame and every tick of the 280ms settle tore both down and
-          // rebuilt them from scratch. They now live behind their OWN
-          // nested `AnimatedBuilder`s (below), each built ONCE here and
-          // passed through via `child:` — mirroring [_TopRow]/[_DragHandle],
-          // which already used this pattern. THIS outer builder only
-          // resizes the collapse/expand [SizedBox] per frame; the `Stack`
-          // itself, and everything under it, is the single `child` instance
-          // reused across every tick.
-          AnimatedBuilder(
-            animation: _open,
-            builder: (BuildContext context, Widget? child) {
-              final double t = _open.value;
-              return ClipRect(
-                child: SizedBox(
-                  key: const Key('bookings-month-calendar'),
-                  height: _kCollapsedHeight + _kTravel * t,
+    return Stack(
+      children: <Widget>[
+        // The timeline's FIXED layout slot — see
+        // [kBookingsMonthCalendarPanelCollapsedHeight]'s doc. `top`/`left`/
+        // `right`/`bottom` never change with `_open`, so this box's
+        // constraints — and the timeline's own internal layout and scroll
+        // position — are exactly as stable as if the panel did not exist.
+        // Displacement is done at PAINT time only, inside the `ClipRect`:
+        // the `Transform.translate` moves the already-laid-out content down
+        // by `_kTravel * _open.value`, tracking the panel's own growing
+        // bottom edge exactly (see `_toggle`'s sibling constants). The
+        // `ClipRect` keeps the translated content from painting past this
+        // box's own bounds — over the panel above, or below the screen —
+        // regardless of the ancestor `Stack`'s own `clipBehavior`.
+        Positioned(
+          top: kBookingsMonthCalendarPanelCollapsedHeight + VelvetSpacing.sm,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: ClipRect(
+            child: AnimatedBuilder(
+              animation: _open,
+              builder: (BuildContext context, Widget? child) {
+                return Transform.translate(
+                  offset: Offset(0, _kTravel * _open.value),
                   child: child,
-                ),
-              );
-            },
-            child: Stack(
+                );
+              },
+              child: widget.timeline,
+            ),
+          ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: GestureDetector(
+            behavior: HitTestBehavior.deferToChild,
+            onVerticalDragUpdate: _onDragUpdate,
+            onVerticalDragEnd: _onDragEnd,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                // The month is laid out at full height and revealed by the
-                // clip, so it slides out from under the top row instead of
-                // being squashed into the gap.
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: _kExpandedHeight,
-                  child: AnimatedBuilder(
-                    animation: _open,
-                    // Overlapping cross-fade — the rail is gone by 0.45 and
-                    // the month is already legible by then, so no frame
-                    // reads as an empty strip. Only this thin
-                    // IgnorePointer/Opacity wrapper reads `_open.value` per
-                    // frame; `child` (the grid) is built once below.
-                    builder: (BuildContext context, Widget? child) {
-                      final double t = _open.value;
-                      final double gridOpacity = ((t - 0.25) / 0.75).clamp(
-                        0.0,
-                        1.0,
-                      );
-                      return IgnorePointer(
-                        key: const Key('bookings-month-calendar-grid-layer'),
-                        ignoring: t < 0.5,
-                        child: Opacity(opacity: gridOpacity, child: child),
-                      );
-                    },
-                    child: _calendar(l10n),
+                _TopRow(
+                  label: monthLabel,
+                  open: _open,
+                  onToggle: _toggle,
+                  todayActive: widget.selectedDay == widget.today,
+                  onToday: () => widget.onSelectDay(widget.today),
+                  l10n: l10n,
+                ),
+                // mobile-perf HIGH fix (finding #1): the two heavy subtrees
+                // below — the 42-cell [MonthCalendar] grid and
+                // [BookingsDayRail] — used to be constructed INSIDE this
+                // builder closure, so every drag frame and every tick of the
+                // 280ms settle tore both down and rebuilt them from scratch.
+                // They now live behind their OWN nested `AnimatedBuilder`s
+                // (below), each built ONCE here and passed through via
+                // `child:` — mirroring [_TopRow]/[_DragHandle], which already
+                // used this pattern. THIS outer builder only resizes the
+                // collapse/expand [SizedBox] per frame; the `Stack` itself,
+                // and everything under it, is the single `child` instance
+                // reused across every tick.
+                AnimatedBuilder(
+                  animation: _open,
+                  builder: (BuildContext context, Widget? child) {
+                    final double t = _open.value;
+                    return ClipRect(
+                      child: SizedBox(
+                        key: const Key('bookings-month-calendar'),
+                        height: _kCollapsedHeight + _kTravel * t,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Stack(
+                    children: <Widget>[
+                      // The month is laid out at full height and revealed by
+                      // the clip, so it slides out from under the top row
+                      // instead of being squashed into the gap.
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: _kExpandedHeight,
+                        child: AnimatedBuilder(
+                          animation: _open,
+                          // Overlapping cross-fade — the rail is gone by 0.45
+                          // and the month is already legible by then, so no
+                          // frame reads as an empty strip. Only this thin
+                          // IgnorePointer/Opacity wrapper reads `_open.value`
+                          // per frame; `child` (the grid) is built once
+                          // below.
+                          builder: (BuildContext context, Widget? child) {
+                            final double t = _open.value;
+                            final double gridOpacity = ((t - 0.25) / 0.75)
+                                .clamp(0.0, 1.0);
+                            return IgnorePointer(
+                              key: const Key(
+                                'bookings-month-calendar-grid-layer',
+                              ),
+                              ignoring: t < 0.5,
+                              child: Opacity(
+                                opacity: gridOpacity,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _calendar(l10n),
+                        ),
+                      ),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: _kCollapsedHeight,
+                        child: AnimatedBuilder(
+                          animation: _open,
+                          builder: (BuildContext context, Widget? child) {
+                            final double t = _open.value;
+                            final double railOpacity = (1 - t / 0.45).clamp(
+                              0.0,
+                              1.0,
+                            );
+                            return IgnorePointer(
+                              key: const Key(
+                                'bookings-month-calendar-rail-layer',
+                              ),
+                              ignoring: t > 0.5,
+                              child: Opacity(
+                                opacity: railOpacity,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: BookingsDayRail(
+                            controller: widget.railController,
+                            firstDay: widget.railFirstDay,
+                            dayCount: widget.dayCount,
+                            today: widget.today,
+                            selectedDay: widget.selectedDay,
+                            bookedDays: widget.bookedDays,
+                            onSelectDay: widget.onSelectRailDay,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: _kCollapsedHeight,
-                  child: AnimatedBuilder(
-                    animation: _open,
-                    builder: (BuildContext context, Widget? child) {
-                      final double t = _open.value;
-                      final double railOpacity = (1 - t / 0.45).clamp(0.0, 1.0);
-                      return IgnorePointer(
-                        key: const Key('bookings-month-calendar-rail-layer'),
-                        ignoring: t > 0.5,
-                        child: Opacity(opacity: railOpacity, child: child),
-                      );
-                    },
-                    child: BookingsDayRail(
-                      controller: widget.railController,
-                      firstDay: widget.railFirstDay,
-                      dayCount: widget.dayCount,
-                      today: widget.today,
-                      selectedDay: widget.selectedDay,
-                      bookedDays: widget.bookedDays,
-                      onSelectDay: widget.onSelectRailDay,
-                    ),
-                  ),
-                ),
+                _DragHandle(open: _open, onTap: _toggle, l10n: l10n),
               ],
             ),
           ),
-          _DragHandle(open: _open, onTap: _toggle, l10n: l10n),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

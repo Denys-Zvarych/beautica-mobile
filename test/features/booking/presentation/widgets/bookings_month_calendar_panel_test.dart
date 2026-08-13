@@ -116,10 +116,16 @@ class _RebuildProbeHostState extends State<_RebuildProbeHost> {
   @override
   Widget build(BuildContext context) {
     buildCount++;
+    // `_TimelineStandIn` is no longer a plain `Column` sibling of the panel
+    // — the panel now takes the timeline as a `timeline:` argument and owns
+    // laying it out (and, at paint time, displacing it) itself. Mirrors the
+    // real screen's own composition (`bookings_discovery_view.dart`'s
+    // `build()`) post mobile-perf HIGH follow-up: the host builds `timeline`
+    // once and threads it through unchanged. The outer `Column` survives
+    // only to give `Expanded` a `Flex` ancestor, exactly as it did before.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const _TimelineStandIn(),
         Expanded(
           child: BookingsMonthCalendarPanel(
             railController: widget.railController,
@@ -135,6 +141,7 @@ class _RebuildProbeHostState extends State<_RebuildProbeHost> {
             onSelectRailDay: widget.onSelectRailDay,
             onSelectDay: widget.onSelectDay,
             onStepMonth: widget.onStepMonth,
+            timeline: const _TimelineStandIn(),
           ),
         ),
       ],

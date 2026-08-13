@@ -286,4 +286,77 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'expanding the Варіант D calendar DISPLACES the booking timeline down, '
+    'end-to-end against a real screen — it must never paint over the list '
+    '(locked product requirement; mobile-qa gap-4, 2026-08-13)',
+    (tester) async {
+      // Widget-tier coverage
+      // (`bookings_month_calendar_panel_displacement_test.dart`) already
+      // pins this invariant against a synthetic timeline stand-in at every
+      // expand fraction. What that tier cannot prove is that the REAL
+      // production timeline — `MasterBookingsScreen`'s actual rendered
+      // booking cards, reached through the full route/provider/HTTP stack —
+      // ends up in the same displaced position once genuine data is on
+      // screen. This flow checks that once, at the fully-open resting
+      // state; the mid-animation sampling stays the widget tier's job.
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      _seedWorkingHours(fb, <DateTime>[_kyivToday]);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'booking-displacement',
+          status: 'CONFIRMED',
+          startsAt: DateTime.utc(
+            _kyivToday.year,
+            _kyivToday.month,
+            _kyivToday.day,
+            6,
+          ),
+        ),
+      ]);
+
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      await _scrollTimelineTo(
+        tester,
+        find.byKey(
+          const ValueKey<String>('timeline-card-booking-displacement'),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('bookings-month-calendar-toggle')));
+      await AppHarness.settle(tester);
+
+      final double panelBottom = tester
+          .getRect(find.byKey(const Key('bookings-month-calendar-handle')))
+          .bottom;
+      final double cardTop = tester
+          .getRect(
+            find.byKey(
+              const ValueKey<String>('timeline-card-booking-displacement'),
+            ),
+          )
+          .top;
+
+      expect(
+        cardTop,
+        greaterThanOrEqualTo(panelBottom),
+        reason:
+            'the real booking card\'s top edge ($cardTop) sits ABOVE the '
+            'expanded calendar\'s painted bottom edge ($panelBottom) on the '
+            'REAL screen — the calendar is painting over the list, the '
+            'exact overlay the user rejected',
+      );
+    },
+  );
 }

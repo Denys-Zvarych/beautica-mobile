@@ -671,6 +671,98 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
   @override
   Widget build(BuildContext context) {
+    // Built ONCE per `build()` call and threaded through UNCHANGED into
+    // `BookingsMonthCalendarPanel`'s `timeline:` slot below — see that call
+    // site's comment for why hoisting it here (rather than inside the
+    // `Consumer` that watches `bookedDaysProvider` for the panel's dots)
+    // matters: `Element.updateChild` skips rebuilding a child entirely when
+    // the incoming widget is `identical` to the previous one, so a
+    // bookedDays change never tears this subtree down, and the panel itself
+    // hands it to an `AnimatedBuilder` as a `child:` too, so a drag frame or
+    // the 280ms open/close settle never rebuilds it either.
+    final Widget timeline = RepaintBoundary(
+      child: Consumer(
+        builder: (BuildContext context, WidgetRef ref, Widget? _) {
+          final AsyncValue<BookingsDayState> async = ref.watch(
+            bookingsDayProvider(_liveQuery),
+          );
+
+          // mobile-perf MEDIUM fix (earlier session): watched HERE,
+          // ALONGSIDE `bookingsDayProvider` rather than from inside
+          // `_Loaded` (which only ever mounts once `async` resolves to
+          // `data:`) — so the two fetches fire in PARALLEL on every day
+          // change instead of the schedule round trip waiting on the
+          // bookings one to finish first. `null` when `useScheduleWindow`
+          // is `false`: the provider is still NEVER watched for any other
+          // caller — the doc'd invariant on
+          // `BookingsDiscoveryView.useScheduleWindow` is unchanged, just
+          // enforced one level up.
+          final AsyncValue<List<EffectiveDay>>? scheduleAsync =
+              widget.useScheduleWindow
+              ? ref.watch(
+                  effectiveScheduleProvider(
+                    ScheduleRange(from: _day, to: _day),
+                  ),
+                )
+              : null;
+
+          return async.when(
+            // Bare, unscrolled `Column`s inside a scroll view — the shipped
+            // client screen hosts its own loading/error states the same
+            // way, and dropping either straight into an `Expanded`
+            // overflows the remaining height on a short device (Phase
+            // 17.2 overflow guard).
+            loading: () => ListView(
+              key: const Key('master-bookings-skeleton'),
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                0,
+                VelvetSpacing.lg,
+                VelvetSpacing.xxl,
+              ),
+              children: const <Widget>[BookingsSkeleton()],
+            ),
+            error: (Object e, StackTrace _) => ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                0,
+                VelvetSpacing.lg,
+                VelvetSpacing.xxl,
+              ),
+              children: <Widget>[
+                MyBookingsErrorState(
+                  error: e,
+                  onRetry: () =>
+                      ref.invalidate(bookingsDayProvider(_liveQuery)),
+                ),
+              ],
+            ),
+            data: (BookingsDayState state) => _Loaded(
+              state: state,
+              // [_hasUserFilters], NOT `_liveQuery.hasFilters` — the live
+              // query always carries statuses now (the default exclusion),
+              // so reading it here would render the «Немає записів за цим
+              // фільтром» copy on a screen the master never filtered.
+              hasFilters: _hasUserFilters,
+              // …but THIS one IS a wire-shape question, so it reads
+              // `_liveQuery`, not `_statuses`/`_serviceIds`. See
+              // [BookingsDayQuery.showsAllOccupancy].
+              showsAllOccupancy: _liveQuery.showsAllOccupancy,
+              day: _day,
+              useScheduleWindow: widget.useScheduleWindow,
+              scheduleAsync: scheduleAsync,
+              visibleBookingsFor: _visibleBookingsFor,
+              onClearFilters: _clearAllFilters,
+              onBookingTap: widget.onBookingTap,
+              onAddWorkingHours: widget.onAddWorkingHours,
+            ),
+          );
+        },
+      ),
+    );
+
     return Scaffold(
       key: const Key('master-bookings-screen'),
       backgroundColor: BrandColors.base,
@@ -687,216 +779,57 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onAdd: _showAddComingSoon,
             ),
             const _ServiceCatalogueWarmer(),
-            // mobile-perf HIGH fix (finding #2): the panel and the timeline
-            // used to be plain `Column` siblings — the panel a non-flex
-            // child, the timeline wrapped in `Expanded`. That made the
-            // timeline's available height a function of the panel's
-            // CURRENT height, so every drag frame and every tick of the
-            // panel's 280ms open/close settle forced
-            // `BookingsTimelineGrid`/`DeclaredTimeCards` to relayout in
-            // step — a `RepaintBoundary` cannot fix this because the
-            // coupling is at layout time, not paint time.
+            // mobile-perf HIGH fix (finding #2), current shape — displacement
+            // without relayout. `timeline` (built once above, at the top of
+            // this `build()`) is threaded through UNCHANGED into
+            // [BookingsMonthCalendarPanel]'s `timeline:` slot; the panel now
+            // owns laying it out in a fixed-geometry `Positioned` box AND
+            // repositioning it at PAINT time via `Transform.translate` as its
+            // own `_open` animates — see that widget's file header ("the
+            // timeline lives INSIDE this widget's subtree") and its
+            // `kBookingsMonthCalendarPanelCollapsedHeight` doc for the full
+            // mechanism and its history, including the REJECTED overlay
+            // design this replaced: an earlier revision of this fix let the
+            // expanding panel draw OVER the timeline instead of displacing
+            // it (matching the ported preview's own framing of the grid as a
+            // temporary overlay) — the user rejected that once it shipped,
+            // wanting the approved design's actual push-down behaviour, which
+            // this shape now gives them without reintroducing the relayout
+            // coupling the original `Column`+`Expanded` composition had.
             //
-            // Reserving the panel's EXPANDED height as a fixed slot was
-            // considered and rejected: it would leave a permanent ~310dp
-            // dead gap above the timeline in the panel's normal resting
-            // (collapsed) state, which is where the master actually lives
-            // — trading a frame-rate win for a constant, highly visible
-            // layout regression.
-            //
-            // Instead: the timeline gets a FIXED layout slot sized to the
-            // panel's COLLAPSED height
-            // ([kBookingsMonthCalendarPanelCollapsedHeight] + the same
-            // [VelvetSpacing.sm] gap the old `SizedBox` used), via a
-            // `Positioned` in a `Stack`. The panel is a SECOND `Positioned`,
-            // pinned to the top and later in the `Stack`'s paint order, so
-            // it draws OVER the timeline's top edge instead of displacing
-            // it while it opens — matching the approved design's own
-            // framing of the grid as a temporary overlay the master opens,
-            // reads, and dismisses.
-            //
-            // Consequences of the overlay, spelt out rather than left
-            // implicit:
-            //   * Timeline SCROLL POSITION — untouched by the whole gesture.
-            //     Its `Positioned` box (top offset fixed, `bottom: 0`) never
-            //     changes size during a drag or settle, so its box
-            //     constraints — and therefore its scroll offset — are
-            //     exactly as stable as when the panel never existed.
-            //   * Taps where the expanded grid overlaps the timeline — the
-            //     panel is the LATER `Stack` child, so it hit-tests first;
-            //     within the panel's own rendered bounds (which grow with
-            //     `_open`, not the Stack's full remaining height) a tap
-            //     reaches the grid, never the timeline underneath. Below the
-            //     panel's actual bottom edge, taps fall straight through to
-            //     the timeline as before — [Positioned] only claims the
-            //     area its child actually occupies, not the whole slot.
-            //   * VISUAL DEVIATION from the ported preview app (disclosed,
-            //     not silent): `docs/signup-designs/MasterBookingsCalendar`'s
-            //     own `variant_d_screen.dart` composes the date control and
-            //     the booking list as `Column` + `Expanded` too — i.e. the
-            //     approved reference visibly pushes the list DOWN as the
-            //     calendar grows. This fix trades that live reflow for the
-            //     calendar drawing OVER the list instead, during the drag
-            //     and the open/close settle only. The RESTING collapsed
-            //     state (t=0, the screen's normal state) is pixel-identical
-            //     to before — the reserved offset equals the previous
-            //     static layout exactly — so the difference is confined to
-            //     the transient expand/collapse motion.
+            // Wrapping this call in a `Consumer` (for `bookedDaysProvider`,
+            // which only the panel's dots need) does NOT rebuild `timeline`
+            // when bookedDays changes — it is the same `Widget` instance
+            // every time, and `Element.updateChild` skips rebuilding a child
+            // whose incoming widget is `identical` to the previous one.
             Expanded(
-              child: Stack(
-                children: <Widget>[
-                  Positioned(
-                    top:
-                        kBookingsMonthCalendarPanelCollapsedHeight +
-                        VelvetSpacing.sm,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    // mobile-perf MEDIUM fix: `RenderStack`/`Positioned` are
-                    // not repaint boundaries, so without this the panel's
-                    // per-frame paint churn during its 280ms drag/settle
-                    // (`ClipRect` + `SizedBox` resize, `Opacity` cross-fade —
-                    // see `BookingsMonthCalendarPanel`) could force the paint
-                    // pass to walk into this sibling's subtree even though
-                    // its own content never changes. `ListView.builder`'s
-                    // `addRepaintBoundaries` already isolates individual
-                    // booking cards from EACH OTHER, but not this whole
-                    // subtree from the PANEL sharing its `Stack`. Isolating
-                    // here, not the panel: the panel is the thing actually
-                    // animating every frame (a boundary around it buys it
-                    // nothing), and it is the LAST `Stack` child with no
-                    // sibling painted after it, so nothing downstream needs
-                    // protecting from ITS churn — this timeline is the one
-                    // subtree that repaints for no reason of its own.
-                    child: RepaintBoundary(
-                      child: Consumer(
-                        builder:
-                            (BuildContext context, WidgetRef ref, Widget? _) {
-                              final AsyncValue<BookingsDayState> async = ref
-                                  .watch(bookingsDayProvider(_liveQuery));
+              child: Consumer(
+                builder: (BuildContext context, WidgetRef ref, Widget? _) {
+                  // Filter-INDEPENDENT by design — the dots describe where
+                  // the master's work is, not what the current filter
+                  // matches, so they must not evaporate as the user
+                  // narrows. Feeds BOTH the collapsed rail's dots and the
+                  // expanded grid's density dots inside the panel — same
+                  // source, unchanged.
+                  final AsyncValue<Set<DateTime>> bookedDaysAsync = ref.watch(
+                    bookedDaysProvider,
+                  );
+                  final Set<DateTime> bookedDays =
+                      bookedDaysAsync.value ?? const <DateTime>{};
 
-                              // mobile-perf MEDIUM fix (earlier session):
-                              // watched HERE, ALONGSIDE
-                              // `bookingsDayProvider` rather than from
-                              // inside `_Loaded` (which only ever mounts
-                              // once `async` resolves to `data:`) — so the
-                              // two fetches fire in PARALLEL on every day
-                              // change instead of the schedule round trip
-                              // waiting on the bookings one to finish
-                              // first. `null` when `useScheduleWindow` is
-                              // `false`: the provider is still NEVER
-                              // watched for any other caller — the doc'd
-                              // invariant on
-                              // `BookingsDiscoveryView.useScheduleWindow`
-                              // is unchanged, just enforced one level up.
-                              final AsyncValue<List<EffectiveDay>>?
-                              scheduleAsync = widget.useScheduleWindow
-                                  ? ref.watch(
-                                      effectiveScheduleProvider(
-                                        ScheduleRange(from: _day, to: _day),
-                                      ),
-                                    )
-                                  : null;
-
-                              return async.when(
-                                // Bare, unscrolled `Column`s inside a
-                                // scroll view — the shipped client screen
-                                // hosts its own loading/error states the
-                                // same way, and dropping either straight
-                                // into an `Expanded` overflows the
-                                // remaining height on a short device
-                                // (Phase 17.2 overflow guard).
-                                loading: () => ListView(
-                                  key: const Key('master-bookings-skeleton'),
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  padding: const EdgeInsets.fromLTRB(
-                                    VelvetSpacing.lg,
-                                    0,
-                                    VelvetSpacing.lg,
-                                    VelvetSpacing.xxl,
-                                  ),
-                                  children: const <Widget>[BookingsSkeleton()],
-                                ),
-                                error: (Object e, StackTrace _) => ListView(
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  padding: const EdgeInsets.fromLTRB(
-                                    VelvetSpacing.lg,
-                                    0,
-                                    VelvetSpacing.lg,
-                                    VelvetSpacing.xxl,
-                                  ),
-                                  children: <Widget>[
-                                    MyBookingsErrorState(
-                                      error: e,
-                                      onRetry: () => ref.invalidate(
-                                        bookingsDayProvider(_liveQuery),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                data: (BookingsDayState state) => _Loaded(
-                                  state: state,
-                                  // [_hasUserFilters], NOT
-                                  // `_liveQuery.hasFilters` — the live
-                                  // query always carries statuses now (the
-                                  // default exclusion), so reading it here
-                                  // would render the «Немає записів за цим
-                                  // фільтром» copy on a screen the master
-                                  // never filtered.
-                                  hasFilters: _hasUserFilters,
-                                  // …but THIS one IS a wire-shape question,
-                                  // so it reads `_liveQuery`, not
-                                  // `_statuses`/`_serviceIds`. See
-                                  // [BookingsDayQuery.showsAllOccupancy].
-                                  showsAllOccupancy:
-                                      _liveQuery.showsAllOccupancy,
-                                  day: _day,
-                                  useScheduleWindow: widget.useScheduleWindow,
-                                  scheduleAsync: scheduleAsync,
-                                  visibleBookingsFor: _visibleBookingsFor,
-                                  onClearFilters: _clearAllFilters,
-                                  onBookingTap: widget.onBookingTap,
-                                  onAddWorkingHours: widget.onAddWorkingHours,
-                                ),
-                              );
-                            },
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: Consumer(
-                      builder: (BuildContext context, WidgetRef ref, Widget? _) {
-                        // Filter-INDEPENDENT by design — the dots describe
-                        // where the master's work is, not what the current
-                        // filter matches, so they must not evaporate as the
-                        // user narrows. Feeds BOTH the collapsed rail's dots
-                        // and the expanded grid's density dots inside the
-                        // panel — same source, unchanged.
-                        final AsyncValue<Set<DateTime>> bookedDaysAsync = ref
-                            .watch(bookedDaysProvider);
-                        final Set<DateTime> bookedDays =
-                            bookedDaysAsync.value ?? const <DateTime>{};
-
-                        return BookingsMonthCalendarPanel(
-                          railController: _railController,
-                          railFirstDay: _railFirstDay,
-                          dayCount: kBookedDaysSpanDays * 2 + 1,
-                          today: _today,
-                          selectedDay: _day,
-                          bookedDays: bookedDays,
-                          onSelectRailDay: _selectDay,
-                          onSelectDay: _selectImmediate,
-                          onStepMonth: _stepMonth,
-                        );
-                      },
-                    ),
-                  ),
-                ],
+                  return BookingsMonthCalendarPanel(
+                    railController: _railController,
+                    railFirstDay: _railFirstDay,
+                    dayCount: kBookedDaysSpanDays * 2 + 1,
+                    today: _today,
+                    selectedDay: _day,
+                    bookedDays: bookedDays,
+                    onSelectRailDay: _selectDay,
+                    onSelectDay: _selectImmediate,
+                    onStepMonth: _stepMonth,
+                    timeline: timeline,
+                  );
+                },
               ),
             ),
           ],
